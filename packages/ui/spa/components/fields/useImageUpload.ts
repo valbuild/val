@@ -5,10 +5,12 @@ import {
   SerializedImageSchema,
   SerializedFileSchema,
   SerializedSchema,
+  Internal,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { JSONValue } from "@valbuild/core/patch";
-import { readImageFromFile } from "../../utils/readImage";
+import { readImageFromFile, ReadImageEncode } from "../../utils/readImage";
+import { isMimeTypeAccepted } from "@valbuild/shared/internal";
 import { createFilePatch } from "./FileField";
 
 export interface ImageUploadConfig {
@@ -36,7 +38,7 @@ export interface ImageUploadConfig {
     schema: SerializedImageSchema | SerializedFileSchema;
     remoteHost: string;
   } | null;
-  directory: string | undefined;
+  dir: string | undefined;
   referencedModule: string | undefined;
   existingAlt?: string;
   /**
@@ -46,6 +48,11 @@ export interface ImageUploadConfig {
    * the normal richtext patch flow.
    */
   fileUploadOnly?: boolean;
+  /**
+   * Re-encode the upload before hashing it, when the schema asks for it.
+   * Undefined uploads the bytes exactly as the editor picked them.
+   */
+  encode?: ReadImageEncode;
 }
 
 export interface ImageUploadResult {
@@ -76,7 +83,40 @@ export function useImageUpload(
       setProgressPercentage(0);
 
       try {
-        const res = await readImageFromFile(file);
+        const res = await readImageFromFile(file, config.encode).catch(
+          () => null,
+        );
+        if (res === null) {
+          // Not "could not upload": nothing was sent. The file could not be
+          // decoded, which is a thing about the file the editor can act on.
+          setLoading(false);
+          setProgressPercentage(null);
+          setError(`Could not read ${file.name} as an image.`);
+          return null;
+        }
+
+        /**
+         * `accept`, checked on what will be STORED — after any re-encoding,
+         * never before it: `s.image({ accept: "image/webp", encode })` means
+         * "convert what you give me", so the source type is allowed not to
+         * match.
+         *
+         * The file dialog's `accept` attribute was the only thing enforcing
+         * this, and a drop skips the dialog (as does "All files" in it).
+         * Validation does not catch it afterwards: a mismatch is
+         * `image:check-metadata`, which counts as server-repairable and so is
+         * neither shown nor blocking. The MCP image tool checks at the same
+         * point for the same reason — see `packages/mcp`.
+         */
+        const accept = config.encode?.accept;
+        if (res.mimeType && !isMimeTypeAccepted(res.mimeType, accept)) {
+          setLoading(false);
+          setProgressPercentage(null);
+          setError(
+            `${file.name} is ${res.mimeType}, and this field only accepts ${accept}.`,
+          );
+          return null;
+        }
 
         let metadata: ImageMetadata | undefined;
         if (res.width && res.height && res.mimeType) {
@@ -96,7 +136,7 @@ export function useImageUpload(
           metadata,
           "image",
           config.remoteData,
-          config.directory,
+          config.dir,
           !!config.referencedModule,
         );
 
@@ -112,8 +152,8 @@ export function useImageUpload(
           "value" in patch[0] &&
           typeof patch[0].value === "object" &&
           patch[0].value !== null &&
-          "_ref" in patch[0].value
-            ? (patch[0].value._ref as string)
+          "path" in patch[0].value
+            ? (patch[0].value.path as string)
             : filePath;
 
         const uploadPatch = config.fileUploadOnly
@@ -178,7 +218,7 @@ export function useImageUpload(
             });
         });
       } catch (err) {
-        console.error("Failed to upload image", err);
+        Internal.log.error("Failed to upload image", err);
         setLoading(false);
         setProgressPercentage(null);
         setError("Could not upload file. Please try again later");

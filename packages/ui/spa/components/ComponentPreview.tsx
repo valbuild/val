@@ -76,8 +76,8 @@ export function useComponentModules(): ReadonlyMap<string, ValFileLocation> {
             valModules.config,
           );
         } catch (err) {
-          console.error(
-            "Val: could not load module while looking for components",
+          Internal.log.error(
+            "Could not load module while looking for components",
             err,
           );
           return null;

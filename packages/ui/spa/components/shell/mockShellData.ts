@@ -1,0 +1,894 @@
+import { ModuleFilePath } from "@valbuild/core";
+import {
+  ShellActivityEntry,
+  ShellData,
+  ShellDataModule,
+  ShellDeployment,
+  ShellExternalPage,
+  ShellExternalPageUsage,
+  ShellMediaFile,
+  ShellMediaGallery,
+  ShellNewPageRoutes,
+  ShellNotification,
+  ShellPage,
+  ShellValidationError,
+} from "./types";
+import { sourcePathOfChild } from "../../utils/sourcePath";
+import { placeholderAvatar } from "../stories/placeholderAssets";
+
+/**
+ * Mock data for the shell stories.
+ *
+ * Shaped by `shellDataMapping`, not by hand: every field here is what that
+ * mapping would actually produce from `useNavMenuData` and the patch sets, so
+ * a story cannot pass on data the app can never supply. In particular
+ *
+ *  - a row's `id` is the content it opens, because that is what the mapping
+ *    sets — a source path for a page, a module file path for everything else;
+ *  - a page's `sourcePath` is `<route module>?p="<url>"`, the shape
+ *    `getSitemapTree` builds, and a folder row that is only a path segment has
+ *    none, so it expands rather than opens;
+ *  - names are the raw segment for pages and the extension-stripped file name
+ *    for data modules, matching what the nav menu shows today;
+ *  - external pages are labelled by host, because the external router's keys
+ *    are URLs and there is no other label to use.
+ *
+ * Sized to be realistic rather than pretty: real projects have dozens of pages
+ * and a long tail of external links, and the panels have to stay usable at
+ * that size.
+ */
+
+/** `/blog/why-we-built-val` -> the source path its route module resolves to. */
+function pageSourcePath(routeModule: string, urlPath: string): string {
+  return `${routeModule}?p=${JSON.stringify(urlPath)}`;
+}
+
+/**
+ * A leaf page under a dynamic route.
+ *
+ * Every post under `/blog/[slug]` is served by the same route module and
+ * differs only by the key, which is exactly why the id has to be the source
+ * path: the route *pattern* is shared by all of them.
+ */
+function leafPage(
+  routeModule: string,
+  urlPath: string,
+  extra: Partial<ShellPage> = {},
+): ShellPage {
+  const sourcePath = pageSourcePath(routeModule, urlPath);
+  return {
+    id: sourcePath,
+    name: urlPath.split("/").filter(Boolean).slice(-1)[0] ?? "/",
+    urlPath,
+    sourcePath,
+    isTracked: true,
+    ...extra,
+  };
+}
+
+const BLOG_ROUTE = "/app/blog/[slug]/page.val.ts";
+const CUSTOMER_ROUTE = "/app/customers/[customer]/page.val.ts";
+const DOCS_ROUTE = "/app/docs/[[...path]]/page.val.ts";
+
+const blogPosts: ShellPage[] = [
+  "why-we-built-val",
+  "git-based-content-explained",
+  "type-safe-content-for-nextjs",
+  "shipping-a-cms-without-a-database",
+  "content-modelling-for-developers",
+  "structured-content-in-typescript",
+  "migrating-from-a-headless-cms",
+  "validation-as-a-content-feature",
+  "draft-previews-without-a-preview-server",
+  "editing-in-place",
+  "the-case-against-page-builders",
+  "localisation-without-lock-in",
+].map((slug, i) =>
+  leafPage(BLOG_ROUTE, `/blog/${slug}`, {
+    hasDraft: i === 0 || i === 4,
+    errorCount: i === 7 ? 1 : undefined,
+  }),
+);
+
+const caseStudies: ShellPage[] = [
+  "nordic-retail",
+  "bergen-energy",
+  "fjord-logistics",
+  "aurora-bank",
+  "vestland-municipality",
+  "polar-media",
+].map((slug, i) =>
+  leafPage(CUSTOMER_ROUTE, `/customers/${slug}`, { hasDraft: i === 2 }),
+);
+
+const docsPages: ShellPage[] = [
+  "getting-started",
+  "installation",
+  "schemas",
+  "modules",
+  "rich-text",
+  "images-and-files",
+  "remote-files",
+  "validation",
+  "patches",
+  "cli",
+  "deployment",
+  "api-reference",
+].map((slug, i) =>
+  leafPage(DOCS_ROUTE, `/docs/${slug}`, {
+    errorCount: i === 6 ? 2 : undefined,
+  }),
+);
+
+/**
+ * A folder row: a segment that exists only because pages exist below it.
+ *
+ * `getSitemapTree` gives these no source path, which is what makes them
+ * unopenable. `urlPath` is the route pattern, because that is all a folder row
+ * has — there is no single URL it resolves to.
+ */
+function folderPage(
+  urlPath: string,
+  name: string,
+  children: ShellPage[],
+): ShellPage {
+  return { id: urlPath, name, urlPath, isTracked: false, children };
+}
+
+/** A page with its own route module, e.g. `/app/pricing/page.val.ts`. */
+function staticPage(
+  urlPath: string,
+  extra: Partial<ShellPage> = {},
+): ShellPage {
+  const segments = urlPath.split("/").filter(Boolean);
+  const routeModule =
+    segments.length === 0
+      ? "/app/page.val.ts"
+      : `/app/${segments.join("/")}/page.val.ts`;
+  return leafPage(routeModule, urlPath, extra);
+}
+
+export const mockPages: ShellPage[] = [
+  { ...staticPage("/", { hasDraft: true }), name: "/" },
+  staticPage("/about"),
+  staticPage("/product"),
+  staticPage("/pricing", { hasDraft: true }),
+  folderPage("/features/[feature]", "features", [
+    leafPage("/app/features/[feature]/page.val.ts", "/features/editor"),
+    leafPage("/app/features/[feature]/page.val.ts", "/features/ai"),
+    leafPage("/app/features/[feature]/page.val.ts", "/features/validation", {
+      errorCount: 1,
+    }),
+    leafPage("/app/features/[feature]/page.val.ts", "/features/git"),
+  ]),
+  folderPage("/blog/[slug]", "blog", blogPosts),
+  folderPage("/customers/[customer]", "customers", caseStudies),
+  folderPage("/docs/[[...path]]", "docs", docsPages),
+  staticPage("/changelog"),
+  staticPage("/careers"),
+  staticPage("/contact"),
+  folderPage("/legal/[document]", "legal", [
+    leafPage("/app/legal/[document]/page.val.ts", "/legal/privacy"),
+    leafPage("/app/legal/[document]/page.val.ts", "/legal/terms"),
+    leafPage("/app/legal/[document]/page.val.ts", "/legal/cookies"),
+  ]),
+];
+
+const EXTERNAL_ROUTE = "/app/external.val.ts";
+
+/**
+ * Where an external URL is linked from, as a reference scan reports it.
+ *
+ * The label is the human path to the field and `moduleFilePath` is the file, in
+ * the same shape `useEagerRouteReferences` gives back - a source path plus the
+ * module it is in.
+ */
+function usage(
+  moduleFilePath: string,
+  path: string,
+  label: string,
+): ShellExternalPageUsage {
+  // Built segment by segment through `sourcePathOfChild` rather than as a
+  // template string: a module path quotes its string keys and leaves array
+  // indices bare, and a fixture that gets that wrong is a fixture that cannot
+  // be navigated to.
+  const key = (segment: string): string | number =>
+    /^\d+$/.test(segment) ? Number(segment) : segment;
+  const [first, ...rest] = path.split(".");
+  if (first === undefined) {
+    throw new Error(`A usage needs a path within ${moduleFilePath}`);
+  }
+  let sourcePath = sourcePathOfChild(
+    moduleFilePath as ModuleFilePath,
+    key(first),
+  );
+  for (const segment of rest) {
+    sourcePath = sourcePathOfChild(sourcePath, key(segment));
+  }
+  return { sourcePath, label, moduleFilePath };
+}
+
+/**
+ * External pages, as the external router produces them: the record's keys are
+ * the URLs, so the id is the source path and the label is the host.
+ *
+ * `name` is derived here rather than passed, because it is derived in the app
+ * too. Everything else a story wants to vary - the entry's fields, who links to
+ * it, whether the scan has finished - is `extra`.
+ */
+function externalPage(
+  url: string,
+  extra: Partial<ShellExternalPage> = {},
+): ShellExternalPage {
+  const sourcePath = pageSourcePath(EXTERNAL_ROUTE, url);
+  let name = url;
+  try {
+    const parsed = new URL(url);
+    name = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    // A key that is not a URL is a state the router allows to be SAVED and
+    // reports afterwards, so the mock has to be able to hold one.
+  }
+  return {
+    id: sourcePath,
+    name,
+    url,
+    sourcePath,
+    fields: [],
+    usages: [],
+    usagesComplete: true,
+    ...extra,
+  };
+}
+
+/**
+ * A real project's external URLs, warts included.
+ *
+ * Every state the dialog has to render is here on purpose, because the list is
+ * the design: several hosts under one domain (the `*.example.com` cluster),
+ * several paths under one host, a link nothing points at, a link twenty things
+ * point at, and one of each thing the checks look for - an `http://` twin, the
+ * same page listed twice, a localhost URL somebody added from their laptop, a
+ * campaign link with tracking parameters on it, a password pasted into a URL,
+ * and a key that is not a URL at all.
+ */
+export const mockExternalPages: ShellExternalPage[] = [
+  externalPage("https://instagram.com/valbuild", {
+    fields: [
+      { label: "title", value: "Instagram" },
+      { label: "icon", value: "instagram" },
+    ],
+    usages: [
+      usage("/content/footer.val.ts", "social.0.url", "Footer / Social / 1"),
+      usage("/content/contact.val.ts", "links.2.href", "Contact / Links / 3"),
+      usage(
+        "/app/page.val.ts",
+        "hero.cta.href",
+        "Home / Hero / Call to action",
+      ),
+    ],
+  }),
+  externalPage("https://instagram.com/valbuild/reels", {
+    fields: [{ label: "title", value: "Reels" }],
+    usages: [],
+  }),
+  externalPage("https://linkedin.com/company/val", {
+    fields: [
+      { label: "title", value: "LinkedIn" },
+      { label: "icon", value: "linkedin" },
+    ],
+    usages: [
+      usage("/content/footer.val.ts", "social.1.url", "Footer / Social / 2"),
+      usage("/app/about/page.val.ts", "team.link", "About / Team / Link"),
+    ],
+  }),
+  externalPage("https://x.com/valbuild", {
+    fields: [{ label: "title", value: "X" }],
+    usages: [
+      usage("/content/footer.val.ts", "social.2.url", "Footer / Social / 3"),
+    ],
+  }),
+  externalPage("https://github.com/valbuild/val", {
+    fields: [{ label: "title", value: "GitHub" }],
+    usages: [
+      usage("/content/footer.val.ts", "social.3.url", "Footer / Social / 4"),
+      usage("/app/docs/page.val.ts", "repo.href", "Docs / Repository"),
+      usage("/content/nav.val.ts", "items.4.href", "Navigation / Item 5"),
+    ],
+  }),
+  externalPage("https://youtube.com/@valbuild", {
+    fields: [{ label: "title", value: "YouTube" }],
+    usages: [],
+  }),
+  externalPage("https://portal.example.com", {
+    fields: [{ label: "title", value: "Customer portal" }],
+    usages: [
+      usage("/content/nav.val.ts", "items.2.href", "Navigation / Item 3"),
+      usage("/app/page.val.ts", "banner.href", "Home / Banner"),
+    ],
+  }),
+  // The same page as the one above, written with a trailing slash. Two record
+  // keys, one destination - the thing a flat list of URLs hides completely.
+  externalPage("https://portal.example.com/", {
+    fields: [{ label: "title", value: "Portal" }],
+    usages: [
+      usage("/content/legacy.val.ts", "portalUrl", "Legacy / Portal URL"),
+    ],
+  }),
+  externalPage("https://status.example.com", {
+    fields: [{ label: "title", value: "Status" }],
+    usages: [
+      usage("/content/footer.val.ts", "links.0.href", "Footer / Links / 1"),
+    ],
+  }),
+  // An http:// link whose https:// twin is already in the list.
+  externalPage("http://status.example.com", {
+    fields: [{ label: "title", value: "Status (old)" }],
+    usages: [],
+  }),
+  externalPage("https://support.example.com/help", {
+    fields: [{ label: "title", value: "Help centre" }],
+    usages: [
+      usage("/content/nav.val.ts", "items.5.href", "Navigation / Item 6"),
+      usage("/content/footer.val.ts", "links.1.href", "Footer / Links / 2"),
+      usage("/app/pricing/page.val.ts", "faq.href", "Pricing / FAQ"),
+      usage("/app/docs/page.val.ts", "support.href", "Docs / Support"),
+    ],
+  }),
+  externalPage(
+    "https://shop.example.com/?utm_source=site&utm_campaign=spring",
+    {
+      fields: [{ label: "title", value: "Shop the spring range" }],
+      usages: [usage("/app/page.val.ts", "promo.href", "Home / Promo")],
+    },
+  ),
+  // A project's own rule about the entry, from a `.validate(...)` on the item
+  // schema. Nothing is wrong with the URL - the error is about what is behind
+  // it, which is why it is a section of its own in the detail pane.
+  externalPage("https://jobs.example.com/val", {
+    errorCount: 1,
+    errorMessages: ["Title is required for an external page"],
+    fields: [
+      { label: "title", value: "" },
+      { label: "description", value: "Open positions at Val" },
+    ],
+    usages: [
+      usage("/content/footer.val.ts", "links.3.href", "Footer / Links / 4"),
+    ],
+  }),
+  externalPage("http://admin:hunter2@legacy.example.com/reports", {
+    fields: [{ label: "title", value: "Legacy reports" }],
+    usages: [],
+  }),
+  externalPage("http://localhost:3000/preview", {
+    fields: [{ label: "title", value: "Preview" }],
+    usages: [],
+  }),
+  externalPage("discord.gg/val", {
+    errorCount: 1,
+    errorMessages: [
+      'URL "discord.gg/val" cannot be used here. Must start with a scheme, like https:// or mailto:.',
+    ],
+    fields: [{ label: "title", value: "Discord" }],
+    usages: [
+      usage("/content/footer.val.ts", "social.4.url", "Footer / Social / 5"),
+    ],
+  }),
+  externalPage("https://val.substack.com", {
+    fields: [{ label: "title", value: "Newsletter" }],
+    // The scan has not reached every `.jsonValues()` entry yet, so "nothing
+    // found" is not yet an answer. See `ShellExternalPage.usagesComplete`.
+    usages: [],
+    usagesComplete: false,
+  }),
+  externalPage("https://val.build/docs", {
+    fields: [{ label: "title", value: "Documentation" }],
+    usages: [
+      usage("/content/nav.val.ts", "items.0.href", "Navigation / Item 1"),
+      usage("/content/footer.val.ts", "links.4.href", "Footer / Links / 5"),
+    ],
+  }),
+  // A link is not only a web page. These are valid keys under the default
+  // policy, and they are here for the two things they do to the list: the
+  // mailto groups under `example.com` beside that domain's pages, because the
+  // heading is about the organisation rather than the protocol - and neither
+  // can be opened, so Check has to report them as having nothing to open
+  // rather than as broken.
+  externalPage("mailto:post@example.com", {
+    fields: [{ label: "title", value: "Email us" }],
+    usages: [
+      usage("/content/contact.val.ts", "email.href", "Contact / Email"),
+      usage("/content/footer.val.ts", "links.5.href", "Footer / Links / 6"),
+    ],
+  }),
+  externalPage("tel:+4712345678", {
+    fields: [{ label: "title", value: "Call us" }],
+    usages: [usage("/content/contact.val.ts", "phone.href", "Contact / Phone")],
+  }),
+];
+
+/**
+ * The files in a gallery.
+ *
+ * Built rather than written out, because the panel's whole job is to stay
+ * usable at a size nobody would type: the images gallery here has more files
+ * than fit in one chunk, so the story shows the chunking doing something. The
+ * refs carry the hash suffix `Internal.createFilename` adds, and some sit in
+ * subdirectories, because both are true of a real gallery and both are what the
+ * panel groups by.
+ */
+function galleryFiles(
+  moduleFilePath: string,
+  dir: string,
+  names: string[],
+): ShellMediaFile[] {
+  return names.map((name) => {
+    const ref = `${dir}/${name}`;
+    return { ref, sourcePath: `${moduleFilePath}?p=${JSON.stringify(ref)}` };
+  });
+}
+
+const IMAGE_NAMES: string[] = [
+  "logo_a1b2c.png",
+  "logo-dark_c3d4e.png",
+  "hero-autumn_5f6a7.jpg",
+  "hero-winter_8b9c0.jpg",
+  "og-default_d1e2f.png",
+  ...Array.from(
+    { length: 48 },
+    (_, i) =>
+      `product-${String(i + 1).padStart(3, "0")}_${(i * 7919).toString(16).slice(0, 5)}.jpg`,
+  ),
+  "portraits/ada_1a2b3.jpg",
+  "portraits/ida_4c5d6.jpg",
+  "portraits/fredrik_7e8f9.jpg",
+  "icons/check_0a1b2.svg",
+  "icons/close_3c4d5.svg",
+];
+
+/**
+ * Galleries, keyed by their module. The label is the last segment of the
+ * directory the gallery is constrained to, which is what `directoryName`
+ * produces — so it is lowercase, like the directory itself.
+ */
+export const mockMedia: ShellMediaGallery[] = [
+  {
+    id: "/content/media.val.ts",
+    name: "images",
+    dir: "/public/val/images",
+    moduleFilePath: "/content/media.val.ts",
+    itemCount: IMAGE_NAMES.length,
+    mediaType: "images",
+    files: galleryFiles(
+      "/content/media.val.ts",
+      "/public/val/images",
+      IMAGE_NAMES,
+    ),
+  },
+  {
+    id: "/content/illustrations.val.ts",
+    name: "illustrations",
+    dir: "/public/val/illustrations",
+    moduleFilePath: "/content/illustrations.val.ts",
+    itemCount: 3,
+    mediaType: "images",
+    files: galleryFiles(
+      "/content/illustrations.val.ts",
+      "/public/val/illustrations",
+      ["empty-state_a1b2c.svg", "onboarding_d3e4f.svg", "error_5a6b7.svg"],
+    ),
+  },
+  {
+    id: "/content/people.val.ts",
+    name: "people",
+    dir: "/public/val/people",
+    moduleFilePath: "/content/people.val.ts",
+    itemCount: 0,
+    mediaType: "images",
+    // An empty gallery is a state of its own, and reads differently from one
+    // that has not loaded.
+    files: [],
+  },
+  {
+    id: "/content/documents.val.ts",
+    name: "docs",
+    dir: "/public/val/docs",
+    moduleFilePath: "/content/documents.val.ts",
+    itemCount: 4,
+    mediaType: "files",
+    files: galleryFiles("/content/documents.val.ts", "/public/val/docs", [
+      "price-list_1a2b3.pdf",
+      "terms_4c5d6.pdf",
+      "legal/dpa_7e8f9.pdf",
+      "legal/sla_0a1b2.pdf",
+    ]),
+  },
+];
+
+/** A val file under Data. The label is the file name without its extension. */
+function dataModule(
+  moduleFilePath: string,
+  extra: Partial<ShellDataModule> = {},
+): ShellDataModule {
+  const file = moduleFilePath.split("/").pop() ?? moduleFilePath;
+  return {
+    id: moduleFilePath,
+    name: file.replace(/\.val\.(ts|js)$/, ""),
+    moduleFilePath,
+    ...extra,
+  };
+}
+
+/**
+ * The Data panel is a tree, so the mock is a tree: modules at the top of a
+ * directory, modules nested a couple of levels down, and more than one
+ * top-level directory. A project that keeps everything in one flat `/content`
+ * would never show the panel doing its job — and it is exactly the projects
+ * that do organise their content that the tree exists for.
+ */
+export const mockDataModules: ShellDataModule[] = [
+  dataModule("/content/navigation.val.ts", { hasDraft: true }),
+  dataModule("/content/footer.val.ts"),
+  dataModule("/content/shop/products.val.ts", { errorCount: 3 }),
+  dataModule("/content/shop/categories.val.ts"),
+  dataModule("/content/shop/shipping/zones.val.ts"),
+  dataModule("/content/shop/shipping/rates.val.ts", { hasDraft: true }),
+  dataModule("/content/editorial/authors.val.ts"),
+  dataModule("/content/editorial/tags.val.ts"),
+  dataModule("/content/i18n/en.val.ts"),
+  dataModule("/content/i18n/nb.val.ts", { errorCount: 1 }),
+  dataModule("/components/link.val.ts"),
+  dataModule("/components/callToAction.val.ts"),
+  dataModule("/schema/image.val.ts"),
+];
+
+/**
+ * Val has no notification feed, so this is design surface rather than a
+ * mapping of anything. Kept as prose a feed would plausibly produce.
+ */
+export const mockNotifications: ShellNotification[] = [
+  {
+    id: "n1",
+    kind: "content",
+    title: "/ was updated",
+    timestamp: "2 minutes ago",
+    unread: true,
+  },
+  {
+    id: "n2",
+    kind: "media",
+    title: "hero-dark.png uploaded to /public/val/images",
+    timestamp: "10 minutes ago",
+    unread: true,
+  },
+  {
+    id: "n3",
+    kind: "validation",
+    title: "3 validation errors in products",
+    timestamp: "24 minutes ago",
+    unread: true,
+  },
+  {
+    id: "n4",
+    kind: "content",
+    title: "navigation was updated",
+    timestamp: "1 hour ago",
+  },
+  {
+    id: "n5",
+    kind: "publish",
+    title: "Published 12 changes to main",
+    timestamp: "3 hours ago",
+  },
+  {
+    id: "n6",
+    kind: "content",
+    title: "/pricing was created",
+    timestamp: "Yesterday",
+  },
+];
+
+/**
+ * Validation errors, grouped the way `toValidationErrors` groups them: by
+ * module file. There is no per-page grouping, because an error's source path
+ * names the module it is in — a page under `/blog/[slug]` reports against its
+ * route module, not against its URL.
+ */
+export const mockValidationErrors: ShellValidationError[] = [
+  {
+    id: "/content/shop/products.val.ts",
+    title: "products",
+    detail: "/content/shop/products.val.ts",
+    count: 3,
+  },
+  {
+    id: DOCS_ROUTE,
+    title: "page",
+    detail: DOCS_ROUTE,
+    count: 2,
+  },
+  {
+    id: "/app/features/[feature]/page.val.ts",
+    title: "page",
+    detail: "/app/features/[feature]/page.val.ts",
+    count: 1,
+  },
+  {
+    id: EXTERNAL_ROUTE,
+    title: "external",
+    detail: EXTERNAL_ROUTE,
+    count: 1,
+  },
+];
+
+/**
+ * Recent activity, as `toActivity` builds it: the edits and the publishes,
+ * interleaved by time.
+ *
+ * A change row is the module's file label followed by the patch path, and the
+ * author id resolved to a name where a profile is known — a local dev project
+ * has no profiles, which is why the last entry has no author rather than a
+ * placeholder one. The deploy rows are the same publishes `mockDeployments`
+ * has, which is what the real mapping does with them.
+ */
+export const mockActivity: ShellActivityEntry[] = [
+  {
+    kind: "deploy",
+    id: "deploy-9f21c4ae0b7d1e5a3c8f2d6b04e7a915cd83f620",
+    title: "Update hero copy and pricing table",
+    state: "Building",
+    progress: "building",
+    timestamp: "just now",
+    author: "Fredrik Ekholdt",
+  },
+  {
+    kind: "change",
+    id: '/app/page.val.ts?p="/"/hero/title-0',
+    sourcePath: '/app/page.val.ts?p="/"."hero"."title"',
+    title: "page › hero › title",
+    timestamp: "2 minutes ago",
+    author: "Fredrik Ekholdt",
+  },
+  {
+    kind: "deploy",
+    id: "deploy-3ab77c1902ef4d885b16c0da79f3e421ab5c9d08",
+    title: "Add customer story: nordic-retail",
+    state: "Live",
+    progress: "settled",
+    timestamp: "12 minutes ago",
+    author: "Ida Sørensen",
+  },
+  {
+    kind: "change",
+    id: '/app/pricing/page.val.ts?p="/pricing"/plans-1',
+    sourcePath: '/app/pricing/page.val.ts?p="/pricing"."plans"',
+    title: "page › plans",
+    timestamp: "18 minutes ago",
+    author: "Fredrik Ekholdt",
+  },
+  {
+    kind: "change",
+    id: "/content/navigation.val.ts?primary-2",
+    sourcePath: '/content/navigation.val.ts?p="primary"',
+    title: "navigation › primary",
+    timestamp: "1 hour ago",
+    author: "Ida Sørensen",
+  },
+  {
+    kind: "deploy",
+    id: "deploy-c05e9182aab34f6072d1e5b8c4a09f37e6215dba",
+    title: "Swap footer links",
+    state: "Build failed",
+    progress: "failed",
+    timestamp: "1 hour ago",
+    author: "Fredrik Ekholdt",
+  },
+  {
+    kind: "change",
+    id: '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"/text-3',
+    sourcePath:
+      '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"."text"',
+    title: "page › /blog/why-we-built-val › text",
+    timestamp: "Yesterday",
+  },
+];
+
+/** Full 40-character shas, as git produces and as the deployment feed joins on. */
+/**
+ * A fixed instant the mock timestamps are relative to, so `updatedAt` and the
+ * already-formatted `timestamp` beside it agree with each other.
+ */
+const MOCK_NOW = new Date("2026-08-25T12:00:00Z").getTime();
+const mockMinutesAgo = (minutes: number): string =>
+  new Date(MOCK_NOW - minutes * 60 * 1000).toISOString();
+
+export const mockDeployments: ShellDeployment[] = [
+  {
+    commitSha: "9f21c4ae0b7d1e5a3c8f2d6b04e7a915cd83f620",
+    state: "pending",
+    message: "Update hero copy and pricing table",
+    author: "Fredrik Ekholdt",
+    timestamp: "just now",
+    updatedAt: mockMinutesAgo(0),
+    isLive: false,
+  },
+  {
+    commitSha: "3ab77c1902ef4d885b16c0da79f3e421ab5c9d08",
+    state: "success",
+    message: "Add customer story: nordic-retail",
+    author: "Ida Sørensen",
+    timestamp: "12 minutes ago",
+    updatedAt: mockMinutesAgo(12),
+    isLive: true,
+  },
+  {
+    commitSha: "c05e9182aab34f6072d1e5b8c4a09f37e6215dba",
+    state: "failure",
+    message: "Swap footer links",
+    author: "Fredrik Ekholdt",
+    timestamp: "1 hour ago",
+    updatedAt: mockMinutesAgo(60),
+    isLive: false,
+  },
+  /*
+   * A deployment nobody published from Val: a developer's push, a merged pull
+   * request, a revert. On most projects these are the majority of the feed.
+   *
+   * No `author`, because there is no Val commit and therefore no profile to
+   * resolve - and the message is the SUBJECT of a git message, which is what
+   * `commitSubject` leaves of one that has a body. The row is a single
+   * truncated line, so a body rendered into it arrives as "Subject The body
+   * went on like this…".
+   */
+  {
+    commitSha: "7d4e1b0c58a2946fbb31e70d5c8f2a6391e4c0af",
+    state: "success",
+    message: "Move the pricing table into its own component",
+    timestamp: "3 hours ago",
+    updatedAt: mockMinutesAgo(180),
+    isLive: true,
+  },
+];
+
+/**
+ * Two routes that accept a page, which is the case worth looking at.
+ *
+ * One dynamic segment and one with two, so the form's route picker has something
+ * to pick between and its inputs have something to lay out. `existingKeys`
+ * carries the URLs already in `mockPages`, so the "already exists" state is
+ * reachable by typing `why-we-built-val` into the blog route.
+ */
+const mockNewPageRoutes: ShellNewPageRoutes = {
+  routes: [
+    {
+      moduleFilePath: "/app/blogs/[blog]/page.val.ts" as ModuleFilePath,
+      routePattern: [
+        { type: "literal", name: "blogs" },
+        { type: "string-param", paramName: "blog", optional: false },
+      ],
+      patternString: "/blogs/[blog]",
+      existingKeys: blogPosts.map((post) => post.urlPath),
+      keyDescription: "URL slug: lowercase, words separated by hyphens.",
+    },
+    {
+      moduleFilePath:
+        "/app/shop/[category]/[product]/page.val.ts" as ModuleFilePath,
+      routePattern: [
+        { type: "literal", name: "shop" },
+        { type: "string-param", paramName: "category", optional: false },
+        { type: "string-param", paramName: "product", optional: false },
+      ],
+      patternString: "/shop/[category]/[product]",
+      existingKeys: [],
+    },
+  ],
+};
+
+export const mockShellData: ShellData = {
+  projectName: "val-demo/val-demo-project",
+  // No logo: the resting mock is a project that has not set one, so the
+  // stories show Val's own mark unless they ask for otherwise. See
+  // `mockProjectLogo`.
+  admin: {
+    project: "https://admin.val.build/~/val-demo/val-demo-project",
+    members: "https://admin.val.build/manage-members/val-demo",
+    ai: "https://admin.val.build/manage-ai/val-demo/val-demo-project",
+  },
+  branch: "main",
+  hasRouters: true,
+  pages: mockPages,
+  newPage: mockNewPageRoutes,
+  externalPages: mockExternalPages,
+  media: mockMedia,
+  settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
+  data: mockDataModules,
+  notifications: mockNotifications,
+  activity: mockActivity,
+  validationErrors: mockValidationErrors,
+  deployments: mockDeployments,
+  user: {
+    name: "Fredrik Ekholdt",
+    email: "fredrik@valbuild.com",
+    avatarUrl: placeholderAvatar("Fredrik Ekholdt"),
+  },
+};
+
+/**
+ * Ids of items worth selecting from a story control.
+ *
+ * Exported because the ids are source paths now, which are too long to retype
+ * in a story's `argTypes` and too easy to get subtly wrong.
+ */
+export const mockSelectionIds = {
+  home: mockPages[0].id,
+  pricing: mockPages[3].id,
+  firstBlogPost: blogPosts[0].id,
+  products: "/content/shop/products.val.ts",
+  images: "/content/media.val.ts",
+  instagram: mockExternalPages[0].id,
+} satisfies Record<string, string>;
+
+/**
+ * A project that has a router but nothing in it yet.
+ *
+ * `hasRouters` stays true while `pages` is empty, which is the state a project
+ * is in between `s.router(...)` being written and the first page being made:
+ * the site map is there to add to. Media and Data have no equivalent — a
+ * gallery module with no files still shows as a gallery, so an empty `media`
+ * means no gallery module exists — which is why this data has neither
+ * destination, and why the shell shows only Pages for it.
+ */
+export const emptyShellData: ShellData = {
+  ...mockShellData,
+  hasRouters: true,
+  pages: [],
+  externalPages: [],
+  media: [],
+  settings: undefined,
+  data: [],
+  notifications: [],
+  activity: [],
+  validationErrors: [],
+  deployments: [],
+};
+
+/**
+ * A project's own mark, for the stories that show one.
+ *
+ * A data URI rather than a file, so a story does not depend on anything being
+ * served: a story is often the only place a reviewer looks at this, and an
+ * `<img>` with a broken src looks exactly like the feature not working. Two
+ * shapes, because the interesting thing about the slot is what it does with an
+ * aspect ratio it was not designed for — see `StudioMark`.
+ */
+export const mockProjectLogo = {
+  /** A square mark, which is what the slot is for. */
+  square: {
+    url:
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+          '<rect width="64" height="64" rx="14" fill="#ea580c"/>' +
+          '<path d="M20 40 L32 18 L44 40 Z" fill="#fff"/></svg>',
+      ),
+    alt: "Nordic Retail",
+  },
+  /**
+   * A wordmark, five times wider than it is tall.
+   *
+   * Contained rather than cropped, so all of it is there and none of it is
+   * readable at 32px. Kept as a story because it is the honest picture of the
+   * trade-off rather than something to discover after shipping.
+   */
+  wide: {
+    url:
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 60">' +
+          '<rect width="300" height="60" rx="8" fill="#2563eb"/>' +
+          '<text x="150" y="40" font-family="sans-serif" font-size="28" ' +
+          'font-weight="700" fill="#fff" text-anchor="middle">NORDIC</text></svg>',
+      ),
+    alt: "Nordic Retail",
+  },
+};

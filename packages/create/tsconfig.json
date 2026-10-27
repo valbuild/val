@@ -2,10 +2,17 @@
   "compilerOptions": {
     "lib": ["es2020", "DOM"],
     "strict": true,
+    // Declared rather than auto-discovered: TypeScript 6 stopped finding these
+    // by walking up to the workspace root, so `process`, `fs` and the jest
+    // globals all went missing at once.
+    "types": ["node", "jest"],
     "isolatedModules": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: chalk 6, meow 14 and the @inquirer packages
+    // publish their types behind an `exports` map, which the legacy `node`
+    // resolver cannot read.
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "target": "ESNext"
   }

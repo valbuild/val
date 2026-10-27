@@ -3,7 +3,8 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useShallowSourceAtPath } from "../ValFieldProvider";
 import { FieldSourceError } from "../../components/FieldSourceError";
 
-// NB: Cannot update Literal so no LiteralField.tsx
+// The value of a literal IS its schema, so nothing here writes. See
+// `LiteralField` for how it is shown in the editor.
 
 export function LiteralPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "literal");

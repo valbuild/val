@@ -5,17 +5,19 @@ import {
   Json,
   ModuleFilePath,
   PatchId,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
 } from "@valbuild/core";
 import { ValClient } from "@valbuild/shared/internal";
-import { JSONValue } from "@valbuild/core/patch";
 import { Patch } from "@valbuild/core/patch";
 import { useMemo, useState } from "react";
 import { ComparePatchSets } from "./ComparePatchSets";
 import { Profile } from "./ValProvider";
 import { PatchSets, SerializedPatchSet } from "../utils/PatchSets";
-import { ValSyncEngine } from "../ValSyncEngine";
+import type { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import { createStorySystem } from "../stores/react/storySystem";
+import type { System } from "../stores/createSystem";
+import { ValSystemProvider } from "../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -23,6 +25,7 @@ import { ValFieldProvider } from "./ValFieldProvider";
 import { ValRouter } from "./ValRouter";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { TooltipProvider } from "./designSystem/tooltip";
+import { placeholderAvatar } from "./stories/placeholderAssets";
 
 // --- Mock client ---
 
@@ -62,7 +65,7 @@ function createMockData(
 ) {
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Json> = {};
-  const renders: Record<string, ReifiedRender> = {};
+  const previews: Record<string, ReifiedPreview> = {};
 
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
@@ -73,13 +76,13 @@ function createMockData(
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
-      renders[path] = schema["executeRender"](path, source);
+      previews[path] = schema["executePreview"](path, source);
     }
   }
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
-    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+    previews: previews as Record<ModuleFilePath, ReifiedPreview>,
   };
 }
 
@@ -97,34 +100,43 @@ type TestPatch = {
  * pending patches.
  */
 function applyPatchesAndSerialize(
-  engine: ValSyncEngine,
+  system: System,
   moduleFilePath: ModuleFilePath,
   serializedSchema: SerializedSchema,
   patches: TestPatch[],
-): SerializedPatchSet {
+): { patchSets: SerializedPatchSet; patchIds: PatchId[] } {
   const patchSets = new PatchSets();
-  let now = Date.now();
+  const patchIds: PatchId[] = [];
   for (const p of patches) {
-    const result = engine.addPatch(
+    /**
+     * The id is minted first and handed in, so it is known without awaiting.
+     *
+     * `createPatch` is async because a patch CAN carry file bytes, but these
+     * carry none — so it records the patch and emits `patch:create`, which is
+     * what applies it to source, before it reaches its first await. The story's
+     * fixture is therefore complete by the time this loop ends, which is what
+     * lets it be built in a `useMemo` rather than in state behind an effect.
+     */
+    const realPatchId = system.patchStore.mintPatchId();
+    patchIds.push(realPatchId);
+    void system.patchStore.createPatch(
       moduleFilePath,
-      serializedSchema.type,
       p.patch,
-      now++,
+      undefined,
+      undefined,
+      undefined,
+      realPatchId,
     );
-    const realPatchId =
-      "patchId" in result ? result.patchId : (`fallback-${now}` as PatchId);
-    for (const op of p.patch) {
-      patchSets.insert(
-        moduleFilePath,
-        serializedSchema,
-        op,
-        realPatchId,
-        p.createdAt,
-        p.author,
-      );
-    }
+    patchSets.insert(
+      moduleFilePath,
+      serializedSchema,
+      p.patch,
+      realPatchId,
+      p.createdAt,
+      p.author,
+    );
   }
-  return patchSets.serialize();
+  return { patchSets: patchSets.serialize(), patchIds };
 }
 
 // --- StoryProviders ---
@@ -132,27 +144,23 @@ function applyPatchesAndSerialize(
 type MockData = {
   schemas: Record<ModuleFilePath, SerializedSchema>;
   sources: Record<ModuleFilePath, Json>;
-  renders: Record<ModuleFilePath, ReifiedRender>;
+  previews: Record<ModuleFilePath, ReifiedPreview>;
 };
 
-function makeEngine(client: ValClient, mockData: MockData): ValSyncEngine {
-  const engine = new ValSyncEngine(client, undefined);
-  engine.setSchemas(mockData.schemas);
-  engine.setSources(
-    mockData.sources as Record<ModuleFilePath, JSONValue | undefined>,
-  );
-  engine.setRenders(mockData.renders);
-  engine.setBaseSha("storybook-mock-sha");
-  engine.setInitializedAt(Date.now());
-  return engine;
+function makeSystem(mockData: MockData): System {
+  return createStorySystem({
+    schemas: mockData.schemas,
+    sources: mockData.sources,
+    previews: mockData.previews,
+  });
 }
 
 function StoryProviders({
   children,
-  syncEngine,
+  system,
 }: {
   children: React.ReactNode;
-  syncEngine: ValSyncEngine;
+  system: System;
 }) {
   const [theme, setTheme] = useState<Themes | null>("dark");
   const getDirectFileUploadSettings = useMemo(
@@ -169,31 +177,32 @@ function StoryProviders({
   );
 
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <TooltipProvider>
-        <ValRouter>
-          <ValErrorProvider syncEngine={syncEngine}>
-            <ValPortalProvider>
-              <ValFieldProvider
-                syncEngine={syncEngine}
-                getDirectFileUploadSettings={getDirectFileUploadSettings}
-                config={undefined}
-              >
-                <ValRemoteProvider
-                  remoteFiles={{
-                    status: "inactive",
-                    message: "Storybook mock",
-                    reason: "project-not-configured",
-                  }}
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <TooltipProvider>
+          <ValRouter>
+            <ValErrorProvider>
+              <ValPortalProvider>
+                <ValFieldProvider
+                  getDirectFileUploadSettings={getDirectFileUploadSettings}
+                  config={undefined}
                 >
-                  {children}
-                </ValRemoteProvider>
-              </ValFieldProvider>
-            </ValPortalProvider>
-          </ValErrorProvider>
-        </ValRouter>
-      </TooltipProvider>
-    </ValThemeProvider>
+                  <ValRemoteProvider
+                    remoteFiles={{
+                      status: "inactive",
+                      message: "Storybook mock",
+                      reason: "project-not-configured",
+                    }}
+                  >
+                    {children}
+                  </ValRemoteProvider>
+                </ValFieldProvider>
+              </ValPortalProvider>
+            </ValErrorProvider>
+          </ValRouter>
+        </TooltipProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 
@@ -206,31 +215,61 @@ function StorySetup({
   patches,
   moduleFilePath,
   serializedSchema,
-  readonly,
+  canDiscard,
+  committedCount = 0,
+  deployment,
 }: {
   mockData: MockData;
   patches: TestPatch[];
   moduleFilePath: ModuleFilePath;
   serializedSchema: SerializedSchema;
-  readonly?: boolean;
+  canDiscard?: boolean;
+  /**
+   * How many of the supplied patches have already shipped in a commit.
+   *
+   * The FIRST n, because `patches` is in chain order and a publish takes the
+   * oldest end of the chain. Those land below the deploy line with their discard
+   * controls gone; anything after them stays discardable.
+   */
+  committedCount?: number;
+  /**
+   * The deploy the divider describes. Passed explicitly — including as `null` —
+   * because the connected version reads `ValContext`, which these stories do not
+   * mount. See `ComparePatchSets`.
+   */
+  deployment?: ValEnrichedDeployment | null;
 }) {
   const client = useMemo(() => createMockClient(), []);
-  const { engine, patchSets } = useMemo(() => {
-    const engine = makeEngine(client, mockData);
-    const patchSets = applyPatchesAndSerialize(
-      engine,
+  const { system, patchSets, committedPatchIds } = useMemo(() => {
+    const system = makeSystem(mockData);
+    const { patchSets, patchIds } = applyPatchesAndSerialize(
+      system,
       moduleFilePath,
       serializedSchema,
       patches,
     );
-    return { engine, patchSets };
-  }, [client, mockData, moduleFilePath, serializedSchema, patches]);
+    return {
+      system,
+      patchSets,
+      committedPatchIds: new Set(patchIds.slice(0, committedCount)),
+    };
+  }, [
+    client,
+    mockData,
+    moduleFilePath,
+    serializedSchema,
+    patches,
+    committedCount,
+  ]);
+
   return (
-    <StoryProviders syncEngine={engine}>
+    <StoryProviders system={system}>
       <ComparePatchSets
         patchSets={patchSets}
         profilesByAuthorIds={mockProfiles}
-        readonly={readonly}
+        canDiscard={canDiscard}
+        committedPatchIds={committedPatchIds}
+        deployment={committedCount > 0 ? (deployment ?? null) : undefined}
       />
     </StoryProviders>
   );
@@ -248,16 +287,12 @@ const pagesModule = c.define(
     s.object({
       title: s.string(),
       body: s.richtext(),
-      status: s.union(
-        s.literal("draft"),
-        s.literal("published"),
-        s.literal("archived"),
-      ),
+      status: s.enum("draft", "published", "archived"),
       sections: s.array(
         s.object({
           heading: s.string(),
           items: s.array(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({ type: s.literal("text"), content: s.string() }),
               s.object({ type: s.literal("quote"), text: s.string() }),
@@ -300,6 +335,20 @@ const pagesModule = c.define(
 const mockData = createMockData([pagesModule]);
 const serializedSchema = mockData.schemas[MODULE_FILE_PATH];
 
+const SETTINGS_MODULE_FILE_PATH = "/settings.val.ts" as ModuleFilePath;
+
+const settingsModule = c.define("/settings.val.ts", s.settings(), {
+  assistant: {
+    enabled: true,
+    context: "A CMS for developers, run by a team of four in Oslo.",
+    tone: "Plain and direct. Sentence case in headings.",
+  },
+});
+
+const settingsMockData = createMockData([settingsModule]);
+const settingsSerializedSchema =
+  settingsMockData.schemas[SETTINGS_MODULE_FILE_PATH];
+
 const ROUTER_MODULE_FILE_PATH = "/app/[slug]/page.val.ts" as ModuleFilePath;
 
 const routerPagesModule = c.define(
@@ -334,7 +383,7 @@ const mockProfiles: Record<string, Profile> = {
   alice: { fullName: "Alice Andersen", avatar: null },
   bob: {
     fullName: "Bob Bakke",
-    avatar: { url: "https://i.pravatar.cc/150?u=bob" },
+    avatar: { url: placeholderAvatar("bob", 150) },
   },
   carol: { fullName: "Carol Chen", avatar: null },
   dan: { fullName: "Dan Hansen", avatar: null },
@@ -449,6 +498,202 @@ export const DesktopReview: Story = {
   ),
 };
 
+// --- The deploy line ---
+
+/** A publish that is on its way out, as GitHub reports it while building. */
+const buildingDeployment: ValEnrichedDeployment = {
+  deploymentState: "pending",
+  commitMessage: "Update landing page copy",
+  creator: "alice",
+  commitSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  createdAt: "2025-04-05T10:20:00Z",
+  updatedAt: "2025-04-05T10:22:00Z",
+};
+
+/** The same publish, once the host reports it live. */
+const liveDeployment: ValEnrichedDeployment = {
+  ...buildingDeployment,
+  deploymentState: "success",
+};
+
+const failedDeployment: ValEnrichedDeployment = {
+  ...buildingDeployment,
+  deploymentState: "failure",
+};
+
+const deployLinePatches: TestPatch[] = [
+  {
+    patch: [{ op: "replace", path: ["/home", "title"], value: "Welcome Home" }],
+    createdAt: "2025-04-03T08:00:00Z",
+    author: "alice",
+  },
+  {
+    patch: [{ op: "replace", path: ["/home", "status"], value: "published" }],
+    createdAt: "2025-04-03T08:05:00Z",
+    author: "alice",
+  },
+  {
+    patch: [
+      {
+        op: "replace",
+        path: ["/about", "title"],
+        value: "About Us — Updated",
+      },
+    ],
+    createdAt: "2025-04-06T09:00:00Z",
+    author: "bob",
+  },
+];
+
+/**
+ * The summary strip, with everything still discardable.
+ *
+ * The count and the discard-all sit above the changes, which is where the view
+ * itself now puts them — the strip used to be the surrounding screen's job, and
+ * the shell never had anywhere to put it.
+ */
+/**
+ * A change to the project's settings.
+ *
+ * Reviewed like any other content — it is content — but named the way the
+ * Settings panel names it: the card is "Settings" rather than the file, and the
+
+ * rows are "Assistant · Tone of voice" and "Assistant · Enabled" rather than
+ * "Assistant / Tone". Both link to the Settings panel rather than to the module
+ * in the editor, since that is where the fields are actually edited.
+ */
+export const SettingsUpdated: Story = {
+  render: () => (
+    <StorySetup
+      mockData={settingsMockData}
+      moduleFilePath={SETTINGS_MODULE_FILE_PATH}
+      serializedSchema={settingsSerializedSchema}
+      patches={[
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["assistant", "tone"],
+              value:
+                "Warm and plain. British English, sentence case in headings, and no exclamation marks.",
+            },
+          ],
+          createdAt: "2025-04-03T08:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["assistant", "enabled"],
+              value: false,
+            },
+          ],
+          createdAt: "2025-04-03T08:02:00Z",
+          author: "bob",
+        },
+      ]}
+    />
+  ),
+};
+
+export const WithSummaryStrip: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/**
+ * Two published patches deploying, one edit made since.
+ *
+ * The divider sits between them: above it the newer edit is still discardable,
+ * below it the module is dashed, its discard control replaced by a lock, and the
+ * strip offers to discard one change rather than three.
+ */
+export const DeployingBelowDivider: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={2}
+      deployment={buildingDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/**
+ * Everything has shipped and the deploy has landed.
+ *
+ * Nothing above the line, so the strip says so rather than dropping its button
+ * without explanation. The section stays until the server drops the patches from
+ * the chain — see `ComparePatchSets`.
+ */
+export const AllDeployedAndLive: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={3}
+      deployment={liveDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/**
+ * The deploy failed, and the patches are still not discardable.
+ *
+ * The commit exists either way, which is the whole reason: there is nothing a
+ * Discard button below this line could honestly do.
+ */
+export const DeployFailed: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={2}
+      deployment={failedDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/** The same review at 360px: two-row strip, banner divider, stacked diffs. */
+export const DeployingOnAPhone: Story = {
+  parameters: { viewport: { defaultViewport: "mobile1" } },
+  decorators: [
+    (Story) => (
+      <div className="w-[360px] bg-bg-tertiary min-h-screen p-3">
+        <Story />
+      </div>
+    ),
+  ],
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={2}
+      deployment={buildingDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
 export const PageAdded: Story = {
   render: () => (
     <StorySetup
@@ -541,7 +786,7 @@ export const PageUpdatedEditable: Story = {
       mockData={mockData}
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
-      readonly={false}
+      canDiscard
       patches={[
         {
           patch: [
@@ -781,7 +1026,7 @@ const unionModule = c.define(
   "/app/features.val.ts",
   s.record(
     s.object({
-      content: s.union(
+      content: s.discriminatedUnion(
         "type",
         s.object({
           type: s.literal("test-1"),
@@ -859,7 +1104,7 @@ export const UnchangedValue: Story = {
       mockData={mockData}
       moduleFilePath={MODULE_FILE_PATH}
       serializedSchema={serializedSchema}
-      readonly={false}
+      canDiscard
       patches={[
         {
           patch: [
@@ -888,6 +1133,62 @@ export const UnchangedValue: Story = {
   ),
 };
 
+/**
+ * Edited, then edited back — the whole chain amounts to nothing.
+ *
+ * `/home`'s title is changed and changed again to what it already was, so the
+ * module's patched source is deep-equal to the server's. The list itself should
+ * be empty: what shows is the notice saying so, with Discard beside it (the
+ * only way forward, since Publish is disabled in this state), and the module
+ * folded away under History.
+ *
+ * Contrast `UnchangedValue`, where one field returns to its original but a
+ * second field really changes — that module still ships, so it stays in the
+ * list with the unchanged row marked inside it.
+ */
+export const EverythingReverted: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      patches={[
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/home", "title"],
+              value: "Welcome Home — Updated",
+            },
+          ],
+          createdAt: "2025-04-03T08:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/home", "title"],
+              value: "Welcome Home",
+            },
+          ],
+          createdAt: "2025-04-03T08:05:00Z",
+          author: "alice",
+        },
+      ]}
+    />
+  ),
+};
+
+/**
+ * Nothing pending, which is a screen someone reaches on purpose.
+ *
+ * Review is in the top bar whether or not anything is queued — a button that
+ * comes and goes cannot answer "is anything of mine still unpublished?" — so
+ * this is what it opens most of the time. It used to be one grey line reading
+ * "No pending changes.", which looks like a view that failed to load.
+ */
 export const NoChanges: Story = {
   render: () => (
     <StorySetup
@@ -903,24 +1204,28 @@ export const NoChanges: Story = {
 
 const IMAGES_MODULE_FILE_PATH = "/content/images.val.ts" as ModuleFilePath;
 
+/**
+ * The refs point at the sample images Storybook serves out of `public/`, so
+ * the thumbnails in these stories are real pixels: `refToUrl` strips the
+ * leading `/public`, which turns `/public/sample-image-1.jpg` into the
+ * `/sample-image-1.jpg` the dev server and the static build both hand out.
+ * Dimensions below match the actual files.
+ */
 const imagesModule = c.define(
   "/content/images.val.ts",
-  s.images({
-    accept: "image/webp",
-    directory: "/public/val/images",
-  }),
+  s.imagedir("/public", { accept: "image/jpeg" }),
   {
-    "/public/val/images/hero-abc123.webp": {
-      width: 1920,
-      height: 1080,
-      mimeType: "image/webp",
+    "/public/sample-image-3.jpg": {
+      width: 1200,
+      height: 800,
+      mimeType: "image/jpeg",
       alt: "Hero banner",
       hotspot: { x: 0.5, y: 0.3 },
     },
-    "/public/val/images/logo-def456.webp": {
-      width: 200,
-      height: 200,
-      mimeType: "image/webp",
+    "/public/sample-image-2.jpg": {
+      width: 600,
+      height: 800,
+      mimeType: "image/jpeg",
       alt: "Company logo",
     },
   },
@@ -944,11 +1249,11 @@ export const ImageAdded: Story = {
           patch: [
             {
               op: "add",
-              path: ["/public/val/images/sunset-ghi789.webp"],
+              path: ["/public/sample-image-1.jpg"],
               value: {
                 width: 800,
                 height: 600,
-                mimeType: "image/webp",
+                mimeType: "image/jpeg",
                 alt: "A sunset over the mountains",
               },
             },
@@ -976,7 +1281,7 @@ export const ImageRemoved: Story = {
           patch: [
             {
               op: "remove",
-              path: ["/public/val/images/logo-def456.webp"],
+              path: ["/public/sample-image-2.jpg"],
             },
           ],
           createdAt: "2025-04-15T11:00:00Z",
@@ -1002,7 +1307,7 @@ export const ImageAltTextChanged: Story = {
           patch: [
             {
               op: "replace",
-              path: ["/public/val/images/hero-abc123.webp", "alt"],
+              path: ["/public/sample-image-3.jpg", "alt"],
               value: "Updated hero banner — redesigned",
             },
           ],
@@ -1029,7 +1334,7 @@ export const ImageHotspotChanged: Story = {
           patch: [
             {
               op: "replace",
-              path: ["/public/val/images/hero-abc123.webp", "hotspot"],
+              path: ["/public/sample-image-3.jpg", "hotspot"],
               value: { x: 0.8, y: 0.6 },
             },
           ],
@@ -1056,11 +1361,11 @@ export const ImageAddedWithHotspot: Story = {
           patch: [
             {
               op: "add",
-              path: ["/public/val/images/sunset-ghi789.webp"],
+              path: ["/public/sample-image-1.jpg"],
               value: {
                 width: 800,
                 height: 600,
-                mimeType: "image/webp",
+                mimeType: "image/jpeg",
                 alt: "A sunset over the mountains",
                 hotspot: { x: 0.65, y: 0.4 },
               },
@@ -1090,11 +1395,11 @@ export const ImageMixedChanges: Story = {
           patch: [
             {
               op: "add",
-              path: ["/public/val/images/sunset-ghi789.webp"],
+              path: ["/public/sample-image-1.jpg"],
               value: {
                 width: 800,
                 height: 600,
-                mimeType: "image/webp",
+                mimeType: "image/jpeg",
                 alt: "A sunset over the mountains",
               },
             },
@@ -1106,7 +1411,7 @@ export const ImageMixedChanges: Story = {
           patch: [
             {
               op: "remove",
-              path: ["/public/val/images/logo-def456.webp"],
+              path: ["/public/sample-image-2.jpg"],
             },
           ],
           createdAt: "2025-04-15T11:00:00Z",
@@ -1116,7 +1421,7 @@ export const ImageMixedChanges: Story = {
           patch: [
             {
               op: "replace",
-              path: ["/public/val/images/hero-abc123.webp", "alt"],
+              path: ["/public/sample-image-3.jpg", "alt"],
               value: "Updated hero banner — redesigned",
             },
           ],

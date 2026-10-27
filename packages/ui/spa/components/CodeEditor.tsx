@@ -1,4 +1,4 @@
-import { CodeLanguage } from "@valbuild/core";
+import { CodeLanguage, Internal } from "@valbuild/core";
 import CodeMirror, { BasicSetupOptions } from "@uiw/react-codemirror";
 import { useMemo, useState } from "react";
 import { javascript } from "@codemirror/lang-javascript";
@@ -27,20 +27,29 @@ export function CodeEditor({
   language,
   value,
   onChange,
+  onBlur,
   autoFocus,
   placeholder,
   options,
   className,
 }: {
-  language: CodeLanguage;
+  /** Omitted for a plain monospaced editor: `s.code()` with no language. */
+  language?: CodeLanguage;
   placeholder?: string;
   options?: BasicSetupOptions;
   value: string;
   onChange: (value: string) => void;
+  /** Also called on blur, for a caller holding an unwritten edit. */
+  onBlur?: () => void;
   autoFocus?: boolean;
   className?: string;
 }) {
   const extensions = useMemo(() => {
+    if (language === undefined) {
+      // `s.code()` with no language: a monospaced box, no highlighting. Not an
+      // error — the exhaustive check below is for a language we forgot.
+      return [];
+    }
     if (language === "typescript") {
       return [javascript({ typescript: true })];
     } else if (language === "typescriptreact") {
@@ -81,7 +90,7 @@ export function CodeEditor({
       return [angular()];
     } else {
       const exhaustiveCheck: never = language;
-      console.error(`Unknown code editor language: ${exhaustiveCheck}`);
+      Internal.log.error(`Unknown code editor language: ${exhaustiveCheck}`);
       return [];
     }
   }, [language]);
@@ -89,7 +98,9 @@ export function CodeEditor({
   const root =
     document.getElementById("val-shadow-root")?.shadowRoot ?? undefined;
   const theme = useMemo(() => {
-    if (uiTheme.theme === "dark") {
+    // `resolvedTheme`, not `theme`: the unresolved value does not carry the
+    // project's default, so the editor stayed dark in a light Studio.
+    if (uiTheme.resolvedTheme === "dark") {
       return valDarkTheme;
     } else {
       return valLightTheme;
@@ -102,7 +113,7 @@ export function CodeEditor({
       className={cn(
         "m-1 p-2 bg-bg-primary rounded-md border border-border-primary",
         {
-          "ring-2 ring-offset-2": focused,
+          "ring-2 ring-border-focus": focused,
         },
       )}
     >
@@ -116,6 +127,7 @@ export function CodeEditor({
         }}
         onBlur={() => {
           setFocused(false);
+          onBlur?.();
         }}
         theme={theme}
         placeholder={placeholder}

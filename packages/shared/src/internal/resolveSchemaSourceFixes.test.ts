@@ -6,9 +6,12 @@ import {
   type Source,
   type SourcePath,
   type ValidationError,
+  type ValidationFix,
   type ValModule,
 } from "@valbuild/core";
 import {
+  isSchemaSourceFixError,
+  keyOfRecordPath,
   resolveSchemaSourceFixes,
   resolveSchemaSourceFixForError,
 } from "./resolveSchemaSourceFixes";
@@ -340,5 +343,318 @@ describe("resolveSchemaSourceFixForError", () => {
         { schemas: {}, sources: {} },
       ),
     ).toBeNull();
+  });
+});
+
+describe("record:fill-keys", () => {
+  const at = "/content/page.val.ts" as SourcePath;
+
+  /** A project whose settings declare `available`. */
+  function project(available: string[]) {
+    const settings = c.define("/settings.val.ts", s.settings(), {
+      locales: { available },
+    });
+    return getTestData([settings]);
+  }
+
+  /** The error a declared-key record raises, before it is resolved. */
+  function unresolved(value: {
+    present: string[];
+    declared: string[] | null;
+  }): Record<SourcePath, ValidationError[]> {
+    return {
+      [at]: [
+        {
+          message: "Did not validate record keys.",
+          fixes: ["record:fill-keys"],
+          value,
+        },
+      ],
+    };
+  }
+
+  test("a literal union brings its own keys, and a complete record resolves away", () => {
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: ["a", "b"], declared: ["a", "b"] }),
+        project([]),
+      ),
+    ).toEqual({});
+  });
+
+  test("a missing key is named, and the null is explained", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["a"], declared: ["a", "b"] }),
+      project([]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'b'");
+    expect(result[at][0].message).toContain("null, not absent");
+    expect(result[at][0].fixes).toBeUndefined();
+    expect(result[at][0].value).toEqual({
+      missing: ["b"],
+      declared: ["a", "b"],
+    });
+  });
+
+  test("several missing keys read as a plural, in declaration order", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["b"], declared: ["a", "b", "c"] }),
+      project([]),
+    );
+    expect(result[at][0].message).toContain("Missing keys: 'a', 'c'");
+  });
+
+  test("a locale record takes its keys from the settings module", () => {
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: ["en-US", "nb-NO"], declared: null }),
+        project(["en-US", "nb-NO"]),
+      ),
+    ).toEqual({});
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["en-US"], declared: null }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'nb-NO'");
+  });
+
+  test("a project with no languages requires nothing of a locale record", () => {
+    // The locale field's own check already says the project has declared none.
+    // Demanding entries for a list that does not exist would be a second error
+    // about the same missing decision.
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: [], declared: null }),
+        project([]),
+      ),
+    ).toEqual({});
+  });
+
+  test("a malformed error value is reported as a version mismatch, not a crash", () => {
+    const result = resolveSchemaSourceFixes(
+      {
+        [at]: [
+          {
+            message: "Did not validate record keys.",
+            fixes: ["record:fill-keys"],
+            value: { declared: ["a"] },
+          },
+        ],
+      },
+      project([]),
+    );
+    expect(result[at][0].typeError).toBe(true);
+  });
+});
+
+describe("locale:check-locale", () => {
+  /** A project whose settings declare `available`, plus one locale field. */
+  function project(available: unknown) {
+    const settings = c.define("/settings.val.ts", s.settings(), {
+      locales: { available: available as string[] },
+    });
+    const page = c.define(
+      "/content/page.val.ts",
+      s.object({ locale: s.locale() }),
+      { locale: "nb-NO" },
+    );
+    return getTestData([settings, page]);
+  }
+
+  /** The error a locale field raises, before it is resolved. */
+  function unresolved(locale: string): Record<SourcePath, ValidationError[]> {
+    return {
+      ['/content/page.val.ts?p="locale"' as SourcePath]: [
+        {
+          message: "Did not validate locale.",
+          fixes: ["locale:check-locale"],
+          value: {
+            locale,
+            sourcePath: '/content/page.val.ts?p="locale"',
+          },
+        },
+      ],
+    };
+  }
+
+  const at = '/content/page.val.ts?p="locale"' as SourcePath;
+
+  test("a declared language resolves away", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved("nb-NO"),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result).toEqual({});
+  });
+
+  test("an undeclared language names the ones the project has", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved("sv-SE"),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toBe(
+      "'sv-SE' is not one of this project's languages: 'en-US', 'nb-NO'",
+    );
+    // Resolved: no fix code is left for anything downstream to try to apply.
+    expect(result[at][0].fixes).toBeUndefined();
+  });
+
+  test("a project with no languages is told to declare them, not that the value is wrong", () => {
+    const result = resolveSchemaSourceFixes(unresolved("nb-NO"), project([]));
+    expect(result[at][0].message).toContain(
+      "Declare them under 'locales.available'",
+    );
+  });
+
+  test("a project with no settings module at all says the same", () => {
+    const result = resolveSchemaSourceFixes(unresolved("nb-NO"), {
+      schemas: {},
+      sources: {},
+    });
+    expect(result[at][0].message).toContain(
+      "Declare them under 'locales.available'",
+    );
+  });
+
+  test("a settings module of the wrong shape reads as no languages", () => {
+    // Hand-edited, mid-keystroke: the resolver must not throw on its way past.
+    expect(() =>
+      resolveSchemaSourceFixes(unresolved("nb-NO"), project("en-US")),
+    ).not.toThrow();
+    expect(() =>
+      resolveSchemaSourceFixes(unresolved("nb-NO"), project([1, null])),
+    ).not.toThrow();
+  });
+});
+
+describe("router:check-locale-param", () => {
+  const route = "/src/routes/{-$locale}/blog.$slug.val.ts";
+  const forgotten = c.define(
+    route,
+    s.router(Internal.tanstackRouter, { slug: s.string() }, s.string()),
+    { "/blog/hello": "Hello" },
+  );
+
+  /** The module's own validation, resolved against the whole project. */
+  function validate(available: string[] | null) {
+    const settings = c.define(
+      "/settings.val.ts",
+      s.settings(),
+      available === null ? {} : { locales: { available } },
+    );
+    const snapshot = getTestData([settings, forgotten]);
+    const errors = Internal.getSchema(forgotten)?.["executeValidate"](
+      route as SourcePath,
+      Internal.getSource(forgotten),
+    );
+    return resolveSchemaSourceFixes(errors || {}, snapshot);
+  }
+
+  test("a translated project is told which segment, and what to write", () => {
+    const result = validate(["en-US", "nb-NO"]);
+    const [error] = result[route as SourcePath];
+    expect(error.message).toContain("'locale' segment ([[locale]])");
+    expect(error.message).toContain(
+      "s.router(router, { locale: urlLocale, … }, item)",
+    );
+    expect(error.fixes).toBeUndefined();
+  });
+
+  test("a project that declares no languages is not translated, so it resolves away", () => {
+    expect(validate(null)).toEqual({});
+    expect(validate([])).toEqual({});
+  });
+});
+
+/**
+ * A marker error is one only the whole project can answer.
+ *
+ * Every caller that resolves any of them has to resolve all of them: what a
+ * caller that misses one shows the user is the marker's own placeholder text —
+ * "should typically be processed by Val internally … version mismatch" — which
+ * is alarming and says nothing. Two of these leaked through `ValOps` exactly
+ * that way, by being added here and not to a condition in the server.
+ */
+describe("isSchemaSourceFixError", () => {
+  const markers: ValidationFix[] = [
+    "keyof:check-keys",
+    "router:check-route",
+    "locale:check-locale",
+    "router:check-locale-param",
+    "record:fill-keys",
+  ];
+
+  test("every fix the resolver answers for is recognised as one", () => {
+    for (const fix of markers) {
+      expect(isSchemaSourceFixError({ message: "…", fixes: [fix] })).toBe(true);
+    }
+  });
+
+  test("and it is the same set the resolver takes on", () => {
+    // Pinned from the other end: a new marker fix that `resolveSchemaSourceFixForError`
+    // answers for and this list does not is the leak, so the two are asserted
+    // to agree rather than merely both existing.
+    const snapshot = { schemas: {}, sources: {} };
+    for (const fix of markers) {
+      expect(
+        resolveSchemaSourceFixForError(
+          { message: "…", fixes: [fix] },
+          snapshot,
+        ),
+      ).not.toBe(null);
+    }
+  });
+
+  test("an ordinary validation error is not one", () => {
+    expect(isSchemaSourceFixError({ message: "Expected 'string'" })).toBe(
+      false,
+    );
+    expect(
+      isSchemaSourceFixError({
+        message: "…",
+        fixes: ["image:check-remote"],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("gallery markers", () => {
+  const GALLERY = "/content/images.val.ts" as ModuleFilePath;
+  const PAGE = `/content/page.val.ts?p="hero"` as SourcePath;
+  const NEW = "/public/val/images/new.png";
+  const marker = Internal.media.galleryMarkerOf;
+  const error: ValidationError = {
+    message: `The gallery does not have an image at '${NEW}'.`,
+    value: { path: NEW, gallery: GALLERY, source: { path: NEW } },
+    fixes: ["image:check-gallery"],
+  };
+  const snapshotWith = (entries: Record<string, unknown>) => ({
+    schemas: {
+      [GALLERY]: { type: "record", item: { type: "object", items: {} } },
+    } as unknown as Record<ModuleFilePath, SerializedSchema>,
+    sources: { [GALLERY]: entries } as Record<ModuleFilePath, never>,
+  });
+
+  test("resolved when the gallery has the image now", () => {
+    expect(marker(error)).toEqual({
+      path: NEW,
+      gallery: GALLERY,
+      source: { path: NEW },
+    });
+    expect(
+      resolveSchemaSourceFixForError(error, snapshotWith({ [NEW]: {} })),
+    ).toEqual({ status: "resolved" });
+  });
+
+  test("remaining, as the field holds it, when the gallery does not", () => {
+    expect(
+      resolveSchemaSourceFixes({ [PAGE]: [error] }, snapshotWith({})),
+    ).toEqual({
+      [PAGE]: [{ message: error.message, value: { path: NEW } }],
+    });
+  });
+
+  test("the gallery is what the Studio re-checks the field against", () => {
+    expect(keyOfRecordPath(error)).toBe(GALLERY);
   });
 });

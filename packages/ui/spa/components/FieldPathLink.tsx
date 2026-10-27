@@ -1,0 +1,131 @@
+import { ReactNode } from "react";
+import { Internal, SourcePath } from "@valbuild/core";
+import { Globe } from "lucide-react";
+import { urlOf } from "@valbuild/shared/internal";
+import { cn } from "./designSystem/cn";
+import { getNavPathFromAll } from "./getNavPath";
+import { useNavLink } from "./navLink";
+import { useAllSources, useSchemas } from "./ValFieldProvider";
+import { useShellPanelLink } from "./shell/shellPanelLink";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
+import { DEMO_NEW_TAB_OFF, useValDemo } from "../demo/ValDemoContext";
+
+/**
+ * The path of a field, as somewhere you can go.
+ *
+ * The errors view and the compare view both list fields by path, and both used
+ * to render that path as `<button onClick={navigate}>` — with the same class
+ * string and the same navigation body copied into each. Two copies of a
+ * destination is how the two views end up disagreeing about where a path leads,
+ * so there is one here.
+ *
+ * A link, not a button, for the same reason the scope trail is — see
+ * {@link useNavLink}.
+ */
+const PATH_LINK_CLASS =
+  "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate transition-colors min-w-0 block hover:bg-bg-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus";
+
+export function FieldPathLink({
+  sourcePath,
+  previewSegment,
+  className,
+  children,
+}: {
+  sourcePath: SourcePath;
+  /**
+   * The route this row is about, when it is a page of a router.
+   *
+   * Adds the globe beside the path that opens the page itself in a new tab —
+   * the one destination the studio's own router cannot take you to.
+   */
+  previewSegment?: string;
+  className?: string;
+  /** What the path is called. Each view names it its own way. */
+  children: ReactNode;
+}) {
+  const schemas = useSchemas();
+  const allSources = useAllSources();
+  const schemasData = schemas.status === "success" ? schemas.data : undefined;
+  /**
+   * A leaf is opened at the nearest sensible ancestor, with the leaf scrolled to
+   * — so the field arrives with its siblings around it rather than alone. See
+   * `getNavPath`.
+   */
+  const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
+  const target = navPath ?? sourcePath;
+  const navLink = useNavLink(target, {
+    scrollToPath: target !== sourcePath ? sourcePath : undefined,
+  });
+  /**
+   * Settings goes to the Settings panel, not to the module in the editor.
+   *
+   * A settings field is edited in a UI built for it — a switch, a labelled
+   * paragraph box — and the editor canvas would show it through the generic
+   * field renderer instead. Since that is true of every view that lists a field
+   * by path, the redirect is here rather than in each of them.
+   *
+   * Both hooks run either way: they are hooks, and the module's type is not
+   * known until the schemas have loaded.
+   */
+  const [moduleFilePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const isSettingsModule = schemasData?.[moduleFilePath]?.type === "settings";
+  const settingsLink = useShellPanelLink("settings");
+  const demo = useValDemo();
+  const link = isSettingsModule ? settingsLink : navLink;
+  const anchor = (
+    <a {...link} title={sourcePath} className={cn(PATH_LINK_CLASS, className)}>
+      {children}
+    </a>
+  );
+  if (previewSegment === undefined) {
+    return anchor;
+  }
+  if (demo !== null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 truncate min-w-0 max-w-full">
+        {anchor}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              role="link"
+              aria-disabled
+              aria-label={`Preview ${previewSegment}`}
+              aria-description={DEMO_NEW_TAB_OFF}
+              tabIndex={0}
+              className="shrink-0 text-fg-tertiary opacity-50 cursor-not-allowed"
+            >
+              <Globe size={12} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64 text-xs">
+            {DEMO_NEW_TAB_OFF}
+          </TooltipContent>
+        </Tooltip>
+      </span>
+    );
+  }
+  const previewHref = urlOf("/api/val/enable", {
+    redirect_to:
+      (typeof window !== "undefined" ? window.location.origin : "") +
+      previewSegment,
+  });
+  return (
+    <span className="inline-flex items-center gap-1.5 truncate min-w-0 max-w-full">
+      {anchor}
+      <a
+        href={previewHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
+        title={`Preview ${previewSegment}`}
+      >
+        <Globe size={12} />
+      </a>
+    </span>
+  );
+}

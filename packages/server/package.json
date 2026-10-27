@@ -13,10 +13,21 @@
       "module": "./dist/valbuild-server.esm.js",
       "default": "./dist/valbuild-server.cjs.js"
     },
+    "./browser": {
+      "module": "./browser/dist/valbuild-server-browser.esm.js",
+      "default": "./browser/dist/valbuild-server-browser.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.98.0",
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./browser/index.ts"
+    ],
+    "exports": true
+  },
+  "version": "0.150.3",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -24,7 +35,8 @@
   },
   "devDependencies": {
     "@prettier/sync": "^0.6.1",
-    "@types/jest": "^30.0.0"
+    "@types/jest": "^30.0.0",
+    "prettier": "~3.8.5"
   },
   "dependencies": {
     "@valbuild/core": "workspace:*",
@@ -32,16 +44,18 @@
     "@valbuild/ui": "workspace:*",
     "chokidar": "^5.0.0",
     "image-size": "^2.0.2",
-    "minimatch": "^10.1.1",
+    "minimatch": "^10.2.6",
     "sucrase": "^3.35.1",
-    "typescript": "^5.9.3",
-    "zod": "^4.3.5",
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3",
     "zod-validation-error": "^5.0.0"
   },
   "engines": {
-    "node": ">=18.17.0"
+    "node": "^20.19.0 || >=22"
   },
   "files": [
-    "dist"
+    "CHANGELOG.md",
+    "dist",
+    "browser"
   ]
 }

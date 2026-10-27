@@ -1,0 +1,1006 @@
+# @valbuild/mcp
+
+## 0.150.3
+
+### Patch Changes
+
+- Updated dependencies [[`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c)]:
+  - @valbuild/core@0.150.3
+  - @valbuild/shared@0.150.3
+  - @valbuild/server@0.150.3
+
+## 0.150.2
+
+### Patch Changes
+
+- Updated dependencies [[`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595), [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70), [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7), [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795)]:
+  - @valbuild/shared@0.150.2
+  - @valbuild/core@0.150.2
+  - @valbuild/server@0.150.2
+
+## 0.150.1
+
+### Patch Changes
+
+- [#894](https://github.com/valbuild/val/pull/894) [`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02) Thanks [@freekh](https://github.com/freekh)! - `val validate` no longer fails a project just because some of its files are
+  local while the project stores files remotely (`files: { remote: true }` or
+  `.remote()`). Every project made from a template starts like that, and the
+  site serves those files from `public/` until they are uploaded. They are now
+  reported as **warnings**, grouped into one block per file with the command
+  that uploads them:
+
+  ```
+  content/images.val.ts  ⚠ 7 warnings  (12ms)
+  │
+  │  ⚠  Local files in a project with remote files. Your site serves them from public/ for now; they move to remote storage when uploaded.
+  │
+  │     content/images.val.ts:7:5  /public/val/images/image-0_00000.png
+  │     content/images.val.ts:8:5  /public/val/images/image-1_00001.png
+  │     content/images.val.ts:9:5  /public/val/images/image-2_00002.png
+  │     content/images.val.ts:10:5  /public/val/images/image-3_00003.png
+  │     content/images.val.ts:11:5  /public/val/images/image-4_00004.png
+  │     … 2 more
+  │
+  │     → val validate --fix uploads them (needs val login)
+  │
+
+  ✔ No validation errors · 7 warnings in 1 file
+  ```
+
+  - `--strict` on `val validate` and `val publish` makes warnings fail too.
+  - `val validate --fix` still fails when it cannot upload them, for example
+    when you are not logged in.
+  - A local file that does not exist is still an error.
+  - The language server shows these as warnings.
+  - In the Studio, **Check everything** on the Validate page lists them with a
+    **Fix** button that uploads them, so a hosted project, which
+    has no command line, can move its template's images and files to remote
+    storage. That covers images, files and videos (a video's poster, captions
+    and HLS stream go up with it), images inside rich text included, and the
+    fields that picked a gallery image or a video from a set are updated with
+    it.
+  - On a hosted project, **Check everything** no longer reports the template's
+    images and videos as "The file is gone", and no longer offers a Fix that
+    would remove them from their gallery or video set.
+
+  Fixable errors are now printed with `✘`, like every other error, instead of
+  the `⚠` warnings use. They were always errors and still make `val validate`
+  fail.
+
+- Updated dependencies [[`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02)]:
+  - @valbuild/core@0.150.1
+  - @valbuild/server@0.150.1
+  - @valbuild/shared@0.150.1
+
+## 0.150.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.150.0
+
+## 0.149.7
+
+### Patch Changes
+
+- Updated dependencies [[`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015), [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3), [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865)]:
+  - @valbuild/shared@0.149.7
+  - @valbuild/server@0.149.7
+
+## 0.149.6
+
+### Patch Changes
+
+- Updated dependencies [[`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965)]:
+  - @valbuild/server@0.149.6
+
+## 0.149.5
+
+### Patch Changes
+
+- Updated dependencies [[`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f)]:
+  - @valbuild/server@0.149.5
+
+## 0.149.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.149.4
+
+## 0.149.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.149.3
+
+## 0.149.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.149.1
+
+## 0.149.0
+
+### Patch Changes
+
+- Updated dependencies [[`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4), [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03)]:
+  - @valbuild/server@0.149.0
+
+## 0.148.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.8
+
+## 0.148.7
+
+### Patch Changes
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/server@0.148.7
+  - @valbuild/shared@0.148.7
+
+## 0.148.6
+
+### Patch Changes
+
+- Updated dependencies [[`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7)]:
+  - @valbuild/shared@0.148.6
+  - @valbuild/server@0.148.6
+
+## 0.148.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.5
+
+## 0.148.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.4
+
+## 0.148.3
+
+### Patch Changes
+
+- Updated dependencies [[`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d), [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89)]:
+  - @valbuild/shared@0.148.3
+  - @valbuild/server@0.148.3
+
+## 0.148.2
+
+### Patch Changes
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/server@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- Updated dependencies [[`df5544c`](https://github.com/valbuild/val/commit/df5544c6e92a4c3a52765630c9de191e854ee723), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/server@0.148.0
+  - @valbuild/shared@0.148.0
+  - @valbuild/core@0.148.0
+
+## 0.147.0
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/server@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/server@0.146.4
+
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/server@0.146.2
+
+## 0.146.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.146.1
+
+## 0.146.0
+
+### Patch Changes
+
+- Updated dependencies [[`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26), [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063)]:
+  - @valbuild/server@0.146.0
+  - @valbuild/shared@0.146.0
+
+## 0.145.1
+
+### Patch Changes
+
+- Updated dependencies [[`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7)]:
+  - @valbuild/shared@0.145.1
+  - @valbuild/server@0.145.1
+
+## 0.145.0
+
+### Patch Changes
+
+- [#859](https://github.com/valbuild/val/pull/859) [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c) Thanks [@freekh](https://github.com/freekh)! - An edit Val Build refuses to save because of the project's plan — the Free plan's 1,000 changes a week are used, or a Hosted trial has ended — is now kept in the Studio instead of being reverted.
+
+  - `PUT /patches` answers such a save with a `403` of type `plan-refused`, carrying Val Build's reason and fix as data and which patches of the request it did save. It used to answer `400 patch-error`, which the Studio reads as a bad patch and drops.
+  - The Studio keeps the refused edits and any made after them, shows the plan notice with **Upgrade** or **Add a card** beside it, and saves them by itself once the plan allows it: as soon as Val Build says editing is open again (an owner added a card, the week moved on), and otherwise by trying again now and then. A publish or a restore that meets held edits says why, in Val Build's words, instead of suggesting the connection.
+  - The MCP write tools answer a refused write as `forbidden`, with Val Build's sentence, instead of `internal`.
+
+- Updated dependencies [[`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5), [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c)]:
+  - @valbuild/core@0.145.0
+  - @valbuild/shared@0.145.0
+  - @valbuild/server@0.145.0
+
+## 0.144.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.12
+
+## 0.144.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.11
+
+## 0.144.10
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.10
+
+## 0.144.9
+
+### Patch Changes
+
+- Updated dependencies [[`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0)]:
+  - @valbuild/server@0.144.9
+  - @valbuild/shared@0.144.9
+
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/server@0.144.8
+
+## 0.144.7
+
+### Patch Changes
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/server@0.144.7
+
+## 0.144.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.6
+
+## 0.144.5
+
+### Patch Changes
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/server@0.144.5
+  - @valbuild/shared@0.144.5
+
+## 0.144.4
+
+### Patch Changes
+
+- Updated dependencies [[`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f)]:
+  - @valbuild/shared@0.144.4
+  - @valbuild/server@0.144.4
+
+## 0.144.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.3
+
+## 0.144.2
+
+### Patch Changes
+
+- Updated dependencies [[`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e), [`44a5636`](https://github.com/valbuild/val/commit/44a5636955e005a40f2e6c8544e5cf4378fd0fdf)]:
+  - @valbuild/server@0.144.2
+  - @valbuild/shared@0.144.2
+
+## 0.144.1
+
+### Patch Changes
+
+- Updated dependencies [[`a641bb0`](https://github.com/valbuild/val/commit/a641bb0286756339252c53e9230d766c23fcccc6)]:
+  - @valbuild/server@0.144.1
+
+## 0.144.0
+
+### Patch Changes
+
+- Updated dependencies [[`a84271c`](https://github.com/valbuild/val/commit/a84271c534822071c1e428cf9990602459682d25), [`860ab2b`](https://github.com/valbuild/val/commit/860ab2b87333daf95a48215b0e4a1b44f441c878)]:
+  - @valbuild/core@0.144.0
+  - @valbuild/shared@0.144.0
+  - @valbuild/server@0.144.0
+
+## 0.143.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.143.1
+
+## 0.143.0
+
+### Patch Changes
+
+- Updated dependencies [[`f7c25bd`](https://github.com/valbuild/val/commit/f7c25bd4b44c288db8e5ab914e6d8a72c0216ba5), [`729c4ed`](https://github.com/valbuild/val/commit/729c4edfa28f5a2942c435ccf225e65858b080cc)]:
+  - @valbuild/core@0.143.0
+  - @valbuild/server@0.143.0
+  - @valbuild/shared@0.143.0
+
+## 0.142.0
+
+### Patch Changes
+
+- Updated dependencies [[`1ec4ff4`](https://github.com/valbuild/val/commit/1ec4ff4165a33f2248b52608ff58e626523e4212), [`bb63738`](https://github.com/valbuild/val/commit/bb63738aabed1cf1287611ecaab7c35fc4b08a12), [`fa03698`](https://github.com/valbuild/val/commit/fa03698ef0f2c7a6df334b4ba0e41843bde60029), [`3d2b9e8`](https://github.com/valbuild/val/commit/3d2b9e8c11aa6a4449527e2a1bbb363566797a14), [`a3236a5`](https://github.com/valbuild/val/commit/a3236a5f2c41b92422b40340dba060b53218c6ab)]:
+  - @valbuild/server@0.142.0
+  - @valbuild/shared@0.142.0
+
+## 0.141.1
+
+### Patch Changes
+
+- Updated dependencies [[`14b18d7`](https://github.com/valbuild/val/commit/14b18d7cb145cec1bc1cd832b9ca857ff4b45adc)]:
+  - @valbuild/server@0.141.1
+
+## 0.141.0
+
+### Patch Changes
+
+- Updated dependencies [[`199e214`](https://github.com/valbuild/val/commit/199e21471d98806fb34c579cb876560078c928b9), [`ba3f330`](https://github.com/valbuild/val/commit/ba3f3300a3dd8649e154097cdfca3b64db209d89)]:
+  - @valbuild/core@0.141.0
+  - @valbuild/server@0.141.0
+  - @valbuild/shared@0.141.0
+
+## 0.140.2
+
+### Patch Changes
+
+- Updated dependencies [[`df1e5f5`](https://github.com/valbuild/val/commit/df1e5f5f94391f25c71839cc476a51198b90db4d)]:
+  - @valbuild/server@0.140.2
+  - @valbuild/shared@0.140.2
+
+## 0.140.0
+
+### Patch Changes
+
+- Updated dependencies [[`cb93874`](https://github.com/valbuild/val/commit/cb938748aec15fd0ac3814c1696a2dd78ad63c27), [`092e6a7`](https://github.com/valbuild/val/commit/092e6a7f78bcfcf4c6cecaf34407fdfc580ebbc1)]:
+  - @valbuild/server@0.140.0
+  - @valbuild/shared@0.140.0
+
+## 0.139.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.139.2
+
+## 0.139.1
+
+### Patch Changes
+
+- Updated dependencies [[`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9), [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a)]:
+  - @valbuild/core@0.139.1
+  - @valbuild/server@0.139.1
+  - @valbuild/shared@0.139.1
+
+## 0.139.0
+
+### Patch Changes
+
+- Updated dependencies [[`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481)]:
+  - @valbuild/core@0.139.0
+  - @valbuild/shared@0.139.0
+  - @valbuild/server@0.139.0
+
+## 0.138.6
+
+### Patch Changes
+
+- Updated dependencies [[`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7), [`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7)]:
+  - @valbuild/server@0.138.6
+
+## 0.138.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.138.5
+
+## 0.138.4
+
+### Patch Changes
+
+- Updated dependencies [[`63bff05`](https://github.com/valbuild/val/commit/63bff0589b6df42efaa63ec606688d20a9670439), [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0), [`58d13a2`](https://github.com/valbuild/val/commit/58d13a2a534421b341b1bf71d02f0a2290fc0d61)]:
+  - @valbuild/server@0.138.4
+  - @valbuild/shared@0.138.4
+
+## 0.138.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.138.3
+
+## 0.138.2
+
+### Patch Changes
+
+- Updated dependencies [[`2beb226`](https://github.com/valbuild/val/commit/2beb226446c76eb71026f43e04c13943da4a1e31), [`cf3bbc8`](https://github.com/valbuild/val/commit/cf3bbc8fc89ff349aac5ab101d0b4f28164583e6), [`443cdcd`](https://github.com/valbuild/val/commit/443cdcdfa8948db22a54adef2ad5e18d9f9868e9)]:
+  - @valbuild/shared@0.138.2
+  - @valbuild/core@0.138.2
+  - @valbuild/server@0.138.2
+
+## 0.138.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.138.1
+
+## 0.138.0
+
+### Patch Changes
+
+- Updated dependencies [[`57af895`](https://github.com/valbuild/val/commit/57af8959cc46519a405b1ed7441623f8bf2e6d27), [`6216172`](https://github.com/valbuild/val/commit/62161729aa40f737590b0a8093c0394385fffd8d), [`40e933d`](https://github.com/valbuild/val/commit/40e933da7fe01cfe1c3f4a43c156f0b2f8a11f62), [`5876fe0`](https://github.com/valbuild/val/commit/5876fe075fdee1f76f1cdaa2488ac52c58c894a8)]:
+  - @valbuild/core@0.138.0
+  - @valbuild/server@0.138.0
+  - @valbuild/shared@0.138.0
+
+## 0.137.0
+
+### Patch Changes
+
+- Updated dependencies [[`48ac9f0`](https://github.com/valbuild/val/commit/48ac9f06dd59a5b4ca60232b1ef198cf42f23aa6), [`43b58f2`](https://github.com/valbuild/val/commit/43b58f2962840883badf91950da2c51b89d1c7cb), [`9b09bf3`](https://github.com/valbuild/val/commit/9b09bf38c9d5912f41fec1c18aa87455fd32f616), [`e2bfc0e`](https://github.com/valbuild/val/commit/e2bfc0e40383fe25d3ec0473d1032f6264a8939f), [`beda04b`](https://github.com/valbuild/val/commit/beda04bd326cbab18ed103e8d43917b16f43bd8c)]:
+  - @valbuild/server@0.137.0
+  - @valbuild/shared@0.137.0
+  - @valbuild/core@0.137.0
+
+## 0.136.10
+
+### Patch Changes
+
+- [#743](https://github.com/valbuild/val/pull/743) [`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280) Thanks [@freekh](https://github.com/freekh)! - Saving no longer gets stuck on "Changes cannot be saved: something else keeps changing them first" when another editor has an unpublished change and later work has been published.
+
+  A new change is now written on top of the latest change the content service has registered, which it reports alongside the list of pending changes, instead of the last change this deployment was shown. Since changes can be published independently, those two can differ for good: an unpublished change can sit before published ones that the running deployment already contains. The Studio and the MCP tools both name the reported head, and fall back to the old behaviour against a content service that does not report one.
+
+- Updated dependencies [[`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280)]:
+  - @valbuild/server@0.136.10
+  - @valbuild/shared@0.136.10
+
+## 0.136.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.9
+
+## 0.136.8
+
+### Patch Changes
+
+- Updated dependencies [[`35577be`](https://github.com/valbuild/val/commit/35577be50981fec35fc27ee9435a092a26909395)]:
+  - @valbuild/core@0.136.8
+  - @valbuild/server@0.136.8
+  - @valbuild/shared@0.136.8
+
+## 0.136.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.7
+
+## 0.136.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.6
+
+## 0.136.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.5
+
+## 0.136.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.4
+
+## 0.136.3
+
+### Patch Changes
+
+- Updated dependencies [[`3b19534`](https://github.com/valbuild/val/commit/3b19534bb7aa16452a104906d9594083c3bc3e89)]:
+  - @valbuild/server@0.136.3
+  - @valbuild/shared@0.136.3
+
+## 0.136.2
+
+### Patch Changes
+
+- Updated dependencies [[`f76cd56`](https://github.com/valbuild/val/commit/f76cd56b9f1c1bcc0a608a7a4de24b1e776adccb)]:
+  - @valbuild/server@0.136.2
+  - @valbuild/shared@0.136.2
+
+## 0.136.1
+
+### Patch Changes
+
+- Updated dependencies [[`e673b43`](https://github.com/valbuild/val/commit/e673b43feaf48b7f30881d6786c858a0cb6a44a2), [`5c82928`](https://github.com/valbuild/val/commit/5c82928992d29f133f81cf0704a273c0449b18f1), [`4450be5`](https://github.com/valbuild/val/commit/4450be570ec3a66d7d98ba273c333ca2d2f163d9), [`d2f385a`](https://github.com/valbuild/val/commit/d2f385a04978992a5036379235e447ba7775faef)]:
+  - @valbuild/shared@0.136.1
+  - @valbuild/server@0.136.1
+  - @valbuild/core@0.136.1
+
+## 0.136.0
+
+### Patch Changes
+
+- Updated dependencies [[`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c), [`1d72d00`](https://github.com/valbuild/val/commit/1d72d00a1b036959ae0f1540121701cbb2694dcb)]:
+  - @valbuild/core@0.136.0
+  - @valbuild/server@0.136.0
+  - @valbuild/shared@0.136.0
+
+## 0.135.0
+
+### Patch Changes
+
+- Updated dependencies [[`c9affec`](https://github.com/valbuild/val/commit/c9affece6ae6ba62bd6c1113ed1fdab6317fa112), [`72a7ca7`](https://github.com/valbuild/val/commit/72a7ca78354fff00e37a51359b17fba9334dc5e6)]:
+  - @valbuild/server@0.135.0
+
+## 0.134.1
+
+### Patch Changes
+
+- Updated dependencies [[`821e789`](https://github.com/valbuild/val/commit/821e789c1af47510af5d23eb96384ff78ddd7646)]:
+  - @valbuild/shared@0.134.1
+  - @valbuild/server@0.134.1
+
+## 0.134.0
+
+### Patch Changes
+
+- Updated dependencies [[`be78a9b`](https://github.com/valbuild/val/commit/be78a9b51678439f7ecb1c7f3887f9e8e1261a13), [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2), [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed)]:
+  - @valbuild/server@0.134.0
+  - @valbuild/core@0.134.0
+  - @valbuild/shared@0.134.0
+
+## 0.133.0
+
+### Patch Changes
+
+- Updated dependencies [[`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83)]:
+  - @valbuild/server@0.133.0
+  - @valbuild/shared@0.133.0
+
+## 0.132.1
+
+### Patch Changes
+
+- Updated dependencies [[`c07b1ab`](https://github.com/valbuild/val/commit/c07b1abe30e226c80ef7ec4b4f0f5ccdae061c11), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f)]:
+  - @valbuild/server@0.132.1
+
+## 0.132.0
+
+### Patch Changes
+
+- Updated dependencies [[`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2)]:
+  - @valbuild/server@0.132.0
+
+## 0.131.0
+
+### Patch Changes
+
+- Updated dependencies [[`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f)]:
+  - @valbuild/server@0.131.0
+
+## 0.130.0
+
+### Minor Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - A third ValOps mode, for a host that already holds its own source
+
+  EXPERIMENTAL. `fs` mode assumes a working tree it can watch and write; `http`
+  mode assumes Val's content service owns the patch chain and that a commit is a
+  git commit. A host that builds and publishes its own output is neither: it holds
+  the source already, it has nowhere to watch, and its "commit" is a new build.
+
+  Forcing such a host into `fs` mode cost three things, all now fixed: `/stat`
+  long-polled against watchers that could never fire, burning CPU for the whole
+  hold to learn nothing;
+  `/api/val/enable` 500'd; and every read of a `.val.ts` went through a shimmed
+  filesystem when the host could simply hand the source over.
+
+  `ValOpsMemory` takes the source as `sourceFiles`, refuses the local binary
+  members by name — this configuration uses Val's remote files — and answers the
+  history members with the same closed `not-supported-in-fs-mode` error `ValOpsFS`
+  gives, so the History UI degrades the way it already knows how rather than
+  inventing a commit list.
+
+  `getStat` still long-polls -- the hold is what paces the client, and an earlier
+  version that answered immediately turned a 20-second poll into a request every
+  6ms -- but it parks on a SIGNAL rather than a timer. This mode owns its store,
+  so it is told when something changes: no timers while parked, and a patch
+  written by another tab is seen at once rather than up to 250ms later.
+
+  Two seams come with it. `commitPrepared` lets a host take what a save produced
+  instead of a git commit, and `publishOverride` lets a publish be something other
+  than a push. Both are opt-in; an app that sets neither behaves exactly as before.
+
+  The in-memory patch store is explicitly **not durable**. It is behind
+  `ValPatchStore`, so a durable implementation is a swap rather than a rewrite,
+  but as shipped a restart loses unpublished patches.
+
+  **Memory mode authenticates.** `ValOps` gained `requiresAuth` alongside
+  `patchesAreLocal`, because one flag was answering two questions: whether a store
+  auto-saves or publishes (behaviour, reported as `mode` and keyed off by the UI),
+  and whether an unauthenticated request may write (security). With two
+  implementations the answers coincided — `fs` is a developer's own machine where
+  no credential exists, `http` is remote — so `getAuth` was written against
+  `patchesAreLocal` and returned anonymous _success_ for a missing cookie, an
+  invalid JWT, an unparseable payload, or no configured secret.
+
+  Memory mode splits them: its store is local, and it runs deployed. It therefore
+  requires a verified session, like `http` mode. A host that authorises requests
+  before Val sees them can opt out with `unsafelyAllowUnauthenticated`, which is
+  spelled that way on purpose and warns at startup. `fs` mode is unchanged.
+
+  Val's own MCP endpoint refuses memory mode outright. It has the same absence fs
+  mode has — no credential, no backend, every permission check on the far side of
+  one — and unlike fs mode it is meant to run deployed, so the existing
+  "development only" and loopback guards refuse nothing. A host in this mode owns
+  its own trust boundary and can offer the tools through it.
+
+  Internally, the routes' `instanceof ValOpsFS` checks meant "is this a local
+  store" — correct with two implementations and silently wrong with three. They are
+  now `ValOps.patchesAreLocal` at all 17 policy sites.
+
+### Patch Changes
+
+- Updated dependencies [[`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75)]:
+  - @valbuild/server@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
+## 0.129.0
+
+### Patch Changes
+
+- Updated dependencies [[`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b), [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7)]:
+  - @valbuild/core@0.129.0
+  - @valbuild/shared@0.129.0
+  - @valbuild/server@0.129.0
+
+## 0.128.0
+
+### Patch Changes
+
+- Updated dependencies [[`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4), [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c), [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab)]:
+  - @valbuild/core@0.128.0
+  - @valbuild/server@0.128.0
+  - @valbuild/shared@0.128.0
+
+## 0.127.0
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/server@0.127.0
+
+## 0.126.0
+
+### Patch Changes
+
+- Updated dependencies [[`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7), [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63), [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a), [`5c18c99`](https://github.com/valbuild/val/commit/5c18c99ecc84651f82123481fc042063db953833), [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f)]:
+  - @valbuild/shared@0.126.0
+  - @valbuild/server@0.126.0
+  - @valbuild/core@0.126.0
+
+## 0.125.0
+
+### Patch Changes
+
+- [#638](https://github.com/valbuild/val/pull/638) [`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90) Thanks [@freekh](https://github.com/freekh)! - Val now runs on TanStack Start.
+
+  `@valbuild/tanstack` is a new package with everything `@valbuild/next` has: Val
+  Studio at `/val`, the on-page overlay and canvas, draft mode, the client hooks,
+  server-side content reads, images, and the MCP tools.
+
+  ```sh
+  npm install @valbuild/tanstack
+  ```
+
+  ```ts
+  // val.config.ts
+  import { initVal } from "@valbuild/tanstack";
+  const { s, c, config, tanstackRouter } = initVal({ project: "org/project" });
+  ```
+
+  **Routes are first class.** A Val module for a route is named after the route
+  file it sits beside — `src/routes/posts.$postId.tsx` is served content by
+  `src/routes/posts.$postId.val.ts` — and its keys are the URLs that route serves:
+
+  ```ts
+  export default c.define(
+    "/src/routes/posts.$postId.val.ts",
+    s.router(tanstackRouter, s.object({ title: s.string() })),
+    { "/posts/hello-world": { title: "Hello world" } },
+  );
+  ```
+
+  `.` and `/` both separate segments, `$param` is a parameter, `$` is a splat, and
+  `index`, `route`, `(groups)` and `_pathless` layouts add no URL segment — the
+  same rules TanStack Router uses for the route file itself. Val validates every
+  key against that pattern, and Val Studio shows these modules as a sitemap under
+  **Pages**, where an editor can add a page.
+
+  Point the route generator away from your content files, in `vite.config.ts` and
+  `tsr.config.json`:
+
+  ```ts
+  tanstackStart({ router: { routeFileIgnorePattern: "\\.val\\.[tj]sx?$" } });
+  ```
+
+  See the [README](https://github.com/valbuild/val/blob/main/packages/tanstack/README.md)
+  for the full wiring, and `examples/tanstack` for a working app.
+
+  **Also fixed, for everyone:** `Internal.VERSION.core` was `null` in any ESM
+  bundle — it was read with `require("../package.json")` inside a `try`, so the
+  failure was silent. That version goes into every remote file ref and proxy mode
+  refuses to start without it. Every package now reads its version through a
+  static JSON import, which is inlined at build time.
+
+  Two smaller fixes that came out of running the whole toolchain against a
+  TanStack project:
+
+  - `val versions` reports `@valbuild/tanstack`, and `val debug` writes a snapshot
+    that names whichever framework package the captured project actually has.
+  - `@valbuild/eslint-plugin` reads a `tsconfig.json` that has comments in it. A
+    tsconfig is JSONC, and `JSON.parse` is not — so on any project whose tsconfig
+    carries a comment (the TanStack starter's does) the
+    `module-in-val-modules` rule threw `Expected double-quoted property name in
+JSON` on the first file and took the whole lint run with it.
+
+  Three fixes found by driving the Studio against a real TanStack app:
+
+  - **A draft image now loads on the page.** The source the Studio pushes to the
+    host page carries `patch_id` for any file whose bytes are still in a patch, so
+    the page asks `/api/val/files/...?patch_id=` rather than a `/public` path that
+    nothing has written yet. This was silent — the image just did not appear — and
+    it affects any page that reads media through the hooks rather than on the
+    server, `@valbuild/next` included.
+  - **A splat route no longer logs an error on every render.** TanStack returns
+    both `_splat` and `*` for the same parameter; Val reported the second as a
+    parameter it could not place in the path.
+  - The TanStack example and starter render a 404 page instead of throwing
+    `notFound()` from a component, which escaped to the error boundary and logged
+    `Error in renderToReadableStream` (and, with no not-found component
+    configured, aborted the response) on every miss.
+
+- Updated dependencies [[`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90)]:
+  - @valbuild/core@0.125.0
+  - @valbuild/shared@0.125.0
+  - @valbuild/server@0.125.0
+
+## 0.124.0
+
+### Patch Changes
+
+- Updated dependencies [[`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/server@0.124.0
+  - @valbuild/shared@0.124.0
+  - @valbuild/core@0.124.0
+
+## 0.123.3
+
+### Patch Changes
+
+- Updated dependencies [[`4c9369b`](https://github.com/valbuild/val/commit/4c9369bad3f17e96868262e78a4f47361d85319e), [`fb1baff`](https://github.com/valbuild/val/commit/fb1baffead5228d8a86a51af65178b88738d5a64), [`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a), [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd)]:
+  - @valbuild/server@0.123.3
+  - @valbuild/shared@0.123.3
+
+## 0.123.2
+
+### Patch Changes
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`8e58c34`](https://github.com/valbuild/val/commit/8e58c3495d1bf0f221a57082cb0a3045929722a1)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/server@0.123.2
+
+## 0.123.1
+
+### Patch Changes
+
+- [#625](https://github.com/valbuild/val/pull/625) [`468f147`](https://github.com/valbuild/val/commit/468f147e62d1a96585890208921341959f118b6d) Thanks [@freekh](https://github.com/freekh)! - Republish `@valbuild/mcp` with resolvable dependency versions.
+
+  `@valbuild/mcp@0.123.0` shipped its manifest with the workspace protocol intact —
+  `"@valbuild/core": "workspace:*"` and the same for `server` and `shared` — so it
+  cannot be installed. npm refuses it with
+  `EUNSUPPORTEDPROTOCOL: Unsupported URL Type "workspace:"`, and pnpm with
+  `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`. `@valbuild/next@0.123.0` depends on that exact
+  version, so it could not be installed either.
+
+  Both of those versions are deprecated. Use this one.
+
+  Nothing in the source was wrong: every package in the repository declares its
+  siblings as `workspace:*` and the publish step rewrites them to real versions.
+  That version was published by hand with `npm publish`, which uploads the manifest
+  verbatim — the rewrite is pnpm's, and only `pnpm publish` (which is what
+  `changeset publish` runs here) performs it.
+
+## 0.123.0
+
+### Minor Changes
+
+- [#613](https://github.com/valbuild/val/pull/613) [`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2) Thanks [@freekh](https://github.com/freekh)! - Val's MCP endpoint moves to its own package, and can now upload images
+
+  Everything that serves Val's content tools over MCP — the tool registry, the
+  write path behind it, the request guards and the access-token verification —
+  now lives in **`@valbuild/mcp`** instead of being split between
+  `@valbuild/server` and `@valbuild/next`.
+
+  **Nothing changes for an app that already mounts it.** `initValMcp` is still
+  exported from `@valbuild/next/server` and behaves exactly as before; it is now a
+  ten-line binding over `@valbuild/mcp`, supplying the Next version that
+  `initHandlerOptions` asks for. A host that is not Next can call
+  `initValMcp` from `@valbuild/mcp` directly.
+
+  If you built your own host on `createValTools`, import it from `@valbuild/mcp`
+  rather than `@valbuild/server`; the tool types moved with it.
+
+  ## Image uploads
+
+  An agent can now add an image, with a new `upload_image` tool. It takes a path
+  to a file on the machine your app runs on, or the image inline as base64, and
+  puts it in an `s.image()` field or an `s.images()` gallery.
+
+  Uploads are converted **only where the Studio would convert them**: `encode` is
+  off unless the schema asks for it (`s.image({ encode: { type: "webp" } })`), and
+  when it does, which images are converted, how far they are scaled and when the
+  original wins are the same decisions the browser makes — the same code, now
+  shared. An upload to a schema without `encode` is stored exactly as it arrived,
+  whatever its size.
+
+  One thing the tool does that the Studio does not: it refuses an image the
+  schema's `accept` does not cover, checked on the bytes that would actually be
+  stored. The Studio does not need to — its file picker carries `accept` — and
+  validation reports a mismatch as server-repairable, so nothing downstream would
+  stop it. An agent has no picker. Note the ordering:
+  `s.image({ accept: "image/webp", encode: { type: "webp" } })` still takes a PNG,
+  because the conversion happens first and it is the result that is checked.
+
+  It is the one tool you construct yourself, because it needs an image library
+  and `sharp` ships a compiled binary per platform. Val does not put one in every
+  project that installs it, so you decide:
+
+  ```sh
+  npm install sharp
+  ```
+
+  ```ts
+  import sharp from "sharp";
+  import { createValImageTools } from "@valbuild/mcp";
+  import { sharpImageProcessor } from "@valbuild/mcp/sharp";
+
+  const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
+    extraTools: createValImageTools(sharpImageProcessor(sharp)),
+  });
+  ```
+
+  Leave `extraTools` out and everything else works as before — the agent can read,
+  validate and edit content, it just cannot add an image. `sharp` is passed in
+  rather than imported, so you can supply another encoder: `ValImageProcessor` is
+  two functions, `read` and `encode`.
+
+  Remotely stored images work too — `s.image().remote()` and
+  `s.images({ remote: true })` — and they need nothing extra from the MCP client.
+  Adding one does not upload anything to Val's content host: the bytes go into the
+  patch store like any other unpublished change, and the push to
+  `remote.val.build` happens when you publish, exactly as it does for an image
+  added through the Studio. All the tool has to do first is ask the project which
+  bucket to name in the ref, and the credential for that is the one your app
+  already has — its API key when it has one, and in local development the
+  `val login` token in your project, the same one `val validate --fix` uses. If
+  you have not logged in, it says so and writes nothing.
+
+  ## `npm create @valbuild` asks
+
+  The starter template now ships the MCP endpoint, and `npm create @valbuild`
+  asks whether you want it — and, if you do, whether agents should be able to
+  upload images, saying that this adds `sharp`. Both default to yes, and both can
+  be answered up front for a scripted setup:
+
+  ```sh
+  pnpm create @valbuild my-app --mcp --no-image-uploads
+  ```
+
+- [#620](https://github.com/valbuild/val/pull/620) [`53f670c`](https://github.com/valbuild/val/commit/53f670c0cf2d7a03a6d068c78b7874ce77652c2a) Thanks [@freekh](https://github.com/freekh)! - MCP: `search_content` — full-text search across the project's content, unpublished changes included.
+
+  The same index the Studio's search box uses, moved into `@valbuild/shared` so both run it, and built fresh on every call. That was the part that looked expensive and is not: indexing `valbuild/web`, a real production site of 20 modules and 206 KB of source, takes 162 ms, and it scales linearly from there — the 10 s default deadline is not reached until roughly 13 MB of content. Loading the modules costs more than indexing them, and every tool call already pays that.
+
+  That ratio between building the index and querying it — 162 ms against 0.2 ms — is why `queries` is a list. Everything expensive happens before the first query runs, so up to 20 of them are answered from a single pass, separately, so a caller can tell which of its guesses found the thing. A bare string still works as one query.
+
+  It returns source paths, so `get_source` reads what it finds. The rest of the arguments narrow or bound the work:
+
+  - `include` / `exclude` — module file path globs, e.g. `["/content/blogs/**"]`. `exclude` is applied after `include`.
+  - `limit` — per query, defaulting to 100. A model filters a long list more cheaply than it asks again.
+  - `timeoutMs` — stop indexing and answer with what has been indexed so far. The result then carries `timedOut`, the paths of the modules that were not reached, and a hint pointing at `include`.
+
+  Every answer says what it actually searched (`searched: { modules, of }`), so each query's `total` can be read as a count over those modules rather than over the project. Modules you excluded are not reported as omissions — an omission always means the deadline, never your filter.
+
+  `performSearch` now counts all the matches rather than the page it returns, which the Studio's result count gets too: FlexSearch stops as soon as it has the ids it was asked for, so a total taken from a page-sized search was only ever the page size again.
+
+### Patch Changes
+
+- Updated dependencies [[`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2), [`53f670c`](https://github.com/valbuild/val/commit/53f670c0cf2d7a03a6d068c78b7874ce77652c2a)]:
+  - @valbuild/server@0.123.0
+  - @valbuild/shared@0.123.0

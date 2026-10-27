@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { RouteSelector, RouteSelectorRoute } from "./RouteField";
+import { placeholderImage } from "../stories/placeholderAssets";
 
 const sampleRoutes: RouteSelectorRoute[] = [
   {
@@ -9,7 +10,13 @@ const sampleRoutes: RouteSelectorRoute[] = [
     preview: {
       title: "Home",
       subtitle: "Landing page",
-      image: "https://placehold.co/64x64/e2e8f0/475569?text=H",
+      image: placeholderImage({
+        width: 64,
+        height: 64,
+        bg: "#e2e8f0",
+        fg: "#475569",
+        text: "H",
+      }),
     },
   },
   {
@@ -32,7 +39,13 @@ const sampleRoutes: RouteSelectorRoute[] = [
     preview: {
       title: "Another post",
       subtitle: "https://blog.example.com/another-post",
-      image: "https://placehold.co/64x64/dbeafe/1e40af?text=B",
+      image: placeholderImage({
+        width: 64,
+        height: 64,
+        bg: "#dbeafe",
+        fg: "#1e40af",
+        text: "B",
+      }),
     },
   },
 ];

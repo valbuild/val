@@ -4,6 +4,7 @@ import type {
   ValidationWorkerResponse,
 } from "./worker-types";
 import { SchemaValidator } from "./validateModule";
+import { collectCustomValidateTargets } from "./customValidate";
 
 const ctx: DedicatedWorkerGlobalScope =
   self as unknown as DedicatedWorkerGlobalScope;
@@ -20,12 +21,23 @@ ctx.onmessage = (event: MessageEvent<ValidationWorkerRequest>) => {
       request.serializedSchema,
       request.schemaSha,
     );
+    // Off the main thread while we already have the module in hand. The main
+    // thread only EXECUTES the paths this finds.
+    const customValidate = request.collectCustomValidate
+      ? collectCustomValidateTargets(
+          request.moduleFilePath,
+          request.serializedSchema,
+          request.source,
+        )
+      : undefined;
     const response: ValidationWorkerResponse = {
       type: "result",
       id: request.id,
       moduleFilePath: request.moduleFilePath,
       schemaSha: request.schemaSha,
       errors,
+      customValidatePaths: customValidate?.paths,
+      customValidateNeedsJsonKeys: customValidate?.needsJsonKeys,
     };
     ctx.postMessage(response);
   } catch (error) {

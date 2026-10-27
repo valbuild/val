@@ -1,4 +1,3 @@
-import { FILE_REF_PROP, isFile } from "../source/file";
 import { result } from "../fp";
 import { Ops, PatchError } from "./ops";
 import { Patch } from "./patch";
@@ -59,7 +58,8 @@ export function derefPatch<D, E>(
         const maybeValue = ops.get(document, dereffedPath);
         if (result.isOk(maybeValue)) {
           const value = maybeValue.value;
-          if (isFile(value)) {
+          const mediaPath = mediaPathOf(value);
+          if (mediaPath !== null) {
             if (referencedPath.length > 0) {
               return result.err(
                 new PatchError(
@@ -78,7 +78,7 @@ export function derefPatch<D, E>(
                 ),
               );
             }
-            fileUpdates[value[FILE_REF_PROP]] = op.value;
+            fileUpdates[mediaPath] = op.value;
             // } else if (isRemote(value)) {
             //   if (!remotePatches[value[REMOTE_REF_PROP]]) {
             //     remotePatches[value[REMOTE_REF_PROP]] = [];
@@ -132,4 +132,19 @@ export function derefPatch<D, E>(
     fileUpdates,
     dereferencedPatch,
   });
+}
+
+/**
+ * The path of a media value, or null when it is not media.
+ *
+ * A `$` deref op names its target explicitly, so there is no schema in hand
+ * here — the shape is all there is to go on. Everywhere a schema IS available,
+ * media is recognised from it instead.
+ */
+function mediaPathOf(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const path = (value as { path?: unknown }).path;
+  return typeof path === "string" ? path : null;
 }

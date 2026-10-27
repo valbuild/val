@@ -4,39 +4,77 @@ import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as PrimitiveSelector } from "./primitive";
-import { FileSelector } from "./file";
 import { SourcePath } from "../val";
 import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
 import { Schema } from "../schema";
 import type { A } from "ts-toolbelt";
-import { FileSource } from "../source/file";
+import { MediaSource } from "../source/media";
 import { AllRichTextOptions, RichTextSource } from "../source/richtext";
-import { ImageSelector } from "./image";
 import { RichTextSelector } from "./richtext";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { JsonSource } from "../source/json";
+import { ExternalRecordSrc } from "../source/external";
+import { ValViewSource } from "../source/view";
+import { ValView } from "./view";
+import { SettingsSource } from "../source/settings";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
-  : T extends ImageSource
-    ? ImageSelector
-    : T extends FileSource<infer M>
-      ? FileSelector<M>
-      : T extends RichTextSource<infer O>
-        ? RichTextSelector<O>
-        : T extends SourceObject
-          ? ObjectSelector<T>
-          : T extends SourceArray
-            ? ArraySelector<T>
-            : T extends string
-              ? StringSelector<T>
-              : T extends number
-                ? NumberSelector<T>
-                : T extends boolean
-                  ? BooleanSelector<T>
-                  : T extends null
-                    ? PrimitiveSelector<null>
-                    : never;
+  : // Media is an ObjectSelector like any other object: `url` is generated at
+    // resolve time, not reachable through a selector. The arm exists because
+    // `SourceObject` cannot express optional properties, so media would
+    // otherwise fall through to `never`.
+    T extends MediaSource
+    ? GenericSelector<T>
+    : T extends JsonSource
+      ? GenericSelector<JsonSource>
+      : // An external record's entries are not reachable through a selector —
+        // they are fetched by key. The arm exists so the marker does not fall
+        // through to `SourceObject` and then to `never`, and it sits ABOVE
+        // `SourceObject` for the same reason the settings arm sits below it:
+        // the marker is structurally an object, so an arm any lower would never
+        // be reached.
+        //
+        // `GenericSelector<T>`, NOT `GenericSelector<ExternalRecordSrc>`: the
+        // marker's phantom parameters carry the item type, the label and the
+        // readonly flag, and widening here throws all three away — which leaves
+        // an adapter unable to be typed from the schema it is bound to.
+        T extends ExternalRecordSrc
+        ? GenericSelector<T>
+        : // A view is a POINTER at another module, so it has no selector of its
+          // own to traverse: `ValView<Target>` names what is behind it and exposes
+          // nothing. Above `SourceObject` for the same reason as the arm above —
+          // the marker is structurally an object — and safe to put there only
+          // because `view` is a reserved object key (`ObjectSchemaProps`), so no
+          // ordinary object source can take this shape.
+          T extends ValViewSource<string, infer Target>
+          ? ValView<Target>
+          : T extends RichTextSource<infer O>
+            ? RichTextSelector<O>
+            : T extends SourceObject
+              ? ObjectSelector<T>
+              : T extends SourceArray
+                ? ArraySelector<T>
+                : // Settings, like media, is an object whose keys are OPTIONAL, so
+                  // it never matched `SourceObject` and fell through to `never`.
+                  //
+                  // The arm has to sit BELOW `SourceObject`: every object type that
+                  // does not conflict on `assistant` structurally satisfies
+                  // `SettingsSource`,
+                  // so an arm above would swallow ordinary objects. A
+                  // `GenericSelector` rather than an `ObjectSelector` because a
+                  // settings module is read by the Studio and the assistant, not
+                  // traversed with selectors.
+                  T extends SettingsSource
+                  ? GenericSelector<T>
+                  : T extends string
+                    ? StringSelector<T>
+                    : T extends number
+                      ? NumberSelector<T>
+                      : T extends boolean
+                        ? BooleanSelector<T>
+                        : T extends null
+                          ? PrimitiveSelector<null>
+                          : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -45,9 +83,17 @@ export type SelectorSource =
   | {
       [key: string]: SelectorSource;
     }
-  | ImageSource
-  | FileSource
-  | RemoteSource
+  | MediaSource
+  | JsonSource
+  | ExternalRecordSrc
+  | ValViewSource
+  // The handle a `s.view()` field reads as. In the union because a reader
+  // ACCEPTS one — `useVal(page.header)` resolves it — and because keeping the
+  // readers' single type parameter bounded by `SelectorSource` is what stops
+  // `ResolvedVal` needing an extra conditional arm, which is one level more
+  // than the checker has left on the async readers.
+  | ValView<Source>
+  | SettingsSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 

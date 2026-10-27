@@ -1,0 +1,1982 @@
+import {
+  CSSProperties,
+  Fragment,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { PublishIndicator } from "../../publish/publishIndicatorView";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
+import { AIChatPanel } from "./AIChatPanel";
+import { DataPanel } from "./DataPanel";
+import { checkExternalUrls } from "./externalUrlChecks";
+import { toRows } from "./externalPageGroups";
+import { ShellPanelProvider } from "./shellPanelLink";
+import { EmptyEditorState, PageEditor } from "./EditorCanvas";
+import {
+  CanvasView,
+  PageWorkspace,
+  PageWorkspaceProps,
+  WorkspacePane,
+} from "./canvas/PageWorkspace";
+import { CanvasPageData, CanvasTransform } from "./canvas/types";
+import {
+  canvasModulesFromKey,
+  canvasModulesKey,
+  canvasShowsEditedContent,
+} from "./canvasPageScope";
+import {
+  GlobalSearch,
+  SearchResult,
+  collectSearchResults,
+  useGlobalSearchShortcut,
+} from "./GlobalSearch";
+import { LeftRail } from "./LeftRail";
+import { MediaPanel } from "./MediaPanel";
+import { MobileBottomBar } from "./MobileChrome";
+import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
+import { HeadingToolsProvider } from "./headingTools";
+import { LocaleFilter } from "./LocaleFilter";
+import { PendingChangesGate } from "./PendingChangesGate";
+import type { ChainProgress } from "../../utils/describePendingChangesStall";
+
+import { NotificationsPanel } from "./NotificationsPanel";
+import { ActivitySheet } from "./ActivitySheet";
+import { ChangesSheet } from "./ChangesSheet";
+import { ProposalSheet } from "../proposals/ProposalSheet";
+import { PagesPanel } from "./PagesPanel";
+import { AccountPanel } from "./AccountPanel";
+import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
+import { ShellAccountError } from "./AccountError";
+import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
+import {
+  ProjectName,
+  PublishButton,
+  PublishState,
+  PublishPlaceholder,
+  TopBar,
+  type TopBarProposals,
+} from "./TopBar";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
+import {
+  ProposalBuildButton,
+  ProposalPublishButton,
+  ProposalSaveButton,
+  nextProposalAction,
+} from "../proposals/ProposalBar";
+import { UtilityPanel } from "./UtilityPanel";
+import {
+  FloatingNotices,
+  FoldedNoticeChip,
+  type FloatingNoticeItem,
+} from "./FloatingNotices";
+import { availableDestinations } from "./shellDataMapping";
+import { StudioTour, TourActions, TourObserved } from "./StudioTour";
+import {
+  readTourCompleted,
+  studioTourSteps,
+  writeTourCompleted,
+  type TourRun,
+  type TourStep,
+} from "./tourSteps";
+import { servedPath } from "../../utils/mediaPath";
+import { useShellBreakpoint } from "./useShellBreakpoint";
+import {
+  ShellBreakpoint,
+  ShellChangeActivity,
+  ShellData,
+  ShellDataModule,
+  ShellDestination,
+  ShellExternalPage,
+  ShellMediaGallery,
+  ShellNotification,
+  ShellPanel,
+  ShellValidationError,
+} from "./types";
+
+/**
+ * What the gate reports when nobody supplied diagnostics.
+ *
+ * `statSeen: true` with nothing outstanding, so the report reads as "slow"
+ * rather than inventing a fault the caller never claimed.
+ */
+const noProgress = (): ChainProgress => ({
+  total: 0,
+  settled: 0,
+  unfetched: [],
+  unapplied: [],
+  failed: [],
+  statSeen: true,
+});
+
+/** What the editor canvas is currently showing. */
+export type ShellSelection = {
+  kind: "page" | "external" | "media" | "data";
+  id: string;
+  title: string;
+  /** What to show above the editor: a URL for a page, a directory for media. */
+  urlPath: string;
+  /**
+   * The content this selection opens.
+   *
+   * Comes from the navigation data rather than being derived from the id: only
+   * the provider knows which module a route resolves to, and guessing it is
+   * how a shell ends up opening a module that does not exist.
+   */
+  sourcePath: string;
+  hasDraft?: boolean;
+  /** True when Val resolves this route and can therefore put it on a canvas. */
+  isTracked?: boolean;
+};
+
+/** How many recent changes the search offers. See `recentSearchResults`. */
+const RECENT_SEARCH_LIMIT = 5;
+
+export type ShellProps = {
+  data: ShellData;
+  /** Panel to open on mount. */
+  initialPanel?: ShellPanel | null;
+  /** Item to select on mount, by id. Unknown ids show the empty state. */
+  initialSelectionId?: string | null;
+  /** Open the global search on mount. */
+  initialSearchOpen?: boolean;
+  /**
+   * Run the guided tour on mount.
+   *
+   * For stories and tests. Nothing in the app passes it: the tour is started
+   * by a person pressing a button, never by the Studio opening — see
+   * `TourLauncher`.
+   */
+  initialTourOpen?: boolean;
+  /**
+   * Whether this PROJECT offers the tour — `studio.tour` in `s.settings()`.
+   *
+   * Defaults to true, which is also what an unset setting means: the person the
+   * tour exists for is the one who has not answered any question yet. False
+   * takes the prompt away for everyone on the project; the tour itself stays in
+   * Quick actions, so there is no way to make it unreachable by accident.
+   *
+   * A prop rather than a hook, like `theme` and `autoSave` beside it: the shell
+   * is the presentational half, and everything that decides how it behaves
+   * arrives the same way.
+   */
+  tourEnabled?: boolean;
+  /**
+   * The tour's stops, when they are not the Studio's own: the demo's tour
+   * (`demoTourSteps`), which is written for someone with no project yet. Given
+   * the same project facts `studioTourSteps` is.
+   */
+  buildTourSteps?: (project: {
+    destinations: readonly ShellDestination[];
+  }) => TourStep[];
+  /**
+   * Open the tour once, as soon as it can be started -- the demo, where the
+   * tour is how a first visit begins, or a link names one (`?tour=`). Waits
+   * for the navigation to load, for the reason `canStartTour` gives. A
+   * `TourRun` is that tour rather than the usual one.
+   */
+  autoStartTour?: boolean | TourRun;
+  /** How the tour looks. See `StudioTourProps.look`; the demo's is `ring`. */
+  tourLook?: "spotlight" | "ring";
+  /**
+   * Outline a place on the page for the tour (a step's `page`). The canvas is
+   * the caller's (`renderCanvas`), so the outline is too.
+   */
+  onTourHighlightPage?: (path: SourcePath | null) => void;
+  /**
+   * Write a value at a path, for a step's "Do it for me". Absent: no step
+   * offers to make an edit for the visitor.
+   */
+  onTourWrite?: (path: SourcePath, value: JSONValue, add: boolean) => void;
+  /** Add a page, for a step's "Do it for me". Absent: no step offers to. */
+  onTourAddPage?: (path: SourcePath) => void;
+  /** Called when the tour is left, finished or not. */
+  onTourClose?: () => void;
+  /**
+   * The demo's card, given the way to start the tour -- the usual one, or a
+   * `TourRun` of its own: one of the demo script's. See `DemoBanner`. A slot,
+   * like `publishSlot`: what the demo is lives outside the shell.
+   */
+  renderDemoBanner?: (startTour: (run?: TourRun) => void) => ReactNode;
+  theme: "dark" | "light";
+  /**
+   * The project's theme, as CSS custom properties — see `ValThemeProvider`.
+   *
+   * A prop rather than a `useTheme()` call, so that a story can set an accent:
+   * the shell is the presentational half, and every other thing that decides
+   * how it looks arrives the same way.
+   */
+  themeStyle?: CSSProperties;
+  onThemeChange: (theme: "dark" | "light") => void;
+  /** How Val is running. See `StatusBarProps`. */
+  mode?: StatusBarProps["mode"];
+  saveState?: SaveState;
+  /**
+   * Whether changes are written to the working tree on a pause in typing.
+   *
+   * A prop, like `saveState`, rather than state this component owns: the
+   * setting is `fs`-mode-only, persisted, and shared with the Save button that
+   * disables itself while it is on. A local
+   * `useState` here — which is what this was — put a checkbox on screen that
+   * showed `true`, changed nothing when clicked, and disagreed with the real
+   * setting, whose default is `false`.
+   */
+  autoSave?: boolean;
+  /**
+   * Absent hides Auto save: the demo, whose server has nowhere to write. An
+   * auto save there would be a publish that cannot happen.
+   */
+  onAutoSaveChange?: (autoSave: boolean) => void;
+  /**
+   * Show source paths beside fields.
+   *
+   * A prop, not state, and no longer a setting. It used to be a "Dev mode"
+   * toggle in the settings panel, which did nothing in the Studio: its only
+   * consumers are `PageEditor` and `FieldsPanel`, and the app mounts neither —
+   * `ValShell` always passes `renderEditor`, and never passes a `page`. So the
+   * toggle changed a flag nothing downstream could see. It stays as a prop
+   * because Storybook DOES reach those components and uses it there.
+   */
+  isDevMode?: boolean;
+  /** Number of changes Publish would ship. */
+  pendingChanges?: number;
+  /**
+   * The number on Review's badge — see `TopBarProps`. Defaults to
+   * `pendingChanges`, which is the right answer whenever nothing is reverted.
+   */
+  reviewCount?: number;
+  publishState?: PublishState;
+  /**
+   * Whether the site is still on its way to what was published, by anyone:
+   * the status bar's indicator. See `publishIndicator`.
+   */
+  publishIndicator?: PublishIndicator;
+  /** Show placeholder rows in the nav panels instead of content. */
+  isLoading?: boolean;
+  /** Show a load failure in the nav panels instead of content. */
+  loadError?: string;
+  /** Open the deployments list on mount, as a publish would. */
+  initialDeploymentsOpen?: boolean;
+  /**
+   * The page to put on the canvas.
+   *
+   * One page rather than a lookup, because the canvas is fed by the running
+   * site reporting what is on the route it is currently showing — not by
+   * something the shell can know up front.
+   */
+  canvasPage?: CanvasPageData;
+  /**
+   * What to put on the canvas, at the size the device switch asks for.
+   *
+   * The app passes the running site; Storybook passes nothing and the demo
+   * page is built from `canvasPage` instead. Either is enough to offer the
+   * canvas — the fields view needs `canvasPage` specifically, because it is a
+   * list of what Val found on the page.
+   */
+  renderCanvas?: PageWorkspaceProps["renderCanvas"];
+  /** What the running page reported finding on itself. See `PageWorkspace`. */
+  canvasPaths?: PageWorkspaceProps["canvasPaths"];
+  onSelectCanvasPath?: PageWorkspaceProps["onSelectCanvasPath"];
+  selectedCanvasPath?: PageWorkspaceProps["selectedCanvasPath"];
+  /** The canvas's address bar. See `PageWorkspaceProps`. */
+  canvasRoute?: PageWorkspaceProps["canvasRoute"];
+  onCanvasRouteChange?: PageWorkspaceProps["onCanvasRouteChange"];
+  canvasRoutes?: PageWorkspaceProps["canvasRoutes"];
+  /** Where a link left the canvas looking. See `PageWorkspaceProps`. */
+  initialCanvasTransform?: PageWorkspaceProps["initialTransform"];
+  /**
+   * Reported whenever the view state changes, so it can be put in the URL.
+   *
+   * One callback for all of it rather than one per thing, because they are one
+   * answer to one question — where am I looking — and a link that carries half
+   * of it restores the wrong view.
+   */
+  onViewStateChange?: (state: {
+    panel: ShellPanel | null;
+    canvasOpen: boolean;
+    canvasView: CanvasView;
+    canvasTransform: CanvasTransform | null;
+  }) => void;
+  /**
+   * The project's languages, for the locale filter.
+   *
+   * Undefined or empty hides the filter entirely — see `LocaleFilter`. Passed
+   * in rather than read here for the same reason everything else is: the shell
+   * is drawn in Storybook without the Val providers.
+   */
+  locales?: string[];
+  /**
+   * The language being shown, or `null` for all of them.
+   *
+   * Controlled, unlike the panel and the canvas: the filter has to reach the
+   * FIELDS, which the shell renders through `renderEditor` and does not own. So
+   * whoever owns the editor owns this, and puts it in a context the fields can
+   * read — see `LocaleFilterProvider`.
+   */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
+  /** Open the canvas on mount. */
+  initialCanvasOpen?: boolean;
+  initialCanvasView?: CanvasView;
+  /**
+   * A view state to ADOPT, from outside. The back button, and nothing else.
+   *
+   * The shell owns this state after mount — see `onViewStateChange` — so it
+   * cannot be handed the URL's version on every render without fighting the user
+   * every time they move something. `epoch` is what makes this a command rather
+   * than a value: it changes only when something outside deliberately says
+   * "you are here now", which today means a `popstate`.
+   *
+   * Without it, pushing a history entry for the canvas would put the URL back
+   * and leave the screen where it was — a back button that appears to do
+   * nothing, which is worse than one that does nothing.
+   */
+  restoreViewState?: {
+    epoch: number;
+    panel: ShellPanel | null;
+    canvasOpen: boolean;
+    canvasView: CanvasView;
+  };
+  /** Skips the canvas entrance transition — for screenshots and for tests. */
+  skipTransition?: boolean;
+  /**
+   * The selected item, by id, when something outside the shell owns the
+   * selection — in the app that is the router, which has to stay the single
+   * source of truth so a reload lands where you were. Leave it undefined and
+   * the shell keeps the selection itself, which is what Storybook does.
+   */
+  selectionId?: string | null;
+  /** Called whenever something is picked, in either mode. */
+  onSelectionChange?: (selection: ShellSelection) => void;
+  /**
+   * The editor for the selected item. Defaults to a representative stand-in so
+   * the layout can be exercised without the Val providers; the app passes the
+   * real field editor.
+   */
+  renderEditor?: (selection: ShellSelection) => ReactNode;
+  /**
+   * The settings panel's sections, connected to the store.
+   *
+   * A slot for the same reason `renderEditor` is one: a section edits content,
+   * and the shell is presentational. Absent — in Storybook, or in a project
+   * with no settings module — and the panel explains how to add one.
+   */
+  renderSettings?: () => ReactNode;
+  /**
+   * The external pages dialog, connected to the store.
+   *
+   * A render prop, and called only while the dialog is open — which is the
+   * point. Reading what is behind every external URL and who links to it means
+   * an index over the whole project (`useRouteReferenceIndex`), and nothing
+   * should build that for a Studio nobody has opened this dialog in. The shell
+   * owns the open state; the app owns the data.
+   *
+   * Absent — in Storybook, or in a project with no external router — and the
+   * Pages panel has no external pages button.
+   */
+  renderExternalPages?: (props: {
+    close: () => void;
+    /**
+     * Open one URL's entry in the editor.
+     *
+     * Handed down rather than done by the app, because selection is the
+     * shell's: it owns which row is current and what the editor column shows.
+     * Opening one of the PLACES a URL is linked from is the app's — that is a
+     * field inside a module, deeper than any navigation row, and the same
+     * reason `onOpenSearchResult` exists.
+     */
+    onSelectExternalPage: (page: ShellExternalPage) => void;
+    /** The shell is what knows it — see `renderHistory`. */
+    breakpoint: ShellBreakpoint;
+  }) => ReactNode;
+  /**
+   * Something to show in the editor column instead of the selection's editor.
+   *
+   * The compare and errors views are not items: they take the whole column and
+   * have no row in the navigation to be selected. They are still *in* the
+   * column rather than replacing the shell, so the chrome around them keeps
+   * working — you can publish from the compare view, which is the point of it.
+   */
+  editorOverride?: ReactNode;
+  /**
+   * Something the studio has to tell the editor before they start, above the
+   * editor column: `RemoteFilesCard`, today. In the column rather than over the
+   * chrome, so it never covers the top bar or Publish.
+   */
+  notice?: ReactNode;
+  /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
+  statusNotice?: ReactNode;
+  /**
+   * Notices about where the Studio is -- an upgrade proposal, a published
+   * one, an upgrade under way -- popping up from below, above the status bar,
+   * until dismissed; a dismissed one folds into the status bar and comes back
+   * from there. See `FloatingNotices`. On a phone, with no room to float
+   * anything over, they sit above the editor like `notice`.
+   */
+  floatingNotices?: FloatingNoticeItem[];
+  /** Floating notices dismissed from the start, by id. For stories. */
+  initialDismissedNotices?: string[];
+  /**
+   * The plan's status -- a Hosted trial's days and publishes, a Free
+   * project's changes left -- where it fits: the top bar on a desktop, above
+   * the editor below that, where the bar has no room. A render prop because
+   * the shell is what knows the breakpoint. See `PlanStatusBar`.
+   */
+  renderPlanStatus?: (placement: "top-bar" | "column") => ReactNode;
+  /**
+   * The past, beside the editor.
+   *
+   * A render prop rather than a node, because the shell is what knows the
+   * breakpoint - and on a phone the two panes become one pane and a toggle
+   * rather than two columns.
+   */
+  renderHistory?: (
+    editor: ReactNode,
+    breakpoint: "mobile" | "tablet" | "desktop",
+  ) => ReactNode;
+  onPublish?: () => void;
+  /**
+   * The real publish control, when there is one. See `TopBarProps` — the app
+   * passes the existing control so the publish rules live in one place.
+   */
+  publishSlot?: ReactNode;
+  onPreview?: () => void;
+  /**
+   * The preview URL, when the shell can name one.
+   *
+   * Makes "Open in a new tab" a real link rather than a `window.open` call, so
+   * it can be middle-clicked and — the point — copied. The link enables preview
+   * for whoever opens it, which is what makes it worth sending to someone.
+   */
+  previewHref?: string;
+  onSignOut?: () => void;
+  /**
+   * Why the account could not be loaded, once the studio has stopped trying.
+   *
+   * Not part of `data`: `data` is the project's content, and this is the state
+   * of one request the app made. It marks the account button and explains
+   * itself inside the panel that button opens.
+   */
+  accountError?: ShellAccountError;
+  /**
+   * Whether this project has an assistant at all.
+   *
+   * Absent means it does not, and every way into one is hidden: the top bar
+   * button, the quick action, the canvas field menu's Attach to chat, and the
+   * panel itself — including when a restored URL asks for it. Same rule the
+   * rail follows for a destination with no content behind it: an affordance
+   * that can only report that there is nothing there is worse than no
+   * affordance.
+   */
+  aiEnabled?: boolean;
+  /**
+   * Proposals, for a project that has them: the switcher in the top bar, and
+   * in a proposal the controls in Publish's place. See `TopBarProposals`.
+   */
+  proposals?: TopBarProposals;
+  /**
+   * The assistant, rendered inside the assistant panel.
+   *
+   * A slot, like `publishSlot`, and for the same reason: the shell is
+   * presentational and the assistant is not — it holds a socket, a conversation
+   * and the client-side implementation of every tool the model can call. Absent
+   * (a story, a preview) means the panel says there is no assistant configured
+   * rather than offering a composer with nothing behind it.
+   */
+  aiSlot?: ReactNode;
+  /**
+   * Whether this project HAS a published history, which decides whether the
+   * top bar offers the button at all.
+   *
+   * False in FS mode: local dev has git rather than a commit archive, and
+   * `/history/commits` answers `not-supported-in-fs-mode`. A button that can
+   * only open an apology is worse than no button.
+   *
+   * There is no `historySlot` any more. The list of publishes used to be a
+   * floating panel here and is now a page of its own — see
+   * `VAL_HISTORY_ROUTE` — so what the shell needs is permission to show a
+   * button and somewhere to send it, not the list itself.
+   */
+  historyEnabled?: boolean;
+  /** Whether that page is the one currently on screen. */
+  historyActive?: boolean;
+  /** Go to it. */
+  onOpenHistory?: () => void;
+  /** See `TopBar`'s `onOpenValidate`. */
+  onOpenValidate?: () => void;
+  /** See `TopBar`'s `upgrade`; on a phone, a row in the account sheet. */
+  upgrade?: UpgradeButton;
+  validateActive?: boolean;
+  validateCount?: number;
+  /**
+   * Mention a source path in the assistant. From the canvas's field menu.
+   *
+   * The shell cannot do this itself: inserting a reference means reaching into
+   * the chat editor, which lives behind `aiSlot`. Absent means the canvas's
+   * "Attach to chat" still opens the assistant, and adds nothing to it.
+   */
+  onMentionField?: (sourcePath: string) => void;
+  /**
+   * Whether the server's pending changes have been applied yet.
+   *
+   * Absent means yes, which is what a story or a preview wants. The shell holds
+   * WRITING to the fields — dimmed, readonly, still navigable — while this is
+   * false: see `PendingChangesGate` for why showing an editable field that is
+   * about to change under the editor is worse than showing nothing.
+   */
+  pendingChangesLoaded?: boolean;
+  /**
+   * What is outstanding, for the report shown if the wait never ends.
+   *
+   * Absent means the shell has no diagnostics to offer, which is right for a
+   * story: it then reports the wait itself and nothing about its cause.
+   */
+  pendingChangesProgress?: () => ChainProgress;
+  /** The last error from fetching patches, for that same report. */
+  pendingChangesError?: string | null;
+  onSelectValidationError?: (error: ShellValidationError) => void;
+  /** Open a change row's field. Publishes are not selectable — see `UtilityPanelProps`. */
+  onSelectActivity?: (entry: ShellChangeActivity) => void;
+  /** Create a page under a route. See `PagesPanelProps`. */
+  onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
+  /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
+  onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
+  /** Move a page to another URL under the same route. See `PagesPanelProps`. */
+  onRenamePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
+  onUploadMedia?: (gallery: ShellMediaGallery) => void;
+  /** Open the review view. Offered from the top bar and the quick actions. */
+  onCompare?: () => void;
+  /** Throw away every pending change. See `UtilityPanelProps`. */
+  onDiscardAll?: () => void;
+  /** What that confirm says will be lost. See `UtilityPanelProps`. */
+  discardAllDescription?: string;
+  /** Where popups portal to — a node inside the shadow root. See `UtilityPanelProps`. */
+  portalContainer?: HTMLElement | null;
+  /** A thumbnail URL for a media file. See `MediaPanelProps`. */
+  getMediaFileUrl?: (ref: string) => string | null;
+  /** Content matches for the current query. See `GlobalSearchProps`. */
+  searchContentResults?: SearchResult[];
+  isSearchingContent?: boolean;
+  onSearchQueryChange?: (query: string) => void;
+  /**
+   * Open a search result the shell cannot resolve to a row.
+   *
+   * A content hit points at a field inside a module, which is deeper than any
+   * navigation row, so only the app can open it.
+   */
+  onOpenSearchResult?: (result: SearchResult) => void;
+};
+
+/**
+ * The Val shell: a floating layout around a fixed-width editor.
+ *
+ * The rail, bars and panels all float above the canvas, so the thing being
+ * edited keeps its position and width no matter what chrome is open. State
+ * lives here rather than in the individual pieces, which stay
+ * presentational.
+ */
+const NO_FLOATING_NOTICES: FloatingNoticeItem[] = [];
+
+export function Shell({
+  data,
+  initialPanel = null,
+  initialSelectionId = null,
+  initialSearchOpen = false,
+  initialTourOpen = false,
+  tourEnabled = true,
+  buildTourSteps,
+  autoStartTour = false,
+  tourLook,
+  onTourHighlightPage,
+  onTourWrite,
+  onTourAddPage,
+  onTourClose,
+  renderDemoBanner,
+  theme,
+  themeStyle,
+  onThemeChange,
+  mode,
+  saveState = "saved",
+  autoSave = false,
+  onAutoSaveChange,
+  isDevMode = true,
+  pendingChanges = 12,
+  reviewCount,
+  publishState = "idle",
+  publishIndicator,
+  isLoading = false,
+  loadError,
+  initialDeploymentsOpen = false,
+  canvasPage,
+  renderCanvas,
+  canvasPaths,
+  onSelectCanvasPath,
+  selectedCanvasPath,
+  canvasRoute,
+  onCanvasRouteChange,
+  canvasRoutes,
+  initialCanvasTransform,
+  onViewStateChange,
+  initialCanvasOpen = false,
+  initialCanvasView = "normal",
+  locales,
+  locale = null,
+  onLocaleChange,
+  restoreViewState,
+  skipTransition,
+  selectionId,
+  onSelectionChange,
+  renderEditor,
+  renderSettings,
+  renderExternalPages,
+  editorOverride,
+  notice,
+  statusNotice,
+  floatingNotices = NO_FLOATING_NOTICES,
+  initialDismissedNotices,
+  renderPlanStatus,
+  renderHistory,
+  onPublish,
+  publishSlot,
+  onPreview,
+  previewHref,
+  onSignOut,
+  accountError,
+  aiEnabled = false,
+  proposals,
+  aiSlot,
+  historyEnabled = false,
+  historyActive = false,
+  onOpenHistory,
+  onOpenValidate,
+  upgrade,
+  validateActive,
+  validateCount,
+  onMentionField,
+  pendingChangesLoaded = true,
+  pendingChangesProgress,
+  pendingChangesError = null,
+  onSelectValidationError,
+  onSelectActivity,
+  onNewPage,
+  onDuplicatePage,
+  onRenamePage,
+  onUploadMedia,
+  onCompare,
+  onDiscardAll,
+  discardAllDescription,
+  portalContainer,
+  getMediaFileUrl,
+  searchContentResults,
+  isSearchingContent,
+  onSearchQueryChange,
+  onOpenSearchResult,
+}: ShellProps) {
+  const breakpoint = useShellBreakpoint();
+  const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
+  /*
+   * Dismissed floating notices, by id. In memory: a reload shows them again,
+   * which is what a reload is for, and a notice with new words has a new id.
+   */
+  const [dismissedNotices, setDismissedNotices] = useState<ReadonlySet<string>>(
+    () => new Set(initialDismissedNotices),
+  );
+  const openNotices = floatingNotices.filter(
+    (each) => !dismissedNotices.has(each.id),
+  );
+  const foldedNotices = floatingNotices.filter((each) =>
+    dismissedNotices.has(each.id),
+  );
+  const toggleNotice = (id: string, dismissed: boolean) =>
+    setDismissedNotices((current) => {
+      const next = new Set(current);
+      if (dismissed) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const [notifications, setNotifications] = useState<ShellNotification[]>(
+    data.notifications ?? [],
+  );
+  const isControlled = selectionId !== undefined;
+  const [internalSelection, setInternalSelection] =
+    useState<ShellSelection | null>(() =>
+      initialSelectionId ? findShellSelection(data, initialSelectionId) : null,
+    );
+  // In controlled mode the selection is a function of the id and the data, so
+  // it follows both: navigation changes the id, and a reload that fills the
+  // navigation in resolves an id that could not be resolved on mount.
+  const controlledSelection = useMemo(
+    () => (selectionId ? findShellSelection(data, selectionId) : null),
+    [selectionId, data],
+  );
+  const selection = isControlled ? controlledSelection : internalSelection;
+  const [isExternalPagesOpen, setIsExternalPagesOpen] = useState(false);
+  /**
+   * How many external URLs want looking at, for the button's badge.
+   *
+   * Computed here rather than passed in because the shape checks are pure and
+   * cheap — they read the URLs and nothing else — and because the button has to
+   * say something about what is behind it before anyone opens it. The
+   * reachability half is not here: that needs the network, and it only runs
+   * when someone presses Check.
+   */
+  const externalIssueCount = useMemo(() => {
+    // Through `toRows`, so this counts exactly what the dialog's own badges,
+    // Flagged filter and totals count. Counting the URL checks alone here put
+    // a red badge on a row whose entry does not validate while the footer said
+    // there was nothing to look at.
+    const issues = checkExternalUrls(
+      data.externalPages.map((p) => p.url),
+      // The project's own policy, the same one the dialog applies. Counting
+      // with the wide default under a router narrowed to `https` said there
+      // was nothing to look at over a dialog full of flagged `mailto:` rows.
+      data.externalSchemes ? { schemes: data.externalSchemes } : {},
+    );
+    return toRows(data.externalPages, issues).filter(
+      (row) => row.status !== "ok",
+    ).length;
+  }, [data.externalPages, data.externalSchemes]);
+  const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
+  const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
+  const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
+  /**
+   * Which pane a phone is looking at. Meaningless at any other breakpoint,
+   * where the editor and the canvas are both on screen at once.
+   *
+   * Here rather than inside the workspace because the Preview button is here,
+   * and on a phone that button is the main way between the two: opening the
+   * canvas takes you to the page, and pressing it again brings you back — see
+   * `togglePreview`. Owned by the workspace, the button would have had to reach
+   * into it, or the two would have kept separate ideas of where you were.
+   *
+   * Starts on the canvas when a link says the canvas is open, for the same
+   * reason a click on Preview goes there: an opened canvas you are not looking
+   * at is an odd thing to be given.
+   */
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>(
+    initialCanvasOpen ? "canvas" : "editor",
+  );
+  // The canvas's own position, kept here only so it can be reported outward
+  // with the rest of the view state — the canvas owns it.
+  const [canvasTransform, setCanvasTransform] =
+    useState<CanvasTransform | null>(initialCanvasTransform ?? null);
+  /**
+   * Adopt a state the history says we are in. Keyed on the epoch alone: the
+   * values are what to become, and re-running on them would make this a
+   * controlled prop.
+   */
+  const restoreEpoch = restoreViewState?.epoch;
+  const restoreRef = useRef(restoreViewState);
+  restoreRef.current = restoreViewState;
+  useEffect(() => {
+    const restore = restoreRef.current;
+    if (restore === undefined) return;
+    setOpenPanel(restore.panel);
+    setIsCanvasOpen(restore.canvasOpen);
+    setCanvasView(restore.canvasView);
+    // The pane is not in the URL — it is which of two things a phone happens to
+    // be showing, not where you are — so it follows the canvas the same way a
+    // fresh load does.
+    setWorkspacePane(restore.canvasOpen ? "canvas" : "editor");
+  }, [restoreEpoch]);
+  useEffect(() => {
+    onViewStateChange?.({
+      panel: openPanel,
+      canvasOpen: isCanvasOpen,
+      canvasView,
+      canvasTransform,
+    });
+  }, [onViewStateChange, openPanel, isCanvasOpen, canvasView, canvasTransform]);
+  const [deploymentsOpen, setDeploymentsOpen] = useState(
+    initialDeploymentsOpen,
+  );
+  /*
+   * The feed as it comes, unfiltered.
+   *
+   * The shell used to hold a set of dismissed commit shas and subtract it from
+   * the feed. That control existed for a list that grew - the client
+   * accumulated every deployment a session had ever seen - and the feed is the
+   * last few publishes now, oldest falling off the end on their own. See
+   * `mergeCommitsAndDeployments` and `toDeployments`.
+   *
+   * It never opens itself. It used to, when a commit it had not seen arrived,
+   * which made it a second announcement of every publish beside the toast and
+   * the summary. The status bar's indicator spins while a publish is on its
+   * way; the list is where you look for the detail.
+   */
+  const deployments = data.deployments;
+  const studioIsDeployer = data.studioIsDeployer ?? false;
+  const openSearch = useCallback(() => setIsSearchOpen(true), []);
+  useGlobalSearchShortcut(openSearch);
+  const searchResults = useMemo(() => collectSearchResults(data), [data]);
+  /**
+   * The last few things that changed, as search rows.
+   *
+   * From the activity feed, which is the patch sets — already newest first and
+   * already grouped by the thing that changed. Five, because this is a "take me
+   * back" list rather than a history: past that it stops being a shortcut and
+   * starts being something to read.
+   *
+   * Changes only: the feed also carries publishes, and a search result is a
+   * thing to open. Filtered BEFORE the slice, so a busy publishing afternoon
+   * does not leave the recent list short.
+   */
+  const recentSearchResults = useMemo(
+    (): SearchResult[] =>
+      (data.activity ?? [])
+        .filter((entry) => entry.kind === "change")
+        .slice(0, RECENT_SEARCH_LIMIT)
+        .map((entry) => ({
+          id: entry.sourcePath,
+          kind: "recent",
+          label: entry.title,
+          detail: entry.author
+            ? `${entry.timestamp} · ${entry.author}`
+            : entry.timestamp,
+        })),
+    [data.activity],
+  );
+
+  /** See `availableDestinations`. */
+  const destinations = useMemo(
+    () => availableDestinations(data, isLoading),
+    [isLoading, data],
+  );
+
+  const [isTourOpen, setIsTourOpen] = useState(initialTourOpen);
+  /**
+   * Whether this browser has already been through the tour.
+   *
+   * Read once, on mount: it is a per-browser fact rather than shared state, so
+   * nothing else can change it underneath us, and reading storage on every
+   * render to find out the answer is still the same is not worth a try/catch
+   * per frame. Whether the tour is offered at all is `tourEnabled`, which is
+   * the PROJECT's answer and arrives as a prop.
+   */
+  const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
+  /** The tour that is open, when it is not the usual one. See `TourRun`. */
+  const [tourRun, setTourRun] = useState<TourRun | null>(null);
+  const startTour = useCallback((run?: TourRun) => {
+    run?.onStart?.();
+    setTourRun(run ?? null);
+    setIsTourOpen(true);
+  }, []);
+  /**
+   * The tour opening a panel. Stable, because the tour re-runs it whenever the
+   * step changes and an identity that changed every render would reopen the
+   * panel on every keystroke elsewhere in the shell.
+   */
+  const openPanelForTour = useCallback(
+    (panel: ShellPanel | null | undefined) => setOpenPanel(panel ?? null),
+    [],
+  );
+  /**
+   * Leaving the tour, however it was left.
+   *
+   * Finishing it and abandoning it both count as done, because what this flag
+   * decides is whether to GLOW at someone — and having already said no once is
+   * the clearest possible answer to that. The tour never becomes unreachable:
+   * Quick actions and the Account panel both keep it.
+   */
+  const closeTour = useCallback(() => {
+    setIsTourOpen(false);
+    setTourCompleted(true);
+    writeTourCompleted(true);
+    onTourClose?.();
+  }, [onTourClose]);
+  /** What a step that moves on by itself watches. See `TourObserved`. */
+  const tourObserved = useMemo<TourObserved>(
+    () => ({
+      selectedPath: selectedCanvasPath ?? null,
+      reviewCount: reviewCount ?? 0,
+      openPanel,
+      locale: locale ?? null,
+    }),
+    [selectedCanvasPath, reviewCount, openPanel, locale],
+  );
+  /** "Do it for me": the same calls the visitor's own clicks make. */
+  const tourActions = useMemo<TourActions>(
+    () => ({
+      ...(onSelectCanvasPath
+        ? {
+            openPath: (path: SourcePath) => {
+              onSelectCanvasPath(path);
+              // As a tap on the page does (`onPicked`): on a phone the field
+              // is in the other pane, and opening it without going there
+              // leaves the visitor looking at the page it was opened from.
+              if (breakpoint === "mobile") setWorkspacePane("editor");
+            },
+          }
+        : {}),
+      ...(onTourWrite ? { write: onTourWrite } : {}),
+      ...(onTourAddPage ? { addPage: onTourAddPage } : {}),
+      ...(onLocaleChange && locales && locales.length > 0
+        ? {
+            nextLocale: () => {
+              // All languages, then each in turn, as the filter offers them.
+              const order: (string | null)[] = [null, ...locales];
+              const at = order.indexOf(locale ?? null);
+              onLocaleChange(order[(at + 1) % order.length] ?? null);
+            },
+          }
+        : {}),
+    }),
+    [
+      onSelectCanvasPath,
+      breakpoint,
+      onTourWrite,
+      onTourAddPage,
+      onLocaleChange,
+      locales,
+      locale,
+    ],
+  );
+  const tourSteps = useMemo(
+    () =>
+      buildTourSteps
+        ? buildTourSteps({ destinations })
+        : studioTourSteps({ destinations, mode: mode ?? "unknown", aiEnabled }),
+    [buildTourSteps, destinations, mode, aiEnabled],
+  );
+  /**
+   * Whether the tour can be STARTED at all right now.
+   *
+   * Not while the navigation is loading, and this is not caution: the steps are
+   * built from `destinations`, and `availableDestinations` deliberately offers
+   * all three while `isLoading` so the rail does not grow icons as data
+   * arrives. A tour started in that window is a tour of Pages and Media for a
+   * project that turns out to have neither — and the list then SHRINKS under
+   * the open tour, which is the stuck state `stepIndex` clamps for.
+   */
+  const canStartTour = !isLoading;
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStartTour || autoStarted.current || !canStartTour) return;
+    autoStarted.current = true;
+    startTour(autoStartTour === true ? undefined : autoStartTour);
+  }, [autoStartTour, canStartTour, startTour]);
+  /**
+   * Whether to offer it — the glow, and the button on the empty editor.
+   *
+   * `tourEnabled` is the project's answer (`studio.tour`), and false means
+   * nobody is prompted. Quick actions keeps the tour either way, which is what
+   * makes switching the offer off safe rather than destructive.
+   */
+  const showTourPrompt =
+    tourEnabled && !tourCompleted && !isTourOpen && canStartTour;
+  /**
+   * Opening a panel from deep inside the shell — a row in the publish diff
+   * linking to Settings, say. The URL is read once on mount, so an in-app link
+   * cannot go through it; see `shellPanelLink`.
+   */
+  const openPanelFromLink = useCallback((panel: ShellPanel) => {
+    setOpenPanel(panel);
+  }, []);
+  // A panel for a destination this project does not have cannot be opened, and
+  // a link that asks for one lands on the editor rather than on an empty panel.
+  useEffect(() => {
+    if (
+      openPanel !== null &&
+      (openPanel === "pages" ||
+        openPanel === "media" ||
+        openPanel === "settings" ||
+        openPanel === "data") &&
+      !destinations.includes(openPanel)
+    ) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, destinations]);
+  // Same rule for the assistant, which is not a destination but is just as
+  // absent: a `?panel=ai` link into a project without one would otherwise
+  // restore an empty panel that nothing can fill.
+  useEffect(() => {
+    if (openPanel === "ai" && !aiEnabled) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, aiEnabled]);
+  // The phone's own sheets. Above a phone the switcher, the proposal's menu and
+  // the top bar's buttons are those things, so a sheet left open across a
+  // resize - or restored from a link - would be a second copy of them.
+  useEffect(() => {
+    if (
+      (openPanel === "proposals" || openPanel === "changes") &&
+      breakpoint !== "mobile"
+    ) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, breakpoint]);
+
+  const validationErrorCount = useMemo(
+    () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
+    [data.validationErrors],
+  );
+  const unreadNotifications = useMemo(
+    () => notifications.filter((n) => n.unread).length,
+    [notifications],
+  );
+  const markNotificationRead = useCallback(
+    (notification: ShellNotification) =>
+      setNotifications((current) =>
+        current.map((n) =>
+          n.id === notification.id ? { ...n, unread: false } : n,
+        ),
+      ),
+    [],
+  );
+  const markAllNotificationsRead = useCallback(
+    () =>
+      setNotifications((current) =>
+        current.map((n) => ({ ...n, unread: false })),
+      ),
+    [],
+  );
+
+  /**
+   * Whether the canvas is on offer.
+   *
+   * Wherever there is something to put on it, and nothing about the selection.
+   * The canvas is a browser pointed at a URL: it does not need a page selected
+   * any more than a browser needs one, and with the route bar it can be pointed
+   * anywhere. Gating it on the selection meant a project of pure content files
+   * could never see its own site, and that editing a settings module — which is
+   * exactly when you want to watch a page react — closed the canvas.
+   *
+   * What a page selection adds is a starting URL and the content on it; both of
+   * those degrade on their own, to `/` and to an empty fields view.
+   */
+  const canCanvas = renderCanvas !== undefined || canvasPage !== undefined;
+  /**
+   * What the Preview button does.
+   *
+   * Beside the editor it is a toggle, because the canvas is a region that is
+   * either there or not. On a phone it is not: the canvas is the pane next to
+   * the editor, and the button is how you get between them — the first press
+   * opens the page and goes to it, and every press after that swaps, so the
+   * loop is press, look, press, edit, press, look. Leaving is a separate act,
+   * with its own X on the workspace strip, because on a phone "take me back to
+   * the fields" and "I am done with this page" are not the same intention and
+   * were the same button.
+   */
+  const togglePreview = useCallback(() => {
+    if (breakpoint !== "mobile") {
+      setIsCanvasOpen((open) => !open);
+      return;
+    }
+    if (!isCanvasOpen) {
+      setIsCanvasOpen(true);
+      setWorkspacePane("canvas");
+      return;
+    }
+    setWorkspacePane((pane) => (pane === "canvas" ? "editor" : "canvas"));
+  }, [breakpoint, isCanvasOpen]);
+  // Closing puts the module editor back, so the way out lands where the way
+  // in started rather than on whichever view you happened to end on.
+  const closeCanvas = useCallback(() => {
+    setIsCanvasOpen(false);
+    setCanvasView("normal");
+    setWorkspacePane("editor");
+  }, []);
+  // Picking a field on the canvas mentions it in the assistant. It is the same
+  // act as the mention button on a field in the editor, so it goes through the
+  // same seam — which also means it opens the assistant rather than silently
+  // arming it, and that the reference survives the panel not being open yet.
+  const attachToChat = useCallback(
+    (sourcePath: string) => {
+      setOpenPanel("ai");
+      onMentionField?.(sourcePath);
+    },
+    [onMentionField],
+  );
+
+  /**
+   * What the canvas page is made of, and what the editor is on.
+   *
+   * Refs, read by the effect below and deliberately NOT among its dependencies.
+   * Both change for reasons that are not a move: the page re-reports its
+   * elements whenever anything on it shifts, and the edited path changes when
+   * you go from one field to the next inside the same module. The effect closes
+   * the canvas, so a dependency on either would close a canvas that had been
+   * opened deliberately from a data module — which is exactly when you want to
+   * watch a page react to a setting.
+   *
+   * See {@link canvasModulesKey} for why the modules are keyed by a string.
+   */
+  const modulesKey = useMemo(
+    () => canvasModulesKey(canvasPaths),
+    [canvasPaths],
+  );
+  const canvasModules = useMemo(
+    () => canvasModulesFromKey(modulesKey),
+    [modulesKey],
+  );
+  const canvasScope = useRef<{
+    canvasModules: ReadonlySet<ModuleFilePath>;
+    editedPath: SourcePath | null;
+  }>({ canvasModules, editedPath: selectedCanvasPath ?? null });
+  canvasScope.current = {
+    canvasModules,
+    editedPath: selectedCanvasPath ?? null,
+  };
+
+  /**
+   * Moving to something that is not on the page leaves the canvas.
+   *
+   * The canvas is still offered everywhere — the Preview button does not come
+   * and go with the selection. What decides is whether it is still showing the
+   * thing being edited; see {@link canvasShowsEditedContent}, which is also
+   * where the reason a pick must not close it is written down.
+   *
+   * Here rather than in `select` below, because a selection is not the only way
+   * to move: a breadcrumb, a deep link and a validation error all change the
+   * route without going through the navigation panels, and the router module
+   * root — which no row stands for — was reachable from the header.
+   *
+   * Not while the navigation is still loading, where nothing resolves to a row
+   * yet and a link that asked for the canvas would have it shut immediately.
+   */
+  useEffect(() => {
+    if (isLoading) return;
+    if (
+      canvasShowsEditedContent({
+        selectionKind: selection?.kind ?? null,
+        ...canvasScope.current,
+      })
+    ) {
+      return;
+    }
+    setIsCanvasOpen(false);
+    setCanvasView("normal");
+    setWorkspacePane("editor");
+  }, [isLoading, selection?.kind]);
+
+  const closePanel = useCallback(() => setOpenPanel(null), []);
+  const togglePanel = useCallback((panel: ShellPanel) => {
+    setOpenPanel((current) => (current === panel ? null : panel));
+  }, []);
+  // On mobile a panel covers the editor, so selecting something has to get
+  // the panel out of the way of the thing that was just selected.
+  const select = useCallback(
+    (next: ShellSelection) => {
+      // In controlled mode the owner of the selection decides what happens;
+      // keeping a copy here would let the two disagree.
+      if (!isControlled) {
+        setInternalSelection(next);
+      }
+      onSelectionChange?.(next);
+      if (breakpoint === "mobile") setOpenPanel(null);
+    },
+    [breakpoint, isControlled, onSelectionChange],
+  );
+
+  // A search result can be any kind of item, so it resolves through the same
+  // lookup the initial selection uses rather than duplicating the mapping.
+  const selectSearchResult = useCallback(
+    (result: SearchResult) => {
+      const next = findShellSelection(data, result.id);
+      if (next) {
+        select(next);
+        return;
+      }
+      // A content or recent hit is a path inside a module, which no row can
+      // stand for, so it is opened by path instead.
+      //
+      // A NAVIGATION row that resolves to nothing is a different thing: its id
+      // is not a source path, so opening it as one navigates to something that
+      // does not exist. `collectSearchResults` no longer offers those rows;
+      // this makes the fallback say what it means rather than treat every
+      // unresolved id as a path.
+      if (result.kind === "content" || result.kind === "recent") {
+        onOpenSearchResult?.(result);
+      }
+    },
+    [data, select, onOpenSearchResult],
+  );
+
+  /**
+   * The destination switcher every navigation panel carries as its subheader.
+   *
+   * `undefined` on desktop, where the rail is the switcher and a second copy of
+   * it inside the panel would be two controls for one choice, and `undefined`
+   * for a project with only one destination, where there is nothing to switch
+   * between — see `needsNavSwitcher`. It has to be `undefined` rather than a
+   * switcher that renders nothing: `FloatingPanel` gives any subheader it is
+   * handed its own bordered band.
+   */
+  const destinationTabs = needsNavSwitcher(breakpoint, destinations) ? (
+    <NavSwitcher
+      openPanel={openPanel}
+      onSelect={setOpenPanel}
+      destinations={destinations}
+    />
+  ) : undefined;
+  /*
+   * On a phone the navigation sheet also says which project this is: the top
+   * bar there has no room for the name, and the menu button that opens this
+   * sheet is the way into the project as a whole.
+   */
+  const navSwitcher =
+    breakpoint === "mobile" ? (
+      <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 items-center">
+          {data.admin?.project !== undefined &&
+          data.webComponentsUrl !== undefined ? (
+            <ProjectSwitcher
+              projectName={data.projectName}
+              projectHref={data.admin.project}
+              webComponentsUrl={data.webComponentsUrl}
+              studioMode={data.studioMode}
+              breakpoint={breakpoint}
+            />
+          ) : (
+            <ProjectName
+              projectName={data.projectName}
+              projectHref={data.admin?.project}
+            />
+          )}
+        </div>
+        {destinationTabs}
+      </div>
+    ) : (
+      destinationTabs
+    );
+
+  /**
+   * The editor column: whatever the main pane is showing right now.
+   *
+   * Named rather than inlined because history renders it as the LEFT half of a
+   * split - and the left half has to be the real editor, with its real
+   * navigation and its real pending-changes gate, not a second rendering of it
+   * that would drift.
+   */
+  const editorBody = editorOverride ? (
+    editorOverride
+  ) : selection === null ? (
+    <EmptyEditorState
+      destinations={destinations}
+      /*
+       * One of the two places the tour is offered, so it follows the project's
+       * setting: with `studio.tour` off nobody is prompted anywhere, and the
+       * tour is reached from Quick actions by whoever wants it.
+       */
+      onStartTour={tourEnabled && canStartTour ? startTour : undefined}
+      tourPrompt={showTourPrompt}
+    />
+  ) : (
+    /*
+     * Held until the server's pending changes have landed — see
+     * `PendingChangesGate`. Around the fields only: the compare and errors
+     * views above are their own thing, and neither offers a field to type
+     * the wrong value into.
+     */
+    <PendingChangesGate
+      ready={pendingChangesLoaded}
+      progress={pendingChangesProgress ?? noProgress}
+      fetchError={pendingChangesError}
+    >
+      {renderEditor ? (
+        renderEditor(selection)
+      ) : (
+        <PageEditor
+          title={selection.title}
+          urlPath={selection.urlPath}
+          sourcePath={selection.sourcePath}
+          isDevMode={isDevMode}
+          hasDraft={selection.hasDraft}
+        />
+      )}
+    </PendingChangesGate>
+  );
+  /**
+   * The ONE action the phone's bottom bar has room for.
+   *
+   * On the site that is Publish. In a proposal it is whichever comes next:
+   * Save while anything is unsaved (which reads "Fix N" while errors would
+   * refuse the save), then Build while the proposal has code its preview does
+   * not show yet, then Publish. The rest of them stay one press away behind the
+   * caret beside it - see `ChangesSheet`. Showing Build and Save side by side
+   * is what pushed Save off the edge of the screen.
+   */
+  const phoneProposal =
+    proposals?.location.kind === "proposal" ? proposals.location : null;
+  const mobilePrimary =
+    proposals !== undefined && phoneProposal !== null ? (
+      nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
+      "save" ? (
+        <ProposalSaveButton
+          location={phoneProposal}
+          onSave={proposals.onSave}
+          blockedBy={proposals.saveBlockedBy}
+          className="h-9 min-w-[5.5rem]"
+        />
+      ) : nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
+          "build" && proposals.onBuild !== undefined ? (
+        <ProposalBuildButton
+          location={phoneProposal}
+          onBuild={proposals.onBuild}
+          className="h-9"
+        />
+      ) : (
+        <ProposalPublishButton
+          location={phoneProposal}
+          onPublish={proposals.onPublish}
+          className="h-9"
+        />
+      )
+    ) : proposals?.loading ? (
+      <PublishPlaceholder className="h-9" />
+    ) : (
+      (publishSlot ?? (
+        <PublishButton
+          pendingChanges={pendingChanges}
+          onPublish={onPublish ?? (() => undefined)}
+          publishState={
+            publishState === "idle" && validationErrorCount > 0
+              ? "blocked"
+              : publishState
+          }
+          className="h-9"
+        />
+      ))
+    );
+
+  const columnPlanStatus =
+    breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
+  const editorColumn = (
+    <HeadingToolsProvider
+      value={
+        breakpoint === "mobile" &&
+        locales !== undefined &&
+        onLocaleChange !== undefined ? (
+          <LocaleFilter
+            locales={locales}
+            value={locale}
+            onChange={onLocaleChange}
+          />
+        ) : null
+      }
+    >
+      {columnPlanStatus === null ? null : (
+        <div className="mb-3">{columnPlanStatus}</div>
+      )}
+      {/* On a phone the floating notices are here, not floating. */}
+      {breakpoint === "mobile" && floatingNotices.length > 0 && (
+        <div className="mb-6 flex flex-col gap-3">
+          {floatingNotices.map((each) => (
+            <Fragment key={each.id}>{each.content}</Fragment>
+          ))}
+        </div>
+      )}
+      {notice === undefined || notice === null ? null : (
+        <div className="mb-6">{notice}</div>
+      )}
+      {editorBody}
+    </HeadingToolsProvider>
+  );
+
+  return (
+    <ShellPanelProvider openPanel={openPanelFromLink}>
+      <div
+        data-mode={theme}
+        className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
+        // The theme travels with `data-mode`: everything below draws its brand
+        // tokens out of these custom properties. See `ValThemeProvider`.
+        style={{ height: "100svh", ...themeStyle }}
+      >
+        <PageWorkspace
+          breakpoint={breakpoint}
+          page={canCanvas ? canvasPage : undefined}
+          renderCanvas={canCanvas ? renderCanvas : undefined}
+          canvasPaths={canCanvas ? canvasPaths : undefined}
+          onSelectCanvasPath={onSelectCanvasPath}
+          selectedCanvasPath={selectedCanvasPath}
+          canvasRoute={canCanvas ? canvasRoute : undefined}
+          onCanvasRouteChange={onCanvasRouteChange}
+          canvasRoutes={canvasRoutes}
+          initialTransform={initialCanvasTransform}
+          onTransformChange={setCanvasTransform}
+          isCanvasOpen={isCanvasOpen && canCanvas}
+          onCloseCanvas={closeCanvas}
+          view={canvasView}
+          onViewChange={setCanvasView}
+          pane={workspacePane}
+          onPaneChange={setWorkspacePane}
+          isDevMode={isDevMode}
+          onAttachToChat={aiEnabled ? attachToChat : undefined}
+          skipTransition={skipTransition}
+        >
+          {/*
+           * The editor column, built once and then either rendered on its own
+           * or handed to `renderHistory` as the left half. Built once because
+           * the alternative - the same tree written twice, in two branches -
+           * is the shape where the two quietly stop matching.
+           */}
+          {renderHistory
+            ? renderHistory(editorColumn, breakpoint)
+            : editorColumn}
+        </PageWorkspace>
+
+        {breakpoint === "desktop" && (
+          <LeftRail
+            openPanel={openPanel}
+            onSelect={togglePanel}
+            destinations={destinations}
+            user={data.user}
+            hasDraftChanges={pendingChanges > 0}
+            accountError={accountError}
+            logo={data.logo}
+            isLoading={isLoading}
+          />
+        )}
+
+        <TopBar
+          breakpoint={breakpoint}
+          projectName={data.projectName}
+          projectHref={data.admin?.project}
+          webComponentsUrl={data.webComponentsUrl}
+          studioMode={data.studioMode}
+          logo={data.logo}
+          openPanel={openPanel}
+          onTogglePanel={togglePanel}
+          // The menu button opens the first destination this project has, which
+          // is Pages wherever there is one — but a project with no routes has to
+          // land somewhere that exists.
+          onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
+          onOpenSearch={openSearch}
+          locales={locales}
+          locale={locale}
+          onLocaleChange={onLocaleChange}
+          unreadNotifications={
+            data.notifications === undefined ? undefined : unreadNotifications
+          }
+          // The rail owns the account wherever it is shown. Passing the user
+          // here too would put the same avatar in two corners of one screen.
+          user={breakpoint === "desktop" ? undefined : data.user}
+          // The rail carries the mark on desktop; below that the top bar owns the
+          // account, so it owns the mark — and has to put a button there at all,
+          // since a failed load means there is no avatar to hang it on.
+          accountError={breakpoint === "desktop" ? undefined : accountError}
+          isLoading={isLoading}
+          aiEnabled={aiEnabled}
+          proposals={proposals}
+          planStatus={
+            breakpoint === "desktop" ? renderPlanStatus?.("top-bar") : undefined
+          }
+          historyEnabled={historyEnabled}
+          historyActive={historyActive}
+          onOpenHistory={onOpenHistory}
+          onOpenValidate={onOpenValidate}
+          upgrade={upgrade}
+          validateActive={validateActive}
+          validateCount={validateCount}
+          onPreview={onPreview ?? (() => undefined)}
+          previewHref={previewHref}
+          onToggleCanvas={canCanvas ? togglePreview : undefined}
+          isCanvasOpen={isCanvasOpen}
+          onPublish={onPublish ?? (() => undefined)}
+          publishSlot={publishSlot}
+          pendingChanges={pendingChanges}
+          onCompare={onCompare}
+          reviewCount={reviewCount ?? pendingChanges}
+          publishState={
+            publishState === "idle" && validationErrorCount > 0
+              ? "blocked"
+              : publishState
+          }
+        />
+
+        {breakpoint === "mobile" ? (
+          <MobileBottomBar
+            onPreview={onPreview ?? (() => undefined)}
+            previewHref={previewHref}
+            onToggleCanvas={canCanvas ? togglePreview : undefined}
+            isCanvasOpen={isCanvasOpen}
+            /*
+             * What the button does NEXT, said plainly, because on a phone it is
+             * three different acts depending on where you are — see
+             * `togglePreview`. A control that swaps has to say which way.
+             */
+            canvasActionLabel={
+              !isCanvasOpen
+                ? "Open the canvas"
+                : workspacePane === "canvas"
+                  ? "Back to the editor"
+                  : "Back to the preview"
+            }
+            // The main half no longer closes the canvas on a phone, so the way
+            // out has to be somewhere the menu can offer it too.
+            onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
+            primary={mobilePrimary}
+            onOpenChanges={() => togglePanel("changes")}
+            isChangesOpen={openPanel === "changes"}
+            onOpenActivity={() => togglePanel("notifications")}
+            isActivityOpen={openPanel === "notifications"}
+            activityCount={
+              (data.notifications === undefined ? 0 : unreadNotifications) +
+              validationErrorCount
+            }
+            /*
+             * The same gate and the same ACT as the top bar's button above
+             * this breakpoint: absent when there is no assistant, and a
+             * toggle rather than an open, so the button that shows the panel
+             * as open is the button that closes it. It only opened, which on
+             * a phone - where the panel covers the editor - meant the
+             * obvious way to dismiss it did nothing.
+             */
+            onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
+            isAIOpen={openPanel === "ai"}
+          />
+        ) : (
+          <StatusBar
+            breakpoint={breakpoint}
+            saveState={saveState}
+            mode={mode}
+            autoSave={autoSave}
+            onAutoSaveChange={onAutoSaveChange}
+            branch={data.branch}
+            unsavedInProposal={
+              proposals?.location.kind === "proposal"
+                ? proposals.location.unsaved
+                : 0
+            }
+            deployments={deployments}
+            studioIsDeployer={studioIsDeployer}
+            publishIndicator={publishIndicator}
+            deploymentsOpen={deploymentsOpen}
+            onDeploymentsOpenChange={setDeploymentsOpen}
+            notice={
+              statusNotice === undefined && foldedNotices.length === 0 ? (
+                statusNotice
+              ) : (
+                <>
+                  {foldedNotices.map((each) => (
+                    <FoldedNoticeChip
+                      key={each.id}
+                      notice={each}
+                      onOpen={() => toggleNotice(each.id, false)}
+                    />
+                  ))}
+                  {statusNotice}
+                </>
+              )
+            }
+          />
+        )}
+        {breakpoint !== "mobile" && (
+          <FloatingNotices
+            notices={openNotices}
+            onDismiss={(id) => toggleNotice(id, true)}
+            // Above the status bar, at the right edge the bar ends at.
+            className="bottom-14 right-3"
+          />
+        )}
+
+        {openPanel === "pages" && (
+          <PagesPanel
+            breakpoint={breakpoint}
+            pages={data.pages}
+            externalPages={data.externalPages}
+            selectedId={selection?.id ?? null}
+            // A row with no source path is a path segment rather than a page —
+            // `/blog` existing because `/blog/why-val` does. Clicking it expands
+            // it; there is nothing to open.
+            onSelectPage={(page) => {
+              const next = toPageSelection(page);
+              if (next) select(next);
+            }}
+            onOpenExternalPages={
+              renderExternalPages
+                ? () => setIsExternalPagesOpen(true)
+                : undefined
+            }
+            externalIssueCount={externalIssueCount}
+            externalPagesLoading={data.externalPagesLoading}
+            onNewPage={onNewPage ?? (() => undefined)}
+            onDuplicatePage={onDuplicatePage}
+            onRenamePage={onRenamePage}
+            // Only where a route accepts one. A project of static routes has no
+            // key to invent, so there is nothing for a New page button to do.
+            newPage={onNewPage ? data.newPage : undefined}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          />
+        )}
+
+        {isExternalPagesOpen &&
+          renderExternalPages?.({
+            close: () => setIsExternalPagesOpen(false),
+            onSelectExternalPage: (page) => {
+              const next = toExternalSelection(page);
+              if (next) select(next);
+            },
+            breakpoint,
+          })}
+
+        {openPanel === "media" && (
+          <MediaPanel
+            breakpoint={breakpoint}
+            media={data.media}
+            selectedId={selection?.id ?? null}
+            onSelect={(gallery) => select(toMediaSelection(gallery))}
+            onSelectFile={(gallery, file) =>
+              select({
+                kind: "media",
+                // The file's own entry, so the editor opens that one rather than
+                // the whole gallery.
+                id: file.sourcePath,
+                title: file.ref.split("/").pop() ?? file.ref,
+                urlPath: servedPath(gallery.dir),
+                sourcePath: file.sourcePath,
+              })
+            }
+            getFileUrl={getMediaFileUrl}
+            // The panel asks which gallery; it used to guess from the selection,
+            // so the button did nothing at all unless a gallery happened to be
+            // open — which is most of the time.
+            onUpload={onUploadMedia}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          />
+        )}
+
+        {openPanel === "data" && (
+          <DataPanel
+            breakpoint={breakpoint}
+            data={data.data}
+            selectedId={selection?.id ?? null}
+            onSelect={(module) => select(toDataSelection(module))}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          />
+        )}
+
+        {openPanel === "settings" && (
+          <SettingsPanel
+            breakpoint={breakpoint}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          >
+            {renderSettings ? renderSettings() : <NoSettingsModule />}
+          </SettingsPanel>
+        )}
+
+        {openPanel === "account" && (
+          <AccountPanel
+            breakpoint={breakpoint}
+            // The status bar is not shown on a phone; this sheet is. Acting
+            // on the notice closes the sheet, so what it brings back (the card
+            // above the editor) is in view rather than underneath.
+            notice={
+              breakpoint === "mobile" && statusNotice ? (
+                <div onClick={closePanel}>{statusNotice}</div>
+              ) : undefined
+            }
+            mode={mode}
+            user={data.user}
+            accountError={accountError}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            admin={data.admin}
+            autoSave={autoSave}
+            onAutoSaveChange={onAutoSaveChange}
+            branch={data.branch}
+            /**
+             * No deploy feed in dev.
+             *
+             * Running against the working copy on disk there is nothing to
+             * publish to, so the section could only ever say "nothing published
+             * yet" — a heading and an explanation for something that will never
+             * happen here. The status bar already applies this rule to its own
+             * feed (`mode === "http"`); the panel was missed.
+             */
+            deployments={mode === "fs" ? undefined : deployments}
+            // Passed through as-is: absent means there is no session to end, and
+            // the panel then shows no Sign out button rather than a dead one.
+            onSignOut={onSignOut}
+            onStartTour={
+              breakpoint === "mobile" && canStartTour ? startTour : undefined
+            }
+            upgrade={breakpoint === "mobile" ? upgrade : undefined}
+            members={
+              breakpoint === "mobile" &&
+              orgOfProject(data.projectName) !== null &&
+              data.admin?.project !== undefined &&
+              data.webComponentsUrl !== undefined ? (
+                <ProjectMembersButton
+                  variant="row"
+                  projectName={data.projectName}
+                  projectHref={data.admin.project}
+                  webComponentsUrl={data.webComponentsUrl}
+                  studioMode={data.studioMode}
+                  breakpoint={breakpoint}
+                />
+              ) : undefined
+            }
+            onClose={closePanel}
+            // Not on a phone: the account is not a destination, and its sheet
+            // carrying the destination tabs made it a second navigation menu
+            // beside the one behind the menu button.
+            navSwitcher={breakpoint === "mobile" ? undefined : navSwitcher}
+          />
+        )}
+
+        {openPanel === "utility" && (
+          <UtilityPanel
+            breakpoint={breakpoint}
+            activity={data.activity}
+            validationErrors={data.validationErrors}
+            onSelectValidationError={
+              onSelectValidationError ?? (() => undefined)
+            }
+            // Both quick actions are shortcuts to the panel that owns the flow:
+            // the route picker and the gallery picker live there, and a second
+            // copy of either would be a second set of rules for what a URL or a
+            // directory may be.
+            onNewPage={() => setOpenPanel("pages")}
+            onUploadMedia={() => setOpenPanel("media")}
+            destinations={destinations}
+            onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
+            onCompare={onCompare}
+            reviewCount={reviewCount ?? pendingChanges}
+            // The tour's permanent home, whatever the project's setting says —
+            // but not until the destinations it is built from are the real ones.
+            onStartTour={canStartTour ? startTour : undefined}
+            onDiscardAll={onDiscardAll}
+            discardAllDescription={discardAllDescription}
+            portalContainer={portalContainer}
+            pendingChanges={pendingChanges}
+            onSelectActivity={onSelectActivity ?? (() => undefined)}
+            onClose={closePanel}
+          />
+        )}
+
+        {/*
+         * Mounted for as long as the studio is, and merely hidden when dismissed.
+         * Everything else here comes and goes with `openPanel`; the assistant
+         * cannot, because closing it would drop a turn in flight — see `hidden`
+         * on `FloatingPanel`.
+         */}
+        {aiEnabled && (
+          <AIChatPanel
+            breakpoint={breakpoint}
+            hidden={openPanel !== "ai"}
+            onClose={closePanel}
+          >
+            {aiSlot ?? <NoAssistantConfigured />}
+          </AIChatPanel>
+        )}
+
+        {openPanel === "notifications" &&
+          (breakpoint === "mobile" ? (
+            <ActivitySheet
+              breakpoint={breakpoint}
+              notifications={
+                data.notifications === undefined ? undefined : notifications
+              }
+              onSelectNotification={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+              validationErrors={data.validationErrors}
+              onSelectValidationError={
+                onSelectValidationError ?? (() => undefined)
+              }
+              onOpenValidate={onOpenValidate}
+              activity={data.activity}
+              onSelectActivity={onSelectActivity ?? (() => undefined)}
+              onOpenHistory={historyEnabled ? onOpenHistory : undefined}
+              onClose={closePanel}
+            />
+          ) : (
+            <NotificationsPanel
+              breakpoint={breakpoint}
+              notifications={notifications}
+              onSelect={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+              onClose={closePanel}
+            />
+          ))}
+
+        {openPanel === "proposals" && proposals !== undefined && (
+          <ProposalSheet
+            breakpoint={breakpoint}
+            proposals={proposals}
+            onClose={closePanel}
+          />
+        )}
+
+        {openPanel === "changes" && (
+          <ChangesSheet
+            breakpoint={breakpoint}
+            proposals={proposals}
+            onCompare={onCompare}
+            reviewCount={reviewCount ?? pendingChanges}
+            pendingChanges={pendingChanges}
+            onDiscardAll={onDiscardAll}
+            discardAllDescription={discardAllDescription}
+            portalContainer={portalContainer}
+            onClose={closePanel}
+          />
+        )}
+
+        {/*
+         * Not while the tour is open: one card at a time, and on a phone the
+         * two were stacked on top of each other. The tour is started from it,
+         * so it is back the moment the tour is left.
+         */}
+        {!isTourOpen && renderDemoBanner?.(startTour)}
+
+        {isTourOpen && (
+          <StudioTour
+            steps={tourRun?.steps ?? tourSteps}
+            onFinish={tourRun?.onFinish}
+            onClose={closeTour}
+            onOpenPanel={openPanelForTour}
+            look={tourLook}
+            observed={tourObserved}
+            act={tourActions}
+            onHighlightPage={onTourHighlightPage}
+          />
+        )}
+
+        {isSearchOpen && (
+          <GlobalSearch
+            results={searchResults}
+            contentResults={searchContentResults}
+            recentResults={recentSearchResults}
+            isSearchingContent={isSearchingContent}
+            onQueryChange={onSearchQueryChange}
+            onSelect={(result) => {
+              setIsSearchOpen(false);
+              selectSearchResult(result);
+            }}
+            onClose={() => setIsSearchOpen(false)}
+          />
+        )}
+      </div>
+    </ShellPanelProvider>
+  );
+}
+
+/**
+ * One page row as a selection, or null when the row cannot be opened.
+ *
+ * Every selection carries the source path the navigation data gave it. Nothing
+ * here derives a path from a URL: which module serves `/blog/why-val` is the
+ * router's answer, not a string the shell can build.
+ */
+/**
+ * The assistant panel with no assistant behind it.
+ *
+ * Only reachable where the shell is rendered without `aiSlot` — a story, a
+ * preview — because the app hides every way in when the project has no
+ * assistant configured. It says so rather than showing a composer: this panel
+ * used to hold a stand-in chat that echoed what you typed and called no tools,
+ * which looked exactly like a working assistant and was not one.
+ */
+function NoAssistantConfigured() {
+  return (
+    <p className="p-4 text-xs text-fg-secondary-alt">
+      No assistant is configured for this project.
+    </p>
+  );
+}
+
+function toPageSelection(
+  page: ShellData["pages"][number],
+): ShellSelection | null {
+  if (page.sourcePath === undefined) return null;
+  return {
+    kind: "page",
+    id: page.id,
+    title: page.name,
+    urlPath: page.urlPath,
+    sourcePath: page.sourcePath,
+    hasDraft: page.hasDraft,
+    isTracked: page.isTracked,
+  };
+}
+
+function toExternalSelection(page: ShellExternalPage): ShellSelection | null {
+  if (page.sourcePath === undefined) return null;
+  return {
+    kind: "external",
+    id: page.id,
+    title: page.name,
+    urlPath: page.url,
+    sourcePath: page.sourcePath,
+  };
+}
+
+/** A gallery opens the module that holds it, which renders the grid. */
+function toMediaSelection(gallery: ShellMediaGallery): ShellSelection {
+  return {
+    kind: "media",
+    id: gallery.id,
+    title: gallery.name,
+    // Where its files are served from, not where they are stored: `/public` is
+    // the web root, so the ref and the URL differ by exactly that prefix.
+    urlPath: servedPath(gallery.dir),
+    sourcePath: gallery.moduleFilePath,
+  };
+}
+
+function toDataSelection(module: ShellDataModule): ShellSelection {
+  return {
+    kind: "data",
+    id: module.id,
+    title: module.name,
+    urlPath: module.moduleFilePath,
+    sourcePath: module.moduleFilePath,
+    hasDraft: module.hasDraft,
+  };
+}
+
+/**
+ * Resolve a selection id against every kind of navigable item.
+ *
+ * Exported because the app needs the same answer for more than the editor: the
+ * canvas needs the URL of the page it is on, and deriving that a second way is
+ * how the two come to disagree about what is selected.
+ */
+export function findShellSelection(
+  data: ShellData,
+  id: string,
+): ShellSelection | null {
+  const fromPages = (pages: ShellData["pages"]): ShellSelection | null => {
+    for (const page of pages) {
+      if (page.id === id) return toPageSelection(page);
+      const child = fromPages(page.children ?? []);
+      if (child) return child;
+    }
+    return null;
+  };
+  const page = fromPages(data.pages);
+  if (page) return page;
+  const external = data.externalPages.find((entry) => entry.id === id);
+  if (external) return toExternalSelection(external);
+  const gallery = data.media.find((entry) => entry.id === id);
+  if (gallery) return toMediaSelection(gallery);
+  const module = data.data.find((entry) => entry.id === id);
+  if (module) return toDataSelection(module);
+  return null;
+}

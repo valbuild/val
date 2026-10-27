@@ -1,13 +1,8 @@
-import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath, Internal } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import {
-  useAddPatch,
-  useSchemaAtPath,
-  useShallowSourceAtPath,
-} from "./ValFieldProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
-import { useNavigation } from "./ValRouter";
 import {
   Popover,
   PopoverContent,
@@ -21,15 +16,14 @@ import {
 } from "./designSystem/tooltip";
 import { RoutePattern } from "@valbuild/shared/internal";
 import { RouteForm } from "./RouteForm";
-import { Patch } from "@valbuild/core/patch";
-import { array } from "@valbuild/core/fp";
+import { ReferencesResult } from "./useJsonValuesLoad";
+import { useRenameRecordEntry } from "./useRenameRecordEntry";
 
 export function ChangeRecordPopover({
   defaultValue,
-  path,
   parentPath,
   variant,
-  existingKeys,
+  references,
   routePattern,
   size,
   children,
@@ -37,17 +31,20 @@ export function ChangeRecordPopover({
   keyDescription,
 }: {
   defaultValue: string;
-  path: SourcePath;
   parentPath: SourcePath | ModuleFilePath;
   variant: "ghost" | "outline" | "default" | "secondary";
   size: "icon" | "sm" | "lg" | "default";
-  existingKeys: SourcePath[];
+  /**
+   * The reference scan whose refs this rename rewrites. Renaming is offered only
+   * when it reports `success`: an incomplete scan means some referrer was not
+   * seen, and renaming anyway leaves it pointing at a key that no longer exists.
+   */
+  references: ReferencesResult;
   children: React.ReactNode;
   routePattern?: RoutePattern[] | null;
   onComplete?: () => void;
   keyDescription?: string;
 }) {
-  const { navigate } = useNavigation();
   const [open, setOpen] = useState(false);
   const portalContainer = useValPortal();
   useEffect(() => {
@@ -61,11 +58,6 @@ export function ChangeRecordPopover({
       window.removeEventListener("keydown", keyDownListener);
     };
   }, []);
-  const { addPatch, addModuleFilePatch } = useAddPatch(path);
-  const [moduleFilePath, parentModulePath] =
-    Internal.splitModuleFilePathAndModulePath(parentPath);
-  const parentPatchPath = Internal.createPatchPath(parentModulePath);
-
   // Get actual record keys from parent source for duplicate validation
   const parentSource = useShallowSourceAtPath(parentPath, "record");
   const parentSchema = useSchemaAtPath(parentPath);
@@ -82,52 +74,46 @@ export function ChangeRecordPopover({
     }
     return [];
   }, [parentSource]);
+  const isJsonValuesRecord =
+    parentSchema.status === "success" &&
+    parentSchema.data.type === "record" &&
+    parentSchema.data.jsonValues === true;
+  // The move, the referrer rewrites and the navigate that follows them are
+  // `useRenameRecordEntry`'s - the same write the Pages panel goes through, so
+  // the two entry points cannot come to disagree about what renaming means.
+  // What is this component's own is the gate below: it is the one that KNOWS
+  // whether the reference scan finished.
+  const renameRecordEntry = useRenameRecordEntry();
   const onSubmit = useCallback(
-    (key: string) => {
-      const patchOps: Patch = [
-        {
-          op: "move",
-          from: parentPatchPath.concat(
-            defaultValue,
-          ) as array.NonEmptyArray<string>,
-          path: parentPatchPath.concat(key) as array.NonEmptyArray<string>,
-        },
-      ];
-      addPatch(patchOps, "record");
-      for (const ref of existingKeys) {
-        const [refModuleFilePath, refModulePath] =
-          Internal.splitModuleFilePathAndModulePath(ref);
-        const refPatchPath = Internal.createPatchPath(refModulePath);
-        addModuleFilePatch(
-          refModuleFilePath,
-          [
-            {
-              op: "replace",
-              path: refPatchPath,
-              value: key,
-            },
-          ],
-          "record",
+    async (key: string) => {
+      if (references.status !== "success") {
+        // The form is not rendered in this state; belt and braces, because
+        // renaming on an incomplete ref scan silently breaks the referrers it
+        // did not see.
+        Internal.log.error(
+          "refusing to rename: reference scan is not complete",
+          references,
         );
+        return;
       }
-      const newSourcePath = Internal.joinModuleFilePathAndModulePath(
-        moduleFilePath,
-        Internal.patchPathToModulePath(parentPatchPath.concat(key)),
-      );
-      navigate(newSourcePath, {
-        replace: true,
+      await renameRecordEntry({
+        parentPath,
+        fromKey: defaultValue,
+        toKey: key,
+        refs: references.refs,
+        jsonValues: isJsonValuesRecord,
       });
       if (onComplete) {
         onComplete();
       }
     },
     [
-      addPatch,
-      addModuleFilePatch,
-      moduleFilePath,
-      parentPatchPath,
-      navigate,
+      renameRecordEntry,
+      parentPath,
       onComplete,
+      isJsonValuesRecord,
+      defaultValue,
+      references,
     ],
   );
 
@@ -155,7 +141,41 @@ export function ChangeRecordPopover({
         </TooltipContent>
       </Tooltip>
       <PopoverContent container={portalContainer} className="text-fg-primary">
-        {routePattern ? (
+        {/*
+         * The description is rendered by the branch that needs it, and NOT here.
+         *
+         * It used to be in both places: this one on `keyDescription` (the prop)
+         * and the rename branch below on `description` (the prop, falling back to
+         * the schema). For every caller that passes the prop — which is what the
+         * rename control does — the two were the same string and it appeared
+         * twice. The form branches own it now, because they are the ones where it
+         * is guidance for an input; the loading and error branches are not asking
+         * for a key at all.
+         */}
+        {references.status === "loading" ? (
+          <div className="flex flex-col gap-2">
+            <div className="font-bold">Checking references</div>
+            <p>
+              Loading content that could reference this key
+              {references.percentage > 0 ? ` (${references.percentage}%)` : ""}.
+            </p>
+            <p className="text-sm text-fg-tertiary">
+              Renaming is disabled until the check completes, so no referring
+              field is left behind.
+            </p>
+          </div>
+        ) : references.status === "error" ? (
+          <div className="flex flex-col gap-2">
+            <div className="font-bold">Cannot rename</div>
+            <p>References to this key could not be checked.</p>
+            <p className="text-sm text-fg-tertiary">{references.message}</p>
+            {references.retry && (
+              <Button variant="secondary" onClick={references.retry}>
+                Try again
+              </Button>
+            )}
+          </div>
+        ) : routePattern ? (
           <RouteForm
             routePattern={routePattern}
             existingKeys={recordKeys}

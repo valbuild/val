@@ -128,7 +128,7 @@ export function createFloatingToolbarPlugin(
       toolbarEl = document.createElement("div");
       const portal = options?.getPortalContainer?.();
       toolbarEl.className = [
-        `${portal ? "fixed" : "absolute"} z-50 flex items-center gap-x-1 rounded-md border border-border-primary`,
+        `${portal ? "fixed" : "absolute"} z-window flex items-center gap-x-1 rounded-md border border-border-primary`,
         "bg-bg-primary px-2 py-1 shadow-lg transition-opacity",
       ].join(" ");
       toolbarEl.style.display = "none";

@@ -1,0 +1,143 @@
+import { execFileSync } from "child_process";
+import path from "path";
+
+/**
+ * `val publish` with no `--artifacts` builds the checkout, and publishes it.
+ *
+ * What a connected project's CI does on every push to its branch: the runner
+ * has a checkout and `node_modules`, content has the build target, and nothing
+ * else is needed. So this drives the whole command -- the build target asked
+ * of content, the dependency layer built from `node_modules`, the route tree
+ * generated, the site built, the artifacts declared and uploaded -- against
+ * the fake content service, twice: once with no layer held, once with the
+ * layer the first run sent.
+ *
+ * The build runs in a child process because `@rolldown/browser` is ESM-only
+ * and jest runs CommonJS here. See the probe beside this file.
+ */
+type Declared = {
+  buildHash: string;
+  commit: string | null;
+  branch: string | null;
+  layerRev: string | null;
+  baseRev: string | null;
+  linksOwnCss: boolean | null;
+  keys: string[];
+};
+type Run = {
+  result: { status: string; artifacts?: number };
+  declared: Declared[];
+  buildTargetCalls: number;
+  uploadedLayerRev: string | null;
+  sourceHasRoute: boolean;
+  sourceHasStylesheet: boolean;
+  cssHasRule: boolean;
+  clientHasPage: boolean;
+  clientHasLogo: boolean;
+  buildRouteBuilt: boolean;
+  checkoutUntouched: boolean;
+  wiredBranch: string | null;
+  warnedAboutBranch: boolean;
+  warnedAboutPlatformFacts: boolean;
+};
+
+let probe: { fresh: Run; held: Run; elsewhere: Run };
+
+beforeAll(() => {
+  const out = execFileSync(
+    path.join(__dirname, "..", "..", "node_modules", ".bin", "tsx"),
+    [path.join(__dirname, "__fixtures__", "buildPublishProbe.ts")],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  // tsx's WASI warnings can share stdout; take the last line that parses.
+  const line = out
+    .trim()
+    .split("\n")
+    .reverse()
+    .find((candidate) => candidate.startsWith("{"));
+  probe = JSON.parse(line!) as typeof probe;
+}, 300_000);
+
+test("asks content what to build against, and publishes what it built", () => {
+  const { fresh } = probe;
+  expect(fresh.result.status).toBe("live");
+  expect(fresh.buildTargetCalls).toBe(1);
+  expect(fresh.declared).toHaveLength(1);
+  const [declared] = fresh.declared;
+  expect(declared!.commit).toBe("1234567890abcdef1234567890abcdef12345678");
+  expect(declared!.branch).toBe("main");
+  expect(declared!.keys).toEqual(
+    expect.arrayContaining([
+      "server",
+      "client",
+      "css",
+      "source",
+      "public/robots.txt",
+    ]),
+  );
+  expect(fresh.clientHasPage).toBe(true);
+});
+
+test("the stored source is the project's own files", () => {
+  expect(probe.fresh.sourceHasRoute).toBe(true);
+});
+
+test("a stylesheet is built, and not stored as source", () => {
+  // The Studio builds from the stored source, in a browser that cannot run a
+  // Tailwind `@plugin`; a stored stylesheet failed every Studio publish after
+  // the first. Without one it ships the live site's CSS, compiled here.
+  expect(probe.fresh.cssHasRule).toBe(true);
+  expect(probe.fresh.sourceHasStylesheet).toBe(false);
+});
+
+test("an image the project imports reaches the build", () => {
+  expect(probe.fresh.clientHasLogo).toBe(true);
+});
+
+test("a folder called `build` below the root is source, not output", () => {
+  expect(probe.fresh.buildRouteBuilt).toBe(true);
+});
+
+test("a layer content does not hold is built and sent, and named by its own rev", () => {
+  const { fresh } = probe;
+  expect(fresh.declared[0]!.keys).toContain("layer");
+  expect(fresh.uploadedLayerRev).toEqual(expect.any(String));
+  expect(fresh.declared[0]!.layerRev).toBe(fresh.uploadedLayerRev);
+  // The base layer it was built against -- the fake's build target says
+  // "base" -- so the platform can refuse it if it has been deployed since.
+  expect(fresh.declared[0]!.baseRev).toBe("base");
+});
+
+test("a layer content already holds is named, not sent again", () => {
+  const { fresh, held } = probe;
+  expect(held.result.status).toBe("live");
+  expect(held.declared[0]!.keys).not.toContain("layer");
+  expect(held.declared[0]!.layerRev).toBe(fresh.uploadedLayerRev);
+  // The same checkout is the same build, and so the same publish.
+  expect(held.declared[0]!.buildHash).toBe(fresh.declared[0]!.buildHash);
+});
+
+test("a checkout on another branch is wired at the project's, and says so", () => {
+  // Content names the project's branch; the site's Val saves its edits to the
+  // branch it is wired at, so a feature branch here was a site whose every
+  // Studio edit went where no publish looks.
+  expect(probe.elsewhere.result.status).toBe("live");
+  expect(probe.elsewhere.wiredBranch).toBe("main");
+  expect(probe.elsewhere.warnedAboutBranch).toBe(true);
+  // Where they agree there is nothing to say.
+  expect(probe.fresh.wiredBranch).toBe("main");
+  expect(probe.fresh.warnedAboutBranch).toBe(false);
+});
+
+test("the platform's pins and exports reach the build through the client", () => {
+  // content sends them (FAKE_BUILD_TARGET); a parser that dropped them made
+  // every publish skip both checks and say the platform had not sent them.
+  expect(probe.fresh.warnedAboutPlatformFacts).toBe(false);
+});
+
+test("the checkout is left as it was found", () => {
+  // The route tree is generated on disk and put back; the build is written
+  // to a temporary directory, not into `.val/publish`.
+  expect(probe.fresh.checkoutUntouched).toBe(true);
+  expect(probe.held.checkoutUntouched).toBe(true);
+});

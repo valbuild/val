@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { KeyPreview, KeySelector } from "./KeyOfField";
+import { placeholderImage } from "../stories/placeholderAssets";
 
 const recordKeys = ["home", "about", "blog", "contact", "team"];
 
@@ -8,12 +9,24 @@ const recordPreviews: Record<string, KeyPreview> = {
   home: {
     title: "Home",
     subtitle: "Landing page",
-    image: "https://placehold.co/64x64/e2e8f0/475569?text=H",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#e2e8f0",
+      fg: "#475569",
+      text: "H",
+    }),
   },
   about: {
     title: "About us",
     subtitle: "Company information",
-    image: "https://placehold.co/64x64/dbeafe/1e40af?text=A",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#dbeafe",
+      fg: "#1e40af",
+      text: "A",
+    }),
   },
   blog: {
     title: "Blog",
@@ -23,7 +36,13 @@ const recordPreviews: Record<string, KeyPreview> = {
   contact: {
     title: "Contact",
     subtitle: "Get in touch",
-    image: "https://placehold.co/64x64/d1fae5/065f46?text=C",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "C",
+    }),
   },
   team: {
     title: "Team",
@@ -108,4 +127,35 @@ function InteractiveStory() {
 
 export const Interactive: Story = {
   render: () => <InteractiveStory />,
+};
+
+/**
+ * Referencing something that does not exist yet: the dropdown can add the entry
+ * to the referenced record, which only a record can take - an object's keys are
+ * its schema. Search for a key that is not there, and the create option is
+ * still offered, with what was searched for as the new key.
+ */
+function CreatableStory() {
+  const [keys, setKeys] = useState(recordKeys);
+  const [value, setValue] = useState<string | null>(null);
+  return (
+    <KeySelector
+      keys={keys}
+      previews={recordPreviews}
+      value={value}
+      onChange={(key) => setValue(key)}
+      keyDescription="A short, unique id for the page"
+      // In the Studio this also writes the entry to the referenced module and
+      // navigates to it - `onCreate` owns the whole outcome, so a story that
+      // only has a list to add to does both of the parts it has.
+      onCreate={(key) => {
+        setKeys((prev) => [...prev, key]);
+        setValue(key);
+      }}
+    />
+  );
+}
+
+export const Creatable: Story = {
+  render: () => <CreatableStory />,
 };

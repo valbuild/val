@@ -3,24 +3,35 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  SelectorOf,
+  type ResolvableModule,
   SelectorSource,
   SourceObject,
   ValModule,
 } from "@valbuild/core";
 import {
-  StegaOfSource,
+  type JsonEntryContentOf,
+  type Resolvable,
+  type ResolvedVal,
+  type RouteValueOf,
   getModuleIds,
   stegaEncode,
 } from "@valbuild/react/stega";
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
-import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
+import {
+  bundledJsonEntryImport,
+  fillJsonValuesRecord,
+  getJsonEntryStegaRoot,
+  getValRouteUrlFromVal,
+  initValRouteFromVal,
+  isJsonValuesRecordSchema,
+  jsonValuesRecordToFill,
+} from "../routeFromVal";
 
-export type UseValType<T extends SelectorSource> =
-  SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
-function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
+/** What `useVal` gives back — see `ResolvedVal` in `@valbuild/react/stega`. */
+export type UseValType<T extends SelectorSource> = ResolvedVal<T>;
+function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   const valOverlayContext = useValOverlayContext();
   const moduleIds = React.useMemo(
     () => getModuleIds(selector) as ModuleFilePath[],
@@ -54,30 +65,240 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   // suspending, -> false only unblocks, and false -> true happens only on an
   // explicit draft-mode enable which already refreshes the route.
   // React.use is allowed inside conditionals — it is not a hook.
+  /**
+   * Wait until draft mode is KNOWN, before anything else.
+   *
+   * `draftMode === null` means `/draft/stat` has not answered yet, and the
+   * `getModule` below treats it as off — so a render that slips through here
+   * while it is unknown resolves against committed source. For an ordinary field
+   * that is a flash of published content; for `useValRoute` on a route that
+   * exists only in an uncommitted patch it is `notFound()`, which no later
+   * answer can undo. That was the 404 on a page you had just created.
+   */
+  if (
+    valOverlayContext.suspend &&
+    valOverlayContext.draftMode === null &&
+    valOverlayContext.draftModeReady
+  ) {
+    React.use(valOverlayContext.draftModeReady);
+  }
+  /**
+   * Then wait for the draft sources — but only while more might be coming.
+   *
+   * `draftSourcesSynced` is the editor saying it has sent everything it holds,
+   * and it only holds modules with patches: an unedited module has no draft, so
+   * nothing is ever sent for it. Without that signal this could not tell "not
+   * sent yet" from "nothing to send", and waited out `waitForLoad`'s ten second
+   * timeout once per unedited module the page reads — which is what left a newly
+   * created page sitting on its loading fallback.
+   */
   if (
     valOverlayContext.suspend &&
     valOverlayContext.draftMode !== false &&
+    !valOverlayContext.draftSourcesSynced &&
     store &&
     !store.hasAllLoaded(moduleIds)
   ) {
     React.use(store.waitForLoad(moduleIds));
   }
+  const sourceOf = (moduleId: string): Json | undefined =>
+    moduleMap && valOverlayContext.draftMode
+      ? moduleMap[moduleId as ModuleFilePath]
+      : undefined;
+  /*
+   * A whole `.jsonValues()` record is read with every entry's content: its own
+   * source holds only lazy markers. The entries the draft view does not have
+   * are imported from the bundle -- all of them started before waiting on any,
+   * so they load together. `useValKey` is the reader for one entry.
+   */
+  const jsonValues = jsonValuesRecordToFill(selector, (modulePath) => [
+    sourceOf(modulePath),
+  ]);
+  let filledRecord: Record<string, unknown> | null = null;
+  if (jsonValues !== null) {
+    const pending = jsonValues.load.map((key) =>
+      committedJsonEntryPromise(jsonValues.module, jsonValues.modulePath, key),
+    );
+    const loaded: Record<string, unknown> = {};
+    jsonValues.load.forEach((key, index) => {
+      const promise = pending[index];
+      loaded[key] = promise === undefined ? undefined : React.use(promise);
+    });
+    filledRecord = fillJsonValuesRecord(jsonValues.record, loaded);
+  }
   return stegaEncode(selector, {
     disabled: !valOverlayContext.draftMode,
-    getModule: (moduleId) => {
-      if (moduleMap && valOverlayContext.draftMode) {
-        return moduleMap[moduleId as ModuleFilePath];
-      }
-    },
+    getModule: (moduleId) =>
+      jsonValues !== null && moduleId === jsonValues.modulePath
+        ? filledRecord
+        : sourceOf(moduleId),
   });
 }
 
-type UseValRouteReturnType<T extends ValModule<GenericSelector<SourceObject>>> =
-  T extends ValModule<infer S>
-    ? S extends SourceObject
-      ? StegaOfSource<NonNullable<S>[string]> | null
-      : never
-    : never;
+/**
+ * The module's source as the overlay currently sees it — i.e. WITH the editor's
+ * unpublished changes — or undefined when there is no draft view to be had
+ * (production, draft mode off, or the overlay has not pushed this module yet).
+ *
+ * This is what lets the single-entry readers show drafts. They otherwise resolve
+ * an entry through its local import thunk, which is the content that was bundled:
+ * correct in production, and stale the moment anyone edits in the Studio.
+ */
+function useDraftModuleSource(
+  moduleFilePath: ModuleFilePath | undefined,
+): Json | undefined {
+  const valOverlayContext = useValOverlayContext();
+  const store = valOverlayContext.store;
+  const moduleIds = React.useMemo(
+    () => (moduleFilePath ? [moduleFilePath] : []),
+    [moduleFilePath],
+  );
+  const moduleMap = React.useSyncExternalStore(
+    store ? store.subscribe(moduleIds) : () => () => {},
+    store
+      ? store.getSnapshot(moduleIds)
+      : (): Record<ModuleFilePath, Json> | undefined => undefined,
+    store
+      ? store.getServerSnapshot(moduleIds)
+      : (): Record<ModuleFilePath, Json> | undefined => undefined,
+  );
+  if (!valOverlayContext.draftMode || !moduleFilePath) {
+    return undefined;
+  }
+  return moduleMap?.[moduleFilePath];
+}
+
+/**
+ * What the draft view says about one `.jsonValues()` entry.
+ *
+ * Mirrors the server-side rule in `fetchValKey`/`fetchValRoute`: a draft view
+ * that HAS an answer wins, including the answer "this entry is gone", and the
+ * bundled content is used only when there is no draft view.
+ */
+function draftJsonEntry(
+  draftSource: Json | undefined,
+  key: string,
+):
+  | { status: "content"; content: unknown }
+  | { status: "absent" }
+  | { status: "unavailable" } {
+  if (
+    draftSource === undefined ||
+    draftSource === null ||
+    typeof draftSource !== "object" ||
+    Array.isArray(draftSource)
+  ) {
+    return { status: "unavailable" };
+  }
+  const entry = (draftSource as Record<string, unknown>)[key];
+  if (entry === undefined) {
+    // The module IS in the draft view and this key is not: it was deleted.
+    return { status: "absent" };
+  }
+  if (Internal.isJson(entry)) {
+    // An un-loaded marker: the Studio has not fetched this entry's content, so
+    // the draft view cannot answer. (The engine asks for entries that pending
+    // patches touch, so this resolves itself for anything actually edited.)
+    return { status: "unavailable" };
+  }
+  return { status: "content", content: entry };
+}
+
+// Module-level cache of in-flight/resolved entry loads, so `React.use` gets a
+// stable promise across renders (keyed by module path + entry key).
+const jsonEntryPromiseCache = new Map<string, Promise<unknown>>();
+
+/**
+ * Client counterpart to `fetchValKey`: resolves a SINGLE `.jsonValues()` entry
+ * by key, loading only that entry's backing `*.val.json` (one dynamic import).
+ * Suspends (via `React.use`) until the entry loads, so it must be rendered
+ * inside a `<Suspense>` boundary.
+ *
+ * In draft mode it renders the editor's unpublished content, taken from the
+ * overlay; in production — and whenever there is no draft view — it resolves the
+ * entry's lazy import thunk from the local module.
+ */
+function useValKeyStega<T extends ResolvableModule>(
+  selector: T,
+  key: string,
+): JsonEntryContentOf<T> | undefined {
+  const valOverlayContext = useValOverlayContext();
+  // A view is a pointer: everything below reads a path, a schema and a source
+  // off this, and a pointer has none of them. See `resolveViewedModule`.
+  const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+  const moduleFilePath =
+    valModule && (Internal.getValPath(valModule) as unknown as ModuleFilePath);
+  const draftSource = useDraftModuleSource(moduleFilePath || undefined);
+  const draft = draftJsonEntry(draftSource, key);
+  if (draft.status === "absent") {
+    // Deleted in the draft state. Falling back to the bundled entry here would
+    // render content the editor has just removed.
+    return undefined;
+  }
+  let content: unknown = draft.status === "content" ? draft.content : undefined;
+  if (content === undefined) {
+    content = readCommittedJsonEntry(valModule, key);
+  }
+  return stegaEncode(content, {
+    disabled: !valOverlayContext.draftMode,
+    root: getJsonEntryStegaRoot(valModule, key),
+  });
+}
+
+/**
+ * The entry's content as bundled: its lazy import thunk, resolved through
+ * `React.use` so the caller suspends until it lands.
+ *
+ * Deliberately not named `use*`: it is called conditionally, which is fine
+ * because `React.use` is not a hook, but a `use*` name would read like one.
+ */
+function readCommittedJsonEntry(
+  selector: ValModule<GenericSelector<SourceObject>>,
+  key: string,
+): unknown {
+  const source = selector && Internal.getSource(selector);
+  const marker =
+    source && typeof source === "object"
+      ? (source as Record<string, unknown>)[key]
+      : undefined;
+  if (!Internal.isJson(marker)) {
+    return undefined;
+  }
+  const thunk = Internal.getJsonImport(marker);
+  if (!thunk) {
+    return undefined;
+  }
+  const promise = committedJsonEntryPromise(
+    selector,
+    Internal.getValPath(selector) as unknown as ModuleFilePath | undefined,
+    key,
+  );
+  return promise === undefined ? undefined : React.use(promise);
+}
+
+/**
+ * The bundle's import of one entry, started once and kept, so every render
+ * that waits on it is handed the same promise (`React.use` needs that).
+ * `undefined` when the module has no import for `key`.
+ */
+function committedJsonEntryPromise(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  module: any,
+  modulePath: ModuleFilePath | undefined,
+  key: string,
+): Promise<unknown> | undefined {
+  const cacheKey = `${modulePath ?? ""} ${key}`;
+  let promise = jsonEntryPromiseCache.get(cacheKey);
+  if (!promise) {
+    const thunk = bundledJsonEntryImport(module, key);
+    if (!thunk) {
+      return undefined;
+    }
+    promise = thunk().then((mod) => mod.default);
+    jsonEntryPromiseCache.set(cacheKey, promise);
+  }
+  return promise;
+}
 
 function resolveParams(
   params:
@@ -93,8 +314,8 @@ function resolveParams(
     // diagnosable error instead of a cryptic `TypeError: React.use is not a
     // function`. Callers treat null as the error sentinel.
     if (!("use" in React)) {
-      console.error(
-        "Val: useValRoute received a Promise params argument but React.use is unavailable. Upgrade to React 19+ or pre-resolve the promise before passing it.",
+      Internal.log.error(
+        "useValRoute received a Promise params argument but React.use is unavailable. Upgrade to React 19+ or pre-resolve the promise before passing it.",
       );
       return null;
     }
@@ -103,35 +324,84 @@ function resolveParams(
   return params;
 }
 
-function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
+function useValRouteStega<T extends ResolvableModule>(
   selector: T,
   params:
     | Record<string, string | string[]>
     | Promise<Record<string, string | string[]>>,
-): UseValRouteReturnType<T> {
-  const val = useValStega(selector);
+): RouteValueOf<T> {
+  const valOverlayContext = useValOverlayContext();
+  // A view is a pointer: everything below reads a path, a schema and a source
+  // off this, and a pointer has none of them. See `resolveViewedModule`.
+  const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+  // Both called unconditionally to keep hook order stable. For a `.jsonValues()`
+  // router `val` is unused (we resolve a single entry below instead); for any
+  // other router `draftSource` is.
+  const val = useValStega(valModule);
+  const draftSource = useDraftModuleSource(
+    (valModule &&
+      (Internal.getValPath(valModule) as unknown as ModuleFilePath)) ||
+      undefined,
+  );
   const resolvedParams = resolveParams(params);
   // Careful: null means there was an error - undefined means no params
   if (resolvedParams === null) {
-    return null as UseValRouteReturnType<T>;
+    return null as RouteValueOf<T>;
+  }
+  const path = valModule && Internal.getValPath(valModule);
+  const schema = valModule && Internal.getSchema(valModule);
+  // `.jsonValues()` router: map params → the entry key and load ONLY that
+  // entry's backing `*.val.json` (one dynamic import), like `useValKey`.
+  if (isJsonValuesRecordSchema(schema)) {
+    const source = valModule && Internal.getSource(valModule);
+    const url = getValRouteUrlFromVal(
+      resolvedParams || {},
+      "useValRoute",
+      path,
+      schema,
+      source,
+    );
+    if (!url) {
+      return null as RouteValueOf<T>;
+    }
+    const draft = draftJsonEntry(draftSource, url);
+    if (draft.status === "absent") {
+      // The draft state says this route is gone — see useValKeyStega.
+      return null as RouteValueOf<T>;
+    }
+    let content: unknown =
+      draft.status === "content" ? draft.content : undefined;
+    if (content === undefined) {
+      content = readCommittedJsonEntry(valModule, url);
+    }
+    if (content === undefined) {
+      return null as RouteValueOf<T>;
+    }
+    return stegaEncode(content, {
+      disabled: !valOverlayContext.draftMode,
+      root: getJsonEntryStegaRoot(valModule, url),
+    });
   }
   const route = initValRouteFromVal(
     resolvedParams || {},
     "useValRoute",
-    selector && Internal.getValPath(selector),
-    selector && Internal.getSchema(selector),
+    path,
+    schema,
     val,
   );
   return route;
 }
 
-function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
+function useValRouteUrl<T extends ResolvableModule>(
   selector: T,
   params?:
     | Record<string, string | string[]>
     | Promise<Record<string, string | string[]>>,
 ): string | null {
-  const val = useValStega(selector);
+  // A view is a pointer: everything below reads a path, a schema and a source
+  // off this, and a pointer has none of them. See `resolveViewedModule`.
+  const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+  const val = useValStega(valModule);
   const resolvedParams =
     params === undefined ? undefined : resolveParams(params);
   // Careful: null means there was an error - undefined means no params
@@ -141,8 +411,8 @@ function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
   const route = getValRouteUrlFromVal(
     resolvedParams || {},
     "useValRouteUrl",
-    selector && Internal.getValPath(selector),
-    selector && Internal.getSchema(selector),
+    valModule && Internal.getValPath(valModule),
+    valModule && Internal.getSchema(valModule),
     val,
   );
   return route;
@@ -151,11 +421,13 @@ function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValClient(config: ValConfig): {
   useValStega: typeof useValStega;
+  useValKeyStega: typeof useValKeyStega;
   useValRouteStega: typeof useValRouteStega;
   useValRouteUrl: typeof useValRouteUrl;
 } {
   return {
     useValStega,
+    useValKeyStega,
     useValRouteStega,
     useValRouteUrl,
   };

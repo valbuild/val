@@ -1,17 +1,20 @@
 /**
- * Version of this package, read from its own package.json.
+ * This package's version, inlined at build time.
  *
- * Mirrors how `@valbuild/core` reports `Internal.VERSION.core`
- * (see `packages/core/src/index.ts`): the built output lives one directory
- * below the package root, so `../package.json` resolves correctly. Returns
- * `null` rather than throwing if the file cannot be read — the version is only
- * ever used for display, never for behaviour.
+ * See `packages/core/src/index.ts` for why this is a static JSON import rather
+ * than `require("../package.json")`. The version is only ever displayed here,
+ * but the two should not drift apart in how they read it.
  */
+/*
+ * A default import, not `import { version }`.
+ *
+ * preconstruct builds with `@rollup/plugin-json` configured `namedExports:
+ * false`, so a JSON module has only a default export and a named import fails
+ * the BUILD (not the typecheck) with "'version' is not exported by
+ * package.json".
+ */
+import packageJson from "../package.json";
+
 export function getLanguageServerVersion(): string | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("../package.json").version;
-  } catch {
-    return null;
-  }
+  return packageJson.version ?? null;
 }

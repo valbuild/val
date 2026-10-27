@@ -1,9 +1,10 @@
 import { CopyIcon } from "lucide-react";
 import { Button } from "./button";
+import { copyText } from "../../utils/copyText";
 
 export function CopyableCodeBlock({ code }: { code: string }) {
   const handleCopy = () => {
-    navigator.clipboard.writeText(code);
+    copyText(code);
   };
   return (
     <div className="relative bg-bg-secondary rounded-md p-4 pr-16 my-4">

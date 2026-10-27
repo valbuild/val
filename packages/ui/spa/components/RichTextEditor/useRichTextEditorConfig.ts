@@ -1,32 +1,39 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   type SerializedRichTextOptions,
   type SerializedImageSchema,
   type ModuleFilePath,
-  type ListRecordRender,
-  Internal,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
-import { useAllRenders } from "../ValFieldProvider";
+import { useAllPreviews, useFilePatchIds } from "../ValFieldProvider";
+import { mediaUrlOf } from "../../utils/mediaUrl";
 import { serializedRichTextOptionsToFeatures } from "./convertOptions";
 import type { EditorFeatures, EditorLinkCatalogItem } from "./types";
 
+/**
+ * Through `mediaUrlOf`, so a thumbnail of an image uploaded and not yet
+ * published resolves to the patch holding its bytes rather than to the
+ * published file, which for a fresh upload is a 404. This catalog builds its
+ * URLs in a memo rather than a component, so it takes the lookup as an
+ * argument; `useMediaUrl` is the same rule where a hook can be called.
+ */
 function imageSourceToUrl(
   src: { readonly [key: string]: unknown } | null | undefined,
+  filePatchIds: ReadonlyMap<string, string>,
 ): string | undefined {
-  if (!src) return undefined;
-  if (src[VAL_EXTENSION] === "file") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return Internal.convertFileSource(src as any).url;
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return Internal.convertRemoteSource(src as any).url;
+  if (!src || typeof src.path !== "string") return undefined;
+  return mediaUrlOf({ path: src.path }, filePatchIds) ?? undefined;
 }
 
 export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   features: Partial<EditorFeatures>;
   linkCatalog: EditorLinkCatalogItem[] | undefined;
+  /**
+   * Whether the field's `include` / `exclude` let it link to `route`, for a
+   * route that is not in the catalog YET — the external page "Add & link"
+   * would create. `undefined` when the field does not link to routes.
+   */
+  allowsRoute: ((route: string) => boolean) | undefined;
   imageModulePath: ModuleFilePath | undefined;
   imageSchema: SerializedImageSchema | undefined;
 } {
@@ -36,18 +43,18 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   );
 
   const isRouteLink =
-    options?.inline?.a === true ||
-    (typeof options?.inline?.a === "object" &&
-      "type" in options.inline.a &&
-      options.inline.a.type === "route");
+    options?.a === true ||
+    (typeof options?.a === "object" &&
+      "type" in options.a &&
+      options.a.type === "route");
 
   const routeSchema =
     isRouteLink &&
-    options?.inline?.a &&
-    typeof options.inline.a === "object" &&
-    "type" in options.inline.a &&
-    options.inline.a.type === "route"
-      ? options.inline.a
+    options?.a &&
+    typeof options.a === "object" &&
+    "type" in options.a &&
+    options.a.type === "route"
+      ? options.a
       : undefined;
 
   const includePattern = useMemo(
@@ -78,13 +85,22 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
     ],
   );
 
+  const allowsRouteCallback = useCallback(
+    (route: string) =>
+      (!includePattern || includePattern.test(route)) &&
+      !(excludePattern && excludePattern.test(route)),
+    [includePattern, excludePattern],
+  );
+  const allowsRoute = isRouteLink ? allowsRouteCallback : undefined;
+
   const routesWithModulePaths = useRoutesWithModulePaths();
-  const allRenders = useAllRenders();
+  const allPreviews = useAllPreviews();
+  const filePatchIds = useFilePatchIds();
 
   const linkCatalog: EditorLinkCatalogItem[] | undefined = useMemo(() => {
     if (!isRouteLink) return undefined;
 
-    const renderItemsByModule = new Map<
+    const previewItemsByModule = new Map<
       ModuleFilePath,
       Map<string, { title: string; subtitle?: string | null; image?: string }>
     >();
@@ -96,42 +112,42 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
         return true;
       })
       .map(({ route, moduleFilePath }) => {
-        if (!renderItemsByModule.has(moduleFilePath)) {
+        if (!previewItemsByModule.has(moduleFilePath)) {
           const itemMap = new Map<
             string,
             { title: string; subtitle?: string | null; image?: string }
           >();
-          const renderAtModule = allRenders[moduleFilePath];
-          if (renderAtModule) {
-            const moduleRender = renderAtModule[moduleFilePath];
+          const previewAtModule = allPreviews[moduleFilePath];
+          if (previewAtModule) {
+            const modulePreview = previewAtModule[moduleFilePath];
             if (
-              moduleRender &&
-              "data" in moduleRender &&
-              moduleRender.data &&
-              moduleRender.data.layout === "list" &&
-              moduleRender.data.parent === "record"
+              modulePreview &&
+              "data" in modulePreview &&
+              modulePreview.data &&
+              modulePreview.data.rows?.parent === "record"
             ) {
-              const recordRender = moduleRender.data as ListRecordRender;
-              for (const [key, value] of recordRender.items) {
+              for (const [key, value] of modulePreview.data.rows.items) {
                 itemMap.set(key, {
                   title: value.title,
                   subtitle: value.subtitle,
-                  image: imageSourceToUrl(value.image),
+                  image: imageSourceToUrl(value.image, filePatchIds),
                 });
               }
             }
           }
-          renderItemsByModule.set(moduleFilePath, itemMap);
+          previewItemsByModule.set(moduleFilePath, itemMap);
         }
 
-        const renderItem = renderItemsByModule.get(moduleFilePath)?.get(route);
+        const previewItem = previewItemsByModule
+          .get(moduleFilePath)
+          ?.get(route);
 
-        if (renderItem) {
+        if (previewItem) {
           return {
-            title: renderItem.title,
-            subtitle: renderItem.subtitle ?? moduleFilePath,
+            title: previewItem.title,
+            subtitle: previewItem.subtitle ?? moduleFilePath,
             href: route,
-            image: renderItem.image,
+            image: previewItem.image,
           };
         }
 
@@ -146,11 +162,12 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
     routesWithModulePaths,
     includePattern,
     excludePattern,
-    allRenders,
+    allPreviews,
+    filePatchIds,
   ]);
 
   const imageModulePath = useMemo((): ModuleFilePath | undefined => {
-    const img = options?.inline?.img;
+    const img = options?.img;
     if (
       img &&
       typeof img === "object" &&
@@ -165,7 +182,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   }, [options]);
 
   const imageSchema = useMemo((): SerializedImageSchema | undefined => {
-    const img = options?.inline?.img;
+    const img = options?.img;
     if (
       img &&
       typeof img === "object" &&
@@ -177,5 +194,5 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
     return undefined;
   }, [options]);
 
-  return { features, linkCatalog, imageModulePath, imageSchema };
+  return { features, linkCatalog, allowsRoute, imageModulePath, imageSchema };
 }

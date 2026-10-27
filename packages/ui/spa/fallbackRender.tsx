@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   Accordion,
   AccordionItem,
@@ -24,7 +25,7 @@ function ErrorContent({
   return (
     <div className="flex absolute top-0 left-0 justify-center items-center w-screen h-screen bg-bg-primary text-fg-primary">
       <div className="p-10 w-full h-full">
-        <div className="overflow-scroll p-10 w-full h-full bg-card text-fg-primary">
+        <div className="overflow-scroll p-10 w-full h-full bg-bg-primary text-fg-primary">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-[0.5em] text-lg font-bold text-center py-2">
               <Logo /> encountered an error
@@ -88,7 +89,7 @@ function ErrorContent({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function fallbackRender({ error, resetErrorBoundary }: any) {
-  console.error(error);
+  Internal.log.error(error);
   return <ErrorContent error={error} resetErrorBoundary={resetErrorBoundary} />;
 }
 
@@ -100,7 +101,7 @@ export function FallbackComponent({
   error: any;
   resetErrorBoundary: () => void;
 }) {
-  console.error(error);
+  Internal.log.error(error);
   const currentPatchIds = useCurrentPatchIds();
   const { deletePatches } = useDeletePatches();
   const onDeleteAllPatches =

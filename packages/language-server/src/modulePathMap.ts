@@ -190,9 +190,6 @@ function traverse(
   if (ts.isArrayLiteralExpression(node)) {
     return traverseArrayLiteral(node, sourceFile);
   }
-  if (ts.isCallExpression(node)) {
-    return traverseCallExpression(node, sourceFile);
-  }
 }
 
 /**
@@ -200,7 +197,7 @@ function traverse(
  *
  * NOTE: do not compute the start as `end.character - node.getWidth()`. That
  * identity only holds while the node stays on a single line - for a multi-line
- * node (an object inside an array, a `c.image` metadata argument, ...) it
+ * node (an object inside an array, a multi-line media object, ...) it
  * reports the *closing* line and a negative character. `getStart(sourceFile)`
  * needs no parent pointers as long as the source file is passed explicitly,
  * which is why it is safe here.
@@ -212,42 +209,6 @@ function rangeOfNode(
   return {
     start: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)),
     end: sourceFile.getLineAndCharacterOfPosition(node.getEnd()),
-  };
-}
-
-/**
- * `c.image(...)` / `c.file(...)` expose three addressable paths: the call itself
- * (`val`), the reference argument (`_ref`) and the metadata argument
- * (`metadata`). Validation errors about a missing file point at `_ref`, and
- * errors about metadata point at `metadata`, so both need their own range.
- */
-function traverseCallExpression(
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-): ModulePathMap | undefined {
-  if (!ts.isPropertyAccessExpression(node.expression)) {
-    return undefined;
-  }
-  const isValFileConstructor =
-    node.expression.expression.getText(sourceFile) === "c" &&
-    (node.expression.name.getText(sourceFile) === "file" ||
-      node.expression.name.getText(sourceFile) === "image");
-  if (!isValFileConstructor || !node.arguments[0]) {
-    return undefined;
-  }
-
-  const val = { children: {}, ...rangeOfNode(node, sourceFile) };
-  const _ref = {
-    children: {},
-    ...rangeOfNode(node.arguments[0], sourceFile),
-  };
-  if (!node.arguments[1]) {
-    return { val, _ref };
-  }
-  return {
-    val,
-    _ref,
-    metadata: { children: {}, ...rangeOfNode(node.arguments[1], sourceFile) },
   };
 }
 

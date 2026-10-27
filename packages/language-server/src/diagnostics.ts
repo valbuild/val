@@ -2,15 +2,17 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import {
-  FILE_REF_PROP,
   Internal,
   type ModuleFilePath,
+  type ModulePath,
   type SourcePath,
   type ValidationError,
   type ValidationFix,
 } from "@valbuild/core";
 import {
+  isValidationWarning,
   resolveSchemaSourceFixes,
+  SCHEMA_SOURCE_FIXES,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 import {
@@ -19,6 +21,11 @@ import {
   type Range,
 } from "vscode-languageserver";
 import { createModulePathMap, getModulePathRange } from "./modulePathMap";
+import {
+  isDeferredMediaCheckAt,
+  mediaCheckKey,
+  type MediaCheckVerdict,
+} from "./mediaChecks";
 import type { ValModuleContent } from "./ValProject";
 
 /** Marks diagnostics as ours, so a client can filter on it. */
@@ -48,6 +55,12 @@ export const VAL_DIAGNOSTIC_CODES = [
   "val/file-not-found",
   /** The module is not registered in `val.modules`, so Val will not serve it. */
   "val/missing-module",
+  /**
+   * A gallery-backed media field points at something its gallery does not have.
+   * Reported by core with no `ValidationFix`, because the remedy is an edit to
+   * the gallery module or a file move -- see {@link GalleryMembership}.
+   */
+  "val/gallery-membership",
 ] as const;
 
 export type ValDiagnosticCode = (typeof VAL_DIAGNOSTIC_CODES)[number];
@@ -74,20 +87,37 @@ export type ValDiagnosticData = {
   value?: unknown;
   /** Absolute path of the missing file, for `val/file-not-found`. */
   filePath?: string;
+  /**
+   * Where the gallery is and what the field points at, for `val/gallery-membership`.
+   * Carried here so a code action does not have to re-resolve the schema, and so
+   * a client could show it.
+   */
+  gallery?: GalleryMembership;
+  /**
+   * The path to hand `createFixPatch`, when it differs from
+   * {@link ValDiagnosticData.sourcePath}.
+   *
+   * Only the gallery checks use this: they are reported on the entry that is
+   * wrong but fixed against the record that contains it.
+   */
+  fixSourcePath?: string;
 };
 
 /**
  * Severity policy, in one place.
  *
- * - **Warning** — Val can fix it automatically. Mirrors the CLI, which prints
- *   these with `⚠` (its `validation-fixable-error` event) rather than `✘`. In an
- *   editor a one-click-fixable metadata mismatch should not shout as loudly as a
- *   type error.
+ * - **Warning** — two kinds:
+ *   - A local file in a project with remote files (`isValidationWarning`).
+ *     The CLI calls this a warning too: `val validate` reports it and passes
+ *     unless `--strict`. Every project made from a template starts this way.
+ *   - Anything Val can fix automatically. In an editor a one-click-fixable
+ *     metadata mismatch should not shout as loudly as a type error. The CLI
+ *     still counts these as errors (`✘`, "run --fix") and exits non-zero, so
+ *     Warning here is about presentation, not about the problem being
+ *     optional.
  * - **Error** — everything else: the content is wrong, the schema is wrong, or
- *   the module does not work at all.
- *
- * Note that `val validate` still exits non-zero for fixable errors, so Warning
- * here is about presentation, not about the problem being optional.
+ *   the module does not work at all. A local file that does not exist is
+ *   `val/file-not-found`, an Error, whatever fix it was reported with.
  */
 export function severityFor({
   code,
@@ -96,6 +126,10 @@ export function severityFor({
   code: ValDiagnosticCode;
   fixes?: ValidationFix[];
 }): DiagnosticSeverity {
+  // Its own branch, so it stays a warning if the one below ever changes.
+  if (code === "val/validation" && isValidationWarning({ fixes })) {
+    return DiagnosticSeverity.Warning;
+  }
   if (code === "val/validation" && fixes && fixes.length > 0) {
     return DiagnosticSeverity.Warning;
   }
@@ -108,18 +142,46 @@ const FALLBACK_RANGE: Range = {
   end: { line: 0, character: 0 },
 };
 
-/** Fixes that operate on a file or image reference. */
+/**
+ * Fixes that operate on a LOCAL file or image reference.
+ *
+ * `*:check-remote` is deliberately absent. A remote value's bytes are on the
+ * content host by design, so "is it on disk" is never its question -- and for
+ * a path that is neither under `/public` nor a parseable remote ref, this
+ * check answered "File <root>/... does not exist" and pre-empted the remote
+ * adjudication, which has the real answer ("Invalid remote ref: ..."). The
+ * upload/download fixes stay: `*:upload-remote` is reported on a local path
+ * and a missing file really is its problem.
+ */
 const FILE_FIXES: readonly string[] = [
   "image:add-metadata",
   "image:check-metadata",
   "image:upload-remote",
   "image:download-remote",
-  "image:check-remote",
   "file:add-metadata",
   "file:check-metadata",
   "file:upload-remote",
   "file:download-remote",
-  "file:check-remote",
+  // Local only: core never asks a remote video for its metadata.
+  "video:add-metadata",
+  // The same, for a video set's entry, whose file is its KEY.
+  "videos:add-metadata",
+  // A collection entry still to upload: its file is its key too, and a
+  // missing one has to stay an error rather than read as the warning
+  // `isValidationWarning` makes of the upload.
+  "images:upload-remote",
+  "files:upload-remote",
+  "videos:upload-remote",
+  // A video still to upload: `path` is the video's file.
+  "video:upload-remote",
+];
+
+/** Fixes reported on a collection entry, whose file is its key, not a `path`. */
+const KEYED_BY_FILE: readonly string[] = [
+  "videos:add-metadata",
+  "images:upload-remote",
+  "files:upload-remote",
+  "videos:upload-remote",
 ];
 
 function build(
@@ -143,6 +205,8 @@ export function createValDiagnostics({
   text,
   valRoot,
   snapshot,
+  galleryChecks,
+  mediaChecks,
 }: {
   moduleFilePath: ModuleFilePath;
   content: ValModuleContent;
@@ -164,6 +228,22 @@ export function createValDiagnostics({
    * unactionable noise on correct code.
    */
   snapshot?: SchemaSourceSnapshot;
+  /**
+   * Verdicts for the gallery placeholders core emits unconditionally, from
+   * {@link resolveGalleryChecks}. Without it the placeholders are dropped: two
+   * permanent warnings on every gallery module is worse than a missed one, and
+   * the caller that can adjudicate them is the one that has a `Service`.
+   */
+  galleryChecks?: ReadonlyMap<string, GalleryCheckVerdict>;
+  /**
+   * Verdicts for the media placeholders core emits unconditionally, from
+   * {@link resolveMediaChecks}. Without it the placeholders are dropped, for
+   * the same reason the gallery ones are: core reports `image:check-metadata`
+   * on every `s.image()` that carries metadata, and `image:check-remote` on
+   * every remote image, whether or not anything is wrong -- so publishing them
+   * raw puts a permanent warning on every image in the project.
+   */
+  mediaChecks?: ReadonlyMap<string, MediaCheckVerdict>;
 }): Diagnostic[] {
   if (content.errors === false) {
     return [];
@@ -203,21 +283,84 @@ export function createValDiagnostics({
     for (const error of errors) {
       const fixes = error.fixes;
 
+      // An unconditional gallery placeholder: show it only if the fix handler
+      // found something, and then with the handler's own message rather than
+      // the placeholder's "may have files not tracked by this gallery".
+      if (fixes?.some(isGalleryCheckFix)) {
+        const verdict = galleryChecks?.get(galleryCheckKey(sourcePath, error));
+        for (const finding of verdict ?? []) {
+          diagnostics.push(
+            build(rangeOf(finding.sourcePath, modulePathMap), finding.message, {
+              code: "val/validation",
+              sourcePath: finding.sourcePath,
+              ...(finding.fixes ? { fixes: finding.fixes } : {}),
+              ...(finding.fixSourcePath
+                ? { fixSourcePath: finding.fixSourcePath }
+                : {}),
+              ...(finding.value !== undefined ? { value: finding.value } : {}),
+            }),
+          );
+        }
+        continue;
+      }
+
       // A file-related fix cannot succeed if the file is not there, and
       // "metadata is incorrect" is a misleading way to say "the file is
       // missing". Report the real problem instead, exactly as the CLI's fix
       // handlers do when their precondition fails.
       const missing =
         valRoot && fixes?.some((fix) => FILE_FIXES.includes(fix))
-          ? missingFileRef({ sourcePath, content, valRoot })
+          ? missingFileRef({ sourcePath, content, valRoot, fixes })
           : undefined;
       if (missing) {
         diagnostics.push(
           build(
-            rangeOf(sourcePath, modulePathMap, "_ref"),
+            rangeOf(sourcePath, modulePathMap, "path"),
             `File ${missing} does not exist`,
             { code: "val/file-not-found", sourcePath, filePath: missing },
           ),
+        );
+        continue;
+      }
+
+      // An unconditional media placeholder: core reports
+      // `image:check-metadata` on every `s.image()` carrying metadata whether
+      // or not it disagrees with the file, and `Remote image was not checked.`
+      // on every remote image whether or not its ref is stale. Show only what
+      // the adjudication actually found, and nothing when it found nothing.
+      // Deliberately after the missing-file branch above, so a deleted file is
+      // still reported as `val/file-not-found` rather than as a metadata
+      // mismatch.
+      if (isDeferredMediaCheckAt({ sourcePath, error, content })) {
+        const verdict = mediaChecks?.get(mediaCheckKey(sourcePath, error));
+        for (const finding of verdict ?? []) {
+          diagnostics.push(
+            build(rangeOf(sourcePath, modulePathMap), finding.message, {
+              code: "val/validation",
+              sourcePath,
+              ...(finding.fixes ? { fixes: finding.fixes } : {}),
+              ...(finding.value !== undefined ? { value: finding.value } : {}),
+            }),
+          );
+        }
+        continue;
+      }
+
+      // A gallery-backed field whose path the gallery does not track. Core
+      // reports it with no fix because the remedy is elsewhere; giving it its
+      // own code is what lets the editor offer the two remedies.
+      const gallery =
+        !fixes?.length && !error.schemaError
+          ? galleryMembershipAt({ sourcePath, content, snapshot })
+          : undefined;
+      if (gallery) {
+        diagnostics.push(
+          build(rangeOf(sourcePath, modulePathMap, "path"), error.message, {
+            code: "val/gallery-membership",
+            sourcePath,
+            gallery,
+            ...(error.value !== undefined ? { value: error.value } : {}),
+          }),
         );
         continue;
       }
@@ -241,17 +384,19 @@ export function createValDiagnostics({
  * it is not on disk.
  *
  * Mirrors the precondition check in `handleFileMetadata`
- * (`packages/cli/src/runValidation.ts`): resolve the path, read `FILE_REF_PROP`,
+ * (`packages/cli/src/runValidation.ts`): resolve the path, read its `path`,
  * check the file exists.
  */
 function missingFileRef({
   sourcePath,
   content,
   valRoot,
+  fixes,
 }: {
   sourcePath: string;
   content: ValModuleContent;
   valRoot: string;
+  fixes: readonly string[];
 }): string | undefined {
   if (!content.source || !content.schema) {
     return undefined;
@@ -265,18 +410,49 @@ function missingFileRef({
       content.source,
       content.schema,
     );
-    const ref = (resolved.source as Record<string, unknown> | undefined)?.[
-      FILE_REF_PROP
-    ];
-    if (typeof ref !== "string") {
-      return undefined;
+    const value: unknown = resolved.source;
+    const source = isRecord(value) ? value : undefined;
+    const refs: unknown[] = fixes.some((fix) => KEYED_BY_FILE.includes(fix))
+      ? // A collection entry is keyed by its file; the value has no `path`.
+        [Internal.splitModulePath(modulePath).pop()]
+      : [source?.path];
+    if (
+      fixes.includes("video:upload-remote") ||
+      fixes.includes("videos:upload-remote")
+    ) {
+      // Every file the upload moves, as the CLI checks before it moves any:
+      // the poster and captions too. A field picked from a set moves only
+      // those -- the video is the set's (`movablePathsOf`).
+      if (
+        fixes.includes("video:upload-remote") &&
+        resolved.schema.type === "video" &&
+        resolved.schema.referencedModule !== undefined
+      ) {
+        refs.length = 0;
+      }
+      if (isRecord(source?.poster)) {
+        refs.push(source.poster.path);
+      }
+      if (Array.isArray(source?.captions)) {
+        for (const track of source.captions) {
+          if (isRecord(track)) refs.push(track.path);
+        }
+      }
     }
-    // Remote references are URLs and are not expected on disk.
-    if (Internal.remote.splitRemoteRef(ref).status === "success") {
-      return undefined;
+    for (const ref of refs) {
+      // Remote references are URLs and are not expected on disk.
+      if (
+        typeof ref !== "string" ||
+        Internal.remote.splitRemoteRef(ref).status === "success"
+      ) {
+        continue;
+      }
+      const filePath = path.join(valRoot, ref);
+      if (!fs.existsSync(filePath)) {
+        return filePath;
+      }
     }
-    const filePath = path.join(valRoot, ref);
-    return fs.existsSync(filePath) ? undefined : filePath;
+    return undefined;
   } catch {
     // Resolution can fail when the schema failed to serialize; skip the check
     // rather than dropping the underlying validation error.
@@ -312,15 +488,30 @@ export function createProjectErrorDiagnostic({
  *
  * Val only serves modules listed there, so an unregistered module silently does
  * nothing — worth surfacing even though it is not a validation error.
+ *
+ * Reported on the `export default`, which is also why a file that has none gets
+ * no diagnostic at all (see `findValModuleDefinition`): the default export is
+ * the thing that makes a `*.val.ts` a module, so it is the thing being asked
+ * about, and pointing at line 1 of a file full of shared schemas asked its
+ * author to register something that does not exist.
+ *
+ * The message carries both remedies for the same reason. Only one of them is
+ * "add it to val.modules"; the other is to stop default-exporting, which is how
+ * a helper that landed in the module slot is fixed. Never "wrap it in
+ * `c.define`" — that turns it into an unregistered module, i.e. straight back
+ * to here.
  */
 export function createMissingModuleDiagnostic({
   moduleFilePath,
+  range,
 }: {
   moduleFilePath: ModuleFilePath;
+  /** The module's `export default`, from `findValModuleDefinition`. */
+  range: Range;
 }): Diagnostic {
   return build(
-    FALLBACK_RANGE,
-    `${moduleFilePath} is not registered in val.modules, so Val will not serve it.`,
+    range,
+    `${moduleFilePath} is not registered in val.modules, so Val will not serve it. Add it there — or, if this file is not meant to be a Val module, export what it holds by name instead: a default export is what makes a *.val.ts a module.`,
     { code: "val/missing-module", sourcePath: moduleFilePath },
   );
 }
@@ -328,13 +519,13 @@ export function createMissingModuleDiagnostic({
 function rangeOf(
   sourcePath: string,
   modulePathMap: ReturnType<typeof createModulePathMap>,
-  /** Optional child segment to prefer, for example `_ref`. */
+  /** Optional child segment to prefer, for example `path`. */
   preferChild?: string,
 ): Range {
   if (!modulePathMap) {
     return FALLBACK_RANGE;
   }
-  let modulePath: string;
+  let modulePath: ModulePath;
   try {
     [, modulePath] = Internal.splitModuleFilePathAndModulePath(
       sourcePath as never,
@@ -357,14 +548,187 @@ function rangeOf(
     }
   }
   const range = getModulePathRange(modulePath, modulePathMap);
-  return range ? { start: range.start, end: range.end } : FALLBACK_RANGE;
+  if (range) {
+    return { start: range.start, end: range.end };
+  }
+  return (
+    longestResolvedPrefixRange(modulePath, modulePathMap) ?? FALLBACK_RANGE
+  );
 }
 
-/** Fixes core cannot resolve without a project-wide snapshot. */
-const DEFERRED_FIXES: readonly string[] = [
-  "keyof:check-keys",
-  "router:check-route",
+/**
+ * The range of the longest prefix of `modulePath` this module's own text knows
+ * about.
+ *
+ * `.jsonValues()` is why this exists. An entry's value lives in a separate
+ * `*.val.json`, so the `.val.ts` contains the entry KEY and nothing below it,
+ * and every error inside an entry resolved to nothing at all -- landing on
+ * FALLBACK_RANGE, line 1. For a record with hundreds of entries that is hundreds
+ * of diagnostics stacked on the first line, none of them naming an entry.
+ *
+ * The entry key is not where the offending value is -- that is in the other file
+ * -- but it is the closest place in THIS file, and it is where the quick fix is
+ * offered from.
+ */
+function longestResolvedPrefixRange(
+  modulePath: ModulePath,
+  modulePathMap: NonNullable<ReturnType<typeof createModulePathMap>>,
+): Range | undefined {
+  let segments: string[];
+  try {
+    segments = Internal.splitModulePath(modulePath);
+  } catch {
+    return undefined;
+  }
+  for (let length = segments.length - 1; length > 0; length--) {
+    const range = getModulePathRange(
+      segments
+        .slice(0, length)
+        .map((segment) => JSON.stringify(segment))
+        .join("."),
+      modulePathMap,
+    );
+    if (range) {
+      return { start: range.start, end: range.end };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Gallery checks core emits unconditionally.
+ *
+ * `RecordSchema.validate` attaches these to every `s.imagedir()` / `s.filedir()`
+ * / `s.videodir()` module whether or not anything is actually wrong (see
+ * `packages/core/src/schema/record.ts`): they are placeholders asking someone to
+ * go and look. `val validate` looks by running the matching fix handler, which
+ * reports success when the directory is unique and every file is accounted for.
+ *
+ * An editor has to do the same. Publishing them as-is put two permanent warnings
+ * on every gallery module in the project — which is worse than useless, because
+ * a warning that is always there is one nobody reads.
+ */
+const GALLERY_CHECK_FIXES: readonly string[] = [
+  "images:check-unique-folder",
+  "files:check-unique-folder",
+  "videos:check-unique-folder",
+  "images:check-all-files",
+  "files:check-all-files",
+  "videos:check-all-files",
 ];
+
+export function isGalleryCheckFix(fix: string): boolean {
+  return GALLERY_CHECK_FIXES.includes(fix);
+}
+
+/**
+ * One real problem found behind a gallery placeholder.
+ *
+ * A single placeholder can expand into several of these, each pointing at its
+ * own entry: `handleCheckAllFiles` reporting `shouldApplyPatch` means "no
+ * membership problem, now check the metadata", and `createFixPatch` then returns
+ * one error per entry whose stored metadata disagrees with its file. This is why
+ * the verdict is a list rather than a message, and why each carries its own
+ * source path.
+ */
+export type GalleryCheckFinding = {
+  /** Where to show it: the entry the problem is about. */
+  sourcePath: string;
+  message: string;
+  fixes?: ValidationFix[];
+  /**
+   * Where to *fix* it, when that is not where it is shown.
+   *
+   * The gallery fix is expressed against the record as a whole — it walks every
+   * entry — so `createFixPatch` must be given the record's path and the
+   * placeholder's value, while the diagnostic itself belongs on the offending
+   * entry. Splitting the two is what lets the message be precise without
+   * breaking the fix.
+   */
+  fixSourcePath?: string;
+  /** The placeholder's `value`, which the fix reads. */
+  value?: unknown;
+};
+
+/**
+ * The verdict on one gallery check. Empty means nothing is wrong and the
+ * placeholder is dropped.
+ */
+export type GalleryCheckVerdict = GalleryCheckFinding[];
+
+/**
+ * Adjudicate every gallery placeholder in `validation`, by running the same fix
+ * handler `val validate` runs.
+ *
+ * Async and therefore separate from {@link createValDiagnostics}, which stays
+ * synchronous so it can be tested without a project. The caller runs this first
+ * and passes the result in.
+ */
+export async function resolveGalleryChecks({
+  validation,
+  runHandler,
+}: {
+  validation: Record<SourcePath, ValidationError[]>;
+  /**
+   * Runs the fix handler for one error and reports what it found. Injected so
+   * that this module needs no `Service`, and so tests can drive both outcomes.
+   */
+  runHandler: (
+    sourcePath: SourcePath,
+    error: ValidationError,
+  ) => Promise<GalleryCheckVerdict>;
+}): Promise<Map<string, GalleryCheckVerdict>> {
+  const verdicts = new Map<string, GalleryCheckVerdict>();
+  for (const [sourcePath, errors] of Object.entries(validation) as [
+    SourcePath,
+    ValidationError[],
+  ][]) {
+    for (const error of errors) {
+      if (!error.fixes?.some(isGalleryCheckFix)) {
+        continue;
+      }
+      const key = galleryCheckKey(sourcePath, error);
+      try {
+        verdicts.set(key, await runHandler(sourcePath, error));
+      } catch {
+        // A handler that threw tells us nothing about the gallery. Keep the
+        // placeholder rather than silently claiming the gallery is fine.
+        verdicts.set(key, [
+          {
+            sourcePath,
+            message: error.message,
+            ...(error.fixes ? { fixes: error.fixes } : {}),
+            ...(error.value !== undefined ? { value: error.value } : {}),
+          },
+        ]);
+      }
+    }
+  }
+  return verdicts;
+}
+
+/**
+ * Key for one placeholder. A gallery module carries several, all at the same
+ * source path, so the fix names have to be part of the key.
+ */
+export function galleryCheckKey(
+  sourcePath: string,
+  error: ValidationError,
+): string {
+  return `${sourcePath}|${(error.fixes ?? []).join(",")}`;
+}
+
+/**
+ * Fixes core cannot resolve without a project-wide snapshot.
+ *
+ * The shared list, not a copy: this had its own and fell behind by two, so a
+ * locale field and a declared-key record each put the marker's developer-facing
+ * placeholder — "should typically be processed by Val internally … version
+ * mismatch" — into the editor's diagnostics whenever the snapshot was missing.
+ * Every caller that recognises some of these has to recognise all of them; see
+ * `SCHEMA_SOURCE_FIXES`.
+ */
+const DEFERRED_FIXES: readonly string[] = SCHEMA_SOURCE_FIXES;
 
 /**
  * Fallback for when no snapshot is available: drop the placeholders rather than
@@ -390,4 +754,113 @@ function dropDeferredPlaceholders(
     }
   }
   return out;
+}
+
+/**
+ * A gallery-backed field pointing at something the gallery does not have.
+ *
+ * `ImageSchema.validate` reports this (`packages/core/src/schema/image.ts`:
+ * "The gallery does not have an image at '…'"), and `VideoSchema.validate` the
+ * same for a field picked from an `s.videodir()` ("The set does not have a
+ * video at '…'"), but neither attaches a `ValidationFix`,
+ * because the remedy is not a change to this module: either the gallery gains an
+ * entry, or the file moves into the gallery's directory. Both are edits to
+ * somewhere else, which is not what a `ValidationFix` describes.
+ *
+ * So the fix is built in the editor instead, and this is what it needs. Derived
+ * from the **schema**, not from the message: matching on message text would break
+ * the moment the wording changed, silently.
+ */
+export type GalleryMembership = {
+  /** Module path of the gallery this field points at. */
+  referencedModule: string;
+  /** The gallery's directory, when it declares one. */
+  dir?: string;
+  /** The path the field currently holds. */
+  path: string;
+  /** `image`, `file` or `video`, for wording and for which metadata to read. */
+  mediaType: "image" | "file" | "video";
+};
+
+export function galleryMembershipAt({
+  sourcePath,
+  content,
+  snapshot,
+}: {
+  sourcePath: string;
+  content: ValModuleContent;
+  snapshot?: SchemaSourceSnapshot;
+}): GalleryMembership | undefined {
+  if (!content.source || !content.schema) {
+    return undefined;
+  }
+  let resolved;
+  try {
+    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+      sourcePath as never,
+    );
+    resolved = Internal.resolvePath(modulePath, content.source, content.schema);
+  } catch {
+    return undefined;
+  }
+  const schema = resolved.schema;
+  if (
+    !schema ||
+    typeof schema !== "object" ||
+    !("type" in schema) ||
+    (schema.type !== "image" &&
+      schema.type !== "file" &&
+      schema.type !== "video")
+  ) {
+    return undefined;
+  }
+  const referencedModule =
+    "referencedModule" in schema && typeof schema.referencedModule === "string"
+      ? schema.referencedModule
+      : undefined;
+  if (!referencedModule) {
+    return undefined;
+  }
+  const source = resolved.source;
+  const currentPath =
+    source && typeof source === "object" && "path" in source
+      ? (source as { path?: unknown }).path
+      : undefined;
+  if (typeof currentPath !== "string") {
+    return undefined;
+  }
+  const gallery = snapshot?.schemas[referencedModule as never] as
+    | { type?: string; dir?: unknown }
+    | undefined;
+  const dir =
+    gallery?.type === "record" && typeof gallery.dir === "string"
+      ? gallery.dir
+      : undefined;
+  // Core emits TWO fixless errors on a gallery-backed field: this one, and "an
+  // image from a gallery must not carry its own width, height...". Both look
+  // identical from here, and offering "add it to the gallery" for the second
+  // would be nonsense. The path already being a key in the gallery is what tells
+  // them apart, so without a snapshot to check against, claim nothing.
+  const entries = snapshot?.sources[referencedModule as never];
+  if (
+    entries === undefined ||
+    entries === null ||
+    typeof entries !== "object" ||
+    Array.isArray(entries)
+  ) {
+    return undefined;
+  }
+  if (currentPath in entries) {
+    return undefined;
+  }
+  return {
+    referencedModule,
+    ...(dir !== undefined ? { dir } : {}),
+    path: currentPath,
+    mediaType: schema.type,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

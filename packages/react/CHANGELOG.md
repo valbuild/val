@@ -1,0 +1,1034 @@
+# @valbuild/react
+
+## 0.150.3
+
+### Patch Changes
+
+- Updated dependencies [[`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c)]:
+  - @valbuild/ui@0.150.3
+  - @valbuild/core@0.150.3
+  - @valbuild/shared@0.150.3
+
+## 0.150.2
+
+### Patch Changes
+
+- [#946](https://github.com/valbuild/val/pull/946) [`e24dc6e`](https://github.com/valbuild/val/commit/e24dc6e56e7647654e27ee2390d2181b0eaff3ad) Thanks [@freekh](https://github.com/freekh)! - Content analytics now warns in development about edit tags that leak out of React. With analytics on, `ValProvider` looks at the page as a visitor gets it and names every place content arrived with its edit tag still in it: a `<title>`, a `<meta>`, JSON-LD, a share link built with `encodeURIComponent`, or any other attribute or text. Each warning says which content it was and where, and that `val.raw()` fixes it. Open the site in a window where Val is not enabled to see them; production never runs the check.
+
+  Also fixed: text inside a fragment (`<li>{a}<> — {b}</></li>`) kept its edit tag on the page. It is now cleaned, and the element the fragment sits in is tagged with its content instead.
+
+- Updated dependencies [[`c674aae`](https://github.com/valbuild/val/commit/c674aae361be3c75b5232acb41ea6d8da973c678), [`c044e55`](https://github.com/valbuild/val/commit/c044e55452ba34ec5b7b38c935c9c25491d980be), [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595), [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70), [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7), [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795), [`520d22c`](https://github.com/valbuild/val/commit/520d22cc721ff23b83e4bae0b4ba7f52a6a0fa0c)]:
+  - @valbuild/ui@0.150.2
+  - @valbuild/shared@0.150.2
+  - @valbuild/core@0.150.2
+
+## 0.150.1
+
+### Patch Changes
+
+- Updated dependencies [[`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02), [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11)]:
+  - @valbuild/core@0.150.1
+  - @valbuild/shared@0.150.1
+  - @valbuild/ui@0.150.1
+
+## 0.150.0
+
+### Patch Changes
+
+- Updated dependencies [[`baf2f56`](https://github.com/valbuild/val/commit/baf2f56498ca2ae5ec1f5bef356faf09a382b768), [`f638188`](https://github.com/valbuild/val/commit/f638188c27fc338ace3d8282f59e83084adcb002)]:
+  - @valbuild/ui@0.150.0
+
+## 0.149.7
+
+### Patch Changes
+
+- Updated dependencies [[`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015), [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3), [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865), [`8366c57`](https://github.com/valbuild/val/commit/8366c575df66ee19c3400b7fdbc14a8fd517afd6)]:
+  - @valbuild/shared@0.149.7
+  - @valbuild/ui@0.149.7
+
+## 0.149.6
+
+### Patch Changes
+
+- Updated dependencies [[`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965)]:
+  - @valbuild/ui@0.149.6
+
+## 0.149.5
+
+### Patch Changes
+
+- Updated dependencies [[`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f), [`9e44644`](https://github.com/valbuild/val/commit/9e44644933103d0db38bf72463478d80a1a9b0dd)]:
+  - @valbuild/ui@0.149.5
+
+## 0.149.4
+
+### Patch Changes
+
+- Updated dependencies [[`1a426f4`](https://github.com/valbuild/val/commit/1a426f41759c5f70492be5f1795bdc260ac3572b)]:
+  - @valbuild/ui@0.149.4
+
+## 0.149.3
+
+### Patch Changes
+
+- Updated dependencies [[`ce7d5f4`](https://github.com/valbuild/val/commit/ce7d5f4f0732acb49068ae79a90aeff6fdc9e574)]:
+  - @valbuild/ui@0.149.3
+
+## 0.149.1
+
+### Patch Changes
+
+- Updated dependencies [[`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243), [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185)]:
+  - @valbuild/ui@0.149.1
+
+## 0.149.0
+
+### Patch Changes
+
+- Updated dependencies [[`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4), [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03)]:
+  - @valbuild/ui@0.149.0
+
+## 0.148.8
+
+### Patch Changes
+
+- Updated dependencies [[`213c6fc`](https://github.com/valbuild/val/commit/213c6fca9636f9b4bb54f15336a21d2ac4846a9b), [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87), [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87)]:
+  - @valbuild/ui@0.148.8
+
+## 0.148.7
+
+### Patch Changes
+
+- [#906](https://github.com/valbuild/val/pull/906) [`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a) Thanks [@freekh](https://github.com/freekh)! - `val.attrs(post, "author")` tags an element with one field of what it shows. Use it for a value Val never encodes, like an `s.keyOf` key, a date or a colour. A byline that shows the author a post points at can carry the post's `author` field, so clicking it in the Studio opens the choice of author.
+
+  On a phone, a tour step about Pages, Media, Data or Settings points at the menu button, which is where they are when the rail is not drawn.
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/ui@0.148.7
+  - @valbuild/shared@0.148.7
+
+## 0.148.6
+
+### Patch Changes
+
+- Updated dependencies [[`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7)]:
+  - @valbuild/ui@0.148.6
+  - @valbuild/shared@0.148.6
+
+## 0.148.5
+
+### Patch Changes
+
+- Updated dependencies [[`e1e41e2`](https://github.com/valbuild/val/commit/e1e41e2f2c3a2c511299f57ac36fcae50cc35bf6)]:
+  - @valbuild/ui@0.148.5
+
+## 0.148.4
+
+### Patch Changes
+
+- Updated dependencies [[`7c432b3`](https://github.com/valbuild/val/commit/7c432b3f05af414bd6cbc37cd58a71a783056caa)]:
+  - @valbuild/ui@0.148.4
+
+## 0.148.3
+
+### Patch Changes
+
+- [#881](https://github.com/valbuild/val/pull/881) [`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d) Thanks [@freekh](https://github.com/freekh)! - The content analytics script. With analytics on (it is off by default, and turned on in a hosted project's settings), a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
+
+  - No cookies, no storage, no visitor IDs. Each page view also says where it came from (the referring site's host and any `utm_source` / `utm_medium` / `utm_campaign`) and whether it was a phone, tablet or desktop.
+  - A page is sent as its route's pattern (`/posts/$postId`), never its address, so a path that holds something about one visitor (an order number, a token) is never stored. `startValAnalytics` takes this as `routeFor`; `ValProvider` passes TanStack's matched route.
+  - Editors are never counted: nothing is sent in draft mode, in the Studio, with Val enabled, or at a proposal's address, and nothing from automated browsers. A page the browser prerenders counts nothing until it is shown.
+  - The script is the new `@valbuild/react/analytics` entry, loaded only for visitors of a site with analytics on, after the page has hydrated. It imports nothing else from Val.
+  - Storing the counts and showing them is part of Val's hosting, which takes these beacons before they reach the site. Anywhere else, `/api/val/analytics` checks each beacon and stores nothing; in local development, with `VAL_DEBUG=1`, it logs a line per beacon, so you can see it working.
+  - `ValProvider`'s Studio check now matches `/val` and what is below it only, not every route starting with those letters (`/values`). The same fix is in `@valbuild/next`.
+
+- Updated dependencies [[`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d), [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89)]:
+  - @valbuild/shared@0.148.3
+  - @valbuild/ui@0.148.3
+
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/ui@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies [[`fff5681`](https://github.com/valbuild/val/commit/fff5681b9ac9a24b873ba74ca636240d83404e46)]:
+  - @valbuild/ui@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- Updated dependencies [[`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`4176757`](https://github.com/valbuild/val/commit/41767579b01849473a94779122fd39c07dd99234), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/shared@0.148.0
+  - @valbuild/ui@0.148.0
+  - @valbuild/core@0.148.0
+
+## 0.147.0
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/ui@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`59ff6c3`](https://github.com/valbuild/val/commit/59ff6c367bc313b2bb7718b00c1641aaccab949d), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/ui@0.146.4
+
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/ui@0.146.2
+
+## 0.146.1
+
+### Patch Changes
+
+- Updated dependencies [[`2db91a5`](https://github.com/valbuild/val/commit/2db91a5d2a280727eb2b1064e853a03be283289f)]:
+  - @valbuild/ui@0.146.1
+
+## 0.146.0
+
+### Patch Changes
+
+- Updated dependencies [[`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26), [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063)]:
+  - @valbuild/ui@0.146.0
+  - @valbuild/shared@0.146.0
+
+## 0.145.1
+
+### Patch Changes
+
+- Updated dependencies [[`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7)]:
+  - @valbuild/shared@0.145.1
+  - @valbuild/ui@0.145.1
+
+## 0.145.0
+
+### Patch Changes
+
+- Updated dependencies [[`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5), [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c), [`dda5c52`](https://github.com/valbuild/val/commit/dda5c523698395c6dfb96ae8e39dae04307ec332), [`ac0bb7c`](https://github.com/valbuild/val/commit/ac0bb7cb5a99df022b198326a5f8a0cf61e45388)]:
+  - @valbuild/core@0.145.0
+  - @valbuild/shared@0.145.0
+  - @valbuild/ui@0.145.0
+
+## 0.144.12
+
+### Patch Changes
+
+- Updated dependencies [[`2193e3a`](https://github.com/valbuild/val/commit/2193e3ae133cd05dd73d0937dde7c15c88417f71)]:
+  - @valbuild/ui@0.144.12
+
+## 0.144.11
+
+### Patch Changes
+
+- Updated dependencies [[`c606395`](https://github.com/valbuild/val/commit/c60639571f9e836726dfef38e6bd0defc503d726)]:
+  - @valbuild/ui@0.144.11
+
+## 0.144.10
+
+### Patch Changes
+
+- Updated dependencies [[`0a061c1`](https://github.com/valbuild/val/commit/0a061c124408aa127c5042c9e3a602d7dd9daf13)]:
+  - @valbuild/ui@0.144.10
+
+## 0.144.9
+
+### Patch Changes
+
+- Updated dependencies [[`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0), [`a2125af`](https://github.com/valbuild/val/commit/a2125af79d2b2401c40bce3d8fcf0431bb101cbf)]:
+  - @valbuild/ui@0.144.9
+  - @valbuild/shared@0.144.9
+
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c), [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/ui@0.144.8
+
+## 0.144.7
+
+### Patch Changes
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/ui@0.144.7
+
+## 0.144.6
+
+### Patch Changes
+
+- Updated dependencies [[`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9)]:
+  - @valbuild/ui@0.144.6
+
+## 0.144.5
+
+### Patch Changes
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/ui@0.144.5
+  - @valbuild/shared@0.144.5
+
+## 0.144.4
+
+### Patch Changes
+
+- Updated dependencies [[`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f)]:
+  - @valbuild/shared@0.144.4
+  - @valbuild/ui@0.144.4
+
+## 0.144.3
+
+### Patch Changes
+
+- Updated dependencies [[`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51), [`0e09e9c`](https://github.com/valbuild/val/commit/0e09e9cdac4918bdfa1c01a92a8968a516f8c0c6)]:
+  - @valbuild/ui@0.144.3
+
+## 0.144.2
+
+### Patch Changes
+
+- Updated dependencies [[`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e), [`44a5636`](https://github.com/valbuild/val/commit/44a5636955e005a40f2e6c8544e5cf4378fd0fdf)]:
+  - @valbuild/shared@0.144.2
+  - @valbuild/ui@0.144.2
+
+## 0.144.0
+
+### Patch Changes
+
+- Updated dependencies [[`a84271c`](https://github.com/valbuild/val/commit/a84271c534822071c1e428cf9990602459682d25), [`860ab2b`](https://github.com/valbuild/val/commit/860ab2b87333daf95a48215b0e4a1b44f441c878)]:
+  - @valbuild/core@0.144.0
+  - @valbuild/shared@0.144.0
+  - @valbuild/ui@0.144.0
+
+## 0.143.1
+
+### Patch Changes
+
+- Updated dependencies [[`49969c1`](https://github.com/valbuild/val/commit/49969c1e9f7c39f9cea1a97c91d59dbba6fe3f95), [`ee8e2a2`](https://github.com/valbuild/val/commit/ee8e2a23272a512b43a03fb5f61fc0ddecd61dc4), [`d6cc677`](https://github.com/valbuild/val/commit/d6cc6777cf9c2bbef3ba25e43a6227631523758e), [`54aacab`](https://github.com/valbuild/val/commit/54aacab71893a95145183e4e9fefbfac945be24d), [`2577f4e`](https://github.com/valbuild/val/commit/2577f4e8ff19f5ea155040d4d9588b2dbc756ad9)]:
+  - @valbuild/ui@0.143.1
+
+## 0.143.0
+
+### Patch Changes
+
+- Updated dependencies [[`f7c25bd`](https://github.com/valbuild/val/commit/f7c25bd4b44c288db8e5ab914e6d8a72c0216ba5), [`729c4ed`](https://github.com/valbuild/val/commit/729c4edfa28f5a2942c435ccf225e65858b080cc), [`8cadf84`](https://github.com/valbuild/val/commit/8cadf840e8a47168172286ce6a9ac4b15dfe596c)]:
+  - @valbuild/core@0.143.0
+  - @valbuild/ui@0.143.0
+  - @valbuild/shared@0.143.0
+
+## 0.142.0
+
+### Patch Changes
+
+- Updated dependencies [[`1671bce`](https://github.com/valbuild/val/commit/1671bce6f0b65dac77e51655f24ef825f4671ebb), [`bb63738`](https://github.com/valbuild/val/commit/bb63738aabed1cf1287611ecaab7c35fc4b08a12), [`3d2b9e8`](https://github.com/valbuild/val/commit/3d2b9e8c11aa6a4449527e2a1bbb363566797a14), [`a3236a5`](https://github.com/valbuild/val/commit/a3236a5f2c41b92422b40340dba060b53218c6ab), [`f14e0aa`](https://github.com/valbuild/val/commit/f14e0aabedba07b832b1453d49635af5d2fbc019), [`521fe94`](https://github.com/valbuild/val/commit/521fe9400c0b660aa5b3642942cd0cc26622f193)]:
+  - @valbuild/ui@0.142.0
+  - @valbuild/shared@0.142.0
+
+## 0.141.1
+
+### Patch Changes
+
+- Updated dependencies [[`6faacda`](https://github.com/valbuild/val/commit/6faacda398fc92bec187b7afe07a53228a6f2a3b), [`14b18d7`](https://github.com/valbuild/val/commit/14b18d7cb145cec1bc1cd832b9ca857ff4b45adc)]:
+  - @valbuild/ui@0.141.1
+
+## 0.141.0
+
+### Minor Changes
+
+- [#779](https://github.com/valbuild/val/pull/779) [`ba3f330`](https://github.com/valbuild/val/commit/ba3f3300a3dd8649e154097cdfca3b64db209d89) Thanks [@freekh](https://github.com/freekh)! - New: `s.video()`, for mp4/WebM files and HLS streams.
+
+  ```ts
+  const schema = s.object({
+    intro: s.video({ stream: { type: "hls" } }),
+  });
+  ```
+
+  - **Upload and play in the Studio.** A video field shows a player, the file's size and length, and progress while it uploads.
+  - **HLS streaming without a video service.** With `stream: { type: "hls" }`, the Studio converts an upload to an HLS stream in the editor's browser before it uploads it. It makes one H.264 rendition per height (1080p, 720p and 480p by default, and never larger than the upload) and stores them as a folder of files next to your other uploads. Nothing is installed in your app for this: the converter ships inside the Studio and is only downloaded when someone uploads to a streaming field. A browser that can't convert (no WebCodecs, or a non-https address) uploads the original file and says so.
+  - **Poster:** pause on a frame and choose "Use current frame". The frame is saved as an image, and `posterTime` records where it was taken.
+  - **Start and end:** play part of a video without cutting the file.
+  - **Focal point:** marks what must stay in frame when the page crops the video.
+  - **Description:** text for people who can't see the video.
+  - **Captions:** one WebVTT file per language. `.srt` files are converted on upload.
+  - **`<ValVideo>`** in `@valbuild/next` and `@valbuild/tanstack` renders all of the above and is click-to-edit. For HLS in browsers that can't play it natively, pass `hls={() => import("hls.js")}`. It is only loaded when it's needed.
+  - **Rename** a video in the Studio. An HLS stream is renamed as a whole: every playlist and segment moves to the new folder.
+  - `npx val validate --fix` fills in `mimeType`, `width`, `height` and `duration` for a hand-written `.mp4`, `.mov`, `.webm`, `.mkv` or HLS video, on disk or on Val Remote. A remote video is not downloaded: only its headers are read, usually in one to three small requests.
+  - `.remote()` works for videos. `npx val validate --fix` moves a video to Val Remote, or back into the project, together with its poster, captions and every file of an HLS stream.
+
+  A video value always has a `mimeType`: it is how a page knows whether it has an `.mp4` or an `.m3u8`.
+
+  New: `s.videoset()`, a collection of videos, like `s.imageset()` for images.
+
+  ```ts
+  const videosVal = c.define(
+    "/content/videos.val.ts",
+    s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+    {},
+  );
+  const schema = s.object({ intro: s.video(videosVal) });
+  ```
+
+  - **Upload once, set it up once, use anywhere.** A set's entry holds what is true of the file (its type, size and length) and, as defaults, a description, poster, start and end, focal point and captions. A field that picks from the set (`s.video(videosVal)`) gets all of those, and can override any of them on its own. For example, the same clip can open one page at 0:02 and every other page where the set says.
+  - **Media in the Studio.** A set is listed under Media and opens as a gallery of videos, with each video's poster as its thumbnail. Hovering a video previews it, and the selected video plays in a real player (HLS streams too) beside the poster, times, focal point and captions you edit for it. You can upload into the set (with `stream`, uploads become HLS streams, and each upload gets a poster), rename a video, and delete a video that nothing uses. Renaming a video updates every field that uses it. An HLS stream is one entry, and renaming or deleting it moves or removes all of its files.
+  - **Picking.** A set-backed field picks from the set, or uploads into it. Each value the set provides is marked "From gallery · Override", and once overridden, "Overridden · Use gallery's".
+  - `useVal` and `fetchVal` fill in what the set holds (`mimeType`, `width`, `height`, `duration`, and every default the field does not override), so `<ValVideo>` works the same either way.
+  - `.remote()` works for sets. `npx val validate --fix` fills in missing metadata for an entry, adds untracked videos found in the set's directory, and moves a set's videos to Val Remote.
+
+  Image and file galleries use the same new gallery layout: a grid or list of entries, with the selected one open in a panel beside it.
+
+  - An `s.imageset()` entry can hold a default focal point, as well as its description. An `s.image(galleryVal)` field shows both, and can override either.
+  - Fixed: outside draft mode, `useVal` and `fetchVal` now fill a gallery-backed image or file from its gallery (dimensions, mime type, description). Before, a published page got only the `path`.
+
+### Patch Changes
+
+- Updated dependencies [[`199e214`](https://github.com/valbuild/val/commit/199e21471d98806fb34c579cb876560078c928b9), [`9cbe428`](https://github.com/valbuild/val/commit/9cbe42895d006d55c3d993dc27f0779808b85306), [`fb5f097`](https://github.com/valbuild/val/commit/fb5f09721ac07f4d90b8502fdbee3fb3884d9688), [`6473a2e`](https://github.com/valbuild/val/commit/6473a2efe874f1749b27ed6f8ac4e0d19805edb1), [`ba3f330`](https://github.com/valbuild/val/commit/ba3f3300a3dd8649e154097cdfca3b64db209d89)]:
+  - @valbuild/core@0.141.0
+  - @valbuild/shared@0.141.0
+  - @valbuild/ui@0.141.0
+
+## 0.140.2
+
+### Patch Changes
+
+- Updated dependencies [[`df1e5f5`](https://github.com/valbuild/val/commit/df1e5f5f94391f25c71839cc476a51198b90db4d)]:
+  - @valbuild/ui@0.140.2
+  - @valbuild/shared@0.140.2
+
+## 0.140.0
+
+### Patch Changes
+
+- Updated dependencies [[`cb93874`](https://github.com/valbuild/val/commit/cb938748aec15fd0ac3814c1696a2dd78ad63c27)]:
+  - @valbuild/ui@0.140.0
+  - @valbuild/shared@0.140.0
+
+## 0.139.2
+
+### Patch Changes
+
+- Updated dependencies [[`4d9e12c`](https://github.com/valbuild/val/commit/4d9e12c5286f981c7a8a7820db1bf580e327d2ea), [`1c3eb3a`](https://github.com/valbuild/val/commit/1c3eb3af91f6dfeff94a95d80d5291a1acf1baf2)]:
+  - @valbuild/ui@0.139.2
+
+## 0.139.1
+
+### Patch Changes
+
+- Updated dependencies [[`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d), [`8f08418`](https://github.com/valbuild/val/commit/8f0841882d13c991d31dfbb03dd4873c9ab636b4), [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d), [`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9), [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a)]:
+  - @valbuild/ui@0.139.1
+  - @valbuild/core@0.139.1
+  - @valbuild/shared@0.139.1
+
+## 0.139.0
+
+### Patch Changes
+
+- Updated dependencies [[`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481)]:
+  - @valbuild/core@0.139.0
+  - @valbuild/shared@0.139.0
+  - @valbuild/ui@0.139.0
+
+## 0.138.6
+
+### Patch Changes
+
+- Updated dependencies [[`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7)]:
+  - @valbuild/ui@0.138.6
+
+## 0.138.5
+
+### Patch Changes
+
+- Updated dependencies [[`c532afc`](https://github.com/valbuild/val/commit/c532afc1818ee0249ad227a7da029c3e8d06baa8)]:
+  - @valbuild/ui@0.138.5
+
+## 0.138.4
+
+### Patch Changes
+
+- Updated dependencies [[`63bff05`](https://github.com/valbuild/val/commit/63bff0589b6df42efaa63ec606688d20a9670439), [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0), [`8b1e47e`](https://github.com/valbuild/val/commit/8b1e47e50f9556d8469358af93ba32a084e2e131), [`58d13a2`](https://github.com/valbuild/val/commit/58d13a2a534421b341b1bf71d02f0a2290fc0d61), [`4268beb`](https://github.com/valbuild/val/commit/4268beb4beec53cb52584f59f9bbd5ffdcc9095d), [`e79451f`](https://github.com/valbuild/val/commit/e79451faab37f46e2039d681a19eea06d537dc44)]:
+  - @valbuild/ui@0.138.4
+  - @valbuild/shared@0.138.4
+
+## 0.138.3
+
+### Patch Changes
+
+- Updated dependencies [[`a6cefc8`](https://github.com/valbuild/val/commit/a6cefc870436c9f981d6b831c318416eb6f506e6), [`9d062c2`](https://github.com/valbuild/val/commit/9d062c23597d47d80b66a94091442c5409e7e415)]:
+  - @valbuild/ui@0.138.3
+
+## 0.138.2
+
+### Patch Changes
+
+- Updated dependencies [[`2beb226`](https://github.com/valbuild/val/commit/2beb226446c76eb71026f43e04c13943da4a1e31), [`cf3bbc8`](https://github.com/valbuild/val/commit/cf3bbc8fc89ff349aac5ab101d0b4f28164583e6), [`443cdcd`](https://github.com/valbuild/val/commit/443cdcdfa8948db22a54adef2ad5e18d9f9868e9)]:
+  - @valbuild/ui@0.138.2
+  - @valbuild/shared@0.138.2
+  - @valbuild/core@0.138.2
+
+## 0.138.1
+
+### Patch Changes
+
+- Updated dependencies [[`1d1bb1e`](https://github.com/valbuild/val/commit/1d1bb1e5937a4194f79e1df040cb800e6bbcb865)]:
+  - @valbuild/ui@0.138.1
+
+## 0.138.0
+
+### Patch Changes
+
+- Updated dependencies [[`57af895`](https://github.com/valbuild/val/commit/57af8959cc46519a405b1ed7441623f8bf2e6d27), [`c523506`](https://github.com/valbuild/val/commit/c523506c8b5e148864f401c005b913330e436499), [`6216172`](https://github.com/valbuild/val/commit/62161729aa40f737590b0a8093c0394385fffd8d), [`40e933d`](https://github.com/valbuild/val/commit/40e933da7fe01cfe1c3f4a43c156f0b2f8a11f62), [`5876fe0`](https://github.com/valbuild/val/commit/5876fe075fdee1f76f1cdaa2488ac52c58c894a8), [`c523506`](https://github.com/valbuild/val/commit/c523506c8b5e148864f401c005b913330e436499)]:
+  - @valbuild/core@0.138.0
+  - @valbuild/ui@0.138.0
+  - @valbuild/shared@0.138.0
+
+## 0.137.0
+
+### Patch Changes
+
+- Updated dependencies [[`8f60073`](https://github.com/valbuild/val/commit/8f60073e5490971a615cebbe8ea1243c67e43530), [`af7a4ba`](https://github.com/valbuild/val/commit/af7a4baa63da5d8a226166377a354cf2fc0c1d77), [`48ac9f0`](https://github.com/valbuild/val/commit/48ac9f06dd59a5b4ca60232b1ef198cf42f23aa6), [`daecf41`](https://github.com/valbuild/val/commit/daecf416f51990569a47a6a9ee9174b1a57f98c2), [`43b58f2`](https://github.com/valbuild/val/commit/43b58f2962840883badf91950da2c51b89d1c7cb), [`e2bfc0e`](https://github.com/valbuild/val/commit/e2bfc0e40383fe25d3ec0473d1032f6264a8939f), [`9b09bf3`](https://github.com/valbuild/val/commit/9b09bf38c9d5912f41fec1c18aa87455fd32f616), [`8e49bf4`](https://github.com/valbuild/val/commit/8e49bf41ad6a8ad3b01e502fb7ce0369baa316db), [`370d0df`](https://github.com/valbuild/val/commit/370d0df7ea45aeeafb4520318018d7c4e1c040d6), [`14877a8`](https://github.com/valbuild/val/commit/14877a85c5add4daa16836470b8739180a9fe8c6), [`beda04b`](https://github.com/valbuild/val/commit/beda04bd326cbab18ed103e8d43917b16f43bd8c)]:
+  - @valbuild/ui@0.137.0
+  - @valbuild/shared@0.137.0
+  - @valbuild/core@0.137.0
+
+## 0.136.10
+
+### Patch Changes
+
+- Updated dependencies [[`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280)]:
+  - @valbuild/ui@0.136.10
+  - @valbuild/shared@0.136.10
+
+## 0.136.9
+
+### Patch Changes
+
+- Updated dependencies [[`c2bd7e7`](https://github.com/valbuild/val/commit/c2bd7e7e537f00a269a54b72274fe5efb81c0ae9)]:
+  - @valbuild/ui@0.136.9
+
+## 0.136.8
+
+### Patch Changes
+
+- Updated dependencies [[`35577be`](https://github.com/valbuild/val/commit/35577be50981fec35fc27ee9435a092a26909395)]:
+  - @valbuild/core@0.136.8
+  - @valbuild/ui@0.136.8
+  - @valbuild/shared@0.136.8
+
+## 0.136.7
+
+### Patch Changes
+
+- Updated dependencies [[`5f7a4a5`](https://github.com/valbuild/val/commit/5f7a4a5f86dfe4581fbfb402059bba70e029afdc)]:
+  - @valbuild/ui@0.136.7
+
+## 0.136.6
+
+### Patch Changes
+
+- Updated dependencies [[`562713a`](https://github.com/valbuild/val/commit/562713a2e972e603abb43259f40ccfbf06990fe5)]:
+  - @valbuild/ui@0.136.6
+
+## 0.136.5
+
+### Patch Changes
+
+- Updated dependencies [[`28a71c3`](https://github.com/valbuild/val/commit/28a71c3beb40d15d628b99959c5161cee09d1871)]:
+  - @valbuild/ui@0.136.5
+
+## 0.136.4
+
+### Patch Changes
+
+- Updated dependencies [[`d19b1f6`](https://github.com/valbuild/val/commit/d19b1f67360b057e63536ac020f7109bd2496389)]:
+  - @valbuild/ui@0.136.4
+
+## 0.136.3
+
+### Patch Changes
+
+- Updated dependencies [[`38d24f7`](https://github.com/valbuild/val/commit/38d24f723639ee109d1007854507c4571bc82575), [`3b19534`](https://github.com/valbuild/val/commit/3b19534bb7aa16452a104906d9594083c3bc3e89), [`fa28164`](https://github.com/valbuild/val/commit/fa28164dfd1e05ff53eccf375334741d857fd2ef)]:
+  - @valbuild/ui@0.136.3
+  - @valbuild/shared@0.136.3
+
+## 0.136.2
+
+### Patch Changes
+
+- Updated dependencies [[`f76cd56`](https://github.com/valbuild/val/commit/f76cd56b9f1c1bcc0a608a7a4de24b1e776adccb)]:
+  - @valbuild/ui@0.136.2
+  - @valbuild/shared@0.136.2
+
+## 0.136.1
+
+### Patch Changes
+
+- Updated dependencies [[`cf89e74`](https://github.com/valbuild/val/commit/cf89e7429a79c4304ecbedd4f8b571a0de0f145f), [`c219574`](https://github.com/valbuild/val/commit/c21957498f3c7f4f47cef197c5dc0d591aa744ca), [`e673b43`](https://github.com/valbuild/val/commit/e673b43feaf48b7f30881d6786c858a0cb6a44a2), [`5c82928`](https://github.com/valbuild/val/commit/5c82928992d29f133f81cf0704a273c0449b18f1), [`d2f385a`](https://github.com/valbuild/val/commit/d2f385a04978992a5036379235e447ba7775faef)]:
+  - @valbuild/ui@0.136.1
+  - @valbuild/shared@0.136.1
+  - @valbuild/core@0.136.1
+
+## 0.136.0
+
+### Patch Changes
+
+- Updated dependencies [[`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c)]:
+  - @valbuild/ui@0.136.0
+  - @valbuild/core@0.136.0
+  - @valbuild/shared@0.136.0
+
+## 0.134.1
+
+### Patch Changes
+
+- Updated dependencies [[`821e789`](https://github.com/valbuild/val/commit/821e789c1af47510af5d23eb96384ff78ddd7646)]:
+  - @valbuild/shared@0.134.1
+  - @valbuild/ui@0.134.0
+
+## 0.134.0
+
+### Minor Changes
+
+- [#690](https://github.com/valbuild/val/pull/690) [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2) Thanks [@freekh](https://github.com/freekh)! - Read a view with `useVal` / `fetchVal`.
+
+  A `s.view()` field reads as a pointer with no properties on it. It can now be handed to a reader, which resolves it to the module it names:
+
+  ```tsx
+  const page = useVal(pageVal);
+  const header = useVal(page.header); // the header module's content, typed
+  ```
+
+  The point is single source of truth rather than a new capability: the page declares which module it shows, and a component follows that declaration instead of importing the target a second time. Change `s.view(headerVal)` to `s.view(navVal)` and the reader follows; an import would have kept reading the header.
+
+  The readers that take a MODULE rather than a value follow the same rule — `useValKey`, `useValRoute`, `useValRouteUrl` and the `fetchVal*` counterparts, in both the Next and TanStack packages:
+
+  ```tsx
+  const page = useVal(pageVal);
+  const note = useValRoute(page.notes, params); // the router module the view names
+  ```
+
+  Works in draft mode, including when the page itself has a pending edit. Two things to know:
+
+  - **Resolve a handle in the component that read the module containing it.** A handle carries the module it points at, and that cannot survive serialization — so one passed from a server component to a client component as a prop arrives empty. It throws with an explanation rather than handing back the pointer. This is why it throws rather than returning nothing: every one of the route and key readers already uses `null` / `undefined` to mean "no such entry", so a quiet answer would be indistinguishable from a 404.
+  - **`ValView<Source>` is now a member of `SelectorSource`**, since a reader accepts one.
+
+- [#680](https://github.com/valbuild/val/pull/680) [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed) Thanks [@freekh](https://github.com/freekh)! - Add `s.view()`: point at another module, so editors can reach it from the page it belongs to.
+
+  Content that has to live in its own module — a `keyOf` target, shared settings, a route-keyed record — is invisible from the page an editor thinks of it as part of. A view field puts a row on that page's screen that leads to it:
+
+  ```ts
+  import employeesVal from "../data/employees.val";
+
+  const schema = s.object({
+    title: s.string(),
+    employees: s.view(employeesVal),
+  });
+
+  export default c.define("/app/menneskene/page.val.ts", schema, {
+    title: "Våre folk",
+    employees: { view: "/data/employees.val.ts" },
+  });
+  ```
+
+  The source is a pointer and nothing else. The module it names keeps its own source, patches, validation and address, and an editor who follows the row lands on that module's own screen — so it is clear they are changing something other pages use too.
+
+  A few things worth knowing:
+
+  - **The path autocompletes, and a wrong one does not compile.** A module now carries its own id in its type, so the source type of the field above is the literal `{ view: "/data/employees.val.ts" }`.
+  - **It is not readable in code.** `useVal(pageVal).employees` is a `ValView<…>` — an opaque pointer with no fields on it. Read the module it names directly, as before.
+  - **`view` is now a reserved object key**, like `_type` and `patch_id`: `s.object({ view: ... })` no longer compiles. A single `view: string` key is what a view pointer looks like, and an ordinary object with that shape would be indistinguishable from one.
+  - **Views may not form a cycle.** `A → B → A`, and a module viewing itself, are reported as module errors by `val validate` and in the Studio.
+  - **A pointer that disagrees with its schema is repaired automatically.** It can only happen in hand-written JSON, and the schema is the authority, so `val validate --fix` and saving in the Studio both write the module the schema names.
+  - **A view's `hidden` and `readonly` are its own, never the module's it points at.** A view whose target is hidden is still shown, and still leads there.
+
+  That last one comes with a change to what `hidden()` means on a **module's own schema**, which is the other half of making a shared module usable:
+
+  ```ts
+  // Not in the nav, and on exactly one page.
+  export default c.define("/data/employees.val.ts", s.record(...).hidden(), { ... });
+  ```
+
+  It now means the nav does not list the module — the Explorer for an ordinary module, Media for a gallery — and nothing more. Previously it also blanked the module's own page, so a module you had hidden was still in the nav and showed nothing when opened. A hidden module is now reached from an `s.view()` row, from search or from a validation error, and renders in full when you get there.
+
+  One gap worth naming rather than leaving to be discovered: a view pointing at a
+  module the project does not have is reported by the FIELD — the row says the
+  target is missing — but not by `val validate`. The schema check compares the
+  pointer against the schema, and the cycle check deliberately skips a target that
+  is not a module of the project, so neither catches it. A project-level check
+  belongs with them and is not here yet.
+
+### Patch Changes
+
+- Updated dependencies [[`1c31dcc`](https://github.com/valbuild/val/commit/1c31dcca7f1bb0199350567fd579de29f48bb26d), [`688b9e3`](https://github.com/valbuild/val/commit/688b9e36b821323cda6870cdff03dd36ec3e782f), [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2), [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed)]:
+  - @valbuild/ui@0.134.0
+  - @valbuild/core@0.134.0
+  - @valbuild/shared@0.134.0
+
+## 0.133.0
+
+### Patch Changes
+
+- Updated dependencies [[`2b9a51b`](https://github.com/valbuild/val/commit/2b9a51b7dbe2dff53b7686a4f3b7eb9bc5784fae), [`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83)]:
+  - @valbuild/ui@0.133.0
+  - @valbuild/shared@0.133.0
+
+## 0.132.1
+
+### Patch Changes
+
+- Updated dependencies [[`c9a5cd3`](https://github.com/valbuild/val/commit/c9a5cd3a4ab5908ecb9757b7a95db17a77e3b173), [`f413c5c`](https://github.com/valbuild/val/commit/f413c5cebca27ba82052825abc8c632b6177747e), [`1ddf245`](https://github.com/valbuild/val/commit/1ddf245ec73ad5af8099c3d18d4d33c6a1cc1254), [`a19997a`](https://github.com/valbuild/val/commit/a19997a542e65cc1375837b1bdb11c8af9e10160), [`76c5d41`](https://github.com/valbuild/val/commit/76c5d41c3afa7cc8180d156c9e19fb082af7fba4), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f), [`003419a`](https://github.com/valbuild/val/commit/003419ab72f3069d92e67dfea931d5accc63e730)]:
+  - @valbuild/ui@0.132.1
+
+## 0.130.0
+
+### Patch Changes
+
+- Updated dependencies [[`be1e8be`](https://github.com/valbuild/val/commit/be1e8bee673207596b3eb3d9a9886b8ade9b332f), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`7d13dbc`](https://github.com/valbuild/val/commit/7d13dbced9ea49d8243b6b6cf9854cd1a259501f), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`07db94c`](https://github.com/valbuild/val/commit/07db94c23b73c8c0b2b50a30a89926823c2da1d6), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0)]:
+  - @valbuild/ui@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
+## 0.129.0
+
+### Patch Changes
+
+- Updated dependencies [[`e20f6fb`](https://github.com/valbuild/val/commit/e20f6fbcc215c310eef49a44c1a592c1e2081613), [`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b), [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7), [`41a0d76`](https://github.com/valbuild/val/commit/41a0d76636a2dce3f1e506d93170d97e46041d98), [`9e0ebb0`](https://github.com/valbuild/val/commit/9e0ebb00430f05ef92dff031309f73b8075a7d99)]:
+  - @valbuild/ui@0.129.0
+  - @valbuild/core@0.129.0
+  - @valbuild/shared@0.129.0
+
+## 0.128.0
+
+### Patch Changes
+
+- Updated dependencies [[`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4), [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c), [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab)]:
+  - @valbuild/core@0.128.0
+  - @valbuild/shared@0.128.0
+  - @valbuild/ui@0.127.0
+
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`600308d`](https://github.com/valbuild/val/commit/600308d0174990ad9f5c417147d160273489c65a), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea), [`9983116`](https://github.com/valbuild/val/commit/99831164c5151aad7ca69de79e1d0d59878be251)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/ui@0.127.0
+
+## 0.126.0
+
+### Minor Changes
+
+- [#652](https://github.com/valbuild/val/pull/652) [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a) Thanks [@freekh](https://github.com/freekh)! - `s.union` is now `s.discriminatedUnion` and `s.enum`.
+
+  `s.union` did two unrelated jobs and worked out which one you meant from its
+  first argument: a string key meant a tagged union of objects, literal schemas
+  meant a set of allowed strings. Those are now two schemas with two names.
+
+  ```ts
+  // A fixed set of strings — presents as a dropdown
+  s.enum("primary", "secondary", "ghost"); // Schema<"primary" | "secondary" | "ghost">
+
+  // One of several object shapes, told apart by a tag field
+  s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("hero"), heading: s.string() }),
+    s.object({ type: s.literal("quote"), text: s.string() }),
+  );
+  ```
+
+  `s.enum` takes the strings directly, so the `s.literal(...)` wrapper is gone.
+
+  **`s.union` still works** — it is deprecated, and it builds exactly the schema
+  above, so nothing has to change today:
+
+  ```ts
+  s.union(s.literal("one"), s.literal("two")); // → s.enum("one", "two")
+  s.union("type", pageA, pageB); // → s.discriminatedUnion("type", pageA, pageB)
+  ```
+
+  The two are different kinds of node, and that is the reason for the split. A
+  discriminated union is a container: the selected variant's fields are the fields
+  being edited, and everything that walks a schema descends through it. An enum is
+  a leaf — a string with a closed domain — so nothing recurses into it. Told apart
+  only by the shape of `key`, every consumer had to re-derive which one it was
+  holding; each now has its own serialized type (`"discriminated-union"` and
+  `"enum"`) and Val Studio has a field per kind rather than one field that
+  branches.
+
+  Two behaviour changes fall out of the split, both of them fixes:
+
+  - A value that is not a string at all now fails an enum's validation with a
+    type error. `s.union` of literals only ever checked the value against its
+    literals when the value WAS a string, so a number or an object where an enum
+    was declared validated clean.
+  - An enum field now shows its validation errors in Val Studio where the field
+    is opened on its own — the module editor and the canvas's fields column — and
+    gets the compact error layout inside an inline list row. It is a leaf now, so
+    it goes through the same error rendering as every other leaf field; the string
+    union bypassed it and showed nothing in those places.
+
+  Several latent crashes in the old `s.union` are fixed on the way past, all of
+  them cases where it threw a `TypeError` instead of reporting:
+
+  - A required discriminated union holding `null` now reports a type error rather
+    than throwing, and resolving a path underneath a nullable one that is `null`
+    gives the error the API promises instead of a crash.
+  - `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+    Both used to be treated as absent by a truthiness check — in path resolution,
+    in stega encoding, and in the message that lists a union's valid tags. The
+    editor's dropdowns handle them too: an empty value is reserved by the select
+    component and had to be mapped around.
+  - A variant that omits the discriminator entirely is now reported as the schema
+    error it is, instead of throwing while the check looked for it.
+  - An enum's value is now indexed for search, like every other string leaf. The
+    old string union was never indexed at all, so searching for one of its values
+    could not find the field.
+  - A nullable discriminated union set to `null` no longer renders a spinner that
+    never resolves.
+
+  `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+  at least one value: a union with nothing to select is not a thing to write, and
+  everything downstream reads the first variant where it needs any.
+
+  If you read serialized schemas yourself, that is the breaking part: `type` is no
+  longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
+  `items` of literal schemas, and `UnionSchema` is no longer a class.
+  `SerializedUnionSchema`, `SerializedStringUnionSchema`,
+  `SerializedObjectUnionSchema` and `UnionSchema` remain as deprecated type
+  aliases.
+
+### Patch Changes
+
+- Updated dependencies [[`719ad6b`](https://github.com/valbuild/val/commit/719ad6b607bcf136d0dbde9e90bf4b8a843561a4), [`9830277`](https://github.com/valbuild/val/commit/9830277e9aaca8da3030f629c2656ec58da47e45), [`64bfd0a`](https://github.com/valbuild/val/commit/64bfd0a6c85832ea5169b53e47087f22e193df36), [`7782979`](https://github.com/valbuild/val/commit/7782979e9b52f2015a6e72dc981e630d4f8c78e2), [`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7), [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63), [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a), [`755e1a3`](https://github.com/valbuild/val/commit/755e1a3953775cb8d2c2dce87d6810d3dc329640), [`c6b1ec8`](https://github.com/valbuild/val/commit/c6b1ec84f1883750a4cfe5f70470b177621e971f), [`656f680`](https://github.com/valbuild/val/commit/656f680043c640f678625a64e690389ab23a0a69), [`610a041`](https://github.com/valbuild/val/commit/610a0414b120b521f38a2eb1182b3778bf778b2b), [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f)]:
+  - @valbuild/ui@0.126.0
+  - @valbuild/shared@0.126.0
+  - @valbuild/core@0.126.0
+
+## 0.125.0
+
+### Patch Changes
+
+- Updated dependencies [[`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90)]:
+  - @valbuild/core@0.125.0
+  - @valbuild/shared@0.125.0
+  - @valbuild/ui@0.125.0
+
+## 0.124.0
+
+### Patch Changes
+
+- Updated dependencies [[`5674237`](https://github.com/valbuild/val/commit/56742371a75b4fdcbff8b1afccff8fcc1ebf8078), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/ui@0.124.0
+  - @valbuild/shared@0.124.0
+  - @valbuild/core@0.124.0
+
+## 0.123.3
+
+### Patch Changes
+
+- Updated dependencies [[`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a), [`356eb11`](https://github.com/valbuild/val/commit/356eb11b5f6a0a02dfec80580c6fccac75d28402), [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd)]:
+  - @valbuild/shared@0.123.3
+  - @valbuild/ui@0.123.3
+
+## 0.123.2
+
+### Patch Changes
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/ui@0.123.2
+
+## 0.123.0
+
+### Patch Changes
+
+- Updated dependencies [[`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2), [`53f670c`](https://github.com/valbuild/val/commit/53f670c0cf2d7a03a6d068c78b7874ce77652c2a)]:
+  - @valbuild/shared@0.123.0
+  - @valbuild/ui@0.123.0
+
+## 0.122.0
+
+### Patch Changes
+
+- Updated dependencies [[`be32261`](https://github.com/valbuild/val/commit/be32261af19db8018bc37b180d903416018c0b79), [`da6794f`](https://github.com/valbuild/val/commit/da6794f3dbd77d49ccfe780b359bab1689ee1b11), [`1c8b7fd`](https://github.com/valbuild/val/commit/1c8b7fda1e84cd8bd32a03a85d2789598b98c3fb)]:
+  - @valbuild/shared@0.122.0
+  - @valbuild/ui@0.122.0
+
+## 0.121.0
+
+### Patch Changes
+
+- Updated dependencies [[`105479b`](https://github.com/valbuild/val/commit/105479b84a08846f1fe5971916f6a54275198d12), [`55ec736`](https://github.com/valbuild/val/commit/55ec73651394908b6f440e360d181b95a91c0a93), [`2bcc6fd`](https://github.com/valbuild/val/commit/2bcc6fdff8d668123e07e3c5e81ac6fa1436e47b), [`2bcbee1`](https://github.com/valbuild/val/commit/2bcbee1be682c2bbd5b7bc7d152ddd4204162fd2), [`6794d29`](https://github.com/valbuild/val/commit/6794d2980bc81284ab7f2cc667f01cc21c9e3a79), [`2db27d5`](https://github.com/valbuild/val/commit/2db27d555441bee2dd31817acc8c92b7b718ee55)]:
+  - @valbuild/ui@0.121.0
+  - @valbuild/shared@0.121.0
+  - @valbuild/core@0.121.0
+
+## 0.120.4
+
+### Patch Changes
+
+- Updated dependencies [[`6df3cae`](https://github.com/valbuild/val/commit/6df3caec1cc043a07b532d3174583b8218d4871d)]:
+  - @valbuild/ui@0.120.4
+
+## 0.120.3
+
+### Patch Changes
+
+- Updated dependencies [[`9b96184`](https://github.com/valbuild/val/commit/9b96184cf6ad6d52a714867fb1527eeec6c776f4), [`1a2484a`](https://github.com/valbuild/val/commit/1a2484a309679bd5e963d626466c2828f74d49f8), [`71becc7`](https://github.com/valbuild/val/commit/71becc7e543432e4a57e36d54aaf803e9a447ffd)]:
+  - @valbuild/ui@0.120.3
+
+## 0.120.0
+
+### Minor Changes
+
+- [#589](https://github.com/valbuild/val/pull/589) [`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.richtext()` options are flat.
+
+  The `style`, `block` and `inline` groups are gone — every option is a key of its
+  own. The names are unchanged, so updating a schema is only a matter of removing
+  the wrappers:
+
+  ```ts
+  // before
+  s.richtext({
+    style: { bold: true, italic: true },
+    block: { h1: true, ul: true },
+    inline: { a: true, img: s.image() },
+  });
+
+  // after
+  s.richtext({
+    bold: true,
+    italic: true,
+    h1: true,
+    ul: true,
+    a: true,
+    img: s.image(),
+  });
+  ```
+
+  The groups never carried any meaning the option names did not already have, and
+  they cost something real: an option name and its `ValRichText` theme key were
+  spelled differently (`block.h1` vs `theme.h1`), so the type that keeps a theme
+  exhaustive had to restate all thirteen options by hand. It is now a mapped type
+  over the options themselves — which also fixes an inconsistency in it: enabling
+  links with a schema (`a: s.route()`) rather than `a: true` now requires an `a`
+  key in the theme, the way `img` always has.
+
+  `ValRichText` themes were already flat and are unchanged. The serialized schema
+  that the server sends the Studio is flat too, so a project must not mix
+  `@valbuild/*` versions across this release.
+
+### Patch Changes
+
+- Updated dependencies [[`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a)]:
+  - @valbuild/core@0.120.0
+  - @valbuild/shared@0.120.0
+  - @valbuild/ui@0.120.0
+
+## 0.119.0
+
+### Patch Changes
+
+- Updated dependencies [[`84165f7`](https://github.com/valbuild/val/commit/84165f743eb5802da1e8079bbe98eafcb2cdcec8)]:
+  - @valbuild/ui@0.119.0
+
+## 0.118.0
+
+### Patch Changes
+
+- Updated dependencies [[`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95), [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95), [`fe6a398`](https://github.com/valbuild/val/commit/fe6a3981691394e6f34d4d80ec17febd356a98cc)]:
+  - @valbuild/ui@0.118.0
+  - @valbuild/shared@0.118.0
+
+## 0.117.1
+
+### Patch Changes
+
+- Updated dependencies [[`0ae7bac`](https://github.com/valbuild/val/commit/0ae7bac8a186460bc2b31f2ded89b00027bafb55)]:
+  - @valbuild/ui@0.117.1
+
+## 0.117.0
+
+### Patch Changes
+
+- [#579](https://github.com/valbuild/val/pull/579) [`b2812ae`](https://github.com/valbuild/val/commit/b2812ae4ee03e005ecead3365f49c625e536f94d) Thanks [@freekh](https://github.com/freekh)! - Every release now ships a changelog. Each package's `CHANGELOG.md` records what
+  changed under the version that shipped it — with a link to the pull request, the
+  commit and the author — and the same entry becomes the body of the GitHub
+  Release for the tag. The file is included in the npm tarball, so it is also
+  readable from an installed copy.
+
+  Up to now those changelogs were generated empty, and the GitHub Releases with
+  them, so there was no record of what any given version contained. Releases from
+  this one on have one; earlier versions stay blank.
+
+- Updated dependencies [[`d94a40f`](https://github.com/valbuild/val/commit/d94a40f8bd11027636d183e293aced820b6f341f), [`b2812ae`](https://github.com/valbuild/val/commit/b2812ae4ee03e005ecead3365f49c625e536f94d)]:
+  - @valbuild/core@0.117.0
+  - @valbuild/shared@0.117.0
+  - @valbuild/ui@0.117.0

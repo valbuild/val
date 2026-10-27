@@ -1,3 +1,4 @@
+import { log } from "../log";
 import {
   AssertError,
   CustomValidateFunction,
@@ -5,17 +6,16 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { ImageSource } from "../source/media";
 import {
   RichTextSource,
   RichTextOptions,
   SerializedRichTextOptions,
 } from "../source/richtext";
 import { SourcePath } from "../val";
-import { ImageMetadata, ImageSchema, SerializedImageSchema } from "./image";
+import { ImageSchema, SerializedImageSchema } from "./image";
 import { RouteSchema, SerializedRouteSchema } from "./route";
 import { SerializedStringSchema, StringSchema } from "./string";
 import {
@@ -29,8 +29,10 @@ type ValidationOptions = {
 };
 export type SerializedRichTextSchema = {
   type: "richtext";
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   opt: boolean;
-  options?: SerializedRichTextOptions & ValidationOptions;
+  options?: SerializedRichTextOptions;
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
@@ -48,10 +50,37 @@ export class RichTextSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    /**
+     * Whether `img: true` means a REMOTE image. Set by `remoteRichtext`, for a
+     * project whose media is all remote (`files.remote` in `val.config.ts`):
+     * `img: s.image()` is already remote there, because `s.image()` is, but
+     * `img: true` builds its image schema here and has to be told.
+     */
+    private readonly imgRemote: boolean = false,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.richtext().describe("The body of the article");
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Hello"] },
+   * ]);
+   */
   describe(description: string | null): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
@@ -60,9 +89,23 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
+      this.imgRemote,
     );
   }
 
+  /**
+   * Validate that the rich text holds at most `max` characters.
+   *
+   * Counted over the TEXT, not the markup: tags, attributes and the structure
+   * of the document do not add to it.
+   *
+   * @example
+   * const schema = s.richtext().maxLength(280);
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Hello"] },
+   * ]);
+   */
   maxLength(max: number): RichTextSchema<O, Src> {
     return new RichTextSchema(
       {
@@ -74,9 +117,23 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.imgRemote,
     );
   }
 
+  /**
+   * Validate that the rich text holds at least `min` characters.
+   *
+   * Counted over the TEXT, not the markup: tags, attributes and the structure
+   * of the document do not add to it.
+   *
+   * @example
+   * const schema = s.richtext().minLength(20).maxLength(280);
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Long enough to clear the minimum length."] },
+   * ]);
+   */
   minLength(min: number): RichTextSchema<O, Src> {
     return new RichTextSchema(
       {
@@ -88,9 +145,33 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.imgRemote,
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.richtext().validate((val) =>
+   *   val.length > 0 ? false : "Write something",
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Hello"] },
+   * ]);
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): RichTextSchema<O, Src> {
@@ -101,6 +182,8 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -246,45 +329,41 @@ export class RichTextSchema<
             true,
           );
         }
-        if (node.tag === "h1" && !this.options.block?.h1) {
-          addError(path, `'h' block is not valid`, false);
+        if (node.tag === "h1" && !this.options.h1) {
+          addError(path, `'h1' block is not valid`, false);
         }
-        if (node.tag === "h2" && !this.options.block?.h2) {
+        if (node.tag === "h2" && !this.options.h2) {
           addError(path, `'h2' block is not valid`, false);
         }
-        if (node.tag === "h3" && !this.options.block?.h3) {
+        if (node.tag === "h3" && !this.options.h3) {
           addError(path, `'h3' block is not valid`, false);
         }
-        if (node.tag === "h4" && !this.options.block?.h4) {
+        if (node.tag === "h4" && !this.options.h4) {
           addError(path, `'h4' block is not valid`, false);
         }
-        if (node.tag === "h5" && !this.options.block?.h5) {
+        if (node.tag === "h5" && !this.options.h5) {
           addError(path, `'h5' block is not valid`, false);
         }
-        if (node.tag === "h6" && !this.options.block?.h6) {
+        if (node.tag === "h6" && !this.options.h6) {
           addError(path, `'h6' block is not valid`, false);
         }
-        if (node.tag === "ol" && !this.options.block?.ol) {
+        if (node.tag === "ol" && !this.options.ol) {
           addError(path, `'ol' block is not valid`, false);
         }
-        if (node.tag === "ul" && !this.options.block?.ul) {
+        if (node.tag === "ul" && !this.options.ul) {
           addError(path, `'ul' block is not valid`, false);
         }
-        if (
-          node.tag === "li" &&
-          !this.options.block?.ul &&
-          !this.options.block?.ol
-        ) {
+        if (node.tag === "li" && !this.options.ul && !this.options.ol) {
           addError(
             path,
-            `'li' tag is invalid since neither 'ul' nor 'ol' block is not valid`,
+            `'li' tag is invalid since neither 'ul' nor 'ol' block is valid`,
             false,
           );
         }
         if (node.tag === "a") {
-          if (!this.options.inline?.a) {
+          if (!this.options.a) {
             addError(path, `'a' inline is not valid`, false);
-          } else if (this.options.inline?.a) {
+          } else if (this.options.a) {
             if (!("href" in node)) {
               return {
                 [path]: [
@@ -297,9 +376,9 @@ export class RichTextSchema<
             }
             const hrefPath = unsafeCreateSourcePath(path, "href");
             const hrefSchema =
-              typeof this.options.inline?.a === "boolean"
+              typeof this.options.a === "boolean"
                 ? new RouteSchema()
-                : this.options.inline.a;
+                : this.options.a;
 
             const executeValidate = () => {
               if (hrefSchema instanceof RouteSchema) {
@@ -314,7 +393,7 @@ export class RichTextSchema<
                 );
               } else {
                 const exhaustiveCheck: never = hrefSchema;
-                console.error(
+                log.error(
                   "Exhaustive check failed in RichText (anchor href validation)",
                   exhaustiveCheck,
                 );
@@ -337,9 +416,9 @@ export class RichTextSchema<
         }
 
         if (node.tag === "img") {
-          if (!this.options.inline?.img) {
+          if (!this.options.img) {
             addError(path, `'img' inline is not valid`, false);
-          } else if (this.options.inline?.img) {
+          } else if (this.options.img) {
             if (!("src" in node)) {
               return {
                 [path]: [
@@ -351,20 +430,14 @@ export class RichTextSchema<
               };
             }
             const srcPath = unsafeCreateSourcePath(path, "src");
-            const imgSchema = this.options.inline?.img;
+            const imgSchema = this.options.img;
             const imageValidationErrors =
               typeof imgSchema === "object"
-                ? (
-                    imgSchema as ImageSchema<
-                      ImageSource | RemoteSource<ImageMetadata | undefined>
-                    >
-                  )["executeValidate"](
+                ? (imgSchema as ImageSchema<ImageSource>)["executeValidate"](
                     srcPath,
-                    node.src as
-                      | ImageSource
-                      | RemoteSource<ImageMetadata | undefined>,
+                    node.src as ImageSource,
                   )
-                : new ImageSchema({}, false, false)["executeValidate"](
+                : new ImageSchema({}, false, this.imgRemote)["executeValidate"](
                     srcPath,
                     node.src as ImageSource,
                   );
@@ -417,13 +490,13 @@ export class RichTextSchema<
                 ],
               };
             }
-            if (style === "bold" && !this.options.style?.bold) {
+            if (style === "bold" && !this.options.bold) {
               addError(currentStylePath, `Style 'bold' is not valid`, false);
             }
-            if (style === "italic" && !this.options.style?.italic) {
+            if (style === "italic" && !this.options.italic) {
               addError(currentStylePath, `Style 'italic' is not valid`, false);
             }
-            if (style === "lineThrough" && !this.options.style?.lineThrough) {
+            if (style === "lineThrough" && !this.options.lineThrough) {
               addError(
                 currentStylePath,
                 `Style 'lineThrough' is not valid`,
@@ -653,36 +726,94 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(
+    return new RichTextSchema<O, Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.imgRemote,
     );
   }
 
-  readonly(): RichTextSchema<O, Src> {
+  readonly(isReadonly: boolean = true): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.imgRemote,
     );
   }
 
-  hidden(): RichTextSchema<O, Src> {
+  hidden(isHidden: boolean = true): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
+      this.imgRemote,
     );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.richtext().preview(({ val }) => ({
+   *     title: val.length > 0 ? "Rich text" : "Empty",
+   *   })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   [{ tag: "p", children: ["Hello"] }],
+   * ]);
+   */
+  preview(select: ItemPreviewInput<Src>): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+      this.imgRemote,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -691,35 +822,41 @@ export class RichTextSchema<
       | SerializedStringSchema
       | boolean
       | undefined => {
-      if (this.options.inline?.a instanceof RouteSchema) {
-        return this.options.inline?.a[
-          "executeSerialize"
-        ]() as SerializedRouteSchema;
-      } else if (this.options.inline?.a instanceof StringSchema) {
-        return this.options.inline?.a[
-          "executeSerialize"
-        ]() as SerializedStringSchema;
+      if (this.options.a instanceof RouteSchema) {
+        return this.options.a["executeSerialize"]() as SerializedRouteSchema;
+      } else if (this.options.a instanceof StringSchema) {
+        return this.options.a["executeSerialize"]() as SerializedStringSchema;
       } else {
-        return this.options.inline?.a;
+        return this.options.a;
       }
     };
-    const serializedOptions: SerializedRichTextOptions & ValidationOptions = {
+    const serializedOptions: SerializedRichTextOptions = {
       maxLength: this.options.maxLength,
       minLength: this.options.minLength,
-      style: this.options.style,
-      block: this.options.block,
-      inline: this.options.inline && {
-        a: serializeAnchorSchema(),
-        img:
-          this.options.inline.img && typeof this.options.inline.img === "object"
-            ? (this.options.inline.img[
-                "executeSerialize"
-              ]() as SerializedImageSchema)
-            : this.options.inline.img,
-      },
+      bold: this.options.bold,
+      italic: this.options.italic,
+      lineThrough: this.options.lineThrough,
+      h1: this.options.h1,
+      h2: this.options.h2,
+      h3: this.options.h3,
+      h4: this.options.h4,
+      h5: this.options.h5,
+      h6: this.options.h6,
+      ul: this.options.ul,
+      ol: this.options.ol,
+      a: serializeAnchorSchema(),
+      img:
+        this.options.img && typeof this.options.img === "object"
+          ? (this.options.img["executeSerialize"]() as SerializedImageSchema)
+          : // The Studio decides local or remote by the serialized image
+            // schema, and `true` carries no such answer.
+            this.options.img && this.imgRemote
+            ? new ImageSchema(undefined, false, true)["executeSerialize"]()
+            : this.options.img,
     };
     return {
       type: "richtext",
+      preview: this.previewInput ? true : undefined,
       opt: this.opt,
       options: serializedOptions,
       customValidate:
@@ -730,14 +867,29 @@ export class RichTextSchema<
       description: this.description,
     };
   }
-
-  protected executeRender(): ReifiedRender {
-    return {};
-  }
 }
 
 export const richtext = <O extends RichTextOptions>(
   options?: O,
 ): RichTextSchema<O, RichTextSource<O>> => {
   return new RichTextSchema<O, RichTextSource<O>>(options ?? ({} as O));
+};
+
+/**
+ * `s.richtext()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): `img: true` is a remote image. See `initSchema`.
+ */
+export const remoteRichtext = <O extends RichTextOptions>(
+  options?: O,
+): RichTextSchema<O, RichTextSource<O>> => {
+  return new RichTextSchema<O, RichTextSource<O>>(
+    options ?? ({} as O),
+    false,
+    [],
+    false,
+    false,
+    undefined,
+    null,
+    true,
+  );
 };

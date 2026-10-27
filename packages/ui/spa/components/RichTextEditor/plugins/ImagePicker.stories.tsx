@@ -2,13 +2,54 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { ImagePicker } from "./ImagePickerComponent";
 import type { EditorImage } from "../types";
+import { placeholderImage } from "../../stories/placeholderAssets";
 
 const sampleImages: EditorImage[] = [
-  { url: "https://placehold.co/600x400/e2e8f0/475569?text=Mountains" },
-  { url: "https://placehold.co/600x400/fce7f3/9d174d?text=Sunset" },
-  { url: "https://placehold.co/600x400/d1fae5/065f46?text=Forest" },
-  { url: "https://placehold.co/600x400/dbeafe/1e40af?text=Ocean" },
-  { url: "https://placehold.co/600x400/fef3c7/92400e?text=Desert" },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#e2e8f0",
+      fg: "#475569",
+      text: "Mountains",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#fce7f3",
+      fg: "#9d174d",
+      text: "Sunset",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "Forest",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#dbeafe",
+      fg: "#1e40af",
+      text: "Ocean",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#fef3c7",
+      fg: "#92400e",
+      text: "Desert",
+    }),
+  },
 ];
 
 const meta: Meta<typeof ImagePicker> = {
@@ -41,7 +82,13 @@ export const Default: Story = {
 export const WithSelection: Story = {
   args: {
     images: sampleImages,
-    currentSrc: "https://placehold.co/600x400/d1fae5/065f46?text=Forest",
+    currentSrc: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "Forest",
+    }),
     onSelect: (url) => console.log("Selected:", url),
   },
 };
@@ -49,7 +96,15 @@ export const WithSelection: Story = {
 export const SingleImage: Story = {
   args: {
     images: [
-      { url: "https://placehold.co/600x400/e2e8f0/475569?text=Only+One" },
+      {
+        url: placeholderImage({
+          width: 600,
+          height: 400,
+          bg: "#e2e8f0",
+          fg: "#475569",
+          text: "Only One",
+        }),
+      },
     ],
     currentSrc: "",
     onSelect: (url) => console.log("Selected:", url),
@@ -59,7 +114,11 @@ export const SingleImage: Story = {
 export const ManyImages: Story = {
   args: {
     images: Array.from({ length: 12 }, (_, i) => ({
-      url: `https://placehold.co/600x400?text=Image+${i + 1}`,
+      url: placeholderImage({
+        width: 600,
+        height: 400,
+        text: `Image ${i + 1}`,
+      }),
     })),
     currentSrc: "",
     onSelect: (url) => console.log("Selected:", url),

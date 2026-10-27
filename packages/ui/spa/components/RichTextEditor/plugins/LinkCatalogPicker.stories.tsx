@@ -2,12 +2,19 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { LinkCatalogPicker } from "./LinkCatalogPickerComponent";
 import type { EditorLinkCatalogItem } from "../types";
+import { placeholderImage } from "../../stories/placeholderAssets";
 
 const sampleCatalog: EditorLinkCatalogItem[] = [
   {
     title: "Acme Corp",
     subtitle: "https://acme.example.com",
-    image: "https://placehold.co/64x64/e2e8f0/475569?text=A",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#e2e8f0",
+      fg: "#475569",
+      text: "A",
+    }),
     href: "https://acme.example.com",
   },
   {
@@ -18,13 +25,25 @@ const sampleCatalog: EditorLinkCatalogItem[] = [
   {
     title: "Docs Portal",
     subtitle: "Internal documentation hub",
-    image: "https://placehold.co/64x64/dbeafe/1e40af?text=D",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#dbeafe",
+      fg: "#1e40af",
+      text: "D",
+    }),
     href: "https://docs.example.com",
   },
   {
     title: "Blog",
     subtitle: "https://blog.example.com",
-    image: "https://placehold.co/64x64/d1fae5/065f46?text=B",
+    image: placeholderImage({
+      width: 64,
+      height: 64,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "B",
+    }),
     href: "https://blog.example.com",
   },
   {
@@ -39,7 +58,10 @@ const largeCatalog: EditorLinkCatalogItem[] = Array.from(
   (_, i) => ({
     title: `Page ${i + 1}`,
     subtitle: `https://example.com/page-${i + 1}`,
-    image: i % 3 === 0 ? `https://placehold.co/64x64?text=${i + 1}` : undefined,
+    image:
+      i % 3 === 0
+        ? placeholderImage({ width: 64, height: 64, text: `${i + 1}` })
+        : undefined,
     href: `https://example.com/page-${i + 1}`,
   }),
 );
@@ -117,7 +139,13 @@ export const MixedImages: Story = {
       {
         title: "First with image",
         subtitle: "https://first.example.com",
-        image: "https://placehold.co/64x64/e2e8f0/475569?text=1",
+        image: placeholderImage({
+          width: 64,
+          height: 64,
+          bg: "#e2e8f0",
+          fg: "#475569",
+          text: "1",
+        }),
         href: "https://first.example.com",
       },
       {
@@ -128,7 +156,13 @@ export const MixedImages: Story = {
       {
         title: "Third with image",
         subtitle: "https://third.example.com",
-        image: "https://placehold.co/64x64/dbeafe/1e40af?text=3",
+        image: placeholderImage({
+          width: 64,
+          height: 64,
+          bg: "#dbeafe",
+          fg: "#1e40af",
+          text: "3",
+        }),
         href: "https://third.example.com",
       },
       {

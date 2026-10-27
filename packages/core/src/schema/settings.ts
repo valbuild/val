@@ -1,0 +1,519 @@
+import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { PreviewScope, ReifiedPreview, mergePreviewInto } from "../preview";
+import { SelectorSource } from "../selector";
+import {
+  createValPathOfItem,
+  unsafeCreateSourcePath,
+} from "../selector/SelectorProxy";
+import {
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  AssistantSettingsSource,
+  LocalesSettingsSource,
+  SettingsSource,
+  StudioSettingsSource,
+  THEME_LOGO_DIRECTORY,
+  ThemeSettingsSource,
+} from "../source/settings";
+import { ModuleFilePath, SourcePath } from "../val";
+import { array } from "./array";
+import { record } from "./record";
+import { locale } from "./locale";
+import { boolean } from "./boolean";
+import { color } from "./color";
+import { image } from "./image";
+import { string } from "./string";
+import { enumSchema } from "./enum";
+import { localeTagError } from "../locale";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
+
+export type SerializedSettingsSchema = {
+  type: "settings";
+  /**
+   * The sections this settings schema knows about, keyed by name.
+   *
+   * Carried in full rather than reconstructed from the Val version, so a Studio
+   * that predates a section still deserializes the schema (it renders what it
+   * recognises and leaves the rest alone) instead of failing on an unknown
+   * shape.
+   */
+  items: Record<string, SerializedSchema>;
+  opt: boolean;
+  /**
+   * Present in the shape, never set by `s.settings()`.
+   *
+   * `preview` says how a value is drawn where it is an ITEM of an array or a
+   * record, and `customValidate` marks a user's `validate` closure. A settings
+   * module is not an item, and `s.settings()` takes no arguments to declare
+   * either with — so nothing writes them.
+   *
+   * They are declared anyway, and with their real types rather than `never`,
+   * because a `?: never` member is typed `undefined`, which makes the whole
+   * `SerializedSchema` union stop being assignable to `Json` — and serialized
+   * schemas travel to the Studio and to the MCP tools as JSON.
+   */
+  preview?: true;
+  customValidate?: boolean;
+  readonly?: boolean;
+  hidden?: boolean;
+  description?: string;
+  /**
+   * Which of Val's sections this is, where it is one.
+   *
+   * The name rather than the rule itself, because the rule is a closure and a
+   * closure does not survive JSON. Val owns both ends — every section's rules
+   * are in {@link sectionValidators} in this file — so the name is enough for
+   * {@link deserializeSchema} to put the same rules back, and a Studio that
+   * does not recognise the name simply runs none (see `sectionValidate`).
+   *
+   * Absent on the settings module itself, which is a bag of sections and has no
+   * rules of its own.
+   */
+  section?: string;
+};
+
+/**
+ * A rule about a section that its individual fields cannot state.
+ *
+ * Paths are WITHIN the section, so an error lands on the value it is about —
+ * including a row of a list, which is what makes this different from a
+ * `.validate()` on the field.
+ */
+type SectionValidate = (
+  src: Record<string, unknown>,
+) => { path: (string | number)[]; message: string }[];
+
+/**
+ * Every section's rules, by the name that travels in the serialized schema.
+ *
+ * Typed with `| undefined` on the value rather than as a `Partial`: the whole
+ * point is that a lookup can miss, because the name comes off a serialized
+ * schema that may have been written by a newer Val than the one reading it.
+ */
+const sectionValidators: Record<string, SectionValidate | undefined> = {
+  locales: localesSectionErrors,
+};
+
+/**
+ * An object whose keys are all optional: absent means unset.
+ *
+ * Both the settings module itself and each of its sections are this. See
+ * {@link SettingsSource} for why settings cannot be an object schema, and
+ * {@link settings} for what a settings module holds.
+ *
+ * There is no `describe`, `validate`, `render` or `preview` on purpose: the
+ * shape is Val's, not the schema author's — `s.settings()` takes no arguments —
+ * and the Studio renders each section with a UI built for it.
+ */
+export class SettingsSchema<
+  Src extends { [key: string]: SelectorSource } | null,
+> extends Schema<Src> {
+  constructor(
+    private readonly items: Record<string, Schema<SelectorSource>>,
+    private readonly opt: boolean = false,
+    private readonly isReadonly: boolean = false,
+    private readonly isHidden: boolean = false,
+    private readonly description?: string,
+    /**
+     * Which section this is, where Val has rules about it beyond its keys.
+     *
+     * Not the `validate` the class deliberately does not offer: that one is the
+     * schema author's, and `s.settings()` takes no arguments to declare it
+     * with. This names a rule Val states about a shape Val owns — no language
+     * declared twice in `locales.available` is true of every project, and
+     * there is nowhere else it can be said. A single value's rules stay on its
+     * own schema; this is for the ones that need to see more than one value,
+     * or to report on a row of a list.
+     *
+     * A NAME rather than the function, so it survives serialization: the schema
+     * reaches the Studio's validation worker as JSON, and a closure would be
+     * dropped on the way — which is how these rules once went missing there.
+     */
+    private readonly section?: string,
+  ) {
+    super();
+  }
+
+  /**
+   * This section's rules, or `undefined` where there are none to run.
+   *
+   * A name this Val does not know means a schema written by a newer one. Its
+   * per-field validation still runs; only the section's own rule is missed,
+   * which is the mild half of the failure and better than refusing the schema.
+   */
+  private sectionValidate(): SectionValidate | undefined {
+    return this.section === undefined
+      ? undefined
+      : sectionValidators[this.section];
+  }
+
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    let error: ValidationErrors = false;
+    if (src === null || src === undefined) {
+      if (this.opt) {
+        return false;
+      }
+      return {
+        [path]: [{ message: `Expected 'object', got '${src}'` }],
+      } as ValidationErrors;
+    }
+    if (typeof src !== "object") {
+      return {
+        [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+      } as ValidationErrors;
+    }
+    if (Array.isArray(src)) {
+      return {
+        [path]: [{ message: `Expected 'object', got 'array'` }],
+      } as ValidationErrors;
+    }
+    for (const [key, schema] of Object.entries(this.items)) {
+      // Absent is the unset value, so there is nothing to validate. A key that
+      // is present as `undefined` is the same statement written differently.
+      if (src[key] === undefined) {
+        continue;
+      }
+      const subPath = createValPathOfItem(path, key);
+      if (!subPath) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `Internal error: could not create path at ${
+            !path && typeof path === "string" ? "<empty string>" : path
+          } at key ${key}`, // Should! never happen
+          src,
+        );
+      } else {
+        const subError = schema["executeValidate"](subPath, src[key]);
+        error = this.mergeValidationErrors(error, subError);
+      }
+    }
+    // An unknown key is reported rather than ignored (which is what an object
+    // schema does with extra keys): the shape is closed and Val-defined, so the
+    // realistic cause is a typo — `toneOfVoice` for `tone` — and silence there
+    // means a setting that never takes effect and never says why.
+    for (const key of Object.keys(src)) {
+      if (!(key in this.items)) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `Unknown settings key: '${key}'. Expected one of: ${Object.keys(
+            this.items,
+          )
+            .map((key) => `'${key}'`)
+            .join(", ")}`,
+          src,
+          true,
+        );
+      }
+    }
+    const sectionValidate = this.sectionValidate();
+    if (sectionValidate) {
+      for (const { path: keys, message } of sectionValidate(src)) {
+        let subPath: SourcePath | ModuleFilePath | undefined = path;
+        for (const key of keys) {
+          subPath = subPath && createValPathOfItem(subPath, key);
+        }
+        error = this.appendValidationError(
+          error,
+          // Falls back to the section itself, which is where an error belongs
+          // when the value it is about is not addressable.
+          (subPath as SourcePath | undefined) ?? path,
+          message,
+          src,
+        );
+      }
+    }
+    return error;
+  }
+
+  protected executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return { success: true, data: src } as SchemaAssertResult<Src>;
+    }
+    const typeError = (got: string): AssertError => ({
+      message: `Expected 'object', got '${got}'`,
+      typeError: true,
+    });
+    if (src === null) {
+      return { success: false, errors: { [path]: [typeError("null")] } };
+    }
+    if (typeof src !== "object") {
+      return { success: false, errors: { [path]: [typeError(typeof src)] } };
+    }
+    if (Array.isArray(src)) {
+      return { success: false, errors: { [path]: [typeError("array")] } };
+    }
+    // No per-key check, unlike an object schema: every key is optional, so an
+    // object is all this can assert.
+    return { success: true, data: src } as SchemaAssertResult<Src>;
+  }
+
+  nullable(): SettingsSchema<Src | null> {
+    return new SettingsSchema<Src | null>(
+      this.items,
+      true,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.section,
+    );
+  }
+
+  readonly(): SettingsSchema<Src> {
+    return new SettingsSchema<Src>(
+      this.items,
+      this.opt,
+      true,
+      this.isHidden,
+      this.description,
+      this.section,
+    );
+  }
+
+  hidden(): SettingsSchema<Src> {
+    return new SettingsSchema<Src>(
+      this.items,
+      this.opt,
+      this.isReadonly,
+      true,
+      this.description,
+      this.section,
+    );
+  }
+
+  protected override executeCustomValidateAt(): ValidationError[] {
+    // Settings declares no `validate`, so there are no custom validators to
+    // run. Implemented rather than inherited because the base class makes this
+    // abstract on purpose — see `Schema.executeCustomValidateAt`.
+    return [];
+  }
+
+  protected executeSerialize(): SerializedSchema {
+    return {
+      type: "settings",
+      items: Object.fromEntries(
+        Object.entries(this.items).map(([key, schema]) => [
+          key,
+          schema["executeSerialize"](),
+        ]),
+      ),
+      opt: this.opt,
+      readonly: this.isReadonly,
+      hidden: this.isHidden,
+      description: this.description,
+      section: this.section,
+    };
+  }
+
+  protected executePreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+    scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
+    if (src === null) {
+      return res;
+    }
+    for (const key in this.items) {
+      const itemSrc = src[key];
+      if (itemSrc === null || itemSrc === undefined) {
+        continue;
+      }
+      const subPath = unsafeCreateSourcePath(sourcePath, key);
+      if (scope !== undefined && !scope.wantsUnder(subPath)) {
+        continue;
+      }
+      mergePreviewInto(
+        res,
+        this.items[key]["executePreview"](subPath, itemSrc, scope),
+      );
+    }
+    // An object reifies no rows of its own, so the only thing it adds is what
+    // IT is called — which nothing else can supply for a field of an object.
+    // Its own items are NOT rows, so the flag stops here rather than travelling
+    // down with the recursion above.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
+    }
+    return res;
+  }
+}
+
+/**
+ * Define the project's settings.
+ *
+ * One settings module per project, at the root of the content tree — a module
+ * file path with no directory segment, `/settings.val.ts` by convention:
+ *
+ * ```typescript
+ * export default c.define("/settings.val.ts", s.settings(), {});
+ * ```
+ *
+ * Every section is optional, so `{}` is a complete settings module and stays
+ * one as sections are added. Fill in what the project needs:
+ *
+ * ```typescript
+ * export default c.define("/settings.val.ts", s.settings(), {
+ *   assistant: {
+ *     enabled: true,
+ *     context: "Val is a CMS for developers. British English, and 'Val' is never 'VAL'.",
+ *     tone: "Plain and direct. No exclamation marks, sentence case in headings.",
+ *   },
+ *   theme: {
+ *     accent: "#2563eb",
+ *     radius: "tight",
+ *     logo: { path: "/public/val/brand/mark_a1b2c.png", width: 512, height: 512, mimeType: "image/png" },
+ *   },
+ * });
+ * ```
+ *
+ * The Studio edits it under the cog at the foot of the left rail. The assistant
+ * is told `assistant.context` and `assistant.tone` on every message, and
+ * `theme` restyles the Studio's own chrome — see {@link ThemeSettingsSource},
+ * and note that it is the CMS being restyled, not the site.
+ *
+ * `s.settings()` takes no arguments: the shape is Val's, which is what lets the
+ * Studio render a UI built for each field rather than a generic form. A
+ * project's own global content — a site name, social links — belongs in a
+ * module of its own.
+ */
+export function settings(): SettingsSchema<SettingsSource> {
+  return new SettingsSchema<SettingsSource>({
+    assistant: new SettingsSchema<AssistantSettingsSource>({
+      enabled: boolean()
+        .nullable()
+        .describe(
+          "Whether editors have an assistant in this project. Unset means nobody has decided: it is offered, and turned on when someone accepts.",
+        ),
+      context: string()
+        .multiline()
+        .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
+        .nullable()
+        .describe(
+          "Background the assistant would otherwise have to guess: what this site is, who runs it, names and spellings that matter.",
+        ),
+      tone: string()
+        .multiline()
+        .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
+        .nullable()
+        .describe(
+          "How the assistant should write when it writes content: formal or playful, British or American, how headings are cased.",
+        ),
+      translation: record(
+        locale(),
+        string()
+          .multiline()
+          .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
+          .nullable(),
+      )
+        .nullable()
+        .describe(
+          "How to translate into each language: dialect, formality, and the words that stay untranslated.",
+        ),
+    }),
+    theme: new SettingsSchema<ThemeSettingsSource>({
+      accent: color({ format: "hex" })
+        .nullable()
+        .describe(
+          "The one colour the Studio's chrome is built from. Unset means Val's green. Any hex: the whole brand ramp is generated from it, keeping the lightness of each step, so contrast holds.",
+        ),
+      proposal: color({ format: "hex" })
+        .nullable()
+        .describe(
+          "The colour the Studio wears in a proposal, so nobody mistakes one for the site. Unset means Val's violet. Pick one that stands apart from the accent.",
+        ),
+      radius: enumSchema("square", "tight", "default", "soft")
+        .nullable()
+        .describe(
+          "How round the Studio's corners are. Unset is the same as 'default'.",
+        ),
+      mode: enumSchema("dark", "light")
+        .nullable()
+        .describe(
+          "The mode the Studio opens in for an editor who has not chosen one. Never overrides an editor who has.",
+        ),
+      logo: image({ dir: THEME_LOGO_DIRECTORY })
+        .nullable()
+        .describe(
+          "The project's own mark, shown where Val's is in the Studio. A square-ish mark rather than a wordmark: the slot is 32px wide.",
+        ),
+    }),
+    studio: new SettingsSchema<StudioSettingsSource>({
+      tour: boolean()
+        .nullable()
+        .describe(
+          "Whether editors are offered the guided tour of the Studio. Unset means yes. Off hides the offer for everyone on this project — the tour stays in Quick actions for anyone who wants it.",
+        ),
+      commitMessage: enumSchema("automatic", "required")
+        .nullable()
+        .describe(
+          "Whether publishing asks for a commit message. Unset is the same as 'automatic': Publish publishes straight away, with a message the AI writes (or one listing what changed). 'required' asks every time, and will not publish an empty one.",
+        ),
+    }),
+    locales: new SettingsSchema<LocalesSettingsSource>(
+      {
+        // Nullable because the source type is, and because the Studio writes
+        // `null` for every sibling the first time a section is created.
+        available: array(string())
+          .nullable()
+          .describe(
+            "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The order is kept: it is the order of the Studio's picker and of a locale-keyed record's rows.",
+          ),
+      },
+      false,
+      false,
+      false,
+      undefined,
+      "locales",
+    ),
+  });
+}
+
+/**
+ * The rules about `locales` that need to see the whole list.
+ *
+ * Two of them, and both report on the ENTRY rather than the list: a tag has to
+ * be spelled canonically, and a language cannot be declared twice. Neither can
+ * live on the item schema — the item sees one string, and "twice" is a fact
+ * about its siblings — and neither can be a `.validate()` on the array either,
+ * since that reports one message on the array itself rather than on the row to
+ * delete.
+ *
+ * Reads defensively rather than asserting the source's type. A settings module
+ * is a file someone edits by hand, and validation runs against whatever is in
+ * it — including the shapes the per-key pass is, in the same breath, reporting.
+ */
+function localesSectionErrors(
+  src: Record<string, unknown>,
+): { path: (string | number)[]; message: string }[] {
+  const errors: { path: (string | number)[]; message: string }[] = [];
+  const raw = Array.isArray(src["available"]) ? src["available"] : [];
+  const available: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < raw.length; i++) {
+    const tag = raw[i];
+    if (typeof tag !== "string") {
+      // The item's own schema has already said what is wrong with it.
+      continue;
+    }
+    available.push(tag);
+    const spelling = localeTagError(tag);
+    if (spelling !== false) {
+      errors.push({ path: ["available", i], message: spelling });
+    } else if (seen.has(tag)) {
+      errors.push({
+        path: ["available", i],
+        message: `'${tag}' is declared twice`,
+      });
+    }
+    seen.add(tag);
+  }
+  return errors;
+}

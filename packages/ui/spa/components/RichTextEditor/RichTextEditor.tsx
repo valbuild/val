@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   useRef,
   useEffect,
@@ -10,7 +11,7 @@ import {
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
-import { EditorState, Selection } from "prosemirror-state";
+import { EditorState, Selection, TextSelection } from "prosemirror-state";
 import type { Node as PMNode, MarkType } from "prosemirror-model";
 import { EditorView } from "prosemirror-view";
 import { history } from "prosemirror-history";
@@ -37,7 +38,10 @@ import {
   createSchemaValidationPlugin,
   applySchemaViolationFix,
 } from "./plugins";
-import { createLinkHelper } from "./plugins/formattingToolbarShared";
+import {
+  createLinkHelper,
+  hasFixedToolbarContent,
+} from "./plugins/formattingToolbarShared";
 import type {
   EditorDocument,
   EditorFeatures,
@@ -63,6 +67,26 @@ import {
   createButtonEditableNodeView,
 } from "./plugins/buttonNodeView";
 import { createDetailsNodeView } from "./plugins/detailsNodeView";
+import {
+  applyLinkFixes,
+  clearAutoLinked,
+  createLinkifyPlugin,
+  linkifyPluginKey,
+  rescanLinks,
+  unlinkAutoLinked,
+} from "./plugins/linkifyPlugin";
+import {
+  AutoLinkChip,
+  findingKey,
+  LinkSuggestionsBar,
+} from "./plugins/LinkSuggestionsComponent";
+import {
+  EMPTY_LINK_SCAN,
+  resolveUrl,
+  type LinkContext,
+  type LinkFinding,
+  type LinkScan,
+} from "./linkify";
 import type { ModuleFilePath } from "@valbuild/core";
 
 function LinkPickerOverlay({
@@ -101,10 +125,19 @@ function LinkPickerOverlay({
   return (
     <div
       ref={overlayRef}
+      /*
+       * `z-window`, not a number of its own.
+       *
+       * This is a floating piece of the *editor*, so it belongs on the scale
+       * with everything else that floats: above the content it is attached to,
+       * below the app's own chrome. It used to be `z-[60]`, which beat every
+       * token on that scale — so the shell's floating panels, rail and bars all
+       * rendered underneath a link toolbar.
+       */
       className={
         isCatalog
-          ? `${positionClass} z-[60] flex flex-col rounded-md border border-border-primary bg-bg-primary shadow-xl min-w-[280px]`
-          : `${positionClass} z-[60] flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-primary p-1.5 shadow-xl`
+          ? `${positionClass} z-window flex flex-col rounded-md border border-border-primary bg-bg-primary shadow-xl min-w-[280px]`
+          : `${positionClass} z-window flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-primary p-1.5 shadow-xl`
       }
       style={{
         left: state.anchorRect.left,
@@ -184,6 +217,29 @@ export interface RichTextEditorProps {
   detailsVariants?: EditorDetailsVariant[];
   className?: string;
   portalContainer?: HTMLElement | null;
+  /**
+   * The origins that are this site, so a pasted `https://blank.no/jobb`
+   * becomes the internal link `/jobb`. See `LinkContext.siteOrigins`.
+   */
+  siteOrigins?: string[];
+  /**
+   * The project's routes, so a link to a page on this site that does not exist
+   * is an error rather than a link. See `LinkContext.routes`.
+   */
+  routes?: string[];
+  /**
+   * The project's external pages router, for a field that only links to the
+   * catalog. A URL elsewhere can only be linked from such a field once it is
+   * an entry there, so this is what the "Add & link" button in the bar does.
+   */
+  externalPages?: RichTextExternalPages;
+}
+
+export interface RichTextExternalPages {
+  /** Whether adding `url` would make it linkable from this field. */
+  canAdd: (url: string) => boolean;
+  /** Add these URLs as external pages. */
+  add: (urls: string[]) => void;
 }
 
 export const RichTextEditor = forwardRef(function RichTextEditor(
@@ -211,6 +267,9 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     detailsVariants,
     className,
     portalContainer,
+    siteOrigins,
+    routes,
+    externalPages,
   } = props;
 
   const {
@@ -220,6 +279,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
   } = useModuleMediaEntries(imageModulePath);
   const hasGalleryImages = imageModuleReady && !!imageModuleEntries;
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fixedToolbarMountRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -244,6 +304,61 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
   const uploadProgressRef = useRef(uploadProgress);
   const buttonVariantsRef = useRef(buttonVariants);
   const detailsVariantsRef = useRef(detailsVariants);
+  /**
+   * Where a popup mounts, read at USE time rather than at view-creation time.
+   *
+   * This used to be closed over by `getPortalContainer` and therefore had to be
+   * a dependency of the effect that builds the `EditorView` — so a portal
+   * container that arrives after the first paint (which is the normal order:
+   * `useValPortal` is filled on commit) destroyed and rebuilt the view. A ref
+   * takes it out of the deps entirely: the popups ask when they open, and the
+   * answer is whatever is current then.
+   */
+  const portalContainerRef = useRef(portalContainer);
+  const siteOriginsRef = useRef(siteOrigins);
+  const routesRef = useRef(routes);
+  /**
+   * What a URL typed into this field links to. Read at USE time, like the
+   * portal container: the routes arrive after mount and change as pages are
+   * added, and none of that should rebuild the view.
+   */
+  const getLinkContext = useCallback((): LinkContext => {
+    const catalog = linkCatalogRef.current;
+    return {
+      siteOrigins: siteOriginsRef.current ?? [],
+      routes: routesRef.current,
+      // An EMPTY catalog still means a route-only field, so it allows nothing
+      // rather than anything — even though `createLinkCatalogPlugin` does not
+      // strip against one. A link to a route that does not exist fails
+      // validation either way, and treating `[]` as "no catalog" linked every
+      // external URL at once instead of offering Add & link.
+      allowedHrefs: catalog?.map((item) => item.href.trim()),
+    };
+  }, []);
+  const [linkScan, setLinkScan] = useState<LinkScan>(EMPTY_LINK_SCAN);
+  const [autoLinkChip, setAutoLinkChip] = useState<{
+    id: number;
+    count: number;
+    position: { left: number; top: number };
+  } | null>(null);
+  /** URLs someone chose to leave as text. Per mounted editor, on purpose: it is a "not now". */
+  const [dismissedUrls, setDismissedUrls] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  /**
+   * The live document, carried across a view REBUILD.
+   *
+   * The view is recreated whenever `readOnly` or one of the toolbar features
+   * changes, and a recreated view used to parse `defaultValue` again — which for
+   * an uncontrolled editor means the document it mounted with, or nothing. Since
+   * `schema` is fixed at mount, the ProseMirror node is still valid, so carrying
+   * it is exact and costs no serialization.
+   *
+   * The alternative — asking the consumer to re-seed after a rebuild — is what
+   * `RichTextField` was implicitly relying on, and it cannot work: the consumer
+   * re-seeds from source, and source has not moved.
+   */
+  const carriedDocRef = useRef<PMNode | null>(null);
   const isControlled = value !== undefined;
 
   useEffect(() => {
@@ -259,6 +374,9 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     uploadProgressRef.current = uploadProgress;
     buttonVariantsRef.current = buttonVariants;
     detailsVariantsRef.current = detailsVariants;
+    portalContainerRef.current = portalContainer;
+    siteOriginsRef.current = siteOrigins;
+    routesRef.current = routes;
     if (hasGalleryImages) {
       imageSelectRendererRef.current = (currentSrc, onSelectUrl) => (
         <MediaPickerList
@@ -305,20 +423,59 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   markTypeRef.current = schema.marks.link ?? null;
 
+  /**
+   * Mounted only when it has something in it.
+   *
+   * `features.fixedToolbar` says the editor is ALLOWED a fixed toolbar; it does
+   * not say the toolbar has any buttons. With `s.richtext()` and no options it
+   * had none, and the empty bar still drew a border over the editor's own top
+   * border and still reserved `pt-14` of space below itself.
+   *
+   * Asked through the same functions that BUILD the bar, so "is it shown" and
+   * "does it have buttons" cannot drift apart. And answered from things that
+   * are settled at mount — `imageModulePath`, not the gallery's loaded entries,
+   * which arrive a tick later: the view is rebuilt on this value, so a late
+   * flip would mount a bar that nothing ever renders into.
+   */
+  const showFixedToolbar =
+    features.fixedToolbar &&
+    hasFixedToolbarContent({
+      schema,
+      features,
+      styleConfig,
+      canInsertImage: !!onImageUpload || !!images?.length || !!imageModulePath,
+      buttonVariants,
+      detailsVariants,
+    });
+
   useLayoutEffect(() => {
     if (!containerRef.current) return;
 
     const initialDoc = isControlled ? value : (defaultValue ?? []);
     let doc;
-    try {
-      doc = parseEditorDocument(initialDoc ?? [], schema);
-    } catch {
-      doc = schema.node("doc", null, [schema.node("paragraph")]);
+    /**
+     * A REBUILD keeps the document it was showing.
+     *
+     * `carriedDocRef` is only set by this effect's own cleanup, so it is null on
+     * the first mount and a live node on every rebuild after it. The schema
+     * guard is belt and braces: `schema` is memoised on `[]` today, so it never
+     * changes under a mounted editor, but a node from another schema cannot be
+     * put in this view and failing loudly here would be worse than re-parsing.
+     */
+    const carried = carriedDocRef.current;
+    carriedDocRef.current = null;
+    if (carried !== null && carried.type.schema === schema) {
+      doc = carried;
+    } else {
+      try {
+        doc = parseEditorDocument(initialDoc ?? [], schema);
+      } catch {
+        doc = schema.node("doc", null, [schema.node("paragraph")]);
+      }
+      prevDocRef.current = initialDoc ?? [];
     }
 
-    prevDocRef.current = initialDoc ?? [];
-
-    const getPortalContainer = () => portalContainer ?? null;
+    const getPortalContainer = () => portalContainerRef.current ?? null;
 
     const plugins = [
       ...buildKeymap(schema, features),
@@ -352,6 +509,55 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       },
       isPickerOpen: () => pickerStateRef.current !== null,
     });
+
+    // FIRST, ahead of everything, for two reasons:
+    //
+    // - before the catalog plugin: a pasted `https://blank.no/jobb` link is
+    //   rewritten to `/jobb` here, in time for the catalog plugin to see a link
+    //   it allows rather than one it strips;
+    // - before the keymaps: `baseKeymap`'s Enter always handles the key, so a
+    //   `handleKeyDown` after it never sees Enter, and a URL typed before
+    //   Enter was left unlinked.
+    if (features.link && schema.marks.link) {
+      plugins.unshift(
+        createLinkifyPlugin({
+          linkType: schema.marks.link,
+          getContext: getLinkContext,
+          getLinkCatalog,
+          linkHelper,
+          readOnly,
+          onChange: ({ scan, autoLinked }, linkView) => {
+            setLinkScan(scan);
+            const last = autoLinked?.ranges[autoLinked.ranges.length - 1];
+            const wrapper = wrapperRef.current;
+            if (!autoLinked || !last || !wrapper) {
+              setAutoLinkChip(null);
+              return;
+            }
+            setAutoLinkChip((prev) => {
+              if (prev?.id === autoLinked.id) return prev;
+              let position: { left: number; top: number };
+              try {
+                const coords = linkView.coordsAtPos(last.to);
+                const rect = wrapper.getBoundingClientRect();
+                position = {
+                  left: Math.max(0, coords.left - rect.left),
+                  top: coords.bottom - rect.top + 4,
+                };
+              } catch {
+                // No layout (jsdom, or a view being torn down): under the field.
+                position = { left: 0, top: wrapper.offsetHeight };
+              }
+              return {
+                id: autoLinked.id,
+                count: autoLinked.ranges.length,
+                position,
+              };
+            });
+          },
+        }),
+      );
+    }
 
     plugins.push(createLinkCatalogPlugin({ getLinkCatalog }));
 
@@ -468,6 +674,10 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     viewRef.current = view;
 
     return () => {
+      // Handed to whatever runs next. React clears this on unmount too, but a
+      // ref on an unmounted component is unreachable, so there is nothing to
+      // release.
+      carriedDocRef.current = view.state.doc;
       linkHelper.destroy();
       view.destroy();
       viewRef.current = null;
@@ -475,10 +685,35 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
   }, [
     schema,
     readOnly,
-    features.fixedToolbar,
+    showFixedToolbar,
     features.floatingToolbar,
     features.gutter,
-    portalContainer,
+  ]);
+
+  /**
+   * Repaint the toolbar when the gallery finally answers.
+   *
+   * The image control is gated on entries that arrive a round trip after
+   * mount, and the toolbar is an imperative plugin: it re-renders on a
+   * ProseMirror `update` and on nothing else. So an image-only field mounted
+   * its bar, found no entries, and left it empty until the user happened to
+   * click into the text.
+   *
+   * An EMPTY transaction is the fix rather than a view rebuild. `docChanged`
+   * is false for one, so it does not mark the field dirty, does not re-parse
+   * `defaultValue`, and cannot drop a keystroke still inside the debounce —
+   * which is exactly what rebuilding the view on this would risk.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch(view.state.tr);
+  }, [
+    imageModuleEntries,
+    images,
+    onImageUpload,
+    buttonVariants,
+    detailsVariants,
   ]);
 
   useEffect(() => {
@@ -499,7 +734,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       view.updateState(state);
       prevDocRef.current = value;
     } catch (error) {
-      console.error(error);
+      Internal.log.error(error);
     }
   }, [value, isControlled, schema]);
 
@@ -531,6 +766,96 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     });
     view.dispatch(tr);
   }, [errors, errorKindClassName]);
+
+  /**
+   * URLs added as external pages by "Add & link", waiting to be linked.
+   *
+   * Not linked at the moment they are added: the entry arrives through a patch,
+   * so the catalog does not have it yet, and `createLinkCatalogPlugin` would
+   * strip a link to it in the same transaction that made it. They are linked
+   * by the effect below, on the render where the catalog has caught up.
+   */
+  const pendingExternalLinksRef = useRef<Set<string>>(new Set());
+
+  /** The site, the routes or the catalog moved: what each URL links to may have too. */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    rescanLinks(view);
+    const pending = pendingExternalLinksRef.current;
+    if (pending.size === 0) return;
+    const scan = linkifyPluginKey.getState(view.state)?.scan;
+    const ready = (scan?.fixable ?? []).filter(
+      (finding) => finding.source === "text" && pending.has(finding.url),
+    );
+    if (ready.length === 0) return;
+    for (const finding of ready) pending.delete(finding.url);
+    applyLinkFixes(view, (finding) => ready.includes(finding));
+  }, [siteOrigins, routes, linkCatalog]);
+
+  const handleAddExternalPages = useCallback(
+    (urls: string[]) => {
+      if (!externalPages) return;
+      const unique = [...new Set(urls)];
+      for (const url of unique) pendingExternalLinksRef.current.add(url);
+      externalPages.add(unique);
+    },
+    [externalPages],
+  );
+
+  const handleApplyLinkFixes = useCallback(
+    (keys: ReadonlySet<string> | null) => {
+      const view = viewRef.current;
+      if (!view) return;
+      applyLinkFixes(
+        view,
+        (finding) => keys === null || keys.has(findingKey(finding)),
+      );
+      view.focus();
+    },
+    [],
+  );
+
+  const handleDismissUrls = useCallback((urls: string[]) => {
+    setDismissedUrls((prev) => new Set([...prev, ...urls]));
+  }, []);
+
+  const handleRevealFinding = useCallback((finding: LinkFinding) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const max = view.state.doc.content.size;
+    view.dispatch(
+      view.state.tr
+        .setSelection(
+          TextSelection.create(
+            view.state.doc,
+            Math.min(finding.from, max),
+            Math.min(finding.to, max),
+          ),
+        )
+        .scrollIntoView(),
+    );
+    view.focus();
+  }, []);
+
+  const handleKeepAsText = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    // Left as text on purpose, so the bar below must not ask about them again.
+    const ranges = linkifyPluginKey.getState(view.state)?.autoLinked?.ranges;
+    const urls = (ranges ?? [])
+      .filter(({ from, to }) => from < to)
+      .map(({ from, to }) => view.state.doc.textBetween(from, to));
+    setDismissedUrls((prev) => new Set([...prev, ...urls]));
+    unlinkAutoLinked(view);
+    view.focus();
+  }, []);
+
+  const handleCloseChip = useCallback(() => {
+    const view = viewRef.current;
+    if (view) clearAutoLinked(view);
+    else setAutoLinkChip(null);
+  }, []);
 
   const getDocument = useCallback((): EditorDocument => {
     if (!viewRef.current) return [];
@@ -570,8 +895,6 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     reset,
   ]);
 
-  const showFixedToolbar = features.fixedToolbar;
-
   const applyLink = useCallback((href: string | null) => {
     const view = viewRef.current;
     const mt = markTypeRef.current;
@@ -605,9 +928,16 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   const handlePickerApplyUrl = useCallback(
     (href: string) => {
-      applyLink(href);
+      // A full address on this site, typed into the URL box, is the same
+      // internal link it would have become if it had been pasted.
+      const resolution = resolveUrl(href, getLinkContext());
+      applyLink(
+        resolution?.status === "linkable" && resolution.internal
+          ? resolution.href
+          : href,
+      );
     },
-    [applyLink],
+    [applyLink, getLinkContext],
   );
 
   const handlePickerUnlink = useCallback(() => {
@@ -621,6 +951,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   return (
     <div
+      ref={wrapperRef}
       className={[
         "rich-text-editor relative flex flex-col",
         readOnly ? "cursor-default" : "",
@@ -633,22 +964,59 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
         <div
           ref={fixedToolbarMountRef}
           className={[
-            "rounded-t-md border border-input",
-            "bg-bg-secondary absolute left-0 top-0 z-5 w-full",
+            "rounded-t-md border border-border-primary",
+            // `z-hover`: a bar pinned over the top of the editor's own content,
+            // and nothing more. `z-5` put it over the shell's chrome as well.
+            "bg-bg-secondary absolute left-0 top-0 z-hover w-full",
           ].join(" ")}
         />
       )}
       <div
         ref={containerRef}
         className={[
-          "prose-editor relative min-h-12 border border-input",
-          "bg-bg-primary p-2 text-fg-primary caret-fg-primary",
-          "ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 rounded-md",
-          "p-4",
+          /*
+           * Sized as a text field, because that is what it is.
+           *
+           * `h-10` + `px-3 py-2` + `text-base` is `Input`, and a richtext field
+           * sits in the same column as one — it had `min-h-12` and `p-4`, so a
+           * one-line rich text box stood 68px tall next to a 40px string box
+           * with its text starting 4px further in. `min-h-10` rather than
+           * `h-10` because this one grows with its content.
+           *
+           * `pt-14` still wins over `py-2` when there is a toolbar: Tailwind
+           * emits `pt-*` after `py-*`, so the single-side utility overrides.
+           */
+          "prose-editor relative min-h-10 border border-border-primary",
+          "bg-bg-primary text-fg-primary caret-fg-primary",
+          "focus-within:outline-none focus-within:ring-2 focus-within:ring-border-focus rounded-md",
+          "px-3 py-2",
           showFixedToolbar ? "pt-14" : "",
           readOnly ? "opacity-80" : "",
         ].join(" ")}
       />
+      {!readOnly && features.link && (
+        <LinkSuggestionsBar
+          scan={linkScan}
+          dismissed={dismissedUrls}
+          onApply={handleApplyLinkFixes}
+          onDismiss={handleDismissUrls}
+          onReveal={handleRevealFinding}
+          canAddExternalPage={externalPages?.canAdd}
+          onAddExternalPages={
+            externalPages ? handleAddExternalPages : undefined
+          }
+          portalContainer={portalContainer}
+        />
+      )}
+      {!readOnly && autoLinkChip && (
+        <AutoLinkChip
+          key={autoLinkChip.id}
+          count={autoLinkChip.count}
+          position={autoLinkChip.position}
+          onKeepAsText={handleKeepAsText}
+          onClose={handleCloseChip}
+        />
+      )}
       {pickerState &&
         (portalContainer ? (
           createPortal(

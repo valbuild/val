@@ -1,26 +1,45 @@
 import {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
   FileMetadata,
   ImageMetadata,
   Internal,
+  VideoMetadata,
   SerializedSchema,
   Source,
   SourcePath,
-  VAL_EXTENSION,
   ValidationError,
 } from "@valbuild/core";
+import {
+  extractVideoMetadataFromUrl,
+  nameForTypeOf,
+} from "./remoteVideoMetadata";
 import {
   isNotRoot,
   JSONValue,
   Patch,
   sourceToPatchPath,
 } from "@valbuild/core/patch";
-import fs from "fs";
-import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
+import {
+  extractFileMetadata,
+  extractImageMetadata,
+  unreadableVideoMetadataMessage,
+} from "./extractMetadata";
+import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
-import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
+import {
+  fallbackRemoteHost,
+  movedRemoteHost,
+  needsHostCheck,
+  rewriteRefHost,
+  type AskHostProject,
+} from "./remoteHostCheck";
+import { checkRemoteRef } from "./checkRemoteRef";
+import { diskFixFiles, FixFiles } from "./fixFiles";
+import { rewriteVideoPathsPatch } from "./videoRemote";
+import {
+  videosetAddMetadataPatch,
+  videosetCheckAllFilesPatch,
+} from "./videosetFixes";
 
 // A remaining error may optionally carry a more specific `sourcePath` than the
 // one the fix was created from. This is used by gallery checks, where a single
@@ -30,9 +49,75 @@ export type FixPatchRemainingError = ValidationError & {
   sourcePath?: SourcePath;
 };
 
+// Patch path of the record that holds a media entry. Media keys are file paths
+// that can contain dots, which sourceToPatchPath cannot round-trip, so strip
+// the (JSON-encoded) key segment off the entry source path and convert the
+// remaining parent path — whose ancestors are plain object keys / array
+// indices — instead.
+function parentPatchPathOfMediaEntry(sourcePath: SourcePath, entryKey: string) {
+  const jsonKey = JSON.stringify(entryKey);
+  let parent: string = sourcePath;
+  if (parent.endsWith(jsonKey)) {
+    parent = parent.slice(0, parent.length - jsonKey.length);
+  }
+  if (parent.endsWith(".")) {
+    parent = parent.slice(0, -1);
+  } else if (parent.endsWith(Internal.ModuleFilePathSep)) {
+    parent = parent.slice(0, parent.length - Internal.ModuleFilePathSep.length);
+  }
+  return sourceToPatchPath(parent as SourcePath);
+}
+
 // TODO: find a better name? transformFixesToPatch?
+/**
+ * A whole media value, for the fixes that replace one outright.
+ *
+ * The three remote fixes each wrote this shape out by hand, and one of them was
+ * left behind when the shape changed. One name, so the next change cannot miss a
+ * site.
+ *
+ * `path` last is deliberate: it is the field the fix is about, and a stray
+ * `path` inside the metadata must not win over it.
+ */
+export function mediaValue(
+  path: string,
+  metadata: unknown,
+): Record<string, JSONValue> {
+  const fields =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, JSONValue>)
+      : {};
+  return { ...fields, path };
+}
+
+/**
+ * The media value a validation error flagged, read as a plain record.
+ *
+ * A `ValidationError` carries only a value, never the schema that rejected it,
+ * so the shape is all there is to go on here.
+ */
+function mediaValueOf(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
 export async function createFixPatch(
-  config: { projectRoot: string; remoteHost: string },
+  config: {
+    projectRoot: string;
+    remoteHost: string;
+    /**
+     * Where a fix reads a file's bytes and puts a downloaded one. Defaults to
+     * the disk under `projectRoot`; see {@link FixFiles}.
+     */
+    files?: FixFiles;
+    /**
+     * How a platform ref's host is asked which project it serves. Defaults
+     * to `GET <host>/_val/project`; tests replace it.
+     */
+    askHostProject?: AskHostProject;
+  },
   apply: boolean,
   sourcePath: SourcePath,
   validationError: ValidationError,
@@ -40,6 +125,7 @@ export async function createFixPatch(
     [sourcePath: SourcePath]: {
       ref: string;
       metadata?: Record<string, unknown>;
+      refs?: Record<string, string>;
     };
   },
   moduleSource?: Source,
@@ -49,12 +135,10 @@ export async function createFixPatch(
 > {
   const remainingErrors: FixPatchRemainingError[] = [];
   const patch: Patch = [];
+  const files = config.files ?? diskFixFiles(config.projectRoot);
   for (const fix of validationError.fixes || []) {
     if (fix === "image:check-metadata" || fix === "image:add-metadata") {
-      const imageMetadata = await getImageMetadata(
-        config.projectRoot,
-        validationError,
-      );
+      const imageMetadata = await getImageMetadata(files, validationError);
       if (
         imageMetadata.width === undefined ||
         imageMetadata.height === undefined
@@ -65,97 +149,44 @@ export async function createFixPatch(
           fixes: undefined,
         });
       } else if (fix === "image:check-metadata") {
-        const currentValue = validationError.value;
-        const metadataIsCorrect =
-          // metadata is a prop that is an object
-          typeof currentValue === "object" &&
-          currentValue &&
-          "metadata" in currentValue &&
-          currentValue.metadata &&
-          typeof currentValue.metadata === "object" &&
-          // width is correct
-          "width" in currentValue.metadata &&
-          currentValue.metadata.width === imageMetadata.width &&
-          // height is correct
-          "height" in currentValue.metadata &&
-          currentValue.metadata.height === imageMetadata.height &&
-          // mimeType is correct
-          "mimeType" in currentValue.metadata &&
-          currentValue.metadata.mimeType === imageMetadata.mimeType;
-        // skips if the metadata is already correct
-        if (!metadataIsCorrect) {
+        const currentValue = mediaValueOf(validationError.value);
+        const derived = {
+          width: imageMetadata.width,
+          height: imageMetadata.height,
+          mimeType: imageMetadata.mimeType,
+        };
+        // One op per field, not one for the whole object: `alt` and `hotspot`
+        // are authored and sit next to these, so a whole-object write would
+        // throw away what a person typed.
+        const wrong = (
+          Object.entries(derived) as [keyof typeof derived, unknown][]
+        ).filter(([field, expected]) => currentValue?.[field] !== expected);
+        if (wrong.length > 0) {
           if (apply) {
-            patch.push({
-              op: "replace",
-              path: sourceToPatchPath(sourcePath).concat("metadata"),
-              value: {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ...(currentValue as any).metadata,
-                width: imageMetadata.width,
-                height: imageMetadata.height,
-                mimeType: imageMetadata.mimeType,
-              },
-            });
-          } else {
-            if (
-              typeof currentValue === "object" &&
-              currentValue &&
-              "metadata" in currentValue &&
-              currentValue.metadata &&
-              typeof currentValue.metadata === "object"
-            ) {
-              if (
-                !("width" in currentValue.metadata) ||
-                currentValue.metadata.width !== imageMetadata.width
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata width is incorrect! Found: " +
-                    ("width" in currentValue.metadata
-                      ? currentValue.metadata.width
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.width,
-                  fixes: undefined,
-                });
-              }
-              if (
-                !("height" in currentValue.metadata) ||
-                currentValue.metadata.height !== imageMetadata.height
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata height is incorrect! Found: " +
-                    ("height" in currentValue.metadata
-                      ? currentValue.metadata.height
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.height,
-                  fixes: undefined,
-                });
-              }
-              if (
-                !("mimeType" in currentValue.metadata) ||
-                currentValue.metadata.mimeType !== imageMetadata.mimeType
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata mimeType is incorrect! Found: " +
-                    ("mimeType" in currentValue.metadata
-                      ? currentValue.metadata.mimeType
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.mimeType,
-                  fixes: undefined,
-                });
-              }
-            } else {
+            for (const [field, expected] of wrong) {
+              patch.push({
+                op: "add",
+                path: sourceToPatchPath(sourcePath).concat(field),
+                value: expected as JSONValue,
+              });
+            }
+          } else if (currentValue) {
+            for (const [field, expected] of wrong) {
               remainingErrors.push({
-                ...validationError,
-                message: "Image metadata is not an object!",
+                message:
+                  `Image ${field} is incorrect! Found: ` +
+                  (currentValue[field] ?? "<empty>") +
+                  ". Expected: " +
+                  expected,
                 fixes: undefined,
               });
             }
+          } else {
+            remainingErrors.push({
+              ...validationError,
+              message: "Image is not an object!",
+              fixes: undefined,
+            });
           }
         }
       } else if (fix === "image:add-metadata") {
@@ -166,22 +197,28 @@ export async function createFixPatch(
             fixes: undefined,
           });
         } else {
-          patch.push({
-            op: "add",
-            path: sourceToPatchPath(sourcePath).concat("metadata"),
-            value: {
-              width: imageMetadata.width,
-              height: imageMetadata.height,
-              mimeType: imageMetadata.mimeType,
+          const patchPath = sourceToPatchPath(sourcePath);
+          patch.push(
+            {
+              op: "add",
+              path: patchPath.concat("width"),
+              value: imageMetadata.width,
             },
-          });
+            {
+              op: "add",
+              path: patchPath.concat("height"),
+              value: imageMetadata.height,
+            },
+            {
+              op: "add",
+              path: patchPath.concat("mimeType"),
+              value: imageMetadata.mimeType,
+            },
+          );
         }
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
-      const fileMetadata = await getFileMetadata(
-        config.projectRoot,
-        validationError,
-      );
+      const fileMetadata = await getFileMetadata(files, validationError);
       if (fileMetadata === undefined) {
         remainingErrors.push({
           ...validationError,
@@ -189,86 +226,133 @@ export async function createFixPatch(
           fixes: undefined,
         });
       } else if (fix === "file:check-metadata") {
-        const currentValue = validationError.value;
-        const metadataIsCorrect =
-          // metadata is a prop that is an object
-          typeof currentValue === "object" &&
-          currentValue &&
-          "metadata" in currentValue &&
-          currentValue.metadata &&
-          typeof currentValue.metadata === "object" &&
-          // mimeType is correct
-          "mimeType" in currentValue.metadata &&
-          currentValue.metadata.mimeType === fileMetadata.mimeType;
-
-        // skips if the metadata is already correct
-        if (!metadataIsCorrect) {
+        const currentValue = mediaValueOf(validationError.value);
+        if (currentValue?.mimeType !== fileMetadata.mimeType) {
           if (apply) {
             patch.push({
-              op: "replace",
-              path: sourceToPatchPath(sourcePath).concat("metadata"),
-              value: {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ...(currentValue as any).metadata,
-                ...(fileMetadata.mimeType
-                  ? { mimeType: fileMetadata.mimeType }
-                  : {}),
-              },
+              op: "add",
+              path: sourceToPatchPath(sourcePath).concat("mimeType"),
+              value: fileMetadata.mimeType ?? null,
+            });
+          } else if (currentValue) {
+            remainingErrors.push({
+              message:
+                "File mimeType is incorrect! Found: " +
+                (currentValue.mimeType ?? "<empty>") +
+                ". Expected: " +
+                fileMetadata.mimeType,
+              fixes: undefined,
             });
           } else {
-            if (
-              typeof currentValue === "object" &&
-              currentValue &&
-              "metadata" in currentValue &&
-              currentValue.metadata &&
-              typeof currentValue.metadata === "object"
-            ) {
-              if (
-                !("mimeType" in currentValue.metadata) ||
-                currentValue.metadata.mimeType !== fileMetadata.mimeType
-              ) {
-                remainingErrors.push({
-                  message:
-                    "File metadata mimeType is incorrect! Found: " +
-                    ("mimeType" in currentValue.metadata
-                      ? currentValue.metadata.mimeType
-                      : "<empty>") +
-                    ". Expected: " +
-                    fileMetadata.mimeType,
-                  fixes: undefined,
-                });
-              }
-            } else {
-              remainingErrors.push({
-                ...validationError,
-                message: "Image metadata is not an object!",
-                fixes: undefined,
-              });
-            }
+            remainingErrors.push({
+              ...validationError,
+              message: "File is not an object!",
+              fixes: undefined,
+            });
           }
         }
       } else if (fix === "file:add-metadata") {
         patch.push({
           op: "add",
-          path: sourceToPatchPath(sourcePath).concat("metadata"),
-          value: {
-            ...(fileMetadata.mimeType
-              ? { mimeType: fileMetadata.mimeType }
-              : {}),
-          },
+          path: sourceToPatchPath(sourcePath).concat("mimeType"),
+          value: fileMetadata.mimeType ?? null,
         });
       }
+    } else if (fix === "video:add-metadata") {
+      // Only the fields that are MISSING, one op each: a video's `alt`,
+      // `poster`, `captions` and times are authored and sit in the same
+      // object, and a field already there is not re-read (see the comment on
+      // the fix code in core — reading a video is not cheap).
+      const current = currentVideoValue(
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      );
+      if (current.status === "error") {
+        remainingErrors.push({
+          ...validationError,
+          message: current.message,
+          fixes: undefined,
+        });
+        continue;
+      }
+      const fileRef = current.value.path;
+      if (typeof fileRef !== "string") {
+        remainingErrors.push({
+          ...validationError,
+          message: `Cannot read video metadata: the video has no path`,
+          fixes: undefined,
+        });
+        continue;
+      }
+      let metadata: VideoMetadata;
+      try {
+        metadata = await getVideoMetadata(files, fileRef);
+      } catch (err) {
+        remainingErrors.push({
+          ...validationError,
+          message: `Failed to read video metadata from ${fileRef}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          fixes: undefined,
+        });
+        continue;
+      }
+      const missing = VIDEO_METADATA_FIELDS.filter(
+        (field) => current.value[field] === undefined,
+      );
+      const unreadable = missing.filter(
+        (field) => metadata[field] === undefined,
+      );
+      if (unreadable.length > 0) {
+        // All or nothing: a video with a mime type but no size is no closer
+        // to valid, and a half-written value reads as one someone finished.
+        remainingErrors.push({
+          ...validationError,
+          message: unreadableVideoMetadataMessage(fileRef, unreadable),
+          fixes: undefined,
+        });
+        continue;
+      }
+      const patchPath = sourceToPatchPath(sourcePath);
+      for (const field of missing) {
+        const value = metadata[field];
+        if (value !== undefined) {
+          patch.push({ op: "add", path: patchPath.concat(field), value });
+        }
+      }
+    } else if (fix === "videos:add-metadata") {
+      // A set entry's twin of `video:add-metadata`: the file is the entry's
+      // KEY, and only what is missing is written.
+      const fixed = await videosetAddMetadataPatch({
+        files,
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      });
+      patch.push(...fixed.patch);
+      remainingErrors.push(...fixed.remainingErrors);
+    } else if (fix === "videos:check-all-files") {
+      const fixed = await videosetCheckAllFilesPatch({
+        projectRoot: config.projectRoot,
+        apply,
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      });
+      patch.push(...fixed.patch);
+      remainingErrors.push(...fixed.remainingErrors);
     } else if (fix === "image:upload-remote" || fix === "file:upload-remote") {
       const remoteFile = remoteFiles[sourcePath];
       let metadata = remoteFile.metadata as JSONValue | undefined;
       if (!metadata) {
         if (fix === "image:upload-remote") {
-          metadata = await getImageMetadata(
-            config.projectRoot,
-            validationError,
-          );
+          metadata = await getImageMetadata(files, validationError);
         } else if (fix === "file:upload-remote") {
-          metadata = await getFileMetadata(config.projectRoot, validationError);
+          metadata = await getFileMetadata(files, validationError);
         }
       }
       if (!metadata) {
@@ -287,14 +371,95 @@ export async function createFixPatch(
       } else {
         patch.push({
           op: "replace",
-          value: {
-            _type: "remote",
-            _ref: remoteFile.ref,
-            metadata,
-          },
+          value: mediaValue(remoteFile.ref, metadata),
           path: sourceToPatchPath(sourcePath),
         });
       }
+    } else if (
+      fix === "video:upload-remote" ||
+      fix === "video:download-remote"
+    ) {
+      // The handler moved the files (`videoRemote.ts`); what is left is to
+      // point each path the value holds at where its file now is. Read from
+      // the module rather than the error, which carries the value as it was
+      // validated.
+      const moved = remoteFiles[sourcePath]?.refs;
+      if (!moved) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            fix === "video:upload-remote"
+              ? "Cannot point the video at Val Remote: its files were not uploaded"
+              : "Cannot point the video at its local files: they were not downloaded",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const current =
+        moduleSource !== undefined && moduleSchema !== undefined
+          ? Internal.resolvePath(
+              Internal.splitModuleFilePathAndModulePath(sourcePath)[1],
+              moduleSource,
+              moduleSchema,
+            ).source
+          : validationError.value;
+      patch.push(...rewriteVideoPathsPatch(sourcePath, current, moved));
+    } else if (
+      fix === "images:upload-remote" ||
+      fix === "files:upload-remote" ||
+      fix === "videos:upload-remote"
+    ) {
+      // Gallery entry: the record is keyed by the file path, so uploading to
+      // remote means renaming the key from the local path to the remote URL
+      // (remove the old key, add the new one with the same metadata). A video
+      // set's entry is renamed to its MASTER playlist's ref for a stream: the
+      // playlists and segments it names went up with it, and are named by the
+      // uploaded master, not by the set.
+      const remoteFile = remoteFiles[sourcePath];
+      if (!remoteFile) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Cannot fix local to remote gallery entry: remote file was not uploaded",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const metadata = remoteFile.metadata as JSONValue | undefined;
+      if (!metadata) {
+        remainingErrors.push({
+          ...validationError,
+          message: "Failed to get metadata for remote gallery file",
+          fixes: undefined,
+        });
+        continue;
+      }
+      // The entry is keyed by its (local) file path, which can contain dots
+      // (e.g. image.png). sourceToPatchPath can't round-trip such keys, so
+      // build the patch path from the parent record path plus the key (which
+      // validateMediaKey carries as the error value), like the UI does.
+      const entryKey = validationError.value;
+      if (typeof entryKey !== "string") {
+        remainingErrors.push({
+          ...validationError,
+          message: "Cannot rewrite remote gallery entry: missing entry key",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const parentPath = parentPatchPathOfMediaEntry(sourcePath, entryKey);
+      const removePath = parentPath.concat(entryKey);
+      const addPath = parentPath.concat(remoteFile.ref);
+      if (!isNotRoot(removePath) || !isNotRoot(addPath)) {
+        remainingErrors.push({
+          ...validationError,
+          message: "Cannot rewrite remote gallery entry at root path",
+          fixes: undefined,
+        });
+        continue;
+      }
+      patch.push({ op: "remove", path: removePath });
+      patch.push({ op: "add", path: addPath, value: metadata });
     } else if (
       fix === "image:download-remote" ||
       fix === "file:download-remote"
@@ -308,7 +473,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(v._ref);
+      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(v.path);
       if (splitRemoteRefDataRes.status === "error") {
         remainingErrors.push({
           ...validationError,
@@ -317,7 +482,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const url = v._ref;
+      const url = v.path;
       const filePath = splitRemoteRefDataRes.filePath;
       if (!filePath) {
         remainingErrors.push({
@@ -336,14 +501,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const absoluteFilePath = path.join(
-        config.projectRoot,
-        splitRemoteRefDataRes.filePath,
-      );
-      await fs.promises.mkdir(path.dirname(absoluteFilePath), {
-        recursive: true,
-      });
-      const res = await downloadFileFromRemote(url, absoluteFilePath);
+      const res = await files.saveRemoteFile(url, filePath);
       if (res.status === "error") {
         remainingErrors.push({
           ...validationError,
@@ -352,24 +510,10 @@ export async function createFixPatch(
         });
         continue;
       }
-      const value = {
-        [VAL_EXTENSION]: "file",
-        [FILE_REF_PROP]: `/${filePath}`,
-        ...(fix === "image:download-remote"
-          ? {
-              [FILE_REF_SUBTYPE_TAG]: "image",
-            }
-          : {}),
-      };
       patch.push({
         op: "replace",
         path: sourceToPatchPath(sourcePath),
-        value: v.metadata
-          ? {
-              ...value,
-              metadata: v.metadata as JSONValue,
-            }
-          : value,
+        value: mediaValue(`/${filePath}`, v.metadata),
       });
     } else if (
       fix === "images:check-all-files" ||
@@ -386,10 +530,20 @@ export async function createFixPatch(
       }
       const gallerySource = moduleSource as Record<string, unknown>;
       for (const [entryKey, storedEntry] of Object.entries(gallerySource)) {
-        const filename = path.join(config.projectRoot, entryKey);
+        const entry = galleryEntryOf(entryKey);
+        if (entry.remote) {
+          // A remote entry's bytes are on the content host, so there may be no
+          // local file to re-derive its metadata from — and where there is one,
+          // rewriting the metadata from it would invalidate the ref, which has
+          // that metadata baked into its validation hash. Whether a remote
+          // entry is sound is `image:check-remote`'s question, and it already
+          // asks it. Reading the file here reported every published remote
+          // image as unreadable, and with `--fix` REMOVED it from the gallery.
+          continue;
+        }
         let buffer: Buffer;
         try {
-          buffer = fs.readFileSync(filename);
+          buffer = await files.readFile(entry.localPath);
         } catch {
           if (apply) {
             const removePath = sourceToPatchPath(sourcePath).concat([entryKey]);
@@ -399,19 +553,21 @@ export async function createFixPatch(
           } else {
             remainingErrors.push({
               ...validationError,
-              message: `Could not read file: ${filename} - file might not exist or can not be accessed`,
+              message: `Could not read file: ${path.join(config.projectRoot, entry.localPath)} - file might not exist or can not be accessed`,
               fixes: undefined,
             });
           }
           continue;
         }
         if (fix === "images:check-all-files") {
-          const actualMetadata = await extractImageMetadata(filename, buffer);
+          const actualMetadata = await extractImageMetadata(
+            entry.localPath,
+            buffer,
+          );
           const stored = storedEntry as Record<string, unknown>;
           const metadataIsCorrect =
-            stored.width === actualMetadata.width &&
-            stored.height === actualMetadata.height &&
-            stored.mimeType === actualMetadata.mimeType;
+            mediaDirEntryMismatches("images", stored, actualMetadata).length ===
+            0;
           if (!metadataIsCorrect) {
             if (apply) {
               patch.push({
@@ -437,9 +593,14 @@ export async function createFixPatch(
             }
           }
         } else if (fix === "files:check-all-files") {
-          const actualMetadata = await extractFileMetadata(filename, buffer);
+          const actualMetadata = await extractFileMetadata(
+            entry.localPath,
+            buffer,
+          );
           const stored = storedEntry as Record<string, unknown>;
-          const metadataIsCorrect = stored.mimeType === actualMetadata.mimeType;
+          const metadataIsCorrect =
+            mediaDirEntryMismatches("files", stored, actualMetadata).length ===
+            0;
           if (!metadataIsCorrect) {
             if (apply) {
               patch.push({
@@ -505,12 +666,33 @@ export async function createFixPatch(
       );
 
       if (schemaAtPath.type === "image" || schemaAtPath.type === "file") {
+        // First, whether the ref's host still serves its project at all: a
+        // ref on a domain the project dropped is pointed at the project's own
+        // address, not re-derived from bytes nobody can download from there.
+        const moved = await movedRemoteHost(v.path, config.askHostProject);
+        if (moved) {
+          if (apply) {
+            patch.push({
+              op: "replace",
+              path: sourceToPatchPath(sourcePath).concat(["path"]),
+              value: moved.ref,
+            });
+          } else {
+            remainingErrors.push({
+              ...validationError,
+              message: `${moved.why}. Run 'val validate --fix' to point it at ${moved.to}, which always serves it.`,
+              fixes: ["remote:rewrite-host"],
+            });
+          }
+          continue;
+        }
         const res = await checkRemoteRef(
           config.remoteHost,
-          v._ref,
+          v.path,
           config.projectRoot,
           schemaAtPath,
           v.metadata,
+          files.readRemoteFile,
         );
         if (res.status === "success") {
           // do nothing
@@ -525,11 +707,7 @@ export async function createFixPatch(
             patch.push({
               op: "replace",
               path: sourceToPatchPath(sourcePath),
-              value: {
-                _type: "remote",
-                _ref: res.ref,
-                metadata: res.metadata,
-              },
+              value: mediaValue(res.ref, res.metadata),
             });
           } else {
             remainingErrors.push({
@@ -557,6 +735,85 @@ export async function createFixPatch(
           fixes: undefined,
         });
       }
+    } else if (fix === "remote:rewrite-host") {
+      // The new ref is derived from the old one alone, so nothing the error
+      // carries is trusted: the value is read from the module, and only a
+      // platform ref that is not already on the project's own address moves.
+      const [, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      const current =
+        moduleSource !== undefined && moduleSchema !== undefined
+          ? Internal.resolvePath(modulePath, moduleSource, moduleSchema).source
+          : undefined;
+      const ref =
+        typeof current === "object" &&
+        current !== null &&
+        "path" in current &&
+        typeof current.path === "string"
+          ? current.path
+          : undefined;
+      const parsed =
+        ref === undefined ? undefined : Internal.remote.splitRemoteRef(ref);
+      const rewritten =
+        ref !== undefined &&
+        parsed?.status === "success" &&
+        needsHostCheck(parsed.remoteHost, parsed.projectId)
+          ? rewriteRefHost(ref, fallbackRemoteHost(parsed.projectId))
+          : null;
+      if (rewritten === null) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Cannot point this at the project's own address: it is not a platform ref on another host",
+          fixes: undefined,
+        });
+        continue;
+      }
+      patch.push({
+        op: "replace",
+        path: sourceToPatchPath(sourcePath).concat(["path"]),
+        value: rewritten,
+      });
+    } else if (fix === "view:check-module") {
+      // The schema is the authority: it names the module, and there is exactly
+      // one valid pointer. So this is written rather than reported — nobody has
+      // a decision to make here.
+      const [, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      if (moduleSource === undefined || moduleSchema === undefined) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Unexpected error while checking a view (no module source or schema)",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const { schema: schemaAtPath } = Internal.resolvePath(
+        modulePath,
+        moduleSource,
+        moduleSchema,
+      );
+      if (schemaAtPath.type !== "view") {
+        remainingErrors.push({
+          ...validationError,
+          message: `Could not fix view: schema at ${sourcePath} is '${schemaAtPath.type}', not a view`,
+          fixes: undefined,
+        });
+        continue;
+      }
+      if (apply) {
+        patch.push({
+          op: "replace",
+          path: Internal.createPatchPath(modulePath),
+          value: { view: schemaAtPath.moduleFilePath },
+        });
+      } else {
+        remainingErrors.push({
+          ...validationError,
+          message: `This view points at the wrong module. Expected '${schemaAtPath.moduleFilePath}'.`,
+        });
+      }
     }
   }
   if (!validationError.fixes || validationError.fixes.length === 0) {
@@ -575,7 +832,7 @@ function getRemoteValueFromValidationError(v: ValidationError):
     }
   | {
       success: true;
-      _ref: string;
+      path: string;
       metadata?: Record<string, unknown>;
     } {
   if (v.value && typeof v.value !== "object") {
@@ -590,48 +847,90 @@ function getRemoteValueFromValidationError(v: ValidationError):
       message: "Unexpected error while checking remote (no value)",
     };
   }
-  if (
-    typeof v.value !== "object" ||
-    v.value === null ||
-    !(FILE_REF_PROP in v.value)
-  ) {
+  if (typeof v.value !== "object" || v.value === null || !("path" in v.value)) {
     return {
       success: false,
-      message: "Unexpected error while checking remote (no _ref in value)",
+      message: "Unexpected error while checking remote (no path in value)",
     };
   }
-  if (typeof v.value._ref !== "string") {
+  if (typeof v.value.path !== "string") {
     return {
       success: false,
-      message: "Unexpected error while checking remote (_ref is not a string)",
+      message: "Unexpected error while checking remote (path is not a string)",
     };
   }
-  let metadata: Record<string, unknown> | undefined;
-  if ("metadata" in v.value && typeof v.value.metadata === "object") {
-    if (v.value.metadata === null) {
-      return {
-        success: false,
-        message: "Unexpected error while checking remote (metadata is null)",
-      };
-    }
-    if (Array.isArray(v.value.metadata)) {
-      return {
-        success: false,
-        message:
-          "Unexpected error while checking remote (metadata is an array)",
-      };
-    }
-    metadata = v.value.metadata as Record<string, unknown> | undefined;
-  }
+  // Everything but the path is what Val read from the bytes.
+  const { path, ...metadata } = v.value as Record<string, unknown> & {
+    path: string;
+  };
   return {
     success: true,
-    _ref: v.value._ref,
+    path,
     metadata,
   };
 }
 
+/** The fields of a video that are read from its bytes, in the order written. */
+const VIDEO_METADATA_FIELDS: readonly (keyof VideoMetadata)[] = [
+  "mimeType",
+  "width",
+  "height",
+  "duration",
+];
+
+/**
+ * The video a `video:add-metadata` error is about, read from the module at its
+ * path when the module is at hand — the schema there decides that it IS a
+ * video — and from the error's own value otherwise.
+ */
+function currentVideoValue(
+  sourcePath: SourcePath,
+  validationError: ValidationError,
+  moduleSource: Source | undefined,
+  moduleSchema: SerializedSchema | undefined,
+):
+  | { status: "ok"; value: Record<string, unknown> }
+  | { status: "error"; message: string } {
+  if (moduleSource !== undefined && moduleSchema !== undefined) {
+    const [, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(sourcePath);
+    const resolved = Internal.resolvePath(
+      modulePath,
+      moduleSource,
+      moduleSchema,
+    );
+    if (resolved.schema.type !== "video") {
+      return {
+        status: "error",
+        message: `Could not add video metadata: schema at ${sourcePath} is '${resolved.schema.type}', not a video`,
+      };
+    }
+    const value = mediaValueOf(resolved.source);
+    return value
+      ? { status: "ok", value }
+      : { status: "error", message: "Video is not an object!" };
+  }
+  const value = mediaValueOf(validationError.value);
+  return value
+    ? { status: "ok", value }
+    : { status: "error", message: "Video is not an object!" };
+}
+
+export async function getVideoMetadata(
+  files: FixFiles,
+  fileRef: string,
+): Promise<VideoMetadata> {
+  // Not read into memory: only the headers are, and a video is mostly not
+  // headers. A remote video's headers are read over HTTP, with Range
+  // requests, so it is not downloaded either.
+  if (Internal.isRemoteMediaPath(fileRef)) {
+    return extractVideoMetadataFromUrl(fileRef, nameForTypeOf(fileRef));
+  }
+  return files.readVideoMetadata(fileRef);
+}
+
 export async function getImageMetadata(
-  projectRoot: string,
+  files: FixFiles,
   validationError: ValidationError,
 ): Promise<ImageMetadata> {
   const fileRef = getValidationErrorFileRef(validationError);
@@ -639,13 +938,11 @@ export async function getImageMetadata(
     // TODO:
     throw Error("Cannot fix image without a file reference");
   }
-  const filename = path.join(projectRoot, fileRef);
-  const buffer = fs.readFileSync(filename);
-  return extractImageMetadata(filename, buffer);
+  return extractImageMetadata(fileRef, await files.readFile(fileRef));
 }
 
 export async function getFileMetadata(
-  projectRoot: string,
+  files: FixFiles,
   validationError: ValidationError,
 ): Promise<FileMetadata> {
   const fileRef = getValidationErrorFileRef(validationError);
@@ -653,7 +950,24 @@ export async function getFileMetadata(
     // TODO:
     throw Error("Cannot fix file without a file reference");
   }
-  const filename = path.join(projectRoot, fileRef);
-  const buffer = fs.readFileSync(filename);
-  return extractFileMetadata(fileRef, buffer);
+  return extractFileMetadata(fileRef, await files.readFile(fileRef));
+}
+
+/**
+ * What an image or file directory's entry records that its bytes disagree
+ * with, as `[field, recorded, actual]`. The one comparison: the CLI's
+ * `*:check-all-files` fix and the Studio's full check both ask it.
+ */
+export function mediaDirEntryMismatches(
+  type: "images" | "files",
+  stored: Record<string, unknown>,
+  actual: { width?: number; height?: number; mimeType?: string },
+): [field: string, recorded: unknown, actual: unknown][] {
+  const fields =
+    type === "images"
+      ? (["width", "height", "mimeType"] as const)
+      : (["mimeType"] as const);
+  return fields
+    .filter((field) => stored[field] !== actual[field])
+    .map((field) => [field, stored[field], actual[field]]);
 }

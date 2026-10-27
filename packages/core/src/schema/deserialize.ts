@@ -1,23 +1,32 @@
 import { SerializedSchema, Schema } from ".";
 import { SelectorSource } from "../selector";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { ImageSource } from "../source/media";
+import { RichTextOptions } from "../source/richtext";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
+import { CodeSchema } from "./code";
+import { ColorSchema } from "./color";
 import { DateSchema } from "./date";
 import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
-import { ImageMetadata, ImageSchema } from "./image";
+import { ImageSchema } from "./image";
+import { VideoSchema } from "./video";
 import { KeyOfSchema } from "./keyOf";
+import { ValViewSchema } from "./view";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
+import { LocaleSchema } from "./locale";
 import { RouteSchema } from "./route";
+import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
-import { UnionSchema } from "./union";
+import { DiscriminatedUnionSchema } from "./discriminatedUnion";
+import { EnumSchema } from "./enum";
+import { ValRouter } from "../router";
+import { isPageRouter, routePatternOf } from "../getSourcePathFromRoute";
 
 export function deserializeSchema(
   serialized: SerializedSchema,
@@ -51,10 +60,11 @@ function deserializeSchemaImpl(
         serialized.opt,
         serialized.raw,
         [],
-        null,
         false,
         false,
         serialized.description,
+        null,
+        serialized.multiline ?? false,
       );
     case "literal":
       return new LiteralSchema(
@@ -81,6 +91,8 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        null,
+        serialized.render ?? null,
       );
     case "object":
       return new ObjectSchema(
@@ -95,6 +107,23 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
       );
+    case "settings":
+      return new SettingsSchema(
+        Object.fromEntries(
+          Object.entries(serialized.items).map(([key, item]) => {
+            return [key, deserializeSchema(item)];
+          }),
+        ),
+        serialized.opt,
+        false,
+        false,
+        serialized.description,
+        // Carried through, or the Studio's validation worker — which only ever
+        // sees the deserialized schema — would run every field's own rules and
+        // none of the section's, so a language declared twice would be reported
+        // by the CLI and silently accepted in the Studio.
+        serialized.section,
+      );
     case "array":
       return new ArraySchema(
         deserializeSchema(serialized.item),
@@ -103,13 +132,13 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        // The preview closure cannot survive serialization; the render can.
+        null,
+        serialized.render ?? null,
       );
-    case "union":
-      return new UnionSchema(
-        typeof serialized.key === "string"
-          ? serialized.key
-          : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (deserializeSchema(serialized.key) as any), // TODO: we do not really need any here - right?
+    case "discriminated-union":
+      return new DiscriminatedUnionSchema(
+        serialized.key,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
         serialized.opt,
@@ -118,34 +147,36 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
       );
+    case "enum":
+      return new EnumSchema(
+        serialized.values,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        null,
+        serialized.locales ?? null,
+        serialized.nullLocale ?? null,
+      );
     case "richtext": {
-      const deserializedOptions = {
+      const deserializedOptions: RichTextOptions & {
+        maxLength?: number;
+        minLength?: number;
+      } = {
         ...(serialized.options || {}),
-        inline:
-          typeof serialized.options?.inline?.img === "object" ||
-          typeof serialized.options?.inline?.a === "object"
-            ? {
-                a:
-                  typeof serialized.options?.inline?.a === "object"
-                    ? (deserializeSchema(serialized.options.inline.a) as
-                        | RouteSchema<string>
-                        | StringSchema<string>)
-                    : serialized.options?.inline?.a,
-                img:
-                  typeof serialized.options?.inline?.img === "object"
-                    ? (deserializeSchema(
-                        serialized.options.inline.img,
-                      ) as ImageSchema<
-                        ImageSource | RemoteSource<ImageMetadata>
-                      >)
-                    : serialized.options?.inline?.img,
-              }
-            : (serialized.options?.inline as
-                | undefined
-                | {
-                    a: boolean | undefined;
-                    img: boolean | undefined;
-                  }),
+        a:
+          typeof serialized.options?.a === "object"
+            ? (deserializeSchema(serialized.options.a) as
+                | RouteSchema<string>
+                | StringSchema<string>)
+            : serialized.options?.a,
+        img:
+          typeof serialized.options?.img === "object"
+            ? (deserializeSchema(
+                serialized.options.img,
+              ) as ImageSchema<ImageSource>)
+            : serialized.options?.img,
       };
       return new RichTextSchema(
         deserializedOptions,
@@ -161,7 +192,7 @@ function deserializeSchemaImpl(
         deserializeSchema(serialized.item),
         serialized.opt,
         [],
-        null,
+        serialized.params ? routerForParams(serialized.router) : null,
         serialized.key
           ? (deserializeSchema(serialized.key) as Schema<string>)
           : null,
@@ -169,8 +200,10 @@ function deserializeSchemaImpl(
           ? {
               type: serialized.mediaType,
               accept: serialized.accept ?? "*/*",
-              directory: serialized.directory ?? "/public/val",
+              dir: serialized.dir ?? "/public/val",
               remote: serialized.remote ?? false,
+              encode: serialized.encode,
+              stream: serialized.stream,
               altSchema: serialized.alt
                 ? deserializeSchema(serialized.alt)
                 : undefined,
@@ -179,6 +212,22 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.jsonValues ?? false,
+        // The preview closure cannot survive serialization; the render can.
+        null,
+        serialized.render ?? null,
+        // The external label is static data, so it survives serialization and
+        // must be carried back: a deserialized schema that forgot it would walk
+        // an external record as if its entries were local.
+        serialized.external ?? null,
+        serialized.params
+          ? Object.fromEntries(
+              Object.entries(serialized.params).map(([name, param]) => [
+                name,
+                deserializeSchema(param) as Schema<string | null>,
+              ]),
+            )
+          : null,
       );
     case "keyOf":
       return new KeyOfSchema(
@@ -189,7 +238,17 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
+    case "locale": {
+      return new LocaleSchema(
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
+    }
     case "route": {
       const routeOptions = serialized.options
         ? {
@@ -238,6 +297,25 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
       );
+    case "video":
+      return new VideoSchema(
+        serialized.options,
+        serialized.opt,
+        serialized.remote,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+        null,
+        serialized.referencedModule
+          ? {
+              modulePath: serialized.referencedModule,
+              entries: null,
+              remote: serialized.remote ?? false,
+            }
+          : null,
+      );
     case "date":
       return new DateSchema(
         serialized.options,
@@ -256,6 +334,34 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
       );
+    case "color":
+      return new ColorSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
+    case "code":
+      return new CodeSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+      );
+    case "view":
+      return new ValViewSchema(
+        serialized.moduleFilePath,
+        // No module: this schema came off the wire. The Studio navigates to a
+        // view rather than resolving one, so nothing here needs it.
+        undefined,
+        serialized.readonly ?? false,
+        serialized.hidden ?? false,
+        serialized.description,
+      );
     default: {
       const exhaustiveCheck: never = serialized;
       const unknownSerialized: unknown = exhaustiveCheck;
@@ -272,4 +378,34 @@ function deserializeSchemaImpl(
       }
     }
   }
+}
+
+/**
+ * The router a deserialized record with route parameters is given: enough to
+ * find its route pattern, and nothing more.
+ *
+ * A deserialized record has no router otherwise — the serialized form carries
+ * an id, not the code — and so does not validate its keys against the route.
+ * That stays true: `validate` reports nothing here. What the parameters need is
+ * the PATTERN, to find each key's values by name, and that is a pure function
+ * of the router id and the module path, so it can be put back.
+ */
+function routerForParams(routerId: string | undefined): ValRouter | null {
+  if (routerId === undefined) {
+    return null;
+  }
+  // Only a page router gets `getRoutePattern`. `routePatternOf` answers `null`
+  // for any other — an external router, or an id this build does not know —
+  // and `[]` is not that: it is the ROOT route, so coalescing one into the
+  // other would turn "this router has no parameters" into "every key must be
+  // /", and validate differently after a round trip than before it.
+  if (!isPageRouter(routerId)) {
+    return { getRouterId: () => routerId, validate: () => [] };
+  }
+  return {
+    getRouterId: () => routerId,
+    getRoutePattern: (moduleFilePath) =>
+      routePatternOf(routerId, moduleFilePath) ?? [],
+    validate: () => [],
+  };
 }

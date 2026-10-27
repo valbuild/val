@@ -1,5 +1,24 @@
-import { SourcePath, ModuleFilePath } from "@valbuild/core";
+import {
+  MediaCollectionType,
+  SourcePath,
+  ModuleFilePath,
+  SerializedSchema,
+} from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
+
+/**
+ * Validation error summary for a single nav menu row.
+ *
+ * `ownCount` is the number of errors that resolve directly to this row (a
+ * file's own errors, or a sitemap entry's nested errors). Descendant counts
+ * are computed at render time by recursing the tree.
+ */
+export type NavItemErrors = {
+  /** Errors that resolve directly to this item (not descendants). */
+  ownCount: number;
+  /** First error's user-facing message — used in tooltips. */
+  firstMessage?: string;
+};
 
 /**
  * Represents a page or folder in the site map tree.
@@ -20,8 +39,22 @@ export type SitemapItem = {
   routePattern?: RoutePattern[];
   /** Existing children keys (for validation in add form) */
   existingKeys?: string[];
+  /** Validation errors attributable to this row (not descendants). */
+  errors?: NavItemErrors;
   /** Description of the router key schema (shown in the add page form) */
   keyDescription?: string;
+  /** The router's route parameter schemas, by name (pickers in the add page form) */
+  routeParams?: Record<string, SerializedSchema>;
+  /**
+   * What a `.preview(...)` calls this page, when one does.
+   *
+   * Secondary to {@link urlPath} on purpose, and the one place in the studio
+   * where that is the right way round: this tree IS the site's routes — it has
+   * dynamic-segment pills and route patterns in it — so a row whose URL was
+   * replaced by a title would stop being part of a URL tree. The title rides
+   * beside it so a page can be recognised as well as located.
+   */
+  title?: string;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */
@@ -41,8 +74,34 @@ export type ExplorerItem = {
   isDirectory: boolean;
   /** Child items */
   children: ExplorerItem[];
-  /** Whether this item or any descendant has validation errors */
+  /** Validation errors attributable to this file (not descendants). */
+  errors?: NavItemErrors;
+  /**
+   * @deprecated Set `errors` instead. Retained so callers that constructed
+   * mock data with just `hasError: true` keep working.
+   */
   hasError?: boolean;
+};
+
+/**
+ * A gallery module - `s.imagedir()`, `s.filedir()` or `s.videodir()` - shown
+ * under Media.
+ *
+ * These are records keyed by file path with a `mediaType` marker, so the useful
+ * unit in the nav menu is the DIRECTORY they are constrained to rather than the
+ * module file. Selecting one opens the module, which renders the gallery.
+ */
+export type MediaModule = {
+  /** Module file path of the gallery module. */
+  moduleFilePath: ModuleFilePath;
+  /** The directory the gallery is constrained to, e.g. `/public/val/images`. */
+  dir: string;
+  /** Whether this gallery holds images, videos or arbitrary files. */
+  mediaType: MediaCollectionType;
+  /** A files gallery that takes only fonts (`s.fontdir()`). */
+  fonts?: boolean;
+  /** Validation errors attributable to this module. */
+  errors?: NavItemErrors;
 };
 
 /**
@@ -59,12 +118,44 @@ export type ExternalModule = {
  * Combined navigation menu data.
  */
 export type NavMenuData = {
-  /** Site map data (if next-app-router exists) */
+  /**
+   * Whether the project has any `s.router` module the nav may LIST.
+   *
+   * Not the same as `sitemap` being present: a router with no entries yet, or
+   * one whose source folder has not resolved, has no tree to show but is still
+   * a project that has pages. The distinction matters because the shell hides
+   * the Pages destination entirely when a project has no routes — a site map
+   * for a project that is only content files is an empty room — and hiding it
+   * for a project that merely has not created its first page would be wrong.
+   *
+   * Nor is it "declares any router": a `hidden()` router is not listed, so a
+   * project whose only router is hidden reads as false here and gets no Pages
+   * destination. That follows from what `hidden` on a module root means, and it
+   * is the sharp edge of it — hiding a page router takes the site's URLs out of
+   * the sitemap with them.
+   */
+  hasRouters: boolean;
+  /** Site map data (if a page router exists) */
   sitemap?: SitemapItem;
   /** Explorer data (if there are non-router val files) */
   explorer?: ExplorerItem;
   /** External module (if external-url-router exists) */
   external?: ExternalModule;
+  /** `s.imagedir()` / `s.filedir()` gallery modules, shown under Media. */
+  media?: MediaModule[];
+  /**
+   * The project's `s.settings()` module, when it has exactly one valid one.
+   *
+   * Absent both when the project has no settings module and when what it has
+   * cannot be used — two of them, or one in a subdirectory. Those are reported
+   * as module errors (see `resolveSettingsModule`); the navigation's job is
+   * only to say whether there is a Settings destination to go to.
+   */
+  settings?: SettingsModule;
+};
+
+export type SettingsModule = {
+  moduleFilePath: ModuleFilePath;
 };
 
 /**

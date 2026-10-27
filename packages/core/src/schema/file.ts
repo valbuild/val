@@ -1,5 +1,11 @@
-import { Json } from "../Json";
-import { FILE_REF_PROP, FileSource } from "../source/file";
+import {
+  FileSource,
+  GalleryFileSource,
+  galleryKeyOf,
+  galleryMarker,
+  isRemoteMediaPath,
+} from "../source/media";
+export type { FileMetadata } from "../source/file";
 
 import {
   CustomValidateFunction,
@@ -7,16 +13,16 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { VAL_EXTENSION } from "../source";
 import { getValPath, ModulePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { Internal, RemoteSource, ValModule } from "..";
-import { ReifiedRender } from "../render";
-import { FilesEntryMetadata } from "./files";
+import { Internal, ValModule } from "..";
+import { ItemPreviewInput, PreviewItem } from "../preview";
+import { FiledirEntryMetadata } from "./filedir";
 import { getSource } from "../module";
+import { canonicalFontMimeType, mimeTypeMatchesAccept } from "../mimeType";
 
 export type FileOptions = {
   accept?: string;
@@ -24,6 +30,8 @@ export type FileOptions = {
 
 export type SerializedFileSchema = {
   type: "file";
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: FileOptions;
   remote?: boolean;
   opt: boolean;
@@ -34,15 +42,7 @@ export type SerializedFileSchema = {
   description?: string;
 };
 
-export type FileMetadata = {
-  mimeType?: string;
-};
-export class FileSchema<
-  Src extends
-    | FileSource<FileMetadata | undefined>
-    | RemoteSource<FileMetadata | undefined>
-    | null,
-> extends Schema<Src> {
+export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
   constructor(
     private readonly options?: FileOptions,
     private readonly opt: boolean = false,
@@ -50,15 +50,36 @@ export class FileSchema<
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, FilesEntryMetadata>
+      Record<string, FiledirEntryMetadata>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.file().describe("The PDF offered for download");
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   describe(description: string | null): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -69,10 +90,31 @@ export class FileSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
     );
   }
 
-  remote(): FileSchema<Src | RemoteSource<FileMetadata | undefined>> {
+  /**
+   * Store the file on Val's remote content host instead of in your repository.
+   *
+   * The bytes still go into the patch store when the file is uploaded — the
+   * push to the remote host happens at publish. What changes is where the
+   * published file lives: `path` becomes a remote URL rather than a path under
+   * `/public`, so the repository does not grow with every upload.
+   *
+   * The `path` of a remote file is a URL on the content host, and it is not
+   * something to write by hand: upload the file in the Studio, or write a
+   * local path and let `npx val validate --fix` upload it and rewrite the
+   * `path` to the ref below.
+   *
+   * @example
+   * const schema = s.file({ accept: "application/pdf" }).remote();
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
+  remote(): FileSchema<Src> {
     return new FileSchema(
       this.options,
       this.opt,
@@ -82,9 +124,36 @@ export class FileSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-    ) as FileSchema<Src | RemoteSource<FileMetadata | undefined>>;
+      this.previewInput,
+    );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The second argument carries the `path` of the field being validated, for
+   * when the message needs to say where the problem is.
+   *
+   * @example
+   * const schema = s.file().validate((val) =>
+   *   val.path.endsWith(".pdf") ? false : "Must be a PDF",
+   * );
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   validate(validationFunction: CustomValidateFunction<Src>): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -95,6 +164,7 @@ export class FileSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -119,20 +189,28 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
-    if (typeof src[FILE_REF_PROP] !== "string") {
+    if (typeof src.path !== "string") {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `File did not have a file reference string. Got: ${typeof src[
-              FILE_REF_PROP
-            ]}`,
+            message: `File did not have a path string. Got: ${typeof src.path}`,
             value: src,
           },
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
+    // A field picked from a gallery holds the gallery's KEY, and whether that
+    // key is a local path or a remote ref is the gallery's to decide — and its
+    // to fix: uploading an entry renames its key, and the fields that hold it
+    // with it. So such a field only asks whether the gallery has it, below.
+    // Asking here as well reported every file picked from a `.remote()`
+    // gallery as one to download, because the field itself is never remote.
+    const galleryEntries = this.galleryEntries();
+    // Remote-ness is a property of the path, not of a marker on the value:
+    // anything outside /public is remote.
+    const isRemotePath = isRemoteMediaPath(src.path);
+    if (!galleryEntries && this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -144,7 +222,7 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (!galleryEntries && this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -156,12 +234,12 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (!galleryEntries && !this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Expected locale file, but found remote.`,
+            message: `Expected local file, but found remote.`,
             value: src,
             fixes: ["file:download-remote"],
           },
@@ -169,20 +247,39 @@ export class FileSchema<
       } as ValidationErrors;
     }
 
-    if (src[VAL_EXTENSION] !== "file") {
-      return {
-        [path]: [
-          ...customValidationErrors,
-          {
-            message: `File did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+    if (galleryEntries) {
+      if (src.mimeType !== undefined) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `A file from a gallery must not carry its own mimeType: it is stored in the gallery module.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+      // The same match reading the field makes (`fillFromGallery`): the key,
+      // or the local path inside a ref an upload through the field stored.
+      if (galleryKeyOf(src.path, (key) => key in galleryEntries) === null) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            galleryMarker(
+              "file",
+              src,
+              Object.keys(this.moduleMetadata)[0] ?? "",
+            ),
+          ],
+        } as ValidationErrors;
+      }
+      return customValidationErrors.length > 0
+        ? ({ [path]: customValidationErrors } as ValidationErrors)
+        : false;
     }
 
     const { accept } = this.options || {};
-    const { mimeType } = src.metadata || {};
+    const { mimeType } = src;
 
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
@@ -197,20 +294,7 @@ export class FileSchema<
     }
 
     if (accept && mimeType && mimeType.includes("/")) {
-      const acceptedTypes = accept.split(",").map((type) => type.trim());
-
-      const isValidMimeType = acceptedTypes.some((acceptedType) => {
-        if (acceptedType === "*/*") {
-          return true;
-        }
-        if (acceptedType.endsWith("/*")) {
-          const baseType = acceptedType.slice(0, -2);
-          return mimeType.startsWith(baseType);
-        }
-        return acceptedType === mimeType;
-      });
-
-      if (!isValidMimeType) {
+      if (!mimeTypeMatchesAccept(mimeType, accept)) {
         return {
           [path]: [
             ...customValidationErrors,
@@ -223,20 +307,28 @@ export class FileSchema<
       }
     }
 
-    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
+    const fileMimeType = Internal.filenameToMimeType(src.path);
     if (!fileMimeType) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            message: `Could not determine mime type from file extension. Got: ${src.path}`,
             value: src,
           },
         ],
       } as ValidationErrors;
     }
 
-    if (fileMimeType !== mimeType) {
+    // Guarded on `mimeType` being set, as `ImageSchema` guards the same check.
+    // Without it, an absent mimeType reported "Mime type and file extension not
+    // matching. Mime type is 'undefined'" -- with no fix attached, so no quick
+    // fix was offered -- and the `file:add-metadata` branch below could never be
+    // reached for any file whose extension is recognized, which is all of them
+    // that get this far.
+    // A legacy font name (`application/x-font-ttf`) is what the extension
+    // table itself used to say, so it is not a mismatch.
+    if (mimeType && fileMimeType !== canonicalFontMimeType(mimeType)) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -248,12 +340,15 @@ export class FileSchema<
       } as ValidationErrors;
     }
 
-    if (src.metadata) {
+    // The mime type read so far came from the filename. Whether it matches the
+    // bytes can only be answered by reading the file, which this package
+    // deliberately cannot do — so it is always handed on as a fix.
+    if (mimeType !== undefined) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Found metadata, but it could not be validated. File metadata must be an object with the mimeType.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `File mimeType has not been checked against the file.`,
             value: src,
             fixes: ["file:check-metadata"],
           },
@@ -265,12 +360,24 @@ export class FileSchema<
       [path]: [
         ...customValidationErrors,
         {
-          message: `Missing File metadata.`,
+          message: `File metadata is missing: mimeType.`,
           value: src,
           fixes: ["file:add-metadata"],
         },
       ],
     } as ValidationErrors;
+  }
+
+  /**
+   * The entries of the gallery this field points at, or null when it is a
+   * standalone field.
+   */
+  private galleryEntries(): Record<string, FiledirEntryMetadata> | null {
+    const modulePaths = Object.keys(this.moduleMetadata);
+    if (modulePaths.length === 0) {
+      return null;
+    }
+    return this.moduleMetadata[modulePaths[0] as ModulePath];
   }
 
   protected executeAssert(
@@ -306,26 +413,13 @@ export class FileSchema<
         },
       };
     }
-    if (!(FILE_REF_PROP in src)) {
+    if (!("path" in src) || typeof src.path !== "string") {
       return {
         success: false,
         errors: {
           [path]: [
             {
-              message: `Value of this schema must use: 'c.file' (error type: missing_ref_prop)`,
-              typeError: true,
-            },
-          ],
-        },
-      };
-    }
-    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
-      return {
-        success: false,
-        errors: {
-          [path]: [
-            {
-              message: `Value of this schema must use: 'c.file' (error type: missing_file_extension)`,
+              message: `A file must be an object with a 'path' (error type: missing_path)`,
               typeError: true,
             },
           ],
@@ -348,23 +442,25 @@ export class FileSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  readonly(): FileSchema<Src> {
+  readonly(isReadonly: boolean = true): FileSchema<Src> {
     return new FileSchema<Src>(
       this.options,
       this.opt,
       this.isRemote,
       this.customValidateFunctions,
       this.moduleMetadata,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  hidden(): FileSchema<Src> {
+  hidden(isHidden: boolean = true): FileSchema<Src> {
     return new FileSchema<Src>(
       this.options,
       this.opt,
@@ -372,9 +468,61 @@ export class FileSchema<
       this.customValidateFunctions,
       this.moduleMetadata,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
     );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.file().preview(({ val }) => ({ title: val.path })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   { path: "/public/val/example.pdf", mimeType: "application/pdf" },
+   * ]);
+   */
+  preview(select: ItemPreviewInput<Src>): FileSchema<Src> {
+    return new FileSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -383,6 +531,7 @@ export class FileSchema<
       : [];
     return {
       type: "file",
+      preview: this.previewInput ? true : undefined,
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
@@ -396,24 +545,51 @@ export class FileSchema<
       description: this.description,
     };
   }
-
-  protected executeRender(): ReifiedRender {
-    return {};
-  }
 }
 
-export const file = (
-  options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
-): FileSchema<FileSource | RemoteSource<FileMetadata | undefined>> => {
+/**
+ * A file picked from a gallery. Its mime type lives in the gallery, so the
+ * field carries only the path.
+ */
+export function file(
+  galleryModule: ValModule<Record<string, FiledirEntryMetadata>>,
+): FileSchema<GalleryFileSource>;
+/** A file of its own, carrying its own mime type. */
+export function file(options?: FileOptions): FileSchema<FileSource>;
+export function file(
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
+  return fileOf(false, options);
+}
+
+/**
+ * `s.file()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): the same schema, with `.remote()` already applied. See
+ * `initSchema`.
+ */
+export function remoteFile(
+  galleryModule: ValModule<Record<string, FiledirEntryMetadata>>,
+): FileSchema<GalleryFileSource>;
+export function remoteFile(options?: FileOptions): FileSchema<FileSource>;
+export function remoteFile(
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
+  return fileOf(true, options);
+}
+
+function fileOf(
+  remote: boolean,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, FilesEntryMetadata>>,
+      options as ValModule<Record<string, FiledirEntryMetadata>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, FilesEntryMetadata>> = {};
+    const allModules: Record<string, Record<string, FiledirEntryMetadata>> = {};
     for (const valModule of [
-      options as ValModule<Record<string, FilesEntryMetadata>>,
+      options as ValModule<Record<string, FiledirEntryMetadata>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -423,38 +599,10 @@ export const file = (
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        FilesEntryMetadata
+        FiledirEntryMetadata
       >;
     }
-    return new FileSchema({}, false, false, [], allModules);
+    return new FileSchema<GalleryFileSource>({}, false, remote, [], allModules);
   }
-  return new FileSchema(options as FileOptions);
-};
-
-export function convertFileSource<
-  Metadata extends { readonly [key: string]: Json } | undefined =
-    | { readonly [key: string]: Json }
-    | undefined,
->(src: FileSource<Metadata>): { url: string; metadata?: Metadata } {
-  // TODO: /public should be configurable
-  if (!src[FILE_REF_PROP].startsWith("/public")) {
-    return {
-      url:
-        src[FILE_REF_PROP] +
-        (src.patch_id ? `?patch_id=${src["patch_id"]}` : ""),
-      metadata: src.metadata,
-    };
-  }
-
-  if (src.patch_id) {
-    return {
-      url:
-        "/api/val/files" + src[FILE_REF_PROP] + `?patch_id=${src["patch_id"]}`,
-      metadata: src.metadata,
-    };
-  }
-  return {
-    url: src[FILE_REF_PROP].slice("/public".length),
-    metadata: src.metadata,
-  };
+  return new FileSchema(options as FileOptions, false, remote);
 }

@@ -1,0 +1,6 @@
+{
+  "title": "An entry with an image",
+  "image": {
+    "path": "/public/val/image.png"
+  }
+}

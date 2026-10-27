@@ -10,8 +10,15 @@ import {
   VAL_STATE_COOKIE,
 } from "./server/types";
 import { Patch, PatchId } from "./zod/Patch";
+import { SourcePath } from "./zod/SourcePath";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
+import { ValDeployment } from "./zod/ValDeployment";
+import {
+  HistoricalCommit,
+  HistoricalModule,
+  HistoricalPatchSet,
+} from "./zod/History";
 
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO: validation
@@ -27,7 +34,7 @@ const ValConfig = z.object({
   root: z.string().optional(),
   files: z
     .object({
-      directory: z.string(), // TODO: validate that it is prefixed by /public/
+      remote: z.boolean().optional(),
     })
     .optional(),
   gitCommit: z.string().optional(),
@@ -41,18 +48,38 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:upload-remote"),
   z.literal("image:download-remote"),
   z.literal("images:check-remote"),
+  z.literal("images:upload-remote"),
   z.literal("file:add-metadata"),
+  z.literal("video:add-metadata"),
+  z.literal("video:upload-remote"),
+  z.literal("video:download-remote"),
+  z.literal("videos:add-metadata"),
+  z.literal("videos:check-remote"),
+  z.literal("videos:upload-remote"),
   z.literal("file:check-metadata"),
   z.literal("file:check-remote"),
   z.literal("file:upload-remote"),
   z.literal("file:download-remote"),
   z.literal("files:check-remote"),
+  z.literal("files:upload-remote"),
   z.literal("keyof:check-keys"),
+  z.literal("image:check-gallery"),
+  z.literal("file:check-gallery"),
+  z.literal("video:check-gallery"),
   z.literal("router:check-route"),
+  z.literal("locale:check-locale"),
+  z.literal("router:check-locale-param"),
+  z.literal("record:fill-keys"),
   z.literal("images:check-unique-folder"),
   z.literal("files:check-unique-folder"),
   z.literal("images:check-all-files"),
   z.literal("files:check-all-files"),
+  z.literal("videos:check-unique-folder"),
+  z.literal("videos:check-all-files"),
+  z.literal("jsonValues:extract-entry"),
+  z.literal("view:check-module"),
+  z.literal("external:upload"),
+  z.literal("remote:rewrite-host"),
 ]);
 const ValidationError = z.object({
   message: z.string(),
@@ -74,11 +101,117 @@ const notFoundResponse = z.object({
   }),
 });
 const GenericError = z.object({ message: z.string() });
+/**
+ * Why Val Build refused a write for the project's plan, as data: the `error` of
+ * its 403 (`refusalError` in valbuild/home's `billing/projectLimits.ts`).
+ *
+ * Every field but `code` is optional and every field is a plain string, so a
+ * newer Val Build that adds a code or a fix still parses: the Studio says an
+ * unknown one with Billing beside it rather than failing to read the answer.
+ */
+export const PlanRefusalError = z.object({
+  code: z.string(),
+  fix: z.string().optional(),
+  /** When it lifts by itself, as an ISO time, if it does. */
+  until: z.string().optional(),
+  /** The organization's Billing in Val Build. */
+  billingUrl: z.string().optional(),
+});
+export type PlanRefusalErrorT = z.infer<typeof PlanRefusalError>;
+
+/**
+ * The header a request to `/admin/proxy` must carry. A cross-site form or
+ * `<img>` cannot set a custom header, so without it the proxy cannot be driven
+ * with the editor's cookie from another site.
+ */
+export const VAL_STUDIO_HEADER = "x-val-studio";
+
+/**
+ * What Val Build answered, mapped onto the statuses this server speaks: a
+ * `code` in the JSON is what the web components act on, so it is passed
+ * through untouched.
+ */
+const AdminProxyResponse = z.object({
+  status: z.union([
+    z.literal(200),
+    z.literal(400),
+    z.literal(401),
+    z.literal(403),
+    z.literal(404),
+    z.literal(500),
+  ]),
+  json: z.unknown(),
+});
+
+function adminProxyEndpoint() {
+  return {
+    req: {
+      path: z.string(),
+      rawQuery: z.string(),
+      headers: { [VAL_STUDIO_HEADER]: z.string().optional() },
+      cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      body: z.unknown(),
+    },
+    res: AdminProxyResponse,
+  };
+}
+
+/**
+ * What answered when one URL was opened.
+ *
+ * The one place the Studio's `ExternalUrlProbeResult` and the server's
+ * `ProbeResult` meet, so the two cannot drift without this failing to parse.
+ */
+const ExternalUrlProbeResult = z.union([
+  z.object({
+    kind: z.literal("answered"),
+    code: z.number(),
+    finalUrl: z.string(),
+    ms: z.number(),
+  }),
+  z.object({ kind: z.literal("unreachable"), message: z.string() }),
+  z.object({ kind: z.literal("timeout"), ms: z.number() }),
+  z.object({ kind: z.literal("skipped"), message: z.string() }),
+]);
+
+/**
+ * Why a publish cannot happen, in a form the Studio can show.
+ *
+ * Carried on `/stat` so the action is disabled with the reason beside it, and
+ * on `/save`'s 409 so the same answer is given to a client that asked anyway --
+ * a stat can be a poll out of date, and nothing may reach the commit path on a
+ * project this deployment cannot publish.
+ *
+ * `no-base` is the only code so far: there is nowhere for this publish's
+ * commit to be based. Note which way round that is. A project whose content
+ * service is the store of record always HAS a base -- the service's own chain,
+ * which mints its own shas -- so this is not about a missing git repository.
+ * It is about a deployment that cannot do what its project requires: one built
+ * before the project attached a repository, now asked to mirror commits into
+ * one it knows no commit for.
+ */
+const PublishRefusal = z.object({
+  code: z.literal("no-base"),
+  message: z.string(),
+});
+
+/** See `proposal` on `/stat`. */
+const StatProposal = z.object({
+  /** Twenty hex characters, the hash of what it was made from. */
+  name: z.string(),
+  /** `val/p/<name>`. */
+  branch: z.string(),
+});
 
 const GenericPatchError = z.union([
   z.object({
     patchId: PatchId,
     message: z.string(),
+    /**
+     * The publish job that holds the patch, when that is why it was not
+     * deleted. Optional: only a discard of a change being published says it.
+     */
+    publishJobId: z.string().optional(),
   }),
   z.object({
     parentPatchId: z.string(),
@@ -128,6 +261,70 @@ const onlyOneBooleanQueryParam = onlyOneStringQueryParam
     "Value must be true or false",
   )
   .transform((arg) => arg === "true");
+const onlyOneIntQueryParam = onlyOneStringQueryParam
+  .refine(
+    (arg) => /^\d+$/.test(arg),
+    "Value must be a non-negative whole number",
+  )
+  .transform((arg) => parseInt(arg, 10));
+
+/**
+ * Upper bound on how many `.jsonValues()` entries one `/json` request may ask
+ * for. Callers page through bigger sets; the Studio chunks its key windows to
+ * this. Shared so client and server agree on the limit.
+ */
+export const JSON_ENTRIES_BATCH_MAX = 100;
+
+/**
+ * Content analytics, wire format version 1: the beacon the browser script
+ * (`@valbuild/react/analytics`) sends to `POST /api/val/analytics`. Its
+ * `AnalyticsBeacon` type is written by hand there, because that code is on
+ * every visitor's page and must not load zod; `analytics/beacon.test.ts` in
+ * `@valbuild/react` checks that what it builds parses here.
+ */
+/*
+ * The limits the browser script keeps to (`MAX_*` in
+ * `@valbuild/react/analytics`'s `beacon.ts`, which cannot import this). The
+ * endpoint takes anyone's POST, so it checks what it is sent rather than
+ * trusting the sender; `beacon.test.ts` builds beacons at the limits and
+ * parses them here.
+ */
+const MAX_ANALYTICS_PATHS_PER_BEACON = 200;
+const AnalyticsPaths = z.record(
+  z.string().max(512),
+  z.array(z.string().max(1024)).max(MAX_ANALYTICS_PATHS_PER_BEACON),
+);
+const countAnalyticsPaths = (paths: Record<string, string[]>) =>
+  Object.values(paths).reduce((n, list) => n + list.length, 0);
+export const AnalyticsBeacon = z
+  .object({
+    v: z.literal(1),
+    route: z.string().max(512),
+    cv: z.string().max(128).optional(),
+    view: z
+      .object({
+        ref: z.string().max(253).optional(),
+        utm: z
+          .object({
+            source: z.string().max(100).optional(),
+            medium: z.string().max(100).optional(),
+            campaign: z.string().max(100).optional(),
+          })
+          .optional(),
+        device: z.enum(["phone", "tablet", "desktop"]),
+      })
+      .optional(),
+    rendered: AnalyticsPaths,
+    viewed: AnalyticsPaths,
+  })
+  .refine(
+    (beacon) =>
+      countAnalyticsPaths(beacon.rendered) +
+        countAnalyticsPaths(beacon.viewed) <=
+      MAX_ANALYTICS_PATHS_PER_BEACON,
+    { message: `At most ${MAX_ANALYTICS_PATHS_PER_BEACON} paths a beacon` },
+  );
+export type AnalyticsBeacon = z.infer<typeof AnalyticsBeacon>;
 
 export const Api = {
   "/draft/enable": {
@@ -179,6 +376,22 @@ export const Api = {
             message: z.string(),
           }),
         }),
+      ]),
+    },
+  },
+  "/analytics": {
+    POST: {
+      // Parsed by the handler rather than here, so a beacon of a version this
+      // server does not know is ignored instead of refused.
+      req: { body: z.unknown() },
+      res: z.union([
+        // `counted` is false wherever nothing stores the counts -- every
+        // server but the hosted platform's, for now.
+        z.object({
+          status: z.literal(200),
+          json: z.object({ counted: z.boolean() }),
+        }),
+        z.object({ status: z.literal(400), json: GenericError }),
       ]),
     },
   },
@@ -341,61 +554,6 @@ export const Api = {
       }),
     },
   },
-  "/session": {
-    GET: {
-      req: {
-        cookies: { val_session: z.string().optional() },
-      },
-      res: z.union([
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            mode: z.union([z.literal("local"), z.literal("proxy")]),
-            enabled: z.boolean(),
-          }),
-        }),
-        z.object({
-          status: z.union([
-            // TODO: Remove the ones we don't need.
-            z.literal(400),
-            z.literal(401),
-            z.literal(403),
-            z.literal(404),
-            z.literal(500),
-            z.literal(501),
-          ]),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(401),
-          json: z.object({
-            message: z.string(),
-            details: z.union([
-              z.string(),
-              z.object({
-                reason: z.string(),
-              }),
-              z.object({
-                sub: z.string(),
-                exp: z.number(),
-                token: z.string(),
-                org: z.string(),
-                project: z.string(),
-              }),
-            ]),
-          }),
-        }),
-        z.object({
-          status: z.literal(500),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-      ]),
-    },
-  },
   "/logout": {
     GET: {
       req: {
@@ -492,6 +650,12 @@ export const Api = {
                 bucket: z.string(),
               }),
             ),
+            /**
+             * The host new refs name, from the project's settings: its own
+             * address for a Hosted project whose files are in R2. Optional,
+             * for a content service that predates it.
+             */
+            remoteHost: z.string().optional(),
           }),
         }),
         z.object({
@@ -532,6 +696,13 @@ export const Api = {
             schemaSha: z.string(),
             baseSha: z.string(),
             patches: z.array(z.string()).optional(),
+            /**
+             * Fingerprint of the `.jsonValues()` entry files the client last saw.
+             * FS mode only: no other sha can see an entry file change, since a
+             * jsonValues module's source is markers and the content sits behind a
+             * thunk that `JSON.stringify` drops.
+             */
+            jsonEntriesSha: z.string().optional(),
           })
           .nullable(),
         cookies: {
@@ -564,9 +735,103 @@ export const Api = {
               schemaSha: z.string(),
               sourcesSha: z.string(),
               patches: z.array(PatchId),
+              /**
+               * Of `patches`, the ones that have already SHIPPED.
+               *
+               * A published patch stays in the chain with `appliedAt` set until
+               * the next deployment moves the base, so the id list alone cannot
+               * say which is which — and a client never re-fetches a record it
+               * already holds, so it never finds out on its own. Another
+               * author's publish then left that patch pending in your scope,
+               * your prefix gate read a hole in front of it, and Publish
+               * refused for a reason that had stopped being true.
+               *
+               * Optional: `fs` mode forgets published patches outright, and a
+               * client that ignores this behaves exactly as it did before.
+               */
+              appliedPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that is still running holds.
+               * The Studio does not offer Publish over these. Whole on every
+               * answer: a job that ends without sealing gives them back.
+               */
+              publishingPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that failed on its content
+               * holds back from later publishes, until Try again or Discard.
+               * The Studio does not count these as ready to publish.
+               */
+              heldBackPatches: z.array(PatchId).optional(),
+              /**
+               * The newest commit, which is the PUBLISH head.
+               *
+               * Not `commitSha`: that is the commit this deployment serves and
+               * moves only when a new build lands. This moves the instant
+               * somebody publishes, which is what makes it the thing a client
+               * carries back to `/save` to say which world it decided against.
+               */
+              headCommitSha: z.string().optional(),
+              /**
+               * Unpublished changes the store threw away because it could not
+               * read them.
+               *
+               * On stat rather than on `GET /patches` because stat is the
+               * channel that always flows: the case worth reporting is a repair
+               * that removed EVERYTHING, and then there is nothing left for the
+               * studio to fetch, so a notice riding on the fetch is never
+               * collected. Said once - the server drains it when it hands it
+               * over.
+               */
+              removed: z
+                .array(z.object({ patchId: PatchId, reason: z.string() }))
+                .optional(),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
+              jsonEntriesSha: z.string().optional(),
+              /**
+               * How this project's SOURCE is kept, when the server knows.
+               *
+               * `"managed"` -- the content service is the store of record,
+               * there is no repository, and the Studio is the deployer: the
+               * build that makes a publish live happens in the tab that started
+               * it. `"connected"` -- commits are mirrored into a repository a
+               * host watches, so something outside the browser finishes the
+               * job.
+               *
+               * The Studio narrates a publish differently for each, because a
+               * `building` state in managed mode is a spinner with no event
+               * that can ever end it -- not on a reload, not on a retry, not
+               * tomorrow.
+               *
+               * Optional, and absent means "not reported", never "managed":
+               * `fs` mode has no project to have a mode, and so does an `http`
+               * server that predates the field. Both keep the connected story,
+               * which is the one the Studio has always told.
+               */
+              sourceMode: z
+                .union([z.literal("managed"), z.literal("connected")])
+                .optional(),
+              /**
+               * A press of Publish is a publish JOB: every managed project,
+               * and a connected one hosted on the platform. Absent from a
+               * server that predates it: managed projects publish as jobs,
+               * connected ones by commit.
+               */
+              publishJobs: z.boolean().optional(),
+              publishRefusal: PublishRefusal.optional(),
+              /**
+               * The proposal this server runs at the address of, or absent
+               * on the site. What the Studio's switcher says it is in, and
+               * where its Save goes (valbuild/home `docs/proposals.md`).
+               */
+              proposal: StatProposal.optional(),
+              /**
+               * The branch History lists: the proposal's in a proposal, else
+               * the git mirror's or the one content reports for the project.
+               * Absent where there is no history to show.
+               */
+              historyBranch: z.string().optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -575,12 +840,129 @@ export const Api = {
               baseSha: z.string(),
               schemaSha: z.string(),
               sourcesSha: z.string(),
-              commitSha: z.string(),
+              /**
+               * The commit this deployment was built from.
+               *
+               * Optional: a project whose content service is the store of
+               * record has no repository and no commit baked into its build.
+               * The Studio has always parsed this as optional -- see
+               * `useStatus` -- and shows a branch and a commit only when there
+               * is one.
+               */
+              commitSha: z.string().optional(),
               patches: z.array(PatchId),
+              /**
+               * Of `patches`, the ones that have already SHIPPED.
+               *
+               * A published patch stays in the chain with `appliedAt` set until
+               * the next deployment moves the base, so the id list alone cannot
+               * say which is which — and a client never re-fetches a record it
+               * already holds, so it never finds out on its own. Another
+               * author's publish then left that patch pending in your scope,
+               * your prefix gate read a hole in front of it, and Publish
+               * refused for a reason that had stopped being true.
+               *
+               * Optional: `fs` mode forgets published patches outright, and a
+               * client that ignores this behaves exactly as it did before.
+               */
+              appliedPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that is still running holds.
+               * The Studio does not offer Publish over these. Whole on every
+               * answer: a job that ends without sealing gives them back.
+               */
+              publishingPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that failed on its content
+               * holds back from later publishes, until Try again or Discard.
+               * The Studio does not count these as ready to publish.
+               */
+              heldBackPatches: z.array(PatchId).optional(),
+              /**
+               * The newest commit, which is the PUBLISH head.
+               *
+               * Not `commitSha`: that is the commit this deployment serves and
+               * moves only when a new build lands. This moves the instant
+               * somebody publishes, which is what makes it the thing a client
+               * carries back to `/save` to say which world it decided against.
+               */
+              headCommitSha: z.string().optional(),
+              /**
+               * The head of the PATCH CHAIN: the last patch registered on the
+               * branch, published or not. `null` when there is none. What a
+               * new patch names as its parent — see `chainHeadOf`. Optional: a
+               * content service that predates it sends nothing.
+               */
+              headPatchId: PatchId.nullable().optional(),
+              /**
+               * The version of the chain `headPatchId` was read at, bumped by
+               * every write and delete. `/stat` has more than one caller, so
+               * answers can land out of order; a client keeps the head with the
+               * highest version. Optional, for the same reason `headPatchId` is.
+               */
+              headVersion: z.number().optional(),
               commits: z.array(ValCommit),
+              /**
+               * The publishes the content service knows about.
+               *
+               * Declared, at last. `getStat` has always returned these in
+               * `http` mode and the Studio has always read them - the response
+               * validator strips unknown keys rather than rejecting them, and
+               * the raw json is what the client hands back, so they arrived
+               * while the contract said they could not. That was survivable
+               * until a deployment started carrying a commit MESSAGE: a field
+               * nobody has declared is a field the next person deletes.
+               *
+               * Optional, because a content service that reports no
+               * deployments sends none.
+               */
+              deployments: z.array(ValDeployment).optional(),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
+              /**
+               * How this project's SOURCE is kept, when the server knows.
+               *
+               * `"managed"` -- the content service is the store of record,
+               * there is no repository, and the Studio is the deployer: the
+               * build that makes a publish live happens in the tab that started
+               * it. `"connected"` -- commits are mirrored into a repository a
+               * host watches, so something outside the browser finishes the
+               * job.
+               *
+               * The Studio narrates a publish differently for each, because a
+               * `building` state in managed mode is a spinner with no event
+               * that can ever end it -- not on a reload, not on a retry, not
+               * tomorrow.
+               *
+               * Optional, and absent means "not reported", never "managed":
+               * `fs` mode has no project to have a mode, and so does an `http`
+               * server that predates the field. Both keep the connected story,
+               * which is the one the Studio has always told.
+               */
+              sourceMode: z
+                .union([z.literal("managed"), z.literal("connected")])
+                .optional(),
+              /**
+               * A press of Publish is a publish JOB: every managed project,
+               * and a connected one hosted on the platform. Absent from a
+               * server that predates it: managed projects publish as jobs,
+               * connected ones by commit.
+               */
+              publishJobs: z.boolean().optional(),
+              publishRefusal: PublishRefusal.optional(),
+              /**
+               * The proposal this server runs at the address of, or absent
+               * on the site. What the Studio's switcher says it is in, and
+               * where its Save goes (valbuild/home `docs/proposals.md`).
+               */
+              proposal: StatProposal.optional(),
+              /**
+               * The branch History lists: the proposal's in a proposal, else
+               * the git mirror's or the one content reports for the project.
+               * Absent where there is no history to show.
+               */
+              historyBranch: z.string().optional(),
             }),
           ]),
         }),
@@ -588,6 +970,115 @@ export const Api = {
     },
   },
   // This has a path which is like this: /upload/patches/:patchId/files. Example: /upload/patches/76b9237a-7712-4d60-88b4-d273e6d6fe18/files
+  /**
+   * The content service's publish API, reached through this deployment.
+   *
+   * A managed project is built in the Studio's own tab -- there is no host
+   * watching a repository to pick a commit up -- and what it builds then has to
+   * be published. The browser cannot do that itself: it holds a session cookie
+   * for this origin and no credential content would accept. So the publish
+   * conversation goes through here, exactly as patches already do.
+   *
+   * ## Deliberately not typed past this point
+   *
+   * No `res`, and a body this does not describe. The shapes belong to content,
+   * and they are already written down twice -- once in content's own `Api.ts`
+   * and once in the copy `@valbuild/cli` keeps beside its parser so the two can
+   * be diffed by eye. A third copy here would be a third thing to keep in step,
+   * and this layer has no decision to make that would need one: it authenticates
+   * the caller, swaps the credential, and carries status and body back verbatim.
+   * The Studio parses the answer with the same module the CLI does.
+   *
+   * That means this route answers with statuses the generic result type does not
+   * model -- a 409 when a publish has already gone live, for one. `/save` has
+   * always done the same; the dispatch boundary erases the type and the adapter
+   * sends what it is given.
+   *
+   * ## What it may reach
+   *
+   * The sub-path is content's, minus `/v1`: `/publish`, `/publish/{id}` and its
+   * three steps, and `/build-target`. `ValOpsHttp.publishApi` holds the allow
+   * list, beside the credential, because the browser chooses this path.
+   */
+  "/publish-api": {
+    GET: {
+      req: {
+        path: z.string().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      /*
+       * Content's status and body, carried through.
+       *
+       * Permissive on purpose: describing the shapes here would be the third
+       * copy of a contract content owns, and this layer reads none of them. A
+       * body that is not JSON -- a gateway's HTML error page -- arrives as
+       * `{ message }` rather than throwing, because a publish failing is
+       * something the editor has to be told about in words.
+       */
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    POST: {
+      req: {
+        path: z.string().optional(),
+        /*
+         * Unknown, and passed through unread. Every field content accepts here
+         * would otherwise have to be declared -- and kept in step -- by a layer
+         * that never looks at one.
+         */
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      /*
+       * Content's status and body, carried through.
+       *
+       * Permissive on purpose: describing the shapes here would be the third
+       * copy of a contract content owns, and this layer reads none of them. A
+       * body that is not JSON -- a gateway's HTML error page -- arrives as
+       * `{ message }` rather than throwing, because a publish failing is
+       * something the editor has to be told about in words.
+       */
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
+  /**
+   * The content service's proposals API, reached through this deployment:
+   * list, open, read, rename, close, reopen and retry a setup
+   * (valbuild/home `docs/proposals.md`, Flow B).
+   *
+   * The same arrangement as `/publish-api`, for the same reasons: the browser
+   * holds a session for this origin and no credential content accepts, so
+   * this server checks the session, sends the project's key with the person's
+   * profile id beside it -- a proposal is opened, renamed and closed by
+   * somebody -- and carries content's status and body back unread. The sub-path
+   * is content's, after `/proposals`; `ValOpsHttp.proposalsApi` holds the
+   * allow list. A save is not here: it is `/save`, which a proposal's server
+   * sends to the proposal's own route.
+   */
+  "/proposals-api": {
+    GET: {
+      req: {
+        path: z.string().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    POST: {
+      req: {
+        path: z.string().optional(),
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    PATCH: {
+      req: {
+        path: z.string().optional(),
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
   "/upload/patches": {
     POST: {
       req: {
@@ -611,6 +1102,45 @@ export const Api = {
           json: z.object({
             filePath: z.string(),
             patchId: PatchId,
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * Open a batch of external URLs and report what answered.
+   *
+   * A batch rather than one URL because the client checks a list, and a POST
+   * rather than a GET because the list is the input and does not belong in a
+   * URL or a cache.
+   *
+   * The server makes outbound requests to addresses this body supplies, which
+   * is SSRF by construction - see `linkCheck/addressGuard.ts` for the deny
+   * list that makes it safe, and `docs/plans/external-page-link-checks.md` for
+   * why it is a deny list on the RESOLVED address.
+   */
+  "/external-urls/check": {
+    POST: {
+      req: {
+        body: z.object({
+          /*
+           * Capped, and the cap is the point rather than a formality: each URL
+           * is an outbound connection, and a body is not allowed to ask this
+           * server to open a thousand of them. The client sends ten at a time.
+           */
+          urls: z.array(z.string()).min(1).max(20),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** Keyed by the URL exactly as it was asked about. */
+            results: z.record(z.string(), ExternalUrlProbeResult),
           }),
         }),
       ]),
@@ -654,6 +1184,17 @@ export const Api = {
         query: {
           id: z.array(PatchId).min(1, "At least one patch id is required"),
         },
+        body: z
+          .object({
+            /*
+             * Answer with `{ deleted, headVersion }` rather than the bare id
+             * array. Asked for rather than always sent, because the array is
+             * what a Studio bundle from before this parses — and a tab left
+             * open across a deploy still runs one.
+             */
+            reportHeadVersion: z.literal(true).optional(),
+          })
+          .optional(),
         cookies: {
           val_session: z.string().optional(),
         },
@@ -669,7 +1210,19 @@ export const Api = {
         }),
         z.object({
           status: z.literal(200),
-          json: z.array(PatchId),
+          json: z.union([
+            z.array(PatchId),
+            z.object({
+              deleted: z.array(PatchId),
+              /**
+               * The chain version this delete moved the branch to. Absent when
+               * it moved nothing, or the content service does not version its
+               * chain. Compared with `headVersion` on `/stat`: an answer read
+               * before the delete would put the deleted head back.
+               */
+              headVersion: z.number().optional(),
+            }),
+          ]),
         }),
       ]),
     },
@@ -714,11 +1267,40 @@ export const Api = {
             ),
           }),
         }),
+        /*
+         * Val Build refused the write for the project's plan: the Free week's
+         * changes are used, or a trial is over. Not the 400 above, because the
+         * patches are fine -- they are kept, and saved once the plan allows.
+         * `message` is Val Build's own sentence and `error` the same as data,
+         * so the Studio can put the fix beside it.
+         *
+         * The patches of the batch BEFORE the refused one were saved (the Free
+         * week can run out mid-batch), so this carries what a 200 does about
+         * them: the client marks those saved and keeps the rest.
+         */
+        z.object({
+          status: z.literal(403),
+          json: z.object({
+            type: z.literal("plan-refused"),
+            message: z.string(),
+            error: PlanRefusalError,
+            newPatchIds: z.array(PatchId),
+            parentRef: ParentRef,
+            headVersion: z.number().optional(),
+          }),
+        }),
         z.object({
           status: z.literal(200),
           json: z.object({
             newPatchIds: z.array(PatchId),
             parentRef: ParentRef,
+            /**
+             * The chain version the last of these patches made, comparable with
+             * `headVersion` on `/stat`. A client keeps the highest version, so a
+             * stat read before this write does not put its parent back behind
+             * it. Absent in `fs` mode and from an older content service.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
       ]),
@@ -851,7 +1433,7 @@ export const Api = {
             modules: z.record(
               ModuleFilePath,
               z.object({
-                render: z.any().optional(), // TODO: improve this type
+                preview: z.any().optional(), // TODO: improve this type
                 source: z.any().optional(), //.optional(), // TODO: Json zod type
                 baseSource: z.any().optional(), // pre-patch source for compare view; only set when the server applies patches (apply_patches=true) and the module has pending patches
                 patches: z
@@ -866,6 +1448,196 @@ export const Api = {
                   .optional(),
               }),
             ),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The Studio's full check, one module per request: its sources against its
+   * schema and its local files against their bytes, on the content the caller
+   * is looking at. See `docs/plans/studio-validate.md`.
+   */
+  "/validate": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          /**
+           * The patches the caller is showing, applied over base. Omitted
+           * means every pending patch, as `/sources/~`; empty means base.
+           */
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: ModuleFilePath,
+            errors: z.record(z.string(), z.array(ValidationError)),
+            /** Set when the module's source could not be read at all. */
+            invalidSource: z.string().optional(),
+            /**
+             * Hosts that did not serve this module's remote files: one entry
+             * per host, however many files it holds. Optional so a server
+             * from before remote checks still parses.
+             */
+            remoteHosts: z
+              .array(
+                z.object({
+                  host: z.string(),
+                  status: z.union([
+                    z.literal("missing"),
+                    z.literal("unreachable"),
+                  ]),
+                  details: z.string(),
+                  sourcePaths: z.array(SourcePath),
+                }),
+              )
+              .optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The patch that fixes one error the full check reported. The server finds
+   * the error again rather than trusting the caller's copy, and builds only the
+   * fixes `STUDIO_FIXES` lists. The patch is returned, not applied: the Studio
+   * adds it as a pending change like any edit.
+   */
+  "/validate/fix": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          sourcePath: SourcePath,
+          fix: ValidationFixZ,
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patch: Patch,
+            remainingErrors: z.array(
+              ValidationError.extend({ sourcePath: z.string().optional() }),
+            ),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/publish-job-prepare": {
+    POST: {
+      req: {
+        body: z.object({
+          jobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          tab: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          /** The job's changes, as content handed them to the tab. */
+          patchIds: z.array(PatchId),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(409), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({ status: z.literal(502), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** The job as content has it now: its next step is the build. */
+            job: z
+              .object({
+                id: z.string(),
+                step: z.enum(["prepare", "build", "upload"]).nullable(),
+                base: z.string().nullable(),
+                patches: z.array(z.string()),
+              })
+              .nullable(),
+            /** Every source file of the job's content, by path. `null` is deleted. */
+            sourceFiles: z.record(z.string(), z.string().nullable()),
+            /** The job's own local binary files, base64, by path. */
+            binaryFiles: z.record(z.string(), z.string()),
+            /** Binary files whose bytes could not be read back. */
+            binaryFilesUnread: z.array(z.string()),
+            /** The branch the job publishes to. */
+            branch: z.string().nullable(),
+            /**
+             * Can the tab build the job from `sourceFiles`? False for a
+             * connected deployment that embeds no source: the tab reports
+             * "no build", and CI builds the push. Absent from older servers,
+             * which only answered buildable jobs.
+             */
+            buildable: z.boolean().optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on has it. What Compare with the site diffs the
+   * proposal against -- saved and unsaved alike -- because the Studio's own
+   * base Source there is the proposal's last save. 404 anywhere that is not a
+   * proposal's address. valbuild/home `docs/proposals.md`.
+   */
+  "/proposal-site-sources": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(404),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** By module file path. A module absent here is the same in both. */
+            modules: z.record(z.string(), z.unknown()),
           }),
         }),
       ]),
@@ -904,30 +1676,56 @@ export const Api = {
       ]),
     },
   },
-  "/commit-summary": {
-    GET: {
+  /**
+   * Publish selected (`docs/plans/remove-patch-groups.md`, Phase 4), its first
+   * half, on the site's own server: the changes picked in Review, already
+   * closed into whole patch sets (`selectionClosure`), moved into a proposal
+   * of kind `publish` and saved there -- prepared over the site's head, which
+   * the proposal is based on, so a publish landing in between is refused
+   * rather than reverted. The second half is that proposal's Publish, pressed
+   * as any proposal's is (`publishProposal`); this server answers its checks
+   * and press with what the merge moves, as the proposal's own address would.
+   */
+  "/publish-selected": {
+    POST: {
       req: {
-        query: {
-          patch_id: z.array(PatchId),
-        },
+        body: z.object({
+          /** The changes to publish, whole patch sets, in any order: a move keeps the chain's. */
+          patchIds: z.array(PatchId).min(1),
+          /** What the merged proposal is listed as. */
+          displayName: z.string().min(1).max(200),
+          /** The press's own id: the same press sent again is the same proposal. */
+          requestId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+        }),
         cookies: {
           val_session: z.string().optional(),
         },
       },
       res: z.union([
         unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        /**
+         * Refused: the site moved (`headMoved`: pressing again prepares over
+         * the new head), a change went, or this deployment cannot.
+         */
         z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-          }),
+          status: z.literal(409),
+          json: GenericError.extend({ headMoved: z.literal(true).optional() }),
+        }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        /**
+         * The proposal was made and its changes moved into it, and the save
+         * there failed: they are safe in it, which `proposal` names.
+         */
+        z.object({
+          status: z.literal(502),
+          json: GenericError.extend({ proposal: z.string() }),
         }),
         z.object({
           status: z.literal(200),
           json: z.object({
-            patchIds: z.array(PatchId),
-            baseSha: z.string(),
-            commitSummary: z.string().nullable(),
+            /** The proposal to publish next. */
+            proposal: z.string(),
           }),
         }),
       ]),
@@ -939,6 +1737,22 @@ export const Api = {
         body: z.object({
           message: z.string().optional(),
           patchIds: z.array(PatchId),
+          /*
+           * The newest commit this client knew about when it decided.
+           *
+           * Answered with 409 when the server sees a newer one, because then
+           * somebody else published between the review screen being read and
+           * Save being clicked, and what is about to ship was decided against a
+           * world that no longer exists.
+           *
+           * Git's own not-fast-forward guard does not cover this: `ValServer`
+           * fetches the chain and commits fresh at publish time, so the parent
+           * commit it sends is always the server's current one.
+           *
+           * Optional, so a client that does not track it publishes exactly as
+           * it did before.
+           */
+          expectedHeadCommitSha: z.string().optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -948,14 +1762,137 @@ export const Api = {
         unauthorizedResponse,
         z.object({
           status: z.literal(200),
-          json: z.object({}), // TODO:
+          json: z.object({
+            /**
+             * The commit this publish just made, which becomes the new publish
+             * head.
+             *
+             * Sent back because nothing else tells this client about its own
+             * commit in time. `headCommitSha` moves on a `/stat` response, and
+             * until the next poll lands the client still believes the
+             * PRE-publish head — so a second publish inside that window carried
+             * a stale `expectedHeadCommitSha`, the server compared it against
+             * the commit this same client had just made, and answered 409
+             * "someone else published". With auto-publish, which publishes on
+             * every pause in typing, that window is hit routinely and the
+             * message blames a colleague for the user's own commit.
+             *
+             * Optional: `fs` mode has no publish head, and neither does a
+             * server that predates this.
+             */
+            commitSha: z.string().optional(),
+            /**
+             * The source files this commit wrote, by path, for a MANAGED project.
+             *
+             * A managed project has nobody to deploy it, so the Studio builds
+             * the site in the tab -- and the build has to contain the text this
+             * commit just produced. Nothing else can give it that: the
+             * project's stored source is what the LAST build was made from, and
+             * turning patched Source back into `.val.ts` text happens here, on
+             * the server, not in a browser. `null` is a file the commit
+             * deleted.
+             *
+             * Absent for a connected project, whose host builds from the
+             * repository, and from a server that predates it.
+             */
+            sourceFiles: z.record(z.string(), z.string().nullable()).optional(),
+            /**
+             * The binary files this commit wrote -- an image uploaded in the
+             * Studio -- base64, by path, for a MANAGED project.
+             *
+             * The same reason as `sourceFiles`: the in-tab build publishes the
+             * site, and a file this commit added is in no earlier build. Local
+             * files only; a remote one is served from its own URL and was never
+             * part of a build. A deleted file is a `null` in `sourceFiles`, as
+             * it always was.
+             */
+            binaryFiles: z.record(z.string(), z.string()).optional(),
+            /**
+             * The branch this commit is on, for a MANAGED project -- the
+             * content service's word for it.
+             *
+             * The in-tab build has to name the branch it was made at, and its
+             * only other source is the `val.server.ts` the last build was
+             * wired with: a project cloned from a template seed has one wired
+             * at no commit, so without this its first publish is branchless
+             * and the loader refuses it.
+             */
+            branch: z.string().optional(),
+            /**
+             * Binary files this commit wrote whose bytes the server could not
+             * read back before committing. Named so the Studio refuses to build
+             * a site that would 404 them, rather than publishing it.
+             */
+            binaryFilesUnread: z.array(z.string()).optional(),
+            /**
+             * Unpublished changes the save threw away because they could not be
+             * applied.
+             *
+             * `fs` mode only, and the reason the save is a 200 rather than the
+             * 400 it used to be: with auto-save on, refusing the whole commit
+             * for one bad patch means nothing is ever written again. The rest is
+             * written, these are removed, and the studio drops them locally and
+             * says so.
+             */
+            removed: z
+              .array(
+                z.object({
+                  patchId: PatchId,
+                  moduleFilePath: ModuleFilePath,
+                  message: z.string(),
+                }),
+              )
+              .optional(),
+            /**
+             * The chain version this publish moved the branch to, where the
+             * content service versions its chain and the publish applied
+             * anything. See `headVersion` on `/stat`: a `/stat` answer read
+             * before the publish would put its patches back to pending.
+             */
+            headVersion: z.number().optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
         }),
         z.object({
           status: z.literal(409),
-          json: z.object({
-            message: z.string(),
-            isNotFastForward: z.literal(true),
-          }),
+          json: z.union([
+            /*
+             * This deployment cannot publish this project at all.
+             *
+             * First in the union so it is read before the bare
+             * `{ message }` above it would swallow it. `/stat` carries the
+             * same refusal, so a Studio that is up to date never sends a save
+             * that lands here -- this is for the one that is a poll behind.
+             */
+            z.object({
+              message: z.string(),
+              publishRefusal: PublishRefusal,
+            }),
+            z.object({
+              message: z.string(),
+            }),
+            z.object({
+              message: z.string(),
+              isNotFastForward: z.literal(true),
+            }),
+            /*
+             * Somebody else published between this being decided and Save.
+             *
+             * Its own shape rather than another `isNotFastForward`, because
+             * they happen at different moments and mean different things to the
+             * user: that one is git refusing a commit, this one is refused
+             * BEFORE a commit is attempted, on a head the client named. Nothing
+             * was written either way, but only this one is answered by looking
+             * at the review screen again.
+             */
+            z.object({
+              message: z.string(),
+              headMoved: z.literal(true),
+            }),
+          ]),
         }),
         z.object({
           status: z.literal(400),
@@ -970,6 +1907,23 @@ export const Api = {
                       z.array(GenericError),
                     ),
                     binaryFilePatchErrors: z.record(z.string(), GenericError),
+                    /**
+                     * The patches that could not be applied, keyed by patch id.
+                     *
+                     * Same failures as sourceFilePatchErrors, but attributed to
+                     * the patch that caused them, which is what the studio needs
+                     * in order to name the change and offer to remove it.
+                     * Optional so older servers still parse.
+                     */
+                    unappliablePatches: z
+                      .record(
+                        PatchId,
+                        z.object({
+                          moduleFilePath: ModuleFilePath,
+                          message: z.string(),
+                        }),
+                      )
+                      .optional(),
                   }),
                   z.array(GenericError),
                 ])
@@ -987,6 +1941,200 @@ export const Api = {
       ]),
     },
   },
+  // #region history
+  //
+  // Reading the past. Split across three routes on purpose, because they cache
+  // differently: a reconstructed commit cannot change and is immutable
+  // forever, the comparison against current source changes with every edit, and
+  // a file at a fixed commit is immutable too. Folding them together would mean
+  // the cheapest thing dragging the most expensive one's cache headers down to
+  // no-store.
+  "/history/commits": {
+    GET: {
+      req: {
+        query: {
+          branch: onlyOneStringQueryParam,
+          limit: onlyOneIntQueryParam.optional(),
+          /** The previous page's `nextCursor`. */
+          cursor: onlyOneStringQueryParam.optional(),
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            commits: z.array(HistoricalCommit),
+            nextCursor: z.string().nullable(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * One commit, reconstructed. IMMUTABLE for a given sha - it says nothing
+   * about the current source or schema, which is what lets it be cached
+   * forever and what makes comparing many commits cheap.
+   */
+  "/history/commit": {
+    GET: {
+      req: {
+        query: { commit_sha: onlyOneStringQueryParam },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({ status: z.literal(200), json: HistoricalPatchSet }),
+      ]),
+    },
+  },
+  /**
+   * ONE module, as of a commit — including a commit that did not change it.
+   *
+   * `/history/commit` covers what a commit changed, which is the narrow case:
+   * navigate the history pane to anything else and there would be nothing to
+   * show. This answers "how did this module look at that point", which is the
+   * question someone comparing two panes is actually asking. Immutable for the
+   * same reason: what a commit left behind cannot change.
+   */
+  "/history/module": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          module_file_path: onlyOneStringQueryParam,
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: z.string(),
+            /**
+             * Null when history has no record of this module at or before the
+             * commit — it was last edited before recording started, or never.
+             * Distinct from a module the commit deleted.
+             */
+            module: HistoricalModule.nullable(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * One file as it was at one commit.
+   *
+   * The lazy half: `/history/commit` NAMES a commit's binary files and this is
+   * where their bytes come from, so nothing is fetched until an `<img>`
+   * actually mounts. A file at a fixed commit cannot change, so the response is
+   * immutable and the browser's own cache handles flipping between commits.
+   */
+  /**
+   * One `.jsonValues()` entry's content, as it was at a commit.
+   *
+   * The history pane's counterpart to `/json`. A `.jsonValues()` record's
+   * source is only `{_type:"json"}` markers - the content is per entry, fetched
+   * on demand - so without this the commit pane rendered every entry as an
+   * empty field, which is a claim that the author left it blank.
+   *
+   * One entry per request, deliberately: the store fetches an entry when
+   * something reads inside it, so a batch would mean guessing which entries the
+   * pane is about to show. Authenticated for the same reasons as
+   * `/history/files` below.
+   */
+  "/history/json": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          path: onlyOneStringQueryParam,
+          key: onlyOneStringQueryParam,
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            key: z.string(),
+            content: z.unknown(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * A binary file as it was at a commit.
+   *
+   * AUTHENTICATED, unlike `/files` below - and the difference is not an
+   * oversight in either direction. See the comment on `/files`: what makes it
+   * safe to leave open is that a `patch_id` is an unguessable UUID, and what
+   * makes leaving it open NECESSARY is that a draft image is fetched by the
+   * app's own backend during Next image optimisation, with no cookies.
+   *
+   * Neither holds here. A commit sha is published - `git log`, the GitHub UI,
+   * every PR - so it is not a secret to stand in for a credential. And nothing
+   * fetches these server-side: they are read by the Studio, in a browser that
+   * has the session cookie, for the history pane and for staging a restore.
+   * So this one asks.
+   */
+  "/history/files": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          path: onlyOneStringQueryParam,
+          remote: onlyOneStringQueryParam.optional(),
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          body: z.instanceof(ReadableStream),
+        }),
+      ]),
+    },
+  },
+  // #endregion history
   "/files": {
     GET: {
       req: {
@@ -999,6 +2147,10 @@ export const Api = {
             .optional(),
           remote: onlyOneStringQueryParam.optional(),
         },
+        // A `<video>` seeks with byte ranges, Safari will not play one from a
+        // server that ignores them, and HLS segments that are byte ranges of
+        // one file are fetched no other way.
+        headers: { range: z.string().optional() },
       },
       res: z.union([
         unauthorizedResponse,
@@ -1006,6 +2158,100 @@ export const Api = {
         z.object({
           status: z.literal(200),
           body: z.instanceof(ReadableStream),
+        }),
+        z.object({
+          status: z.literal(206),
+          body: z.instanceof(ReadableStream),
+        }),
+        z.object({ status: z.literal(416), json: GenericError }),
+      ]),
+    },
+  },
+  // Loads the content of `.jsonValues()` record/router entries, so the Studio can
+  // lazily load just the entries it needs (instead of the whole record), and so
+  // the runtime can read draft edits in draft mode.
+  //
+  // Three request shapes, exactly one of which must be used:
+  //   1. `key=<k>`                 — ONE entry; responds `{path, key, content}`.
+  //   2. `keys=<k>&keys=<k2>&…`    — a BATCH; responds `{path, entries, missing, errors}`.
+  //   3. `offset=<n>&limit=<n>`    — a PAGE of every entry, in module key order;
+  //                                  responds as (2) plus `{offset, limit, total}`.
+  // (2) and (3) are what make loading many entries one round trip instead of N:
+  // the server resolves sources and pending patches ONCE per request, not per entry.
+  //
+  // Batch failures are per entry, never whole-request: a key with no entry lands in
+  // `missing`, a key whose `*.val.json` fails to load lands in `errors`. Only a
+  // missing/non-record MODULE is a 404.
+  //
+  // `apply_patches` defaults to TRUE (as on `/sources/~`): the server replays
+  // pending patches for the entry. The Studio passes `false` explicitly, because
+  // it owns in-flight client patches the server has not seen yet and applies
+  // them itself — letting the server apply them too would double-apply.
+  //
+  // Shape (3) REQUIRES `apply_patches=false`. Enumerating "every entry" from the
+  // base source would silently omit draft-added keys, and the only all-mode caller
+  // (the Studio) derives its key set from its own patched source anyway. Callers
+  // that need draft-aware enumeration pass explicit `keys`.
+  "/json": {
+    GET: {
+      req: {
+        query: {
+          path: onlyOneStringQueryParam,
+          key: onlyOneStringQueryParam.optional(),
+          keys: z.array(z.string()).max(JSON_ENTRIES_BATCH_MAX).optional(),
+          offset: onlyOneIntQueryParam.optional(),
+          limit: onlyOneIntQueryParam
+            .refine(
+              (arg) => arg > 0 && arg <= JSON_ENTRIES_BATCH_MAX,
+              `limit must be between 1 and ${JSON_ENTRIES_BATCH_MAX}`,
+            )
+            .optional(),
+          apply_patches: onlyOneBooleanQueryParam.optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        // Shape (1): single `key`.
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            key: z.string(),
+            // The entry's JSON content (or null if the entry has no value).
+            content: z.any(),
+          }),
+        }),
+        // Shapes (2) and (3): `keys` or `offset`+`limit`.
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            entries: z.array(
+              z.object({
+                key: z.string(),
+                // The entry's JSON content (or null if the entry has no value).
+                content: z.any(),
+              }),
+            ),
+            // Requested keys that have no entry (neither committed nor drafted).
+            missing: z.array(z.string()),
+            // Requested keys whose content could not be loaded.
+            errors: z.array(z.object({ key: z.string(), message: z.string() })),
+            // All-mode only: the resolved window and the record's total key count.
+            offset: z.number().optional(),
+            limit: z.number().optional(),
+            total: z.number().optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
         }),
       ]),
     },
@@ -1022,6 +2268,45 @@ export const Api = {
           json: z.object({
             nonce: z.string(),
             wsUrl: z.string(),
+            /**
+             * The AI providers this project can actually reach.
+             *
+             * AI runs on a key the org or the user brought, so an org with only
+             * an Anthropic key cannot use a GPT model — asking for one gets a
+             * refusal. The client owns the model catalog and picks a model whose
+             * provider is in here.
+             *
+             * `string[]` and not an enum on purpose: the content server may add
+             * a provider before the Studio knows of it, and a strict enum would
+             * reject the whole response over a name this version has not heard
+             * of. Unknown entries are simply ignored.
+             */
+            providers: z.array(z.string()).optional(),
+            /**
+             * The models those keys can actually use, as the providers report
+             * them.
+             *
+             * Which models *exist* is something only the provider knows: it
+             * depends on the account, its tier, and what has shipped since this
+             * Studio was built. So the server asks and passes the answer on,
+             * and the picker offers exactly this.
+             *
+             * Optional and loosely typed for the same reason as `providers`: a
+             * content server that does not report them, or reports a provider
+             * this version has not heard of, must not invalidate the whole
+             * response. Absent or empty means fall back to the built-in
+             * catalog.
+             */
+            models: z
+              .array(
+                z.object({
+                  provider: z.string(),
+                  model: z.string(),
+                  label: z.string(),
+                  contextWindow: z.number().nullable().optional(),
+                }),
+              )
+              .optional(),
           }),
         }),
         z.object({
@@ -1221,6 +2506,50 @@ export const Api = {
       ]),
     },
   },
+  /*
+   * Val Build, on the editor's behalf, for the web components the Studio
+   * mounts from admin.val.build (`<val-project-switcher>` and the ones after
+   * it). `/admin/proxy/projects/overview?current=…` is
+   * `{valBuildUrl}/api/studio/v1/projects/overview?current=…`, with the
+   * editor's token from the session cookie: the component cannot send that
+   * token itself, because it is in an httpOnly cookie only this server reads.
+   *
+   * A pipe, deliberately: the path, the query and the JSON body go through as
+   * they are, so a new component or endpoint on Val Build needs no Val
+   * release. What it does NOT pass through is anything that would let it be
+   * aimed elsewhere — see `adminProxy.ts`.
+   */
+  /*
+   * Whether this Studio has a Val Build credential for the editor: a session,
+   * or in local development a `val login`. The Studio asks before it loads a
+   * web component, so a developer who never logged in sees the plain project
+   * name rather than a component explaining that they are not logged in.
+   */
+  "/admin/status": {
+    GET: {
+      req: {
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.object({
+        status: z.literal(200),
+        json: z.object({
+          connected: z.boolean(),
+          /**
+           * `val-login` on a developer's own checkout, `studio` anywhere the
+           * Studio's sign-in is the way in. Optional: an older server does
+           * not send it.
+           */
+          signIn: z.enum(["val-login", "studio"]).optional(),
+        }),
+      }),
+    },
+  },
+  "/admin/proxy": {
+    GET: adminProxyEndpoint(),
+    POST: adminProxyEndpoint(),
+    PUT: adminProxyEndpoint(),
+    DELETE: adminProxyEndpoint(),
+  },
 } satisfies ApiGuard;
 
 // Types and helper types:
@@ -1252,7 +2581,14 @@ type DefinedObject<T> = Pick<T, DefinedKeys<T>>;
  *
  * Do not change this without updating the ValRouter query parsing logic
  * */
-export type ValidQueryParamTypes = boolean | string | string[] | undefined;
+// `number` is allowed because the client stringifies every query value before it
+// goes on the URL (see createValClient), so a numeric param round-trips fine.
+export type ValidQueryParamTypes =
+  | boolean
+  | number
+  | string
+  | string[]
+  | undefined;
 export type ApiEndpoint = {
   req: {
     path?: z.ZodString | z.ZodOptional<z.ZodString>;
@@ -1262,6 +2598,16 @@ export type ApiEndpoint = {
       z.ZodSchema<ValidQueryParamTypes, string[] | undefined>
     >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
+    /**
+     * Request headers, by lower-case name, parsed the way `cookies` are.
+     * Absent ones are `undefined`.
+     */
+    headers?: Record<string, z.ZodSchema<string | undefined>>;
+    /**
+     * The query string exactly as sent (`?a=1&b=2`, or `""`), for a route that
+     * forwards it rather than reading it. `query` is for routes that read it.
+     */
+    rawQuery?: z.ZodString;
   };
   res: z.ZodSchema<
     | {
@@ -1323,6 +2669,19 @@ export type ServerOf<Api extends ApiGuard> = {
                   >;
                 }
               : undefined;
+            headers: Api[Route][Method]["req"]["headers"] extends Record<
+              string,
+              z.ZodSchema<string | undefined>
+            >
+              ? {
+                  [key in keyof Api[Route][Method]["req"]["headers"]]: z.infer<
+                    Api[Route][Method]["req"]["headers"][key]
+                  >;
+                }
+              : undefined;
+            rawQuery: Api[Route][Method]["req"]["rawQuery"] extends z.ZodString
+              ? string
+              : undefined;
           }>,
         ) => Promise<z.infer<Api[Route][Method]["res"]>>
       : never;
@@ -1353,6 +2712,18 @@ export type ClientOf<Api extends ApiGuard> = <
       ? {
           [key in keyof Endpoint["req"]["query"]]: z.infer<
             Endpoint["req"]["query"][key]
+          >;
+        }
+      : undefined;
+    // Sent as request headers: what a route declares it reads, such as the
+    // admin proxy's `x-val-studio`.
+    headers: Endpoint["req"]["headers"] extends Record<
+      string,
+      z.ZodSchema<string | undefined>
+    >
+      ? {
+          [key in keyof Endpoint["req"]["headers"]]: z.infer<
+            Endpoint["req"]["headers"][key]
           >;
         }
       : undefined;

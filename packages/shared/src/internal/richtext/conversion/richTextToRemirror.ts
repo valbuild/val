@@ -8,7 +8,6 @@ import {
   UnorderedListNode,
   OrderedListNode,
   ListItemNode,
-  VAL_EXTENSION,
   RichTextSource,
   Internal,
 } from "@valbuild/core";
@@ -226,27 +225,17 @@ function convertLinkNodeToRemirror(
 function convertImageNodeToRemirror(
   imageNode: ImageNode<AllRichTextOptions>,
 ): RemirrorImage {
-  const fileSource = imageNode.src;
-  if (
-    !(VAL_EXTENSION in fileSource) ||
-    (fileSource[VAL_EXTENSION] !== "file" &&
-      fileSource[VAL_EXTENSION] !== "remote")
-  ) {
-    throw Error("Expected file source in image node");
-  }
-  let fileVal: { url: string };
-  if (fileSource[VAL_EXTENSION] === "remote") {
-    fileVal = Internal.convertRemoteSource(fileSource);
-  } else {
-    fileVal = Internal.convertFileSource(fileSource);
+  const imageSource = imageNode.src;
+  if (typeof imageSource?.path !== "string") {
+    throw Error("Expected image source in image node");
   }
   return {
     type: "image",
     attrs: {
-      height: fileSource.metadata?.height,
-      width: fileSource.metadata?.width,
-      alt: fileSource.metadata?.alt,
-      src: fileVal.url,
+      height: imageSource.height,
+      width: imageSource.width,
+      alt: imageSource.alt,
+      src: Internal.mediaUrl(imageSource),
     },
   };
 }

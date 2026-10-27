@@ -11,6 +11,7 @@ import {
   type ValModule,
   Internal,
   ValRouter,
+  ExternalPageRouter,
 } from "@valbuild/core";
 import type { ReactNode } from "react";
 import type { inferSchema } from "./ValTypes";
@@ -43,15 +44,14 @@ type NextContentConstructor = Omit<ContentConstructor, "component"> & {
    *
    * @example
    * // app/sections/hero.val.tsx
-   * export const schema = s.object({ title: s.string() });
+   * const schema = s.object({ title: s.string() });
    *
-   * function Hero({ title }: t.inferSchema<typeof schema>) {
-   *   return <h1>{title}</h1>;
-   * }
-   *
-   * export default c.component("/app/sections/hero.val.tsx", Hero, schema, {
-   *   title: "Example title",
-   * });
+   * export default c.component(
+   *   "/app/sections/hero.val.tsx",
+   *   ({ title }) => <h1>{title}</h1>,
+   *   schema,
+   *   { title: "Example title" },
+   * );
    */
   component: <T extends Schema<SelectorSource>>(
     id: string,
@@ -62,7 +62,7 @@ type NextContentConstructor = Omit<ContentConstructor, "component"> & {
 };
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
-const externalPageRouter: ValRouter = Internal.externalPageRouter;
+const externalPageRouter: ExternalPageRouter = Internal.externalPageRouter;
 
 /**
  * Returns true if the Val Enable cookie is set. Must be called in a
@@ -92,6 +92,16 @@ async function isValEnabled(): Promise<boolean> {
 export const initVal = (
   config?: ValConfig,
 ): Omit<InitVal, "c"> & {
+  /**
+   * The content constructor: `c.define` for a module, `c.json` and
+   * `c.external` for entries that live outside it.
+   *
+   * @example
+   * const schema = s.object({ title: s.string() });
+   * export default c.define("/content/page.val.ts", schema, {
+   *   title: "Hello",
+   * });
+   */
   c: NextContentConstructor;
   /**
    * Returns true if the Val Enable cookie is set. Must be called in a
@@ -103,6 +113,10 @@ export const initVal = (
    * cache for every route it covers, for all visitors. It is NOT needed for
    * the `suspend` prop on ValProvider (which detects the cookie client-side)
    * — reserve it for advanced server-side conditionals.
+   *
+   * @example
+   * // In a Server Component, a Server Action or a Route Handler:
+   * const enabled = await isValEnabled();
    */
   isValEnabled: typeof isValEnabled;
   val: ValConstructor & {
@@ -117,10 +131,22 @@ export const initVal = (
      *
      * This method is primarily intended for tooling and other advanced use cases
      * outside of the actual application.
+     *
+     * @example
+     * import pageVal from "./page.val";
+     * const page = val.unstable_getUnpatchedUnencodedVal(pageVal);
      */
     unstable_getUnpatchedUnencodedVal: typeof getUnpatchedUnencodedVal;
     /**
      * Convert any object that is encoded with Val stega encoding back to the original values
+     *
+     * Use it wherever an encoded string would break something: a `key`, a
+     * comparison, a URL, anything sent to an API.
+     *
+     * @example
+     * import pageVal from "./page.val";
+     * const page = useVal(pageVal);
+     * const slug = val.raw(page.slug);
      */
     raw: typeof raw;
     /**
@@ -129,12 +155,30 @@ export const initVal = (
      * This is typically used to manually set the data-val-path attribute for visual editing on any element.
      *
      * @example
-     * const page = useVal(pageVal)
-     * <a href={page.url.href} {...val.attrs(page)}>
-     *   {page.url.label}
-     * </a>
+     * import pageVal from "./page.val";
+     * function PageLink() {
+     *   const page = useVal(pageVal);
+     *   return (
+     *     <a href={page.url.href} {...val.attrs(page)}>
+     *       {page.url.label}
+     *     </a>
+     *   );
+     * }
      */
     attrs: typeof attrs;
+    /**
+     * The Val paths encoded into a single stega encoded string, or `undefined`
+     * when there are none.
+     *
+     * `val.attrs` is what an element usually wants; this is the lower-level
+     * read, for when you need the paths themselves. Unstable: the shape of a
+     * path is not part of the public API yet.
+     *
+     * @example
+     * import pageVal from "./page.val";
+     * const page = useVal(pageVal);
+     * const paths = val.unstable_decodeValPathsOfString(page.title);
+     */
     unstable_decodeValPathsOfString: typeof decodeValPathsOfString;
   };
   /**
@@ -150,7 +194,27 @@ export const initVal = (
    * });
    */
   nextAppRouter: ValRouter;
-  externalPageRouter: ValRouter;
+  /**
+   * A router for pages that are NOT in this application: the keys of the record
+   * are whole URLs, not route paths of your site.
+   *
+   * It is what `s.route()` links to when the destination is somewhere else -
+   * a campaign site, a docs host, a social profile.
+   *
+   * By default a key may use any scheme except the handful that are not links
+   * at all (`javascript:`, `data:`), so `mailto:` and `tel:` are ordinary
+   * keys. Call it - `externalPageRouter({ schemes: ["https", "mailto"] })` -
+   * to narrow that.
+   *
+   * @example
+   * const links = s.record(s.object({ title: s.string() }));
+   * export default c.define(
+   *   "/content/external.val.ts",
+   *   links.router(externalPageRouter),
+   *   { "https://val.build": { title: "Val" } },
+   * );
+   */
+  externalPageRouter: ExternalPageRouter;
 } => {
   const { s, c, val, config: systemConfig } = createValSystem(config);
   const currentConfig = {

@@ -5,5 +5,5 @@ const schema = s.object({
 });
 
 export default c.define("/src/pages/metadata-tests", schema, {
-  image: c.file("/public/managed/images/smallest.png"),
+  image: { path: "/public/managed/images/smallest.png" },
 });

@@ -1,6 +1,9 @@
 import {
   resolvePath as resolveAtPath,
+  safeResolvePath as safeResolveAtPath,
+  define,
   getSourceAtPath,
+  isValModule,
   splitModulePath,
   splitModuleFilePathAndModulePath,
   parentOfSourcePath,
@@ -8,14 +11,21 @@ import {
 } from "./module";
 import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
-import { number } from "./schema/number";
-import { object } from "./schema/object";
+import { number, NumberSchema } from "./schema/number";
+import { object, ObjectSchema } from "./schema/object";
+import { settings } from "./schema/settings";
 import { string, StringSchema } from "./schema/string";
-import { union } from "./schema/union";
+import { discriminatedUnion } from "./schema/discriminatedUnion";
 import { GetSource } from "./selector";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModulePath, SourcePath } from "./val";
 import { literal } from "./schema/literal";
+import { richtext } from "./schema/richtext";
+import { route, RouteSchema } from "./schema/route";
+import { image, ImageSchema } from "./schema/image";
+import { record } from "./schema/record";
+import { boolean, BooleanSchema } from "./schema/boolean";
+import { locale } from "./schema/locale";
 
 // import { i18n as initI18nSchema } from "./schema/i18n";
 // import { i18n as initI18nSource } from "./source/i18n";
@@ -149,10 +159,10 @@ describe("module", () => {
   //   expect(res.source).toStrictEqual("brun");
   // });
 
-  test("getSchemaAtPath: union", () => {
+  test("getSchemaAtPath: discriminated union", () => {
     const basicSchema = array(
       object({
-        foo: union(
+        foo: discriminatedUnion(
           "type",
           object({ type: literal("test1"), bar: object({ zoo: string() }) }),
           object({ type: literal("test2"), bar: object({ zoo: number() }) }),
@@ -175,6 +185,85 @@ describe("module", () => {
     expect(res.source).toStrictEqual(1);
   });
 
+  // `""` is a legal `s.literal`, so it is a legal tag. Resolving used to test
+  // the tag for truthiness and reported the variant as a missing key.
+  test("getSchemaAtPath: a discriminated union tagged with an empty string", () => {
+    const schema = discriminatedUnion(
+      "type",
+      object({ type: literal(""), bar: string() }),
+      object({ type: literal("named"), bar: number() }),
+    );
+    const res = resolveAtPath(
+      '"bar"' as ModulePath,
+      { type: "", bar: "hi" } as SelectorOfSchema<typeof schema>,
+      schema["executeSerialize"](),
+    );
+    expect(res.schema).toStrictEqual(string()["executeSerialize"]());
+    expect(res.source).toStrictEqual("hi");
+  });
+
+  test("safeResolvePath: a discriminated union tagged with an empty string", () => {
+    const schema = discriminatedUnion(
+      "type",
+      object({ type: literal(""), bar: string() }),
+      object({ type: literal("named"), bar: number() }),
+    );
+    const res = safeResolveAtPath(
+      '"bar"' as ModulePath,
+      { type: "", bar: "hi" } as SelectorOfSchema<typeof schema>,
+      schema["executeSerialize"](),
+    );
+    expect(res.status).toStrictEqual("ok");
+  });
+
+  test("safeResolvePath: a discriminated union with the tag absent is still an error", () => {
+    const schema = discriminatedUnion(
+      "type",
+      object({ type: literal("named"), bar: string() }),
+    );
+    const res = safeResolveAtPath(
+      '"bar"' as ModulePath,
+      { bar: "hi" } as unknown as SelectorOfSchema<typeof schema>,
+      schema["executeSerialize"](),
+    );
+    expect(res.status).toStrictEqual("error");
+  });
+
+  // `typeof null === "object"`, so a path under a nullable union holding null
+  // used to index into null and throw a TypeError.
+  test("resolvePath: descending into a null nullable union errors, not throws", () => {
+    const schema = object({
+      cta: discriminatedUnion(
+        "type",
+        object({ type: literal("a"), v: string() }),
+      ).nullable(),
+    });
+    expect(() =>
+      resolveAtPath(
+        '"cta"."v"' as ModulePath,
+        { cta: null } as SelectorOfSchema<typeof schema>,
+        schema,
+      ),
+    ).toThrow(
+      /expected discriminated union source to be an object, but got null/,
+    );
+  });
+
+  test("safeResolvePath: the same case returns a structured error", () => {
+    const schema = object({
+      cta: discriminatedUnion(
+        "type",
+        object({ type: literal("a"), v: string() }),
+      ).nullable(),
+    });
+    const res = safeResolveAtPath(
+      '"cta"."v"' as ModulePath,
+      { cta: null } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(res.status).toStrictEqual("error");
+  });
+
   test("parentOfSourcePath", () => {
     const base = '/content/test?p="one".2."three"' as SourcePath;
     expect(parentOfSourcePath(base)).toStrictEqual('/content/test?p="one".2');
@@ -189,5 +278,241 @@ describe("module", () => {
         parentOfSourcePath(parentOfSourcePath(parentOfSourcePath(base))),
       ),
     ).toStrictEqual("/content/test");
+  });
+
+  /**
+   * Richtext content has no schema of its own per node, so resolving a path
+   * INTO it walks out to the richtext field and reads the option that governs
+   * that node: `a` for an anchor's href, `img` for an image's src. Both are
+   * reached through `instanceof RichTextSchema`, which narrows the options to
+   * `any` - so nothing here is checked by tsc, and a rename that misses one of
+   * these branches silently hands back the richtext schema instead.
+   */
+  test("resolvePath: an anchor href resolves to the schema its `a` option carries", () => {
+    const schema = object({
+      body: richtext({ a: route() }),
+    });
+    const { schema: resolved } = resolveAtPath(
+      '"body".0."children".0."href"' as ModulePath,
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "a", href: "/blogs/one", children: ["One"] }],
+          },
+        ],
+      } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(RouteSchema);
+  });
+
+  test("resolvePath: an image src resolves to the schema its `img` option carries", () => {
+    const schema = object({
+      body: richtext({ img: image() }),
+    });
+    const { schema: resolved } = resolveAtPath(
+      '"body".0."children".0."src"' as ModulePath,
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "img", src: { path: "/public/val/one.png" } }],
+          },
+        ],
+      } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(ImageSchema);
+  });
+
+  test("resolvePath: into a settings section", () => {
+    const schema = settings();
+    const { schema: resolved, source } = resolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      { assistant: { tone: "Plain and direct." } },
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(StringSchema);
+    expect(source).toBe("Plain and direct.");
+  });
+
+  test("resolvePath: an UNSET settings key resolves rather than throwing", () => {
+    // The difference between settings and an object: an object refuses a path
+    // whose key is missing, and every settings key is optional, so refusing
+    // would make `{}` — the normal state of a fresh settings module —
+    // unresolvable at every path inside it.
+    const schema = settings();
+    const { schema: resolved, source } = resolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      {},
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(StringSchema);
+    expect(source).toBe(undefined);
+  });
+
+  test("safeResolvePath: an UNSET settings key resolves rather than erroring", () => {
+    /**
+     * The Studio's own resolver, and the one that matters here: every field
+     * reads its schema through `useSchemaAtPathInternal`, which calls this. An
+     * empty `{}` settings module — the normal state of a fresh one — has no
+     * `assistant` section, so both parts of this path arrive with an undefined
+     * source. Erroring on that took the panel's fields and the publish diff's
+     * "before" side with it.
+     */
+    const schema = settings();
+    const res = safeResolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      {},
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(undefined);
+    }
+  });
+
+  describe("resolvePath: a record entry that is present but FALSY", () => {
+    /**
+     * The key exists. Its value happens to be falsy. Those are different
+     * facts, and the record branch used to test the value — so `""`, `0`,
+     * `false` and `null` all reported as keys the record does not have, in
+     * every record, whether or not any of this has to do with locales.
+     */
+    test("an empty string is an entry", () => {
+      const schema = record(string(), string());
+      const { schema: resolved, source } = resolveAtPath(
+        '"empty"' as ModulePath,
+        { empty: "" },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(StringSchema);
+      expect(source).toBe("");
+    });
+
+    test("zero is an entry", () => {
+      const schema = record(string(), number());
+      const { schema: resolved, source } = resolveAtPath(
+        '"zero"' as ModulePath,
+        { zero: 0 },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(NumberSchema);
+      expect(source).toBe(0);
+    });
+
+    test("false is an entry", () => {
+      const schema = record(string(), boolean());
+      const { schema: resolved, source } = resolveAtPath(
+        '"off"' as ModulePath,
+        { off: false },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(BooleanSchema);
+      expect(source).toBe(false);
+    });
+
+    test("null is an entry — the declared key nobody has written yet", () => {
+      const schema = record(locale(), object({ title: string() }));
+      const { schema: resolved, source } = resolveAtPath(
+        '"nb-NO"' as ModulePath,
+        { "en-US": { title: "Jacket" }, "nb-NO": null },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(ObjectSchema);
+      expect(source).toBe(null);
+    });
+
+    test("a path THROUGH a null entry resolves the schema, with a null source", () => {
+      // What the Studio asks when someone navigates into an unwritten entry:
+      // it wants the field's schema in order to say that nothing is written
+      // there. `null` propagates down, exactly as it does through an object.
+      const schema = record(locale(), object({ title: string() }));
+      const { schema: resolved, source } = resolveAtPath(
+        '"nb-NO"."title"' as ModulePath,
+        { "en-US": { title: "Jacket" }, "nb-NO": null },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(StringSchema);
+      expect(source).toBe(null);
+    });
+
+    test("an INHERITED name is not an entry", () => {
+      // `in` walks the prototype chain, so a presence check written with it
+      // resolves `"toString"` on every record in the project and hands back
+      // `Object.prototype.toString` as Source.
+      const schema = record(string(), string());
+      expect(() =>
+        resolveAtPath('"toString"' as ModulePath, { real: "x" }, schema),
+      ).toThrow(/did not have key toString/);
+      expect(() =>
+        resolveAtPath('"__proto__"' as ModulePath, { real: "x" }, schema),
+      ).toThrow(/did not have key __proto__/);
+    });
+
+    test("a key that is genuinely absent still throws", () => {
+      const schema = record(string(), string());
+      expect(() =>
+        resolveAtPath('"missing"' as ModulePath, { present: "" }, schema),
+      ).toThrow(/did not have key missing/);
+    });
+  });
+
+  test("safeResolvePath: a null record entry resolves rather than throwing", () => {
+    // `safeResolvePath` may not throw — that is the whole of the name — and
+    // indexing a `null` record source did.
+    const schema = record(locale(), object({ title: string() }));
+    const res = safeResolveAtPath(
+      '"nb-NO"."title"' as ModulePath,
+      { "en-US": { title: "Jacket" }, "nb-NO": null },
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(null);
+    }
+  });
+
+  test("safeResolvePath: an INHERITED name is not an entry either", () => {
+    // The same hole, reached the other way: `resolvedSource[part] !== undefined`
+    // is true for every name on `Object.prototype`.
+    const schema = record(string(), string());
+    const res = safeResolveAtPath(
+      '"toString"' as ModulePath,
+      { real: "x" },
+      schema,
+    );
+    expect(res.status).toBe("source-undefined");
+  });
+
+  test("safeResolvePath: a record that is itself null resolves as null", () => {
+    const schema = object({ items: record(string(), string()).nullable() });
+    const res = safeResolveAtPath(
+      '"items"."a"' as ModulePath,
+      { items: null },
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(null);
+    }
+  });
+
+  test("isValModule tells a module apart from what else a .val.ts might export", () => {
+    const schema = object({ text: string() });
+    expect(
+      isValModule(define("/content/test.val.ts", schema, { text: "hi" })),
+    ).toBe(true);
+    // A bare schema is the mistake this is here to catch: `export default
+    // s.image()` in a file named `*.val.ts`.
+    expect(isValModule(schema)).toBe(false);
+    expect(isValModule({ text: "hi" })).toBe(false);
+    expect(isValModule(null)).toBe(false);
+    expect(isValModule(undefined)).toBe(false);
+    expect(isValModule("/content/test.val.ts")).toBe(false);
   });
 });

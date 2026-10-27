@@ -36,14 +36,10 @@ export interface EditorImageNode {
   src:
     | string
     | {
-        readonly _ref: string;
-        readonly _type: "file";
-        readonly _tag?: "image";
-        readonly metadata?: {
-          readonly width?: number;
-          readonly height?: number;
-          readonly mimeType?: string;
-        };
+        readonly path: string;
+        readonly width?: number;
+        readonly height?: number;
+        readonly mimeType?: string;
       };
   alt?: string;
 }

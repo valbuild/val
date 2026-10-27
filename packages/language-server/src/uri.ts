@@ -18,8 +18,19 @@ const FILE_URI_RE = /^file:\/\/([^/?#]*)([^?#]*)/i;
 /** A `/c:/...` prefix, i.e. a Windows drive letter as it appears in a URI. */
 const URI_DRIVE_LETTER_RE = /^\/([a-zA-Z]:)(\/|$)/;
 
+/**
+ * Matches the `*.val.json` files that hold `.jsonValues()` entry content. Not a
+ * Val module: nothing validates one on its own, but editing it changes what a
+ * module validates to, so the server has to notice.
+ */
+const VAL_JSON_ENTRY_RE = /\.val\.json$/;
+
 export function isValModuleUri(uri: string): boolean {
   return VAL_MODULE_RE.test(uri);
+}
+
+export function isValJsonEntryUri(uri: string): boolean {
+  return VAL_JSON_ENTRY_RE.test(uri);
 }
 
 /**

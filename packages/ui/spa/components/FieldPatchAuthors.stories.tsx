@@ -5,6 +5,7 @@ import {
   PatchAuthorsSummary,
 } from "./FieldPatchAuthors";
 import { PendingPatch, Profile } from "./ValProvider";
+import { placeholderAvatar } from "./stories/placeholderAssets";
 
 const now = new Date("2025-03-24T12:00:00Z");
 
@@ -30,7 +31,7 @@ const basePatches = (authorId: string): PendingPatch[] => [
 const alice: Profile = { fullName: "Alice Andersen", avatar: null };
 const bob: Profile = {
   fullName: "Bob Berntsen",
-  avatar: { url: "https://i.pravatar.cc/48?u=bob" },
+  avatar: { url: placeholderAvatar("bob", 48) },
 };
 const carol: Profile = { fullName: "Carol Christensen", avatar: null };
 const dave: Profile = { fullName: "Dave Dahl", avatar: null };

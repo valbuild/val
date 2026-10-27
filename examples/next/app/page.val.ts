@@ -1,6 +1,6 @@
 import { s, c, type t, nextAppRouter } from "../val.config";
 import authorsVal from "../content/authors.val";
-import image from "../schema/image.val";
+import { defaultImage } from "../schema/image.val";
 
 export const schema = s.object({
   /**
@@ -22,6 +22,16 @@ export const schema = s.object({
    * Reference to other content:
    */
   author: s.keyOf(authorsVal),
+  /**
+   * A pointer at the authors module, rather than a copy of it.
+   *
+   * `s.keyOf` above picks ONE author; the editor who wants to fix a name has to
+   * go and find `/content/authors.val.ts` for themselves. This puts a row on
+   * this page's screen that leads straight there — and, because the page now
+   * declares which module it shows, `page.tsx` reads the list through
+   * `fetchVal(page.authors)` instead of importing the module a second time.
+   */
+  authors: s.view(authorsVal),
   link: s.route(),
   /**
    * Rich Text that is optional:
@@ -30,18 +40,12 @@ export const schema = s.object({
     .richtext({
       // enables all features
       // styling:
-      style: {
-        bold: true, // enables bold, ...
-        italic: true,
-        lineThrough: true,
-      },
-      block: {
-        h2: true, // enables h2 blocks, ...
-        ul: true,
-      },
-      inline: {
-        a: true,
-      },
+      bold: true, // enables bold, ...
+      italic: true,
+      lineThrough: true,
+      h2: true, // enables h2 blocks, ...
+      ul: true,
+      a: true,
     })
     .nullable(),
   video: s.object({
@@ -53,24 +57,23 @@ export const schema = s.object({
 });
 
 export type Content = t.inferSchema<typeof schema>;
-export type Image = t.inferSchema<typeof image>;
+export type Image = t.inferSchema<typeof defaultImage>;
 export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
   "/": {
     video: {
       text: "Val is more than just basics - here's a video for example",
-      file: c.file("/public/val/file_example.webm", {
-        mimeType: "video/webm",
-      }),
+      file: { path: "/public/val/file_example.webm", mimeType: "video/webm" },
     },
     link: "/blogs/blog1",
     hero: {
       title: "Content as code",
-      image: c.image("/public/val/logo_7adc7.png", {
+      image: {
+        path: "/public/val/logo_7adc7.png",
         width: 944,
         height: 944,
         mimeType: "image/png",
         alt: "Val logo",
-      }),
+      },
       link: {
         text: "Example blog article",
         href: "/blogs/blog1",
@@ -78,6 +81,7 @@ export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
     },
     tags: ["CMS", "react", "github", "NextJS"],
     author: "freekh",
+    authors: { view: "/content/authors.val.ts" },
     text: [
       {
         tag: "p",

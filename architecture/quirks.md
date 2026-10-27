@@ -1,0 +1,1469 @@
+# Quirks
+
+Things that are true, surprising, and have each cost someone an afternoon. Add to
+this file when you lose time to something a comment could not have told you.
+
+## Authoring
+
+**`export default c.define(...)` must be written inline.** Assigning to a const
+and exporting that loads and validates fine, then fails at _publish_ — the server
+rewrites the `.val.ts` through its AST and refuses with `Expected default
+expression to be a call expression`, having written nothing. So this is broken:
+
+```ts
+const gallery = c.define(...);
+export default gallery;   // publishes never land
+```
+
+**A referenced module must be in `val.modules.ts`.** `s.image(galleryVal)` with the
+gallery unregistered renders a field that refuses uploads, with the reason in the
+UI. Easy to miss when adding a new module.
+
+## Arrays
+
+**An array item's path is positional** — `?p="0"`, `?p="1"`. A reorder does not move
+paths; it moves _content between fixed paths_. Two consequences:
+
+- The list of paths for an array is **unchanged** by a reorder, so "did the array
+  reorder" cannot be answered by comparing paths.
+- An "uncontrolled" list that holds its own order is **wrong**: the local
+  permutation plus the patch's permutation cancel out, and the drag silently does
+  nothing. Measured. `SortableList.tsx` carries the note.
+
+**A transformed ancestor moves the drag overlay, and moves the drop with it.**
+dnd-kit's `DragOverlay` — the card that follows the cursor — is `position:
+fixed` at the dragged row's client rect, and it renders inside the list rather
+than in a portal. A transformed ancestor is the containing block for every fixed
+descendant, so anything between the row and the viewport that carries a
+`transform` re-bases it. `translateX(0%)` counts: it moves nothing and still
+creates the containing block. The phone's preview put the two panes on such a
+track, and with the preview open the overlay's `top` was resolved against a box
+already pushed down by the strip of switches — the row floated 132px below the
+finger.
+
+The visible offset is the smaller half. dnd-kit collides the OVERLAY's measured
+rect against the rows to pick the drop, so the same 132px landed the row about
+three positions past where it was being aimed, which is how it was reported. If a
+drag is off by a constant, look for a `transform` above the list before looking
+at the sensors. `e2e/mobile-canvas.spec.ts` measures the gap between the finger
+and the overlay; use `isolation: isolate` where a stacking context is what the
+transform was really there for.
+
+## Media
+
+The `/public` URL rule and the `appliedAt` gate — see [media.md](./media.md). The
+short version: an uncommitted `/public` path returns **200** in `next dev` (the
+app's HTML), so only decoding an image tells you whether it really loaded.
+
+**`canvas.toBlob` answers a type it cannot encode with a PNG, not with null.**
+Measured in Chromium: `toBlob(cb, "image/bogus")` on a 1200x800 canvas hands
+back 2,622,403 bytes typed `image/png`. So "the callback got a blob" is not the
+same question as "the blob is what I asked for", and a browser without WebP
+encoding would have `s.image({encode})` upload a PNG named `.webp` — which the
+server then rejects at publish time with "Mime type does not match image type",
+a long way from the line that caused it. `chooseEncoded` in `encodeImage.ts`
+reads `blob.type` for exactly this reason.
+
+**Media is recognised from the schema, never from the value.** It is a plain
+object with a `path`, so a value that looks like media is not media — and a plain
+`s.object({path: s.string()})` must not be treated as it. Anywhere you find
+yourself asking "is this an image", the answer has to come from
+`schema.type === "image" | "file"`.
+
+**`stegaEncode({disabled: true})` still resolves media.** `disabled: !enabled` is
+the normal production path, and it used to drop the schema for the whole
+recursion. Harmless while a marker on the value could still be found; the moment
+detection needs the schema, it strips `url` from every image on every production
+page. `disabled` gates the steganography and nothing else.
+
+**`val list-unused-files` finds files through VALIDATION ERRORS, so a correct
+gallery reads as unused.** `listUnusedFiles` collects the paths it considers
+in use by walking what `service.get(..., { validate: true })` reports and
+picking the errors whose value looks like a file ref — a single `s.image()` /
+`s.file()` field always reports a `check-metadata` fix, so its file is found,
+while an `s.imagedir()` / `s.filedir()` ENTRY reports nothing when it is
+correct and its file is not. `examples/next` hides this by accident: its
+gallery's one entry declares 800x600 for a 944x944 image, and that error is
+the only reason the file counts as used. `examples/tanstack`, whose content
+validates cleanly, lists every gallery file it has. So treat the output as a
+starting point, and never as a delete list — the function's own TODO says the
+same about the heuristic.
+
+**The server drops `patch_id` before writing a `.val.ts`.** It marks a media
+source whose bytes are not committed, and it is a sibling of `path` — so a
+whole-object write built from the client's optimistic view would print it into a
+user's file. Studio media edits are per-property for the same reason.
+
+## React in the Studio
+
+**A `var()` inside a custom property is substituted where the property is
+DECLARED, not where it is used.** This is CSS, not React, and it is the trap
+that shipped a half-themed Studio. `index.css` says
+`--bg-page-selection: var(--colors-brand-green-600)`, so overriding the ramp on
+a descendant looks like enough to move it. It is not: that declaration lives in
+the light block, whose selector is `:host, :root, *[data-mode="light"]`, so on a
+`data-mode="dark"` element the rule does not match, nothing is declared there,
+and what the element inherits from `:host` is the value already substituted to
+green. An override on the element cannot reach backwards into a substitution
+that already happened on an ancestor.
+
+The brand tokens escape it only by accident of the theme: the dark block
+RE-DECLARES `--bg-brand-primary: var(--colors-brand-green-800)`, and that
+declaration is computed on the themed element, so it resolves against the
+override. Which is why an accent moved the whole chrome and left the page's
+outlines green — in dark mode only, since in light mode the block's own selector
+matches the themed element. So: a token that depends on the ramp must either be
+re-declared per mode or written explicitly by `themeCustomProperties`.
+`brandDerivedTokens.test.ts` scans the stylesheet and holds that.
+
+**The canvas outlines are drawn in the customer's document, where Val has no
+stylesheet at all.** `CanvasPage.tsx` is the Storybook mock; the real canvas is
+an iframe, and the outlines around editable elements come from a `<style>` that
+`ValCanvasBridge` (in `@valbuild/next` and `@valbuild/tanstack`) injects into the
+page. There are no tokens there to override — not overridden, absent — so the
+accent is SENT over the canvas protocol as a `theme` message and the bridge
+keeps it in state. Hunting a colour there through the Studio's CSS finds
+nothing, because the colour is a literal in a different package.
+
+**There are three nested `[data-mode]` elements, and the outermost is not the
+themed one.** `App.tsx` wraps the Studio in one, `Shell.tsx` draws its own
+inside that, and `ValPortalProvider` adds a third for everything portalled.
+Since `s.settings()` gained a `theme.accent`, the project's accent rides on the
+same elements as `data-mode` (`ValThemeProvider` hands out `themeStyle`) — but
+NOT on `App.tsx`'s, which is outside `ValProvider` and has no store to read
+settings from. It does not need it: it only sets a neutral background and text
+colour. The consequence is for debugging.
+`shadowRoot.querySelector("[data-mode]")` returns App's, whose
+`--colors-brand-green-500` is Val's green no matter what the project set — so a
+probe written the obvious way reports the feature as broken while the screen in
+front of you is plainly violet. Take the LAST match, or read the element that
+has a `style` attribute.
+
+**`useValConfig()` returns a ref, filled by an effect.** So the render where config
+arrives still sees `undefined`; only the render _after_ that sees it. This makes
+config-dependent early returns a hook-order trap, and makes reproducing one in a
+test need three renders rather than two.
+
+**Hooks below a guard are a crash waiting for a null value.** Both media field
+components did this: an early return for `loading` / `not-found` / `config
+=== undefined`, then a `useMemo`. A field whose value is `null` takes the return
+on one render and runs more hooks on the next — "Rendered more hooks than during
+the previous render", from inside `useMemo`, with nothing in the message about
+media. Compute hooks unconditionally and defensively; guard after.
+
+**A `setState` call inside another state updater runs as many times as the
+updater does.** Under `StrictMode` — which the SPA mounts in — that is twice, so
+the inner update happens twice. `AIChat.completeAssistantMessage` appended the
+finished message to `completedMessages` from inside the `setCurrentMessage`
+updater, and every assistant reply therefore appeared TWICE in dev, tool activity
+and all. It has to be nested (the message being retired lives in
+`currentMessage`, and reading it from the render closure would drop a chunk that
+streamed in the same tick), so the inner update is keyed by message id and skips
+what is already there. If you nest one, make it idempotent.
+
+**An uncontrolled `defaultValue` can be masked by an async gate, and it will not
+stay masked.** `StringField`'s textarea worked for years while being
+uncontrolled, because the thing that decided it should BE a textarea arrived from
+the host a tick after the effect that fills `currentValue` — so by the time it
+mounted, the value was there. Making the layout synchronous (it is `.multiline()`
+on the serialized schema now, not something the host computes) removed that
+ordering, and the
+textarea started mounting at `null`. `.value` still looked right, because a
+textarea's value follows `defaultValue` while it is untouched — but
+`AutoGrowingTextarea` seeds its invisible sizing ghost from props exactly once,
+so the box rendered one line tall for any amount of text. If a field is
+uncontrolled, check what is actually keeping it correct before you change the
+timing around it. Pinned in `StringField.test.tsx`.
+
+**A context value built inline is a fresh object every render.** Harmless until
+something downstream takes it as a `useMemo`/effect dependency — then it is the
+whole subtree recomputing per keystroke. `FieldSourceOverrideContext` in the
+compare view was exactly this.
+
+**An outside-click listener on `document` cannot see into the Shadow DOM.** The
+Studio renders inside a shadow root, so an event listened for outside it has its
+`target` **retargeted to the shadow host** — that is what a shadow root is for.
+`popup.contains(event.target)` therefore asks "is the shadow host inside this
+popup", which is false for every press, the popup's own items included. Every
+popup written this way dismisses itself on `pointerdown` and unmounts before the
+`mousedown`/`click` can be delivered, so it opens fine, highlights fine, and its
+items do nothing — it reads as a dead button, not as a dismissal. Swapping
+`onClick` for `onMouseDown`, the usual cure for a list that closes on blur, does
+not help: `pointerdown` comes first. Use `event.composedPath().includes(node)`,
+which is the path the event actually travelled — `useDismissOnOutsidePointer`
+does. This cost the Preview menu's "Open in a new tab" and every suggestion in
+the canvas address bar.
+
+**A Radix popup with no `container` opens OUTSIDE the shadow root, and that also
+reads as a dead button.** The default portal target is `document.body`, where
+none of Val's styles reach the menu and nothing gives it a stacking context
+above the overlay — so it opens, correctly positioned, invisible behind the
+Studio. Nothing is logged and the trigger's `data-state` flips to `open`, so the
+only symptom is a click that appears to do nothing. Every Studio popup therefore
+passes `container={useValPortal()}`; `DropdownMenuContent` and `TooltipContent`
+now render INLINE rather than portalling when they are not given one, because
+clipped is recoverable and invisible is not. This cost the AI chat's model
+picker, which was read as "the model switcher does not work", and the confirm in
+`UtilityPanel` before it.
+
+**A ref mutated during render survives a discarded render; the `setState` beside
+it does not.** So the "adjust state when a prop changes" pattern must hold the
+previous prop in **state**, never a ref:
+
+```tsx
+// ❌ WRONG — one committed render with the new value, then stuck on the old one
+const lastView = useRef(view);
+if (lastView.current !== view) {
+  lastView.current = view; // survives
+  setIsPicking(view === "fields"); // does not
+}
+
+// ✅ CORRECT — a discarded render discards both, a committed one commits both
+const [viewSource, setViewSource] = useState(view);
+if (viewSource !== view) {
+  setViewSource(view);
+  setIsPicking(view === "fields");
+}
+```
+
+React is free to throw a render away and start again from the last committed
+state. The retained pass then sees the ref already equal to the new prop, skips
+the branch, and the derived state stays at its old value **for good**. This is
+not a fringe case: `StrictMode` invokes the body twice and keeps the second
+result, so it reproduces on demand — which is what makes it testable
+(`usePickingDefault.test.tsx` renders the hook inside `StrictMode`; two of its
+cases fail against the ref version).
+
+It cost the canvas's select mode: switching to the fields view stopped arming
+picking, so the fields list rendered, the Select button read as off, and clicking
+anything on the page reported nothing — the bridge only reports while picking.
+Nothing in that looks like a missed state update, which is why it went unnoticed
+while a real e2e failure sat on it.
+
+**React blames the wrong component for a render loop.** The error surfaces
+wherever the update budget ran out — typically a Radix ref callback, whose JS
+stack is pure Radix. Do not start there; census the fiber tree instead
+(see [stores.md](./stores.md#debugging-in-a-browser)).
+
+**`overflow: hidden` is still a scroll port; `overflow: clip` is not.** A hidden
+box whose content overflows can be scrolled by anything that reveals an element
+inside it — `scrollIntoView`, focus, `scrollTo` — it simply has no scrollbar to
+do it with. So "I clipped it, nothing can move it" is false, and the way you
+find out is a layout that has quietly come to rest somewhere nobody chose.
+
+Which the canvas does not merely risk: it holds a **same-origin iframe**, and
+`scrollIntoView` inside one of those does not stop at the frame. It walks out
+into the embedder and scrolls the studio's own containers (measured in
+Chromium), and clicking anything inside a frame makes the browser reveal the
+frame itself. Both reveal an ELEMENT rather than a region, so both leave the
+container wherever that element needed — which on the phone's two-pane
+workspace was half the editor and half the page, and stayed there. `overflow:
+clip` creates no scroll port at all, so there is no offset to write to; that,
+and the panes being a `transform` rather than a scroll position, is what
+`PageWorkspace` relies on now.
+
+**cmdk hides a GROUP whose items do not match the search, and a separator while
+there is any search at all.** So an item that has to stay — "New page" in
+`RouteSelector`, "New entry" in `KeySelector` — needs more than its own
+`forceMount`: inside a group that cmdk has hidden it is still invisible, and the
+option is gone exactly when the editor has just established that the thing they
+are searching for does not exist. Put `forceMount` on the `CommandGroup` (it
+reaches the items through cmdk's context) and `alwaysRender` on the
+`CommandSeparator`. jsdom does not compute visibility, so a jest test clicks a
+hidden item quite happily; `e2e/keyof-create.spec.ts` is what caught it.
+
+## Remote files and proxy mode
+
+**"Does this project use remote files" is `hasRemoteFileSchema` in
+`@valbuild/core`, and only that.** There used to be two — the server's, gating
+whether `/save` demands remote credentials, and the Studio's
+`findRequiredRemoteFiles`, gating the `/remote/settings` fetch — and they
+disagreed about `s.imagedir(dir, { ... }).remote()`. A media collection serializes as a
+`record` of metadata with the file named by the KEY, so a walk that only recurses
+into `item` finds no image schema and says no; that was the server's answer. If
+you add a schema type, teach that one function about it: the `never` assignment in
+its default branch is what makes forgetting a compile error.
+
+**A `false` there is silent, not safe.** `saveOrUploadFiles` in `skip-remote` mode
+does not merely skip the upload — its loop over remote descriptors is inside the
+`upload-remote` branch, so every remote file is dropped with no error. The commit
+then lands a remote ref with no bytes behind it. That is why the function throws on
+an unknown schema type rather than returning `false`, and why the Studio catches it
+at its one call site instead.
+
+**One remote image, file or gallery anywhere makes EVERY publish need remote
+credentials.** `/save` in `fs` mode calls `getIsRemoteRequired` over all schemas,
+and a single `true` switches the whole save into `upload-remote`, which needs an
+api key or a `.val/pat.json`. A local checkout has neither, so adding one
+`s.image().remote()` stops a project from publishing plain text. This is why the
+example app's remote gallery is opt-in (see `examples/next/val.modules.ts`).
+
+**Every commit failure reads "Unknown error".** `ValOpsHttp.commit` parses the
+error body with zod and then passes the _safeParse result_ — not the payload — to
+`getErrorMessageFromUnknownJson`, so the service's own message never survives.
+When a publish fails in proxy mode, read the content service's log, not the
+Studio's.
+
+**A remote upload and the commit that ships it key the same file differently.**
+The browser uploads bytes under the file path (the store splits the ref first),
+while `prepare` describes the file by its full remote ref. The content service is
+what reconciles them.
+
+**The `val_session` cookie is percent-encoded on the wire.** `initValServer`
+writes `encodeURIComponent(value)` into `Set-Cookie` and the read side decodes, so
+a hand-made session cookie has to be encoded too — an HMAC signature is base64 and
+routinely contains `+` and `/`. Sending it raw decodes to something else and reads
+as "you will need to login again".
+
+**Only `/stat` can say a publish has gone live, and it is asked rarely.** The
+deploy feed's build states (`created` / `pending` / `success` / `failure`) are
+relayed from GitHub through the content service, and the socket pushes them — but
+none of them means the site is serving the commit. That answer is `/stat`'s
+`commitSha`, read from `VAL_GIT_COMMIT` when the app boots, so a finished deploy
+is a NEW PROCESS answering with a new sha. Nothing pushes it: while a socket is
+up, `/stat` is on a twenty-minute timer, and `awaitingDeploymentInterval` in
+`useStatus.ts` is what tightens that to seconds while a publish is outstanding.
+The classic (`?val-ui=classic`) layout mounts no deployment UI at all — the feed
+lives in the shell's status bar.
+
+**A commit with no deployment shows up in the feed as `created`.** There is no
+such build state; `mergeCommitsAndDeployments` invents it for a commit no
+deployment has claimed. So a project whose deployment events never arrive — which
+is every project whose build host is not wired to the content service — parks
+every publish at "Queued" and stays there. `isLive` (Val saw the site answer with
+the commit) is deliberately allowed to overrule any build state, including that
+one, and that is the only reason such a project ever reaches a resting state.
+
+**The content service returns deployments newest-updated FIRST, the socket
+delivers them last.** `getByCommitShas` is `ORDER BY updated_at DESC`; the client
+appends socket messages. Both feed the same fold, which keeps the last entry per
+commit sha — so anything reading that list has to sort before folding, or a
+finished build gets overwritten by the pending one it replaced.
+
+## `fetchVal` in draft mode loads EVERY module, once per call
+
+`initFetchValStega` (next `rsc`, and the same code in tanstack `server`) asks
+`/sources/~` with `path: "/"` — the whole tree — and then hands `stegaEncode` a
+`getModule` that reads one entry out of the result. So a draft render that calls
+`fetchVal` three times fetches and validates every module in the project three
+times, no matter how small the three selectors are.
+
+Two things keep it from being a production problem, and neither makes it a
+non-problem:
+
+- It is **draft mode only**. With Val disabled the reader never touches the
+  server: `stegaEncode(selector, { disabled: true })` runs against the statically
+  imported module and nothing else.
+- The client readers do NOT do this. `useVal` subscribes to exactly
+  `getModuleIds(selector)`, so a page subscribes to the page.
+
+It predates `s.view()` and is the same on `main`. Narrowing it is not a
+one-liner: `getModuleIds` can name several modules (a gallery-backed image
+references another), and `/sources/~` takes ONE `path`, so it is either N
+requests or a new list parameter — and the endpoint also does validation and
+patch resolution whose scope would move with it. Measure a draft render before
+assuming this is the slow part, and do it in its own change.
+
+## `.jsonValues()`
+
+**A validation error can point where the module source cannot go.** A
+`.jsonValues()` record keeps each entry's value in its own `*.val.json`, so the
+source the server evaluates holds a `c.json(() => import(...))` marker in its
+place. Validation loads those files and reports errors at paths INSIDE an entry
+(`?p="/jobb/student"."pageImage"`), which means the error paths and the source
+they nominally belong to disagree: `Internal.resolvePath` refuses to walk into a
+marker and throws `Cannot resolve path into a jsonValues entry until its content
+is loaded`.
+
+So anything holding an `(errors, source)` pair for a jsonValues module has to
+substitute the loaded entry content back in first. `Service.get` does that on the
+validate path, which is what the `val validate --fix` handlers resolve against —
+before it did, one `s.image()` inside an entry aborted the entire run, because
+image metadata can only be checked by reading the bytes and therefore ALWAYS ends
+in a fix.
+
+**In an editor, both halves of an entry error land somewhere surprising.** The
+diagnostic has no range to sit on — the `.val.ts` contains the entry key and
+nothing below it — so it is reported on the KEY, via the longest prefix of the
+path that the file's own AST knows (`longestResolvedPrefixRange` in
+`diagnostics.ts`); without that it fell through to line 1, and a record with
+hundreds of entries stacked hundreds of diagnostics there. The quick fix then
+edits a **different file** from the one it was requested on, as a cross-file
+workspace edit into the entry's `*.val.json`. And because nothing validates a
+`*.val.json` on its own, it has to be watched explicitly: editing one — or
+applying that quick fix — invalidates the whole project, since the parsed JSON
+is cached inside the `Service`.
+
+**A patch into an entry does not touch the `.val.ts`.** The value being edited is
+not in that file, so an op whose path descends into an entry is rebased and
+replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
+`rebaseContentOp`, in both `ValOps.prepare` (publish) and `Service.patch`
+(`val validate --fix`). Which file an entry key maps to is read from the
+`import(...)` specifier in the `.val.ts`, not derived from the key: entries may be
+hand-placed, and deriving would write a file the module does not read.
+
+**A patch that replaces the WHOLE record is expanded, not applied.** `{op:
+"replace", path: [], value}` names no entry key, so `classifyJsonValuesOp` — which
+finds the key by walking the op path — reads it as an ordinary source edit and
+would write the value straight into the `.val.ts`, over the `c.json(() =>
+import(...))` calls. `expandJsonValuesRootOp` fans it out against the record's
+live keys into an `add`, `replace` or `remove` per entry (and nothing at all for
+an entry already holding that content, so putting a module back does not rewrite
+every file in it). The value must be CONTENT: a `{_type:"json"}` marker as an
+entry's value is refused, because a marker is what a module's Source holds where
+the content is not, and writing markers back is the bug this exists to stop.
+Both sides expand through that one function — `ValOps.prepare` writes the files,
+`applyJsonValuesEntryPatches` builds the draft the Studio reads — because two
+implementations of the rule would differ silently, and the difference only shows
+up once it is published.
+
+## External records
+
+**Three type-level details keep `s.record().external()` navigable, and all three
+fail silently.** The point of the feature is that a developer can click from
+`post.title` in a page, to `title: s.string()` in the schema, to the `title` the
+adapter's `get` returns. Nothing about that survives a green typecheck on its
+own, so `externalNavigation.test.ts` drives a real `ts.LanguageService` over a
+fixture and asserts the hops. What it is guarding:
+
+- **`ObjectSchemaSrcOf` and `JsonOf` must stay homomorphic mapped types**
+  (`{ [K in keyof T]: ... }` over a naked `T`). That is the only reason
+  TypeScript keeps a property's declaration link through them. Rewriting either
+  as a `Record<string, ...>`, or wrapping one in `Omit<>`, is behaviour-preserving
+  and kills every hop.
+- **`ok()` takes `NoInfer<T>`.** Without it, `T` is inferred from the argument, so
+  the literal in `ok({ a: { title } })` types itself rather than being checked
+  against the contract — and its `title` is then a fresh property that merely
+  shares a name. The cost of the fix is real and worth knowing: `ok(...)` written
+  where there is no contextual type (a helper with no return type annotation)
+  infers `unknown`, and fails at the use rather than at the call.
+- **The `Selector<T>` arm for `ExternalRecordSrc` must be `GenericSelector<T>`,
+  not `GenericSelector<ExternalRecordSrc>`.** The marker carries the item type,
+  the label and the readonly flag as phantom parameters; widening the arm throws
+  all three away, and the adapter contract silently becomes untypeable from the
+  schema.
+
+**The source marker cannot be a `SourceObject`.** `SourceObject` reserves
+`_type?: never`, and the marker's whole job is to carry `_type: "external"` — so
+`ExternalRecordSrc` is its own arm of the `Source` union. The knock-on: a
+`source is Record<string, Source>` predicate does NOT exclude it (the marker is
+structurally assignable), which is why `isRecordSource` narrows to `SourceObject`
+and checks `Internal.isExternal` explicitly. Both copies of that predicate — in
+`ReferenceStore.ts` and `customValidate.ts` — have to agree.
+
+**Entries written inline in an external module are legal at the type level.** As
+with `.remote()` and `.jsonValues()`, content must be movable between storage
+modes without the intermediate state failing to compile, so `c.define` accepts a
+plain record where the schema says external (`InlineEntriesFor`). Validation is
+what reports them, per key, as an `external:upload` fix — and that fix is
+deliberately NOT applied by a blanket `val validate --fix`, because applying it
+writes to a live store.
+
+## Patches
+
+**A write's parent is the head the server REPORTS, not the last id `/stat`
+listed.** The list (`/applicable/patches`) leaves out patches the running
+deployment already contains — their effect is in its base. That is harmless
+while a publish ships the whole pending chain, so the published patches are a
+prefix. A publish that ships a subset — patch groups did, until they were
+removed, and a publish that holds changes back still does — puts a published
+patch AFTER one that is still pending, and the list then ends behind the real
+head. What it cost: another author left a change that nets to
+nothing (it can never be published), somebody published later work, the deploy
+landed, and from then on every save in every Studio was refused with "something
+else keeps changing them first" — 409 on every retry, because the re-sync
+returned the same list. Discarding the other author's change "fixed" it, by
+emptying the list so the Studio sent no parent. The content service now reports
+`headPatchId` (its last registered patch, published or not) beside the list, and
+`POST /patches` accepts only that id as the parent. `PatchSync.currentParentRef`
+and the MCP's `deriveParentRef` name it, and fall back to the last listed id only
+for a server that reports no head. `patchSyncHead.test.ts` pins it.
+
+**…and the head is versioned, because `/stat` answers land out of order.** The
+poll, the websocket, the re-sync after a 409 and React re-announcing what it
+last held can all have an answer in flight at once, and adopting the late one
+rewound the chain: the list, and the parent the next write names — one refused
+write every time. The content service keeps a version per branch
+(`val_patch_chains`), bumped by every write and every delete inside the
+transaction that makes the change, and reports it with the head
+(`headVersion`, read in the same statement) and from every write, delete and
+publish. `StatStore` drops a snapshot at a lower version than one already
+received — and than any version this client's own save, discard or publish
+answered with (`noteHeadVersion`), checked again when a stat's preparation
+finishes — and `PatchSync` ignores a stat older than the head it holds. A
+delete answers per branch, since one can span several; `DELETE /patches` on
+`ValServer` answers `{ deleted, headVersion }` only when asked
+(`reportHeadVersion`), because an open tab's older bundle parses the bare id
+array. Not `seq_num`: discarding the head LOWERS it and the next write
+reuses the number. Not a clock either: a timestamp read after the commit can
+outrank a newer answer, and reading it can fail after the patch is saved.
+
+**A discard is `source:patch-drop` and, usually, nothing else.** The source
+store announces a drop as its own event and then re-applies whatever survives
+in the module's chain, which is what emits `source:patch-apply` — so a discard
+that empties the chain, which is the ordinary "discard my changes", is the drop
+event alone. Every store that invalidated on the apply and not on the drop
+(validation, previews, the search and reference staleness marks) therefore kept
+showing the discarded edit until something unrelated touched the module. The
+symptom that found it: rename a page (a record key) with the AI, discard, and a
+`keyOf` field elsewhere goes on reporting that the key "does not exist" —
+about a key that is back. If a store reads source, it listens to both events —
+or to `source:change`, which `SourceStore.bump` emits for every way a revision
+can move and which the validation store now uses instead of enumerating them.
+`crossModuleValidation.test.ts` pins validation, previews, search and
+references.
+
+**A `keyOf` field's validity lives in another module's keys.** The schema emits
+a `keyof:check-keys` marker and the answer is settled when the errors are READ,
+against the referenced record's current keys — so nothing about the referring
+module's own source says whether it is valid. `ValidationStore` remembers, per
+validated module, which records its markers resolve against and the keys they
+had (`resolvedAgainst`), and invalidates the module when those keys move.
+Compared on keys deliberately: a router module is a page module, so "the
+referenced module changed" would put every module with an `s.route()` field
+back in the queue on each keystroke into any page.
+
+**`GET /patches` with no `patch_id` returns every patch.** The filter is applied
+to a table the endpoint already holds, so an absent filter is not "none" — it is
+"all". Two ways to trip on it:
+
+- Building the query from a list that happens to be empty sends an unfiltered
+  request and pulls the whole project's pending changes.
+- "I asked for 5 and got 400 back" is not a bug in the server.
+
+The ids go on the query string as repeated `patch_id` params (and `id` for the
+delete), and there is no paging. At ~46 characters each, a few hundred pending
+changes overruns any of the limits in play — Node caps the request head at 16KB
+and answers 431, a proxy caps it lower and answers 413 — so the studio chunks
+them (`packages/ui/spa/stores/react/patchIdChunks.ts`). One splitter and one
+budget for both endpoints, aimed at the ~2000 characters that are safe for a URL
+anywhere rather than at any particular server's cap. Dropping the filter instead
+would return the same set today, but then "did I get what I asked for" has no
+answer — which is the question that catches a server sending back less than it
+announced.
+
+**An id that comes back in neither `patches` nor `errors` means "the server does
+not hold it".** That silence is how a deleted patch is observed, so it is not an
+error in itself. Whether it is a _fault_ depends on something outside the
+response: if `/stat` announced the id, the server has contradicted itself and the
+studio reports it; if stat has stopped naming it, it is simply gone. Get those
+two backwards and you either resurrect deleted edits as permanent failures, or
+wait forever on changes that will never arrive — the second of which is a real
+bug that shipped. See `architecture/patch-store.md`.
+
+**A parent the content service does not HOLD is fatal; a parent that is merely
+stale is not.** Every write names its parent, and the service answers the two
+cases differently: not-the-head is a 409, which `ValOpsHttp` maps to
+`patch-head-conflict` and `PatchSync` re-syncs and retries; a parent that has
+been deleted is `Parent patch not found` with a status that is not 409, which
+becomes `other` → a 400 `patch-error` → `rejected`, and rejected is PERMANENT —
+the patch is dropped and the field reverts. So the whole cost of naming a
+deleted parent is the editor's work, reported as "An edit could not be saved and
+has been reverted."
+
+Which is what a discard used to do. `PatchSync` computes the parent from what
+the server has said exists, and the discard told it nothing; worse,
+`savedNotInStat` releases an id only when a stat LISTS it, and a deleted patch
+never is — so one discard poisoned every later edit until the tab was reloaded.
+`patch:drop` now reaches `PatchSync.forget`. Pinned by `e2e/http/discard.spec.ts`
+and by "the write after a discard" in `patchSync.test.ts`; the mock content host
+answers the two cases apart, which it did not, and could therefore not reproduce
+any of this.
+
+**An AI-written `file` op carries a session key where every other one carries
+bytes.** An image the editor attaches in the chat is uploaded to the content
+service straight from the browser; the assistant is only ever told an opaque key,
+and a tool turns that key into patch bytes by asking the SERVICE to copy them
+(`patches/{id}/files/from-session-file`). The client never holds the bytes, so the
+`file` op it emits has the key as its `value` — and `PatchStore.createPatch`
+happily uploaded that string as the file's contents, over the image the service
+had just written, on the same (patch id, file path). The image then 404'd in the
+Studio and a publish committed a UUID in place of a PNG, with the tool reporting
+success throughout. Hence `filesAlreadyUploaded` on `createPatch`: it suppresses
+the upload and nothing else — a `file` op with a null value is still a delete and
+still runs. Pinned by `e2e/http/aiChat.spec.ts`.
+
+**`/stat`'s patch list can be a polling interval old.** It long polls in `fs`
+mode, and it used to answer with the list it read when the poll _opened_ — so the
+response that arrives right after a publish still named the patches the publish
+committed and deleted. Announced-but-undelivered is therefore not, on its own,
+the server contradicting itself: the announcement may simply predate a delete.
+`getStat` now reads again before answering, and the studio still gives such an id
+one more stat before reporting it. Auto-save is what made this loud, because it
+publishes on every pause in typing. See `architecture/patch-store.md`.
+
+**Writing into `.val/patches` wakes the stat that reads it.** `getStat` long
+polls on a watcher over the patches directory, so any write in there ends the
+poll and the next read happens immediately. That makes every "window" in the
+patch write path a window something actually looks into — which is how uploading
+an image, whose bytes land a round trip before the patch record that references
+them, came to summon the read that classified the half-written directory as lost
+work and deleted the bytes. Uploads now land in `.val/uploads/` and are moved in
+behind the record, so there is no half-written directory to read; see
+[patch-store.md](./patch-store.md).
+
+**The server's committed sources do not come from disk.** `ValOps` memoises them,
+and re-reading means awaiting each module's `def` — the app's own `import()`,
+which resolves from the module registry. So a save that rewrites a `.val.ts`
+cannot be picked up by invalidating the memo: the re-extraction returns the
+pre-save content and stores it as fresh. The save tells `ValOps` instead
+(`adoptCommittedSources`), which also re-folds the SHAs so `baseSha` moves — the
+first thing that moves it within a server's lifetime in `fs` mode, and the signal
+`PatchStore.reconcileVanished` needs to tell a publish from a discard.
+
+**A `.jsonValues()` entry needs its own adoption, for a sharper reason.** Its
+content is not in the memoised source at all — the source holds markers, and the
+content sits behind the marker's own `import()` thunk, which caches the same way.
+So there is nothing to re-extract: the memo was never holding it. `prepare` is the
+only thing that knows what an entry now holds, and it reports that as
+`PreparedCommit.patchedJsonEntries` — **keyed by entry key, not by file path**,
+because a marker does not carry its path at read time and two different producers
+turn a key into a path (`resolveEntryJsonPath`, and `getNewJsonEntryPaths` for an
+`add` or a move's destination). `getJsonEntries` consults the adopted map before
+the thunk, as the committed BASELINE, so pending patches still replay on top.
+
+Adopted only for a module whose source was also adopted: the source decides which
+keys exist, so taking one without the other would leave the content and the key
+set describing different moments.
+
+**A bare "Internal Server Error" from a patch save is `home` THROWING, and the
+reason is in `details`.** `sendResult` answers a refusal with the refusal's own
+message and an exception with the constant `"Internal Server Error"` plus the
+exception's message in `details` — so the one error whose `message` says
+nothing is the one whose `details` say everything.
+`getErrorMessageFromUnknownJson` now appends a STRING `details` (capped, and
+only a string: a refusal puts a structured zod error there, already summarised
+in `message`). Before that, this was the entire diagnosis available anywhere:
+
+```json
+{ "type": "patch-error", "message": "Internal Server Error", "errors": { … } }
+```
+
+— with the same text in the app's own logs, because Val was relaying it.
+
+**The deployment that produced it had silently lost its repository, and
+nothing said so.** `gitCommit` / `gitBranch` in `val.config.ts` are how an app
+names one, and for a while they did not reach the resolution at all: the
+framework bindings hand `initHandlerOptions` `{ versions, ...config }`, it read
+a nested `git` object, and nothing mapped the flat keys onto it — so a project
+setting the documented `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` resolved
+to NO repository. (Fixed in #708.) That was survivable until 0.133.0 made a
+repository optional in http mode, at which point the same configuration stopped
+being a startup error and became a supported, wrong mode.
+
+Three things follow, and none of them mentions git:
+
+- published images 404 from `/api/val/files` while serving fine from
+  `/public` — `getBinaryFile` has no repository to read them out of;
+- a publish saves the content and mirrors no `.val.ts`, so the repository
+  quietly falls behind;
+- every patch goes up with no `commit` and no `branch`, which `home` stores as
+  a NULL `patch_commit_sha` — correctly, and for one release unreadably, so the
+  SECOND edit of a session failed and the first did not. (The first edit is
+  what becomes the second one's parent.) It read as "I can create the record
+  entry but I cannot upload its image".
+
+`publishRefusal` names the state for a project that HAS a repository attached;
+nothing names it for one that does not, which is why it can be true for a week.
+The general shape is worth keeping: an option that is SPREAD into an options
+type and then not read is a compile error nowhere and a behaviour change
+everywhere. `homeWireContract.test.ts` pins what a deployment with no
+repository puts on the wire.
+
+## Testing
+
+**`packages/ui` has no jsdom by default**, and importing a field component pulls in
+`createValSystem` → the validation worker → `new Worker(new URL(..., import.meta.url))`,
+which jest cannot parse. Mock `../validation/schemaValidationBridge` at that seam.
+
+**A render error in jsdom is console noise, not a failed test.** The DOM committed
+before the throw still asserts fine, so a test can pass against a crash. Wrap the
+subject in an error boundary that records the message and assert on that.
+
+**`rerender()` with the same element reference lets React skip the subtree.** Build
+a fresh element each time or the probe never runs again.
+
+**The e2e file input picker is ambiguous.** The AI chat has its own
+`input[type="file"]`, and it is `multiple`. Select the field's with
+`input[type="file"]:not([multiple])`.
+
+**The assistant panel is hidden, not unmounted.** Every other `FloatingPanel`
+comes and goes with `openPanel`; this one stays mounted and takes `hidden`. It
+has to: the scrim covers the whole viewport and closes on any click outside, so
+carrying on editing while the model works "dismisses" the assistant — and
+unmounting it there dropped the turn, because the chat is the only thing that
+answers the model's tool calls. So a test cannot assert the chat is ABSENT when
+the panel is closed, only that it is not visible; and it still has to click the
+top bar's "AI assistant" button to reveal it, which a mobile-width viewport does
+not offer at all.
+
+**A field mention can arrive before the chat exists, and then arrive too early.**
+"Mention this field" opens the assistant and inserts a reference, and in the
+shell the first of those is what mounts the second — so an insert straight after
+`openAIChat()` lands on a ref that is still null and the field goes missing with
+no error. Hence the queue in `AIChatActionsProvider`; use `insertFieldRef` rather
+than reaching for `chatEditorRef` yourself. Draining it from a mount effect is
+still not enough: `StrictMode` runs mount effects, cleans up and runs them again,
+rebuilding the ProseMirror view in between, so the field went into the view that
+was then thrown away. `AIChatSurface` drains on a `requestAnimationFrame` the
+cleanup cancels, which is the only pass that writes to the editor that survives.
+
+## Dev environment
+
+**In `fs` mode, the save straight after a publish is slow.** A publish rewrites
+the app's `.val.ts` files, `next dev` sees them change and recompiles, and the
+next `PUT /patches` waits on the rebuild: 5.4s in the CI run that found this,
+during a 4.4s Fast Refresh. A slow save is still not a failed one, but
+`system.publish` treated it as one: it raced its pre-publish flush against a
+fixed 5 seconds, so pressing Save a second time while that PUT was out was
+refused with "your latest changes could not be saved. Check the connection",
+and the status bar said "All changes saved" a moment later. The wait now ends
+when the sync calls the save stuck (`isSaveStuck`), with the clock left only as a
+backstop for a request that never answers. `e2e/studio-ui.spec.ts`'s
+save-then-restore is the test that hit it, intermittently, and only on CI
+runners slow enough to push the rebuild past 5 seconds.
+
+**A toast is gone before Playwright's failure screenshot.** A refusal is
+reported once, through `StatusStore`, and the toast expires long before a 30s
+`expect.poll` gives up — so the screenshot and `error-context.md` show a quiet
+Studio with an enabled Save button, which reads as "the click did nothing". The
+toast IS in the trace: unzip `trace.zip` and grep `0-trace.trace` for the
+message text; the frame snapshot it is in carries the timestamp.
+
+**After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
+resolving `dist/`. Also delete `examples/next/.next` — a production build left
+there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
+
+## Two file names differing only in case break macOS and Windows, silently
+
+`StudioTour.tsx` and `studioTour.ts` in one directory are two files on Linux and
+ONE on a case-insensitive filesystem, which is what the Studio is developed on.
+`import { TourLauncher } from "./StudioTour"` resolved to the wrong module
+there, and the Studio did not come up:
+
+```
+Uncaught SyntaxError: The requested module
+'/api/val/static/spa/components/shell/StudioTour.ts'
+does not provide an export named 'TourLauncher'
+```
+
+Note the `.ts` in a path nobody wrote — that is the tell.
+
+Nothing caught it before a developer hit it: CI is Linux, the Playwright suites
+run on Linux, and every unit test passed. The collision is invisible on the
+platform everything is verified on and fatal on the platform everything is
+written on, which is exactly the asymmetry a convention cannot fix.
+`packages/ui/spa/components/caseCollisions.test.ts` is the guard, and it
+compares module STEMS — whole names miss it, because `StudioTour.tsx` and
+`studioTour.ts` do differ, in the extension.
+
+A directory and a same-cased module beside it (`Search/` and `Search.tsx`, which
+the SPA has) is a different thing and is fine: the resolver decides that one, the
+same way everywhere.
+
+## The Studio is not always a secure context
+
+`crypto.randomUUID` and `navigator.clipboard` exist on `https://` and on
+`localhost`, and NOWHERE ELSE. Not "throw when used" — absent, so
+`crypto.randomUUID()` is a TypeError.
+
+That is not theoretical for a dev tool: the Studio is served by the app's own
+dev server, and that gets opened on a plain-http address that is not
+`localhost` routinely — a phone on the LAN, a VM, or a browser on Windows
+reaching a dev server inside WSL at `http://172.23.x.x:3000`. The crash lands
+during the Studio's FIRST RENDER (`useStatus` names its websocket connection
+with one), so the symptom is a blank screen and
+`crypto.randomUUID is not a function` in the console, with a stack entirely
+inside minified bundle frames.
+
+This reads as TanStack-only and is not. It is about which URL you open: `next
+dev` binds `0.0.0.0` and prints a Local and a Network URL, so a WSL user stays
+on `localhost` and inside a secure context, while `vite dev` binds `localhost`
+only and says "use --host to expose" — so the WSL user who wants to see the
+site from Windows ends up with `--host` and the VM's IP. Same bundle, same bug,
+different default.
+
+`randomUUID` and `copyText` in `packages/ui/spa/utils` fall back
+(`crypto.getRandomValues`; `document.execCommand("copy")`), and an eslint rule
+over `packages/ui/spa` keeps the raw globals from coming back.
+
+`getRandomValues` is the right fallback for two independent reasons, and the
+second is easy to miss: it is not secure-context gated, AND it is
+cryptographically secure. **A patch id is a bearer token** — `/api/val/files`
+serves unpublished files with no auth at all, on the argument that a `patch_id`
+cannot be guessed, and `PatchStore` mints them through this helper. So there is
+no `Math.random` behind it: where neither source exists, `randomUUID` throws.
+A Studio that will not start is a better outcome than draft content served to
+whoever asks.
+
+Before reaching for another web API in the Studio, check whether it is
+secure-context-only.
+
+## `createRequire` is imported in one place in `@valbuild/server`
+
+webpack tries to resolve the argument of any `createRequire` call it can see,
+and warns `module.createRequire failed parsing argument.` when the argument is
+not a literal. `@valbuild/server` calls it twice — `evalValConfigFile` and
+`loadValModules` — and both times the argument is a path inside the user's
+project, known only at runtime. So there was nothing to resolve, nothing to fix,
+and the warning showed up on every `next build` of every app that has a Val API
+route, pointing into a `dist/` file the reader has no way to act on.
+
+`createNodeRequire` reaches the same function through the `Module` class, which
+webpack does not tag, and an eslint rule (`no-restricted-imports`, scoped to
+`packages/server/src`) stops the direct import coming back. It has to stay a
+real `node:module` import: jest hands out its own `node:module`, and a `require`
+obtained around it — through `process.getBuiltinModule`, say — would resolve
+against the real filesystem instead of the registry the tests run in.
+
+## The `@valbuild/ui` build substitutes placeholders into bundler output
+
+`packages/ui` ships two strings that only get their real values _after_ Vite has
+bundled: the package version and the base64 record of the whole SPA build.
+`fix-server-hack.js` and `fix-version-hack.js` do that substitution by reading
+the emitted `.js` files and replacing `$$BUILD_$$REPLACE_WITH_VERSION$$` /
+`$$BUILD_$$REPLACE_WITH_RECORD$$` in the text.
+
+**A bundler is free to re-print a string literal however it likes, and that
+breaks the substitution silently.** Vite 8 (rolldown/oxc) constant-folds
+
+```ts
+path === `${VERSION ? `/${VERSION}` : ""}${VAL_APP_PATH}`;
+```
+
+into one template literal and escapes every `$` while printing it:
+
+```js
+path === `/\$\$BUILD_\$\$REPLACE_WITH_VERSION\$\$/app`;
+```
+
+Vite 7 kept `const VERSION = "$$BUILD_..."` as its own literal, so the plain
+`String.replace` found it. In 0.108.0 it did not, and the placeholder shipped.
+Nothing threw: `/api/val/static/0.108.0/app` simply stopped matching, fell
+through to the SPA fallback, and every Studio got the index HTML where it asked
+for the app bundle — `Failed to load module script: ... MIME type of ""`. The
+version in the _client_ bundle was substituted fine, so the URL the browser
+asked for was right; only the server's comparison string was wrong.
+
+So the substitution is escape-tolerant (`buildPlaceholders.js`), it fails the
+build if a marker survives, and `verify-build.js` loads the packaged server
+bundle at the end of `pnpm --filter @valbuild/ui build` and asserts that
+`/<version>/app` really comes back as `application/javascript`. **That last
+check is the one that does not care how the placeholder is implemented** — keep
+it if you ever replace the hacks with something better.
+
+### Building `@valbuild/ui` in a `preconstruct dev` tree edits `src/`
+
+`fix-version-hack.js` writes the version into `dist/valbuild-ui.esm.js`. After
+`pnpm preconstruct dev` that path is a SYMLINK to `src/index.ts`, so the write
+goes through it and leaves
+
+```diff
+-export const VERSION = "$$BUILD_$$REPLACE_WITH_VERSION$$";
++export const VERSION = "0.134.0";
+```
+
+as an uncommitted change in a tracked source file. It is easy to miss — the
+build passes, `verify-build.js` passes, and the only symptom is a stray line in
+`git status` that reads like something you did.
+
+Committing it is the thing to avoid: the placeholder is what the NEXT build
+substitutes, and a source file carrying a hard-coded version substitutes
+nothing. `assertNoPlaceholdersLeft` would not complain, because the marker is
+gone in exactly the way it wants. Check `git status` after any
+`pnpm --filter @valbuild/ui build` and `git checkout packages/ui/src/index.ts`.
+
+### The Studio's bundler needs a cross-origin isolated page, and nothing says so
+
+`@rolldown/browser` is a THREADED WASI build. Its loader constructs
+`new WebAssembly.Memory({ initial: 16384, maximum: 65536, shared: true })` at
+module scope — 1 GiB committed, 4 GiB maximum — and `postMessage`s it to
+`max(2, hardwareConcurrency)` workers. A browser refuses to transfer a
+`SharedArrayBuffer` to a worker unless the document is cross-origin isolated, so
+on an ordinary page the import rejects with
+
+```
+DataCloneError: Failed to execute 'postMessage' on 'Worker':
+SharedArrayBuffer transfer requires self.crossOriginIsolated
+```
+
+thrown from inside `loadWasmModuleToAllWorkers` — naming nothing an editor or a
+developer could act on, and reaching the page as an unhandled rejection from a
+dynamic import.
+
+Measured in Chromium both ways, against a real build of the Studio's chunk:
+with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` on the document, the same import
+gets past it; without them it always fails. There is no fallback in the package
+— no `crossOriginIsolated` check, no single-threaded path.
+
+**The part that looks like the problem and is not:** constructing the shared
+memory SUCCEEDS on an ordinary page, and `memory.buffer.constructor.name` is
+`SharedArrayBuffer`, even though the `SharedArrayBuffer` global is not exposed
+there. So a check on `typeof SharedArrayBuffer` or a try/catch around the
+constructor both report that everything is fine. The refusal is at the
+transfer, one step later.
+
+`builderRefusal` in `spa/publish/loadBuilder.ts` is what turns this into a
+sentence, and it is asked BEFORE the 10.9 MB is fetched.
+
+**The headers are not this package's to set**, and they are not free.
+`require-corp` blocks every cross-origin subresource that does not send
+`Cross-Origin-Resource-Policy` — which for a CMS means images an editor pointed
+at anywhere, and the site preview in the canvas. Turning it on is a decision
+about what happens to those, made by whoever serves the document the Studio is
+mounted in.
+
+### The Studio's bundler is NOT in the base64 record, and must stay out
+
+The SPA dynamically imports `@valbuild/tanstack-build` so a managed project can
+be built in the tab. That drags in `@rolldown/browser`, whose 10.9 MB
+WebAssembly binary Vite emits as an asset — and every asset in the SPA output is
+what `fix-server-hack.js` base64s into both server bundles.
+
+It cannot go there, for two independent reasons, and both were measured rather
+than reasoned about:
+
+- The record is built with `fs.readFileSync(file, "utf-8")`. Read that way and
+  written back, 10,845,151 bytes come out 12,811,857 bytes and unequal. Nothing
+  notices.
+- Its base64 is 14,460,204 characters, in each of the two server bundles — and
+  `wire.ts` DECLARES `@valbuild/ui` as a project dependency so the Studio's
+  bundle reaches the isolate, so that lands in every project's vendor layer.
+
+So `build/staticWasm.ts` rewrites the asset URL to a content-addressed one
+on `DEFAULT_STATIC_HOST` and deletes the emitted file before the record is
+built. The trap: **`experimental.renderBuiltUrl` is read off the RESOLVED
+CONFIG, not off plugins.** Declaring it on the plugin object is accepted and
+silently ignored — the build then prints its own `/api/val/static/assets/…` URL
+and the plugin deletes the file that URL points at, which is worse than not
+rewriting at all. It is returned from the plugin's `config()` hook for that
+reason, and `closeBundle` refuses to delete anything still referenced by a
+chunk, which is what turns a 404 in someone's browser into a failed build.
+
+The same is true of every `.wasm` the Studio emits, and there are three now:
+rolldown's and libwebp's two (the WebP encoder for Safari). `STATIC_WASM` in
+that file is the list, and a `.wasm` the build emits that is not on it fails
+the build rather than being embedded.
+
+### On an iPhone, the page that opened the builder tab stops running
+
+A page that cannot build (every iPhone's Studio, every overlay) opens a builder
+tab in the tap of Publish. On iOS that tab takes the screen and the page behind
+it is paused AT ONCE: no timers, no fetch callbacks, no `BroadcastChannel`
+messages, until the editor goes back to it. Anything the page means to do after
+the tap does not happen while the tab is in front.
+
+The hand-off was first built with the page doing the work: wait for the AI's
+commit message, run the gate, press, then answer the tab's `ready` with the
+job. On an iPhone none of it ran, and the tab sat at "Starting the publish"
+indefinitely. Going back to the page woke it, and it sent the job, to a tab that
+was now the paused one.
+
+It was flaky rather than always broken, which is what kept it hidden. iOS lets
+the page run for a moment, and a press that was quick enough got through: with
+changes saved a while ago the page pressed at once. One change made just
+before Publish is still being saved, and since a publish waits for that save
+(up to 60 s, from 5 s before `3c5f54a`), the press came after iOS had paused
+the page. Desktop WebKit hit the same hang another way: a page that RELOADS
+between the tap and the tab's `ready` (the dev server compiling the builder
+route does it) loses the job it was holding.
+
+So the tap writes down everything the tab is to do (`HandoffIntent` in
+`spa/publish/handoff.ts`) and the tab presses itself, as the page's tab and
+under a request id the page minted in the tap. The page only follows what was
+pressed, whenever it is in front again. **Anything new in the hand-off has to
+work with the page frozen, or gone, from the tap onwards.**
+
+**The intent goes to `localStorage`, never into the URL** -- the URL carries
+only the hand-off id, a random UUID. It was the URL first, and that made a
+link able to publish: anyone could send an editor `/val?publish-handoff=x&publish-do=press…`,
+and opening it signed in pressed Publish on everything pending, theirs and
+everyone else's. Another origin cannot write this origin's storage, so an
+intent found there was stored by a tap in this browser. The write is
+synchronous, so it is there before iOS can pause the page; an intent over an
+hour old is only shown, never started.
+
+The tab presses what the SERVER has, so the intent also names the page's newest
+unpublished change (`after`), and the tab waits for it to arrive before it
+presses -- for minutes, because it arrives when the page's save does. Without
+that, "one change, then Publish" pressed before the change was saved and found
+nothing to publish. The wait also asks the server where that change is
+(`PatchStore.serverStateOf`): a fresh tab's chain never lists a change that
+has already SHIPPED, so one another publish took would otherwise be waited on
+until the deadline.
+
+A builder tab is one attempt, and opening it again -- a reload, the back
+button, the URL reopened -- must SHOW that attempt, never make it again: the
+page may hold new changes by then, and a second press would publish them
+without anyone pressing Publish. So the tab asks content for its request
+before anything else and follows it if it exists (content answers a request
+it never saw with 404), and remembers in `localStorage` what content cannot
+say: a press the gate refused, and an update. Only ANSWERS are remembered: a
+press that gave up after no answer may have landed, so opened again it asks. Content's press being
+idempotent does not cover this on its own -- the second press makes no second
+publish, but the tab still re-runs the gate, waits for changes, and a try
+again unpauses content's queue.
+
+The rule every wait in the tab follows: it waits only on something that can
+still happen, with a deadline, and when the deadline passes it says what to do
+next. The press is retried when asking again could get past the failure (no
+answer, a 5xx, 408, 429 -- `isTransientPublishError`), which is safe because
+content's press is idempotent on the request id; an answer, such as a
+validation refusal, is never asked again.
+
+Desktop browsers do not do this, so a hand-off that works on a laptop proves
+nothing. Chromium can, on request: `Page.setWebLifecycleState` with
+`state: "frozen"` over CDP pauses a page the same way, and
+`e2e/http/publishHandoff.spec.ts` freezes the Studio straight after the tap.
+That spec fails on the old hand-off with the same screen an iPhone showed.
+
+## `val publish` builds with native rolldown, the tab with `@rolldown/browser`
+
+_Noted 2026-10-26. The incident below can be deleted once `@rolldown/browser`
+pairs `@napi-rs/wasm-runtime` 1.2.6 or later with an `@emnapi/core` it works
+with; the rule itself is permanent and documented in
+`packages/tanstack-build/src/rolldown.ts`._
+
+`@valbuild/tanstack-build` builds a site in a browser tab and in Node with the
+same code, and rolldown has two builds with one API. Nothing in the package
+imports either statically: `loadRolldown()` picks, and Node is handed the
+native one (`useRolldown(nativeRolldown)`, which `val publish` does), while
+anything not handed one loads `@rolldown/browser` on first use.
+
+What forced it: on 2026-10-25 `@napi-rs/wasm-runtime` 1.2.6 was released, and
+`@rolldown/browser` 1.2.15 accepts it (`~1.2.5`) while pinning
+`@emnapi/core` 2.0.0-alpha.5, which 1.2.6 does not work with. Loading the
+WebAssembly build in Node then throws `Cannot set properties of undefined
+(setting 'initWorker')`, and `val publish` reported it as "@valbuild/tanstack-build
+and rolldown … could not be loaded". A site's lockfile chooses that version,
+so a Val Build upgrade (or any `pnpm update`) broke the site's CI publish
+while every check on Val Build passed — those build with Val Build's own
+lockfile, not the site's. Native rolldown has no WebAssembly glue, so the
+site's `@napi-rs/wasm-runtime` no longer matters in Node.
+
+The browser side is still exposed, but only to lockfiles we own: the Studio
+bundles `@rolldown/browser` from this repository's, and Val Build's upgrade
+page from valbuild/home's. **Do not move `@rolldown/browser` to a release that
+resolves `@napi-rs/wasm-runtime` 1.2.6 until the pair loads** — the
+end-to-end specs that publish from the builder tab (`publishHandoff.spec.ts`)
+are what load it; the `tanstack-build` probes build with native rolldown, as
+Node does, because the WebAssembly build crashed in Node's worker threads
+under a loaded test run. Val's dev copy of native
+`rolldown` is pinned to the same release as `@rolldown/browser`, because
+`Rolldown` is typed by the browser build and two releases' types disagree.
+
+A site whose `@valbuild/tanstack-build` predates this still loads the
+WebAssembly build in Node; its next upgrade brings the fix.
+
+## A request "pending" in dev is usually queued, not slow
+
+The devtools show a request as pending from the moment it is _created_, which
+includes the time it spends in the browser's own queue. A browser runs about six
+connections per origin over HTTP/1.1, so the seventh simultaneous request to
+`/api/val` has not been sent yet — and it looks identical to a request the server
+is sitting on.
+
+**The tell is the shape of the wait.** A request that was queued sits for
+seconds and then completes in milliseconds; one the server is actually slow on
+takes its time in the response. Observed on a `GET /patches` that appeared stuck:
+13 seconds pending, then under 50ms to answer. Resource Timing separates the two
+directly — `requestStart - fetchStart` is the queue, `responseStart -
+requestStart` is the server — which is what `scripts/valRequestReport.js` prints.
+
+Your own capture will often be all `/static/*` — 241 requests of 241, avg
+`queuedMs` 324, avg `serverMs` 21. That is not a boring capture, it is the
+answer: the queue is the SPA's own module loads, and 324ms of average waiting is
+what every other request is sitting behind.
+
+**The dev studio is what fills that queue.** In development
+`packages/ui/src/server.ts` is the static handler, and it proxies every
+`/api/val/static/*` through the Next server to the Vite dev server on `:5173`,
+which serves the SPA unbundled — one request per source file. Measured on
+`examples/next`: **608 requests, peaking at 152 in flight.** Anything the editor
+asks for during that window queues behind them: `GET /patches`, `POST /stat`, the
+next navigation. This is why a save can take a very long time to go green in dev
+and then recover on its own. Dev-only — production serves a prebuilt bundle from
+`packages/ui/src/vite-server.ts`.
+
+**A parked long poll holds one of those connections.** `POST /stat` in FS mode is
+held open for `statPollingInterval`, default **20 seconds** (`ValOpsFS.getStat`).
+A request the browser has assigned behind it on the same socket cannot go out
+until it returns, which is why a `/stat` and a `/patches` are seen finishing at
+the same moment after ~20 seconds — not a shared lock, just a freed connection.
+
+Separately, and real but much smaller: `ValOpsFS.readPatches` reads and
+`JSON.parse`s **every** patch on disk before filtering to the `patch_id` that was
+asked for, all synchronously on the event loop. Measured against `examples/next`
+with a fabricated chain, one-patch `GET /patches`: 8ms at 1 patch, 15ms at 200,
+**35–46ms at 650** — and the response is 394 bytes at every length. Called from
+`fetchPatches`, `getStat` and `getParentPatchIdFromPatchId`, so the stat poll pays
+it too. Enough to notice on a long chain, nowhere near enough to explain a request
+that appears to hang.
+
+## The canvas can refresh before the server has the edit
+
+An edit is applied to the client store the moment you type it and written to the
+server asynchronously. `router.refresh()` fired on the edit therefore races the
+write: the RSC payload can come back rendered from content that does not include
+the patch yet. The canvas flickers and does not change — which looks exactly like
+an edit that did not work.
+
+The page has no way to ask whether its patch has been persisted, so it cannot be
+closed properly from this side. `ValNextProvider` asks again instead: a safety
+refresh every 10s while editing is recent (`SAFETY_REFRESH_MS`,
+`SAFETY_REFRESH_WINDOW_MS`). `shouldSafetyRefresh` holds the reasons to skip —
+never edited, editing long over, tab hidden, refresh in flight — because each one
+is a whole-route request avoided, and in development that is a page re-render.
+
+If you find yourself adding a refresh somewhere, check whether this net already
+covers it.
+
+## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
+
+Spinners have been reported to look off centre while turning, in Chrome on a
+Mac and in Safari on an iPhone, in the Studio and in valbuild/home. It has not
+been reproduced here. In headless Chromium, software and SwiftShader GPU
+alike, at 1x, 1.5x and 2x, at quarter- and half-pixel offsets and at 11 to
+24 px, a circle fitted to the arc frame by frame keeps its centre to within
+0.1 device pixel. The icon is drawn about (12, 12) of its 24 x 24 view box, and
+nothing in the Studio's CSS moves the rotation's origin. So a fix cannot be
+checked from a container: it needs the real browsers.
+
+What is known: Safari redraws a spinning SVG and rounds its position, and
+odd sizes and fractional offsets are reported to make it wobble on a 2x screen
+(WebKit bug 252385). Hence `Spinner` (`designSystem/spinner.tsx`): one place
+that draws a spinner, with an even size type, spinning a span on its own
+compositing layer rather than the SVG. Use it instead of putting
+`animate-spin` on an icon, so that when the cause is found there is one place
+to fix it. The icons that spin only while busy (`CanvasToolbar`,
+`RestoreCodeNotice`) and the loading screen in `@valbuild/next` and
+`@valbuild/tanstack` wrap their SVG in a spinning span the same way.
+
+## A preview with no background shows the Studio's artboard — or does not
+
+`CanvasFrame` paints a hardcoded `bg-white` artboard behind the preview iframe.
+A site that sets no background of its own can therefore render as a white sheet
+inside a dark editor, which reads as the preview being broken.
+
+The rule that decides whether the artboard is visible at all is not "iframes get
+the browser's default white". It is CSS Color Adjust's opaque-canvas rule:
+
+> When an element's used color scheme differs from its parent's — or, for the
+> root of an embedded document, from the **embedder's** — the UA paints an
+> opaque canvas in that scheme's Canvas colour. When they match, the canvas
+> stays transparent and the embedder shows through.
+
+Measured across the full matrix in Chromium 1194 (4 embedder declarations x 4
+embedded declarations x both browser preferences, 32/32 cells): Canvas is
+`#ffffff` for light and `rgb(18,18,18)` for dark. `prefers-color-scheme` inside
+the iframe follows the BROWSER, not the embedder — the embedder only decides
+match versus differ, so nothing here misreports the site's own media queries.
+
+For a background-less site previewed on the white artboard, that collapses to:
+
+| Studio's used scheme | site's used scheme | preview shows        |
+| -------------------- | ------------------ | -------------------- |
+| same as site         | —                  | the artboard (white) |
+| differs, site light  | light              | opaque white         |
+| differs, site dark   | dark               | `rgb(18,18,18)`      |
+
+So the preview is dark for exactly one combination: the site resolves dark while
+the Studio page resolves light. Nothing in `@valbuild/ui` declares
+`color-scheme` — the only occurrence in the built CSS is `DateTimeField`'s
+picker utility — so the Studio page resolves light unless the app puts one on
+it. In `examples/tanstack` it does: `__root.tsx` is the shell for `/val` too and
+links `styles.css`, so the Studio inherited the site's
+`:root { color-scheme: light dark }`, always matched the site, and the preview
+was deterministically white. A Next app whose `/val` route does NOT share the
+site stylesheet gets the split instead — white for a light-mode editor,
+`rgb(18,18,18)` for a dark-mode one, on the same site.
+
+The artboard stays white on purpose. Making it follow the Studio theme would
+make the preview depend on the editor's theme, and there is no single correct
+answer to paint instead: a site with no background genuinely has none, and a
+real visitor sees white or `#121212` depending on their own preference.
+
+The fix is on the site, not the Studio: set an explicit background on `body`.
+A page that paints its own background is opaque in both contexts and none of
+the above applies. Neither Tailwind v3 nor v4 preflight sets one for you.
+
+## `?val_canvas` marks only the first document in the canvas
+
+The Studio loads the canvas at `/page?val_canvas=1`, and the provider used to
+read only that parameter to decide whether it was the canvas. But the frame
+navigates on its own, and every full-page navigation loses the parameter. The
+case that showed it is a site with its own login: a signed-out canvas is
+redirected to `/login`, and that document mounted Val's whole overlay inside
+the canvas, a Studio in the Studio. It never posted `ready`, so the canvas sat
+on "Preview is not ready yet" through the sign-in and after it. A client-side
+navigation back to the page did not help either, because the provider decides
+once per document.
+
+`isValCanvasFrame` now also takes the parent's path: a document framed by
+`/val` on the same origin is the canvas, whatever its own address says. The
+parameter remains for the document the Studio loads. Pinned by
+`e2e/tanstack/signedInPreview.spec.ts` against `/dashboard` in
+`examples/tanstack`.
+
+The site's cookies are not the problem. The canvas is a same-origin frame, so
+it is sent `HttpOnly` and `SameSite=Lax`/`Strict` cookies like any tab. What
+does block it is a site that forbids being framed: `X-Frame-Options: DENY`,
+or `Content-Security-Policy: frame-ancestors 'none'`, both common on
+dashboards. The canvas then shows a refused frame and reaches "No answer from
+the page". `SAMEORIGIN` / `frame-ancestors 'self'` allow it.
+
+## `suspend` is three waits, and a route only gets one chance
+
+`suspend` on `ValProvider` exists for one situation: a route that exists only in
+an uncommitted patch. `useValRoute` returns `null` both for "no answer yet" and
+"no such route", the page turns `null` into `notFound()`, and that is terminal —
+so a route is not like a field. A field that resolves too early flashes stale
+text; a route that resolves too early is a 404 nothing later can undo.
+
+Three things have to be true before the answer is trustworthy, and each was
+independently wrong:
+
+1. **Draft mode must be KNOWN.** `draftMode` is `null` until `/draft/stat`
+   answers, and the reader that turns a selector into content treats `null` as
+   off. So a render that got through while it was unknown resolved against
+   committed source. Fixed: the gate waits on `draftModeReady` first.
+2. **The draft sources must have arrived — or be known not to be coming.** The
+   editor only sends modules it has patches for; an unedited module has no draft
+   to send. The page could not tell "not sent yet" from "nothing to send", so it
+   waited out `waitForLoad`'s 10s timeout once per unedited module it reads.
+   `/blogs/[blog]` also reads the authors module, so a new blog page sat on its
+   loading fallback for tens of seconds. Fixed: the editor sends `sourcesSynced`
+   when it has handed over everything it holds.
+3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
+   sets `suspendActive` in an effect, so the SSR and hydration renders never
+   consult it — and hydration is where `notFound()` is called. **Not fixed on
+   its own terms, and on TanStack no longer needed:** with `<ValProvider
+draft>` the server renders from the draft it read, so the deciding render
+   already has the route. Without `draft` (and on Next) it is still open. See
+   below.
+
+### Why (3) is not just a bug
+
+It used to work, by exactly the mechanism that would fix it. Before `a4c09b2e`
+("Fix suspend to no longer require async layout") the prop was the answer rather
+than a request:
+
+```tsx
+<ValProvider config={config} suspend={await isValEnabled()}>
+```
+
+That made `suspend` true during SSR, so the first render suspended and the route
+did not 404 — the old doc comment said so in as many words. It was traded away
+because reading `cookies()` server-side forces an async layout and opts every
+route into dynamic rendering, which is a real cost to pay on every visitor for
+something only editors need. The replacement reads `document.cookie` in an
+effect, which is cheap, static — and always too late for a route.
+
+Restoring it is not enough on its own, though — this was tried. With the gate on
+during SSR the server suspends on `waitForLoad`, and the store it waits for is
+only ever filled from the browser (the studio pushes sources by `postMessage`;
+`ValExternalStore` had no server-side writer — it has one now, see below). So the request does not 404, it
+**hangs**: the example app's `/api/val/enable` redirect never finished loading.
+
+That is the actual shape of the remaining work: the server has to be able to
+supply draft sources during its own render — which `fetchVal` already does for
+server components, via `/sources/~` with patches applied. A client component's
+SSR pass has no equivalent, and giving it one is a good deal more than a prop.
+
+**On TanStack Start it has one now: `<ValProvider draft>`.** The site layout's
+loader calls `fetchValDraft()` through a server function, on the server only.
+That is the same per-request `/sources/~` read `fetchVal` makes, cut down to the
+modules the draft changes, and `null` after one cookie lookup for anyone not in
+draft mode. The provider seeds its store with it and starts with `draftMode`
+true, so the server renders the draft and the browser's hydration render reads
+the same sources from the loader data and agrees with it. The edit tags (the
+invisible characters that JSX auto-tagging turns into a `data-val-path`
+attribute) are left OUT of what a component renders on the server and while it
+hydrates, and put in by the render React does right after
+(`useEncodesEditTags`, via `useHydrated`, a `useSyncExternalStore` whose server
+snapshot is `false`). Not a switch timed to a page-wide moment: "after mount" and
+"after the first `/draft/stat` answer" were both tried, and the switch is
+process-wide, so a split-out route -- or a lazy child handed a string as a prop
+-- hydrated after either, tagged, against untagged server HTML. A string with
+no tags has nothing to tag, whenever it is rendered. It does not hang, because nothing waits on the browser: the
+store is full before the first render, and `draftSourcesSynced` starts true
+(a module missing from a server-read draft has no changes, rather than "not
+sent yet"). TanStack can afford it because every request is rendered anyway —
+there is no static route for a cookie read to opt out of.
+
+It also fixed the more common symptom, which was not a 404 at all: every draft
+page load showed the published text and then, once the overlay had loaded, the
+draft. People notice it most right after publishing, when they reload to look.
+`e2e/tanstack/draftRender.spec.ts` pins it. Next still has the gap for client
+components; the cost argument below is why it has not followed.
+
+### What a visitor pays
+
+Nothing. Measured on a fresh context with no `val_enable` cookie: **zero**
+`/api/val` requests, no Val elements in the DOM, and no timers — the refresh
+loop, the `/draft/stat` poll and the safety refresh are all behind
+`mountOverlay`, which is the cookie. The suspend gates short-circuit on
+`suspend`, which stays false. The `draftModeReady` promise is only built when
+`props.suspend` is set.
+
+This is worth keeping true, and it is the whole reason (3) above is still open:
+the fix for it — the server knowing whether Val is enabled — is the one change
+here that WOULD cost a visitor something, because reading `cookies()` opts the
+route into dynamic rendering for everyone.
+
+### Where this is pinned
+
+`packages/next/src/client/useValRoute.draft.test.tsx` — one test per state,
+including the two that differ ONLY in whether the gate was on for the deciding
+render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
+single-module case is `test.fixme` for (3).
+
+## `fetchVal` in draft mode reads every module, ONCE per request
+
+A draft-mode `fetchVal` does not resolve the selector you handed it. It asks
+`PUT /sources/~` for the whole module tree and then picks its modules out of the
+answer — so a page reading one string pays for the project. That part is still
+true and is not what changed.
+
+What changed is the "per call". The reader used to make that request once per
+`fetchVal`, so a page with three reads paid three times for three identical
+answers, and `fetchValRouteUrl` made it worse by calling `fetchVal` again on top
+of the caller's own. The answer cannot differ between reads in one request — the
+query is fixed and the session is fixed — so it is now read once and shared.
+Measured on a synthetic 60-module project, a three-read render went from 187ms
+to 70ms (2.7x); `packages/next/src/rsc/draftRead.perf.test.ts` prints it.
+
+**The memo is scoped to the REQUEST, and that is a correctness rule, not a
+tidiness one.** The body it holds is a draft — unpublished patches, read with
+the caller's session cookie. Every caller allowed to read drafts gets the same
+one (it was per author while patch groups existed), but whether a caller is
+allowed is decided per session, so a memo that outlived the request would hand
+the draft to the next visitor without asking.
+So the memo holds no module-level state: the box comes from React's `cache()` in
+an RSC and from a `WeakMap` keyed on the `Request` in TanStack Start, and when
+neither is available (`null`) it computes every time, which is what the code did
+before. Ineffective is the safe failure here; shared is not. The key is the
+session, so a box that somehow outlived its request misses rather than answering
+wrongly.
+
+**Narrowing the request's `path` does NOT make the server do less, so the reader
+does not bother.** `/sources/~` evaluates, previews and validates every module
+and only THEN filters the response by `req.path` — the two TODOs at
+`ValServer.ts`'s `/sources/~` say exactly that. Measured: at 60 modules,
+`path: "/"` took 53.6ms and a single-module path 53.5ms, for 932KB against 15KB.
+And those bytes are not transferred by anyone: `fetchVal` calls the server
+in process, so the response object is never serialised. Narrowing would also
+give each caller a different answer to cache, which would cost the saving above
+to buy nothing. If you want the server to do less, the work is in `/sources/~`
+itself — and note that `validateSources` deliberately needs every module loaded
+anyway, to build the gallery-conflict map and the cross-module snapshot, so
+scoping it changes which errors are reported rather than just how fast.
+
+None of this touches production. With Val disabled the reader never calls the
+server at all: `stegaEncode(selector, { disabled: true })` runs against the
+statically imported module. And it does not touch the client readers, which were
+already scoped — `useVal` subscribes to exactly `getModuleIds(selector)`.
+
+## TanStack Start
+
+**A `*.val.ts` under `src/routes` is read as a route unless you say otherwise.**
+TanStack Router's generator scans every file in the routes folder and warns, on
+every run, that `posts.$postId.val.ts` exports no `Route` — while quietly
+treating it as `/posts/$postId/val`. The fix is one line in both the Vite plugin
+and `tsr.config.json`: `routeFileIgnorePattern: "\\.val\\.[tj]sx?$"`. Colocation
+is worth the line — the Val module is named after the route file it serves, and
+that naming is what `tanstackRouter` reads the URL pattern out of.
+
+**`suspend` must not be activated in the same effect flush that sets
+`mountOverlay`.** `useValStega` suspends on `draftModeReady`, and the only thing
+that resolves it is the `/draft/stat` poll — which does not start until
+`mountOverlay` is set. Activating the gate alongside it lets the tree suspend
+before that state has committed, and then it never does: React is left
+re-rendering a suspended tree in which `mountOverlay` is forever `undefined`, so
+the poll never runs, so the promise never resolves. The page hydrates and then
+stops — no overlay, no draft content, no error, and every state update in the
+provider silently discarded. `ValTanStackProvider` gates the activation on
+`mountOverlay` for exactly this reason. (`@valbuild/next` has not been observed
+to hit it; the ordering there is not obviously safe either.)
+
+**`suspend` needs a `<Suspense>` boundary you provide.** Next gives you one per
+route through `loading.tsx`; TanStack Start gives you none. With no boundary
+between a suspending component and the root, there is nowhere to show a fallback
+and the symptom is the one above — a tree that hydrates and stops.
+
+**A route `loader` runs in the browser too.** So importing the module that calls
+`initValContent` straight into a loader puts `@valbuild/server` — and `fs` — in
+the client bundle, and the page dies with "Module node:module has been
+externalized for browser compatibility". Server reads go through
+`createServerFn`, which the plugin compiles away on the client along with
+everything only its handler used.
+
+**Content read through a loader is not click-to-editable on a hard load.** The
+edit tags are attached as JSX is created, and `SET_AUTO_TAG_JSX_ENABLED(true)`
+only happens after hydration has established that the Studio is open — by which
+time the component has rendered its loader data once, and re-running the loader
+does not re-tag it. A client-side navigation to the same route tags it normally.
+Read with the hooks anything an editor should be able to click.
+
+**`require("../package.json")` returns `null` in an ESM bundle**, which is how
+`Internal.VERSION.core` came to be null under Vite — silently, because the read
+is wrapped in a `try`. It is not only a display value: it goes into every remote
+file ref, and proxy mode refuses to start without it. Every `version.ts` now
+uses a static JSON import, which preconstruct inlines at build time.
+
+**A page that reads media from the client store shows draft images at their
+published URL.** The Studio's own store never carries `patch_id` — the server
+sets it on the sources IT serves, and the editor's fields get it from
+`patchStore.filePatchIds()` separately — so the source the overlay emitter hands
+the host page had a freshly uploaded image pointing at `/public/...`, where
+nothing is written until publish. The image then fails to load with no error at
+all: in a TanStack app `/val/...` is the Studio route, so the request 200s with
+the Studio's HTML and the `<img>` simply decodes nothing. `withFilePatchIds` in
+`ValOverlayEmitter` stamps it now. Next hides this because its pages usually read
+through `fetchVal` in an RSC, which reads `/sources/~` server-side where the
+stamp is already there.
+
+**`notFound()` thrown from a COMPONENT is not caught by
+`defaultNotFoundComponent`.** It escapes to the error boundary instead: the
+right page still renders, but every miss logs `Error in renderToReadableStream`
+and React's "the above error occurred in <Page>" during server rendering, and
+before a not-found component exists at all it also aborts the response — which
+surfaces as an `AbortError` from srvx and reads like a server crash. A
+route-level `notFoundComponent` does catch it; `defaultNotFoundComponent` only
+covers a `notFound()` thrown from a loader. Reading content in the component is
+Val's normal path, so a page with no entry should RETURN the not-found UI rather
+than throw.
+
+**TanStack names a splat parameter twice.** `useParams()` on a `$` route returns
+both `_splat` and `*`, set to the same value. Val's route pattern has one param
+for it, so the other was left over and reported as "parameters ... where not
+found in the path" — a console error on every render of a working splat route.
+`getValRouteUrlFromVal` drops `*` when `_splat` is present.
+
+**`vite dev` serves a CommonJS dependency of the demo's server unconverted.**
+`<ValApp demo>` loads `@valbuild/server/browser` with a dynamic `import()`, so
+Vite's dependency scan, which starts from the app's own entries, never reaches
+it, and anything CommonJS that chunk imports is handed to the browser as it is
+on disk. npm's `buffer` was such a thing: the tab refused it with "does not
+provide an export named 'Buffer'" and the Studio said "The demo could not
+start: part of it did not load". `vite build` converts CommonJS, so only an
+app's dev server broke, and never inside this repository, where the workspace
+links packages as source. The server's request handlers use `Uint8Array` and
+`bytes.ts` instead, and `noNodeFromBrowser.test.ts` refuses `buffer` and the
+global `Buffer` in what the browser entry reaches, `@valbuild/core` and
+`@valbuild/shared` included. Seeing it takes the packed packages in an app of
+its own; the workspace hides it.
+
+**In this repository, the first page with the overlay on reloads the Studio.**
+`ValTanStackProvider` imports `@valbuild/shared/internal` lazily, the first
+time a page renders with the overlay. The workspace links `@valbuild/*` as
+source, which Vite does not pre-bundle, so it meets that entrypoint's
+dependencies (zod, zod-validation-error, flexsearch) only then, re-optimizes,
+and reloads every page it serves, the Studio's included. In an e2e run that
+reload landed mid-edit in the first canvas test on a fresh checkout, and the
+row being typed in was gone. `examples/tanstack/vite.config.ts` lists them in
+`optimizeDeps.include`. A dependency added to that entrypoint brings the reload
+back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
+see it. An app that installs Val from npm is not affected:
+`@valbuild/tanstack` is pre-bundled there, with what it imports lazily.

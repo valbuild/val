@@ -18,10 +18,12 @@ type ToasterProps = React.ComponentProps<typeof SonnerToaster>;
  * imported into spa/index.css (served into the shadow root) instead.
  */
 export function Toaster(props: ToasterProps) {
-  const { theme } = useTheme();
+  // `resolvedTheme`, not `theme`: a toast painted from the unresolved value is
+  // dark inside a Studio the project set to open light.
+  const { resolvedTheme } = useTheme();
   return (
     <SonnerToaster
-      theme={theme ?? "light"}
+      theme={resolvedTheme}
       position="bottom-center"
       closeButton
       toastOptions={{

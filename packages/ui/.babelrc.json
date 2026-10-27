@@ -1,5 +1,18 @@
 {
+  // `@babel/preset-typescript` is also in the repo-root `babel.config.js`,
+  // which is the one jest loads. It has to be repeated here because tools that
+  // resolve a babel config starting from this package - react-docgen, through
+  // Storybook's docgen plugin - treat this file as the entire config and never
+  // reach the root one. Without it they parse `.tsx` as Flow and fail on the
+  // first `import type`.
   "presets": [
+    // `allowDeclareFields` repeated from the root config for the same reason
+    // the preset is: a tool that starts here never reads the root one. A
+    // `.babelrc` preset also OVERRIDES the root's options for files under this
+    // package, so leaving it off would make `declare` a syntax error here while
+    // the root config says otherwise — true today, and a trap the day a
+    // `declare` field is written under packages/ui.
+    ["@babel/preset-typescript", { "allowDeclareFields": true }],
     [
       "@babel/preset-react",
       {

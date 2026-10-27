@@ -22,15 +22,14 @@ import {
   useClient,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
+import type { TransientError } from "../stores/StatusStore";
 import { useValPortal } from "./ValPortalProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import {
   Bell,
-  Check,
   ChevronDown,
   Download,
-  Loader2,
   TriangleAlert,
   Undo2,
   X,
@@ -62,7 +61,10 @@ import {
   SheetTrigger,
 } from "./designSystem/sheet";
 import * as RadixAccordion from "@radix-ui/react-accordion";
-import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import {
+  commitSubject,
+  ValEnrichedDeployment,
+} from "../utils/mergeCommitsAndDeployments";
 import {
   Tooltip,
   TooltipContent,
@@ -70,7 +72,8 @@ import {
 } from "./designSystem/tooltip";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { ValPath } from "./ValPath";
-import { getInitials } from "../utils/getInitials";
+import { Avatar } from "./Avatar";
+import { Spinner } from "./designSystem/spinner";
 
 export function DraftChanges({ className }: { className?: string }) {
   const currentPatchIds = useCurrentPatchIds();
@@ -88,8 +91,7 @@ export function DraftChanges({ className }: { className?: string }) {
     }
     return count;
   }, [allValidationErrors]);
-  const { deployments, dismissDeployment, observedCommitShas } =
-    useDeployments();
+  const { deployments, observedCommitShas } = useDeployments();
   const { deletePatches } = useDeletePatches();
   const { patchErrors } = useAllPatchErrors();
 
@@ -100,7 +102,6 @@ export function DraftChanges({ className }: { className?: string }) {
           <Deployments
             deployments={deployments}
             observedCommitShas={observedCommitShas}
-            onDismiss={dismissDeployment}
           />
         </div>
       )}
@@ -220,8 +221,11 @@ export function PatchErrorsDisplay() {
     <div className="border-b border-border-primary bg-bg-error-primary text-fg-error-primary">
       <div className="flex flex-col gap-4 p-4">
         <div className="px-4 text-pretty">
-          <div>Unfortunately, one or more changes have errors.</div>
-          <div>No changes can currently be applied.</div>
+          <div>
+            One or more changes conflict with newer ones and can no longer be
+            applied.
+          </div>
+          <div>Remove them below to continue publishing.</div>
         </div>
         {Object.entries(patchErrors).map(([moduleFilePath, errors], i) => (
           <div key={moduleFilePath + "#" + i} className="pb-4">
@@ -361,12 +365,14 @@ export function ValidationErrorsDisplay() {
   );
 }
 
-export type TransientError = {
-  message: string;
-  timestamp: number;
-  details?: string;
-  id: string;
-};
+/**
+ * Re-exported from `StatusStore`, which is where these are produced.
+ *
+ * There were two identical declarations of this — one here, one in the store —
+ * and only a `readonly` on the store's array kept them apart. One definition,
+ * owned by the thing that makes them.
+ */
+export type { TransientError };
 
 /**
  * Container that wires the transient-error queue (the history) to the
@@ -406,7 +412,7 @@ export function TransientErrorsList({
   onClear,
   container,
 }: {
-  errors: TransientError[];
+  errors: readonly TransientError[];
   onDismiss: (id: string) => void;
   onClear: () => void;
   container?: HTMLElement | null;
@@ -439,7 +445,7 @@ export function TransientErrorsList({
         <button
           type="button"
           aria-label={`${count} transient error${count > 1 ? "s" : ""}`}
-          className="relative mr-auto inline-flex items-center justify-center rounded-md p-2 text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="relative mr-auto inline-flex items-center justify-center rounded-md p-2 text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         >
           <Bell size={16} aria-hidden />
           {hasUnseen && (
@@ -502,46 +508,49 @@ export function TransientErrorsList({
   );
 }
 
+/**
+ * The publishes still on their way out, in the classic layout.
+ *
+ * In flight only, which is what the spinner in its header has always claimed.
+ * It used to list whatever the deploy feed held and clear rows as they landed:
+ * a five-second `setTimeout` per observed commit, dismissing it from the shared
+ * feed. That was already a leak - no cleanup, and it re-armed on every render -
+ * and it stopped being possible when the feed became the last N publishes
+ * rather than a list to be emptied. A publish leaves this block when Val sees
+ * the site answering with its commit, which is the same moment the timer was
+ * approximating.
+ *
+ * Note this whole layout is unrendered today: the shell replaced it, and only
+ * `TransientErrorsList` is still imported out of this file.
+ */
 function Deployments({
   deployments,
   observedCommitShas,
-  onDismiss,
 }: {
   deployments: ValEnrichedDeployment[];
   observedCommitShas: Set<string>;
-  onDismiss: (commitSha: string) => void;
 }) {
-  useEffect(() => {
-    for (const deployment of deployments) {
-      if (observedCommitShas.has(deployment.commitSha)) {
-        setTimeout(() => {
-          onDismiss(deployment.commitSha);
-        }, 5000);
-      }
-    }
-  }, [deployments, observedCommitShas]);
+  const inFlight = deployments.filter(
+    (deployment) => !observedCommitShas.has(deployment.commitSha),
+  );
+  if (inFlight.length === 0) {
+    return null;
+  }
   return (
     <div>
       <div className="flex justify-between items-center p-2 font-bold">
         <span>Deployments</span>
-        <Loader2 size={16} className="inline animate-spin" />
+        <Spinner size={16} />
       </div>
       <div>
-        {[...deployments]
+        {[...inFlight]
           .sort(
             (a, b) =>
               new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
           )
           .map((deployment) => {
             return (
-              <Deployment
-                key={deployment.commitSha}
-                deployment={deployment}
-                isFinished={observedCommitShas.has(deployment.commitSha)}
-                onDismiss={() => {
-                  onDismiss(deployment.commitSha);
-                }}
-              />
+              <Deployment key={deployment.commitSha} deployment={deployment} />
             );
           })}
       </div>
@@ -549,15 +558,7 @@ function Deployments({
   );
 }
 
-function Deployment({
-  deployment,
-  isFinished,
-  onDismiss,
-}: {
-  deployment: ValEnrichedDeployment;
-  isFinished: boolean;
-  onDismiss: () => void;
-}) {
+function Deployment({ deployment }: { deployment: ValEnrichedDeployment }) {
   const profilesById = useProfilesByAuthorId();
   const portalContainer = useValPortal();
   const author = deployment.creator && profilesById[deployment.creator];
@@ -575,8 +576,14 @@ function Deployment({
         <Tooltip>
           <TooltipPortal container={portalContainer} />
           <TooltipTrigger>
+            {/*
+              The subject line only: this row is one truncated line, and
+              `truncate` collapses a git message's newlines into spaces - so a
+              message with a body arrived as "Subject The body went on like
+              this…". The tooltip below still has the whole of it.
+            */}
             <div className="max-w-[180px] overflow-clip font-light truncate">
-              {deployment.commitMessage}
+              {commitSubject(deployment.commitMessage)}
             </div>
           </TooltipTrigger>
           <TooltipContent className="max-w-[320px]">
@@ -586,21 +593,7 @@ function Deployment({
           </TooltipContent>
         </Tooltip>
       </div>
-      {isFinished && (
-        <div className="flex gap-2 items-start">
-          <span className="text-xs font-light text-fg-quaternary">
-            Deployed
-          </span>
-          <button
-            onClick={() => {
-              onDismiss();
-            }}
-          >
-            <Check size={14} />
-          </button>
-        </div>
-      )}
-      {!isFinished && <TimeSpent since={new Date(deployment.createdAt)} />}
+      <TimeSpent since={new Date(deployment.createdAt)} />
     </div>
   );
 }
@@ -635,7 +628,7 @@ function TimeSpent({ since }: { since: Date }) {
     };
   }, [since]);
   return (
-    <div className="text-xs font-light text-fg-quaternary">
+    <div className="text-xs font-light text-fg-secondary-alt">
       {minutes}
       {seconds !== null ? `:${seconds}` : " mins"}
     </div>
@@ -649,7 +642,7 @@ function PatchCard({
 }: {
   moduleFilePath: ModuleFilePath;
   patchMetadata: PatchMetadata;
-  committedPatchIds: Set<PatchId>;
+  committedPatchIds: ReadonlySet<PatchId>;
 }) {
   const changeDescription = useChangeDescription(
     [patchMetadata.opType],
@@ -679,13 +672,17 @@ function PatchCard({
         },
       ];
     } else {
-      console.warn("Did not find profile for author: ", patchMetadata.author, {
-        profilesById,
-      });
+      Internal.log.debug(
+        "Did not find profile for author: ",
+        patchMetadata.author,
+        {
+          profilesById,
+        },
+      );
     }
   }
   if (authors.length === 0 && mode === "http") {
-    console.warn("No authors", { patchMetadata });
+    Internal.log.debug("No authors", { patchMetadata });
   }
   return (
     <PatchOrPatchSetCard
@@ -738,7 +735,7 @@ function useChangeDescription(
     changeType = "Updated";
   } else {
     const exhaustiveCheck: never = firstOp;
-    console.warn("Unexpected op type: ", exhaustiveCheck);
+    Internal.log.warn("Unexpected op type: ", exhaustiveCheck);
   }
   return changeType + " " + relativeLocalDate(now, lastUpdated);
 }
@@ -749,7 +746,7 @@ function PatchSetCard({
   patchErrors,
 }: {
   patchSet: PatchSetMetadata;
-  committedPatchIds: Set<PatchId>;
+  committedPatchIds: ReadonlySet<PatchId>;
   patchErrors: Record<PatchId, { message: string }> | null;
 }) {
   const [isOpen, setOpen] = useState(false);
@@ -996,48 +993,24 @@ const PatchOrPatchSetCard = forwardRef<
           <span className="flex flex-shrink-0 gap-2">
             {authors !== undefined && authors.length > 0 && (
               <span className="flex gap-1 mr-2">
-                {authors.slice(0, 2).map((author, i) => {
-                  if (author.url) {
-                    return (
-                      <Tooltip key={author.url}>
-                        <TooltipTrigger className="flex-shrink-0 w-6 h-6">
-                          <img
-                            src={author.url}
-                            alt={author.fullName}
-                            className={classNames("rounded-full", {
-                              "-ml-3": authors.length > 2 && i > 0,
-                            })}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div>{author.fullName}</div>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  }
-                  const initials = getInitials(author.fullName);
-                  return (
-                    <Tooltip key={author.fullName + author.url}>
-                      <TooltipTrigger
-                        className={classNames({
-                          "-ml-3": authors.length > 2 && i > 0,
-                        })}
-                      >
-                        <span
-                          className={classNames(
-                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary",
-                          )}
-                          aria-label={"Initials for: " + author.fullName}
-                        >
-                          {initials}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <div>{author.fullName}</div>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
+                {authors.slice(0, 2).map((author, i) => (
+                  <Tooltip key={author.fullName + author.url}>
+                    <TooltipTrigger
+                      className={classNames("flex-shrink-0", {
+                        "-ml-3": authors.length > 2 && i > 0,
+                      })}
+                    >
+                      <Avatar
+                        name={author.fullName}
+                        imageUrl={author.url}
+                        size="xs"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div>{author.fullName}</div>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
                 {authors.length > 2 && (
                   <Tooltip>
                     <TooltipTrigger
@@ -1053,17 +1026,11 @@ const PatchOrPatchSetCard = forwardRef<
                       {authors.slice(2).map((author) => {
                         return (
                           <Fragment key={author.fullName + author.url}>
-                            {author.url ? (
-                              <img
-                                key={author.url}
-                                src={author.url}
-                                alt={author.fullName}
-                                title={author.fullName}
-                                className={classNames("w-6 h-6 rounded-full")}
-                              />
-                            ) : (
-                              <div />
-                            )}
+                            <Avatar
+                              name={author.fullName}
+                              imageUrl={author.url}
+                              size="xs"
+                            />
                             <div>{author.fullName}</div>
                           </Fragment>
                         );

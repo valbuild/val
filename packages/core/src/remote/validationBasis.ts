@@ -1,6 +1,7 @@
 import { getSHA256Hash } from "../getSha256";
 import { SerializedFileSchema } from "../schema/file";
 import { SerializedImageSchema } from "../schema/image";
+import { SerializedVideoSchema } from "../schema/video";
 
 /**
  * The validation basis is used in remote refs to determine if the remote content needs to be re-validated.
@@ -13,20 +14,26 @@ import { SerializedImageSchema } from "../schema/image";
  */
 export function getValidationBasis(
   coreVersion: string,
-  schema: SerializedImageSchema | SerializedFileSchema,
+  schema: SerializedImageSchema | SerializedFileSchema | SerializedVideoSchema,
   fileExt: string,
   metadata: Record<string, unknown> | undefined,
   fileHash: string,
 ) {
   const metadataValidationBasis = `${metadata?.width || ""}${metadata?.height || ""}${metadata?.mimeType}`;
+  const options: Record<string, unknown> = { ...schema.options };
+  // Ignore options that do not affect the validation basis below:
+  // `encode` says how the bytes were PRODUCED in the browser, not whether the
+  // bytes that arrived are valid. Leaving it in would mean that changing a
+  // quality setting re-validates every remote file in the project.
+  delete options.encode;
+  // `stream` likewise: it is what the Studio made of an upload (an HLS
+  // directory instead of one file), and every file it made is validated on its
+  // own merits.
+  delete options.stream;
   const schemaValidationBasis = {
     type: schema.type,
     opt: schema.opt,
-    options: {
-      ...schema.options,
-      // Ignore options that are does not affect the validation basis below:
-      // Currently we do not have any options that can be ignored.
-    },
+    options,
   };
   return (
     coreVersion +
@@ -39,7 +46,7 @@ export function getValidationBasis(
 
 export function getValidationHash(
   coreVersion: string,
-  schema: SerializedImageSchema | SerializedFileSchema,
+  schema: SerializedImageSchema | SerializedFileSchema | SerializedVideoSchema,
   fileExt: string,
   metadata: Record<string, unknown> | undefined,
   fileHash: string,

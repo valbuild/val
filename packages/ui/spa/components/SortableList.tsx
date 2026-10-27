@@ -19,10 +19,8 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
-import type { ListArrayRender } from "@valbuild/core";
-import { PreviewWithRender } from "./PreviewWithRender";
-import { StringField } from "./fields/StringField";
+import { SourcePath } from "@valbuild/core";
+import { RefPreview } from "./RefPreview";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
 import { useAllValidationErrors } from "./ValErrorProvider";
@@ -33,7 +31,8 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
-import { FieldValidationError } from "./FieldValidationError";
+import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
+import { LocaleFiltered } from "./LocaleFilterProvider";
 
 export function SortableContainer({
   source,
@@ -52,6 +51,27 @@ export function SortableContainer({
   }) => React.ReactNode;
   className?: string;
 }) {
+  /**
+   * The rendered order, which is `source`'s order plus a transient optimistic lie.
+   *
+   * ## Why this is re-derived from `source`, and must stay that way
+   *
+   * An array item's path is POSITIONAL (`?p="0"`, `?p="1"`), so a reorder does not
+   * move paths — it moves content between fixed paths. `handleDragEnd` permutes
+   * these entries for immediate feedback, and that permutation has to be undone
+   * the moment the patch applies, or it is applied a second time and cancels the
+   * move out.
+   *
+   * Measured, because it is not obvious and it looks like churn worth removing:
+   * with this reset suppressed for a reorder (paths compared as a set, which is
+   * what "the list owns its order" amounts to), dragging row 1 below row 2 ends
+   * with the list showing its ORIGINAL order. The patch is correct, source is
+   * correct, and the drag silently does nothing.
+   *
+   * So this is not the controlled/uncontrolled question that text fields answer
+   * with `defaultValue`. A text field owns a value at a fixed path; a list row
+   * owns nothing — its path is its index.
+   */
   const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
   useEffect(() => {
     const nextItems: {
@@ -95,7 +115,7 @@ export function SortableContainer({
       }
       setActiveId(null);
     },
-    [items],
+    [items, onMove],
   );
   return (
     <DndContext
@@ -111,9 +131,20 @@ export function SortableContainer({
         disabled={disabled}
       >
         <div className={className ?? "flex flex-col gap-y-4 w-full"}>
+          {/*
+           * `empty:hidden` so a row that draws nothing takes no gap.
+           *
+           * Whether a row renders is decided INSIDE it — `LocaleFiltered`
+           * returns null under the locale filter, and a hidden item schema
+           * does the same — so this wrapper cannot ask before rendering, and
+           * a flex child with no content still gets its share of the `gap`.
+           * The result was a blank slot per hidden row. `:empty` is the one
+           * test that runs after the child has decided.
+           */}
           {items.map(({ path, id }, index) => (
             <div
               key={id}
+              className="empty:hidden"
               style={{ opacity: id === activeId ? 0.3 : undefined }}
             >
               {renderItem({ path, id, index })}
@@ -121,7 +152,15 @@ export function SortableContainer({
           ))}
         </div>
       </SortableContext>
-      <DragOverlay>
+      {/*
+       * No drop animation, deliberately.
+       *
+       * The overlay renders a positional path, so while it animates back into
+       * place the patch lands and the content AT that path changes — the card
+       * under the cursor turns into a different row. Removing the animation
+       * unmounts it at drop instead, before there is anything to change.
+       */}
+      <DragOverlay dropAnimation={null}>
         {activeItem
           ? renderItem({
               path: activeItem.path,
@@ -134,10 +173,17 @@ export function SortableContainer({
   );
 }
 
+/**
+ * A list of rows you click through to, each showing its item's preview.
+ *
+ * The other kind of list is `BlockList`, which edits its items in place;
+ * `ArrayFields` picks between the two on the array's own render
+ * (`isInlineRender`).
+ * This one is now only ever the preview-row half of that choice, so it takes no
+ * schema: a row resolves its own preview through `RefPreview`.
+ */
 export function SortableList({
   source,
-  render,
-  schema,
   disabled,
   onClick,
   onMove,
@@ -147,8 +193,6 @@ export function SortableList({
   source: SourcePath[];
   path: SourcePath;
   disabled?: boolean;
-  render?: ListArrayRender;
-  schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
@@ -160,30 +204,26 @@ export function SortableList({
       disabled={disabled}
       onMove={onMove}
       renderItem={({ path, id }) => (
-        <SortableItemRow
-          id={id}
-          schema={schema}
-          disabled={disabled}
-          renderLayout={render?.layout}
-          render={
-            /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            render?.items[id - 1]
-          }
-          path={path}
-          onClick={onClick}
-          onDelete={(id) => {
-            onDelete(
-              /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-              id - 1,
-            );
-          }}
-          onDuplicate={(id) => {
-            onDuplicate(
-              /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-              id - 1,
-            );
-          }}
-        />
+        <LocaleFiltered path={path}>
+          <SortableItemRow
+            id={id}
+            disabled={disabled}
+            path={path}
+            onClick={onClick}
+            onDelete={(id) => {
+              onDelete(
+                /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                id - 1,
+              );
+            }}
+            onDuplicate={(id) => {
+              onDuplicate(
+                /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                id - 1,
+              );
+            }}
+          />
+        </LocaleFiltered>
       )}
     />
   );
@@ -194,18 +234,13 @@ export const LIST_ITEM_MAX_HEIGHT = 170;
 export function SortableItemRow({
   id,
   path,
-  schema,
   disabled,
-  render,
   onClick,
   onDelete,
   onDuplicate,
 }: {
   id: number;
   path: SourcePath;
-  renderLayout?: "list";
-  render?: ListArrayRender["items"][number];
-  schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
@@ -234,21 +269,34 @@ export function SortableItemRow({
   const centerGripAndDeleteIcons = !(validationErrors[path]?.length > 0);
   return (
     <div
-      touch-action="manipulation"
       ref={setNodeRef}
       style={style}
-      className={cn("relative flex disabled:opacity-55 flex-1", {
-        "items-start": !centerGripAndDeleteIcons,
-        "items-center": centerGripAndDeleteIcons,
-      })}
+      className={cn(
+        "relative flex disabled:opacity-55 flex-1",
+        // See `SORTABLE_ROW_TOUCH`.
+        SORTABLE_ROW_TOUCH,
+        {
+          "items-start": !centerGripAndDeleteIcons,
+          "items-center": centerGripAndDeleteIcons,
+        },
+      )}
     >
       <button
         {...attributes}
         {...listeners}
-        className={cn("pb-1 pr-2", {
-          "opacity-30": disabled,
-          "mt-2.5": !centerGripAndDeleteIcons,
-        })}
+        className={cn(
+          "pb-1 pr-2 rounded-sm text-fg-secondary hover:text-fg-primary",
+          // Keyboard reordering STARTS here — dnd-kit gives the handle
+          // `tabIndex=0` — so it needs the same focus ring as every other
+          // control, not the browser default.
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+          // See `DRAG_HANDLE_TOUCH`.
+          DRAG_HANDLE_TOUCH,
+          {
+            "opacity-30": disabled,
+            "mt-2.5": !centerGripAndDeleteIcons,
+          },
+        )}
         disabled={disabled}
         onClick={() => {
           onClick(path);
@@ -256,48 +304,38 @@ export function SortableItemRow({
       >
         <GripVertical />
       </button>
-      {/** Changing this behavior means we need to change the getNavPath behavior */}
-      {!render && schema?.item?.type === "string" && (
-        <div
-          className={cn("flex-grow w-full", {
-            "p-2 border border-bg-warning-secondary rounded-lg":
-              !!validationErrors[path],
-          })}
-        >
-          <StringField path={path} />
-          {validationErrors[path] && (
-            <div className="px-2">
-              <FieldValidationError validationErrors={validationErrors[path]} />
-            </div>
-          )}
-        </div>
-      )}
-      {(render || schema?.item?.type !== "string") && (
-        <button
-          className={cn(
-            "flex-grow",
-            "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
-            "hover:bg-bg-secondary-hover",
-            "overflow-y-clip",
-          )}
-          style={{
-            maxHeight: LIST_ITEM_MAX_HEIGHT,
-          }}
-          ref={ref}
-          disabled={disabled}
-          onClick={() => {
-            onClick(path);
-          }}
-        >
-          <PreviewWithRender path={path} className="flex-grow p-4 w-full" />
-          {isTruncated && (
-            <div
-              className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
-              style={{ height: 40 }}
-            ></div>
-          )}
-        </button>
-      )}
+      <button
+        className={cn(
+          "flex-grow",
+          "relative flex text-left border rounded-lg border-border-primary gap-y-2 bg-bg-primary",
+          "hover:bg-bg-secondary-hover",
+          "overflow-y-clip",
+        )}
+        style={{
+          maxHeight: LIST_ITEM_MAX_HEIGHT,
+        }}
+        ref={ref}
+        disabled={disabled}
+        onClick={() => {
+          onClick(path);
+        }}
+      >
+        <RefPreview path={path} className="flex-grow w-full" />
+        {isTruncated && (
+          /*
+           * The fade into the row's own background, so a clipped preview does
+           * not end on a hard edge. Both stops must be the SAME token the row
+           * paints above — and no alpha modifier: these colours are plain
+           * `var()` values, which Tailwind cannot mix an alpha into, so
+           * `via-bg-primary/90` emits no rule at all and leaves the middle stop
+           * unset. See `surfaceTokens.test.ts`.
+           */
+          <div
+            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-bg-primary to-bg-primary"
+            style={{ height: 40 }}
+          ></div>
+        )}
+      </button>
       {isParentError(path, validationErrors) && (
         <div
           className={cn("absolute right-3", {

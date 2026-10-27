@@ -1,37 +1,33 @@
-import { SourcePath } from "@valbuild/core";
-import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
+import {
+  Internal,
+  isPageRouter,
+  ModuleFilePath,
+  SourcePath,
+} from "@valbuild/core";
+import { useGetNavPath, useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
-import { Fragment, useCallback, useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { FieldPatchAuthors } from "./FieldPatchAuthors";
-import { useNavigation } from "./ValRouter";
 import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
-import { isParentArray, isParentRecord, useParent } from "../hooks/useParent";
-import { getNavPathFromAll } from "./getNavPath";
+import { isParentRecord, useParent } from "../hooks/useParent";
 import { FieldValidationError } from "./FieldValidationError";
 import { cn } from "./designSystem/cn";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
   BreadcrumbEllipsis,
 } from "./designSystem/breadcrumb";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./designSystem/dropdown-menu";
 import {
   HoverCard,
   HoverCardContent,
@@ -45,6 +41,16 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
+import {
+  BackLink,
+  parentDestination,
+  scopePartsBelowPageRouter,
+} from "./ModuleScope";
+import { useHeadingTools } from "./shell/headingTools";
+import { PathHeading } from "./PathHeading";
+import { useEditorDensity } from "./EditorDensity";
+import { useDescription } from "./useDescription";
+import { ContentViewsSummary } from "../analytics/ContentViewsSummary";
 import { ComponentPreview } from "./ComponentPreview";
 
 export function Module({
@@ -56,15 +62,14 @@ export function Module({
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
-  const { navigate } = useNavigation();
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
   const validationErrors = useValidationErrors(path);
   const pendingPatchesRes = usePendingPatches(path);
   const hasPendingPatches = pendingPatchesRes
     ? pendingPatchesRes.length > 0
     : false;
   const profilesByAuthorIds = useProfilesByAuthorId();
+  // Whatever the shell puts beside the heading: the phone's locale filter.
+  const headingTools = useHeadingTools();
   const patchesByAuthorIds = useMemo((): Record<string, PendingPatch[]> => {
     const byAuthors: Record<string, PendingPatch[]> = {};
     for (const patch of pendingPatchesRes || []) {
@@ -77,23 +82,17 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
-  const onNavigate = useCallback(
-    (path: SourcePath) => {
-      if ("data" in schemasRes) {
-        const schemas = schemasRes.data;
-        const navPath = getNavPathFromAll(path, sources, schemas);
-        if (navPath) {
-          navigate(navPath);
-        } else {
-          navigate(path);
-          console.error(`Error navigating to path: ${path} - no schemas found`);
-        }
-      } else {
-        console.warn("Schemas not loaded yet");
-        navigate(path);
-      }
-    },
-    [schemasRes, sources, navigate],
+  const getNavPath = useGetNavPath();
+  const description = useDescription(path);
+  /** How much room the heading may spend. See {@link EditorDensity}. */
+  const density = useEditorDensity();
+  const isCompact = density === "compact";
+  /*
+   * The MODULE's schema, not this path's — needed to answer "is this a page".
+   */
+  const [ownModuleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSchemaAtPath = useSchemaAtPath(
+    ownModuleFilePath as unknown as SourcePath,
   );
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
@@ -129,9 +128,24 @@ export function Module({
 
   const schema = schemaAtPath.data;
   const parts = splitIntoInitAndLastParts(path);
-  const init = parts.slice(0, -1);
   const last = parts[parts.length - 1];
-  const showNumber = isParentArray(path, maybeParentPath, parentSchema);
+
+  /* See `scopePartsBelowPageRouter`. */
+  const [, ownModulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSchema =
+    "data" in moduleSchemaAtPath ? moduleSchemaAtPath.data : undefined;
+  const isInsidePageRouter =
+    ownModulePath !== "" &&
+    moduleSchema?.type === "record" &&
+    typeof moduleSchema.router === "string" &&
+    isPageRouter(moduleSchema.router);
+  const init = scopePartsBelowPageRouter(
+    parts.slice(0, -1),
+    ownModuleFilePath,
+    isInsidePageRouter,
+  );
+  /* See `BackLink`: the line under the heading is the way back, by name. */
+  const backTo = parentDestination(init, path, getNavPath);
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   const keyErrors = validationErrors.filter((error) => !!error.keyError);
   const nonKeyErrors = validationErrors.filter((error) => !error.keyError);
@@ -146,70 +160,130 @@ export function Module({
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
   const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
-  const keyDescription =
-    isKey && parentSchema?.type === "record"
-      ? parentSchema.key?.description
-      : undefined;
+  /*
+   * The parent record's `key.description` is NOT shown here, and that is the
+   * rule rather than an omission.
+   *
+   * A description is INPUT HELP: it belongs where the thing it describes is
+   * being ENTERED. Nothing about this key can be typed from the heading — it
+   * is the name of what you already opened — so a sentence like "The URL of
+   * this blog post. Lower case, no spaces." read as a caption of the title
+   * instead of as guidance, and once the title is a `.preview(...)` name
+   * rather than the key it is a caption of the wrong thing entirely.
+   *
+   * It is not lost: every form that ASKS for a key shows it — the rename form
+   * in `ChangeRecordPopover`, reachable from the tools on this very row, plus
+   * `AddRecordPopover`, `DuplicateRecordPopover`, `NewPageForm` and
+   * `KeySelector`. See the rule at the top of `core/src/preview.ts`.
+   */
 
+  /** The record tools, beside the title. */
+  const tools = !isMediaGallery && (
+    <div className="shrink-0 flex gap-2 items-center">
+      {headingTools}
+      {hasPendingPatches && (
+        <FieldPatchAuthors
+          patchesByAuthorIds={patchesByAuthorIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          sourcePath={path}
+        />
+      )}
+      <ArrayAndRecordTools path={path} variant={"module"} />
+    </div>
+  );
+
+  /*
+   * What this module is called comes from `describePath` — the same answer the
+   * nav, search and every reference give it, and the reason a developer's
+   * `.preview(...)` can now change it. Only two renderings are richer than the
+   * string it returns, and only those are overridden:
+   *
+   * - A PAGE nobody named: the title has already fallen back to the route, and
+   *   a route reads better segmented, with the full URL on hover. Once a
+   *   preview names the page the breadcrumb would be naming something else, so
+   *   it goes and the route moves to the scope line (see `PageUrlStyle`).
+   * - The PAGE LIST: "Pages" is a place, not a value, and the globe is how the
+   *   nav marks it. The label still comes from the description, so a router
+   *   record with a `.preview(...)` names itself.
+   *
+   * `#3`, a record key and a module's file name are all plain text, and all
+   * three are `describePath` fallbacks now.
+   */
+  const titleNode =
+    isParentRouter && description.origin.title === "fallback" ? (
+      <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
+    ) : isCurrentRouter ? (
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <Globe size={20} className="text-fg-tertiary shrink-0" />
+        <span className="truncate">{description.title}</span>
+      </span>
+    ) : undefined;
+
+  const isMediaCollection =
+    schema.type === "record" && schema.mediaType !== undefined;
   return (
-    <div className="flex flex-col gap-6 pt-4 pb-40">
+    /*
+     * The gap above and below the heading follows the heading's own size.
+     *
+     * Beside the canvas the editor is one of three panes that start on the same
+     * line, and the other two are using their space by then — the preview's
+     * address bar is a control, the On page header is a count and a filter. 16px
+     * of padding over a 52px title block over a 24px gap is 124px spent before
+     * the first field, to say one short name. See {@link EditorDensity}.
+     */
+    <div
+      className={cn(
+        "flex flex-col",
+        // A gallery fills the height that is left and scrolls inside itself
+        // (`MediaGallery`'s `fillContainer`), so the room left under the last
+        // field for the page to scroll into would only make the page scroll.
+        isMediaCollection ? "pb-0" : "pb-40",
+        isCompact ? "gap-4 pt-0" : "gap-6 pt-4",
+      )}
+    >
       <div className="flex flex-col gap-2 text-left overflow-hidden">
-        {parts.length > 1 && (
-          <ModuleBreadcrumb
-            init={init}
-            onNavigate={onNavigate}
-            portalContainer={portalContainer}
-          />
-        )}
         <div
           className={cn({
             "border rounded-lg border-bg-warning-secondary p-4":
               keyErrors.length > 0,
           })}
         >
-          <div className="flex gap-4 justify-between items-center min-h-6 text-xl">
-            {!showNumber && (
-              <div className="min-w-0 flex-1">
-                {isParentRouter ? (
-                  <UrlPathBreadcrumb
-                    path={last.text}
-                    portalContainer={portalContainer}
-                  />
-                ) : isCurrentRouter ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Globe size={20} className="text-fg-tertiary shrink-0" />
-                    <span>Pages</span>
-                  </span>
-                ) : (
-                  <span className="truncate block">{last.text}</span>
+          {/*
+           * Title first, scope beneath.
+           *
+           * The name of the thing being edited leads, at a size that can lead;
+           * the path is provenance and sits under it as links. The other way
+           * round — a line of grey crumbs above a smaller title — spent the top
+           * of the column on the part that does not change.
+           *
+           * `PathHeading` owns the layout so that every heading is the same
+           * height whatever a developer wrote: see the note on `TITLE_BLOCK`.
+           */}
+          <PathHeading
+            description={description}
+            title={titleNode}
+            density={density}
+            tools={tools}
+            scope={backTo !== null ? <ParentLink to={backTo} /> : undefined}
+            below={
+              <>
+                <ContentViewsSummary path={path} />
+                {keyErrors.length > 0 && (
+                  <FieldValidationError validationErrors={keyErrors} />
                 )}
-              </div>
-            )}
-            {showNumber && (
-              <span className="shrink-0">#{Number(last.text)}</span>
-            )}
-            {!isMediaGallery && (
-              <div className="shrink-0 flex gap-2 items-center">
-                {hasPendingPatches && (
-                  <FieldPatchAuthors
-                    patchesByAuthorIds={patchesByAuthorIds}
-                    profilesByAuthorIds={profilesByAuthorIds}
-                    sourcePath={path}
-                  />
+                {/*
+                 * The field's own `.describe()` — INPUT HELP for the editor
+                 * filling in what is rendered below, not a caption of the
+                 * title. See the rule at the top of `core/src/preview.ts`.
+                 */}
+                {schema.description && (
+                  <div className="text-sm text-fg-tertiary">
+                    {schema.description}
+                  </div>
                 )}
-                <ArrayAndRecordTools path={path} variant={"module"} />
-              </div>
-            )}
-          </div>
-          {keyDescription && (
-            <div className="text-sm text-fg-tertiary">{keyDescription}</div>
-          )}
-          {keyErrors.length > 0 && (
-            <FieldValidationError validationErrors={keyErrors} />
-          )}
-          {schema.description && (
-            <div className="text-sm text-fg-tertiary">{schema.description}</div>
-          )}
+              </>
+            }
+          />
         </div>
       </div>
       <ComponentPreview path={path} />
@@ -228,14 +302,30 @@ export function Module({
               key={path}
               path={path}
               showChildPath={showModuleGalleryChild}
+              // A readonly gallery module offered upload, delete and alt text
+              // regardless, and every one of them wrote a patch.
+              readonly={schema.readonly}
             />
           ) : (
-            <AnyField key={path} path={path} schema={schema} />
+            // `ignoreHidden`: this IS the thing being looked at, so a hidden
+            // schema here would blank the page rather than hide a row. A
+            // module hidden from the nav is still reached — from an `s.view()`
+            // row, from search, from a validation error — and renders in full
+            // once reached.
+            <AnyField key={path} path={path} schema={schema} ignoreHidden />
           )}
         </div>
       </div>
     </div>
   );
+}
+
+/** {@link BackLink}, named the way every reference to `to` is named. */
+function ParentLink({ to }: { to: SourcePath | ModuleFilePath }) {
+  // A module file path is a source path with no module path; `getNavPath`
+  // answers with one whenever the parent is a module root.
+  const description = useDescription(to as unknown as SourcePath);
+  return <BackLink to={to} name={description.title} />;
 }
 
 function Home() {
@@ -250,81 +340,6 @@ function Home() {
         </p>
       </div>
     </div>
-  );
-}
-
-// Max visible items before showing ellipsis (first + ellipsis + last N)
-const MAX_VISIBLE_ITEMS = 3;
-
-function ModuleBreadcrumb({
-  init,
-  onNavigate,
-  portalContainer,
-}: {
-  init: ReturnType<typeof splitIntoInitAndLastParts>;
-  onNavigate: (path: SourcePath) => void;
-  portalContainer: HTMLElement | null;
-}) {
-  const shouldCollapse = init.length > MAX_VISIBLE_ITEMS;
-  const visibleStart = shouldCollapse ? init.slice(0, 1) : init;
-  const collapsed = shouldCollapse ? init.slice(1, -2) : [];
-  const visibleEnd = shouldCollapse ? init.slice(-2) : [];
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="flex-nowrap text-fg-quaternary">
-        {visibleStart.map((part, i) => (
-          <Fragment key={`start-${i}`}>
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink asChild>
-                <button onClick={() => onNavigate(part.sourcePath)}>
-                  {part.text}
-                </button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0" />
-          </Fragment>
-        ))}
-
-        {shouldCollapse && collapsed.length > 0 && (
-          <>
-            <BreadcrumbItem className="shrink-0">
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-1">
-                  <BreadcrumbEllipsis className="h-4 w-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" container={portalContainer}>
-                  {collapsed.map((part, i) => (
-                    <DropdownMenuItem
-                      key={i}
-                      onClick={() => onNavigate(part.sourcePath)}
-                    >
-                      {part.text}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0" />
-          </>
-        )}
-
-        {visibleEnd.map((part, i) => (
-          <Fragment key={`end-${i}`}>
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink asChild>
-                <button onClick={() => onNavigate(part.sourcePath)}>
-                  {part.text}
-                </button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            {i < visibleEnd.length - 1 && (
-              <BreadcrumbSeparator className="shrink-0" />
-            )}
-          </Fragment>
-        ))}
-      </BreadcrumbList>
-    </Breadcrumb>
   );
 }
 
@@ -369,7 +384,7 @@ function UrlPathBreadcrumb({
         <HoverCardTrigger asChild>
           <div className="cursor-default">
             <Breadcrumb>
-              <BreadcrumbList className="flex-nowrap text-xl font-normal">
+              <BreadcrumbList className="flex-nowrap font-normal">
                 <BreadcrumbItem className="shrink-0">
                   <span className="text-fg-tertiary">{protocol}//</span>
                   <span>{host}</span>
@@ -400,7 +415,7 @@ function UrlPathBreadcrumb({
 
   const breadcrumbContent = (
     <Breadcrumb>
-      <BreadcrumbList className="flex-nowrap text-xl font-normal">
+      <BreadcrumbList className="flex-nowrap font-normal">
         {/* Show protocol and host for full URLs */}
         {isFullUrl && (
           <>

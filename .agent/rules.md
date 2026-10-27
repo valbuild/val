@@ -2,11 +2,100 @@
 
 Instructions for AI assistants working with the Val content management system codebase.
 
+## Read first
+
+[`architecture/`](../architecture/README.md) holds the explanations that are
+expensive to re-derive from the code:
+
+- [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
+  state in one page: marks vs demand, the two realms, `peek`/`get`, and why
+  reference stability is load-bearing.
+- [`architecture/media.md`](../architecture/media.md) — `s.imagedir()` / `s.filedir()` / `s.fontdir()`
+  vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
+  chosen (the rule that has been got wrong repeatedly). Also `s.video()`: the one
+  media value that names several files, and HLS made in the browser.
+- [`architecture/patch-store.md`](../architecture/patch-store.md) — where
+  unpublished edits live in local dev: the ordering log, the lock, and the
+  incident that decided the layout. **Read this before touching `ValOpsFS` or
+  anything under `.val/patches`.**
+- [`architecture/quirks.md`](../architecture/quirks.md) — true, surprising things
+  that each cost someone an afternoon. **Skim this before debugging the Studio**,
+  and add to it when you lose time to something a comment could not have said.
+
 ## General rules
 
 1. Never add @ts-expect-error unless explicitly being allowed to do so
 2. Never use as any unless explicitly being allowed to do so
 3. Ask if you need to use type assertions (`as Something`) - we try to avoid those
+4. Prefer annotating the expected return type over `as const`. Widening a
+   returned literal with `as const` leaves the contract implicit and re-derived
+   at every `return`, so nothing checks that the returns agree or that they
+   cover the union the caller narrows on. Annotate the function - or the
+   `useMemo<T>` / `useCallback<T>` / variable - with the type it is supposed to
+   produce, and drop the `as const`:
+
+   ```typescript
+   // ❌ WRONG - the union is whatever the returns happen to add up to
+   const res = useMemo(() => {
+     if (!data) return { status: "loading" as const };
+     return { status: "success" as const, data };
+   }, [data]);
+
+   // ✅ CORRECT - the union is declared, and every return is checked against it
+   type Result = { status: "loading" } | { status: "success"; data: Data };
+   const res = useMemo<Result>(() => {
+     if (!data) return { status: "loading" };
+     return { status: "success", data };
+   }, [data]);
+   ```
+
+   An `as const` on a return inside a function that already has a return type
+   annotation is pure noise - remove it.
+
+## Logging: `Internal.log`, never `console`
+
+Val runs inside someone else's app, so whatever it prints lands in a console
+that belongs to a developer who did not write it. Every package that runs there
+(core, shared, server, react, next, tanstack, mcp, and the Studio in `ui/spa`)
+prints through `Internal.log` (`packages/core/src/log.ts`; inside core, import
+`log` from it directly). `no-console` enforces that.
+
+- `error` and `warn` always print. Use them when that developer can act on
+  the message, or when it means Val has a bug they should report.
+- `debug` and `info` print only with `VAL_DEBUG=1` (server) or
+  `localStorage["val:debug"] = "1"` (browser). Use them for retries,
+  fallbacks that worked, sync chatter and anything already shown in the UI.
+- Don't write a `Val:` prefix. The logger adds `[val]` to every line.
+
+The CLI, `create` and `init` use `console`, because printing is their job.
+
+## An error says what the person can do about it
+
+An error shown to a person is there to help them take the next step. When
+there is something they can do about it, put that action right next to the
+message: a button or a link, not just a sentence telling them to go and find
+it.
+
+| The error                          | What it offers                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Signed out, or the session ran out | **Sign in**, which comes back to the same page afterwards                                             |
+| A request failed or timed out      | **Try again**, which retries the same request                                                         |
+| A setting is missing               | A link to that exact setting, not to the settings page                                                |
+| Something they typed is wrong      | The field is marked, with what it accepts, and focus is moved to it                                   |
+| They are not allowed to do it      | Who can allow it (the org's owners, by name) and how to ask them                                      |
+| A publish or build failed          | Where to see why, and how to retry                                                                    |
+| Nothing they can do (our outage)   | Say so plainly and say what happens next. Keep what they were working on, so a retry does not lose it |
+
+- **Write for the person, not the log.** A raw `fetch failed`, `500` or stack
+  trace on its own helps no one. Put it under "Details" when support will need
+  it, under a message that says what happened in their terms.
+- **Don't blame them for our failures.** "Val Build could not be reached" is
+  true. "Check your connection" is a guess, and usually a wrong one.
+- **An action has to work.** A button that leads to the same error again is
+  worse than no button. If retrying cannot help, don't offer it.
+- **Check every error state you add**, including in stories and tests: what
+  can the person do from here? If the answer is "nothing" while there is
+  something they could do, the error is not finished.
 
 ## Type System Architecture
 
@@ -14,12 +103,16 @@ Instructions for AI assistants working with the Val content management system co
 
 Val has a dual type system: **Source** types define data shape, **Selector** types is the user facing types.
 
+**Source is the data of a module** - JSON, the thing patches apply to. It is not
+the `.val.ts` file and not a description of it; a variable holding `.val.ts`
+text is text, not Source. See
+[`architecture/terminology.md`](../architecture/terminology.md) for that
+distinction and the path vocabulary that goes with it.
+
 ```
 Source (data)          →  Selector (access)
 ─────────────────────────────────────────────
-ImageSource            →  ImageSelector
-FileSource<M>          →  FileSelector<M>
-RemoteSource<M>        →  GenericSelector
+MediaSource            →  GenericSelector  (`url` is generated at resolve time)
 RichTextSource<O>      →  RichTextSelector<O>
 SourceObject           →  ObjectSelector<T>
 SourceArray            →  ArraySelector<T>
@@ -35,9 +128,8 @@ export type Source =
   | SourcePrimitive // string | number | boolean | null
   | SourceObject // { [key: string]: Source }
   | SourceArray // readonly Source[]
-  | RemoteSource
-  | FileSource
-  | ImageSource
+  | MediaSource // { path: string, ...optional }
+  | JsonSource
   | RichTextSource<RichTextOptions>;
 ```
 
@@ -49,9 +141,8 @@ export type SelectorSource =
   | undefined
   | readonly SelectorSource[]
   | { [key: string]: SelectorSource }
-  | ImageSource
-  | FileSource
-  | RemoteSource
+  | MediaSource
+  | JsonSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 ```
@@ -87,10 +178,124 @@ export type RichTextSelector<O> = GenericSelector<RichTextSource<O> & Source>;
 // ✅ CORRECT - Add missing types to SelectorSource union
 export type SelectorSource =
   | ...existing types...
-  | ImageSource  // Add missing type here
+  | MediaSource  // Add missing type here
 ```
 
 If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almost always adding a type to `SelectorSource`, NOT using intersections.
+
+## `describe` vs `preview` vs `render`
+
+**`.describe()` is INPUT HELP and is shown wherever that field — or a record's
+key — is being ENTERED; `.preview()` is a NAME and is shown wherever the value
+is REFERRED TO rather than edited; `.render()` is LAYOUT and applies only while
+the field is open in front of you.**
+
+The test that settles every case: **can the reader change something here?**
+
+| Yes — a description belongs here        | No — a preview belongs here          |
+| --------------------------------------- | ------------------------------------ |
+| The input beside a field's label        | A list row                           |
+| The key box in "New entry" / "New page" | A reference, once it has been chosen |
+| "Rename key", "Duplicate entry"         | A search hit                         |
+| The key half of a reference dropdown    | A card                               |
+| A field open in the overlay             | The heading of what you navigated to |
+
+So a record's `key` schema carries its own description ("The URL of this blog
+post. Lower case, no spaces.") and every form that asks for a key shows it —
+`AddRecordPopover`, `DuplicateRecordPopover`, `ChangeRecordPopover`,
+`NewPageForm`, `KeySelector`. A key description shown where the key cannot be
+edited is a bug, not a label.
+
+That asymmetry is why a description is plain data on the serialized schema and a
+preview is a closure: a description is true before any value exists and says the
+same thing to everyone filling the field in, and a preview cannot exist without
+the one value it names. A description must therefore never be used as a
+subtitle — it would repeat one sentence under every row of a list — and a
+preview must never be used as help text, because there is nothing to preview
+until after the value has been entered. None of the three substitutes for
+another: a field with a perfect description still previews as `#3` until
+someone writes the preview.
+
+### Where a preview comes from
+
+A value's preview reaches it by ONE of two routes, and which one depends on
+whether it has a container:
+
+- **Its own `self`** — for a module root, or a field of an object: anything that
+  is nobody's row. `executePreview` emits it at the value's own path. Before
+  that existed, `.preview()` on a module's own schema was dead code.
+- **Its container's `rows`** — for an item of an array or record, reified by the
+  container from the ITEM schema's closure. Deliberately NOT also a `self`: it
+  is one closure, and array and record pass `selfIsReifiedByParent` to their
+  direct items so it runs once per row rather than twice.
+
+`ReifiedPreview` therefore maps a path to `{ self?, rows? }`. Two fields, not a
+union, because a path can have both: `s.array(section).preview(...)` where
+`section` also previews is a list that shows its rows AND names itself.
+
+Two traps, both of which shipped once:
+
+- **A module's `self` must never reach a path below it.** `PreviewStore` hands a
+  row the module-root entry so the row can find itself in that entry's windowed
+  `rows`; handing the entry over whole made every author read back the record's
+  own title. `asSeenFromBelow` strips `self`.
+- **A preview is computed for a module with a LISTENER on it, and no other.**
+  `get()` does not count. A nav reads sources without subscribing
+  (`useShallowModulesAtPaths` says so), so a nav that NAMES its rows must call
+  `usePreviewDemand` — one listener per module, never one per row. Without it
+  the titles appear only for the module the editor is currently in, which reads
+  as data missing rather than as a feature not used.
+
+### A preview is a TITLE, never a LOCATION
+
+This is the line that decides every surface, and it was got wrong once in each
+direction:
+
+- **A title** is what a thing is CALLED, where the thing is shown as a thing:
+  the heading of what you opened, a card, a list row, a search hit, a reference
+  once it has been chosen, and the link back to the parent under the heading. A
+  preview belongs in all of these.
+- **A location** is WHERE YOU ARE, and it is made of path segments: the
+  Explorer tree, the Pages tree. A preview belongs in NONE of these — not even
+  for a module root, not even when it reads better.
+
+Two reasons, and the second is the one that settles it:
+
+1. A trail of titles names three things and locates none of them.
+   `Content / Forfattere / Theodor René Carlsen` cannot be typed into a URL bar,
+   grepped for, or matched against the file an editor is looking at.
+2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
+   A location that moves under you is not a location.
+
+The line under the heading was a breadcrumb of path segments, and is not any
+more: it is one link back to the PARENT, named by its title — "‹ Product 1".
+The parent is where the level above is SHOWN, through `getNavPath`, so from a
+section of a page it is the page, not its `sections` field (every segment in
+between opened the page anyway). `parentDestination` and `BackLink` in
+`ModuleScope.tsx` are that rule.
+
+The one thing a location may take from the heading is a page's ROUTE, because a
+route IS the page's location. And it takes it INSTEAD of the file path, not
+beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
+and nothing else, because nobody reaches a page through the file — the Pages
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule, and it is
+why a page itself offers no way back: the file it lives in is not its parent.
+
+### `describePath` is the one implementation
+
+`packages/ui/spa/utils/describePath.ts` turns a source path into the
+`{ title, subtitle, image, url, pathLabel }` a human is shown — the preview side of the rule, and only that. It prefers the
+value's preview and falls back to the route, the key, the index or the file
+name, and `origin` says which happened, so a surface can tell a name someone
+wrote from a key we had lying around.
+
+Anything that TITLES a path goes through it rather than deriving a name of its
+own — the heading, list rows, search hits and references disagreed with each
+other before it existed — and so does the back link under the heading, which
+names its destination. Anything that LOCATES a path does not go near it: the
+Explorer and the Pages tree use path segments, per the rule above.
+`useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
+and stays the right call for a list row, which has no `self` to read.
 
 ## Schema System
 
@@ -98,13 +303,185 @@ If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almos
 
 Each Schema class validates and types its corresponding Source type:
 
-| Schema              | Source              | Factory               |
-| ------------------- | ------------------- | --------------------- |
-| `ImageSchema<T>`    | `ImageSource`       | `s.image()`           |
-| `FileSchema<T>`     | `FileSource`        | `s.file()`            |
-| `RichTextSchema<O>` | `RichTextSource<O>` | `s.richtext(options)` |
-| `ObjectSchema<T>`   | `SourceObject`      | `s.object({...})`     |
-| `ArraySchema<T>`    | `SourceArray`       | `s.array(schema)`     |
+| Schema              | Source                                        | Factory               |
+| ------------------- | --------------------------------------------- | --------------------- |
+| `ImageSchema<T>`    | `ImageSource`                                 | `s.image()`           |
+| `FileSchema<T>`     | `FileSource`                                  | `s.file()`            |
+|                     | (both are `{path, …}`; see `source/media.ts`) |                       |
+| `RichTextSchema<O>` | `RichTextSource<O>`                           | `s.richtext(options)` |
+| `ObjectSchema<T>`   | `SourceObject`                                | `s.object({...})`     |
+| `ArraySchema<T>`    | `SourceArray`                                 | `s.array(schema)`     |
+
+### Choosing between two shapes: `s.discriminatedUnion` and `s.enum`
+
+These were one schema (`s.union`, still exported and still working, now
+deprecated), and splitting them is the whole point: they are not the same kind
+of node, and everything that walks a schema tree has to treat them differently.
+
+- **`s.discriminatedUnion(key, ...objects)`** is a CONTAINER. Every variant is
+  an object with `key` set to a distinct `s.literal(...)`, the value's tag says
+  which variant it is, and the variant's fields are the fields being edited. A
+  walk has to descend through the matching variant — and the variants SHARE the
+  union's path, which is why `executeCustomValidateAt` and `executePreviewItem`
+  dispatch there rather than the caller resolving a child path. Serializes as
+  `{ type: "discriminated-union", key, items }`.
+- **`s.enum("a", "b")`** is a LEAF — a string with a closed domain, like
+  `s.literal` with more than one allowed value. There are no member schemas, so
+  nothing recurses into it, and (like a literal) it is NEVER stega encoded:
+  consumer code compares against those exact strings. Serializes as
+  `{ type: "enum", values }`.
+
+`s.union` dispatches on its first argument (a string key → discriminated union,
+literal schemas → enum) and produces exactly those two, byte-identically
+serialized. There is no third serialized form and no `UnionSchema` class any
+more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
+and `SerializedObjectUnionSchema` are deprecated type aliases.
+
+### `s.view()` points at another module; it does not contain one
+
+`s.view(otherVal)` is a field whose source is a POINTER and nothing else:
+
+```typescript
+const schema = s.object({ title: s.string(), people: s.view(employeesVal) });
+export default c.define("/app/menneskene/page.val.ts", schema, {
+  title: "Våre folk",
+  people: { view: "/data/employees.val.ts" },
+});
+```
+
+The module it names keeps its own source, patches, validation and address. In
+the editor the field is a ROW that navigates there — it does not render the
+target's fields inline — which is also what stops an editor mistaking a shared
+module for a field of the page they are on.
+
+Eight things decide how it behaves, and each was a choice:
+
+- **A plain object, not a constructor.** Same rule as media: the value has to
+  work in a `.val.ts` and in a `*.val.json`, and a literal survives the static
+  extraction (`evaluateExpression`) that a call expression does not.
+- **A module carries its own id in its type.** `ValModule<T, Id>`, inferred from
+  `c.define`'s first argument, so `s.view(fooVal)` produces a schema whose source
+  type is the LITERAL `{ view: "/foo.val.ts" }`. The path autocompletes, and a
+  source naming a different module than its schema does is a type error. The
+  runtime check in `ValViewSchema.executeValidate` is for hand-written JSON, which
+  the compiler never saw.
+- **`view` is a reserved object key** (`ObjectSchemaProps`, beside `_type` and
+  `patch_id`). An ordinary `s.object({ view: s.string() })` is structurally
+  identical to a pointer, and would be mapped to `ValView<T>` and lose every
+  field it has — silently.
+- **The read side is `ValView<T>`, with no properties.** A new arm in
+  `Selector<T>` and in `StegaOfSource`, above `SourceObject` (the marker is structurally an
+  object) — the same position and the same reason as the `ExternalRecordSrc`
+  arm. Never stega encoded: an edit tag woven into a path corrupts the path.
+- **No cycles.** `viewCycles.ts`, called from `extractValModules` next to
+  `resolveSettingsModule` and for the same reason: it is a property of the whole
+  set of schemas, so no single module can see it. **Nothing else would catch
+  it** — a view stores a pointer rather than content, so there is no data cycle
+  for a source walk to trip over. A DIAMOND (two paths to one module) is not a
+  cycle and is allowed.
+- **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
+- **The exported names carry a `Val` prefix, and this family alone does.**
+  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema`,
+  `SerializedValViewSchema`, `ValViewHandle` — where every other schema is
+  `ImageSchema` / `ImageSource` with no prefix. `View` is the name a consuming
+  app is most likely to have its own of (React Native's, every design system's,
+  the local one in half the projects that would install this), and the rest
+  follow it so the family reads as one. It is a deliberate break from the
+  convention, not an oversight: do not "fix" it back.
+
+  The line is what `@valbuild/core` exports at the TOP level. The members of
+  `Internal` keep their plain names — `createViewHandle`, `isViewHandle`,
+  `viewHandleModule`, `viewModulesOf`, `resolveViewedModule` — because
+  `Internal.` already namespaces them and nothing can collide with them. So
+  does the WIRE form: `type: "view"` is the serialized discriminant, and
+  renaming it would break every stored schema and the zod parser.
+
+- **`hidden` and `readonly` are the view's own, never the target's.** A view
+  whose target module is hidden is still shown, and still leads there — which
+  is the whole point, because `hidden` on a MODULE's root schema means "the nav
+  does not list this", at EVERY destination the menu has: the Explorer and
+  Pages (both in `useTrees`, which drops a hidden module before it sorts
+  routers from the rest), Media (`collectMediaModules`) and Settings
+  (`useNavMenuData`, which resolves the settings module first and drops it
+  after — two settings modules must stay an error rather than become a way to
+  pick between them). A module has no parent to be hidden from, so it can mean
+  nothing else. The pair is what lets `employees.val.ts` be a `keyOf` target a
+  dozen modules point into, out of the nav, and reached from the one page it
+  belongs to. It also forced `AnyField`'s `ignoreHidden`, set by `Module`
+  alone: the page an editor has navigated to is not a parent's field list, so
+  honouring `hidden` there renders a blank page instead of hiding a row.
+  Hiding a page ROUTER is the sharp edge — its pages leave the sitemap with it,
+  so the site's URLs are listed nowhere.
+
+**Reading a view.** `useVal(page.header)` and `fetchVal(page.header)` resolve
+the pointer and give you the module it names. What makes that possible is that
+the READ path attaches the module to the pointer, on a symbol:
+
+- The app cannot turn a path back into a module. `val.modules` holds lazy
+  `import()` thunks and `<ValModulesClient>` is optional, so there is no
+  registry to look one up in.
+- So `stegaEncode` attaches it, from the schema instance at the module root —
+  the one place a `ValViewSchema` (which holds its module) is reachable. Not from
+  the source, and that is the point: with an edit pending, the source comes from
+  the overlay store as plain JSON that never went near a module, while the
+  schema is the module's own either way.
+- A symbol, so the pointer is still `{ view: "/foo.val.ts" }` to `JSON.stringify`,
+  to `Object.keys`, to the SHAs and to every walk that reads source as data.
+- **A handle does not survive serialization.** Passed from a server component to
+  a client one it arrives without its symbol, and `stegaEncode` throws rather
+  than hand back a pointer that looks like content. Resolve it in the component
+  that read the module, or read the target directly.
+
+`ResolvedVal` in `@valbuild/react/stega` is the one definition of what a reader
+gives back — `useVal`, `fetchVal`, `initValContent` and the TanStack client all
+use it, rather than the four copies of the selector conditional they had. Its
+outer arms are wrapped in tuples so it does not distribute over a union: a
+distributing version re-entered `StegaOfSource` per member and the async readers
+hit "Type instantiation is excessively deep". For the same reason
+`ValView<Source>` is a member of `SelectorSource` — it keeps the readers' type
+parameter bounded by one type, which is one conditional arm cheaper than widening it.
+
+**The readers that need a MODULE go through `Internal.resolveViewedModule`.**
+`useValKey`, `useValRoute`, `useValRouteUrl` and the three `fetch*` counterparts
+pull a path, a schema and a source off what they are handed, so a view — which
+is a pointer with none of the three — cannot be passed through to them. Their
+parameter is `ResolvableModule` and the resolver takes exactly that type, so the
+two cannot drift. It matters more than it looks: every one of those readers
+already returns `null` / `undefined` for "no such entry", so an unresolved view
+was not an error but a 404 from a call that looks right. `ResolvableModule`,
+`JsonEntryContentOf` and `RouteValueOf` are shared for the same reason
+`ResolvedVal` is — there were four identical copies, one per reader file.
+
+**Reading a view is LAZY, and there are tests whose only job is to keep it so.**
+A view is on the page's screen but its content is not on the page, so resolving
+one must cost nothing until someone asks. Three things could break that, and
+`stegaEncode.test.ts`'s "reading a view is lazy" pins each: the encoder must not
+ask the store for the target (`getModule` is called for the page and nothing
+else), `getModuleIds(pageVal)` must name the page alone (a target in there
+re-renders the page on an edit to a module it does not show), and no
+`.jsonValues()` entry thunk of a viewed module may fire — those are dynamic
+`import()`s, so an eager walk would pull every entry of every viewed record into
+a page that shows none of them. `executeSerialize` carries the path and not the
+module, which is what keeps the schema payload from growing by the whole content
+of every view target.
+
+What is NOT lazy, and cannot be: `s.view(x)` needs a static import of `x` to get
+its path, exactly as `s.keyOf(x)` does, so `x`'s bytes are in whatever bundle
+holds the page either way. `ValViewSchema` additionally RETAINS the module (a
+`KeyOfSchema` extracts and drops it) — that changes reachability, not loading,
+since an ES module binding lives for the process anyway. And see
+`architecture/quirks.md` for the one real eager load in the area, which predates
+views: draft-mode `fetchVal` fetches the whole tree per call.
+
+One trap when testing this: `stegaEncode` returns `any`, so
+`stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type
+parameter `any` too, and the conditionals resolve to whatever `any` distributes
+to. Annotate the encoded value (`const page: ResolvedVal<typeof pageVal> = …`)
+or the test proves nothing about the types.
+
+Not built yet, and deliberately: rendering the target inline. A view takes no
+`.render(...)` — only array, record and keyOf do (see
+[`architecture/render-and-preview.md`](../architecture/render-and-preview.md)).
 
 ## Module System
 
@@ -118,17 +495,59 @@ c.define(
 )
 ```
 
-### Source Constructors
+### `files: { remote: true }` — required in the Val app
+
+`initVal({ files: { remote: true } })` makes every media factory (`s.image`,
+`s.file`, `s.video`, the three sets, and `s.richtext`'s `img: true`) return the
+`.remote()` schema. The Val app (`VAL_ENV=app`) refuses to start without it, and
+`val publish` refuses before building. It is project config, not an environment
+switch, so `val validate` / the language server / `pnpm dev` read the same
+schemas the app does. See [architecture/media.md](../architecture/media.md).
+`files.directory` no longer exists: local files without a `dir` go to `/public/val`.
+
+### Media directories: `s.imagedir(dir, options)`
+
+A whole module of media is `s.imagedir()`, `s.filedir()`, `s.fontdir()` or
+`s.videodir()`, and the directory its uploads land in is the FIRST ARGUMENT:
 
 ```typescript
-c.image("/public/val/logo.png", {
-  width: 100,
-  height: 100,
-  mimeType: "image/png",
-});
-c.file("/public/val/doc.pdf", { mimeType: "application/pdf" });
-c.remote("https://...", { mimeType: "image/jpeg" });
+s.imagedir("/public/val/images", { accept: "image/webp", alt: s.string() });
+s.filedir("/public/val/docs", { accept: "application/pdf" });
+s.fontdir("/public/val/fonts");
+s.videodir("/public/val/videos", { stream: { type: "hls" } });
 ```
+
+They were `s.imageset({ dir, ... })`, `s.fileset(...)`, `s.fontset(...)` and
+`s.videoset(...)`. Those names still work and are `@deprecated` — they build a
+byte-identical schema (`deprecatedSetNames.test.ts` pins that) — so write the
+`*dir` names in new code, docs and examples. Many internal identifiers and test
+names still say "set" (`videosetFixes.ts`, `handleVideosetUploadRemote`,
+`e2e/tanstack/videoset.spec.ts`); that is history, not a second concept. The serialized form
+is unchanged: still a record with `mediaType: "images" | "files" | "videos"` and
+a `dir`.
+
+### Media is a plain object, not a constructor
+
+There is no `c.image` / `c.file` / `c.remote`. Media is written as an object with
+a `path`, so the same value works in a `.val.ts` and in a `*.val.json` entry:
+
+```typescript
+// s.image()
+{ path: "/public/val/logo.png", width: 100, height: 100,
+  mimeType: "image/png", alt: "A logo", hotspot: { x: 0.5, y: 0.5 } }
+
+// s.image(galleryVal) — the gallery has the dimensions and mime type
+{ path: "/public/img/logo.png" }
+
+// s.file()
+{ path: "/public/val/doc.pdf", mimeType: "application/pdf" }
+
+// remote: the same object, with a remote URL in `path`
+{ path: "https://remote.val.build/file/p/…/logo.png", width: 100, … }
+```
+
+Nothing decides "this is media" by looking at the value — the **schema** does
+(`type === "image" | "file"`). See [architecture/media.md](../architecture/media.md).
 
 ## UI Architecture
 
@@ -176,6 +595,250 @@ darkMode: ["class", '[data-mode="dark"]'];
 
 Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--background)`).
 
+## Framework packages
+
+**TanStack Start is the PRIMARY release target.** Next.js is still supported and
+still the older of the two bindings, but when the two disagree — about which one
+gets a feature first, which one a doc example is written against, which one is
+driven by a test — TanStack wins. So a change to `@valbuild/next` that
+`@valbuild/tanstack` has not got is unfinished work, not a decision; the
+reverse is an ordinary lag.
+
+Two things follow, and they are the ones that get forgotten:
+
+- **`examples/tanstack` is the feature showcase, and it is only useful while it
+  is complete.** It exists to be the app where every schema type and every
+  schema modifier can be seen working, so ADDING A SCHEMA FEATURE INCLUDES
+  ADDING IT THERE — a module (or a field in one), registered in
+  `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
+  that exists only in `packages/core` is a feature nobody can look at.
+  `examples/next` is the FIXTURE app for the language server and for the e2e
+  specs that keep `@valbuild/next` covered (`smoke`, `insecure-context`, the
+  canvas suite), and it is allowed to hold things the showcase does not. The
+  rest of the e2e suite drives `examples/tanstack`, whose e2e fixtures live in
+  `examples/tanstack/content/` (and a few `src/routes/_site.*` fixture pages),
+  registered only when `VAL_E2E_FIXTURES=true`.
+- **The TanStack checks are CI jobs** (`build-tanstack`, and the `tanstack`
+  project in the blocking `smoke` job), and still yours to run before pushing
+  a change the Studio loads through: `pnpm exec playwright test --project=tanstack`
+  and `cd examples/tanstack && pnpm run build`.
+
+The showcase covers, as of writing: every `s.*` factory except `s.union`
+(deprecated); `describe` / `preview` / `render` (on an array) /
+`validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
+`min` / `max` / `regexp` / `multiline` on strings and numbers, `s.int()` with
+`step` and `render({ as: "slider" })` (and a slider on `s.number()`), `from` / `to` on
+dates, `include` / `exclude` on routes; `s.record(key, item)` and the
+three-argument `s.router(router, key, item)` so a KEY can carry its own
+description; `s.router(router, params, item)` with a schema per route
+parameter, an optional `{-$locale}` segment and `s.enum().locales()` naming the
+language a URL is in; `.jsonValues()` with `c.json()`; `tanstackRouter` and
+`externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
+(`commitMessage`) and `assistant`; and `s.video()` both as an mp4 and as an
+HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
+`s.videodir()` with an `s.video(videosVal)` field that picks from it, the set's
+entries holding default posters, times, focal point and captions that the field
+partly overrides, and an image gallery entry with a default focal point; and `s.fontdir()` with an
+`s.font(fontsVal)` field whose font the showcase sets its sample in; and
+content analytics, switched on by `VAL_ANALYTICS=true` in its `.env.development`
+(on a hosted site it is a project setting, so there is no `val.config.ts`
+option) and read in `_site.tsx`'s loader, so its content is tagged for every
+visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
+page writing JSON-LD and a share link through `val.raw()`, which the dev-only
+leak warning checks (`e2e/tanstack/leakWarning.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
+`files: { remote: true }` in `val.config.ts`, which turns it on for every media
+schema) and `.external()` on a record, because both need credentials or an
+adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
+`NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
+sentence too, so the gap stays a decision rather than an oversight.
+
+`@valbuild/next` and `@valbuild/tanstack` are deliberately near-copies of each
+other: the provider, the overlay
+context, the canvas bridge, the client hooks and the route helpers are the same
+code with a different framework underneath. When you change one, ask whether the
+other needs it — `packages/tanstack/README.md` has a table of what actually
+differs.
+
+What is genuinely different in TanStack Start, and why:
+
+- **There is no RSC.** So there is no `rsc` entrypoint; the server-side readers
+  (`fetchVal` and friends) live in `@valbuild/tanstack/server` as
+  `initValContent`, and the recommended way to read content is the client hooks,
+  which resolve on the server during SSR and in the browser after that.
+- **There is no `draftMode()`.** `valDraftMode()` in the tanstack package owns a
+  `val_draft_mode` cookie instead. It is a mode switch, not a credential — draft
+  reads are still gated by the signed session cookie.
+- **A route module is named after its route file.** `src/routes/posts.$postId.tsx`
+  is served by `src/routes/posts.$postId.val.ts`. `tanstackRouter` in
+  `packages/core/src/router.ts` reads the URL pattern out of that name, and
+  `tanStackSegmentsOfRoutePath` is the one implementation of the conventions —
+  `@valbuild/shared`'s `getPatternFromModuleFilePath` calls it rather than
+  re-deriving them.
+- **The Studio UI is router-agnostic.** `isPageRouter` in
+  `packages/core/src/getSourcePathFromRoute.ts` is the single answer to "does
+  this router's keys name routes of this site"; the sitemap, the Pages menu and
+  the add-a-page form all go through it. Adding a third framework means adding
+  a parser there, not another special case in the UI.
+
+Several TanStack-specific traps are recorded in
+[`architecture/quirks.md`](../architecture/quirks.md) under "TanStack Start" —
+read them before debugging a Studio that hydrates and then stops.
+
+## MCP
+
+`@valbuild/mcp` (`packages/mcp`) is Val's content tools for MCP hosts: the tool
+registry, the write path behind it, and the request guards and access-token
+verification that decide whether a call reaches a tool at all. **Nothing in it
+imports an MCP SDK** — the app owns the transport, and the SDK has reorganised
+itself once already. `@valbuild/next/server`'s `initValMcp` is a thin binding
+that supplies the Next version; `examples/next/app/api/mcp/route.ts` is the
+whole of what an app writes.
+
+`upload_image` is the one tool a host has to construct itself:
+
+```ts
+initValMcp(valModules, config, {
+  extraTools: createValImageTools(sharpImageProcessor(sharp)),
+});
+```
+
+`sharp` is passed in, never imported — it ships a compiled binary per platform,
+and a CMS should not put one in every project that installs it. The processor
+is typed structurally (`SharpLike`), so this package typechecks in a project
+that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
+library to that type, which is what stops it drifting.
+
+Remote images (`s.image().remote()`, `s.imagedir(dir, {...}).remote()`) work too, and
+the thing to know is that **nothing is uploaded to the content host when the
+image is added**. The bytes go into the patch store like any local pending file;
+the push to `remote.val.build` happens at publish, from
+`ValOpsFS.saveOrUploadFiles(mode: "upload-remote")`. All the tool does extra is
+build the ref — which needs the project's public id and a bucket, from
+`getSettings`.
+
+No credential comes from the MCP caller for that, in either mode:
+`resolveRemoteFileAuth` (shared with `ValServer`) uses the app's api key where
+there is one and otherwise, in fs mode, the developer's own `val login` token
+off disk. Same precondition `val validate --fix` has. See
+`docs/plans/mcp-remote-images.md`.
+
+Encoding is the Studio's decision table and nothing else: `encode` is off
+unless the schema asks, and when it asks, which images are converted, how far
+they are scaled and when the original wins are all in
+`encodeImageDecisions.ts`. The tool adds no rule of its own.
+
+Four things in there are load-bearing, and the first three were got wrong first:
+
+1. **Bytes go up before the patch is validated.** A `file` op carries a hash,
+   so validation asks the store where the bytes are — and rejects the write
+   that was about to put them there. `savePatch`'s `uploadFiles` hook returns
+   where it put them, and that merges over `fileLastUpdatedByPatchId`.
+2. **A gallery-backed field's gallery entry is written first.** `s.image(gallery)`
+   validates that the gallery HAS the path, so the field cannot go first. The
+   schema's copy of the gallery is snapshotted at module evaluation, so a path
+   it does not have is an `image:check-gallery` marker (`file:` and `video:`
+   alike), one of `SCHEMA_SOURCE_FIXES`: it is answered against the gallery's
+   CURRENT Source, where the entry just written is. Without that, a picked
+   image uploaded since the build -- pending, saved in a proposal, or published
+   content-only, which never rebuilds -- could never be saved.
+3. **A remote ref's validation hash is computed from a schema that has to
+   match what the validator will resolve.** For a gallery entry that is a
+   SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
+   `dir` — `galleryEntryImageSchema`, which must stay identical to
+   `handleRemoteGalleryFileUpload`'s. Get it wrong and the file uploads and
+   then never validates, silently, because `validateRemoteFiles` is a stub.
+4. **`accept` is checked after the conversion, never before it.**
+   `s.image({ accept: "image/webp", encode: { type: "webp" } })` means "I store
+   webp and I will convert what you give me", so checking the SOURCE against
+   `accept` refuses the PNG the conversion existed to handle. The tool checks
+   it at all — which the Studio does not — because `ImageSchema` reports a
+   mismatch as `image:check-metadata`, and `partitionValidationErrors` treats
+   that as server-repairable and therefore non-blocking. The Studio does not
+   need the check: its file picker carries `accept`. An agent has no picker.
+
+`search_content` builds its index on every call and throws it away, and the
+measurement is why that is allowed rather than a shortcut. Indexing
+`valbuild/web` — a real production site, 20 modules and 206 KB of source JSON —
+takes **162 ms**; the cost is linear, so 2 MB is ~1.4 s and 10 MB is ~7.9 s, and
+the 10 s default deadline is not reached until roughly 13 MB. Searching the
+built index is another 0.2 ms, which is why none of those numbers are about
+searching. Loading the modules costs _more_ than indexing them (843 ms for the
+same 20), and every tool call already pays that in `loadState`. Re-run the
+benchmark before believing anything different: `searchIndex.perf.test.ts` in
+`@valbuild/shared` guards the linearity, not the stopwatch.
+
+The same ratio is why the tool takes a LIST of queries: everything expensive
+happens before the first query runs, so a second query against a built index is
+free next to a second call, which pays for `loadState` and the build again. One
+call, up to 20 queries, answered separately so a caller can tell which of its
+guesses found the thing. `limit` is per query and defaults to 100 — a model
+filters a long list more cheaply than it asks again.
+
+`performSearch` counts all the matches, not the page it returns. FlexSearch
+stops as soon as it has the ids it was asked for, so a `total` taken from a
+page-sized search is the page size wearing a count's name; it is counted
+separately up to `MAX_COUNTED_RESULTS`, and `totalIsLowerBound` says when that
+bound was reached instead of letting the number lie.
+
+Two things in the tool are load bearing:
+
+- **The module order is sorted.** Indexing stops at a deadline, so the order
+  decides what a partial answer contains. Sorted means the same call twice
+  gives the same partial answer, and that narrowing with `include` predictably
+  reaches what was dropped.
+- **The deadline is checked between modules, never inside one**, and the first
+  module is always indexed. `indexModule` is atomic — half a module in the index
+  is a module whose absent half looks like content that does not exist — and a
+  search that returned nothing because the clock had already run out is a worse
+  answer than a slow one.
+
+An excluded module is not an omission. `omittedModules` means the deadline was
+hit; a caller has to be able to tell "you told me not to" from "I ran out of
+time", because only one of them means retry.
+
+## Demo mode: Val's server in the browser
+
+Demo mode is the Studio with Val's real server running in the visitor's tab:
+`<ValApp demo>` starts `ValServer` in memory mode from
+`@valbuild/server/browser`, and the Studio's own client sends its requests
+there instead of over the network. No sign-in, and nothing saved anywhere:
+the edits are in the tab's memory, and a reload starts over. The why is in
+[`docs/plans/demo-mode.md`](../docs/plans/demo-mode.md).
+
+What is in THIS repository is demo mode itself: the browser entry, the
+`demo` props, `@valbuild/tanstack/demo` and the Studio's demo UI. The demo
+SITE people open -- its content, its end-to-end tests and its deploy to
+`demo.valstart.dev` -- is `demo/` in valbuild/home, which installs these
+packages from npm like any other app. So a change here reaches the demo at
+the next release, and nothing in this repository's CI runs it: its
+end-to-end tests run in home. To try an unreleased change on the real
+platform, publish a checkout of home's `demo/` with this repository's
+packages linked in (home's `platform/scripts/loop.ts --val` packs them).
+
+What that asks of everyone else, because the demo runs the same server code
+as production:
+
+- **`ValServer`, `ValRouterCore` and everything they import must bundle for a
+  browser.** Node-only code (`fs`, `node:http`, a mode's own `ValOps`, the
+  JWT) reaches the server through `ValServerPlatform` (`platform.ts`;
+  `nodePlatform` and `browser/browserPlatform` are the two). Ask which mode a
+  server is in with `isFsOps` / `isHttpOps` / `isMemoryOps`, never
+  `instanceof`, which imports the class. `posixPath` instead of `path`.
+  `src/browser/noNodeFromBrowser.test.ts` fails, naming the import chain, when
+  this is broken. A dynamic `import()` does not fix it: bundlers follow those.
+  Bytes there are `Uint8Array`, converted with `bytes.ts` -- never `Buffer`, and
+  never npm's `buffer`, which `vite dev` serves unconverted to the tab (see
+  `architecture/quirks.md`). The test refuses both, in `@valbuild/core` and
+  `@valbuild/shared` too.
+- **The Studio must reach the server only through its `ValClient`.** A new raw
+  `fetch` is a request the demo cannot answer, and the demo's end-to-end
+  tests (in home) fail any request to `/api/val` that is not a static file.
+  The two exceptions the browser makes itself -- the upload
+  `XMLHttpRequest` to `/api/val/upload/` and media at `/api/val/files/` -- are
+  answered by the demo's service worker (`packages/tanstack/src/demo/`), which
+  relays exactly those two prefixes to the tab. A new upload or file URL
+  outside them is a new prefix that worker has to learn.
+
 ## Testing
 
 Run tests from root dir with:
@@ -204,12 +867,36 @@ pnpm run -r typecheck                  # tsc --noEmit per package
 pnpm test                              # jest
 pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
 cd examples/next && pnpm run build     # next build for the example app
+cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
+
+Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
+which selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit
+projects, and does not block. They are
+the gate for "the Studio does not come up at all", on both frameworks and in an
+insecure context, which is the one class of failure that reaches every user at
+once, so run them before pushing anything the Studio loads through:
+
+```bash
+pnpm exec playwright test --project=tanstack                         # ~1 min
+pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
+  e2e/insecure-context.spec.ts                                       # ~4 min
+```
+
+`webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
+in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`
+runs the builder-tab spec (`tanstack-http/publishHandoff`) there. Each is
+declared only when asked for by name (`--project=webkit-http`), because a bare
+`playwright test` runs every project and WebKit is not installed in most places
+this runs: it needs `pnpm exec playwright install --with-deps webkit`. CI runs
+each as one entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+entry's `browser` (chromium when unset).
 
 Notes:
 
 - `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.
 - `examples/next` build is its own CI job and must be run separately. It is also the only job that type-checks with `next-env.d.ts` present, so a green `pnpm run -r typecheck` does not imply a green example build — see "'X' cannot be used as a JSX component" under Common Fixes.
+- The `tanstack` Playwright project and the `examples/tanstack` build are the only things that run that app at all, and both were added after `crypto.randomUUID is not a function` shipped: nothing exercised TanStack, and nothing ran outside a secure context. `build-tanstack` and the blocking `smoke` job are what run them in CI. See `e2e/tanstack/studio.spec.ts`.
 - `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
 
 ### Don't run `pnpm run build` during development
@@ -247,6 +934,29 @@ cd examples/next && ./node_modules/.bin/val validate   # the `val` bin is linked
 
 The example app might have known pre-existing content errors (missing image files, stale image metadata), so a non-zero error count can be expected. What you are verifying is that the modules **load and validate at all** — a regression in the loader shows up as a thrown error or `0 valid` files, not as a changed error count.
 
+## Proxy mode, and why the Studio's history UI is hard to reach locally
+
+`pnpm run dev:example-next` gives you **fs mode**, where the content host is a
+directory and the server is `ValOpsFS`. A deployed app runs **proxy mode**, and
+several things exist only there: a publish is a git commit, published patches
+are marked applied rather than deleted, deployments arrive over a WebSocket —
+and **history and restore**, which `ValOpsFS` answers
+`not-supported-in-fs-mode` for. `ValShell` hides the History button entirely in
+fs mode (`historyEnabled` is false, so `/val/history` is never linked to), and
+no amount of clicking in the normal dev loop reaches that UI.
+
+What DOES exercise it is the `chromium-http` Playwright project, which starts
+`e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
+history endpoints — alongside a second `examples/tanstack` in proxy mode, with
+the e2e fixtures (`examples/tanstack/content/`) switched on. Ports and secrets
+live in `e2e/http/config.ts`.
+
+**Do not add a second history implementation to `ValOpsFS`.** The mock content
+host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`
+and driven by `e2e/http/history.spec.ts`, so CI keeps it honest on every push. A
+fake commit store behind an env flag in `packages/server` would be a second
+fake of the same service, in shipped product code, with nothing testing it.
+
 ## Working with Images
 
 ### ImageSource Shape
@@ -255,15 +965,60 @@ An `ImageSource` at runtime is:
 
 ```typescript
 {
-  _ref: string;          // FILE_REF_PROP — path like "/public/val/photo_a1b2c.jpg"
-  _type: "file";         // VAL_EXTENSION
-  _tag: "image";         // FILE_REF_SUBTYPE_TAG
-  metadata?: ImageMetadata;  // { width, height, mimeType, alt, hotspot }
-  patch_id?: string;     // set on uncommitted/draft images
+  path: string;          // "/public/val/photo_a1b2c.jpg", or a remote URL
+  width?: number;        // read from the bytes by --fix / the VS Code extension
+  height?: number;
+  mimeType?: string;
+  alt?: string;          // authored
+  hotspot?: { x: number; y: number };  // authored
+  patch_id?: string;     // set server-side on uncommitted/draft images
 }
 ```
 
-Defined in `packages/core/src/source/image.ts`. Constants `FILE_REF_PROP`, `FILE_REF_SUBTYPE_TAG` are in `packages/core/src/source/file.ts`.
+A gallery-backed field (`s.image(galleryVal)`) carries only `path`, `alt` and
+`hotspot`: the rest lives in the gallery, keyed by path.
+
+Defined in `packages/core/src/source/media.ts`, along with `mediaUrl`,
+`resolveMedia` and `fillFromGallery` — the one implementation each of "where are
+these bytes served from" and "what does the gallery know about this path".
+
+### Re-encoding uploads (`encode`)
+
+`s.image({ encode: { type: "webp" } })` and `s.imagedir(dir, { encode })` convert an
+upload to WebP before it is uploaded. **Off by default.**
+`quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
+turns it off where a gallery turned it on.
+
+There are two encoders and one set of decisions. The decisions —
+`resolveEncodeSettings`, `fitWithin`, `isSkippedSource`, `shouldEncodeWithWasm`,
+`fallbackMimeType`, `chooseEncoded` — are in
+`packages/shared/src/internal/media/encodeImageDecisions.ts`. The Studio's
+encoder is `packages/ui/spa/utils/encodeImage.ts` (called from
+`readImageFromFile`); the MCP image tool's is `sharpImageProcessor` in
+`@valbuild/mcp/sharp`, which always writes WebP. Change what `encode` MEANS in
+the shared file, or the two drift.
+
+The Studio's encoder is itself three, tried in order on one drawn `<canvas>`:
+the canvas's own `toBlob`; libwebp compiled to WebAssembly
+(`@jsquash/webp`, in `packages/ui/spa/utils/webpWasm.ts`) when the canvas hands
+back something other than WebP, which is Safari; and the source's own format,
+scaled down (`fallbackMimeType`), when the WebAssembly could not be loaded. The
+WebAssembly is fetched lazily, once per page, from the static host — the same
+content-addressed hosting as rolldown's, see "The release uploads the Studio's
+WebAssembly first" — and a browser whose canvas writes WebP never fetches it.
+
+Either encoder runs before the hash, and that is the only correct place for it:
+`createFilename` derives the extension from the data URL's mime type, so
+swapping the bytes before the hash makes the filename, `mimeType`, dimensions
+and remote validation hash all follow — and swapping them after makes every one
+of those describe a file that was never uploaded.
+
+Things that will bite: `accept` beats `encode` (validation checks the stored
+mimeType against `accept`); a bigger WebP loses to the original unless the image
+was downscaled; SVG/GIF/AVIF are never converted; the produced type must be
+checked because `canvas.toBlob` silently falls back to PNG. `encode` is stripped
+in `getValidationBasis` so it cannot re-validate published remote refs. See
+[architecture/media.md](../architecture/media.md).
 
 ### Creating an Image Patch
 
@@ -273,8 +1028,10 @@ There are two distinct patch shapes depending on context:
 
 Use `createFilePatch` from `packages/ui/spa/components/fields/FileField.tsx`. It returns a `Patch` with two ops:
 
-1. **`replace`** — sets the field value to the new `ImageSource` object (`_ref`, `_type`, `_tag`, `metadata`)
-2. **`file`** — carries the binary data (base64 data URL string), `filePath` (the `_ref`), and `metadata`
+1. **`replace`** — sets the field value to the new media object (`path`, plus what
+   was read from the bytes, unless the field is gallery-backed)
+2. **`file`** — carries the binary data (base64 data URL string), `filePath` (the
+   `path`), and `metadata`
 
 ```typescript
 const { patch, filePath } = await createFilePatch(
@@ -286,6 +1043,7 @@ const { patch, filePath } = await createFilePatch(
   "image", // subType
   remoteData, // remote config or null for local files
   directory, // defaults to "/public/val"
+  galleryBacked, // true → write only `path`; the gallery has the rest
 );
 ```
 
@@ -293,14 +1051,14 @@ When the field has a `referencedModule` (gallery-backed), after uploading the im
 
 #### B) Gallery module (`ModuleGallery`)
 
-In `ModuleGallery` (`packages/ui/spa/components/fields/ModuleGallery.tsx`), patches are built inline without `createFilePatch`. The gallery stores images as a record keyed by `_ref`:
+In `ModuleGallery` (`packages/ui/spa/components/fields/ModuleGallery.tsx`), patches are built inline without `createFilePatch`. The gallery stores images as a record keyed by file path:
 
 ```typescript
 // Adding an image to a gallery
 const patch: Patch = [
   {
     op: "add",
-    path: [...patchPath, ref], // ref is the _ref / file path key
+    path: [...patchPath, ref], // ref is the file path key
     value: {
       width: metadata.width,
       height: metadata.height,
@@ -319,7 +1077,7 @@ const patch: Patch = [
 ];
 ```
 
-Key difference: the `replace` op is an `add` (adding a new record entry), and the `value` is the flat metadata object (not a full `ImageSource`).
+Key difference: the `replace` op is an `add` (adding a new record entry), and the `value` is the metadata alone — the path is the key, so it is not repeated inside.
 
 **Deleting** from a gallery uses `remove` + a `file` op with `value: null`:
 
@@ -336,29 +1094,20 @@ const patch: Patch = [
 ];
 ```
 
-**Selecting from a gallery** (via `ModuleMediaPicker`) uses a plain `replace` with the full `ImageSource` shape — no `file` op needed since the binary already exists in the gallery module:
+**Selecting from a gallery** (via `ModuleMediaPicker`) uses a plain `replace` with
+just the path — no `file` op, since the binary already exists in the gallery
+module, and no metadata, since the gallery is where it lives:
 
 ```typescript
 addPatch(
-  [
-    {
-      op: "replace",
-      path: patchPath,
-      value: {
-        [FILE_REF_PROP]: entry.filePath,
-        [VAL_EXTENSION]: "file",
-        [FILE_REF_SUBTYPE_TAG]: "image",
-        metadata: entry.metadata,
-      },
-    },
-  ],
+  [{ op: "replace", path: patchPath, value: { path: entry.filePath } }],
   "image",
 );
 ```
 
 #### Ref computation for remote files
 
-Both `ImageField` and `ModuleGallery` compute the `_ref` differently for remote vs local:
+Both `ImageField` and `ModuleGallery` compute the `path` differently for remote vs local:
 
 - **Local**: `ref = "${directory}/${filename}"` (e.g. `/public/val/photo_a1b2c.jpg`)
 - **Remote**: `ref = Internal.remote.createRemoteRef(remoteHost, { publicProjectId, coreVersion, bucket, validationHash, fileHash, filePath })` — a full URL encoding project/bucket/hash info
@@ -398,83 +1147,355 @@ Key details:
 
 ### Getting the URL of an Image
 
-There are three approaches depending on context:
+One function: `Internal.mediaUrl({ path, patch_id? })`. Local and remote are the
+same shape, so there is nothing to branch on — remote is a path that does not
+start with `/public`. `Internal.resolveMedia(src)` is the same thing plus a
+spread, for when you want the whole resolved value.
 
-#### A) Core conversion functions
+| State                     | `path`                            | URL                                                          |
+| ------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| Published, local          | `/public/val/photo.jpg`           | `/val/photo.jpg` (strips `/public`)                          |
+| Draft, local              | `/public/val/photo.jpg`           | `/api/val/files/public/val/photo.jpg?patch_id=...`           |
+| Published, remote         | `https://remote.val.build/file/…` | the path itself                                              |
+| Draft, remote             | `https://remote.val.build/file/…` | `/api/val/files/{filePath}?patch_id=...&remote=true&ref=...` |
+| Absolute, outside /public | `/images/photo.jpg`               | the path itself                                              |
 
-Use `Internal.convertFileSource` (for local `_type: "file"` images) or `Internal.convertRemoteSource` (for `_type: "remote"` images). Both are on the `Internal` object from `@valbuild/core`.
-
-**URL rules for local images** (`convertFileSource` in `packages/core/src/schema/file.ts`):
-
-| State                     | `_ref`                  | URL                                                |
-| ------------------------- | ----------------------- | -------------------------------------------------- |
-| Published (no `patch_id`) | `/public/val/photo.jpg` | `/val/photo.jpg` (strips `/public`)                |
-| Draft (has `patch_id`)    | `/public/val/photo.jpg` | `/api/val/files/public/val/photo.jpg?patch_id=...` |
-| Non-public ref            | `some/other/path`       | `some/other/path` (used as-is)                     |
-
-**URL rules for remote images** (`convertRemoteSource` in `packages/core/src/schema/remote.ts`):
-
-| State                     | URL                                                          |
-| ------------------------- | ------------------------------------------------------------ |
-| Published (no `patch_id`) | The `_ref` string directly (full remote URL)                 |
-| Draft (has `patch_id`)    | `/api/val/files/{filePath}?patch_id=...&remote=true&ref=...` |
-
-#### B) `ImageField` / full `ImageSource` objects
-
-When you have an `ImageSource` object (with `_ref`, `_type`, etc.), use `useFilePatchIds()` to look up the `patch_id` for uncommitted patches, then call the appropriate convert function:
+In the Studio, look the `patch_id` up first — `useFilePatchIds()` is keyed by
+`path`:
 
 ```typescript
 const filePatchIds = useFilePatchIds();
-const patchId = filePatchIds.get(source[FILE_REF_PROP]);
-const url =
-  source[VAL_EXTENSION] === "remote"
-    ? Internal.convertRemoteSource({
-        ...source,
-        [VAL_EXTENSION]: "remote",
-        ...(patchId ? { patch_id: patchId } : {}),
-      }).url
-    : Internal.convertFileSource({
-        ...source,
-        [VAL_EXTENSION]: "file",
-        ...(patchId ? { patch_id: patchId } : {}),
-      }).url;
+const patchId = filePatchIds.get(source.path);
+const url = Internal.mediaUrl({
+  path: source.path,
+  ...(patchId ? { patch_id: patchId } : {}),
+});
 ```
 
-#### C) `ModuleGallery` / bare `_ref` strings
+A gallery gives you a bare path string rather than a media object (the record key
+is the path), and that is all `mediaUrl` needs.
 
-In gallery contexts you often only have the `_ref` string (the record key), not a full `ImageSource`. Use the `refToUrl` helper pattern from `ModuleGallery.tsx` or `ModuleMediaPicker`:
-
-```typescript
-function refToUrl(
-  ref: string,
-  filePatchIds: ReadonlyMap<string, string>,
-): string {
-  const patchId = filePatchIds.get(ref);
-  let filePath = ref;
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  if (remoteRefRes.status === "success") {
-    filePath = `/${remoteRefRes.filePath}`;
-  }
-  if (patchId) {
-    return filePath.startsWith("/public")
-      ? `/api/val/files${filePath}?patch_id=${patchId}`
-      : `${filePath}?patch_id=${patchId}`;
-  }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
-}
-```
-
-This handles both local and remote refs, with or without pending patches. The `MediaPicker` component accepts a `getUrl` prop using the same logic.
-
-#### D) In selectors (consumer code)
-
-`ImageSelector` extends `FileSelector` which has a `.url` property. The selector proxy (`SelectorProxy.ts`) automatically calls `convertFileSource` when it encounters a `_type: "file"` source, so `selector.url` just works.
+**In consumer code**, `url` is generated by `stegaEncode` (so it carries the edit
+tag) and read as `img.url` — along`img.path`, `img.width`, `img.alt` and the rest,
+which are the source's own fields. There is no `metadata` object: `url` is the
+only thing that was not authored. For a gallery-backed field, `fillFromGallery`
+supplies the dimensions and mime type at resolve time.
 
 #### Server-side file serving
 
 The `/api/val/files` endpoint (`ValServer.ts`) serves draft files by loading them from the patch directory (via `getBase64EncodedBinaryFileFromPatch`) and published files directly from the filesystem (`getBinaryFile`). No auth is required on this endpoint (patch IDs serve as unguessable tokens).
 
+## Releasing
+
+Releases go out through changesets: land a PR with a changeset on `main`, the
+Release workflow opens a "Version Packages" PR, and merging that publishes to
+npm.
+
+### The changeset summary is the release note
+
+`.changeset/config.json` generates changelogs with
+`@changesets/changelog-github`, so `changeset version` writes each changeset's
+summary into every affected package's `CHANGELOG.md` under the new version,
+prefixed with the PR link, the commit link and the author. `changesets/action`
+then uses that entry as the body of the GitHub Release it creates for the tag,
+and the file ships in the npm tarball.
+
+So the summary in `.changeset/*.md` is what users read on the release — write it
+for them, not for the reviewer of the PR. It is Markdown, and lists, code fences
+and `#123` issue references all survive (the last gets linkified).
+Front-matter-style lines in the summary are consumed rather than printed:
+`pr: 123`, `commit: <sha>` and `author: @who` override what changesets inferred
+from git, which is how a changeset that landed via a squash or a rebase gets the
+right link.
+
+Two things to know before running `changeset version` by hand:
+
+- It needs a `GITHUB_TOKEN` in the environment. Without one the GitHub API call
+  fails with `Bad credentials` and **no files are written** — the generator is
+  fail-closed, so a missing token stops the release rather than publishing a
+  version with empty notes. CI has the token; a laptop usually does not.
+- Normal releases do not need it run by hand at all. The Release workflow runs
+  `pnpm run version-packages` and puts the result in the "Version Packages" PR.
+
+### The release uploads the Studio's WebAssembly first
+
+`pnpm run release` is `build`, then `wasm:upload`, then `changeset publish`.
+The Studio fetches its WebAssembly from
+`content.val.build/v1/static/<name>/<sha256>/<file>` (`DEFAULT_STATIC_HOST` in
+core, `build/staticWasm.ts` in ui), and the npm tarball does not carry it. There
+are three binaries: rolldown's (`rolldown/`), without which the Studio cannot
+publish, and libwebp's two (`webp/`, with and without SIMD), without which
+Safari falls back to uploading photos as JPEGs. `STATIC_WASM` in
+`build/staticWasm.ts` is the list; a `.wasm` the build emits that is not on it
+fails the build, and the build writes the list to `server/static-wasm.json`,
+which is all the uploader reads.
+
+The upload goes first so that failing it stops the release rather than
+following it. It is content-addressed: an unchanged binary is found and nothing
+is sent, so most releases need no credential. A new one (a rolldown or
+`@jsquash/webp` bump) needs `VAL_STATIC_UPLOAD_TOKEN` -- a secret shared with
+valbuild/home's content server, not a Hetzner key -- and without it the release
+stops, naming every URL that is missing. `wasm:check` asks the same question
+without uploading.
+
+**After a release, ask whether to update the templates** — and default to
+yes. [`valbuild/templates`](https://github.com/valbuild/templates) holds every
+template `npm create @valbuild` can make (`tanstack/full`, `tanstack/minimal`,
+`nextjs/full`, `nextjs/minimal`), and each pins `@valbuild/*` versions in its
+own `package.json` and lockfile, so they keep serving the old release to
+everyone who creates a project until someone bumps them. So, once the new
+version is on npm:
+
+1. Ask the user whether to update the templates now, proposing that we do.
+2. Bump the `@valbuild/*` dependencies in EVERY template's `package.json`,
+   install in each so its lock file follows, and open a PR on the templates
+   repository. Its `AGENTS.md` has the per-template checks. Bump
+   `minimumReleaseAgeExclude` in each template's `pnpm-workspace.yaml` with
+   them: it names the exact version of every `@valbuild/*` package in that
+   template's lock file, and a list left on the previous release makes a fresh
+   `pnpm install` refuse the new one for a day after it is published.
+3. **Test it out** — do not ship the bump on a green typecheck alone. Run each
+   template against the new version, open `/val`, and check that the Studio
+   loads and that an edit can be made and saved. Breakage from a release shows
+   up here first, and this is the last place to catch it before it is what
+   every new project starts from.
+
+What `npm create @valbuild` offers is not in this repository at all: it reads
+`catalog.json` from the templates repository at run time (see
+`packages/create/src/catalog.ts`), which also lists the files each optional
+feature is made of. Adding, renaming or moving a template, or a file that
+serves MCP in one, is a change there and not here.
+
+### Publishing a package for the FIRST time
+
+A new package cannot be published by CI, and the failure looks like nothing to do
+with that:
+
+```
+@valbuild/mcp@0.123.0
+└ E404: Not Found - PUT https://registry.npmjs.org/@valbuild%2fmcp - Not found
+  The requested resource '@valbuild/mcp@0.123.0' could not be found or you do not
+  have permission to access it.
+```
+
+The Release workflow publishes with npm trusted publishing (OIDC), and a trusted
+publisher configuration is **per package** — so a package that has never been
+published has none, and the OIDC token has no permission to create it. npm answers
+a PUT it will not authorize with 404 rather than 403, which is why this reads as
+"missing" rather than "forbidden". There is no way to pre-register the name:
+npm has no reserve-a-name flow, and the org's Teams → Add package screen only
+enumerates packages the org already owns. Nothing is staged, so — unlike the
+E401 below — there is nothing to approve and the version number is not burned.
+
+`changeset publish` goes in dependency order and stops at the failure, so every
+package that depends on the new one is never attempted. Expect a half-published
+release: fix the new package, then re-run the job, and `changeset publish` picks
+up exactly what is missing.
+
+**Bootstrap it by hand, and use `pnpm publish`:**
+
+```bash
+pnpm install && pnpm run build     # `files` ships only dist/, so build first
+cd packages/<new-package>
+pnpm publish --access public --no-git-checks
+pnpm preconstruct dev              # back in the repo root, restore dev entries
+```
+
+`--access public` because a scoped package's first publish defaults to
+_restricted_, and a restricted package 404s for everyone else — indistinguishable
+from not existing. A brand-new package also takes up to a couple of minutes to
+become publicly readable, so a 404 right after a successful publish is usually
+just the read path catching up.
+
+**`pnpm publish`, never `npm publish`.** This is the one that cost a release.
+Every package here declares its siblings as `"@valbuild/x": "workspace:*"`, and
+that protocol is rewritten to a real version **at pack time by pnpm**. `npm
+publish` uploads the manifest verbatim, so the published package asks consumers
+to resolve `workspace:*` and cannot be installed by anything:
+
+```
+npm  → EUNSUPPORTEDPROTOCOL  Unsupported URL Type "workspace:": workspace:*
+pnpm → ERR_PNPM_WORKSPACE_PKG_NOT_FOUND
+```
+
+It is unfixable in place: npm versions are immutable, and unpublishing burns the
+number permanently rather than freeing it. Everything pinning that exact version
+— `@valbuild/next` pins its siblings exactly — is broken with it, so the recovery
+is a patch release of the bad package (changesets bumps the dependents for you),
+`npm deprecate` on both bad versions, and `npm dist-tag add <pkg>@<last good>
+latest` in the meantime so installs stop failing.
+
+Once the package exists, add its trusted publisher — the package page →
+Settings → Trusted publishing, organization `valbuild`, repository `val`,
+workflow `release.yml`, no environment, **`npm publish` ticked** — and CI handles
+it from then on, provenance included. The hand-published version is the only one
+without an attestation.
+
+### The Release job fails with `E401 … Failed to generate Web Auth URLs`
+
+Symptom: `changeset publish` publishes some packages and then fails on one:
+
+```
+@valbuild/language-server@0.120.1
+└ E401: 401 Unauthorized - PUT https://registry.npmjs.org/@valbuild%2flanguage-server - Failed to generate Web Auth URLs due to error: BadRequestError: token is invalid
+```
+
+Re-running the job does not help; the same package now fails with
+
+```
+└ E409: 409 Conflict - PUT https://registry.npmjs.org/@valbuild%2flanguage-server - Cannot publish over previously staged version "0.120.1".
+```
+
+and the packages that depend on it (`cli`, `next`) are never attempted.
+
+→ Nothing is wrong with the token or the workflow. The Release workflow publishes
+with npm trusted publishing (OIDC — note the `id-token: write` permission and the
+absence of an `NPM_TOKEN`), and every `@valbuild/*` package has a trusted
+publisher configuration on npmjs.com pointing at `valbuild/val` +
+`release.yml`. Since May 2026 that configuration carries an **Allowed actions**
+choice: `npm stage publish` is always allowed, and `npm publish` (direct
+publishing) is a separate checkbox. Configurations created before that date
+were grandfathered to allow `npm publish`; newer ones are not unless the box was
+ticked. When the workflow runs `npm publish` against a package whose
+configuration only allows staging, the registry **stages** the version and then
+tries to complete the publish with a web-auth 2FA prompt, which an OIDC token
+cannot answer — hence the 401. The tarball stays in the staging area, so every
+re-run gets the 409.
+
+Fix, in this order:
+
+1. On npmjs.com, open the **Staged Packages** tab and either **Approve** the
+   staged version (2FA; this publishes it with the provenance from the original
+   run, which is what happened for `language-server@0.120.0`) or **Reject** it
+   so the version number is free again. `npm stage approve <stage-id>` from a
+   laptop with 2FA does the same; OIDC tokens cannot approve.
+2. Fix the configuration so it does not happen next release: npmjs.com →
+   the package → Settings → Trusted publishing. Connections cannot be edited,
+   so delete the GitHub Actions one and add it back (organization `valbuild`,
+   repository `val`, workflow filename `release.yml`, no environment) with
+   **`npm publish` ticked under Allowed actions**. Configurations created after
+   2026-09-03 default to stage-only, so the box has to be ticked explicitly.
+3. Re-run the failed Release job. `changeset publish` skips versions already on
+   the registry, so it picks up exactly the packages that are still missing.
+
+A newly added package is the usual trigger: its trusted publisher gets created
+long after everyone else's, with the newer default. Tick the `npm publish` box
+when you set it up, and expect this failure on the first release if you forget.
+
+**The E401 is what identifies this one.** Without it you are looking at the
+next section, and ticking a box that is already ticked will not help.
+
+### A green Release job, and the version is not on npm yet
+
+Symptom: `changeset publish` prints every package under **Successfully
+published**, the job goes green, and `npm view @valbuild/<pkg>@<version>`
+answers E404 for some of them.
+
+**It is almost always registry lag. Wait.** A version can take several minutes
+to become readable, and the packages of one release do not appear together:
+for 0.141.0 seven of the eleven were readable within three minutes and the
+rest a while later, with nothing wrong. Check again after five minutes, from
+the registry itself rather than a cache:
+
+```bash
+curl -s "https://registry.npmjs.org/@valbuild%2fui" | grep -c '"0.141.0"'
+```
+
+Do not re-run the Release job while you wait. `changeset publish` skips what
+the registry already has, so a re-run either does nothing or collides with a
+publish that is still landing.
+
+**Staged packages are only a thing for NEW packages.** A package's trusted
+publisher configuration is created when the package is, and configurations
+created after the npm change described in the section above default to
+staging -- so a package published for the first time, or one whose trusted
+publisher was recreated, can be staged instead of published. The established
+`@valbuild/*` packages are not. If a NEW package is still not readable well
+after the rest of its release, look under **Staged Packages** on npmjs.com:
+approve the stage (2FA) to publish it with its original provenance, or reject
+it to free the version number, then fix its configuration as described above.
+That is also the case [npm/cli#9889](https://github.com/npm/cli/issues/9889)
+describes, where the registry answers a staged publish as though it had
+published.
+
+## Adding a `ValidationFix` code
+
+A fix code is declared in one place and DISPATCHED ON in seven, spread over five
+packages. Nothing makes you visit them: the union is a `const` array, so a
+missing entry is a silent no-op rather than a type error, and the symptom is
+always the same — the error is reported somewhere it should have been quietly
+repaired, or a quick fix is offered nowhere while looking fine everywhere else.
+
+Visit all of these, in this order:
+
+1. **`core/src/schema/validation/ValidationFix.ts`** — the code itself.
+2. **`shared/src/internal/ApiRoutes.ts`** — a `z.literal` in the fixes union.
+   Not compiler-enforced: the zod schema is typed against the core union, so a
+   missing literal is a RUNTIME parse failure of the response that carries it.
+3. **The schema** that reports it (`fixes: [...]` on the `ValidationError`).
+4. **`shared/…/validation/partitionValidationErrors.ts`** — exhaustive switch,
+   so this one DOES fail to compile. `true` means the Studio hides it because
+   the server repairs it on save; `false` means an editor has to see it. This
+   also decides publish gating, via `filterBlockingValidationErrors` — which is
+   why `blockingValidationErrors.ts`, `ValErrorProvider` and `createSystem` need
+   nothing of their own.
+5. **`server/src/createFixPatch.ts`** — the branch that builds the patch. Read
+   the schema at the path with `Internal.resolvePath(modulePath, moduleSource,
+moduleSchema)` rather than trusting what the error carries.
+6. **`server/src/fixHandlers.ts`** — the entry the CLI dispatches on. The
+   registry's key type excludes the four `SCHEMA_SOURCE_FIXES`, so a fix that is
+   neither excluded nor registered fails to compile; one that is missing at
+   runtime makes `val validate` emit `unknown-fix`. Return
+   `shouldApplyPatch: true` to hand off to `createFixPatch`, and a
+   `fixableErrorMessage` when `ctx.fix` is off, or `--fix`-less runs report it as
+   a plain error instead of a fixable one.
+7. **`language-server/src/codeActions.ts`** — `LOCAL_FIXES` and `FIX_TITLES`.
+   Neither is exhaustive. A fix absent from `LOCAL_FIXES` is silently never
+   offered as a quick fix, which is how you get a diagnostic in VS Code with no
+   lightbulb and no explanation.
+
+Two lists that are NOT per-fix, and must not be copied: `SCHEMA_SOURCE_FIXES`
+(`shared/src/internal/resolveSchemaSourceFixes.ts`) is the set that only a
+project-wide snapshot can answer — the language server imports it as
+`DEFERRED_FIXES` rather than keeping its own, because its own fell two behind.
+
+**Verify end to end, not by reading.** Build a throwaway project in the
+scratchpad and run the CLI against it — `pnpm exec tsx src/cli.ts validate
+--root <dir>` from `packages/cli`, then again with `--fix`, and diff the file.
+That exercises module loading, validation, the handler, the patch and the TS
+rewrite in one go; the unit tests cover none of that seam.
+
 ## Common Fixes
+
+### `prettier --check` fails on a file `prettier --write` just wrote
+
+Symptom: the `format` CI job is red on a Markdown file, and running
+`pnpm run format:fix` does not fix it — `--check` keeps rejecting the file no
+matter how many times you write it.
+
+→ Prettier 3.9.x re-indents a wrapping continuation paragraph inside a
+**task-list item** by four more spaces on every pass, so formatting never
+reaches a fixed point and `--check` can never pass. Five lines are enough to
+reproduce it:
+
+```markdown
+- [x] Decide something here, and it
+      already had one. The double mount render was the cost.
+
+      `peek` resolved the path all the way to the value and then discarded it,
+      returning only a status. It now carries the value.
+```
+
+Run that through `prettier` repeatedly and the last two lines march right: 6,
+10, 14, 18 spaces. A plain `- ` item is stable, and so is a single-line
+continuation paragraph — it takes a `- [x] ` / `- [ ] ` item (content column 6)
+plus a paragraph that wraps. `packages/ui/spa/stores/openquestions.md` has
+exactly that shape.
+
+The whole 3.9 line is affected (3.9.0 through 3.9.6 all diverge) and 3.8.5 is
+fine, so **prettier is pinned to `~3.8.5`, not `^3.8.5`** — a caret range would
+let 3.9 back in and turn the `format` job permanently red. Do not widen it
+without re-running the snippet above against the version you want.
 
 ### "Type 'X' does not satisfy constraint 'Source'"
 
@@ -510,4 +1531,4 @@ cd examples/next && pnpm run build                     # generates next-env.d.ts
 
 Fix: make every workspace package declare the same `@types/react` and `@types/react-dom` version, then `pnpm install --no-frozen-lockfile` and commit `pnpm-lock.yaml`. This includes the private fixtures under `packages/server/test/example-projects/*` — they are listed in `pnpm-workspace.yaml`, so they are real workspace packages and their pins contribute to the hoisted layout.
 
-This is not triggered by React itself changing — it is the _type_ packages drifting apart. Expect it whenever `@types/react` is bumped in some packages but not all, when a package or fixture is added with a different pin, or during a future React 18 → 19 types migration, which has to be done across every package at once (`examples/next` and the fixtures included).
+This is not triggered by React itself changing — it is the _type_ packages drifting apart. Expect it whenever `@types/react` is bumped in some packages but not all, or when a package or fixture is added with a different pin. The repo is on React 19 and `@types/react` 19 everywhere, the fixtures under `packages/server/test/example-projects/*` included - nothing builds those, but their pins still decide the hoisted layout, so they have to move with everyone else's.

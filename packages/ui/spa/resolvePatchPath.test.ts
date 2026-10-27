@@ -7,7 +7,7 @@ const testModule1 = c.define(
   s.record(
     s.object({
       "2": s.array(
-        s.union(
+        s.discriminatedUnion(
           "type",
           s.object({
             type: s.literal("type1"),
@@ -34,11 +34,12 @@ const testModule1 = c.define(
         { type: "type2", "4": ["zero", "one", "two", "three", "four", "five"] },
         {
           type: "type3",
-          image: c.image("/public/val/test.png", {
+          image: {
+            path: "/public/val/test.png",
             alt: "test",
             height: 100,
             width: 100,
-          }),
+          },
         },
       ],
     },
@@ -65,11 +66,12 @@ describe("resolvePatchPath", () => {
           },
           {
             type: "type3",
-            image: c.image("/public/val/test.png", {
+            image: {
+              path: "/public/val/test.png",
               alt: "test",
               height: 100,
               width: 100,
-            }),
+            },
           },
         ],
       },
@@ -94,11 +96,12 @@ describe("resolvePatchPath", () => {
         },
         {
           type: "type3",
-          image: c.image("/public/val/test.png", {
+          image: {
+            path: "/public/val/test.png",
             alt: "test",
             height: 100,
             width: 100,
-          }),
+          },
         },
       ],
     });
@@ -110,7 +113,7 @@ describe("resolvePatchPath", () => {
     ).toMatchObject({
       modulePath: `"1"."2".3`,
       schema: {
-        type: "union",
+        type: "discriminated-union",
       },
       source: {
         type: "type2",
@@ -151,23 +154,24 @@ describe("resolvePatchPath", () => {
       schema: {
         type: "image",
       },
-      source: c.image("/public/val/test.png", {
+      source: {
+        path: "/public/val/test.png",
         alt: "test",
         height: 100,
         width: 100,
-      }),
+      },
     });
   });
 
   test("basics image alt", () => {
     expect(
       resolvePatchPath(
-        ["1", "2", "4", "image", "metadata", "alt"],
+        ["1", "2", "4", "image", "alt"],
         testSchema1,
         testSource1,
       ),
     ).toMatchObject({
-      modulePath: `"1"."2".4."image"."metadata"."alt"`,
+      modulePath: `"1"."2".4."image"."alt"`,
       schema: {
         type: "image",
       },
@@ -181,9 +185,12 @@ describe("resolvePatchPath", () => {
       s.record(
         s.object({
           text: s.richtext({
-            style: { bold: true, italic: true, lineThrough: true },
-            block: { h2: true, ul: true },
-            inline: { a: true },
+            bold: true,
+            italic: true,
+            lineThrough: true,
+            h2: true,
+            ul: true,
+            a: true,
           }),
         }),
       ),

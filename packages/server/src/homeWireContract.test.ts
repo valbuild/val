@@ -1,0 +1,916 @@
+import { ValOpsHttp } from "./ValOpsHttp";
+import { result } from "@valbuild/core/fp";
+import type { AuthorId } from "./ValOps";
+import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
+
+/**
+ * What `home` actually answers, run through the parsers that read it.
+ *
+ * These fixtures are COPIED FROM `home`'s `content/src/handlers/Api.ts`, not
+ * written from what this side wishes it received. That is the whole point: the
+ * e2e mock speaks val's dialect, so a suite that is green against the mock says
+ * nothing about the service the mock stands in for — and this is the third time
+ * the two have diverged on this feature, the first where it was not a missing
+ * check but a different wire format (patch groups, since removed: `home`
+ * answered a shape `ValOpsHttp` did not parse, and every stage was a 500).
+ *
+ * When `home`'s `Api.ts` changes, change these fixtures with it. A failure here
+ * is the two repos drifting, and it is the only place that can say so.
+ */
+
+const PROJECT = "acme/site";
+const CONTENT_URL = "https://content.val.build";
+
+/** Every request the ops made, so a test can assert on what went out. */
+type SentRequest = {
+  url: string;
+  headers: Record<string, string>;
+  body?: unknown;
+};
+
+function opsAnswering(
+  body: unknown,
+  status = 200,
+  options?: {
+    /**
+     * The repository this deployment was built from, or `null` for one that was
+     * not built from any. See `git` on `ValApiOptions`.
+     */
+    git?: { commit: string; branch: string } | null;
+  },
+) {
+  const originalFetch = global.fetch;
+  const sent: SentRequest[] = [];
+  global.fetch = (async (
+    url: string,
+    init?: { headers?: HeadersInit; body?: string },
+  ) => {
+    sent.push({
+      url: String(url),
+      headers: Object.fromEntries(
+        Object.entries((init?.headers ?? {}) as Record<string, string>),
+      ),
+      body: init?.body === undefined ? undefined : JSON.parse(init.body),
+    });
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: status === 500 ? "Internal Server Error" : "",
+      // `saveSourceFilePatch` reads this before it decides whether the body is
+      // worth unwrapping, so a stub without it takes the "not JSON" branch and
+      // the test would pass on a message this file is about.
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    };
+  }) as unknown as typeof fetch;
+  const ops = new ValOpsHttp(
+    CONTENT_URL,
+    PROJECT,
+    options?.git === undefined
+      ? { commit: "commit-sha", branch: "main" }
+      : options.git,
+    { apiKey: "key" },
+    // The module side is irrelevant here: nothing on this path evaluates a
+    // module or reads a schema.
+    { modules: [] } as never,
+  );
+  return {
+    ops,
+    sent,
+    restore: () => {
+      global.fetch = originalFetch;
+    },
+  };
+}
+
+/**
+ * WHO is publishing. `home` reads the caller's identity from
+ * `x-val-profile-id`: the app's API key names the PROJECT, not the person.
+ */
+const PROFILE = "22222222-2222-4222-8222-222222222222" as AuthorId;
+
+/**
+ * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`, copied from there.
+ *
+ * The reading half of the same contract the commit test pins the writing half
+ * of. Drift here is quieter than a 500: `ValOpsHttp` validates with zod, so a
+ * renamed field makes every commit read as unreadable — which looks exactly
+ * like a project with no history.
+ */
+const HOME_COMMIT_MODULES = {
+  commitSha: "a3f19c2",
+  parentCommitSha: "p1",
+  complete: true,
+  modules: [
+    {
+      moduleFilePath: "/content/landing.val.ts",
+      commitSha: "a3f19c2",
+      sourceSha: "aaaa",
+      schemaSha: "bbbb",
+      source: { heading: "Content as code" },
+      schema: { type: "object", items: {}, opt: false },
+      unavailable: false,
+    },
+  ],
+};
+
+test("a commit's stored modules parse, with the schema left unvalidated", async () => {
+  const { ops, restore } = opsAnswering(HOME_COMMIT_MODULES);
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) {
+      throw new Error(`did not parse: ${JSON.stringify(res.error)}`);
+    }
+    expect(res.value.modules).toHaveLength(1);
+    expect(res.value.modules[0].moduleFilePath).toBe("/content/landing.val.ts");
+    expect(res.value.modules[0].source).toEqual({
+      heading: "Content as code",
+    });
+    // The schema arrives unchecked ON PURPOSE. Validating it at the transport
+    // boundary would turn "written by a different version of Val" into a failed
+    // REQUEST instead of one module that cannot be shown.
+    expect(res.value.modules[0].schema).toBeDefined();
+  } finally {
+    restore();
+  }
+});
+
+test("a project's first commit, which has no parent, parses", async () => {
+  // A hosted project's first publish is a root commit: content answers
+  // `parentCommitSha: null` (its Api type says `string | null`). Refusing it
+  // made "Go back to this point" fail on the oldest point there is.
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    parentCommitSha: null,
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2", { asOf: true });
+    if (result.isErr(res)) {
+      throw new Error(`did not parse: ${JSON.stringify(res.error)}`);
+    }
+    expect(res.value.modules).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
+test("an as-of read that history cannot cover whole says so", async () => {
+  // The trap this closes: `as_of` reads the project as a commit left it, but
+  // the index only has rows for commits made after history started being
+  // recorded. A module last edited before that is simply absent — and a
+  // whole-project revert would leave it untouched without telling anyone.
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    complete: false,
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2", { asOf: true });
+    if (result.isErr(res)) throw new Error("did not parse");
+    expect(res.value.complete).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("an older content server, which never had the flag, still parses", async () => {
+  const withoutFlag: Record<string, unknown> = { ...HOME_COMMIT_MODULES };
+  delete withoutFlag["complete"];
+  const { ops, restore } = opsAnswering(withoutFlag);
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) throw new Error("did not parse");
+    // It only ever answered "what this commit changed", and that is whole.
+    expect(res.value.complete).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+test("a module we hold a hash for but no object is unavailable, not empty", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    modules: [
+      { ...HOME_COMMIT_MODULES.modules[0], source: null, unavailable: true },
+    ],
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) throw new Error("did not parse");
+    expect(res.value.modules[0].unavailable).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — the shape `postCommit.ts`'s `BodyDTO` parses out of `modules`.
+ *
+ * Copied from there, not invented here. `home` stores what it finds under this
+ * key and nothing else: a commit whose `modules` never arrives is a commit
+ * with no history to restore from, and it fails SILENTLY - the publish
+ * succeeds, the archive is written, and the omission only shows up months
+ * later as a commit the Studio cannot open.
+ */
+test("a commit carries each changed module's data and schema, under the key home reads", async () => {
+  const { ops, sent, restore } = opsAnswering({
+    updatedFiles: [],
+    commit: "abc1234",
+    branch: "main",
+  });
+  const bodies: unknown[] = [];
+  const originalFetch = global.fetch;
+  global.fetch = (async (url: string, init?: { body?: string }) => {
+    if (typeof url === "string" && url.endsWith("/commit") && init?.body) {
+      bodies.push(JSON.parse(init.body));
+    }
+    return originalFetch(url as string, init as RequestInit);
+  }) as typeof global.fetch;
+  try {
+    await ops.commit(
+      {
+        patchedSourceFiles: {},
+        patchedJsonEntries: {},
+        previousSourceFiles: {},
+        partiallyPatchedSourceFiles: {},
+        patchedBinaryFilesDescriptors: {},
+        appliedPatches: {},
+        hasErrors: false,
+        sourceFilePatchErrors: {},
+        binaryFilePatchErrors: {},
+        unappliablePatches: {},
+        skippedPatches: {},
+        triedPatches: {},
+        moduleVersions: {
+          ["/content/landing.val.ts" as ModuleFilePath]: {
+            source: { title: "Hello" },
+            schema: {
+              type: "object",
+              items: { title: { type: "string", opt: false } },
+              opt: false,
+            } as unknown as SerializedSchema,
+          },
+        },
+      },
+      "ship it",
+      PROFILE,
+      "/public/val",
+    );
+    const body = bodies[0] as {
+      modules?: Record<string, { source: unknown; schema: unknown }>;
+    };
+    expect(body.modules).toBeDefined();
+    const module = body.modules?.["/content/landing.val.ts"];
+    // The DATA, not the `.val.ts` text: text is code, and parsing code back
+    // into data is the thing this stopped depending on.
+    expect(module?.source).toEqual({ title: "Hello" });
+    expect(module?.schema).toMatchObject({ type: "object" });
+  } finally {
+    global.fetch = originalFetch;
+    restore();
+    void sent;
+  }
+});
+
+test("a commit says who is publishing", async () => {
+  const { ops, sent, restore } = opsAnswering({
+    updatedFiles: [],
+    commit: "abc1234",
+    branch: "main",
+  });
+  try {
+    await ops.commit(
+      {
+        patchedSourceFiles: {},
+        patchedJsonEntries: {},
+        previousSourceFiles: {},
+        partiallyPatchedSourceFiles: {},
+        patchedBinaryFilesDescriptors: {},
+        appliedPatches: {},
+        hasErrors: false,
+        sourceFilePatchErrors: {},
+        binaryFilePatchErrors: {},
+        unappliablePatches: {},
+        skippedPatches: {},
+        triedPatches: {},
+        moduleVersions: {},
+      },
+      "ship it",
+      PROFILE,
+      "/public/val",
+      undefined,
+    );
+
+    const commitRequest = sent.find((request) =>
+      request.url.endsWith("/commit"),
+    );
+    expect(commitRequest).toBeDefined();
+    expect(commitRequest?.headers["x-val-profile-id"]).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — `HttpError` as `sendResult`'s catch writes it, copied from
+ * `content/src/utils/sendResult.ts`.
+ *
+ * This is the answer to a handler that THREW, and it is shaped unlike every
+ * other refusal in the service: the `message` is the constant string
+ * "Internal Server Error", and the exception's own message — the only thing
+ * that says what went wrong — is in `details`.
+ *
+ * `getErrorMessageFromUnknownJson` read `message` and dropped the rest, so a
+ * patch save against a throwing content service put exactly
+ * `{"type":"patch-error","message":"Internal Server Error"}` in front of an
+ * editor, and the reason was never anywhere a person could reach: not in the
+ * app's logs, which record the same relayed message, and not in the browser,
+ * which only ever saw it.
+ *
+ * The `details` below is the real one from the incident that prompted this, and
+ * it is worth reading as an example of what is being thrown away: it names the
+ * column, the value and the query.
+ */
+const HOME_INTERNAL_ERROR = {
+  statusCode: 500,
+  message: "Internal Server Error",
+  details:
+    "Could not validate expected return columns. Validation error: Expected " +
+    'string, received null at "patch_commit_sha". Query: "SELECT author, ' +
+    'branch, patch_commit_sha, base_sha, seq_num, patch, patch_id ..."',
+};
+
+test("home's 500 reaches the editor with the reason it was carrying", async () => {
+  const { ops, restore } = opsAnswering(HOME_INTERNAL_ERROR, 500);
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (!result.isErr(res)) {
+      throw new Error("a 500 must not be reported as a saved patch");
+    }
+    if (res.error.errorType !== "other") {
+      throw new Error(`expected 'other', got '${res.error.errorType}'`);
+    }
+    // The constant is still there — it is what the service said — but it is no
+    // longer the whole message, which is the difference between an error a
+    // person can act on and one they can only report.
+    expect(res.error.error.message).toContain("Internal Server Error");
+    expect(res.error.error.message).toContain("patch_commit_sha");
+    expect(res.error.error.message).not.toBe("Internal Server Error");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A save `home` refuses for the project's plan: `refusalError` in its
+ * `content/src/billing/projectLimits.ts`, here for the Free week's changes.
+ *
+ * It must arrive as `plan-refused`, not `other`: an `other` becomes a 400
+ * `patch-error`, and the Studio drops a patch it is told is bad. This one is
+ * good, and the Studio keeps it until the plan allows it.
+ */
+const HOME_CHANGES_REFUSAL = {
+  statusCode: 403,
+  message:
+    "site has used this week's 1,000 changes on the Free plan. Everything saved so far is kept. " +
+    "An owner can upgrade to Pro, which has no limit: https://admin.val.build/orgs/acme/billing",
+  error: {
+    code: "limit:changes",
+    fix: "upgrade",
+    until: "2026-10-20T10:00:00.000Z",
+    billingUrl: "https://admin.val.build/orgs/acme/billing",
+  },
+};
+
+test("home's plan refusal of a save is passed on as one, with its reason as data", async () => {
+  const { ops, restore } = opsAnswering(HOME_CHANGES_REFUSAL, 403);
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (!result.isErr(res)) {
+      throw new Error("a 403 must not be reported as a saved patch");
+    }
+    if (res.error.errorType !== "plan-refused") {
+      throw new Error(`expected 'plan-refused', got '${res.error.errorType}'`);
+    }
+    expect(res.error.error.message).toBe(HOME_CHANGES_REFUSAL.message);
+    expect(res.error.refusal).toEqual(HOME_CHANGES_REFUSAL.error);
+  } finally {
+    restore();
+  }
+});
+
+test("a 403 that is not a plan refusal is still an error about the save", async () => {
+  // `home`'s answer to a credential without the write scope: no `error`, so
+  // nothing says the plan is the problem, and keeping the patch would keep
+  // one that is never going to be saved.
+  const { ops, restore } = opsAnswering(
+    {
+      statusCode: 403,
+      message: "This credential does not have the val:write scope",
+    },
+    403,
+  );
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (!result.isErr(res)) {
+      throw new Error("a 403 must not be reported as a saved patch");
+    }
+    expect(res.error.errorType).toBe("other");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A deployment built from no repository, writing a patch.
+ *
+ * This is what `git: null` MEANS on the wire, and it is the half of the
+ * contract the incident above turned on: with no repository there is no commit
+ * to record, so `POST /patches` carries neither `commit` nor `branch` and
+ * `home` stores `val_patches.patch_commit_sha` as NULL and resolves the branch
+ * from the project row.
+ *
+ * Pinned from this side because the two repos have to agree about it and only
+ * one of them can be tested here. `home` made that column nullable for exactly
+ * this case; a read path there that still requires a value turns the SECOND
+ * edit in a row into a 500, because the first one is now somebody's parent.
+ *
+ * Omitted rather than sent as null, and the distinction is not cosmetic: a
+ * content API that predates optional git validates the fields it is given, so
+ * `branch: null` is a 400 on every write where an absent key is the older,
+ * working shape.
+ */
+test("a deployment with no repository sends no commit and no branch", async () => {
+  const { ops, sent, restore } = opsAnswering(
+    { patchId: "44444444-4444-4444-8444-444444444444" },
+    200,
+    { git: null },
+  );
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (result.isErr(res)) {
+      throw new Error(`did not save: ${JSON.stringify(res.error)}`);
+    }
+    const save = sent.find((request) => request.url.endsWith("/patches"));
+    expect(save).toBeDefined();
+    const body = save?.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("commit");
+    expect(body).not.toHaveProperty("branch");
+    // Everything else still goes, including the position within the chain,
+    // which is what orders patches when there is no commit to order them by.
+    expect(body).toHaveProperty("baseSha");
+    expect(body.authorId).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("a deployment built from a repository still sends both", async () => {
+  const { ops, sent, restore } = opsAnswering({
+    patchId: "44444444-4444-4444-8444-444444444444",
+  });
+  try {
+    await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    const save = sent.find((request) => request.url.endsWith("/patches"));
+    const body = save?.body as Record<string, unknown>;
+    expect(body.commit).toBe("commit-sha");
+    expect(body.branch).toBe("main");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A DRAFT FILE'S BYTES, and the encoding the two sides have to agree on.
+ *
+ * `PUT /files` answers a `value` per file, and for a while that field carried
+ * TWO encodings told apart only by which branch produced them: a `data:` URL
+ * for a `patch` file, plain base64 for a `repo` one. `home#38` made both plain
+ * base64 and val#563 stopped unwrapping the data URL — a PAIRED change, which
+ * is the dangerous kind, because either half shipped alone is silently wrong.
+ *
+ * It did ship alone, and here is what that looked like: an editor uploaded an
+ * image, the Studio showed a broken tile, and the image appeared correctly the
+ * moment the change was PUBLISHED. `bufferFromDataUrl` found no `;base64,` in
+ * what it was handed, returned undefined,
+ * `getBase64EncodedBinaryFileFromPatch` turned that into `null`, and
+ * `/api/val/files?patch_id=…` answered 404. Nothing logged anything. The
+ * published image was fine because that read goes through the `repo` branch,
+ * which was already plain base64 — so the failure looked like "draft images do
+ * not work" rather than like an encoding mismatch.
+ *
+ * Pinned HERE rather than only in e2e because the e2e mock is ours: it answers
+ * base64 today, and if it ever went back to a data URL the suite would stay
+ * green against a service that does not. That is the whole reason this file
+ * exists. The two e2e tests that would notice a regression are incidental —
+ * `http/aiChat.spec.ts` (an AI-written image) and `http/remoteFiles.spec.ts`
+ * (a remote one) — and neither is the plain local upload that broke.
+ */
+
+/** Bytes with a byte over 0x7f, which is what a wrong encoding mangles first. */
+const PNG_BYTES = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe, 0x42,
+]);
+const FILE_PATH = "/public/val/photo.png";
+const PATCH_ID = "55555555-5555-4555-8555-555555555555" as PatchId;
+
+/** `home` — `putFiles.ts` builds a patch file's `value` as `bytes.toString("base64")`. */
+const HOME_PATCH_FILE = {
+  files: [
+    {
+      filePath: FILE_PATH,
+      location: "patch",
+      patchId: PATCH_ID,
+      value: PNG_BYTES.toString("base64"),
+      remote: false,
+    },
+  ],
+};
+
+/** The same endpoint's `repo` branch, which has always been plain base64. */
+const HOME_REPO_FILE = {
+  files: [
+    {
+      filePath: FILE_PATH,
+      location: "repo",
+      commitSha: "commit-sha",
+      value: PNG_BYTES.toString("base64"),
+    },
+  ],
+};
+
+test("a draft file's bytes come back as home sends them: plain base64", async () => {
+  const { ops, restore } = opsAnswering(HOME_PATCH_FILE);
+  try {
+    const bytes = await ops.getBase64EncodedBinaryFileFromPatch(
+      FILE_PATH,
+      PATCH_ID,
+      false,
+    );
+
+    // Byte for byte. A length check would not do: a mis-decode of this value
+    // still produces *some* bytes, and "an image came back" is exactly what
+    // the broken tile looked like.
+    expect(bytes).not.toBeNull();
+    expect(Buffer.from(bytes!)).toEqual(PNG_BYTES);
+  } finally {
+    restore();
+  }
+});
+
+test("and a published file's bytes do too, through the other branch", async () => {
+  // The two branches reading one field differently is the whole bug, so the
+  // pair is asserted together rather than separately.
+  const { ops, restore } = opsAnswering(HOME_REPO_FILE);
+  try {
+    const bytes = await ops.getBinaryFile(FILE_PATH);
+
+    expect(bytes).not.toBeNull();
+    expect(Buffer.from(bytes!)).toEqual(PNG_BYTES);
+  } finally {
+    restore();
+  }
+});
+
+test("a data: URL in that field is NOT the same bytes, which is why it broke", async () => {
+  /*
+   * The old shape, run through today's reader. This does not throw and it does
+   * not answer null — `Buffer.from(dataUrl, "base64")` decodes the prefix as
+   * though it were payload and skips what it cannot — so a service that went
+   * back to data URLs would serve a corrupt image rather than an error.
+   *
+   * Asserted as "not equal" rather than as some particular garbage: the point
+   * is that the two encodings are not interchangeable, so whoever finds this
+   * test knows why the tile is broken and which side to look at.
+   */
+  const { ops, restore } = opsAnswering({
+    files: [
+      {
+        ...HOME_PATCH_FILE.files[0],
+        value: `data:image/png;base64,${PNG_BYTES.toString("base64")}`,
+      },
+    ],
+  });
+  try {
+    const bytes = await ops.getBase64EncodedBinaryFileFromPatch(
+      FILE_PATH,
+      PATCH_ID,
+      false,
+    );
+
+    expect(bytes).not.toBeNull();
+    expect(Buffer.from(bytes!)).not.toEqual(PNG_BYTES);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — `Api["/applicable/patches"]["GET"]["res"]`, as a build that contains
+ * a publish is answered: the other author's pending patch is listed, and the
+ * head is a published patch that is not.
+ */
+const HOME_APPLICABLE_PATCHES = {
+  patches: [
+    {
+      path: "/content/page.val.ts",
+      patch: null,
+      patchId: "44444444-4444-4444-8444-444444444444",
+      authorId: "22222222-2222-4222-8222-222222222222",
+      baseSha: "base",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      applied: null,
+    },
+  ],
+  headPatchId: "55555555-5555-4555-8555-555555555555",
+  headVersion: 42,
+  commits: [],
+  deployments: [],
+  project: { sourceMode: "connected", branch: "main" },
+};
+
+test("home's chain head is carried, and it is not the last listed patch", async () => {
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE_PATCHES);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    expect(res.patches.map((patch) => patch.patchId)).toEqual([
+      "44444444-4444-4444-8444-444444444444",
+    ]);
+    // The whole point: a writer names THIS, and the list cannot tell it.
+    expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+    // And the chain version it was read at, so a late answer can be told apart.
+    expect(res.headVersion).toBe(42);
+  } finally {
+    restore();
+  }
+});
+
+test("a filtered fetch carries the head too", async () => {
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE_PATCHES);
+  try {
+    const res = await ops.fetchPatches({
+      excludePatchOps: true,
+      patchIds: ["44444444-4444-4444-8444-444444444444" as PatchId],
+    });
+
+    expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+    expect(res.headVersion).toBe(42);
+  } finally {
+    restore();
+  }
+});
+
+test("an empty chain is a null head, not an absent one", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_APPLICABLE_PATCHES,
+    patches: [],
+    headPatchId: null,
+  });
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    expect("headPatchId" in res).toBe(true);
+    expect(res.headPatchId).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+test("an older content server, which reports no head, leaves it absent", async () => {
+  const {
+    headPatchId: _dropped,
+    headVersion: _droppedVersion,
+    ...older
+  } = HOME_APPLICABLE_PATCHES;
+  const { ops, restore } = opsAnswering(older);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    // Absent, so callers fall back to the last listed id rather than reading
+    // `undefined` as an empty chain.
+    expect("headPatchId" in res).toBe(false);
+    expect("headVersion" in res).toBe(false);
+    expect(res.patches).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
+/** `home` — `Api["/patches"]["DELETE"]["res"]`, keyed by branch. */
+const HOME_DELETE = {
+  deleted: ["44444444-4444-4444-8444-444444444444"],
+  headVersions: { main: 43, feature: 7 },
+};
+
+test("a delete's chain version is this branch's, not another's", async () => {
+  const { ops, restore } = opsAnswering(HOME_DELETE);
+  try {
+    const res = await ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+
+    expect(res.deleted).toEqual(["44444444-4444-4444-8444-444444444444"]);
+    expect("headVersion" in res && res.headVersion).toBe(43);
+  } finally {
+    restore();
+  }
+});
+
+test("a delete on a build with no branch takes the only version, and no guess among several", async () => {
+  const one = opsAnswering(
+    { ...HOME_DELETE, headVersions: { main: 43 } },
+    200,
+    {
+      git: null,
+    },
+  );
+  try {
+    const res = await one.ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+    expect("headVersion" in res && res.headVersion).toBe(43);
+  } finally {
+    one.restore();
+  }
+  const several = opsAnswering(HOME_DELETE, 200, { git: null });
+  try {
+    const res = await several.ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+    expect("headVersion" in res).toBe(false);
+  } finally {
+    several.restore();
+  }
+});
+
+test("a delete from an older content server, with no versions, still parses", async () => {
+  const { ops, restore } = opsAnswering({ deleted: HOME_DELETE.deleted });
+  try {
+    const res = await ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+    expect(res.deleted).toEqual(HOME_DELETE.deleted);
+    expect("headVersion" in res).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("a publish carries the chain version it moved to", async () => {
+  const { ops, restore } = opsAnswering({
+    updatedFiles: [],
+    commit: "abc1234",
+    branch: "main",
+    headVersion: 44,
+  });
+  try {
+    const res = await ops.commit(
+      {
+        patchedSourceFiles: {},
+        patchedJsonEntries: {},
+        previousSourceFiles: {},
+        partiallyPatchedSourceFiles: {},
+        patchedBinaryFilesDescriptors: {},
+        appliedPatches: {},
+        hasErrors: false,
+        sourceFilePatchErrors: {},
+        binaryFilePatchErrors: {},
+        unappliablePatches: {},
+        skippedPatches: {},
+        triedPatches: {},
+        moduleVersions: {},
+      },
+      "ship it",
+      PROFILE,
+      "/public/val",
+    );
+    expect(res.error).toBeUndefined();
+    expect("headVersion" in res && res.headVersion).toBe(44);
+  } finally {
+    restore();
+  }
+});
+
+/** `home` — `Api["/applicable/patches"]["GET"]["res"]`. */
+const HOME_APPLICABLE = {
+  patches: [
+    {
+      path: "/content/page.val.ts",
+      patch: null,
+      patchId: "33333333-3333-4333-8333-333333333333",
+      baseSha: "base",
+      authorId: "22222222-2222-4222-8222-222222222222",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      applied: null,
+    },
+    {
+      path: "/content/page.val.ts",
+      patch: null,
+      patchId: "44444444-4444-4444-8444-444444444444",
+      baseSha: "base",
+      authorId: "55555555-5555-4555-8555-555555555555",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      applied: null,
+    },
+  ],
+  headPatchId: "44444444-4444-4444-8444-444444444444",
+  headVersion: 9,
+  commits: [],
+  deployments: [],
+};
+
+test("the group fields an older content service still sends are dropped", async () => {
+  // Patch groups are gone; an older `home` annotated the chain with them.
+  const { ops, restore } = opsAnswering({
+    ...HOME_APPLICABLE,
+    patches: HOME_APPLICABLE.patches.map((patch) => ({
+      ...patch,
+      patchGroupIds: ["11111111-1111-4111-8111-111111111111"],
+    })),
+    patchGroups: [
+      {
+        patchGroupId: "11111111-1111-4111-8111-111111111111",
+        authorId: "22222222-2222-4222-8222-222222222222",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        publishedAt: null,
+      },
+    ],
+  });
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+    expect(res).not.toHaveProperty("patchGroups");
+    expect(res.patches[0]).not.toHaveProperty("patchGroupIds");
+  } finally {
+    restore();
+  }
+});
+
+test("the changes a running publish holds come through, as home sends them", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_APPLICABLE,
+    publishingPatches: ["33333333-3333-4333-8333-333333333333"],
+  });
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+    expect(res.publishingPatches).toEqual([
+      "33333333-3333-4333-8333-333333333333",
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("a content API that does not say which changes are publishing leaves it absent, not empty", async () => {
+  // Empty would claim no publish is running, which it cannot know.
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+    expect(res).not.toHaveProperty("publishingPatches");
+  } finally {
+    restore();
+  }
+});

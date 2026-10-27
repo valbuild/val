@@ -50,6 +50,24 @@ module.exports = defineConfig([
           allowTaggedTemplates: false,
         },
       ],
+      /**
+       * `_`-prefixed means "named for the signature, not used in the body".
+       *
+       * typescript-eslint 8.68 started reporting parameters that only appear in
+       * a type position, which is every `z.string().refine((_p): _p is Id =>
+       * ...)` predicate in the repo: the name is required to write the type
+       * guard and can never be read. The convention was already there in the
+       * code — `_path`, `_id` — it just was not configured, so the rule flagged
+       * those too.
+       */
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
 
     settings: {
@@ -58,8 +76,274 @@ module.exports = defineConfig([
       },
     },
   },
+  /**
+   * `createRequire` is imported in ONE place, and it is not here.
+   *
+   * webpack tries to resolve the argument of a `createRequire` call it can see,
+   * and warns `module.createRequire failed parsing argument.` when the argument
+   * is not a literal. Ours never is — it is a path in the user's project — so
+   * every Next app that bundles `@valbuild/server` into its Val API route got
+   * that warning on every build, about a call that was doing exactly what it
+   * should. `createNodeRequire` reaches the same function through the `Module`
+   * class, which webpack does not tag, and every call site goes through it.
+   */
+  {
+    files: ["packages/server/src/**/*.ts"],
+    ignores: ["packages/server/src/createNodeRequire.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "node:module",
+              importNames: ["createRequire"],
+              message:
+                "Use createNodeRequire from ./createNodeRequire — a direct createRequire import makes webpack warn in every consumer's build.",
+            },
+            {
+              name: "module",
+              importNames: ["createRequire"],
+              message:
+                "Use createNodeRequire from ./createNodeRequire — a direct createRequire import makes webpack warn in every consumer's build.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  /**
+   * An e2e assertion reads a BOUNDARY, never the client's own internals.
+   *
+   * The rule, and why it is a rule, is in `e2e/README.md`. In short: the DOM,
+   * an HTTP response and an outgoing request are all things a user or another
+   * process can observe, and they stay true across refactors. `chainLength()`,
+   * `__VAL_STORES__` and friends are this client's private state — asserting on
+   * them re-tests, non-deterministically and in a browser, properties that jest
+   * already pins on an injectable clock. Both flakes that survived into CI were
+   * of exactly that shape, and both were already covered:
+   * `announcedNotDelivered.test.ts` and `useDebouncedFieldWrite.test.tsx`.
+   *
+   * Reaching into the store to ARRANGE a state is fine and stays — a `move` op
+   * is not something a Playwright drag can produce, and a discard is teardown.
+   * The ban is on assertions, which is where the flakes were.
+   */
+  {
+    files: ["e2e/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.name='expect'] CallExpression[callee.name=/^(chainLength|peekThroughStore|probe|uploadedRefs|moduleSource)$/]",
+          message:
+            "e2e assertions read the DOM, an HTTP response or an outgoing request — not the client's own store. See e2e/README.md.",
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='poll'] CallExpression[callee.name=/^(chainLength|peekThroughStore|probe|uploadedRefs|moduleSource)$/]",
+          message:
+            "e2e assertions read the DOM, an HTTP response or an outgoing request — not the client's own store. See e2e/README.md.",
+        },
+      ],
+    },
+  },
+  {
+    /**
+     * The helper modules, permanently exempt — they ARE the arrange/teardown.
+     *
+     * `discardAll` drives the client to a state and has to watch the client to
+     * know when it is there; that is teardown, not a claim about the product.
+     * The rule cannot tell the two apart because both spell it `expect.poll`,
+     * so the distinction is drawn per FILE: specs assert, helpers arrange.
+     */
+    files: ["e2e/studio.ts", "e2e/http/httpMode.ts"],
+    rules: { "no-restricted-syntax": "off" },
+  },
+  {
+    /**
+     * The specs still to convert. This list only ever SHRINKS.
+     *
+     * A rule that cannot be switched on until everything is clean never gets
+     * switched on. So it is on for every other spec from today — new violations
+     * are blocked outright — and these are the backlog, counted when it landed.
+     *
+     * `studio.spec.ts` is nearly out. Retiring the probe test took it from 21
+     * store assertions to two: `pending.length` after a flush (a "the client
+     * finished syncing" wait written as an assertion), and `parentRef` in the
+     * StrictMode-remount test. The latter is the one worth keeping in a browser
+     * until it is expressed as a jsdom test with `wrapper: StrictMode` — see
+     * `usePickingDefault.test.tsx` for the pattern.
+     *
+     * Note the rule only sees the FIRST of those: it matches a store call nested
+     * inside `expect(...)`/`.poll(...)`, and `const seen = await probe(page)`
+     * followed by `expect(seen.parentRef)` reads a variable. A syntactic rule
+     * cannot chase that, which is worth knowing before trusting a clean lint as
+     * proof a spec is converted.
+     */
+    files: [
+      "e2e/media.spec.ts",
+      "e2e/studio-ui.spec.ts",
+      "e2e/studio.spec.ts",
+      "e2e/gallery-backed-image.spec.ts",
+      "e2e/http/users.spec.ts",
+      "e2e/http/remoteFiles.spec.ts",
+    ],
+    rules: { "no-restricted-syntax": "off" },
+  },
+  {
+    /**
+     * A focus ring names `--border-focus`, and never a shadcn token.
+     *
+     * `--ring`, `--background` and `--input` are declared under `:root` and
+     * `.dark` in `index.css`, and NEITHER selector matches in the Studio: it
+     * mounts inside a shadow root, where `:root` matches nothing, and dark mode
+     * is `[data-mode="dark"]`, not a `dark` class. So `hsl(var(--ring))`
+     * resolves to `hsl()` — invalid at computed-value time, which in a
+     * `box-shadow` takes the whole declaration down. Every focus ring in the
+     * Studio painted nothing, and Storybook hid it by importing the stylesheet
+     * into the document, where `:root` does match.
+     *
+     * `ring-offset-*` goes too, and not only for the colour: measured in
+     * Chromium, a stale `ring-offset-background` invalidates the shadow even at
+     * a 0px offset width. An offset would also have to match whichever surface
+     * the control sits on, and they sit on three.
+     *
+     * A lint rather than a test, following the e2e rule above: a ban on a
+     * pattern in source is what `no-restricted-syntax` is for, and it reports
+     * at the call site instead of as a list of paths. What CANNOT be expressed
+     * here — that the token is declared per theme, and that every ring colour
+     * names a token the shadow root can see — stays in
+     * `packages/ui/spa/focusRingTokens.test.ts`, because it has to read
+     * `index.css` to know.
+     */
+    files: ["packages/ui/spa/**/*.{ts,tsx}"],
+    ignores: [
+      // An unimported duplicate of the calendar beside it, kept as it came from
+      // shadcn. Nothing renders it, so nothing it names can be wrong on screen.
+      // Its live twin is NOT exempt: `group-data-[focused=true]/day:ring-ring/50`
+      // is a v3-supported named-group variant and does compile, so exempting the
+      // file hid a real dead ring on the focused day.
+      "packages/ui/spa/components/designSystem/ui/calendar.tsx",
+      // Names the forbidden classes in order to look for them.
+      "packages/ui/spa/focusRingTokens.test.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "Literal[value=/\\b(ring-ring|ring-offset-background|ring-offset-[0-9])/]",
+          message:
+            "Focus rings name `--border-focus` (`ring-border-focus`), with no ring offset. `--ring`/`--background` are dead inside the shadow root, and an invalid colour voids the whole box-shadow. See packages/ui/spa/index.css.",
+        },
+        {
+          selector:
+            "TemplateElement[value.raw=/\\b(ring-ring|ring-offset-background|ring-offset-[0-9])/]",
+          message:
+            "Focus rings name `--border-focus` (`ring-border-focus`), with no ring offset. `--ring`/`--background` are dead inside the shadow root, and an invalid colour voids the whole box-shadow. See packages/ui/spa/index.css.",
+        },
+      ],
+    },
+  },
+  {
+    /**
+     * Val prints through `Internal.log`, never `console`.
+     *
+     * These packages run inside someone else's app -- the server in their dev
+     * server and production logs, the Studio in their browser tab -- so every
+     * line lands in a console that belongs to a developer who did not write
+     * it. `Internal.log` (`packages/core/src/log.ts`) prints `error` and `warn`
+     * always, and `debug` and `info` only when `VAL_DEBUG` or the `val:debug`
+     * localStorage key asks for them. A bare `console.debug` skips that, and in
+     * Node it is `console.log`: it printed on every request.
+     *
+     * The CLI, `create` and `init` are not here: printing is what they are for.
+     * Nor are the Studio typecheck's `testing/` scripts, which a developer runs
+     * with `tsx` to make fixtures and compare against `tsc`, for the same
+     * reason.
+     */
+    files: [
+      "packages/core/src/**/*.{ts,tsx}",
+      "packages/shared/src/**/*.{ts,tsx}",
+      "packages/server/src/**/*.{ts,tsx}",
+      "packages/react/src/**/*.{ts,tsx}",
+      "packages/next/src/**/*.{ts,tsx}",
+      "packages/tanstack/src/**/*.{ts,tsx}",
+      "packages/mcp/src/**/*.{ts,tsx}",
+      "packages/ui/spa/**/*.{ts,tsx}",
+    ],
+    ignores: [
+      "packages/core/src/log.ts",
+      "**/*.test.{ts,tsx}",
+      "**/*.stories.{ts,tsx}",
+      "**/test/**",
+      "**/__fixtures__/**",
+      "packages/shared/src/typecheck/testing/**",
+    ],
+    rules: {
+      "no-console": "error",
+    },
+  },
+  {
+    /**
+     * The Studio is not always a secure context.
+     *
+     * It is served by the app's own dev server, and that server gets opened on
+     * a plain-http LAN address often enough that it has to be assumed: a phone,
+     * a VM, or a browser on Windows reaching a dev server inside WSL at
+     * `http://172.23.x.x:3000`. Outside a secure context `crypto.randomUUID`
+     * and `navigator.clipboard` do not exist at all, so calling either is not a
+     * feature that degrades — it is a TypeError, and `crypto.randomUUID` was
+     * one thrown during the Studio's first render, which left a blank screen.
+     *
+     * Both have a wrapper in `spa/utils` that falls back — to
+     * `crypto.getRandomValues`, which is not secure-context gated and is still
+     * cryptographically secure, because a patch id IS a secret: `/api/val/files`
+     * serves unpublished files to whoever holds one.
+     */
+    files: ["packages/ui/spa/**/*.{ts,tsx}"],
+    ignores: [
+      // The wrappers themselves, and the jsdom polyfill that fills the same gap
+      // for tests.
+      "packages/ui/spa/utils/randomUUID.ts",
+      "packages/ui/spa/utils/copyText.ts",
+      "packages/ui/spa/stores/react/testPolyfills.ts",
+    ],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "crypto",
+          property: "randomUUID",
+          message:
+            "`crypto.randomUUID` is secure-context only and is absent when the Studio is opened over plain http on a LAN address. Use `randomUUID` from spa/utils/randomUUID.",
+        },
+        {
+          object: "navigator",
+          property: "clipboard",
+          message:
+            "`navigator.clipboard` is secure-context only and is absent when the Studio is opened over plain http on a LAN address. Use `copyText` from spa/utils/copyText.",
+        },
+      ],
+    },
+  },
   globalIgnores([
+    /**
+     * Git worktrees checked out inside the repo.
+     *
+     * The fourth place that has to know, after `.gitignore`, `.prettierignore`
+     * and `jest.config.js`: a worktree under `.claude/worktrees/` is a complete
+     * second copy of the repo, so `eslint .` lints someone else's branch —
+     * including its built `examples/next/.next` output, which the
+     * `examples/next*` pattern below does not match at that depth. The result is
+     * 182 errors in files that are not yours.
+     */
+    ".claude/worktrees/",
     "examples/next*",
+    // Same as the Next example: it has an eslint config of its own that adds
+    // the Val plugin's rules, which the root config does not carry.
+    "examples/tanstack",
     "**/trials",
     "**/dist",
     "**/out",

@@ -16,7 +16,7 @@ export default {
     return {
       ImportDeclaration(node) {
         const importSource = node.source.value;
-        const filename = context.filename || context.getFilename();
+        const filename = context.filename;
 
         const isValFile =
           filename.endsWith(".val.ts") ||

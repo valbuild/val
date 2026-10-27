@@ -1,0 +1,93 @@
+import { expect, test } from "@playwright/test";
+import { clearPatchChain, openStudio } from "./studio";
+
+/**
+ * A record key's description: said once, and only where the key is ENTERED.
+ *
+ * `ChangeRecordPopover` rendered it twice — once on the `keyDescription` prop and
+ * again in the rename branch on the same value resolved through the schema — so
+ * every caller that passes the prop, which the rename control does, showed it
+ * doubled. The header showed it a third time, and that one was not a duplicate
+ * but a category error: a description is INPUT HELP, and nothing about this key
+ * can be typed from the heading. See the rule at the top of `core/src/preview.ts`.
+ */
+const ENTRY = "/val/~/content/authors.val.ts?p=%22teddy%22";
+const DESCRIPTION = "Unique identifier for the author";
+
+test.describe("a record key's description", () => {
+  test.beforeEach(async ({ request }) => {
+    await clearPatchChain(request);
+  });
+
+  test("is not in the header, where the key cannot be edited", async ({
+    page,
+  }) => {
+    await openStudio(page, ENTRY);
+    const studio = page.locator("#val-shadow-root");
+
+    /*
+     * The heading and the trail first, so an empty result below means the
+     * description is genuinely absent rather than the header never having
+     * rendered.
+     */
+    await expect(studio.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(
+      studio.getByRole("navigation", { name: "Back" }),
+    ).toBeVisible();
+
+    /*
+     * "The URL of this blog post. Lower case, no spaces." under a title reads
+     * as a caption of that title — and once the title is a `.preview(...)` name
+     * rather than the key, it captions the wrong thing entirely. The guidance
+     * is not lost: every form that ASKS for a key shows it, including the
+     * rename form reachable from the tools on this very row.
+     */
+    await expect(studio.getByText(DESCRIPTION)).toHaveCount(0);
+  });
+
+  test("an entry's way back is its module, not its folder", async ({
+    page,
+  }) => {
+    await openStudio(page, ENTRY);
+    const studio = page.locator("#val-shadow-root");
+    const back = studio.getByRole("navigation", { name: "Back" });
+
+    // `/content/authors.val.ts` is the folder `content` and the module
+    // `Authors`, and only one of them is a place.
+    await expect(back.getByRole("link")).toHaveCount(1);
+    await expect(back.getByRole("link")).toContainText("Authors");
+    await expect(back).not.toContainText("Content");
+  });
+
+  test("a module's own page offers no way back to its folder", async ({
+    page,
+  }) => {
+    await openStudio(page, "/val/~/content/authors.val.ts");
+    const studio = page.locator("#val-shadow-root");
+
+    // The level above a module is its directory, and "back" there navigated to
+    // the module you were already looking at.
+    await expect(studio.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(studio.getByRole("link", { name: /^Back to/ })).toHaveCount(0);
+  });
+
+  test("is said once in the rename popover, not twice", async ({ page }) => {
+    await openStudio(page, ENTRY);
+    const studio = page.locator("#val-shadow-root");
+    // Nowhere on the page yet — the header does not say it. See above.
+    await expect(studio.getByText(DESCRIPTION)).toHaveCount(0);
+
+    // The rename control, by the popover it opens: the trigger is an icon whose
+    // only accessible name comes from its tooltip.
+    await studio.locator('[aria-haspopup="dialog"]').first().click();
+
+    /*
+     * Asserted INSIDE the popover, which is where the duplicate was — and which
+     * is the one place the sentence belongs, because it is the one place the
+     * key is being typed.
+     */
+    const popover = studio.getByRole("dialog");
+    await expect(popover.getByRole("textbox")).toHaveValue("teddy");
+    await expect(popover.getByText(DESCRIPTION)).toHaveCount(1);
+  });
+});

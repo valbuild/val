@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    // es2022 for `new Error(message, { cause })` and for `Array.prototype.at`,
+    // both of which this code came in using.
+    "lib": ["es2022", "dom"],
+    "types": ["node", "jest"],
+    "strict": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    // `bundler`, not `node`: TypeScript 6 deprecates the node10 resolver and
+    // TypeScript 7 removes it. `bundler` reads `exports` maps and, unlike
+    // node16/nodenext, does not require extensions on relative imports.
+    "moduleResolution": "bundler",
+    "skipLibCheck": true
+  },
+  "include": ["src", "scripts"]
+}

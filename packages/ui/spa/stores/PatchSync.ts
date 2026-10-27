@@ -1,0 +1,918 @@
+import { chainHeadOf } from "@valbuild/shared/internal";
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type { ParentRef, Patch } from "@valbuild/core/patch";
+import { StoreBus } from "./StoreBus";
+import type { PatchRecord, SystemEvent } from "./types";
+import type { PatchStore } from "./PatchStore";
+import { noopActivity, type ActivitySink } from "./activity";
+import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
+
+/**
+ * `PUT /patches`, as a seam.
+ *
+ * Injected like `FetchPatches` and `UploadFile`, so the same logic runs against
+ * the real endpoint, against a content host, and against a table in a test. The
+ * result is a union rather than a thrown error because every branch of it is an
+ * ORDINARY outcome that has to be handled differently:
+ *
+ * - `saved` — the server has them.
+ * - `conflict` (409) — our parent is no longer the head. Someone else wrote.
+ *   Retryable, and the only branch that needs the chain re-synced first.
+ * - `rejected` (400) — the patches are permanently bad. NOT retryable.
+ * - `refused` (403) — Val Build refused them for the project's plan. The
+ *   patches are fine and are KEPT; they are sent again later, not in a loop.
+ * - `network-error` — retryable, and says nothing about the patches.
+ * - `unparseable-response` — retryable, but usually permanent: reported after a
+ *   couple of attempts instead of retried in silence.
+ * - `unauthorized` — retryable only after the user does something.
+ *
+ * Collapsing conflict and rejected into one "failed" would be the expensive
+ * mistake: one must be retried and the other must never be, and getting it
+ * backwards either loses an edit forever or retries a bad patch until the end of
+ * time.
+ */
+export type SavePatches = (request: {
+  patches: { path: ModuleFilePath; patchId: PatchId; patch: Patch }[];
+  parentRef: ParentRef;
+  sessionId?: string | null;
+}) => Promise<SaveResult>;
+
+/** What the server says about patches it took. */
+export type SavedPatches = {
+  newPatchIds: PatchId[];
+  parentRef: ParentRef;
+  headVersion?: number;
+};
+
+export type SaveResult =
+  | {
+      status: "saved";
+      newPatchIds: PatchId[];
+      parentRef: ParentRef;
+      /**
+       * The chain version the last of these made. See
+       * {@link PatchSync.headVersion}. Absent in `fs` mode and from a
+       * content service that predates it.
+       */
+      headVersion?: number;
+    }
+  | { status: "conflict"; message: string }
+  | {
+      status: "rejected";
+      message: string;
+      errors?: Record<ModuleFilePath, string[]>;
+    }
+  | { status: "network-error"; message: string }
+  /**
+   * The server answered, and the answer was not one this client understands.
+   *
+   * Separate from `network-error`, which it used to be folded into, because the
+   * two have opposite prognoses. A network error is usually transient — the
+   * laptop's lid was shut — and retrying until it clears is right. An answer that
+   * does not parse is usually PERMANENT: a Val version mismatch between the app
+   * and the editor, or something in front of the server returning HTML. Retrying
+   * that succeeds never, so it must be said out loud rather than absorbed.
+   *
+   * Still retried, though, and the patches are still kept. "Usually permanent" is
+   * not "certainly permanent" — a dev server recompiling an API route answers
+   * exactly like this for a second or two — and giving up would throw away an
+   * edit over a transient.
+   */
+  | { status: "unparseable-response"; message: string }
+  | { status: "unauthorized"; message: string }
+  /**
+   * Val Build refused the write for the project's plan: the Free week's
+   * changes are used, or a trial is over.
+   *
+   * Not `rejected`, which drops the patches: these are good, and saving them
+   * is a matter of the plan allowing it. Not retried like a network error
+   * either, because asking again a second later gets the same answer — see
+   * {@link REFUSED_RETRY_MS} and {@link PatchSync.resume}.
+   *
+   * `saved` is the part of the batch the server took before it refused: the
+   * week can run out in the middle of one.
+   */
+  | {
+      status: "refused";
+      saved: SavedPatches;
+      refusal: { message: string; error: PlanRefusalErrorT };
+    };
+
+/**
+ * Bring the chain back in step with the server, after a conflict.
+ *
+ * Supplied rather than done here, because re-syncing means `GET /stat` then
+ * `GET /patches` then handing both to the stores — which is the system's job,
+ * not this file's. What this file owns is the DECISION that a re-sync is needed
+ * and the fact that the retry must wait for it.
+ */
+export type ResyncChain = () => Promise<void>;
+
+/**
+ * How many failed attempts before a retry is reported rather than just retried.
+ *
+ * Two, because the first failure of anything is usually nothing: a dev server
+ * recompiling its API route, a proxy reconnecting, one dropped packet. By the
+ * third the backoff has already reached two seconds and whatever is wrong is not
+ * a blip. The retry continues either way — this only decides when someone is told.
+ */
+export const SAVE_STUCK_AFTER_ATTEMPTS = 2;
+
+/**
+ * How long a save refused for the plan waits before it is sent again by itself:
+ * the first time. Each refusal after it doubles the wait, up to
+ * {@link REFUSED_RETRY_MAX_MS}.
+ *
+ * A refusal lifts by something happening elsewhere -- an owner adds a card or
+ * upgrades, or the oldest changes leave the Free week -- and the shell calls
+ * {@link PatchSync.resume} when Val Build says editing is open again. This
+ * timer is for when nothing tells it: a Studio with no shell listening, or a
+ * refusal that lifts between two of the shell's questions. It backs off
+ * because a trial that ended does not lift by itself, and every retry is a
+ * write the content service has to refuse.
+ */
+export const REFUSED_RETRY_MS = 60_000;
+export const REFUSED_RETRY_MAX_MS = 30 * 60_000;
+
+/**
+ * When to send a refused save again: at the moment the refusal says it lifts
+ * (the Free week's oldest change leaving it), or on the backoff when it names
+ * none -- never sooner than {@link REFUSED_RETRY_MS}.
+ */
+export function refusedRetryMs(
+  until: string | undefined,
+  consecutive: number,
+  now: number,
+): number {
+  const backoff = Math.min(
+    REFUSED_RETRY_MS * 2 ** Math.max(0, consecutive - 1),
+    REFUSED_RETRY_MAX_MS,
+  );
+  const at = until === undefined ? NaN : Date.parse(until);
+  if (!Number.isFinite(at)) return backoff;
+  return Math.min(
+    Math.max(at - now + 1_000, REFUSED_RETRY_MS),
+    REFUSED_RETRY_MAX_MS,
+  );
+}
+
+/**
+ * Has the write queue failed for long enough to stop waiting on it?
+ *
+ * The same threshold the sync reports a stuck save at, so a caller waiting for
+ * the queue — `publish`, flushing before it decides — gives up at the moment
+ * the editor is told, rather than at a blip the retry is about to absorb.
+ */
+export function isSaveStuck(state: SyncState): boolean {
+  return (
+    state.status === "retrying" && state.attempt >= SAVE_STUCK_AFTER_ATTEMPTS
+  );
+}
+
+/**
+ * What the write queue is doing. The queue only — see {@link SaveRejection}.
+ */
+export type SyncState =
+  /** Everything local is on the server. */
+  | { status: "in-sync" }
+  /** Local edits exist that have not been sent yet. */
+  | { status: "pending"; patches: PatchId[] }
+  | { status: "saving"; patches: PatchId[] }
+  /**
+   * A save failed in a way that will be retried, with the reason and when.
+   *
+   * `attempt` is exposed because a UI that shows "retrying..." forever is worse
+   * than one that shows "retrying, attempt 4" — the second is a user's only clue
+   * that something is actually wrong.
+   */
+  | {
+      status: "retrying";
+      patches: PatchId[];
+      reason:
+        | "conflict"
+        | "network-error"
+        | "unparseable-response"
+        | "unauthorized";
+      message: string;
+      attempt: number;
+    }
+  /**
+   * Val Build refused these for the project's plan. They are kept, held, and
+   * sent again after {@link REFUSED_RETRY_MS} or on {@link PatchSync.resume};
+   * an edit made meanwhile joins them rather than being sent to be refused.
+   */
+  | { status: "refused"; patches: PatchId[]; message: string };
+
+/**
+ * The write-back loop.
+ *
+ * ## Why this is a store and not a method on `PatchStore`
+ *
+ * Everything else in this system is demand-driven: a change MARKS and a read
+ * COMPUTES, so nothing is ever paid for unless somebody is looking. A write
+ * cannot work that way. An edit the user made has to reach the server whether or
+ * not anything reads it again, and nobody is going to "demand" durability. So
+ * the write needs a driver of its own, and putting it in the patch store would
+ * make that store — which every read path touches — the owner of a retry timer
+ * and a network state machine.
+ *
+ * ## Why the writes are serialized
+ *
+ * The server keeps ONE linear chain and checks the `parentRef` of every write.
+ * Two writes in flight at once means the second one's parent is a patch the
+ * server may not have accepted yet, which is a 409 by construction — a conflict
+ * this client caused itself and would then "resolve" by re-sending. So at most
+ * one `PUT` is in flight, and a save requested while one is running sets a flag
+ * that makes the current one loop again rather than starting a second.
+ *
+ * ## Why a batch, and what the batch is
+ *
+ * Every unsaved patch, in chain order, in one request. Forty keystrokes must not
+ * be forty round trips; and because the whole batch shares one `parentRef`, they
+ * must go in one request or the second would have to name the first as its
+ * parent before the server has confirmed it.
+ *
+ * ## The parent ref
+ *
+ * `{ type: "patch", patchId }` of the HEAD of the server's chain — its last
+ * registered patch — falling back to `{ type: "head", headBaseSha }` when the
+ * chain is empty. Deliberately not the local head: the local head includes
+ * patches the server has never seen, and naming one of those as a parent is a
+ * guaranteed 409.
+ *
+ * The head is what the last stat REPORTED (`headPatchId`), and not the last id
+ * it listed — see `chainHeadOf` in `@valbuild/shared` for why the two can
+ * differ. The parent is a fact about the whole
+ * chain, so it is taken from the server rather than inferred from what this
+ * client is shown.
+ *
+ * Joined with the ids our own 200s named that the stat has not caught up to. A
+ * stat can be older than our own write, so using it alone would walk the parent
+ * backwards and conflict with ourselves.
+ */
+/**
+ * Is this the same queue state?
+ *
+ * Compared by content rather than by reference because {@link SyncState} values
+ * are built fresh at every decision point — the alternative is announcing a
+ * change on every drain and making a UI flicker between two identical states.
+ */
+/**
+ * The leading records whose session matches `session`.
+ *
+ * Stops at the first that differs rather than filtering, because the chain is
+ * linear — see the call site.
+ */
+function takeWhileSameSession(
+  records: PatchRecord[],
+  session: string | undefined,
+  sessionOf: (patchId: PatchId) => string | undefined,
+): PatchRecord[] {
+  const batch: PatchRecord[] = [];
+  for (const record of records) {
+    if (sessionOf(record.patchId) !== session) {
+      break;
+    }
+    batch.push(record);
+  }
+  return batch;
+}
+
+function sameState(a: SyncState, b: SyncState): boolean {
+  if (a.status !== b.status) {
+    return false;
+  }
+  if (a.status === "in-sync" || b.status === "in-sync") {
+    return true;
+  }
+  const same =
+    a.patches.length === b.patches.length &&
+    a.patches.every((patchId, index) => patchId === b.patches[index]);
+  if (!same) {
+    return false;
+  }
+  if (a.status === "retrying" && b.status === "retrying") {
+    return a.attempt === b.attempt && a.reason === b.reason;
+  }
+  if (a.status === "refused" && b.status === "refused") {
+    return a.message === b.message;
+  }
+  return true;
+}
+
+export class PatchSync {
+  readonly events = new StoreBus<SystemEvent>();
+
+  /**
+   * What the chain is rooted at. `null` until a stat arrives.
+   *
+   * While it is null a save cannot be attempted at all, because there is no
+   * honest value for `parentRef`: `{ type: "head" }` needs this sha, and
+   * guessing one would write against the wrong base.
+   */
+  private baseSha: string | null = null;
+  /** The server's ordered patch ids, as of the last stat. */
+  private statPatchIds: PatchId[] = [];
+  /**
+   * The head of the server's chain as the last stat reported it: `null` for an
+   * empty chain, `undefined` when the server does not report one.
+   */
+  private statHeadPatchId: PatchId | null | undefined = undefined;
+  /**
+   * The chain version of the head this sync names — from a stat, or from our
+   * own save. `undefined` where the server does not version its chain.
+   *
+   * `/stat` has more than one caller, so an answer can land after a newer one.
+   * Adopting it put the parent back behind a head this client already knew
+   * about, and the next write was refused. A stat at a lower version than this
+   * is ignored, and our own save reports the version it made, so a stat read
+   * before that save cannot rewind past it either. Where there are versions,
+   * that is also what {@link savedNotInStat} was approximating, and it is no
+   * longer needed.
+   */
+  private headVersion: number | undefined = undefined;
+  /**
+   * Patches the server has acknowledged that the last stat did not list yet.
+   *
+   * This list is the whole reason the parent ref is computed rather than stored.
+   * A stat snapshot can be OLDER than our own successful write — it may have
+   * been taken before the write landed — so taking the last stat id as the parent
+   * would walk the parent backwards and make our next write conflict with
+   * ourselves. Ids leave this list only when a stat finally lists them, at which
+   * point the two agree and it no longer matters which one answered.
+   */
+  private savedNotInStat: PatchId[] = [];
+  /**
+   * The head {@link savedNotInStat} was written on: the parent the first of
+   * those saves named, `null` for the base. Meaningless while the list is
+   * empty.
+   *
+   * What tells an OLD stat from a new one when the server reports a head. A
+   * stat taken before our saves landed reports the head they were written on;
+   * one taken after reports one of them, or — when they are left out of the
+   * list because the deployment already contains them — a head somebody else
+   * wrote since. Without this the second case kept naming our own save, which
+   * the server no longer calls the head.
+   */
+  private savedOnHead: PatchId | null = null;
+  private inFlight: Promise<void> | null = null;
+  private attempt = 0;
+  /** See {@link reportStuck}: one report per spell of failure, not per attempt. */
+  private reportedStuck = false;
+  /**
+   * Saving is held because Val Build refused it for the plan. While held, a
+   * flush sends nothing: every write would be refused, one per keystroke.
+   */
+  private refused: { message: string } | null = null;
+  /** Bumped per refusal and per resume, so only the latest timed retry runs. */
+  private refusals = 0;
+  /** Refusals in a row since the last save went through; sets the backoff. */
+  private consecutiveRefusals = 0;
+  /**
+   * The refusal last reported, by code and fix. Reported again only when it
+   * changes, or after the shell resumed: the timed retry is refused the same
+   * way until the plan changes, and a dismissed notice must not come back on
+   * every retry.
+   */
+  private reportedRefusal: string | null = null;
+  private state: SyncState = { status: "in-sync" };
+  private stopped = false;
+
+  constructor(
+    private readonly patchStore: PatchStore,
+    /**
+     * Absent means this system does not write at all.
+     *
+     * Deliberately not a no-op that reports success, and deliberately not a
+     * stub that returns a retryable error either — the first would call every
+     * edit saved while nothing left the tab, and the second spins a retry loop
+     * forever against a server that does not exist. Absent is its own state:
+     * {@link drain} reports `pending` and stops.
+     */
+    private readonly savePatches: SavePatches | undefined,
+    private readonly resync: ResyncChain,
+    private readonly activity: ActivitySink = noopActivity,
+    /**
+     * Passed to the server so it can attribute a write to this editing session.
+     * Optional because it is metadata: nothing here branches on it.
+     */
+    private readonly sessionId?: string | null,
+    /**
+     * How long to wait before retrying, per attempt. Injected so a test does not
+     * have to wait real seconds to exercise the retry — the alternative is a
+     * test that is either slow or fake.
+     */
+    private readonly backoffMs: (attempt: number) => number = (attempt) =>
+      Math.min(30_000, 500 * 2 ** (attempt - 1)),
+    private readonly sleep: (ms: number) => Promise<void> = (ms) =>
+      new Promise((resolve) => setTimeout(resolve, ms)),
+  ) {}
+
+  /**
+   * Save on every local patch.
+   *
+   * `patch:create` and nothing else: `patch:receive` is a patch from somewhere
+   * else, which by definition the server already has. Writing those back would
+   * duplicate every foreign edit into the chain.
+   */
+  listenTo(): () => void {
+    return this.patchStore.events.on("patch:create", () => {
+      void this.flush();
+    });
+  }
+
+  /**
+   * What the server says exists. Called from `stat:receive`.
+   *
+   * Ids the stat now lists are dropped from {@link savedNotInStat}: the two
+   * sources of truth have converged on those, so keeping them would be keeping a
+   * duplicate.
+   */
+  receiveStat(
+    headBaseSha: string,
+    serverPatchIds: readonly PatchId[],
+    /** The chain head the server reported. See {@link statHeadPatchId}. */
+    headPatchId?: PatchId | null,
+    /** The chain version of that head. See {@link headVersion}. */
+    headVersion?: number,
+  ): void {
+    if (
+      headVersion !== undefined &&
+      this.headVersion !== undefined &&
+      headVersion < this.headVersion
+    ) {
+      // Older than a head we already hold. Nothing in it is news.
+      return;
+    }
+    if (headVersion !== undefined) {
+      this.headVersion = headVersion;
+    }
+    this.baseSha = headBaseSha;
+    this.statPatchIds = [...serverPatchIds];
+    this.statHeadPatchId = headPatchId;
+    const known = new Set(serverPatchIds);
+    // A reported head the server holds is caught up to as well, with everything
+    // we saved before it — the chain is linear. It matters when the head is not
+    // listed: a patch this deployment already contains is left out of the list.
+    const headAt =
+      headPatchId === undefined || headPatchId === null
+        ? -1
+        : this.savedNotInStat.indexOf(headPatchId);
+    if (
+      headPatchId !== undefined &&
+      headAt === -1 &&
+      headPatchId !== this.savedOnHead
+    ) {
+      // A head that is neither one of our saves nor the one they went on: the
+      // chain has moved past them, so the reported head is the parent. See
+      // {@link savedOnHead}.
+      this.savedNotInStat = [];
+      return;
+    }
+    if (headAt !== -1) {
+      // What is left was written on top of the head just caught up to.
+      this.savedOnHead = this.savedNotInStat[headAt];
+    }
+    this.savedNotInStat = this.savedNotInStat.filter(
+      (patchId, index) => index > headAt && !known.has(patchId),
+    );
+  }
+
+  /**
+   * These patches are gone from the server. Stop naming them as a parent.
+   *
+   * The counterpart to {@link receiveStat}, and the reason it cannot do this
+   * job itself: a stat drops an id from {@link savedNotInStat} by LISTING it,
+   * because a snapshot that omits a just-saved patch is usually only stale. A
+   * DELETED patch is never listed again, so it would sit there naming itself the
+   * parent of every future write for as long as the tab is open.
+   *
+   * That is not a slow recovery, it is no recovery: the chain is linear, so a
+   * parent the server does not hold is refused — and refused as
+   * `Parent patch not found` with a status that is not 409, which {@link handle}
+   * reads as permanent and answers by DROPPING the patch. One discard therefore
+   * cost every edit made after it, one toast at a time, until a reload.
+   *
+   * Called from the `patch:drop` listener in `createSystem`, so it covers a
+   * discard made here, a discard made in another tab (`reconcileVanished` drops
+   * what stat has stopped naming), and a patch the server refused — rather than
+   * only the one path that happened to be reported.
+   *
+   * One drop is not a deletion: `discardUnapplicable` gives up on a patch the
+   * server will not delete and drops it locally anyway, saying so in the
+   * console. That patch is still the server's head, so forgetting it names the
+   * one BEFORE it — a parent that exists but is no longer the tip, which is a
+   * 409, which re-syncs and retries. A round trip and no more. Cheap,
+   * self-correcting, and on a path that has already announced it is broken; the
+   * alternative is for this to know WHY each patch left, which is knowledge
+   * `patch:drop` does not carry and should not have to.
+   */
+  forget(patchIds: readonly PatchId[]): void {
+    if (patchIds.length === 0) {
+      return;
+    }
+    const gone = new Set(patchIds);
+    this.savedNotInStat = this.savedNotInStat.filter(
+      (patchId) => !gone.has(patchId),
+    );
+    // The stat list too: it is the other half of the parent, and between a
+    // discard and the socket message announcing it the two are equally stale.
+    this.statPatchIds = this.statPatchIds.filter(
+      (patchId) => !gone.has(patchId),
+    );
+    // And the head, when it is one of them: a head that has been deleted is a
+    // parent the server no longer holds. What replaced it is not known until the
+    // next stat, so this falls back to the list — which may be behind the head
+    // and cost one 409 and a re-sync, where naming a deleted patch would cost
+    // the same round trip against a server that refuses a vanished parent, and
+    // the patches themselves against one that predates that.
+    if (
+      this.statHeadPatchId !== undefined &&
+      this.statHeadPatchId !== null &&
+      gone.has(this.statHeadPatchId)
+    ) {
+      this.statHeadPatchId = undefined;
+    }
+  }
+
+  currentState(): SyncState {
+    return this.state;
+  }
+
+  /**
+   * What the next write names as its parent.
+   *
+   * Computed, not stored — see {@link savedNotInStat}. Deliberately ignores the
+   * LOCAL head: that includes patches the server has never seen, and naming one
+   * of those as a parent is a guaranteed 409.
+   */
+  currentParentRef(): ParentRef | null {
+    if (this.baseSha === null) {
+      return null;
+    }
+    const patchId =
+      this.savedNotInStat[this.savedNotInStat.length - 1] ??
+      chainHeadOf(this.statHeadPatchId, this.statPatchIds);
+    if (patchId === null) {
+      return { type: "head", headBaseSha: this.baseSha };
+    }
+    return { type: "patch", patchId };
+  }
+
+  /**
+   * Send everything unsaved, and keep going until nothing is left.
+   *
+   * Awaitable so a test — and a "save before you navigate away" caller — can
+   * wait for the write rather than sleeping. A second call while one is running
+   * returns the SAME promise: two callers both wanting the queue drained want the
+   * same thing, and giving them one promise is what keeps a single write in
+   * flight.
+   */
+  async flush(): Promise<void> {
+    if (this.inFlight !== null) {
+      // CHAINED, not flagged. The first version of this set an `again` flag and
+      // returned the in-flight promise, which had a window that silently lost a
+      // write: a flush arriving after the running drain had finished looping but
+      // before its `finally` cleared `inFlight` set the flag on a loop that would
+      // never read it again, and the patch then sat unsaved until something else
+      // happened to flush. Chaining has no such window — the follow-up flush is
+      // scheduled rather than signalled — and it costs one promise per caller
+      // that finds nothing left to do.
+      return this.inFlight.then(() => this.flush());
+    }
+    const run = this.drain().finally(() => {
+      this.inFlight = null;
+    });
+    this.inFlight = run;
+    return run;
+  }
+
+  private async drain(): Promise<void> {
+    // A loop, not recursion: a save that keeps failing would otherwise grow the
+    // stack once per retry, and this loop is expected to run for as long as the
+    // network is down.
+    for (;;) {
+      const records = this.patchStore.unsavedRecords();
+      if (records.length === 0) {
+        this.setState({ status: "in-sync" });
+        return;
+      }
+      if (this.stopped) {
+        return;
+      }
+      if (this.refused !== null) {
+        this.setState({
+          status: "refused",
+          patches: records.map((record) => record.patchId),
+          message: this.refused.message,
+        });
+        return;
+      }
+      const save = this.savePatches;
+      if (save === undefined) {
+        // Nowhere to write. Reported as pending rather than retrying, because
+        // there is nothing to retry: no amount of waiting configures a seam.
+        this.setState({
+          status: "pending",
+          patches: records.map((record) => record.patchId),
+        });
+        return;
+      }
+      const parentRef = this.currentParentRef();
+      /**
+       * The longest LEADING run of unsaved patches sharing one session.
+       *
+       * The `PUT` carries a single `sessionId` for the whole request and the
+       * server records it against every patch in it, so a batch spanning two
+       * sessions would mislabel one of them. And it has to be a leading run
+       * rather than a filter: the chain is linear and the server checks the
+       * parent, so patches can only be sent in order — skipping one to group by
+       * session would name a parent the server has not accepted.
+       *
+       * Patches from the other session go in the next round trip, which the loop
+       * takes because `unsavedRecords()` will still be non-empty.
+       */
+      const session = this.patchStore.sessionOf(records[0].patchId);
+      const batch = takeWhileSameSession(records, session, (patchId) =>
+        this.patchStore.sessionOf(patchId),
+      );
+      const patchIds = batch.map((record) => record.patchId);
+      if (parentRef === null) {
+        // No stat yet, so there is no honest parent. Reported as retrying
+        // rather than as an error: the edits are safe locally and the very next
+        // stat unblocks them.
+        this.setState({
+          status: "retrying",
+          patches: patchIds,
+          reason: "network-error",
+          message:
+            "Cannot save yet: the server has not said what the chain starts from.",
+          attempt: this.attempt,
+        });
+        return;
+      }
+      this.setState({ status: "saving", patches: patchIds });
+      this.activity.work("patch:save", undefined, batch.length);
+      this.events.emit({ type: "patch:save", patches: patchIds, parentRef });
+      const result = await save({
+        patches: batch.map((record) => ({
+          path: record.moduleFilePath,
+          patchId: record.patchId,
+          patch: record.patch,
+        })),
+        parentRef,
+        // The batch's session, not the system's: a session belongs to the
+        // patches that were made in it.
+        sessionId: session ?? this.sessionId,
+      });
+      if (this.stopped) {
+        return;
+      }
+      const done = await this.handle(result, patchIds, parentRef);
+      if (done) {
+        return;
+      }
+    }
+  }
+
+  /** Returns true when the loop should stop. */
+  private async handle(
+    result: SaveResult,
+    sent: PatchId[],
+    /** What this save named as its parent. See {@link savedOnHead}. */
+    parentRef: ParentRef,
+  ): Promise<boolean> {
+    if (result.status === "saved") {
+      this.attempt = 0;
+      this.reportedStuck = false;
+      this.reportedRefusal = null;
+      this.consecutiveRefusals = 0;
+      this.recordSaved(result, parentRef);
+      // Keep looping. More may have been created while this request was in
+      // flight, and the loop's own emptiness check is what terminates it — a
+      // second condition here would be a second place to get it wrong.
+      return false;
+    }
+    if (result.status === "refused") {
+      this.attempt = 0;
+      this.reportedStuck = false;
+      if (result.saved.newPatchIds.length > 0) {
+        this.recordSaved(result.saved, parentRef);
+      }
+      this.refused = { message: result.refusal.message };
+      const held = this.patchStore
+        .unsavedRecords()
+        .map((record) => record.patchId);
+      this.setState({
+        status: "refused",
+        patches: held,
+        message: result.refusal.message,
+      });
+      const said = `${result.refusal.error.code}:${result.refusal.error.fix ?? ""}`;
+      if (this.reportedRefusal !== said) {
+        this.reportedRefusal = said;
+        this.events.emit({
+          type: "patch:save-refused",
+          patches: held,
+          refusal: result.refusal,
+        });
+      }
+      this.consecutiveRefusals++;
+      const refusal = ++this.refusals;
+      void this.sleep(
+        refusedRetryMs(
+          result.refusal.error.until,
+          this.consecutiveRefusals,
+          Date.now(),
+        ),
+      ).then(() => {
+        if (refusal === this.refusals) this.retryRefused();
+      });
+      return true;
+    }
+    if (result.status === "rejected") {
+      this.reportedStuck = false;
+      // Permanently bad, so this is the one branch that destroys local state.
+      // The patches are dropped and the source rebuilt without them, because the
+      // alternative is a user staring at an edit that will never exist.
+      this.attempt = 0;
+      this.patchStore.drop(sent);
+      this.events.emit({
+        type: "patch:save-rejected",
+        patches: sent,
+        message: result.message,
+        errors: result.errors,
+      });
+      // NOT `return true`. The queue may still hold patches created while this
+      // request was in flight, and they have done nothing wrong — stopping here
+      // would strand them unsaved because an unrelated patch was refused.
+      return false;
+    }
+    this.attempt++;
+    if (result.status === "conflict") {
+      this.activity.work("patch:save-conflict");
+      // Our idea of the head was wrong, so every id we were holding on that
+      // basis is suspect. Dropped rather than kept: the re-sync below replaces
+      // them with what the server actually has, and a stale entry here would
+      // make the retry name the same rejected parent again.
+      this.savedNotInStat = [];
+      this.setState({
+        status: "retrying",
+        patches: sent,
+        reason: "conflict",
+        message: result.message,
+        attempt: this.attempt,
+      });
+      this.events.emit({
+        type: "patch:save-conflict",
+        patches: sent,
+        message: result.message,
+      });
+      // Re-sync BEFORE the retry, and before the backoff: a conflict means our
+      // parent is wrong, so retrying without a new parent is guaranteed to
+      // conflict again. This is the whole reason `ResyncChain` is injected.
+      await this.resync();
+      if (this.stopped) return true;
+      // A conflict that survives a re-sync is no longer someone else being
+      // quicker; it is a chain this client cannot get onto.
+      if (this.attempt >= SAVE_STUCK_AFTER_ATTEMPTS) {
+        this.reportStuck(sent, "conflict", result.message);
+      }
+      await this.sleep(this.backoffMs(this.attempt));
+      return this.stopped;
+    }
+    // Network error, an answer we cannot read, or unauthorized: nothing is known
+    // about the patches, so nothing local changes. Back off and try the same
+    // batch again.
+    this.activity.work("patch:save-retry");
+    this.setState({
+      status: "retrying",
+      patches: sent,
+      reason: result.status,
+      message: result.message,
+      attempt: this.attempt,
+    });
+    /*
+     * `unauthorized` is left out on purpose: signing in again is a different
+     * conversation, already had elsewhere by the account UI, and reporting it
+     * here would say "saving is stuck" about something the user can simply fix.
+     */
+    if (
+      result.status !== "unauthorized" &&
+      this.attempt >= SAVE_STUCK_AFTER_ATTEMPTS
+    ) {
+      this.reportStuck(sent, result.status, result.message);
+    }
+    await this.sleep(this.backoffMs(this.attempt));
+    return this.stopped;
+  }
+
+  /**
+   * The bookkeeping for patches the server took: what this sync names as the
+   * head next, the store's saved marks, and `patch:saved`.
+   *
+   * Shared by a save and by a refusal that took part of its batch first.
+   */
+  private recordSaved(saved: SavedPatches, parentRef: ParentRef): void {
+    const lastSaved = saved.newPatchIds[saved.newPatchIds.length - 1];
+    if (saved.headVersion !== undefined) {
+      // Versioned: our last patch is the head as of this version, unless a
+      // stat at a later version has already said otherwise.
+      if (
+        lastSaved !== undefined &&
+        (this.headVersion === undefined ||
+          saved.headVersion >= this.headVersion)
+      ) {
+        this.statHeadPatchId = lastSaved;
+        this.headVersion = saved.headVersion;
+      }
+    } else {
+      if (this.savedNotInStat.length === 0) {
+        this.savedOnHead =
+          parentRef.type === "patch" ? parentRef.patchId : null;
+      }
+      this.savedNotInStat.push(...saved.newPatchIds);
+    }
+    // The ids the SERVER named, not the ids we sent — see `markSaved`.
+    this.patchStore.markSaved(saved.newPatchIds);
+    this.events.emit({
+      type: "patch:saved",
+      patches: saved.newPatchIds,
+      parentRef: saved.parentRef,
+      ...(saved.headVersion !== undefined
+        ? { headVersion: saved.headVersion }
+        : {}),
+    });
+  }
+
+  /**
+   * Send what a plan refusal held back.
+   *
+   * Called by the shell when Val Build says editing has become allowed (a
+   * card was added, the week moved on), so the edits made meanwhile go up
+   * without waiting for the timed retry. Nothing to do when no refusal is
+   * holding the queue, or once the sync is disposed.
+   */
+  resume(): void {
+    if (this.refused === null) return;
+    // Val Build said editing is open: a refusal after this is news, even one
+    // like the last, and the backoff starts over.
+    this.reportedRefusal = null;
+    this.consecutiveRefusals = 0;
+    this.retryRefused();
+  }
+
+  /** Send the held edits again: the timed retry, and {@link resume}. */
+  private retryRefused(): void {
+    if (this.refused === null || this.stopped) return;
+    this.refused = null;
+    this.refusals++;
+    void this.flush();
+  }
+
+  /**
+   * Say that a save is stuck — once per spell, not once per attempt.
+   *
+   * The retry loop runs for as long as the fault lasts, and `StatusStore` errors
+   * are sticky until dismissed, so emitting on every attempt would stack a fresh
+   * report every backoff. The latch is cleared on the next success, so a fault
+   * that comes back is reported again.
+   */
+  private reportStuck(
+    patches: PatchId[],
+    reason: "conflict" | "network-error" | "unparseable-response",
+    message: string,
+  ): void {
+    if (this.reportedStuck) return;
+    this.reportedStuck = true;
+    this.events.emit({
+      type: "patch:save-stuck",
+      patches,
+      reason,
+      message,
+      attempt: this.attempt,
+    });
+  }
+
+  private setState(state: SyncState): void {
+    if (sameState(this.state, state)) {
+      // Not news. A drain that concludes `in-sync` on every pass would otherwise
+      // announce a change that did not happen, and a `useSyncExternalStore`
+      // consumer would re-render for each one.
+      return;
+    }
+    this.state = state;
+    this.events.emit({ type: "patch:sync-state", state });
+  }
+
+  /**
+   * Stop retrying.
+   *
+   * Checked after every await rather than only at the top: a retry loop that is
+   * mid-backoff when the system is disposed would otherwise wake up and write to
+   * a torn-down store — and in a test, after the test that created it finished.
+   */
+  dispose(): void {
+    this.stopped = true;
+  }
+}

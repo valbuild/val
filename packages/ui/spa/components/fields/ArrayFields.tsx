@@ -1,11 +1,13 @@
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import {
-  useAddPatch,
-  useFieldCreatorId,
-  useRenderOverrideAtPath,
-  useSchemaAtPath,
+  SourcePath,
+  SerializedArraySchema,
+  isInlineRender,
+} from "@valbuild/core";
+import {
+  usePreviewAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
+  useValField,
 } from "../ValFieldProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -14,14 +16,16 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { SortableList, SortableContainer } from "../../components/SortableList";
+import { BlockList } from "../../components/BlockList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import { PreviewError } from "../PreviewError";
-import { Loader2 } from "lucide-react";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
-import { InlineSortableItem } from "../../components/InlineAnyField";
+import { InlineSortableItem } from "../../components/InlineSortableItem";
+import { LocaleFiltered } from "../LocaleFilterProvider";
+import { FieldNull } from "../../components/FieldNull";
+import { Spinner } from "../designSystem/spinner";
 
 export function ArrayFields({
   path,
@@ -37,14 +41,25 @@ export function ArrayFields({
   errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "array";
-  const creatorId = useFieldCreatorId();
   const { navigate } = useNavigation();
-  const schemaAtPath = useSchemaAtPath(path);
-  const renderAtPath = useRenderOverrideAtPath(path);
-  const shallowSourceAtPath = useShallowSourceAtPath(path, type, creatorId);
-  const sourceAtPath = useSourceAtPath(path, creatorId);
-
-  const { addPatch, patchPath } = useAddPatch(path, creatorId);
+  const previewAtPath = usePreviewAtPath(path);
+  const sourceAtPath = useSourceAtPath(path);
+  /**
+   * `watchUnsaved`, unlike almost every other field.
+   *
+   * A list has no caret to lose, and an indicator that says "saving" after the
+   * save has landed is a visible lie — so this one is allowed to wake the
+   * component. It is also load-bearing: the drag handle is a `<button disabled>`
+   * driven by this answer, so a value frozen at the moment of the drag disables
+   * reordering until something unrelated moves.
+   */
+  const {
+    source: shallowSourceAtPath,
+    schema: schemaAtPath,
+    addPatch,
+    patchPath,
+    hasUnsavedOwnEdit,
+  } = useValField(path, type, { watchUnsaved: true });
 
   if (schemaAtPath.status === "error") {
     return (
@@ -79,27 +94,65 @@ export function ArrayFields({
     );
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
-  const renderAtPathData =
-    renderAtPath && "data" in renderAtPath ? renderAtPath.data : undefined;
+  const arraySource =
+    "data" in shallowSourceAtPath ? shallowSourceAtPath.data : undefined;
+  if (arraySource === null) {
+    // Not an empty list — a list that does not exist. Rendering the sortable
+    // list over it offered an "add" that would have written index 0 into
+    // `null`. See `FieldNull`.
+    return <FieldNull path={path} schema={schema} readonly={readonly} />;
+  }
+  const previewAtPathData =
+    previewAtPath && "data" in previewAtPath ? previewAtPath.data : undefined;
 
-  // NOTE: we do not really want to show loading here, but since
-  // render data is loaded from the server,
-  // we have a rather jarring UX of items rearranging when it finally finishes
-  // Ideally this is less jarring, but for now we just show a loading spinner
-  // which we figured was better than not doing so
-  const loading =
-    renderAtPathData &&
-    ((shallowSourceAtPath.status === "success" &&
-      shallowSourceAtPath.clientSideOnly) ||
-      shallowSourceAtPath.status === "loading");
+  /**
+   * Is there an edit of ours the server has not acknowledged yet?
+   *
+   * Shown, never enforced. This used to gate `disabled` on the list, its rows,
+   * and the delete and duplicate buttons, behind a blocking overlay — so making
+   * one edit took the controls away until the next one. Two things were wrong
+   * with it:
+   *
+   * - `clientSideOnly` was stale (see `useHasUnsavedFrom`), so "until the next
+   *   one" meant "until some unrelated change moved source at this path", which
+   *   in practice was never. One drag disabled dragging.
+   * - Even fixed, it is the wrong rule. An unsaved edit of your own is the normal
+   *   state of the editor, and the whole per-instance suppression design exists
+   *   so that your own edit is not news to you. It must not block you either.
+   *
+   * The overlay was a curtain over previews recomputing after a reorder. That is
+   * worth solving by not moving the rows out from under the reader — see
+   * `SortableContainer` — rather than by disabling the control that caused it.
+   */
+  const savingOwnEdit =
+    previewAtPathData !== undefined &&
+    (hasUnsavedOwnEdit || shallowSourceAtPath.status === "loading");
+  /**
+   * The array's own render picks the list, and it does so BEFORE the `inline`
+   * prop below and before anything to do with `preview`.
+   *
+   * `render` and `preview` answer different questions (see
+   * `architecture/render-and-preview.md`), and where they both have something
+   * to say about a list row, the render wins: `.render({ as: "inline" })` on
+   * the array is the author saying "these are edited here", and a
+   * `.preview(...)` on the item then describes the value for the places it is
+   * only referred to — a search hit, a reference, the collapsed header of its
+   * own row — not for the field itself.
+   */
+  if (isInlineRender(schema)) {
+    return (
+      <div className="relative w-full">
+        {previewAtPath?.status === "error" && (
+          <PreviewError error={previewAtPath.message} path={path} />
+        )}
+        <BlockList path={path} readonly={readonly} />
+      </div>
+    );
+  }
   if (inline) {
-    const sourcePaths = shallowSourceAtPath.data as SourcePath[] | null;
-    if (sourcePaths === null) {
-      return null;
-    }
+    const sourcePaths = arraySource ?? [];
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <SortableContainer
           source={sourcePaths}
           disabled={readonly}
@@ -123,24 +176,26 @@ export function ArrayFields({
               return null;
             }
             return (
-              <InlineSortableItem id={id} disabled={readonly}>
-                <Field
-                  path={itemPath}
-                  type={schema.item.type}
-                  readonly={readonly || schema.item.readonly}
-                  compact={compact}
-                  errorDisplay={errorDisplay}
-                >
-                  <AnyField
+              <LocaleFiltered path={itemPath}>
+                <InlineSortableItem id={id} disabled={readonly}>
+                  <Field
                     path={itemPath}
-                    schema={schema.item}
+                    type={schema.item.type}
                     readonly={readonly || schema.item.readonly}
                     compact={compact}
-                    inline={inline}
                     errorDisplay={errorDisplay}
-                  />
-                </Field>
-              </InlineSortableItem>
+                  >
+                    <AnyField
+                      path={itemPath}
+                      schema={schema.item}
+                      readonly={readonly || schema.item.readonly}
+                      compact={compact}
+                      inline={inline}
+                      errorDisplay={errorDisplay}
+                    />
+                  </Field>
+                </InlineSortableItem>
+              </LocaleFiltered>
             );
           }}
         />
@@ -149,18 +204,19 @@ export function ArrayFields({
   }
   return (
     <div id={path} className="relative w-full">
-      <ValidationErrors path={path} />
-      {renderAtPath?.status === "error" && (
-        <PreviewError error={renderAtPath.message} path={path} />
+      {previewAtPath?.status === "error" && (
+        <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-bg-disabled z-[40] opacity-40">
-          <Loader2 className="animate-spin" />
+      {savingOwnEdit && (
+        // `pointer-events-none` is the whole point: it says something is in
+        // flight without standing between the reader and the list.
+        <div className="pointer-events-none absolute right-2 top-2 z-[40] flex items-center text-fg-secondary">
+          <Spinner size={16} />
         </div>
       )}
       <SortableList
         path={path}
-        disabled={loading}
+        disabled={readonly}
         onClick={(path) => {
           navigate(path);
         }}
@@ -209,13 +265,6 @@ export function ArrayFields({
             schema.type,
           );
         }}
-        schema={schema}
-        render={
-          renderAtPathData?.layout === "list" &&
-          renderAtPathData.parent === "array"
-            ? renderAtPathData
-            : undefined
-        }
         source={shallowSourceAtPath.data || []}
       />
     </div>

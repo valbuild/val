@@ -1,32 +1,28 @@
-import {
-  ImageMetadata,
-  ImageSource,
-  Internal,
-  RemoteSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { ImageSource } from "@valbuild/core";
+import { useMediaUrl } from "../utils/mediaUrl";
 import { ReactNode } from "react";
 import { cn } from "./designSystem/cn";
 
-export type DropdownPreviewImage =
-  | ImageSource
-  | RemoteSource<ImageMetadata>
-  | string
-  | null
-  | undefined;
+export type DropdownPreviewImage = ImageSource | string | null | undefined;
 
 export function DropdownPreviewRow({
   title,
   subtitle,
   image,
   className,
+  imageSize = "md",
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   image?: DropdownPreviewImage;
   className?: string;
+  /**
+   * `sm` where the row is a menu item rather than a card — see
+   * `ReferencesList`, whose rows carry a border of their own and have less room.
+   */
+  imageSize?: "sm" | "md";
 }) {
-  const imageUrl = resolveImageUrl(image);
+  const imageUrl = useDropdownImageUrl(image);
   return (
     <div className={cn("flex min-w-0 flex-1 items-center gap-2", className)}>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -48,7 +44,12 @@ export function DropdownPreviewRow({
           ))}
       </div>
       {imageUrl && (
-        <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg-secondary">
+        <div
+          className={cn(
+            "shrink-0 overflow-hidden rounded bg-bg-secondary",
+            imageSize === "sm" ? "h-7 w-7" : "h-8 w-8",
+          )}
+        >
           <img
             src={imageUrl}
             alt={typeof title === "string" ? title : ""}
@@ -61,18 +62,12 @@ export function DropdownPreviewRow({
   );
 }
 
-function resolveImageUrl(image: DropdownPreviewImage): string | null {
-  if (image === null || image === undefined) {
-    return null;
-  }
-  if (typeof image === "string") {
-    return image;
-  }
-  if (image[VAL_EXTENSION] === "file") {
-    return Internal.convertFileSource(image).url;
-  }
-  if (image[VAL_EXTENSION] === "remote") {
-    return Internal.convertRemoteSource(image).url;
-  }
-  return null;
+/**
+ * A string here is an already-resolved URL — a caller that had one and nothing
+ * to look up — so it passes through. Anything else is a media value and goes
+ * through `useMediaUrl`, which adds the patch id a draft upload needs.
+ */
+function useDropdownImageUrl(image: DropdownPreviewImage): string | null {
+  const resolved = useMediaUrl(typeof image === "string" ? null : image);
+  return typeof image === "string" ? image : resolved;
 }

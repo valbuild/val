@@ -20,9 +20,15 @@ export function getDependentModuleFiles(
   ) {
     if (schemaNode.type === "array" || schemaNode.type === "record") {
       rec(rootModuleFilePath, schemaNode.item);
-    } else if (schemaNode.type === "object") {
+    } else if (schemaNode.type === "object" || schemaNode.type === "settings") {
       for (const key in schemaNode.items) {
         rec(rootModuleFilePath, schemaNode.items[key]);
+      }
+    } else if (schemaNode.type === "view") {
+      // A view IS a dependency: the module it points at decides what the row
+      // shows, so a change there is a change to this module's screen.
+      if (schemaNode.moduleFilePath === moduleFilePath) {
+        dependentModulePaths.add(rootModuleFilePath);
       }
     } else if (schemaNode.type === "keyOf") {
       const [dependency] = Internal.splitModuleFilePathAndModulePath(
@@ -31,7 +37,7 @@ export function getDependentModuleFiles(
       if (dependency === moduleFilePath) {
         dependentModulePaths.add(rootModuleFilePath);
       }
-    } else if (schemaNode.type === "union") {
+    } else if (schemaNode.type === "discriminated-union") {
       // TODO: we could figure out if it is not only potentially dependent but ACTUALLY dependent, but then we would need the source - we figured it is not worth it?
       for (const item of schemaNode.items) {
         if (item.type === "object") {
@@ -45,12 +51,17 @@ export function getDependentModuleFiles(
       schemaNode.type === "boolean" ||
       schemaNode.type === "string" ||
       schemaNode.type === "literal" ||
+      schemaNode.type === "enum" ||
       schemaNode.type === "date" ||
       schemaNode.type === "dateTime" ||
+      schemaNode.type === "color" ||
+      schemaNode.type === "code" ||
       schemaNode.type === "file" ||
       schemaNode.type === "image" ||
+      schemaNode.type === "video" ||
       schemaNode.type === "number" ||
-      schemaNode.type === "route"
+      schemaNode.type === "route" ||
+      schemaNode.type === "locale"
     ) {
       // ignore
     } else {
@@ -58,7 +69,7 @@ export function getDependentModuleFiles(
       const msg = `Val: getDependentModuleFiles: unexpected schema type: ${
         (exhaustiveCheck as SerializedSchema)?.type
       }`;
-      console.error(msg);
+      Internal.log.error(msg);
       throw new Error(msg);
     }
   }

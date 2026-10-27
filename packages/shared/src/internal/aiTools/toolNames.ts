@@ -1,0 +1,21 @@
+export const toolNames = [
+  "get_all_schema",
+  "get_source",
+  "search_content",
+  "validate_content",
+  "create_patch",
+  "add_session_image_to_gallery",
+  "remove_image_gallery_entry",
+  "navigate_to",
+  "get_current_context",
+  "get_patches",
+  "get_source_path_from_route",
+  "set_session_name",
+  "show_compare_view",
+  "ask_user_question",
+  "duplicate_source",
+  "empty_at_path",
+  "count_entries",
+  "get_record_keys",
+] as const;
+export type ToolName = (typeof toolNames)[number];

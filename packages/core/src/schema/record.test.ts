@@ -15,31 +15,27 @@ describe("RecordSchema", () => {
     });
   });
 
-  test("record: nested renders", () => {
+  test("record: nested previews", () => {
     const schema = record(
       object({
         title: string(),
         bar: record(
           object({
             baz: string().nullable(),
-          }),
-        ).render({
-          as: "list",
-          select: ({ val }) => {
+          }).preview(({ val }) => {
             return {
               title: val.baz || "No baz",
             };
-          },
+          }),
+        ),
+      })
+        .nullable()
+        .preview(({ val }) => {
+          return {
+            title: val.title || "No item",
+          };
         }),
-      }).nullable(),
-    ).render({
-      as: "list",
-      select: ({ val }) => {
-        return {
-          title: val?.title || "No item",
-        };
-      },
-    });
+    );
     const src = {
       "upper-key": {
         title: "test",
@@ -51,35 +47,103 @@ describe("RecordSchema", () => {
       },
       "nullable-key": null,
     };
-    const res = schema["executeRender"]("/test.val.ts" as SourcePath, src);
+    const res = schema["executePreview"]("/test.val.ts" as SourcePath, src);
     expect(res).toStrictEqual({
       '/test.val.ts?p="upper-key"."bar"': {
         status: "success",
         data: {
-          layout: "list",
-          parent: "record",
-          items: [
-            ["test1", { title: "baz", subtitle: undefined, image: undefined }],
-          ],
+          rows: {
+            parent: "record",
+            items: [
+              [
+                "test1",
+                { title: "baz", subtitle: undefined, image: undefined },
+              ],
+            ],
+          },
         },
       },
       "/test.val.ts": {
         status: "success",
         data: {
-          layout: "list",
+          rows: {
+            parent: "record",
+            // The null entry is skipped, not previewed: an item preview closure
+            // receives NonNullable values.
+            items: [
+              [
+                "upper-key",
+                { title: "test", subtitle: undefined, image: undefined },
+              ],
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  test("preview: a partially loaded .jsonValues() record previews its loaded keys", () => {
+    // Un-loaded entries are opaque `{_type:"json"}` markers. They must be skipped
+    // rather than fed to the user's closure — and the result must still cover the
+    // keys that ARE loaded, which is what makes a windowed list work: the caller
+    // shows a placeholder for the keys missing from `items`.
+    const schema = record(
+      object({ title: string() }).preview(({ val }) => ({ title: val.title })),
+    ).jsonValues();
+    const res = schema["executePreview"](
+      "/test.val.ts" as SourcePath,
+      {
+        loaded: { title: "Loaded" },
+        unloaded: { _type: "json" },
+      } as never,
+    );
+
+    expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
+      status: "success",
+      data: {
+        rows: {
           parent: "record",
           items: [
             [
-              "upper-key",
-              { title: "test", subtitle: undefined, image: undefined },
-            ],
-            [
-              "nullable-key",
-              { title: "No item", subtitle: undefined, image: undefined },
+              "loaded",
+              { title: "Loaded", subtitle: undefined, image: undefined },
             ],
           ],
         },
       },
+    });
+  });
+
+  test("preview: one key whose closure throws is one error, not a dead preview", () => {
+    const schema = record(
+      object({ title: string() }).preview(({ val }) => {
+        if (val.title === "boom") {
+          throw new Error("user select blew up");
+        }
+        return { title: val.title };
+      }),
+    );
+    const res = schema["executePreview"]("/test.val.ts" as SourcePath, {
+      ok: { title: "fine" },
+      bad: { title: "boom" },
+    });
+
+    // The record still previews, with the surviving key...
+    expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
+      status: "success",
+      data: {
+        rows: {
+          parent: "record",
+          items: [
+            ["ok", { title: "fine", subtitle: undefined, image: undefined }],
+          ],
+        },
+      },
+    });
+    // ...and the failure is reported at the key that caused it.
+    expect(res['/test.val.ts?p="bad"' as SourcePath]).toStrictEqual({
+      status: "error",
+      message: "user select blew up",
     });
   });
 
@@ -99,33 +163,117 @@ describe("RecordSchema", () => {
     expect(
       schema["executeValidate"]("/external.val.ts" as SourcePath, {
         "https://www.google.com": { title: "Test" },
+        "http://www.google.com": { title: "Insecure but absolute" },
       }),
-    ).toBe(false); // No validation errors for valid path
+    ).toBe(false); // No validation errors for valid paths
   });
 
-  test("router validation: src/app directory structure", () => {
-    const schema = record(object({ title: string() })).router(nextAppRouter);
-    const result = schema["executeValidate"](
-      "/src/app/blogs/[blog]/page.val.ts" as SourcePath,
-      {
-        "/blogs/test": { title: "Test" }, // Valid
-        "/blog/test": { title: "Invalid" }, // Wrong path
-      },
+  /**
+   * The external router's rule, which for a long time was not enforced at all:
+   * `validate` collected its errors and then returned an empty list.
+   *
+   * The rule itself is now wider than "starts with http". An external page is
+   * whatever a site links OUT to, and `mailto:` on a contact page is the same
+   * kind of thing to whoever maintains the list. What is refused is a key with
+   * no scheme, and the handful of schemes that are not links at all.
+   */
+  test("router validation: external keys with no scheme", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter,
     );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "https://www.google.com": { title: "Valid" },
+      "mailto:hi@example.com": { title: "Also valid" },
+      "tel:+4712345678": { title: "Also valid" },
+      "discord.gg/val": { title: "No scheme" },
+      "/about": { title: "A path, not a URL" },
+    });
 
     expect(result).not.toBe(false);
     if (result !== false) {
+      const flagged = Object.values(result)
+        .flat()
+        .map((error) => error.value);
+      expect(flagged).toContain("discord.gg/val");
+      expect(flagged).toContain("/about");
+      expect(flagged).not.toContain("https://www.google.com");
+      expect(flagged).not.toContain("mailto:hi@example.com");
+      expect(flagged).not.toContain("tel:+4712345678");
+      // Reported against the KEY rather than the module, which is what
+      // `keyError` means.
       expect(
-        Object.values(result).some((errors) =>
-          errors.some((error) => error.message.includes("/blog/test")),
-        ),
+        Object.values(result)
+          .flat()
+          .every((error) => error.keyError === true),
       ).toBe(true);
-      const error = Object.values(result).find((errors) =>
-        errors.find((error) => error.value === "/blog/test"),
-      )?.[0];
-      expect(error?.value).toStrictEqual("/blog/test");
-      expect(error?.keyError).toBe(true);
     }
+  });
+
+  /**
+   * The schemes that stay refused however wide the policy is.
+   *
+   * An external page key ends up in an `href` in the consuming site's own
+   * markup, so `javascript:` there is stored XSS on that site.
+   */
+  test("router validation: schemes that are not links", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter,
+    );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "javascript:alert(1)": { title: "Script" },
+      "data:text/html,<script>alert(1)</script>": { title: "A document" },
+      "file:///etc/passwd": { title: "The visitor's own machine" },
+    });
+
+    expect(result).not.toBe(false);
+    if (result !== false) {
+      expect(Object.values(result).flat()).toHaveLength(3);
+    }
+  });
+
+  test("router validation: a project that narrows the schemes", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter({ schemes: ["https"] }),
+    );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "https://www.google.com": { title: "Allowed" },
+      "mailto:hi@example.com": { title: "Not here" },
+      "http://www.google.com": { title: "Not here either" },
+    });
+
+    expect(result).not.toBe(false);
+    if (result !== false) {
+      const flagged = Object.values(result)
+        .flat()
+        .map((error) => error.value);
+      expect(flagged).toEqual(
+        expect.arrayContaining([
+          "mailto:hi@example.com",
+          "http://www.google.com",
+        ]),
+      );
+      expect(flagged).not.toContain("https://www.google.com");
+    }
+  });
+
+  test("the narrowed schemes are serialized, so the Studio can apply them", () => {
+    expect(
+      record(object({ title: string() }))
+        .router(externalPageRouter({ schemes: ["https", "mailto"] }))
+        ["executeSerialize"](),
+    ).toMatchObject({
+      router: "external-url-router",
+      routerSchemes: ["https", "mailto"],
+    });
+    // The wide default carries no list: the Studio knows that one already, and
+    // an explicit `undefined` would show up in every schema diff.
+    expect(
+      Object.keys(
+        record(object({ title: string() }))
+          .router(externalPageRouter)
+          ["executeSerialize"](),
+      ),
+    ).not.toContain("routerSchemes");
   });
 
   test("router validation: with groups", () => {
@@ -542,5 +690,49 @@ describe("RecordSchema", () => {
       expect(reserialized.item.type).toBe(serialized.item.type);
       expect(reserialized.key?.type).toBe(serialized.key?.type);
     }
+  });
+  test("record: preview is kept when chaining after preview", () => {
+    const base = record(
+      object({ name: string() }).preview(({ val }) => ({
+        title: val.name,
+      })),
+    );
+    const src = { ada: { name: "Ada" } };
+    const expected = {
+      "/test.val.ts": {
+        status: "success",
+        data: {
+          rows: {
+            parent: "record",
+            items: [
+              ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
+            ],
+          },
+        },
+      },
+    };
+    for (const schema of [
+      base,
+      base.nullable(),
+      base.readonly(),
+      base.hidden(),
+      base.describe("Some description"),
+      base.validate(() => false),
+      base.router(nextAppRouter),
+    ]) {
+      expect(
+        schema["executePreview"]("/test.val.ts" as SourcePath, src),
+      ).toEqual(expected);
+    }
+  });
+
+  test("record: preview does not mutate the schema it was called on", () => {
+    const item = object({ name: string() });
+    item.preview(({ val }) => ({ title: val.name }));
+    expect(
+      record(item)["executePreview"]("/test.val.ts" as SourcePath, {
+        ada: { name: "Ada" },
+      }),
+    ).toEqual({});
   });
 });

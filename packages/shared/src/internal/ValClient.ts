@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { Api, ApiEndpoint, ClientOf, ClientFetchErrors } from "./ApiRoutes";
 import { fromError } from "zod-validation-error";
 import { SharedValConfig } from "./SharedValConfig";
@@ -6,9 +7,19 @@ import { getErrorMessageFromUnknownJson } from "./getErrorMessageFromUnknownJson
 export type ValClient = ClientOf<Api>;
 export const createValClient = (
   host: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   config: SharedValConfig | null, // We want to use this in the future
+  options?: {
+    /**
+     * What sends a request. The network's `fetch` unless given.
+     *
+     * The demo passes one that hands the `Request` to Val's server running in
+     * the same tab (`@valbuild/server/browser`), so everything on both sides
+     * of the call is the real thing and only the network is gone.
+     */
+    fetch?: (input: string, init: RequestInit) => Promise<Response>;
+  },
 ): ValClient => {
+  const send = options?.fetch ?? ((input, init) => fetch(input, init));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyApi = Api as any;
   return (async (path, method, req) => {
@@ -62,7 +73,7 @@ export const createValClient = (
     }
     const reqBodyResult = apiEndpoint.req.body?.safeParse(anyReq.body);
     if (reqBodyResult && !reqBodyResult.success) {
-      console.error(
+      Internal.log.error(
         "Got an invalid request body while validating client-side. This is most likely a Val bug.",
         {
           path,
@@ -84,12 +95,20 @@ export const createValClient = (
         },
       } satisfies ClientFetchErrors;
     }
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (anyReq?.headers) {
+      for (const [name, value] of Object.entries(anyReq.headers)) {
+        if (typeof value === "string") {
+          headers[name] = value;
+        }
+      }
+    }
     try {
-      const res = await fetch(`${host}${fullPath}`, {
+      const res = await send(`${host}${fullPath}`, {
         method: method as string,
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body:
           anyReq.body !== undefined ? JSON.stringify(anyReq.body) : undefined,
       }).then(async (res) => {
@@ -126,7 +145,7 @@ export const createValClient = (
           json,
         };
         if (res.status === 500) {
-          console.error("Server responded with an error", json);
+          Internal.log.error("Server responded with an error", json);
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           return {
             status: 500,

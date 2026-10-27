@@ -1,31 +1,42 @@
 import {
   Internal,
+  MediaCollectionType,
   ModuleFilePath,
+  ModulePath,
   PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
+import { isDeploymentStatusStale } from "../utils/deploymentStatus";
+import { useDeploymentStaleTick } from "../hooks/useDeploymentStaleTick";
+import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { Fragment, useMemo, useState } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
   ArrowRight,
+  Check,
   ChevronDown,
+  CircleAlert,
+  ChevronRight,
   Equal,
-  Globe,
+  History,
+  Lock,
   Minus,
   Pencil,
   Plus,
-  Save,
   Undo2,
-  User,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import { ChangeTreeNode, ChangeType } from "../utils/computeChangedSourcePaths";
+import {
+  ChangeTreeNode,
+  ChangeTreePatch,
+  ChangeType,
+} from "../utils/computeChangedSourcePaths";
+import type { SourceOverride } from "./ValFieldProvider";
 import {
   FieldSourceOverrideContext,
-  useAllSources,
   useFilePatchIds,
   useSchemaAtPath,
   useSchemaWithResolvedPath,
@@ -33,11 +44,22 @@ import {
   useServerSourceAtPath,
   useSourceAtPath,
 } from "./ValFieldProvider";
-import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
-import { useDeletePatches, Profile } from "./ValProvider";
-import { useNavigation } from "./ValRouter";
+import { getFilenameFromRef, getRefParts } from "@valbuild/shared/internal";
+import {
+  useCommittedPatches,
+  useCurrentAuthorId,
+  useDeletePatches,
+  useNoOpSourcePaths,
+  useDeployingCommitShas,
+  useDeployments,
+  Profile,
+} from "./ValProvider";
+import type { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import { relativeLocalDate } from "../utils/relativeLocalDate";
+import { discardAllDescription } from "./discardAllDescription";
 import { useValPortal } from "./ValPortalProvider";
 import { AnyField } from "./AnyField";
+import { PrimitiveListDiff } from "./PrimitiveListDiff";
 import { AuthorPatchInfo, FieldPatchAuthorsPure } from "./FieldPatchAuthors";
 import { Button } from "./designSystem/button";
 import {
@@ -45,11 +67,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
-import { getInitials } from "../utils/getInitials";
+import { Skeleton } from "./designSystem/skeleton";
+import { ProfileAvatar } from "./Avatar";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
-import { urlOf } from "@valbuild/shared/internal";
-import { getNavPathFromAll } from "./getNavPath";
+import { FieldPathLink } from "./FieldPathLink";
+import {
+  SETTINGS_MODULE_TITLE,
+  settingsFieldLabel,
+} from "./settingsChangeLabels";
+import { useShellPanelLink } from "./shell/shellPanelLink";
+import { useNavLink } from "./navLink";
+import { refToUrl } from "./MediaPicker/refToUrl";
+import { Spinner } from "./designSystem/spinner";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -69,54 +99,572 @@ import { getNavPathFromAll } from "./getNavPath";
  *
  * Page-level chrome (titles, global Publish/Discard) is intentionally NOT
  * part of this component — it lives in the surrounding screen.
+ *
+ * Nothing here is editable
+ * ------------------------
+ * Every field this view renders is `readonly`, without exception, and the fields
+ * are not a way in. It used to be possible to type into the "After" side, which
+ * reads as a feature and is not one: the value under the cursor is the result of
+ * a chain of patch sets, each with its own author and its own Discard button, so
+ * an edit made here belongs to none of them and lands as yet another patch on
+ * top — while the row it was typed into goes on describing the change it used to
+ * describe. Reviewing and editing are different jobs; this view does the first
+ * one, and the editor is one click away on the row's own link.
+ *
+ * `canDiscard` is therefore about the DISCARD controls only. It was one boolean
+ * for both, which is why turning editing off would have taken discarding with
+ * it — and discarding is what this view is for.
+ *
+ * The deploy line
+ * ---------------
+ * In `http` mode a published patch STAYS in the chain and is re-applied until the
+ * commit it went out in has been deployed and the server drops it. So this view
+ * shows two different things at once: work that is still yours, and work that is
+ * already on its way to production. They are separated by a divider, the
+ * committed side comes second, and its discard controls are gone rather than
+ * disabled — the commit exists, and there is nothing a Discard button could
+ * honestly do about it. Editing the field and publishing again is the way back.
+ *
+ * The trees arrive already grouped and ordered for this: see
+ * `computeChangedSourcePaths`, which splits a patch set that holds both kinds and
+ * sorts the unshipped side first.
  */
 export function ComparePatchSets({
   patchSets,
   profilesByAuthorIds,
   mode = "unknown",
-  readonly = true,
+  canDiscard = false,
+  reloadKey,
+  committedPatchIds,
+  deployment,
 }: {
   patchSets: SerializedPatchSet;
   profilesByAuthorIds: Record<string, Profile>;
   mode?: "fs" | "http" | "unknown";
-  readonly?: boolean;
+  canDiscard?: boolean;
+  /**
+   * Change to rebuild the view from scratch instead of leaving the previous
+   * result on screen while the new one is computed. See `usePatchSetsWorker`.
+   */
+  reloadKey?: unknown;
+  /**
+   * Which patches have shipped, when the caller already knows.
+   *
+   * Read from the store otherwise, which is what the app does. The override is
+   * for a story or a test rendering this without a mounted system.
+   */
+  committedPatchIds?: ReadonlySet<PatchId>;
+  /**
+   * The deploy the divider should describe, when the caller already knows.
+   *
+   * Read from `ValContext` otherwise. Present-but-null is a real answer — "shipped,
+   * and the deploy feed has nothing on it yet" — so this is distinguished by being
+   * PASSED at all, which is what lets a story render the line without standing up
+   * a `ValProvider`.
+   */
+  deployment?: ValEnrichedDeployment | null;
 }) {
   const portalContainer = useValPortal();
   const schemas = useSchemas();
-  const { trees, isComputing } = usePatchSetsWorker(patchSets);
+  const storeCommittedPatchIds = useCommittedPatches();
+  const committed = committedPatchIds ?? storeCommittedPatchIds;
+  const { trees, isComputing, hasComputed } = usePatchSetsWorker(
+    patchSets,
+    reloadKey,
+    committed,
+  );
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
+  const summary = useCompareSummary(trees);
 
-  if (isComputing && trees.length === 0) {
-    return (
-      <div className="text-sm text-fg-secondary py-8 text-center animate-pulse">
-        Computing changes&hellip;
-      </div>
-    );
+  /*
+   * Which modules are pending work that amounts to nothing.
+   *
+   * Asked once, for every pending tree at once, rather than per row: the rows
+   * inside a module already ask it for their own "Unchanged" badge, but the
+   * decision to leave a module OUT of the list has to be made where the list
+   * is, and a whole-list view must not take a subscription per row.
+   *
+   * Committed trees are never candidates. Their two sides are equal BECAUSE
+   * the change shipped, which is the opposite of nothing having happened.
+   */
+  const pendingModulePaths = useMemo(
+    () =>
+      trees
+        .filter((tree) => !tree.isCommitted)
+        .map((tree) => tree.sourcePath as SourcePath),
+    [trees],
+  );
+  const noOpModulePaths = useNoOpSourcePaths(pendingModulePaths);
+  const { changing, reverted, committedTrees } = useMemo(() => {
+    const changing: ChangeTreeNode[] = [];
+    const reverted: ChangeTreeNode[] = [];
+    const committedTrees: ChangeTreeNode[] = [];
+    for (const tree of trees) {
+      if (tree.isCommitted) committedTrees.push(tree);
+      else if (noOpModulePaths.has(tree.sourcePath as SourcePath)) {
+        reverted.push(tree);
+      } else changing.push(tree);
+    }
+    return { changing, reverted, committedTrees };
+  }, [trees, noOpModulePaths]);
+  const revertedPatchIds = useMemo(
+    () => collectPatchIds(reverted.flatMap(flattenChanges)),
+    [reverted],
+  );
+  /*
+   * Every unshipped patch, straight off the patch sets.
+   *
+   * Not every no-op leaves a TREE to notice. `determineChangeType` returns
+   * `null` for an add followed by a remove at the same path — the two cancel,
+   * so there is nothing to describe — and `insertHalf` drops the patch set
+   * entirely. A chain made only of those produces no trees at all, which used
+   * to take the "No pending changes" path: the patches were real, Publish was
+   * disabled, and the view said there was nothing there and offered no way to
+   * clear it. So the empty case is answered from the patch sets, which still
+   * know about them, rather than from the trees, which by design do not.
+   */
+  const unshippedPatches = useMemo(() => {
+    const ids: PatchId[] = [];
+    const authors = new Set<string>();
+    const seen = new Set<string>();
+    for (const set of patchSets) {
+      for (const patch of set.patches) {
+        if (committed.has(patch.patchId) || seen.has(patch.patchId)) continue;
+        seen.add(patch.patchId);
+        ids.push(patch.patchId);
+        if (patch.author !== null) authors.add(patch.author);
+      }
+    }
+    return { ids, authorIds: [...authors] };
+  }, [patchSets, committed]);
+  // Until the first result is in, an empty `trees` means "not computed yet",
+  // not "nothing changed": showing the empty state here would flash "No
+  // pending changes" at every reader before the real changes appear. Once
+  // there is a result, keep it on screen while a recomputation runs - the
+  // changes are still the ones the reader is looking at.
+  if (!hasComputed || (isComputing && trees.length === 0)) {
+    return <CompareLoading />;
   }
 
   if (flatRows.length === 0) {
-    return (
-      <div className="text-sm text-fg-secondary py-8 text-center">
-        No pending changes.
-      </div>
-    );
+    // Patches with nothing to show for them still have to be reachable: this
+    // is the add-then-remove chain, where the grouping deliberately produces
+    // no rows. See `unshippedPatches`.
+    if (unshippedPatches.ids.length > 0) {
+      return (
+        <div className="mx-auto max-w-7xl min-w-0">
+          <AllRevertedNotice
+            patchIds={unshippedPatches.ids}
+            authorIds={unshippedPatches.authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            canDiscard={canDiscard}
+            portalContainer={portalContainer}
+          />
+        </div>
+      );
+    }
+    return <NothingToReview mode={mode} />;
   }
 
   const schemasData = schemas.status === "success" ? schemas.data : undefined;
 
   return (
-    <div className="mx-auto max-w-7xl flex flex-col gap-8 min-w-[380px]">
-      {trees.map((tree) => (
+    /*
+     * `min-w-0`, not a minimum width.
+     *
+     * This was `min-w-[380px]`, which is wider than the content box of a 360px
+     * phone — so the whole review view scrolled sideways before a single change
+     * had been read. The rows inside stack below `lg` and are fine at any width;
+     * the floor was protecting nothing.
+     */
+    <div className="mx-auto max-w-7xl flex flex-col gap-6 lg:gap-8 min-w-0">
+      {/*
+       * The summary, always, because this view is the whole column.
+       *
+       * It used to be the surrounding screen's job — the classic layout kept the
+       * strip in its sticky header — and the shell, which has no header, simply
+       * never rendered one. So the count was missing and there was no way to
+       * discard everything at all in the layout the Studio opens in.
+       */}
+      <CompareSummaryStrip
+        authorIds={summary.authorIds}
+        pendingAuthorIds={summary.pendingAuthorIds}
+        profilesByAuthorIds={profilesByAuthorIds}
+        mode={mode}
+        pendingPatchIds={summary.pendingPatchIds}
+        deployingCount={summary.deployingCount}
+        canDiscard={canDiscard}
+        portalContainer={portalContainer}
+      />
+      {/*
+       * Nothing here will ship — said plainly, where the changes would be.
+       *
+       * Publish is disabled in this state, so Discard is the only way forward
+       * and it has to be in reach rather than in a menu. Without this the view
+       * showed a list of rows with the same value on both sides and a dead
+       * Publish button, which reads as the Studio having lost the changes.
+       */}
+      {changing.length === 0 && reverted.length > 0 && (
+        <AllRevertedNotice
+          patchIds={revertedPatchIds}
+          authorIds={summary.pendingAuthorIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          canDiscard={canDiscard}
+          portalContainer={portalContainer}
+        />
+      )}
+      {changing.map((tree) => (
         <ModuleGroup
-          key={tree.sourcePath}
+          key={`changing-${tree.sourcePath}`}
           tree={tree}
           profilesByAuthorIds={profilesByAuthorIds}
           portalContainer={portalContainer}
           mode={mode}
           schemas={schemasData}
-          readonly={readonly}
+          canDiscard={canDiscard}
         />
+      ))}
+      {reverted.length > 0 && (
+        <RevertedHistory count={revertedPatchIds.length}>
+          {reverted.map((tree) => (
+            <ModuleGroup
+              key={`reverted-${tree.sourcePath}`}
+              tree={tree}
+              profilesByAuthorIds={profilesByAuthorIds}
+              portalContainer={portalContainer}
+              mode={mode}
+              schemas={schemasData}
+              canDiscard={canDiscard}
+            />
+          ))}
+        </RevertedHistory>
+      )}
+      {committedTrees.length > 0 &&
+        (deployment === undefined ? (
+          <DeployedDivider />
+        ) : (
+          <DeployedDividerPure deployment={deployment} />
+        ))}
+      {committedTrees.map((tree) => (
+        <ModuleGroup
+          key={`committed-${tree.sourcePath}`}
+          tree={tree}
+          profilesByAuthorIds={profilesByAuthorIds}
+          portalContainer={portalContainer}
+          mode={mode}
+          schemas={schemasData}
+          canDiscard={canDiscard}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The display names behind a set of author ids, for a confirm that names names.
+ *
+ * Everyone but you: the sentence these feed is about work that is not yours, so
+ * your own name in it is noise at best, and at worst it makes a project where
+ * you are the only editor read as if someone else had a stake in the changes.
+ *
+ * Ids with no profile are dropped rather than shown raw: a discard confirm is
+ * not the place to show someone a uuid.
+ */
+function useAuthorNames(
+  authorIds: string[],
+  profilesByAuthorIds: Record<string, Profile> | undefined,
+): string[] {
+  const currentAuthorId = useCurrentAuthorId();
+  return useMemo(
+    () =>
+      authorIds
+        .filter((id) => id !== currentAuthorId)
+        .map((id) => profilesByAuthorIds?.[id]?.fullName)
+        .filter((name): name is string => !!name),
+    [authorIds, profilesByAuthorIds, currentAuthorId],
+  );
+}
+
+/**
+ * The banner for "every pending change cancels itself out".
+ *
+ * This is a state the Studio could previously only express by contradiction: a
+ * list of rows each showing the same value twice, above a Publish button that
+ * would not press. Saying it once, and putting Discard next to the sentence, is
+ * the whole fix — the changes themselves are still reachable under History.
+ */
+function AllRevertedNotice({
+  patchIds,
+  authorIds,
+  profilesByAuthorIds,
+  canDiscard,
+  portalContainer,
+}: {
+  patchIds: PatchId[];
+  authorIds: string[];
+  profilesByAuthorIds: Record<string, Profile> | undefined;
+  canDiscard: boolean;
+  portalContainer: HTMLElement | null;
+}) {
+  const { deletePatches } = useDeletePatches();
+  const authorNames = useAuthorNames(authorIds, profilesByAuthorIds);
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border-primary bg-bg-secondary px-4 py-3 sm:flex-row sm:items-center">
+      <Equal size={16} className="shrink-0 text-fg-secondary" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-fg-primary">
+          {patchIds.length === 1
+            ? "The one pending change has been reverted."
+            : "Every pending change has been reverted."}
+        </p>
+        <p className="text-xs text-fg-secondary">
+          The content matches what is published, so there is nothing to publish.
+        </p>
+      </div>
+      {canDiscard && patchIds.length > 0 && (
+        <DiscardConfirmPopover
+          description={discardAllDescription(patchIds.length, authorNames)}
+          title={`Discard ${patchIds.length} ${
+            patchIds.length === 1 ? "change" : "changes"
+          }?`}
+          confirmLabel={`Discard ${patchIds.length}`}
+          onConfirm={() => deletePatches(patchIds)}
+          portalContainer={portalContainer}
+          ariaLabel={`Discard all ${patchIds.length} reverted ${
+            patchIds.length === 1 ? "change" : "changes"
+          }`}
+          label="Discard all"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reverted work, folded away but not thrown away.
+ *
+ * Collapsed by default: it is by definition not what the reader came to review.
+ * Kept, and kept discardable, because the patches are real — they are in the
+ * chain, they belong to someone, and until they are discarded they are the
+ * reason Publish is off.
+ */
+function RevertedHistory({
+  count,
+  children,
+}: {
+  /**
+   * Patches, not modules — the unit every other count in this view uses. The
+   * summary strip and Review's badge both count patches, and a disclosure that
+   * counted something else would look like a disagreement.
+   */
+  count: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="flex flex-col gap-4">
+      <button
+        type="button"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        aria-expanded={open}
+        className="flex items-center gap-2 self-start rounded-md px-1 py-1 text-xs text-fg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+      >
+        <ChevronRight
+          size={14}
+          aria-hidden
+          className={classNames("transition-transform", {
+            "rotate-90": open,
+          })}
+        />
+        <History size={13} aria-hidden />
+        <span>
+          {count === 1 ? "1 reverted change" : `${count} reverted changes`}
+        </span>
+      </button>
+      {open && <div className="flex flex-col gap-6 lg:gap-8">{children}</div>}
+    </section>
+  );
+}
+
+/**
+ * Everything the summary strip needs, counted once.
+ *
+ * Shared by this view and by the classic layout's sticky header, which is the
+ * point: two copies of "what is the total" is two places for the number under
+ * Discard to stop agreeing with the number beside it. Derived from the TREES
+ * rather than from the flat rows, because which side of the deploy line a change
+ * is on is a property of its tree.
+ */
+function useCompareSummary(trees: ChangeTreeNode[]): {
+  authorIds: string[];
+  pendingAuthorIds: string[];
+  pendingPatchIds: PatchId[];
+  deployingCount: number;
+} {
+  return useMemo(() => {
+    const pendingRows = trees
+      .filter((tree) => !tree.isCommitted)
+      .flatMap(flattenChanges);
+    const committedRows = trees
+      .filter((tree) => tree.isCommitted)
+      .flatMap(flattenChanges);
+    return {
+      authorIds: collectAuthorIds(trees.flatMap(flattenChanges)),
+      pendingAuthorIds: collectAuthorIds(pendingRows),
+      pendingPatchIds: collectPatchIds(pendingRows),
+      deployingCount: collectPatchIds(committedRows).length,
+    };
+  }, [trees]);
+}
+
+/**
+ * Every patch id in these rows, once, in the order they were met.
+ */
+function collectPatchIds(rows: ChangeTreeNode[]): PatchId[] {
+  const ids: PatchId[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const id of row.change?.patchIds ?? []) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/** Every author in these rows, once, in the order they were met. */
+function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const id of row.change?.authors ?? []) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * The review view with nothing in it.
+ *
+ * Reachable deliberately now: Review is always in the top bar, whether or not
+ * anything is pending, because "is anything of mine still unpublished?" is a
+ * question that has to be answerable — and a button that comes and goes cannot
+ * answer it. So the empty case is a screen rather than the single grey line
+ * ("No pending changes.") it used to be, which read as a view that had failed
+ * to load rather than as an answer.
+ *
+ * It says what IS true — the editor and the published site agree — and what
+ * this view will show when it is not, because someone who came here on purpose
+ * came to find out what this screen is for.
+ */
+/**
+ * What "nothing pending" means, in the mode this Studio is actually in.
+ *
+ * `unknown` gets its own sentence rather than the `http` one. It is the state
+ * before the client has been told which mode it is in, and against a local dev
+ * project "matches what is published" is not merely vague - there is nothing
+ * published, and the sentence names a thing that does not exist. Saying only
+ * what is true in both modes costs a little precision for the second it lasts.
+ */
+function describeNothingPending(mode: "fs" | "http" | "unknown"): string {
+  switch (mode) {
+    case "fs":
+      return "Everything in the editor matches the content in your working tree. Nothing is waiting to be saved.";
+    case "http":
+      return "Everything in the editor matches what is published. Nothing is waiting to go out.";
+    case "unknown":
+      return "Nothing is waiting to go out: every change made here has already been saved.";
+  }
+}
+
+function NothingToReview({ mode }: { mode: "fs" | "http" | "unknown" }) {
+  return (
+    <div
+      className="mx-auto flex max-w-md min-w-0 flex-col items-center gap-4 px-6 py-16 text-center"
+      // A statement, not a status: this is the whole column, and a reader
+      // arriving by keyboard should be told what it says.
+      role="status"
+    >
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-bg-secondary text-fg-secondary">
+        <Check size={18} aria-hidden />
+      </span>
+      <div className="space-y-1.5">
+        <h2 className="text-sm font-medium text-fg-primary">
+          No changes to review
+        </h2>
+        <p className="text-xs leading-relaxed text-fg-secondary">
+          {describeNothingPending(mode)}
+        </p>
+        <p className="text-xs leading-relaxed text-fg-secondary-alt">
+          Edit something and it shows up here, side by side with the value it
+          replaces, so you can check it before publishing.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Loading placeholder for the compare view.
+ *
+ * Exported so that every stage before the changes can be rendered - waiting
+ * for the sync engine, waiting for the patch sets to be turned into change
+ * trees - shows the same thing. Swapping between differently shaped
+ * placeholders on the way to the content is the flicker this replaces.
+ */
+export function CompareLoading() {
+  return (
+    <div
+      // `min-w-0`, for the reason the loaded view is: a 380px floor is wider
+      // than the content box of a 360px phone, so the placeholder scrolled
+      // sideways and then handed over to a view that does not.
+      className="mx-auto max-w-7xl flex flex-col gap-8 min-w-0"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label="Loading changes"
+    >
+      {/*
+       * Said as well as drawn.
+       *
+       * The skeleton alone reads as "something will appear here", which is not
+       * the same as knowing that the comparison is being built — and building it
+       * is the slow part on a long chain. Shown only before the FIRST result:
+       * afterwards the previous comparison stays on screen while a new one
+       * computes, because swapping to a placeholder for content that is still
+       * accurate is the flicker this whole file is careful about.
+       */}
+      <p className="flex items-center gap-2 text-sm text-fg-secondary">
+        <Spinner size={14} aria-hidden />
+        Building the comparison…
+      </p>
+      {[0, 1].map((i) => (
+        <section
+          key={i}
+          className="border border-border-primary rounded-lg bg-bg-primary overflow-hidden"
+        >
+          <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="ml-auto h-6 w-6 rounded-full" />
+          </header>
+          <div className="divide-y divide-border-primary">
+            {[0, 1].map((j) => (
+              <div key={j} className="px-5 py-4 flex flex-col gap-3">
+                <Skeleton className="h-3 w-32" />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   );
@@ -124,49 +672,297 @@ export function ComparePatchSets({
 
 // #region SummaryStrip
 
-export function CompareSummaryStrip({
+/**
+ * The count, who made the changes, and the one control that throws them away.
+ *
+ * The pending patches and the shipped ones are counted SEPARATELY by the caller
+ * rather than filtered apart in here, because the strip has to be able to say
+ * "1 change to review · 2 deploying" — and because what Discard offers is the
+ * pending subset and nothing else. A committed patch has shipped; a button
+ * claiming to undo it would be lying.
+ */
+function CompareSummaryStrip({
   authorIds,
+  pendingAuthorIds,
   profilesByAuthorIds,
   mode,
-  allPatchIds,
-  readonly,
+  pendingPatchIds,
+  deployingCount,
+  canDiscard,
   portalContainer,
 }: {
+  /** Everyone whose work is on screen — the avatar stack shows all of them. */
   authorIds: string[];
+  /**
+   * Everyone whose work Discard would actually throw away.
+   *
+   * Separate from `authorIds` because the confirm names names, and naming the
+   * author of a change that is deploying — one this button cannot touch — would
+   * be describing the wrong act. Defaults to `authorIds`, which is the same list
+   * whenever nothing has shipped.
+   */
+  pendingAuthorIds?: string[];
   profilesByAuthorIds: Record<string, Profile>;
   mode: "fs" | "http" | "unknown";
-  allPatchIds: PatchId[];
-  readonly: boolean;
+  /** The patches Discard would remove. Never includes a committed one. */
+  pendingPatchIds: PatchId[];
+  /** How many of the patches on screen have shipped and are on their way out. */
+  deployingCount: number;
+  canDiscard: boolean;
   portalContainer: HTMLElement | null;
 }) {
   const { deletePatches } = useDeletePatches();
+  const authorNames = useAuthorNames(
+    pendingAuthorIds ?? authorIds,
+    profilesByAuthorIds,
+  );
 
+  /*
+   * "0 changes to review" when there is nothing at all.
+   *
+   * Only the DEPLOYING count switches the wording, and only when there is
+   * something deploying — testing `pendingPatchIds.length === 0` alone made an
+   * empty project read "0 changes deploying", which the classic layout's header
+   * renders as soon as the grouping is computed.
+   */
+  const isAllDeploying = pendingPatchIds.length === 0 && deployingCount > 0;
+  const count = isAllDeploying ? deployingCount : pendingPatchIds.length;
+
+  /*
+   * Two rows on a phone, one from `sm` up.
+   *
+   * At 336px of content the single row had to give something up, and what it gave
+   * up was the Discard button's label — leaving a bare undo arrow beside other
+   * people's avatars as the control that throws away the whole project's
+   * unpublished work. The count and the faces belong together; the action and
+   * what it acts on belong together; so the break goes between those pairs.
+   */
   return (
-    <div className="flex items-center gap-4 flex-1 min-w-0">
-      <div className="flex items-center gap-2">
-        <span className="text-xl font-medium leading-none text-fg-primary">
-          {allPatchIds.length}
+    <div className="flex flex-1 min-w-0 flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-xl font-medium leading-none text-fg-primary tabular-nums">
+          {count}
         </span>
-        <span className="text-sm text-fg-secondary whitespace-nowrap">
-          {allPatchIds.length === 1 ? "change" : "changes"} to review
+        <span className="text-sm text-fg-secondary truncate">
+          {isAllDeploying
+            ? `${count === 1 ? "change" : "changes"} deploying`
+            : `${count === 1 ? "change" : "changes"} to review`}
+        </span>
+        <span className="ml-auto sm:hidden">
+          <AvatarStack
+            authorIds={authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            mode={mode}
+          />
         </span>
       </div>
-      <div className="ml-auto flex items-center gap-3 shrink-0">
-        {!readonly && allPatchIds.length > 0 && (
+      <div className="flex items-center gap-3 shrink-0 sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0">
+        {deployingCount > 0 && pendingPatchIds.length > 0 && (
+          <span className="text-xs text-fg-tertiary whitespace-nowrap">
+            {deployingCount} deploying
+          </span>
+        )}
+        {canDiscard && pendingPatchIds.length > 0 && (
           <DiscardConfirmPopover
-            description="Discard all pending changes? This cannot be undone."
-            onConfirm={() => deletePatches(allPatchIds)}
+            description={discardAllDescription(
+              pendingPatchIds.length,
+              authorNames,
+            )}
+            title={`Discard ${pendingPatchIds.length} ${
+              pendingPatchIds.length === 1 ? "change" : "changes"
+            }?`}
+            confirmLabel={`Discard ${pendingPatchIds.length}`}
+            onConfirm={() => deletePatches(pendingPatchIds)}
             portalContainer={portalContainer}
-            ariaLabel="Discard all changes"
-            label="Discard"
+            ariaLabel={`Discard all ${pendingPatchIds.length} pending ${
+              pendingPatchIds.length === 1 ? "change" : "changes"
+            }`}
+            label="Discard all"
           />
         )}
-        <AvatarStack
-          authorIds={authorIds}
-          profilesByAuthorIds={profilesByAuthorIds}
-          mode={mode}
-        />
+        {/*
+         * Said rather than left as a missing button.
+         *
+         * Everything is deploying, so there is nothing Discard could act on — and
+         * a control that is simply absent reads as a bug in a view that had one a
+         * moment ago.
+         */}
+        {canDiscard && pendingPatchIds.length === 0 && deployingCount > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-fg-tertiary whitespace-nowrap">
+            <Lock size={12} aria-hidden />
+            Nothing left to discard
+          </span>
+        )}
+        <span className="ml-auto hidden sm:inline-flex">
+          <AvatarStack
+            authorIds={authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            mode={mode}
+          />
+        </span>
       </div>
+    </div>
+  );
+}
+// #region DeployedDivider
+
+/**
+ * The line between work that is still yours and work that has shipped.
+ *
+ * Drawn once, above the first committed module, and it carries the deploy rather
+ * than merely labelling the side: the same feed the status bar reads
+ * (`useDeployments`), so the two cannot end up saying different things about the
+ * same commit. A deploy that failed still locks what is below it — the commit
+ * exists either way, which is the whole reason those patches cannot be discarded.
+ *
+ * On a phone the pill becomes a full-width banner. The text is around 420px set
+ * on one line, so as a centred pill between two rules it would either truncate
+ * the commit or scroll the view sideways; as a banner it gets two lines, and the
+ * reason gets to be a sentence instead of an aside.
+ */
+function DeployedDivider() {
+  const { deployments } = useDeployments();
+  const commitShas = useDeployingCommitShas();
+  /*
+   * The deploy for THIS commit, not the newest one in the feed.
+   *
+   * `commitShas` comes off the patches themselves, so it names the commits the
+   * patches below the line actually went out in. The feed is then searched for a
+   * matching entry: it may have none — dismissed, or not reported yet — in which
+   * case the line still names the commit and simply says nothing about its state,
+   * which is better than confidently reporting another commit's.
+   */
+  const deployment = useMemo(() => {
+    for (const sha of commitShas) {
+      const match = deployments.find((d) => d.commitSha === sha);
+      if (match) return match;
+    }
+    return null;
+  }, [deployments, commitShas]);
+  return (
+    <DeployedDividerPure deployment={deployment} commitShas={commitShas} />
+  );
+}
+
+/**
+ * The divider, given the deploy rather than reading it.
+ *
+ * Split out for the same reason `FieldPatchAuthorsPure` is: the connected version
+ * reads `ValContext`, which throws outside a `ValProvider`, and a story or a test
+ * that wants to see the deploy line should not have to stand up the whole
+ * provider tree to get one.
+ */
+function DeployedDividerPure({
+  deployment: latest,
+  commitShas = [],
+}: {
+  deployment: ValEnrichedDeployment | null;
+  /**
+   * The commits the patches below the line shipped in, newest first.
+   *
+   * Named separately from `deployment` because the two can disagree about how
+   * much is down there: one deploy entry can be found while the patches span two
+   * commits, and then naming a single sha would be describing only half of them.
+   */
+  commitShas?: string[];
+}) {
+  const [now] = useState(() => new Date());
+  const state = latest?.deploymentState;
+  /*
+   * A build reported as running over an hour ago is not shown as running. See
+   * `isDeploymentStatusStale`: the deploy feed says "Status unknown" for the
+   * same deploy, and this line must not contradict it — nor lag it, so it is
+   * decided against the clock NOW, and woken at the crossing, rather than
+   * against `now` above, which is only the anchor for the relative date.
+   */
+  const watched = useMemo(() => (latest === null ? [] : [latest]), [latest]);
+  const staleTick = useDeploymentStaleTick(watched);
+  const isUnknown = useMemo(() => {
+    void staleTick;
+    return (
+      latest !== null &&
+      isDeploymentStatusStale(
+        latest.deploymentState,
+        latest.updatedAt,
+        Date.now(),
+      )
+    );
+  }, [latest, staleTick]);
+  const isBuilding = !isUnknown && (state === "created" || state === "pending");
+  const isFailed = state === "failure" || state === "error";
+  const isLive = state === "success";
+
+  const title = isFailed
+    ? "Published — deploy failed"
+    : isUnknown
+      ? "Published — deploy status unknown"
+      : isBuilding
+        ? "Published & deploying"
+        : isLive
+          ? "Published — live"
+          : "Published";
+  const shas =
+    commitShas.length > 0 ? commitShas : latest ? [latest.commitSha] : [];
+  const detail =
+    shas.length > 1
+      ? `${shas.length} commits`
+      : shas.length === 1
+        ? `${shas[0].slice(0, 7)}${
+            latest ? ` · ${relativeLocalDate(now, latest.updatedAt)}` : ""
+          }`
+        : null;
+
+  const hairline = (
+    <span
+      className="hidden sm:block h-px flex-1 bg-border-primary"
+      role="separator"
+      aria-hidden
+    />
+  );
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-4">
+      <span className="block sm:hidden h-px bg-border-primary" aria-hidden />
+      {hairline}
+      <div
+        className={classNames(
+          "flex items-start sm:items-center gap-2 min-w-0",
+          "border rounded-lg px-3 py-2 -mt-px",
+          "sm:rounded-full sm:py-1.5 sm:mt-0 sm:shrink-0",
+          {
+            "bg-bg-error-secondary border-border-error-secondary text-fg-error-secondary":
+              isFailed,
+            "bg-bg-warning-primary border-border-warning-primary text-fg-warning-primary":
+              isBuilding,
+            "bg-bg-brand-primary border-border-brand-primary text-fg-brand-primary":
+              isLive,
+            "bg-bg-secondary border-border-primary text-fg-secondary":
+              !isFailed && !isBuilding && !isLive,
+          },
+        )}
+      >
+        {isBuilding ? (
+          <Spinner size={14} className="mt-0.5 sm:mt-0" aria-hidden />
+        ) : isFailed ? (
+          <CircleAlert
+            size={14}
+            className="shrink-0 mt-0.5 sm:mt-0"
+            aria-hidden
+          />
+        ) : isLive ? (
+          <Check size={14} className="shrink-0 mt-0.5 sm:mt-0" aria-hidden />
+        ) : (
+          <Lock size={14} className="shrink-0 mt-0.5 sm:mt-0" aria-hidden />
+        )}
+        <span className="flex flex-col sm:flex-row sm:items-center sm:gap-2 min-w-0 text-xs sm:text-[13px]">
+          <span className="font-medium">{title}</span>
+          <span className="opacity-80">
+            {detail && <span className="tabular-nums">{detail} — </span>}
+            these cannot be discarded
+          </span>
+        </span>
+      </div>
+      {hairline}
     </div>
   );
 }
@@ -179,8 +975,23 @@ type RowProps = {
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
-  readonly: boolean;
-  parentMediaType?: "images" | "files";
+  canDiscard: boolean;
+  /**
+   * This row's change has shipped, so it has NO before and after left to show.
+   *
+   * A publish promotes the patched source to base (`SourceStore.promotePublished`),
+   * so a committed patch's effect is in the "before" side and the "after" side
+   * alike. Rendering the usual diff for such a row therefore does not show the
+   * change that shipped — it shows whatever is still PENDING at the same path,
+   * attributed to the commit. Which is how a straddling field ("A"→"B", publish,
+   * "B"→"C") had both of its cards claiming `B→C`.
+   *
+   * There is no honest diff to put here instead: the pre-publish value is gone
+   * from the store by the time the row exists. So the row states what shipped and
+   * stops, and the card says why.
+   */
+  isCommitted: boolean;
+  parentMediaType?: MediaCollectionType;
 };
 
 function collectModulePatchIds(node: ChangeTreeNode): PatchId[] {
@@ -240,19 +1051,20 @@ function ModuleGroup({
   portalContainer,
   mode,
   schemas,
-  readonly,
+  canDiscard,
 }: {
   tree: ChangeTreeNode;
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   schemas?: Record<ModuleFilePath, SerializedSchema>;
-  readonly: boolean;
+  canDiscard: boolean;
 }) {
   const moduleFilePath = tree.sourcePath as ModuleFilePath;
   const moduleSchema = schemas?.[moduleFilePath];
   const isRouterModule =
     moduleSchema?.type === "record" && !!moduleSchema.router;
+  const isSettingsModule = moduleSchema?.type === "settings";
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { deletePatches } = useDeletePatches();
   const [now] = useState(() => new Date());
@@ -273,24 +1085,75 @@ function ModuleGroup({
     [tree],
   );
 
+  /*
+   * Below the deploy line nothing is discardable, and the whole module is on one
+   * side of it — `computeChangedSourcePaths` splits a patch set that straddles, so
+   * a tree is never half shipped. Narrowing `canDiscard` here is therefore enough
+   * to take the control off every row inside as well: they all read it off
+   * `rowProps`.
+   */
+  const canDiscardHere = canDiscard && !tree.isCommitted;
+
   const rowProps: RowProps = {
     moduleFilePath,
     isRouterModule,
     profilesByAuthorIds,
     portalContainer,
     mode,
-    readonly,
+    canDiscard: canDiscardHere,
+    isCommitted: tree.isCommitted,
   };
 
   return (
     <section
+      /*
+       * Not unique when a module straddles the deploy line: it is then two
+       * sections, both naming the same module. That is deliberate and safe in one
+       * direction only — `findStudioPathTarget` takes the FIRST match, and
+       * `computeChangedSourcePaths` sorts every pending tree above every
+       * committed one, so the first match is the card whose changes can still be
+       * acted on. The test "pending trees sort above committed ones" is what
+       * holds that ordering in place.
+       */
       data-val-studio-path={tree.sourcePath}
-      className="border border-border-primary rounded-lg bg-bg-primary overflow-hidden"
+      className={classNames(
+        "border rounded-lg overflow-hidden",
+        // Dashed and a flatter ground for a module that has shipped: dimming
+        // alone reads as "still loading", and this is the opposite — settled, and
+        // no longer something you can act on.
+        tree.isCommitted
+          ? "border-dashed border-border-primary bg-bg-secondary"
+          : "border-border-primary bg-bg-primary",
+      )}
     >
-      <header className="flex items-center gap-2 px-5 py-4 border-b border-border-primary min-w-0">
-        <ModulePathLabel moduleFilePath={moduleFilePath} />
+      <header
+        className={classNames(
+          "flex items-center gap-2 px-4 lg:px-5 py-4 border-b min-w-0",
+          tree.isCommitted
+            ? "border-dashed border-border-primary"
+            : "border-border-primary",
+        )}
+      >
+        <ModulePathLabel
+          moduleFilePath={moduleFilePath}
+          isSettingsModule={isSettingsModule}
+        />
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {!readonly && modulePatchIds.length > 0 && (
+          {tree.isCommitted && (
+            /*
+             * The lock, with the word only where there is room for it. On a phone
+             * the divider directly above has already said "deploying", and the
+             * module name is what the row is for.
+             */
+            <span
+              className="inline-flex items-center gap-1.5 text-xs text-fg-tertiary"
+              title="Published — this cannot be discarded"
+            >
+              <Lock size={12} aria-hidden />
+              <span className="hidden sm:inline">Deploying</span>
+            </span>
+          )}
+          {canDiscardHere && modulePatchIds.length > 0 && (
             <DiscardControl
               isEqual={isModuleEqual}
               onDiscard={() => deletePatches(modulePatchIds)}
@@ -319,11 +1182,47 @@ function ModuleGroup({
       </header>
       {!isCollapsed && (
         <div className="divide-y divide-border-primary">
+          {tree.isCommitted && (
+            /*
+             * Why there is no before and after down here.
+             *
+             * Without it the section reads as a diff that failed to load. See
+             * `RowProps.isCommitted`: the published value IS the base now, so
+             * both sides of the comparison hold it and there is nothing left to
+             * put side by side.
+             */
+            <p className="px-4 lg:px-5 py-3 text-xs text-fg-tertiary">
+              Already part of the published content, so there is no before and
+              after to compare. Open a field to see its current value.
+            </p>
+          )}
           <RenderTree node={tree} rowProps={rowProps} />
         </div>
       )}
     </section>
   );
+}
+
+/**
+ * Whether this node is an array of primitives, whose diff belongs to the LIST.
+ *
+ * A hook, so the schema lookup is a hook rather than a prop threaded down from
+ * the module. `undefined` while the schema is still resolving: the caller has to
+ * be able to wait rather than guess, since guessing "not a list" renders the per
+ * index rows and then swaps them for the list diff a moment later.
+ */
+function useIsPrimitiveList(
+  sourcePath: SourcePath | ModuleFilePath,
+): boolean | undefined {
+  const schemaAtPath = useSchemaAtPath(sourcePath as SourcePath);
+  if (schemaAtPath.status === "loading") {
+    return undefined;
+  }
+  if (schemaAtPath.status !== "success" || schemaAtPath.data.type !== "array") {
+    return false;
+  }
+  const item = schemaAtPath.data.item.type;
+  return item === "string" || item === "number" || item === "boolean";
 }
 
 function RenderTree({
@@ -333,6 +1232,21 @@ function RenderTree({
   node: ChangeTreeNode;
   rowProps: RowProps;
 }) {
+  /*
+   * A list of primitives is diffed AS A LIST, and its children are not rendered.
+   *
+   * The per-index rows were the wrong unit for a list twice over — see
+   * `PrimitiveListDiff` — and showing both would be the same change described two
+   * incompatible ways on the same screen.
+   */
+  const isPrimitiveList = useIsPrimitiveList(node.sourcePath);
+  if (isPrimitiveList === undefined) {
+    return null;
+  }
+  if (isPrimitiveList) {
+    return <ListChangeRow key={node.sourcePath} row={node} {...rowProps} />;
+  }
+
   if (node.change) {
     if (
       node.change.changeType === "added" ||
@@ -358,42 +1272,85 @@ function RenderTree({
   return null;
 }
 
-// #region refToUrl (shared with ModuleGallery)
-
-function refToUrl(
-  ref: string,
-  filePatchIds: ReadonlyMap<string, string>,
-): string {
-  const patchId = filePatchIds.get(ref);
-  let filePath = ref;
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  if (remoteRefRes.status === "success") {
-    filePath = `/${remoteRefRes.filePath}`;
-  }
-  if (patchId) {
-    return filePath.startsWith("/public")
-      ? `/api/val/files${filePath}?patch_id=${patchId}`
-      : `${filePath}?patch_id=${patchId}`;
-  }
-  return ref.startsWith("/public") ? filePath.slice("/public".length) : ref;
-}
-
 /**
- * Return the static serving URL for an original (unpached) file.
- * For `/public/foo/bar.png` this returns `/foo/bar.png`.
+ * Where a committed file is served from, ignoring any pending patch.
+ *
+ * The compare view shows the BEFORE side, which is the committed bytes by
+ * definition — so unlike {@link refToUrl} it must not consult `filePatchIds`.
  */
 function staticFileUrl(ref: string): string {
-  const remoteRefRes = Internal.remote.splitRemoteRef(ref);
-  const filePath =
-    remoteRefRes.status === "success" ? `/${remoteRefRes.filePath}` : ref;
-  return filePath.startsWith("/public")
-    ? filePath.slice("/public".length)
-    : filePath;
+  return Internal.mediaUrl({ path: ref });
 }
 
 function hasAnyChange(node: ChangeTreeNode): boolean {
   if (node.change) return true;
   return node.children.some(hasAnyChange);
+}
+
+/**
+ * Fold every change inside a media entry into the entry's own row.
+ *
+ * `s.imagedir()` / `s.filedir()` modules are records keyed by file ref, so an alt
+ * text or hotspot edit produces a patch on `<ref>."alt"`, not on `<ref>`.
+ * Rendering that descendant as a row of its own gives a media card for a file
+ * named "alt" - `MediaEntryDiff` reads the thumbnail URL, the filename and the
+ * before/after metadata off the row's path, and the path it would get ends in
+ * the metadata key. Entries are therefore leaves: the card is the unit of
+ * change for media, and the metadata diff belongs inside it.
+ *
+ * The descendants' patches are merged up so the row still credits everyone who
+ * touched the entry.
+ */
+function asMediaEntryRow(entry: ChangeTreeNode): ChangeTreeNode {
+  const patchIds: PatchId[] = [];
+  const authors: string[] = [];
+  const patchesByAuthorIds: Record<string, ChangeTreePatch[]> = {};
+  const seenPatchIds = new Set<string>();
+  const seenAuthors = new Set<string>();
+  let lastUpdated = "";
+  let lastUpdatedBy: string | null = null;
+  function walk(node: ChangeTreeNode) {
+    const change = node.change;
+    if (change) {
+      for (const patchId of change.patchIds) {
+        if (!seenPatchIds.has(patchId)) {
+          seenPatchIds.add(patchId);
+          patchIds.push(patchId);
+        }
+      }
+      for (const authorId of change.authors) {
+        if (!seenAuthors.has(authorId)) {
+          seenAuthors.add(authorId);
+          authors.push(authorId);
+        }
+      }
+      for (const [authorId, patches] of Object.entries(
+        change.patchesByAuthorIds,
+      )) {
+        if (!patchesByAuthorIds[authorId]) {
+          patchesByAuthorIds[authorId] = [];
+        }
+        patchesByAuthorIds[authorId].push(...patches);
+      }
+      if (node.lastUpdated > lastUpdated) {
+        lastUpdated = node.lastUpdated;
+        lastUpdatedBy = change.lastUpdatedBy;
+      }
+    }
+    for (const child of node.children) walk(child);
+  }
+  walk(entry);
+  return {
+    ...entry,
+    children: [],
+    change: {
+      changeType: entry.change?.changeType ?? "field-change",
+      patchIds,
+      authors,
+      lastUpdatedBy,
+      patchesByAuthorIds,
+    },
+  };
 }
 
 function ChangeCluster({
@@ -410,20 +1367,29 @@ function ChangeCluster({
       ? schemaAtPath.data.mediaType
       : undefined;
 
-  const childRowProps: RowProps = mediaType
-    ? { ...rowProps, parentMediaType: mediaType }
-    : rowProps;
+  if (mediaType) {
+    return (
+      <>
+        {parent.children
+          .filter((c) => hasAnyChange(c))
+          .map((child) => (
+            <ChangeRow
+              key={child.sourcePath}
+              row={asMediaEntryRow(child)}
+              {...rowProps}
+              parentMediaType={mediaType}
+            />
+          ))}
+      </>
+    );
+  }
 
   return (
     <>
       {parent.children
         .filter((c) => hasAnyChange(c))
         .map((child) => (
-          <RenderTree
-            key={child.sourcePath}
-            node={child}
-            rowProps={childRowProps}
-          />
+          <RenderTree key={child.sourcePath} node={child} rowProps={rowProps} />
         ))}
     </>
   );
@@ -431,33 +1397,166 @@ function ChangeCluster({
 
 function ModulePathLabel({
   moduleFilePath,
+  isSettingsModule,
 }: {
   moduleFilePath: ModuleFilePath;
+  /**
+   * The project's settings, which is named and linked differently.
+   *
+   * Its file path is fixed by Val rather than chosen by the project, so
+   * "settings" as a breadcrumb tells the reader nothing — and the place to go
+   * from here is the Settings panel, not the module in the editor.
+   */
+  isSettingsModule: boolean;
 }) {
   const parts = Internal.splitModuleFilePath(moduleFilePath);
+  const moduleLink = useNavLink(moduleFilePath);
+  const settingsLink = useShellPanelLink("settings");
+  if (isSettingsModule) {
+    return (
+      <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
+        <a
+          {...settingsLink}
+          title={moduleFilePath}
+          className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+        >
+          {SETTINGS_MODULE_TITLE}
+        </a>
+      </h2>
+    );
+  }
   return (
-    <h2 className="text-sm font-medium text-fg-primary truncate flex items-center gap-1.5 min-w-0">
-      {parts.map((part, i) => (
-        <Fragment key={`${part}-${i}`}>
-          {i > 0 && (
-            <span className="text-fg-tertiary" aria-hidden>
-              /
+    <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
+      {/*
+       * The module, as somewhere you can go. A row of changes is most often read
+       * on the way to fixing one of them.
+       */}
+      <a
+        {...moduleLink}
+        title={moduleFilePath}
+        className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+      >
+        {parts.map((part, i) => (
+          <Fragment key={`${part}-${i}`}>
+            {i > 0 && (
+              <span className="text-fg-tertiary" aria-hidden>
+                /
+              </span>
+            )}
+            <span
+              className={classNames({
+                "text-fg-secondary": i < parts.length - 1,
+              })}
+            >
+              {prettifyFilename(part)}
             </span>
-          )}
-          <span
-            className={classNames({
-              "text-fg-secondary": i < parts.length - 1,
-            })}
-          >
-            {prettifyFilename(part)}
-          </span>
-        </Fragment>
-      ))}
+          </Fragment>
+        ))}
+      </a>
     </h2>
   );
 }
 
 // #region ChangeRow
+
+/**
+ * One row for a whole list of primitives.
+ *
+ * The header is the same as any other change row; the body is the list's diff
+ * rather than the touched indices. Its patch ids and authors are collected from
+ * the node AND its subtree, because the per-index rows are no longer rendered and
+ * their Discard has to stay reachable from somewhere.
+ *
+ * The change type is deliberately fixed to `field-change`: a list whose items
+ * moved is not "added" or "removed" at the list's own path, whatever the ops
+ * inside it were, and the badge would be claiming something about the array that
+ * is only true of one of its items.
+ */
+function ListChangeRow({
+  row,
+  moduleFilePath,
+  isRouterModule,
+  profilesByAuthorIds,
+  portalContainer,
+  mode,
+  canDiscard,
+  isCommitted,
+}: {
+  row: ChangeTreeNode;
+  moduleFilePath: ModuleFilePath;
+  isRouterModule: boolean;
+  profilesByAuthorIds: Record<string, Profile>;
+  portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
+  canDiscard: boolean;
+  isCommitted: boolean;
+}) {
+  const { deletePatches } = useDeletePatches();
+  const [now] = useState(() => new Date());
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  const sourcePath = row.sourcePath as SourcePath;
+  const beforeSource = useServerSourceAtPath(sourcePath);
+  const afterSource = useSourceAtPath(sourcePath);
+  // Never "unchanged" below the deploy line: the two sides are equal there
+  // BECAUSE the change shipped, which is the opposite of nothing happening.
+  const isEqual =
+    !isCommitted &&
+    beforeSource.status === "success" &&
+    afterSource.status === "success" &&
+    deepEqual(
+      beforeSource.data as ReadonlyJSONValue,
+      afterSource.data as ReadonlyJSONValue,
+    );
+
+  const patchIds = useMemo(() => collectModulePatchIds(row), [row]);
+  const { patchesByAuthorIds } = useMemo(
+    () => collectModuleAuthorsAndPatches(row),
+    [row],
+  );
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
+  const isRouterPageKey = isRouterModule && segments.length === 1;
+  const lastSegment = segments[segments.length - 1] ?? "";
+
+  // Nothing to say: no patch touched this list, or they cancelled out.
+  if (patchIds.length === 0) {
+    return null;
+  }
+
+  return (
+    <article
+      data-val-studio-path={row.sourcePath}
+      className={classNames("px-5 py-5", { "opacity-60": isEqual })}
+    >
+      <ChangeRowHeader
+        sourcePath={sourcePath}
+        changeType="field-change"
+        segment={lastSegment}
+        modulePath={modulePath}
+        moduleFilePath={moduleFilePath}
+        isRouterPageKey={isRouterPageKey}
+        patchesByAuthorIds={patchesByAuthorIds}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        now={now}
+        onDiscard={() => deletePatches(patchIds)}
+        isExpanded={isExpanded}
+        onToggleExpand={() => setIsExpanded((prev) => !prev)}
+        isEqual={isEqual}
+        canDiscard={canDiscard}
+        hideExpand={isCommitted}
+      />
+      {isExpanded && !isCommitted && (
+        <div className="mt-4">
+          <PrimitiveListDiff sourcePath={sourcePath} />
+        </div>
+      )}
+    </article>
+  );
+}
 
 function ChangeRow({
   row,
@@ -466,7 +1565,8 @@ function ChangeRow({
   profilesByAuthorIds,
   portalContainer,
   mode,
-  readonly,
+  canDiscard,
+  isCommitted,
   parentMediaType,
 }: {
   row: ChangeTreeNode;
@@ -475,8 +1575,9 @@ function ChangeRow({
   profilesByAuthorIds: Record<string, Profile>;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
-  readonly: boolean;
-  parentMediaType?: "images" | "files";
+  canDiscard: boolean;
+  isCommitted: boolean;
+  parentMediaType?: MediaCollectionType;
 }) {
   const { deletePatches } = useDeletePatches();
   const [now] = useState(() => new Date());
@@ -491,7 +1592,10 @@ function ChangeRow({
 
   if (!change) return null;
 
+  // See `RowProps.isCommitted`: below the deploy line the two sides are equal
+  // because the change shipped, so "Unchanged" would be exactly backwards.
   const isEqual =
+    !isCommitted &&
     change.changeType === "field-change" &&
     beforeSource.status === "success" &&
     afterSource.status === "success" &&
@@ -540,19 +1644,22 @@ function ChangeRow({
         isExpanded={isExpanded}
         onToggleExpand={() => setIsExpanded((prev) => !prev)}
         isEqual={isEqual}
-        readonly={readonly}
+        canDiscard={canDiscard}
+        hideExpand={isCommitted}
         parentMediaType={parentMediaType}
       />
-      <div className="mt-4">
-        <ChangeRowBody
-          sourcePath={sourcePath}
-          changeType={change.changeType}
-          readonly={readonly}
-          isExpanded={isExpanded}
-          isEqual={isEqual}
-          parentMediaType={parentMediaType}
-        />
-      </div>
+      {/* No diff below the deploy line — see `RowProps.isCommitted`. */}
+      {!isCommitted && (
+        <div className="mt-4">
+          <ChangeRowBody
+            sourcePath={sourcePath}
+            changeType={change.changeType}
+            isExpanded={isExpanded}
+            isEqual={isEqual}
+            parentMediaType={parentMediaType}
+          />
+        </div>
+      )}
     </article>
   );
 }
@@ -573,13 +1680,14 @@ function ChangeRowHeader({
   isExpanded,
   onToggleExpand,
   isEqual,
-  readonly,
+  canDiscard,
+  hideExpand,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
   segment: string;
-  modulePath: string;
+  modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
   patchesByAuthorIds: Record<string, AuthorPatchInfo[]>;
@@ -591,8 +1699,10 @@ function ChangeRowHeader({
   isExpanded: boolean;
   onToggleExpand: () => void;
   isEqual: boolean;
-  readonly: boolean;
-  parentMediaType?: "images" | "files";
+  canDiscard: boolean;
+  /** No body to collapse — a committed row has no diff. See `RowProps.isCommitted`. */
+  hideExpand?: boolean;
+  parentMediaType?: MediaCollectionType;
 }) {
   return (
     <div className="flex items-center gap-2 min-w-0">
@@ -607,7 +1717,7 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {!readonly && (
+        {canDiscard && (
           <DiscardControl
             isEqual={isEqual}
             onDiscard={onDiscard}
@@ -624,12 +1734,14 @@ function ChangeRowHeader({
           portalContainer={portalContainer}
           mode={mode}
         />
-        <CollapseToggle
-          isOpen={isExpanded}
-          onToggle={onToggleExpand}
-          openLabel="Collapse"
-          closedLabel="Expand"
-        />
+        {!hideExpand && (
+          <CollapseToggle
+            isOpen={isExpanded}
+            onToggle={onToggleExpand}
+            openLabel="Collapse"
+            closedLabel="Expand"
+          />
+        )}
       </div>
     </div>
   );
@@ -645,70 +1757,51 @@ function ChangeTargetLabel({
 }: {
   sourcePath: SourcePath;
   segment: string;
-  modulePath: string;
+  modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 }) {
-  const { navigate } = useNavigation();
   const schemas = useSchemas();
-  const allSources = useAllSources();
-  const codeCls =
-    "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block";
-
-  const handleNavigate = () => {
-    const schemasData = schemas.status === "success" ? schemas.data : undefined;
-    const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
-    const target = navPath ?? sourcePath;
-    navigate(target, {
-      scrollToPath: target !== sourcePath ? sourcePath : undefined,
-    });
-  };
-
-  if (parentMediaType) {
-    const { filename, folder } = getRefParts(segment);
-    return (
-      <button onClick={handleNavigate} className={codeCls}>
-        {`${folder}/${filename}`}
-      </button>
-    );
-  }
-
-  if (!modulePath) {
-    return (
-      <button onClick={handleNavigate} className={codeCls}>
-        {prettifyFilename(
-          Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
-        )}
-      </button>
-    );
-  }
-  if (isRouterPageKey) {
-    const previewHref = urlOf("/api/val/enable", {
-      redirect_to:
-        (typeof window !== "undefined" ? window.location.origin : "") + segment,
-    });
-    return (
-      <span className="inline-flex items-center gap-1.5 truncate min-w-0">
-        <button onClick={handleNavigate} className={codeCls}>
-          {segment}
-        </button>
-        <a
-          href={previewHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-fg-tertiary hover:text-fg-primary transition-colors"
-          title={`Preview ${segment}`}
-        >
-          <Globe size={12} />
-        </a>
-      </span>
-    );
-  }
+  const isSettingsModule =
+    schemas.status === "success" &&
+    schemas.data[moduleFilePath]?.type === "settings";
+  const label = ((): string => {
+    if (isSettingsModule) {
+      // The words the Settings panel uses, so a change to "Tone of voice" is
+      // not reviewed as "Ai / Tone". `null` for a section this Studio does not
+      // know, which falls through to the generic label below.
+      const settingsLabel = settingsFieldLabel(modulePath);
+      if (settingsLabel !== null) {
+        return settingsLabel;
+      }
+    }
+    if (parentMediaType) {
+      const { filename, folder } = getRefParts(segment);
+      // `folder` is "/" for a ref that sits directly in the media directory, so
+      // joining the two with a slash would render "//hero.webp".
+      return folder === "/" ? `/${filename}` : `${folder}/${filename}`;
+    }
+    if (!modulePath) {
+      return prettifyFilename(
+        Internal.splitModuleFilePath(moduleFilePath).pop() ?? "",
+      );
+    }
+    if (isRouterPageKey) {
+      return segment;
+    }
+    return prettifyModulePath(modulePath);
+  })();
   return (
-    <button onClick={handleNavigate} className={classNames(codeCls, "min-w-0")}>
-      {prettifyModulePath(modulePath)}
-    </button>
+    <FieldPathLink
+      sourcePath={sourcePath}
+      previewSegment={
+        isRouterPageKey && !parentMediaType && modulePath ? segment : undefined
+      }
+      className="min-w-0"
+    >
+      {label}
+    </FieldPathLink>
   );
 }
 
@@ -732,10 +1825,14 @@ function ChangeTypeLabel({
     );
   }
   if (changeType === "removed") {
-    return <span className="text-sm text-fg-error shrink-0">Removed</span>;
+    return (
+      <span className="text-sm text-fg-error-on-surface shrink-0">Removed</span>
+    );
   }
   if (changeType === "moved") {
-    return <span className="text-sm text-fg-warning shrink-0">Moved</span>;
+    return (
+      <span className="text-sm text-fg-warning-primary shrink-0">Moved</span>
+    );
   }
   return null; // field-change has no badge — the side-by-side rails carry it.
 }
@@ -770,7 +1867,7 @@ function ChangeTypeIcon({
       return (
         <Minus
           size={size}
-          className="shrink-0 text-fg-error"
+          className="shrink-0 text-fg-error-on-surface"
           aria-label="Removed"
         />
       );
@@ -778,7 +1875,7 @@ function ChangeTypeIcon({
       return (
         <ArrowRight
           size={size}
-          className="shrink-0 text-fg-warning"
+          className="shrink-0 text-fg-warning-primary"
           aria-label="Moved"
         />
       );
@@ -798,17 +1895,15 @@ function ChangeTypeIcon({
 function ChangeRowBody({
   sourcePath,
   changeType,
-  readonly,
   isExpanded,
   isEqual,
   parentMediaType,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 }) {
   if (parentMediaType) {
     return (
@@ -816,7 +1911,6 @@ function ChangeRowBody({
         sourcePath={sourcePath}
         changeType={changeType}
         mediaType={parentMediaType}
-        readonly={readonly}
         isExpanded={isExpanded}
         isEqual={isEqual}
       />
@@ -826,7 +1920,6 @@ function ChangeRowBody({
     return (
       <FieldChangeDiff
         sourcePath={sourcePath}
-        readonly={readonly}
         isExpanded={isExpanded}
         isEqual={isEqual}
       />
@@ -839,7 +1932,6 @@ function ChangeRowBody({
         sourcePath={sourcePath}
         side="after"
         diffStyle="added"
-        readonly={readonly}
       />
     );
   }
@@ -848,12 +1940,7 @@ function ChangeRowBody({
   }
   // moved: just show after for now
   return (
-    <SingleSideContent
-      sourcePath={sourcePath}
-      side="after"
-      diffStyle="added"
-      readonly={readonly}
-    />
+    <SingleSideContent sourcePath={sourcePath} side="after" diffStyle="added" />
   );
 }
 
@@ -912,11 +1999,9 @@ function MediaEntryMetadata({
 
 function MediaEntryAlt({
   sourcePath,
-  readonly,
   showValidation = false,
 }: {
   sourcePath: SourcePath;
-  readonly: boolean;
   showValidation?: boolean;
 }) {
   const altPath = Internal.createValPathOfItem(sourcePath, "alt");
@@ -928,7 +2013,7 @@ function MediaEntryAlt({
       <AnyField
         path={altPath as SourcePath}
         schema={schemaAtPath.data}
-        readonly={readonly}
+        readonly
         errorDisplay={showValidation ? "compact" : "none"}
       />
     </div>
@@ -978,41 +2063,7 @@ function MediaEntryThumbnail({
               : undefined
           }
         />
-        {hotspot && (
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              top: `${hotspot.y * 100}%`,
-              left: `${hotspot.x * 100}%`,
-              transform: "translate(-50%, -50%)",
-              zIndex: 10,
-            }}
-          >
-            <div
-              style={{
-                width: "14px",
-                height: "14px",
-                borderRadius: "50%",
-                border: "1.5px solid white",
-                boxShadow:
-                  "0 0 0 1px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.3)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: "3px",
-                height: "3px",
-                borderRadius: "50%",
-                backgroundColor: "white",
-                boxShadow: "0 0 2px rgba(0,0,0,0.5)",
-              }}
-            />
-          </div>
-        )}
+        {hotspot && <HotspotMarker hotspot={hotspot} size="sm" />}
       </div>
       {hotspot && (
         <div className="mt-1 text-xs text-fg-tertiary">
@@ -1036,14 +2087,12 @@ function MediaEntryDiff({
   sourcePath,
   changeType,
   mediaType,
-  readonly,
   isExpanded,
   isEqual,
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
-  mediaType: "images" | "files";
-  readonly: boolean;
+  mediaType: MediaCollectionType;
   isExpanded: boolean;
   isEqual: boolean;
 }) {
@@ -1082,7 +2131,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly
             showValidation
           />
         </div>
@@ -1103,7 +2151,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly={readonly}
             showValidation
           />
         </DiffSide>
@@ -1126,7 +2173,6 @@ function MediaEntryDiff({
               hotspot={beforeHotspot}
               metadata={beforeMetadata}
               sourcePath={sourcePath}
-              altReadonly
             />
           </DiffSide>
         </div>
@@ -1152,7 +2198,6 @@ function MediaEntryDiff({
             hotspot={afterHotspot}
             metadata={afterMetadata}
             sourcePath={sourcePath}
-            altReadonly={readonly}
             showValidation
           />
         </DiffSide>
@@ -1175,16 +2220,10 @@ function MediaEntryDiff({
             variant="media"
             before={
               <BeforeSourceOverride sourcePath={sourcePath}>
-                <MediaEntryAlt sourcePath={sourcePath} readonly />
+                <MediaEntryAlt sourcePath={sourcePath} />
               </BeforeSourceOverride>
             }
-            after={
-              <MediaEntryAlt
-                sourcePath={sourcePath}
-                readonly={readonly}
-                showValidation
-              />
-            }
+            after={<MediaEntryAlt sourcePath={sourcePath} showValidation />}
           />
         </div>
       </div>
@@ -1200,7 +2239,6 @@ function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
         sourcePath={sourcePath}
         side="after"
         diffStyle="removed"
-        readonly
       />
     </BeforeSourceOverride>
   );
@@ -1208,12 +2246,10 @@ function RemovedSideContent({ sourcePath }: { sourcePath: SourcePath }) {
 
 function FieldChangeDiff({
   sourcePath,
-  readonly,
   isExpanded,
   isEqual,
 }: {
   sourcePath: SourcePath;
-  readonly: boolean;
   isExpanded: boolean;
   isEqual: boolean;
 }) {
@@ -1253,7 +2289,7 @@ function FieldChangeDiff({
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             hideUpload
@@ -1271,7 +2307,7 @@ function FieldChangeDiff({
           <AnyField
             path={effectivePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             errorDisplay="compact"
@@ -1301,7 +2337,7 @@ function FieldChangeDiff({
         <AnyField
           path={effectivePath}
           schema={schema}
-          readonly={readonly}
+          readonly
           compact
           inline
           errorDisplay="compact"
@@ -1315,52 +2351,50 @@ function SingleSideContent({
   sourcePath,
   side,
   diffStyle,
-  readonly,
 }: {
   sourcePath: SourcePath;
   side: "before" | "after";
   diffStyle: "added" | "removed";
-  readonly: boolean;
 }) {
   const [moduleFilePath] = useMemo(
     () => Internal.splitModuleFilePathAndModulePath(sourcePath),
     [sourcePath],
   );
   const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
-
-  if (side === "before") {
-    const beforeOverride =
+  /**
+   * Memoised because it is a CONTEXT VALUE. See {@link BeforeSourceOverride}.
+   *
+   * Computed unconditionally rather than inside the `before` branch: a hook
+   * cannot be called conditionally, and the object is cheap. The `after` side
+   * never reads it.
+   */
+  const beforeOverride = useMemo<SourceOverride | null>(
+    () =>
       beforeModuleSource.status === "success"
         ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-        : null;
+        : null,
+    [moduleFilePath, beforeModuleSource],
+  );
+
+  if (side === "before") {
     return (
       <FieldSourceOverrideContext.Provider value={beforeOverride}>
-        <SingleSideContentInner
-          sourcePath={sourcePath}
-          diffStyle={diffStyle}
-          readonly={readonly}
-        />
+        <SingleSideContentInner sourcePath={sourcePath} diffStyle={diffStyle} />
       </FieldSourceOverrideContext.Provider>
     );
   }
 
   return (
-    <SingleSideContentInner
-      sourcePath={sourcePath}
-      diffStyle={diffStyle}
-      readonly={readonly}
-    />
+    <SingleSideContentInner sourcePath={sourcePath} diffStyle={diffStyle} />
   );
 }
 
 function SingleSideContentInner({
   sourcePath,
   diffStyle,
-  readonly,
 }: {
   sourcePath: SourcePath;
   diffStyle: "added" | "removed";
-  readonly: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(sourcePath);
   if (schemaAtPath.status !== "success") return null;
@@ -1370,7 +2404,7 @@ function SingleSideContentInner({
     <div className="max-w-xl">
       <DiffSide diffStyle={diffStyle}>
         {diffStyle === "removed" ? (
-          <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
+          <div className="[&_div]:decoration-fg-error-on-surface [&_pre]:decoration-fg-error-on-surface line-through decoration-fg-error-on-surface">
             <AnyField
               path={sourcePath}
               schema={schema}
@@ -1385,7 +2419,7 @@ function SingleSideContentInner({
           <AnyField
             path={sourcePath}
             schema={schema}
-            readonly={readonly}
+            readonly
             compact
             inline
             errorDisplay="compact"
@@ -1406,18 +2440,21 @@ function DiffSide({
   return (
     <div
       className={classNames("border-l-[3px] pl-3 pr-1 py-2 min-w-0", {
-        "border-fg-error": diffStyle === "removed",
+        "border-fg-error-on-surface": diffStyle === "removed",
         "border-fg-brand-primary": diffStyle === "added",
       })}
     >
-      {children}
+      <CompareScrollBox>{children}</CompareScrollBox>
     </div>
   );
 }
 
 // #region AvatarStack
 
-function AvatarStack({
+/**
+ * Condensed author avatars, overflowing to a `+N` badge past nine.
+ */
+export function AvatarStack({
   authorIds,
   profilesByAuthorIds,
   mode,
@@ -1432,11 +2469,14 @@ function AvatarStack({
   return (
     <div className="flex items-center" aria-label="Authors">
       {visible.map((id, i) => (
-        <SummaryAvatar
+        <ProfileAvatar
           key={id}
           profile={profilesByAuthorIds[id] ?? null}
-          isFirst={i === 0}
           mode={mode}
+          size="sm"
+          className={classNames("border-2 border-bg-primary", {
+            "-ml-2": i > 0,
+          })}
         />
       ))}
       {overflow > 0 && (
@@ -1448,49 +2488,6 @@ function AvatarStack({
         </span>
       )}
     </div>
-  );
-}
-
-function SummaryAvatar({
-  profile,
-  isFirst,
-  mode,
-}: {
-  profile: Profile | null;
-  isFirst: boolean;
-  mode: "fs" | "http" | "unknown";
-}) {
-  const cls = classNames(
-    "shrink-0 w-7 h-7 rounded-full inline-flex items-center justify-center text-[11px] font-semibold overflow-hidden border-2 border-bg-primary",
-    { "-ml-2": !isFirst },
-  );
-  if (!profile) {
-    return (
-      <span
-        className={classNames(cls, "bg-bg-secondary text-fg-disabled")}
-        title={mode === "fs" ? "Local changes" : "Unknown author"}
-      >
-        {mode === "fs" ? <Save size={12} /> : <User size={12} />}
-      </span>
-    );
-  }
-  if (profile.avatar?.url) {
-    return (
-      <img
-        src={profile.avatar.url}
-        alt={profile.fullName}
-        title={profile.fullName}
-        className={classNames(cls, "object-cover")}
-      />
-    );
-  }
-  return (
-    <span
-      className={classNames(cls, "bg-bg-brand-primary text-fg-brand-primary")}
-      title={profile.fullName}
-    >
-      {getInitials(profile.fullName)}
-    </span>
   );
 }
 
@@ -1574,10 +2571,26 @@ function BeforeSourceOverride({
     [sourcePath],
   );
   const beforeModuleSource = useServerSourceAtPath(moduleFilePath);
-  const beforeOverride =
-    beforeModuleSource.status === "success"
-      ? { moduleFilePath, moduleSource: beforeModuleSource.data }
-      : null;
+  /**
+   * Memoised, because this is a CONTEXT VALUE and every field on the "before"
+   * side reads it.
+   *
+   * `useShallowSourceAtPath` takes the override as a `useMemo` dependency — it
+   * has to, since the override decides which source the field reads — so a fresh
+   * object here recomputed the shallow source of every field under it, on every
+   * render of this component. That is the whole "before" subtree re-rendering per
+   * keystroke, and an input that re-renders enough loses the caret.
+   *
+   * `useServerSourceAtPath` is already reference-stable (it memoises on a
+   * `peekBase` snapshot), so this holds for as long as the base source does.
+   */
+  const beforeOverride = useMemo<SourceOverride | null>(
+    () =>
+      beforeModuleSource.status === "success"
+        ? { moduleFilePath, moduleSource: beforeModuleSource.data }
+        : null,
+    [moduleFilePath, beforeModuleSource],
+  );
   return (
     <FieldSourceOverrideContext.Provider value={beforeOverride}>
       {children}
@@ -1586,6 +2599,56 @@ function BeforeSourceOverride({
 }
 
 // #region BeforeAfterLayout
+
+/**
+ * The scrolling part of a compare box.
+ *
+ * A value can be wider than its box - a code line, a long unbroken ref, a
+ * table in rich text - and taller than the screen. Before this, both ran out
+ * of the box: the whole review view scrolled sideways to fit one long line,
+ * and a long value pushed everything after it off the bottom, so on a phone
+ * there was no way to see a whole comparison. The overflow now belongs to the
+ * box that owns the value.
+ *
+ * The scroll container has to be OUTSIDE `ReadonlyGuard`, which is where the
+ * field itself ends up: that guard sets `inert`, so a scroll container within
+ * it can never be scrolled. Out here the guard's `pointer-events-none` works
+ * in our favour - the wheel and the finger land on this box instead.
+ */
+function CompareScrollBox({
+  side,
+  className,
+  children,
+}: {
+  /**
+   * Which half of a comparison this is, as a test hook.
+   *
+   * The two sides are told apart on screen by position and by a label that only
+   * appears when they stack, neither of which a test can hold on to - and
+   * `e2e/compare.spec.ts` has to assert that the before side shows the previous
+   * value and the after side the new one, not merely that both strings are
+   * somewhere in the row. Same reason `data-val-studio-path` exists.
+   */
+  side?: "before" | "after";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-val-compare-side={side}
+      className={classNames(
+        "min-w-0 overflow-x-auto overflow-y-auto overscroll-contain",
+        // Generous on purpose: it engages only for a value that would
+        // otherwise bury the rest of the comparison, and a cap that clipped
+        // ordinary fields would be worse than the overflow it replaces.
+        "max-h-[60vh]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 function BeforeAfterLayout({
   variant,
@@ -1603,7 +2666,7 @@ function BeforeAfterLayout({
           <div className="text-xs font-medium text-fg-tertiary mb-1">
             Before
           </div>
-          {before}
+          <CompareScrollBox side="before">{before}</CompareScrollBox>
         </div>
         <div
           className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
@@ -1613,7 +2676,7 @@ function BeforeAfterLayout({
         </div>
         <div className="pl-1 min-w-0">
           <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
-          {after}
+          <CompareScrollBox side="after">{after}</CompareScrollBox>
         </div>
       </div>
     );
@@ -1629,7 +2692,19 @@ function BeforeAfterLayout({
           borderColor,
         )}
       >
-        {before}
+        {/*
+         * Labelled only while STACKED.
+         *
+         * Side by side, position says which is which and the arrow between them
+         * says which way it went. Stacked, all of that is gone: below `lg` the two
+         * values sit one under the other, told apart by a coloured left rail — and
+         * vertically that reads as two list items rather than as before and after.
+         * The media variant above has always labelled them; this is the same fix
+         * for the field variant, at the breakpoint where it is needed and no
+         * wider, so the dense desktop row does not grow two redundant captions.
+         */}
+        <StackedSideLabel>Before</StackedSideLabel>
+        <CompareScrollBox side="before">{before}</CompareScrollBox>
       </div>
       <div
         className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -1637,7 +2712,19 @@ function BeforeAfterLayout({
       >
         <MiddleIcon size={14} />
       </div>
-      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">{after}</div>
+      <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">
+        <StackedSideLabel>After</StackedSideLabel>
+        <CompareScrollBox side="after">{after}</CompareScrollBox>
+      </div>
+    </div>
+  );
+}
+
+/** A "Before" / "After" caption that exists only below `lg`. See `BeforeAfterLayout`. */
+function StackedSideLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="lg:hidden text-[10px] uppercase tracking-wider font-medium text-fg-tertiary mb-1">
+      {children}
     </div>
   );
 }
@@ -1652,7 +2739,6 @@ function MediaEntryCard({
   diffStyle,
   metadata,
   sourcePath,
-  altReadonly,
   showValidation,
 }: {
   isImage: boolean;
@@ -1662,7 +2748,6 @@ function MediaEntryCard({
   diffStyle?: "added" | "removed";
   metadata: Record<string, unknown> | null;
   sourcePath: SourcePath;
-  altReadonly: boolean;
   showValidation?: boolean;
 }) {
   return (
@@ -1679,7 +2764,6 @@ function MediaEntryCard({
         <div className="flex-1 min-w-0">
           <MediaEntryAlt
             sourcePath={sourcePath}
-            readonly={altReadonly}
             showValidation={showValidation}
           />
         </div>
@@ -1693,12 +2777,24 @@ function MediaEntryCard({
 
 function DiscardConfirmPopover({
   description,
+  title,
+  confirmLabel,
   onConfirm,
   portalContainer,
   ariaLabel,
   label,
 }: {
   description: string;
+  /**
+   * The question, above the description.
+   *
+   * Optional: a per-row discard has the row right next to it and does not need
+   * one. The discard-all does, and it names its count — "Discard all pending
+   * changes?" was true and never said how much was about to go.
+   */
+  title?: string;
+  /** Defaults to "Discard". Name the count where there is one to name. */
+  confirmLabel?: string;
   onConfirm: () => void;
   portalContainer: HTMLElement | null;
   ariaLabel: string;
@@ -1720,24 +2816,42 @@ function DiscardConfirmPopover({
       </PopoverTrigger>
       <PopoverContent
         container={portalContainer}
-        className="w-auto max-w-xs p-3"
+        // Near the full width of a small phone, capped from `sm` up. The default
+        // `max-w-xs` is 320px, which on a 360px screen leaves 8px of margin on
+        // each side once the popover is aligned to the strip's edge.
+        className="w-[calc(100vw-24px)] sm:w-auto sm:max-w-xs p-3"
         side="bottom"
         align="end"
       >
+        {title && (
+          <p className="flex items-start gap-2 text-sm font-medium text-fg-primary mb-1.5">
+            <CircleAlert
+              size={15}
+              className="shrink-0 mt-0.5 text-fg-error-on-surface"
+              aria-hidden
+            />
+            <span>{title}</span>
+          </p>
+        )}
         <p className="text-sm text-fg-secondary mb-3">{description}</p>
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" size="xs" onClick={() => setOpen(false)}>
+        {/*
+         * Half and half on a phone, so each action is a target a thumb can find
+         * rather than two `xs` buttons crowded into the bottom-right corner.
+         * Right-aligned and back to their own widths from `sm` up.
+         */}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+          <Button variant="secondary" size="sm" onClick={() => setOpen(false)}>
             Cancel
           </Button>
           <Button
             variant="destructive"
-            size="xs"
+            size="sm"
             onClick={() => {
               onConfirm();
               setOpen(false);
             }}
           >
-            Discard
+            {confirmLabel ?? "Discard"}
           </Button>
         </div>
       </PopoverContent>

@@ -3,11 +3,13 @@ import {
   Internal,
   ModulePath,
   ModuleFilePath,
+  isInlineRender,
+  isPageRouter,
 } from "@valbuild/core";
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
-import { Plus, Trash, Edit, Link } from "lucide-react";
-import { emptyOf } from "./fields/emptyOf";
+import { Plus, Trash, Edit, Link, Copy } from "lucide-react";
+
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
@@ -15,7 +17,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "./ValFieldProvider";
-import { useNextAppRouterSrcFolder } from "./ValProvider";
+import { usePageRouterSrcFolder } from "./ValProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -31,6 +33,7 @@ import {
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
+import { mergeReferences } from "./useJsonValuesLoad";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
@@ -41,7 +44,10 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
+import { DuplicateRecordPopover } from "./DuplicateRecordPopover";
 import { ConnectedReferencesList } from "./ReferencesList";
+import { useEmptyOf } from "../hooks/useEmptyOf";
+import { declaredKeySetOf } from "@valbuild/core";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -62,33 +68,53 @@ export function ArrayAndRecordTools({
       ? last?.part
       : undefined,
   );
-  const srcFolder = useNextAppRouterSrcFolder();
-  const routePattern =
-    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
-    srcFolder.status === "success" &&
-    srcFolder.data &&
-    "data" in schemaAtPath &&
-    schemaAtPath.data.type === "record" &&
-    schemaAtPath.data.router
-      ? getRouterPattern(
-          moduleFilePath,
-          srcFolder.data,
-          schemaAtPath.data.router,
-        )
-      : null;
-  const parentRoutePattern =
-    isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
-    srcFolder.status === "success" &&
-    srcFolder.data &&
-    parentSchemaAtPath &&
-    parentSchemaAtPath.type === "record" &&
-    parentSchemaAtPath.router
-      ? getRouterPattern(
-          moduleFilePath,
-          srcFolder.data,
-          parentSchemaAtPath.router,
-        )
-      : null;
+  const srcFolder = usePageRouterSrcFolder();
+  /**
+   * Memoised, because these arrays are PROPS that end up in a dependency list.
+   *
+   * `getRouterPattern` parses into a fresh array on every call, and both are
+   * passed down to `RouteForm` (via the add and change popovers), whose
+   * `useEffect(..., [defaultValue, routePattern])` calls `setParams` with a
+   * freshly built object. Unstable in, unstable out: the effect re-ran every
+   * render and its own `setParams` caused the next one.
+   *
+   * The code here is unchanged from `main` — this is a latent loop that only
+   * needed something to re-render this component often enough to enter it, which
+   * `.jsonValues()` entry loading duly provided. Verified load-bearing: reverting
+   * this memo alone brings the crash back on a 121-entry record.
+   */
+  const routePattern = React.useMemo(
+    () =>
+      isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
+      srcFolder.status === "success" &&
+      srcFolder.data &&
+      "data" in schemaAtPath &&
+      schemaAtPath.data.type === "record" &&
+      schemaAtPath.data.router
+        ? getRouterPattern(
+            moduleFilePath,
+            srcFolder.data,
+            schemaAtPath.data.router,
+          )
+        : null,
+    [schemaAtPath, srcFolder, moduleFilePath],
+  );
+  const parentRoutePattern = React.useMemo(
+    () =>
+      isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
+      srcFolder.status === "success" &&
+      srcFolder.data &&
+      parentSchemaAtPath &&
+      parentSchemaAtPath.type === "record" &&
+      parentSchemaAtPath.router
+        ? getRouterPattern(
+            moduleFilePath,
+            srcFolder.data,
+            parentSchemaAtPath.router,
+          )
+        : null,
+    [path, maybeParentPath, parentSchemaAtPath, srcFolder, moduleFilePath],
+  );
   const isParentFixedRoute =
     parentRoutePattern?.every((part) => part.type === "literal") || false;
   const canParentDelete =
@@ -97,10 +123,30 @@ export function ArrayAndRecordTools({
     // there are no dynamic route parts so we cannot delete
     !isParentFixedRoute;
   const canParentChange = !parentRoutePattern || !isParentFixedRoute;
+  /*
+   * The copy needs a key of its own, and a fixed route has none to give: a
+   * router whose pattern is all literals has exactly one URL, which is already
+   * taken by the entry being duplicated. Same reason `canParentChange` and
+   * `canParentDelete` are gated on it.
+   */
+  const canParentDuplicate = canParentChange;
 
   const isFixedRoute =
     routePattern?.every((part) => part.type === "literal") || false;
-  const canAdd = !routePattern || !isFixedRoute; // cannot add if this is a router and this has no dynamic route parts
+  /**
+   * A record whose key schema declares its keys — `s.locale()`, `s.enum(...)`,
+   * `s.literal(...)` — has no key left to add: the declared set IS the complete
+   * set, and every entry in it already exists (unwritten ones as `null`). An
+   * Add here could only produce an undeclared key, which is a validation error
+   * the moment it is written and which the editor has no way to have meant.
+   *
+   * The same shape as the router gate below it, and for the same reason: both
+   * are records whose keys are decided somewhere other than this text box.
+   */
+  const schemaHere = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const keysAreDeclared =
+    schemaHere?.type === "record" && declaredKeySetOf(schemaHere.key) !== null;
+  const canAdd = (!routePattern || !isFixedRoute) && !keysAreDeclared; // cannot add if this is a router and this has no dynamic route parts, nor if the schema declares the keys
 
   // Determine if the parent is a router (for showing route references)
   const isParentRouter =
@@ -115,10 +161,11 @@ export function ArrayAndRecordTools({
   // Get route references eagerly for the delete check (only for router items)
   const routeRefs = useEagerRouteReferences(currentRouteKey);
 
-  // Combine keyOf refs and route refs for delete protection
-  const allRefs = isParentRouter
-    ? [...refs, ...routeRefs.filter((ref) => !refs.includes(ref))]
-    : refs;
+  // Combine keyOf refs and route refs for delete protection. The STATUS travels
+  // with them: a delete or rename must not act on the union until both scans are
+  // complete, or it acts on refs it could not see (an un-loaded `.jsonValues()`
+  // entry is opaque to a scan).
+  const allRefs = isParentRouter ? mergeReferences(refs, routeRefs) : refs;
 
   const parentKeyDescription =
     parentSchemaAtPath?.type === "record"
@@ -133,20 +180,31 @@ export function ArrayAndRecordTools({
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
-          <ReferencesPopover refs={allRefs} variant={variant} />
+          <ReferencesPopover refs={allRefs.refs} variant={variant} />
           {canParentChange && (
             <ChangeRecordPopover
               defaultValue={last.text}
-              path={path}
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               routePattern={parentRoutePattern}
-              existingKeys={allRefs}
+              references={allRefs}
               keyDescription={parentKeyDescription}
             >
               <Edit size={getIconSize(variant)} />
             </ChangeRecordPopover>
+          )}
+          {canParentDuplicate && (
+            <DuplicateRecordPopover
+              defaultValue={last.text}
+              parentPath={maybeParentPath}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              routePattern={parentRoutePattern}
+              keyDescription={parentKeyDescription}
+            >
+              <Copy size={getIconSize(variant)} />
+            </DuplicateRecordPopover>
           )}
           {canParentDelete && (
             <DeleteRecordPopover
@@ -154,7 +212,7 @@ export function ArrayAndRecordTools({
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              refs={allRefs}
+              references={allRefs}
               confirmationMessage={`This will delete the ${last.text} record.`}
             >
               <Trash size={getIconSize(variant)} />
@@ -167,7 +225,7 @@ export function ArrayAndRecordTools({
       )}
       {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
         <>
-          <ReferencesPopover refs={refs} variant={variant} />
+          <ReferencesPopover refs={refs.refs} variant={variant} />
           {canAdd && (
             <AddRecordPopover
               path={path}
@@ -190,7 +248,10 @@ function getRouterPattern(
   srcFolder: string,
   router: string,
 ): RoutePattern[] | null {
-  if (router === "next-app-router") {
+  // A page router's keys are routes of this site, so the module's own path says
+  // which segments a new key needs; an external router's keys are whole URLs of
+  // somewhere else and have no pattern to offer.
+  if (isPageRouter(router)) {
     const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
     return parseRoutePattern(pattern);
   }
@@ -271,6 +332,7 @@ function AddArrayButton({
   const { addPatch, patchPath } = useAddPatch(path);
   const schemaAtPath = useSchemaAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
+  const emptyOf = useEmptyOf();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
     return null;
@@ -280,7 +342,7 @@ function AddArrayButton({
   }
   const schema = schemaAtPath.data;
   if (schema.type !== "array") {
-    console.error("Cannot add to non-array", shallowSourceAtPath, {
+    Internal.log.error("Cannot add to non-array", shallowSourceAtPath, {
       parentPath: path,
     });
     return null;
@@ -303,7 +365,9 @@ function AddArrayButton({
           ],
           schema.type,
         );
-        if (schema.item.type !== "string") {
+        // An inline item is edited in place in the list, so adding one should
+        // not navigate away from it. Everything else opens as its own page.
+        if (!isInlineRender(schema)) {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
               moduleFilePath,
@@ -321,15 +385,24 @@ function AddArrayButton({
 export function splitIntoInitAndLastParts(path: SourcePath) {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
-  const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath).map(
-    (part) => {
-      return {
-        text: prettifyFilename(part),
-        part,
-        sourcePath: moduleFilePath as unknown as SourcePath,
-      };
-    },
-  );
+  /*
+   * Every segment of the module file path, and only the LAST one is a place.
+   *
+   * `/content/authors.val.ts` splits into `content` and `authors.val.ts`, and
+   * both used to be handed the whole module file path as their `sourcePath` — so
+   * a trail rendered two links to the same destination, one of them labelled with
+   * a directory that is not a thing you can open. `isDirectory` says which are
+   * which; the scope trail renders those as text.
+   */
+  const moduleFilePathSegments = Internal.splitModuleFilePath(moduleFilePath);
+  const moduleFilePathParts = moduleFilePathSegments.map((part, index) => {
+    return {
+      text: prettifyFilename(part),
+      part,
+      sourcePath: moduleFilePath as unknown as SourcePath,
+      isDirectory: index < moduleFilePathSegments.length - 1,
+    };
+  });
   if (!modulePath) {
     return moduleFilePathParts;
   }
@@ -338,6 +411,7 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
     text: string;
     part: string;
     sourcePath: SourcePath;
+    isDirectory: boolean;
   }[] = [];
   let lastPart = "";
   for (let i = 0; i < splittedModulePath.length; i++) {
@@ -356,6 +430,8 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
         moduleFilePath,
         modulePathPart as ModulePath,
       ),
+      // A path inside a module is always somewhere you can go.
+      isDirectory: false,
     });
   }
   return moduleFilePathParts.concat(modulePathParts);

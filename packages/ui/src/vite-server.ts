@@ -6,6 +6,7 @@ import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 import { VERSION } from "./vite-index";
 import { getMainJsAppFile } from "./getMainJsAppFile";
+import { siblingOfApp } from "./siblingOfApp";
 
 const files: Record<string, string> = JSON.parse(
   `$$BUILD_$$REPLACE_WITH_RECORD$$`,
@@ -22,6 +23,16 @@ export function createUIRequestHandler(): ValUIRequestHandler {
   if (typeof files !== "object") {
     throw new Error(
       "Val UI files missing (error: is not an object)! This Val version or build is corrupted!",
+    );
+  }
+  // A build whose version was not substituted still carries the raw build
+  // placeholder here, and a placeholder can never match a request path: every
+  // request for the app bundle would fall through to the SPA fallback below,
+  // and the only symptom would be the browser refusing an HTML response where
+  // it expected JS. `$` cannot occur in a version, so this is that build.
+  if (VERSION.includes("$")) {
+    throw new Error(
+      "Val UI version was not substituted at build time! This Val version or build is corrupted!",
     );
   }
   const jsFiles = Object.keys(decodedFiles).filter(
@@ -84,6 +95,21 @@ export function createUIRequestHandler(): ValUIRequestHandler {
         body: decodedFiles[MAIN_CSS_FILE],
       };
     } else {
+      /*
+       * A relative import from the main chunk, which is served at
+       * `/{VERSION}/app` rather than from `/assets/`. See `siblingOfApp`.
+       */
+      const sibling = siblingOfApp(path, VERSION, (key) => key in files);
+      if (sibling !== null) {
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": getServerMimeType(sibling) || "",
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          body: decodedFiles[sibling],
+        };
+      }
       if (files[path]) {
         return {
           status: 200,
@@ -94,10 +120,13 @@ export function createUIRequestHandler(): ValUIRequestHandler {
           body: decodedFiles[path],
         };
       } else {
+        // The SPA fallback: whatever was asked for, what is returned is the
+        // index page, so that is the content type - never the one the
+        // requested path implies.
         return {
           status: 200,
           headers: {
-            "Content-Type": getServerMimeType(path) || "",
+            "Content-Type": "text/html; charset=utf-8",
             "Cache-Control": "max-age=90", // TODO: change this to something more aggressive
           },
           body: htmlPage,

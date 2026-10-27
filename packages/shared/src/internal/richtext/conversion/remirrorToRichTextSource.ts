@@ -1,11 +1,8 @@
 import {
-  FILE_REF_PROP,
   Internal,
-  VAL_EXTENSION,
   RichTextSource,
   AllRichTextOptions,
   Styles,
-  FILE_REF_SUBTYPE_TAG,
   ConfigDirectory,
   SerializedImageSchema,
 } from "@valbuild/core";
@@ -435,71 +432,55 @@ function convertImageNode(
     return {
       tag: "img",
       src: {
-        [FILE_REF_PROP]: ref,
-        ...(remoteOptions
-          ? {
-              [VAL_EXTENSION]: "remote" as const,
-            }
-          : {
-              [VAL_EXTENSION]: "file" as const,
-              [FILE_REF_SUBTYPE_TAG]: "image" as const,
-            }),
-        metadata: {
-          width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
-          height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-          mimeType,
-        },
+        path: ref,
+        width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+        height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
+        mimeType,
       },
     };
   } else if (node.attrs) {
     const url = node.attrs.src;
     const patchId = getParam("patch_id", url);
+    // Recover the path the URL was built from. Local and remote produce the
+    // same source shape now, so this is only about undoing the URL rule.
     let noParamsUrl = url.split("?")[0];
-    let remote = false;
     if (patchId) {
-      remote = getParam("remote", url) === "true";
-      if (remote) {
+      if (getParam("remote", url) === "true") {
         const remoteRef = getParam("ref", url);
         if (remoteRef) {
           noParamsUrl = decodeURIComponent(remoteRef);
         } else {
-          console.error("Remote image URL does not contain ref: " + url);
+          Internal.log.error("Remote image URL does not contain ref: " + url);
         }
       } else if (noParamsUrl.startsWith("/api/val/files/public")) {
         noParamsUrl = noParamsUrl.slice("/api/val/files".length);
       } else {
-        console.error(
+        Internal.log.error(
           "Patched image URL does not start with /api/val/files: " + url,
         );
       }
+    } else if (
+      Internal.remote.splitRemoteRef(noParamsUrl).status === "success"
+    ) {
+      // A published remote ref IS the URL: nothing to undo. Recognised by its
+      // shape, not by the host this field uploads to: a project's refs can
+      // name more than one host (one it uploaded to before, or remote.val.build
+      // from before it moved), and a field that uploads nothing remote can
+      // still hold one. Matching the upload host sent every other ref down the
+      // local branch below, which prefixed `/public` onto a full URL.
+    } else if (!noParamsUrl.startsWith("/public")) {
+      noParamsUrl = `/public${noParamsUrl}`;
     } else {
-      if (remoteOptions && noParamsUrl.startsWith(remoteOptions.remoteHost)) {
-        remote = true;
-      } else if (!noParamsUrl.startsWith("/public")) {
-        noParamsUrl = `/public${noParamsUrl}`;
-      } else {
-        console.error("Unpatched image URL starts with /public: " + url);
-      }
+      Internal.log.error("Unpatched image URL starts with /public: " + url);
     }
     const tag: ImageNode<AllRichTextOptions> = {
       tag: "img" as const,
       src: {
-        ...(remote
-          ? {
-              [VAL_EXTENSION]: "remote" as const,
-              [FILE_REF_PROP]: noParamsUrl,
-            }
-          : {
-              [VAL_EXTENSION]: "file" as const,
-              [FILE_REF_SUBTYPE_TAG]: "image" as const,
-              [FILE_REF_PROP]: noParamsUrl as `/public/${string}`,
-            }),
-        metadata: {
-          width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
-          height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-          mimeType:
-            (noParamsUrl && Internal.filenameToMimeType(noParamsUrl)) || "",
-        },
+        path: noParamsUrl,
+        width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+        height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
+        mimeType:
+          (noParamsUrl && Internal.filenameToMimeType(noParamsUrl)) || "",
         ...(patchId ? { patch_id: patchId } : {}),
       },
     };

@@ -1,0 +1,260 @@
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type {
+  PublishRequestStatus,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
+
+/**
+ * Commit patches to the repository — `POST /save`.
+ *
+ * A seam like every other network path here, so the decision about WHEN to
+ * publish is testable without a server. The result is a union rather than a
+ * throw because each branch needs different handling and two of them are ordinary:
+ *
+ * - `published` — the patches are in the base now.
+ * - `not-fast-forward` (409) — someone else committed first. Retryable after the
+ *   client catches up, and distinct from a rejection for the same reason a patch
+ *   conflict is: one must be retried and the other must not.
+ * - `patch-errors` (400) — specific patches cannot be applied. Carried per patch
+ *   id, because "Failed to publish" with no way to find the offending change is
+ *   the thing the engine's own comment says it stopped doing. TS-AST-only failures
+ *   reach the client ONLY here: the client applies patches to evaluated JSON and
+ *   cannot see them.
+ * - `error` / `network-error` — nothing is known.
+ */
+export type PublishPatches = (request: {
+  patchIds: PatchId[];
+  message?: string;
+  /**
+   * The newest commit this client knew about when the publish was decided.
+   *
+   * Sent so the server can refuse a publish decided against a world somebody
+   * else has since changed. See `expectedHeadCommitSha` in `ApiRoutes`.
+   */
+  expectedHeadCommitSha?: string;
+}) => Promise<PublishOutcome>;
+
+/**
+ * A press made on another tab's behalf: the request id that tab minted, and
+ * the tab the job is to be leased to. See `PublishOptions.pressAs`.
+ */
+export type PressAs = { requestId: string; tab: string };
+
+/**
+ * A press of Publish, for a MANAGED project: a publish JOB is requested, and
+ * the answer comes back at once (valbuild/home, docs/app-mode.md, "Publishing
+ * is a queued job"). Nothing is committed here -- the job takes every pending
+ * change, the tab builds it if it is handed one, and content seals it.
+ */
+export type RequestPublish = (press?: PressAs) => Promise<
+  | {
+      status: "requested";
+      requestId: string;
+      request: PublishRequestStatus;
+      /** The job this tab is to build, when the press started one. */
+      job: PublishTabJob | null;
+    }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * Could the same press get through if made again? Absent means it
+       * might: a seam that does not say is not claiming an answer.
+       */
+      transient?: boolean;
+    }
+>;
+
+/**
+ * How a caller wants a publish scoped.
+ *
+ * `exact` is auto-save's mode, and it exists because the two callers want
+ * genuinely different things. A person clicking Save wants everything they can
+ * see, and wants to be told if it moved under them. A timer firing while they
+ * type wants the batch it named, expects the chain to keep growing, and must
+ * never refuse just because it did — a save that refuses whenever someone is
+ * typing is a save that never runs.
+ *
+ * What it does NOT relax is ordering: see `takeNamedPrefix`.
+ */
+export type PublishOptions = {
+  /**
+   * Request a publish job rather than commit: `requestPublish`, after the
+   * same gate. For a managed project, where the Studio is the deployer.
+   */
+  request?: boolean;
+  /**
+   * With `request`: press as another tab, under the request id it minted.
+   *
+   * The builder tab a page that cannot build opens presses FOR that page
+   * (`publish/handoff.ts`): an iPhone pauses the page the moment the builder
+   * takes the screen, so nothing the page would do after the tap ever runs.
+   * The page names the request at the tap, so it can follow it to Live.
+   */
+  pressAs?: PressAs;
+  exact?: boolean;
+};
+
+/**
+ * An unpublished change the save threw away because it could not be applied.
+ *
+ * `fs` mode only. There, refusing the whole commit for one bad patch is a dead
+ * stop rather than a refusal — the editor keeps typing and nothing is ever
+ * written again — so the failing change and the rest of its module's chain go,
+ * and this is how the studio finds out which.
+ */
+export type RemovedPatch = {
+  patchId: PatchId;
+  moduleFilePath: ModuleFilePath;
+  message: string;
+};
+
+export type PublishOutcome =
+  | {
+      status: "published";
+      commitSha?: string;
+      /** See `sourceFiles` on the `/save` route. */
+      sourceFiles?: Record<string, string | null>;
+      /** See `binaryFiles` on the `/save` route. */
+      binaryFiles?: Record<string, string>;
+      /** See `binaryFilesUnread` on the `/save` route. */
+      binaryFilesUnread?: string[];
+      /** See `branch` on the `/save` route. */
+      branch?: string;
+      removed?: RemovedPatch[];
+      /**
+       * The chain version the publish moved the branch to. See `headVersion`
+       * on the `/save` route: what floors the stat store past a `/stat` read
+       * before this publish.
+       */
+      headVersion?: number;
+    }
+  | { status: "not-fast-forward"; message: string }
+  /**
+   * Somebody else published between this being decided and Save being clicked.
+   *
+   * Its own outcome rather than an error, because there is a specific thing to
+   * do about it — look again — and because nothing was written. Distinct from
+   * `not-fast-forward`, which is git refusing a commit; this is refused before
+   * a commit is attempted, on a head the client named.
+   */
+  | { status: "head-moved"; message: string }
+  | {
+      status: "patch-errors";
+      message: string;
+      errors: Record<PatchId, string>;
+    }
+  | { status: "error"; message: string }
+  | { status: "network-error"; message: string };
+
+/** Throw patches away — `DELETE /patches`. */
+export type DiscardPatches = (patchIds: PatchId[]) => Promise<
+  | {
+      status: "discarded";
+      patchIds: PatchId[];
+      /**
+       * The chain version the delete moved the branch to, where the server
+       * reports one. Same purpose as a publish's: a `/stat` read before the
+       * delete would put the discarded head back.
+       */
+      headVersion?: number;
+    }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * The publish job holding a change that was not discarded, when that is
+       * why: it can be discarded once that publish ends, or after it is
+       * cancelled. Absent from a server that does not say.
+       */
+      publishJobId?: string;
+    }
+>;
+
+/**
+ * What a publish attempt did, from the caller's point of view.
+ *
+ * `refused` is its own outcome and not an error: a publish blocked by validation
+ * errors is the system working. The modules are named so a UI can take the editor
+ * to them rather than saying no.
+ */
+export type PublishResult =
+  /** A publish job was requested: see `RequestPublish`. Nothing is committed yet. */
+  | {
+      status: "requested";
+      requestId: string;
+      request: PublishRequestStatus;
+      job: PublishTabJob | null;
+      /**
+       * The changes the gate checked for this press: what this client sent
+       * to be published, and so what it must stop offering to publish until
+       * the request settles. See `TrackedPublish.patchIds`.
+       */
+      patchIds: PatchId[];
+    }
+  | {
+      status: "published";
+      patchIds: PatchId[];
+      commitSha?: string;
+      /**
+       * What the commit wrote, for a managed project's in-tab build. See
+       * `sourceFiles` on the `/save` route.
+       */
+      sourceFiles?: Record<string, string | null>;
+      /** The binary half; see `binaryFiles` on the `/save` route. */
+      binaryFiles?: Record<string, string>;
+      binaryFilesUnread?: string[];
+      /** The branch the commit is on; see `branch` on the `/save` route. */
+      branch?: string;
+      removed?: RemovedPatch[];
+    }
+  | { status: "nothing-to-publish" }
+  | {
+      status: "refused";
+      reason: "validation-errors";
+      modules: ModuleFilePath[];
+    }
+  | { status: "refused"; reason: "already-publishing" }
+  /**
+   * Local edits could not be saved, so the chain to publish is incomplete.
+   *
+   * A field writes on a pause in typing, so Save can arrive while the last word
+   * is still only local. `publish` flushes first; this is the flush failing —
+   * the server is unreachable or refused. Publishing anyway would ship the
+   * project without the newest edit, which is the one the user is looking at.
+   */
+  | {
+      status: "refused";
+      reason: "unsaved-changes";
+      patchIds: PatchId[];
+      /**
+       * Val Build's sentence when the edits are held because it refused them
+       * for the project's plan: then no retry helps, and the reason (with its
+       * fix) is what to say, not the connection.
+       */
+      planRefusal?: string;
+    }
+  /**
+   * An edit landed while the gate was validating, so what was checked is not
+   * what would be published.
+   *
+   * Retryable by re-running the gate — the caller clicks Save again. Kept
+   * separate from `validation-errors` because nothing is wrong with the content:
+   * the answer was simply about a document that has since moved.
+   */
+  | { status: "refused"; reason: "chain-moved" }
+  /**
+   * Somebody else published while this was being decided.
+   *
+   * Refused rather than failed, and the difference matters to the user: nothing
+   * was written, and the thing to do is look at the review screen again — what
+   * it showed was decided against a head that has since moved.
+   */
+  | { status: "refused"; reason: "head-moved" }
+  | {
+      status: "failed";
+      message: string;
+      /** Per patch, where the server said which. */
+      patchErrors?: Record<PatchId, string>;
+      retryable: boolean;
+    };

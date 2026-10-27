@@ -22,6 +22,13 @@ export {
   VAL_DIAGNOSTIC_CODES,
   type ValDiagnosticCode,
   type ValDiagnosticData,
+  resolveGalleryChecks,
+  isGalleryCheckFix,
+  galleryCheckKey,
+  type GalleryCheckFinding,
+  type GalleryCheckVerdict,
+  galleryMembershipAt,
+  type GalleryMembership,
 } from "./diagnostics";
 export {
   findRegisteredModuleSpecifiers,
@@ -29,9 +36,33 @@ export {
 } from "./valModulesRegistry";
 export {
   createValCodeActions,
+  createMissingModuleCodeAction,
+  adjudicateGalleryCheck,
   isLocalFix,
-  minimalTextEdit,
 } from "./codeActions";
+export { minimalTextEdit } from "./textEdit";
+export {
+  createValCommands,
+  isRemoteFix,
+  valCommandNames,
+  readPersonalAccessToken,
+  REMOTE_FIX_COMMANDS,
+  REMOTE_FIX_TITLES,
+  VAL_LOGIN_COMMAND,
+  VAL_UPLOAD_REMOTE_COMMAND,
+  VAL_DOWNLOAD_REMOTE_COMMAND,
+  type RemoteFixCommandArgs,
+} from "./commands";
+export {
+  findValModulesInsertion,
+  valModuleSpecifier,
+  valModulesEntryText,
+} from "./valModulesRegistry";
+export {
+  canRenameFiles,
+  createGalleryMembershipActions,
+  findRecordInsertion,
+} from "./galleryFixes";
 export {
   createValCompletions,
   resolveValCompletion,
@@ -39,8 +70,11 @@ export {
 } from "./completions";
 export {
   getValCompletionContext,
+  findMediaPathObject,
+  MEDIA_METADATA_KEYS,
+  type MediaMetadataKey,
+  type MediaPathObject,
   type ValCompletionContext,
-  type ValFileRefContext,
   type ValStringValueContext,
 } from "./completionContext";
 export {

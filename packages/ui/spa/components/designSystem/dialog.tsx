@@ -16,10 +16,17 @@ const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
+  /*
+   * Dimmed, not opaque: an opaque overlay took the whole Studio away behind
+   * every dialog, so "Close this proposal?" was asked with the proposal out of
+   * sight. `color-mix` rather than `bg-bg-primary/70`: the theme colours are
+   * plain CSS variables, which Tailwind cannot give an alpha (see
+   * `ImageCard`).
+   */
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-bg-primary backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-50 bg-[color-mix(in_srgb,var(--bg-primary)_70%,transparent)] backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
     )}
     {...props}
@@ -46,7 +53,7 @@ const DialogContent = React.forwardRef<
     >
       {children}
       {hideClose ? null : (
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-bg-brand-primary data-[state=open]:text-fg-primary">
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:pointer-events-none data-[state=open]:bg-bg-brand-primary data-[state=open]:text-fg-primary">
           <X className="w-4 h-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>

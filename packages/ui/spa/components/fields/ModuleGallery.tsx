@@ -1,10 +1,12 @@
 import * as React from "react";
 import {
+  DEFAULT_VIDEO_ACCEPT,
   FileMetadata,
   ImageMetadata,
   Internal,
   SerializedFileSchema,
   SerializedImageSchema,
+  SerializedVideoSchema,
   SourcePath,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
@@ -26,25 +28,57 @@ import {
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
-import { getRefParts } from "../../utils/getFilenameFromRef";
-import { ValidationErrors } from "../ValidationError";
+import type { PendingPatch } from "../ValProvider";
+import { getRefParts } from "@valbuild/shared/internal";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
-import { FileGallery } from "../FileGallery/FileGallery";
-import type { GalleryFile } from "../FileGallery/types";
+import { MediaGallery } from "../MediaGallery/MediaGallery";
+import type { MediaItem, MediaKind, MediaUpload } from "../MediaGallery/types";
+import { useNavigation } from "../ValRouter";
+import { GalleryEntryInspector } from "./GalleryEntryInspector";
+import { filesOfChoices, toPosterUpload } from "./VideoChoices";
+import { captureFrame, defaultPosterTime } from "../../utils/video/readVideo";
+import { useRenameMediaFile } from "../useRenameMediaFile";
 import { readImage, readImageFromFile } from "../../utils/readImage";
+import type { ReadImageEncode } from "../../utils/readImage";
+import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
+import { fileMatchesAccept, inputAccept } from "../../utils/fileAccept";
 import { refToUrl } from "../MediaPicker/refToUrl";
+import { useUploadRequest } from "../UploadRequest";
+import { useRenameStreamEntry } from "../useRenameStreamEntry";
+import {
+  prepareVideoUpload,
+  type PreparePhase,
+} from "../../utils/video/prepareVideoUpload";
+import {
+  createVideosetEntryPatch,
+  localPathOf,
+} from "../../utils/video/createVideoPatch";
+import { isPlaylistPath } from "../../utils/video/hlsPlaylist";
+import { readStream } from "../../utils/video/renameVideo";
+import { fetchStreamFile } from "../../utils/video/fetchStreamFile";
 
 const textEncoder = new TextEncoder();
 
 export function ModuleGallery({
   path,
   showChildPath: showChild,
+  readonly,
 }: {
   path: SourcePath;
   showChildPath?: SourcePath;
+  /**
+   * `s.imagedir().readonly()` — look, do not touch.
+   *
+   * The gallery had no notion of it at all, so a readonly module still offered
+   * upload, delete and alt text, and every one of them wrote a patch. The three
+   * handlers are simply withheld: `FileGallery` already hides an action it was
+   * given no handler for, which is better than a disabled button that invites a
+   * click and then explains itself.
+   */
+  readonly?: boolean;
 }) {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const source = useSourceAtPath(path);
@@ -60,14 +94,30 @@ export function ModuleGallery({
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
 
+  const navigation = useNavigation();
   const inputRef = React.useRef<HTMLInputElement>(null);
+  /**
+   * The Media panel can ask this gallery to open its file dialog.
+   *
+   * The panel knows which gallery you meant; only this component knows how to
+   * upload into one — the ref from the hash and the directory, local or remote,
+   * the metadata entry and the file op as one patch. So the panel asks and this
+   * answers, rather than the upload existing twice.
+   */
+  useUploadRequest(moduleFilePath, () => inputRef.current?.click());
   const dragCounterRef = React.useRef(0);
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
+  /** The name of the file going up, for its tile. */
+  const [uploadingName, setUploadingName] = React.useState<string | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [progressPercentage, setProgressPercentage] = React.useState<
     number | null
   >(null);
+  /** Reading or converting a video, before its bytes start going up. */
+  const [videoPhase, setVideoPhase] = React.useState<PreparePhase | null>(null);
+  /** A stream was asked for and could not be made here; said, not failed. */
+  const [uploadNotice, setUploadNotice] = React.useState<string | null>(null);
 
   const handleProgress = React.useCallback(
     (
@@ -102,8 +152,21 @@ export function ModuleGallery({
       : null;
 
   const imageMode = schema?.mediaType === "images";
-  const directory = schema?.directory ?? "/public/val";
+  const videoMode = schema?.mediaType === "videos";
+  const directory = schema?.dir ?? "/public/val";
   const accept = schema?.accept;
+  /**
+   * A gallery has no field to override it, so the gallery's own option is the
+   * whole answer. Passed to both upload paths: the file input and the drop
+   * loop are separate code, and a fix to one has never reached the other.
+   */
+  const encode = React.useMemo<ReadImageEncode>(
+    () => ({
+      settings: resolveEncodeSettings(undefined, schema?.encode),
+      accept,
+    }),
+    [schema, accept],
+  );
 
   const requireRemote = schema?.remote;
   const remoteData =
@@ -119,121 +182,287 @@ export function ModuleGallery({
         }
       : null;
 
-  const files: GalleryFile[] = rawSource
+  /**
+   * Whether an upload can succeed RIGHT NOW.
+   *
+   * A remote gallery cannot upload until `/remote/settings` has answered and a
+   * bucket has been picked from it - which is several async hops after intake:
+   * schemas arrive, that sets `requiresRemoteFiles`, that fires the request, and
+   * `useCurrentRemoteFileBucket` picks a bucket in an effect after the response.
+   * Until then `remoteData` is null and `handleUpload` can only refuse.
+   *
+   * Exposed so the button is not offered before it can work. It is also the only
+   * signal anything outside this component can wait on - `remoteFiles` and the
+   * bucket are both context state with no DOM of their own - which is what
+   * `e2e/http/remoteFiles.spec.ts` waits for instead of racing the request.
+   */
+  const canUpload = !requireRemote || remoteData !== null;
+  /** Loading is transient and about to resolve; inactive is a real failure. */
+  const remoteSettingsPending =
+    requireRemote === true &&
+    (remoteFiles.status === "loading" || remoteFiles.status === "not-asked");
+
+  /**
+   * What a video's remote validation hash is computed from: the same
+   * synthesized schema `val validate --fix` uploads a set's videos with, or
+   * the two would name the same file by two refs.
+   */
+  const videoSchema = React.useMemo<SerializedVideoSchema>(
+    () => Internal.videosetEntryVideoSchema({ accept, dir: schema?.dir }),
+    [accept, schema],
+  );
+
+  /** A file's URL, including while it is a draft. */
+  const urlOf = React.useCallback(
+    (media: { path: string; patch_id?: string }) => {
+      const patchId = filePatchIds.get(media.path) ?? media.patch_id;
+      return Internal.mediaUrl({
+        path: media.path,
+        ...(patchId ? { patch_id: patchId } : {}),
+      });
+    },
+    [filePatchIds],
+  );
+
+  const kind: MediaKind = videoMode ? "videos" : imageMode ? "images" : "files";
+  /** Who changed each entry, by its key: for the panel's authors and Compare. */
+  const patchesByRef: Record<string, Record<string, PendingPatch[]>> = {};
+  const items: MediaItem[] = rawSource
     ? Object.entries(rawSource).map(([ref, meta]) => {
         const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
-        const width = typeof meta.width === "number" ? meta.width : 0;
-        const height = typeof meta.height === "number" ? meta.height : 0;
-        const alt = typeof meta.alt === "string" ? meta.alt : undefined;
         const hotspot =
           typeof meta.hotspot === "object" &&
           meta.hotspot !== null &&
-          "x" in (meta.hotspot as Record<string, unknown>) &&
-          "y" in (meta.hotspot as Record<string, unknown>) &&
-          typeof (meta.hotspot as Record<string, unknown>).x === "number" &&
-          typeof (meta.hotspot as Record<string, unknown>).y === "number"
+          "x" in meta.hotspot &&
+          "y" in meta.hotspot &&
+          typeof meta.hotspot.x === "number" &&
+          typeof meta.hotspot.y === "number"
+            ? { x: meta.hotspot.x, y: meta.hotspot.y }
+            : undefined;
+        const poster =
+          typeof meta.poster === "object" &&
+          meta.poster !== null &&
+          "path" in meta.poster &&
+          typeof meta.poster.path === "string"
             ? {
-                x: (meta.hotspot as { x: number }).x,
-                y: (meta.hotspot as { y: number }).y,
+                path: meta.poster.path,
+                ...("patch_id" in meta.poster &&
+                typeof meta.poster.patch_id === "string"
+                  ? { patch_id: meta.poster.patch_id }
+                  : {}),
               }
             : undefined;
         const itemPath = sourcePathOfItem(path, ref);
-        const genericValidationErrors = [];
-        const altSpecificValidationErrors = [];
+        const errors: string[] = [];
+        const descriptionErrors: string[] = [];
         for (const [errPath, errs] of Object.entries(allValidationErrors)) {
           if (!errPath.startsWith(itemPath)) {
             continue;
           }
           if (errPath === Internal.createValPathOfItem(itemPath, "alt")) {
-            altSpecificValidationErrors.push(...errs.map((err) => err.message));
+            descriptionErrors.push(...errs.map((err) => err.message));
           } else {
-            genericValidationErrors.push(...errs.map((err) => err.message));
+            errors.push(...errs.map((err) => err.message));
           }
         }
 
-        const fileModulePath = Internal.patchPathToModulePath([
-          ...patchPath,
-          ref,
-        ]);
-        const filePatches = allModulePatches.filter((patch) =>
-          patch.patch.some(
-            (op) => Internal.patchPathToModulePath(op.path) === fileModulePath,
-          ),
-        );
-        const filePatchesByAuthorIds: Record<
-          string,
-          (typeof allModulePatches)[number][]
-        > = {};
-        for (const patch of filePatches) {
+        /*
+         * At the entry OR INSIDE it. Only an exact match counted once, so a
+         * file whose alt text was edited — a patch at `[ref, "alt"]`, the
+         * commonest change a gallery gets — showed no authors and no Compare
+         * link, as though nothing about it had changed.
+         */
+        const filePatchPath = [...patchPath, ref];
+        const byAuthor: Record<string, PendingPatch[]> = {};
+        for (const patch of allModulePatches) {
+          if (
+            !patch.patch.some((op) => isPatchPathWithin(op.path, filePatchPath))
+          ) {
+            continue;
+          }
           const author = patch.authorId ?? "unknown";
-          if (!filePatchesByAuthorIds[author]) {
-            filePatchesByAuthorIds[author] = [];
-          }
-          filePatchesByAuthorIds[author].push(patch);
+          (byAuthor[author] ??= []).push(patch);
         }
+        patchesByRef[ref] = byAuthor;
 
-        const { filename, folder } = getRefParts(ref);
+        // A stream is named by its directory: every master is `master.m3u8`,
+        // and the directory is what a rename renames.
+        const isHls = videoMode && isPlaylistPath(localPathOf(ref));
+        const { filename, folder } = isHls
+          ? getRefParts(
+              localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")),
+            )
+          : getRefParts(ref);
 
         return {
           ref,
           url: refToUrl(ref, filePatchIds),
-          filename,
+          name: filename,
           folder,
-          metadata: { mimeType, width, height, alt, hotspot },
-          fieldSpecificErrors: {
-            alt:
-              altSpecificValidationErrors.length > 0
-                ? altSpecificValidationErrors
-                : undefined,
-          },
-          validationErrors:
-            genericValidationErrors.length > 0
-              ? genericValidationErrors
-              : undefined,
-          patchesByAuthorIds: filePatchesByAuthorIds,
-          profilesByAuthorIds,
-          sourcePath: itemPath,
+          mimeType,
+          ...(typeof meta.width === "number" ? { width: meta.width } : {}),
+          ...(typeof meta.height === "number" ? { height: meta.height } : {}),
+          ...(typeof meta.duration === "number"
+            ? { duration: meta.duration }
+            : {}),
+          description: typeof meta.alt === "string" ? meta.alt : null,
+          ...(hotspot ? { hotspot } : {}),
+          // The entry's poster is its thumbnail: one still per video.
+          ...(poster ? { thumbnailUrl: urlOf(poster) } : {}),
+          ...(isHls ? { isHls } : {}),
+          ...(errors.length > 0 ? { errors } : {}),
+          ...(descriptionErrors.length > 0 ? { descriptionErrors } : {}),
         };
       })
     : [];
 
-  const handleFileDelete = React.useCallback(
-    (index: number) => {
-      if (!rawSource) return;
-      const ref = Object.keys(rawSource)[index];
-      if (!ref) return;
-      const patch: Patch = [
-        {
-          op: "remove",
-          path: [...patchPath, ref] as unknown as array.NonEmptyArray<string>,
-        },
-        {
-          op: "file",
-          path: [...patchPath, ref],
-          filePath: ref,
-          value: null,
-          remote: Internal.remote.splitRemoteRef(ref).status === "success",
-        },
-      ];
+  const deleteEntry = React.useCallback(
+    (ref: string) => {
+      if (!rawSource || !(ref in rawSource)) return;
+      const isRemoteRef =
+        Internal.remote.splitRemoteRef(ref).status === "success";
       setUploading(true);
-      addAndUploadPatchWithFileOps(
-        patch,
-        imageMode ? "image" : "file",
-        (msg) => setUploadError(msg),
-        () => {},
-      ).finally(() => setUploading(false));
+      (async () => {
+        let filePaths = [ref];
+        if (videoMode && !isRemoteRef && isPlaylistPath(localPathOf(ref))) {
+          // A local stream is a directory of files, and they all go: the
+          // master alone would leave every playlist and segment behind it.
+          try {
+            const files = await readStream(
+              ref,
+              refToUrl(ref, filePatchIds),
+              fetchStreamFile,
+              window.location.href,
+            );
+            const directory = ref.slice(0, ref.lastIndexOf("/"));
+            filePaths = Object.keys(files).map(
+              (name) => `${directory}/${name}`,
+            );
+          } catch (err) {
+            // A stream that cannot be read is still one that can be removed;
+            // what is left behind, `val validate` reports as untracked.
+            Internal.log.debug("could not list the stream's files", err);
+          }
+        }
+        // The entry's own poster and captions go with it: they are the
+        // set's files, named by nothing else (a field using the entry blocks
+        // the delete before it gets here).
+        const entryFiles = videoMode ? filesOfChoices(rawSource[ref]) : [];
+        const patch: Patch = [
+          {
+            op: "remove",
+            path: [...patchPath, ref] as unknown as array.NonEmptyArray<string>,
+          },
+          ...filePaths.map((filePath): Patch[number] => ({
+            op: "file",
+            path: [...patchPath, ref],
+            filePath,
+            value: null,
+            remote: isRemoteRef,
+          })),
+          ...entryFiles.map((filePath): Patch[number] => ({
+            op: "file",
+            path: [...patchPath, ref],
+            filePath,
+            value: null,
+            remote: Internal.isRemoteMediaPath(filePath),
+          })),
+        ];
+        await addAndUploadPatchWithFileOps(
+          patch,
+          imageMode ? "image" : "file",
+          (msg) => setUploadError(msg),
+          () => {},
+        );
+      })().finally(() => setUploading(false));
     },
-    [rawSource, patchPath, imageMode, addAndUploadPatchWithFileOps],
+    [
+      rawSource,
+      patchPath,
+      imageMode,
+      videoMode,
+      filePatchIds,
+      addAndUploadPatchWithFileOps,
+    ],
   );
 
-  const handleAltTextChange = React.useCallback(
-    (index: number, newAltText: string) => {
-      if (!rawSource) return;
-      const ref = Object.keys(rawSource)[index];
-      if (!ref) return;
+  const renameMediaFile = useRenameMediaFile(path);
+  const renameStreamEntry = useRenameStreamEntry(path);
+  /**
+   * Rename the entry `ref` to `newBase`; resolves to a message to show, or
+   * null. The panel follows the file to its new key: the old one is gone, and
+   * so is the URL that named it.
+   */
+  const renameEntry = React.useCallback(
+    async (ref: string, newBase: string): Promise<string | null> => {
+      if (!rawSource) {
+        return "The gallery has not loaded.";
+      }
+      const meta = rawSource[ref];
+      if (meta === undefined) {
+        return "That file is no longer here.";
+      }
+      const mimeType =
+        typeof meta.mimeType === "string" ? meta.mimeType : undefined;
+      // A stream is a directory, and the directory is its name: every file
+      // in it moves. See `renameVideo.ts`.
+      const res =
+        videoMode && isPlaylistPath(localPathOf(ref))
+          ? await renameStreamEntry({
+              key: ref,
+              newBase,
+              url: refToUrl(ref, filePatchIds),
+              existingKeys: Object.keys(rawSource),
+              schema: videoSchema,
+            })
+          : await renameMediaFile({
+              kind: "gallery-entry",
+              key: ref,
+              newBase,
+              metadata:
+                mimeType === undefined
+                  ? undefined
+                  : imageMode &&
+                      typeof meta.width === "number" &&
+                      typeof meta.height === "number"
+                    ? { mimeType, width: meta.width, height: meta.height }
+                    : { mimeType },
+              fileType: imageMode ? "image" : "file",
+            });
+      if (res.status === "ok" || res.status === "partial") {
+        const childPath = Internal.createValPathOfItem(
+          moduleFilePath as string as SourcePath,
+          res.newPath,
+        );
+        if (childPath) {
+          navigation.navigate(childPath, { replace: true });
+        }
+        return res.status === "partial" ? res.message : null;
+      }
+      return res.status === "error" ? res.message : null;
+    },
+    [
+      rawSource,
+      imageMode,
+      videoMode,
+      renameMediaFile,
+      renameStreamEntry,
+      filePatchIds,
+      videoSchema,
+      moduleFilePath,
+      navigation,
+    ],
+  );
+
+  const setDescription = React.useCallback(
+    (ref: string, newAltText: string) => {
+      if (!rawSource || !(ref in rawSource)) return;
       const patch: Patch = [
         {
-          op: "replace",
+          // "add", not "replace": on an object key the two mean the same thing,
+          // but "add" also works when the key is absent by the time the patch is
+          // applied - e.g. the entry was re-uploaded with fresh metadata.
+          op: "add",
           path: [...patchPath, ref, "alt"],
           value: newAltText,
         },
@@ -241,6 +470,78 @@ export function ModuleGallery({
       addPatch(patch, "record");
     },
     [rawSource, patchPath, addPatch],
+  );
+
+  /**
+   * One video into the set: read, converted to a stream when the set asks
+   * and this browser can, and uploaded as the entry and its files. The same
+   * step a video field takes (`prepareVideoUpload`), with the patch naming a
+   * set entry instead of a field.
+   */
+  const uploadVideo = React.useCallback(
+    async (file: File) => {
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const prepared = await prepareVideoUpload(
+          file,
+          objectUrl,
+          { accept: accept ?? DEFAULT_VIDEO_ACCEPT, stream: schema?.stream },
+          setVideoPhase,
+        );
+        if (prepared.status === "error") {
+          setUploadError(prepared.message);
+          return;
+        }
+        if (prepared.notice) {
+          setUploadNotice(prepared.notice);
+        }
+        // The entry's poster, from the file as it was picked: it is the
+        // gallery's thumbnail, and a stream gives a tile nothing else.
+        const posterTime = defaultPosterTime(prepared.metadata.duration);
+        const poster = await captureFrame(objectUrl, posterTime)
+          .then(toPosterUpload)
+          .catch(() => null);
+        const { patch } = createVideosetEntryPatch(
+          {
+            setPatchPath: patchPath,
+            dir: directory,
+            filename: file.name,
+            upload: prepared.upload,
+            metadata: prepared.metadata,
+            remote: requireRemote ? remoteData : null,
+            schema: videoSchema,
+            poster: poster ? { upload: poster, time: posterTime } : null,
+          },
+          Internal.getSHA256Hash,
+        );
+        setVideoPhase(null);
+        await addAndUploadPatchWithFileOps(
+          patch,
+          "file",
+          (msg) => setUploadError(msg),
+          handleProgress,
+        );
+      } catch (err) {
+        Internal.log.error("video upload failed", err);
+        setUploadError(
+          `Could not upload the video: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+        setVideoPhase(null);
+      }
+    },
+    [
+      accept,
+      schema,
+      patchPath,
+      directory,
+      requireRemote,
+      remoteData,
+      videoSchema,
+      addAndUploadPatchWithFileOps,
+      handleProgress,
+    ],
   );
 
   const computeRef = React.useCallback(
@@ -324,7 +625,22 @@ export function ModuleGallery({
       setUploadError(null);
       if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
         if (!currentRemoteFileBucket) {
-          console.error("Current remote file bucket is not available", {
+          /**
+           * Still loading is NOT the same as unavailable.
+           *
+           * Both used to land on "contact support", so an editor quick enough to
+           * pick a file while `/remote/settings` was still in flight was told
+           * their upload had failed permanently - for a state that resolves in
+           * milliseconds. The button is disabled until `canUpload`, so this is
+           * now only reachable by something that bypasses it (a drop, or a test
+           * driving the hidden input), and it says what is actually true.
+           */
+          if (remoteSettingsPending) {
+            setUploadError("Preparing remote uploads - try again in a moment.");
+            ev.target.value = "";
+            return;
+          }
+          Internal.log.error("Current remote file bucket is not available", {
             remoteFiles,
             currentRemoteFileBucket,
           });
@@ -340,8 +656,21 @@ export function ModuleGallery({
         ev.target.value = "";
         return;
       }
+      setUploadingName(ev.target.files?.[0]?.name ?? null);
+      if (videoMode) {
+        const file = ev.target.files?.[0];
+        ev.target.value = "";
+        if (!file) return;
+        setUploadNotice(null);
+        setUploading(true);
+        uploadVideo(file).finally(() => {
+          setUploading(false);
+          setProgressPercentage(null);
+        });
+        return;
+      }
       if (imageMode) {
-        readImage(ev)
+        readImage(ev, encode)
           .then(async (res) => {
             if (!res.width || !res.height || !res.mimeType) return;
             const metadata: ImageMetadata = {
@@ -460,6 +789,8 @@ export function ModuleGallery({
     },
     [
       imageMode,
+      videoMode,
+      uploadVideo,
       directory,
       patchPath,
       addAndUploadPatchWithFileOps,
@@ -468,6 +799,8 @@ export function ModuleGallery({
       currentRemoteFileBucket,
       schema,
       remoteFiles,
+      encode,
+      remoteSettingsPending,
     ],
   );
 
@@ -477,29 +810,34 @@ export function ModuleGallery({
       dragCounterRef.current = 0;
       setIsDraggingOver(false);
       if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
+        /**
+         * Same distinction as `handleUpload`, and this is the path that needs
+         * it most: a drop has no button to disable, so `canUpload` cannot keep
+         * anyone out of here. Dropping a file while `/remote/settings` is still
+         * in flight is the one way an editor can still meet this, and it is
+         * transient - saying "not available" would be false.
+         */
         setUploadError(
-          "Remote uploads are not available. Please try again later.",
+          remoteSettingsPending
+            ? "Preparing remote uploads - try again in a moment."
+            : "Remote uploads are not available. Please try again later.",
         );
         return;
       }
-      const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => {
-        if (!accept) return true;
-        return accept
-          .split(",")
-          .map((s) => s.trim())
-          .some((pattern) => {
-            if (pattern.endsWith("/*"))
-              return file.type.startsWith(pattern.slice(0, -1));
-            return file.type === pattern;
-          });
-      });
+      const droppedFiles = Array.from(e.dataTransfer.files).filter((file) =>
+        fileMatchesAccept(file, accept),
+      );
       if (droppedFiles.length === 0) return;
       setUploadError(null);
+      setUploadNotice(null);
       setUploading(true);
       (async () => {
         for (const file of droppedFiles) {
-          if (imageMode) {
-            const res = await readImageFromFile(file).catch(() => null);
+          setUploadingName(file.name);
+          if (videoMode) {
+            await uploadVideo(file);
+          } else if (imageMode) {
+            const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
             const metadata: ImageMetadata = {
               width: res.width,
@@ -594,6 +932,8 @@ export function ModuleGallery({
     },
     [
       imageMode,
+      videoMode,
+      uploadVideo,
       patchPath,
       addAndUploadPatchWithFileOps,
       requireRemote,
@@ -603,8 +943,36 @@ export function ModuleGallery({
       schema,
       computeRef,
       handleProgress,
+      encode,
+      // Derived from `remoteFiles`, which is NOT otherwise a dependency here.
+      // On loading -> inactive neither `remoteData` nor the bucket changes
+      // (both stay null), so without this the flag stays stale at `true` and a
+      // genuinely unavailable remote would keep saying "try again in a moment".
+      remoteSettingsPending,
     ],
   );
+
+  /** The upload in flight, as a tile where it will land. */
+  const uploads: MediaUpload[] = uploading
+    ? [
+        {
+          id: "upload",
+          name: uploadingName ?? "Uploading",
+          phase:
+            videoPhase?.kind === "reading"
+              ? "reading"
+              : videoPhase?.kind === "converting"
+                ? "converting"
+                : "uploading",
+          progress:
+            videoPhase?.kind === "converting"
+              ? videoPhase.progress
+              : videoPhase?.kind === "reading"
+                ? null
+                : progressPercentage,
+        },
+      ]
+    : [];
 
   const showChildRef = React.useMemo(() => {
     if (!showChild) return null;
@@ -633,11 +1001,22 @@ export function ModuleGallery({
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <ValidationErrors path={path} />
       {uploadError && (
         <div className="mb-2 rounded p-3 bg-bg-error-primary text-fg-error-primary text-sm">
           {uploadError}
         </div>
+      )}
+      {uploadNotice && (
+        <p role="status" className="mb-2 text-xs text-fg-secondary">
+          {uploadNotice}
+        </p>
+      )}
+      {videoPhase && (
+        <p role="status" className="mb-2 text-xs text-fg-secondary">
+          {videoPhase.kind === "reading"
+            ? "Reading the video…"
+            : `Converting to a stream… ${videoPhase.progress}%`}
+        </p>
       )}
       {progressPercentage === null ? (
         <div className="h-[2px] mb-2" />
@@ -652,20 +1031,93 @@ export function ModuleGallery({
         ref={inputRef}
         type="file"
         hidden
-        accept={accept}
+        accept={inputAccept(accept)}
         onChange={handleUpload}
       />
-      <FileGallery
-        files={files}
-        parentPath={moduleFilePath}
-        imageMode={imageMode}
-        onAltTextChange={imageMode ? handleAltTextChange : undefined}
-        onFileDelete={handleFileDelete}
-        onUploadClick={() => inputRef.current?.click()}
+      <MediaGallery
+        fillContainer
+        kind={kind}
+        items={items}
+        uploads={uploads}
         uploading={uploading}
-        defaultOpenFileRef={showChildRef ?? undefined}
+        selectedRef={showChildRef}
+        onSelect={(ref) => {
+          const target =
+            ref === null
+              ? (moduleFilePath as string as SourcePath)
+              : Internal.createValPathOfItem(
+                  moduleFilePath as string as SourcePath,
+                  ref,
+                );
+          if (target) {
+            navigation.navigate(target);
+          }
+        }}
+        onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
+        uploadDisabled={!canUpload}
         isDraggingOver={isDraggingOver}
+        readonly={readonly}
+        renderInspector={(item, close) => (
+          <GalleryEntryInspector
+            key={item.ref}
+            kind={kind}
+            item={item}
+            entry={rawSource?.[item.ref]}
+            entryPatchPath={[...patchPath, item.ref]}
+            moduleFilePath={moduleFilePath}
+            close={close}
+            readonly={readonly}
+            write={(patch) => addPatch(patch, "record")}
+            onDescriptionChange={
+              kind === "files" || readonly
+                ? undefined
+                : (text) => setDescription(item.ref, text)
+            }
+            onRename={
+              readonly ? undefined : (newBase) => renameEntry(item.ref, newBase)
+            }
+            onDelete={
+              readonly
+                ? undefined
+                : () => {
+                    deleteEntry(item.ref);
+                    close();
+                  }
+            }
+            patchesByAuthorIds={patchesByRef[item.ref] ?? {}}
+            profilesByAuthorIds={profilesByAuthorIds}
+            video={
+              videoMode
+                ? {
+                    dir: directory,
+                    remote: requireRemote ? remoteData : null,
+                    requireRemote: !!requireRemote,
+                    schema: videoSchema,
+                    upload: (patch) =>
+                      addAndUploadPatchWithFileOps(
+                        patch,
+                        "file",
+                        (msg) => setUploadError(msg),
+                        () => {},
+                      ),
+                  }
+                : null
+            }
+            urlOf={urlOf}
+          />
+        )}
       />
     </div>
+  );
+}
+
+/** Whether `path` is `prefix` or a path inside it, segment by segment. */
+function isPatchPathWithin(
+  path: readonly string[],
+  prefix: readonly string[],
+): boolean {
+  return (
+    path.length >= prefix.length &&
+    prefix.every((segment, i) => path[i] === segment)
   );
 }

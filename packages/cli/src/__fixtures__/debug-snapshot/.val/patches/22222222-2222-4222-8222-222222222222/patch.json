@@ -1,20 +1,15 @@
 {
   "patch": [
     {
-      "op": "replace",
-      "path": ["BBL", "summary", "services", "2"],
-      "value": "Development U"
+      "op": "remove",
+      "path": ["BBL", "summary", "services", "2"]
     }
   ],
-  "patchId": "33333333-3333-4333-8333-333333333333",
-  "parentRef": {
-    "type": "patch",
-    "patchId": "22222222-2222-4222-8222-222222222222"
-  },
+  "patchId": "22222222-2222-4222-8222-222222222222",
   "path": "/content/projects.val.ts",
-  "authorId": "author-a",
+  "authorId": "author-b",
   "sessionId": null,
   "baseSha": "0000000000000000000000000000000000000000000000000000000000000000",
   "coreVersion": null,
-  "createdAt": "2026-08-11T09:00:05.000Z"
+  "createdAt": "2026-08-11T09:00:00.000Z"
 }

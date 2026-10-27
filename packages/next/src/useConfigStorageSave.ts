@@ -1,5 +1,5 @@
 import { ValConfig } from "@valbuild/core";
-import { VAL_CONFIG_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import { VAL_CONFIG_SESSION_STORAGE_KEY } from "@valbuild/shared/client";
 import React from "react";
 
 /*

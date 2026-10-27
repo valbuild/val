@@ -40,16 +40,10 @@ describe("RichTextSchema", () => {
 
   test("validate: basic green test", () => {
     const schema = richtext({
-      style: {
-        bold: true,
-      },
-      block: {
-        h1: true,
-        ul: true,
-      },
-      inline: {
-        a: string(),
-      },
+      bold: true,
+      h1: true,
+      ul: true,
+      a: string(),
     });
     expectedErrorAtPaths(
       schema["executeValidate"](
@@ -63,16 +57,10 @@ describe("RichTextSchema", () => {
 
   test("validate: basic green max / min length test", () => {
     const schema = richtext({
-      style: {
-        bold: true,
-      },
-      block: {
-        h1: true,
-        ul: true,
-      },
-      inline: {
-        a: string(),
-      },
+      bold: true,
+      h1: true,
+      ul: true,
+      a: string(),
     })
       .minLength(1)
       .maxLength(100);
@@ -88,16 +76,10 @@ describe("RichTextSchema", () => {
 
   test("validate: basic red min length test", () => {
     const schema = richtext({
-      style: {
-        bold: true,
-      },
-      block: {
-        h1: true,
-        ul: true,
-      },
-      inline: {
-        a: string(),
-      },
+      bold: true,
+      h1: true,
+      ul: true,
+      a: string(),
     }).minLength(100);
     expectedErrorAtPaths(
       schema["executeValidate"](
@@ -111,16 +93,10 @@ describe("RichTextSchema", () => {
 
   test("validate: basic red max length test", () => {
     const schema = richtext({
-      style: {
-        bold: true,
-      },
-      block: {
-        h1: true,
-        ul: true,
-      },
-      inline: {
-        a: string(),
-      },
+      bold: true,
+      h1: true,
+      ul: true,
+      a: string(),
     }).maxLength(10);
     expectedErrorAtPaths(
       schema["executeValidate"](
@@ -264,9 +240,7 @@ describe("RichTextSchema", () => {
   // Anchor href validation tests
   test("validate: a: true with valid route href (green test)", () => {
     const schema = richtext({
-      inline: {
-        a: true,
-      },
+      a: true,
     });
     const input = [
       {
@@ -294,9 +268,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: route() with explicit route schema", () => {
     const schema = richtext({
-      inline: {
-        a: route(),
-      },
+      a: route(),
     });
     const input = [
       {
@@ -324,9 +296,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: string().maxLength(30) with valid short URL (green test)", () => {
     const schema = richtext({
-      inline: {
-        a: string().maxLength(30),
-      },
+      a: string().maxLength(30),
     });
     const input = [
       {
@@ -350,9 +320,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: string().maxLength(30) with URL exceeding max length (red test)", () => {
     const schema = richtext({
-      inline: {
-        a: string().maxLength(30),
-      },
+      a: string().maxLength(30),
     });
     const input = [
       {
@@ -378,9 +346,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: route().include(/^\\/blog/) with matching route (green test)", () => {
     const schema = richtext({
-      inline: {
-        a: route().include(/^\/blog/),
-      },
+      a: route().include(/^\/blog/),
     });
     const input = [
       {
@@ -410,9 +376,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: route().exclude(/^\\/admin/) with excluded route (red test)", () => {
     const schema = richtext({
-      inline: {
-        a: route().exclude(/^\/admin/),
-      },
+      a: route().exclude(/^\/admin/),
     });
     const input = [
       {
@@ -442,9 +406,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a tag without href attribute (red test)", () => {
     const schema = richtext({
-      inline: {
-        a: true,
-      },
+      a: true,
     });
     const input = [
       {
@@ -466,9 +428,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: string() allows external URLs", () => {
     const schema = richtext({
-      inline: {
-        a: string(),
-      },
+      a: string(),
     });
     const input = [
       {
@@ -492,9 +452,7 @@ describe("RichTextSchema", () => {
 
   test("validate: unsupported tag (red test)", () => {
     const schema = richtext({
-      block: {
-        h1: true,
-      },
+      h1: true,
     });
     const input = [
       { tag: "h1", children: ["Title"] },
@@ -512,9 +470,7 @@ describe("RichTextSchema", () => {
 
   test("validate: multiple unsupported tags (red test)", () => {
     const schema = richtext({
-      block: {
-        h1: true,
-      },
+      h1: true,
     });
     const input = [
       { tag: "h1", children: ["Title"] },
@@ -533,9 +489,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: string().regexp() validates URL patterns", () => {
     const schema = richtext({
-      inline: {
-        a: string().regexp(/^https?:\/\//),
-      },
+      a: string().regexp(/^https?:\/\//),
     });
     const inputValid = [
       {
@@ -572,9 +526,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: route() reports error at the correct index when anchor is not the first child", () => {
     const schema = richtext({
-      inline: {
-        a: route(),
-      },
+      a: route(),
     });
     const input = [
       {
@@ -600,9 +552,7 @@ describe("RichTextSchema", () => {
 
   test("validate: a: route() reports one error per invalid anchor sibling at distinct child indexes", () => {
     const schema = richtext({
-      inline: {
-        a: route(),
-      },
+      a: route(),
     });
     const input = [
       {
@@ -634,9 +584,7 @@ describe("RichTextSchema", () => {
 
   test("validate: maxLength counts nested string children exactly once", () => {
     const schema = richtext({
-      inline: {
-        a: string(),
-      },
+      a: string(),
     }).maxLength(7);
     // Total string length across the tree: "abc" (3) + "de" (2) + "fg" (2) = 7.
     // If the recursion change ever double- or under-counted, this hits the boundary.

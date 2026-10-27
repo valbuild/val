@@ -2,8 +2,9 @@ import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { useAddPatch } from "./ValFieldProvider";
-import { emptyOf } from "./fields/emptyOf";
+
 import { JSONValue } from "@valbuild/core/patch";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export function FieldSourceError({
   error,
@@ -19,6 +20,7 @@ export function FieldSourceError({
     | { status: "success"; data: SerializedSchema };
 }) {
   const { addPatch, patchPath } = useAddPatch(path);
+  const emptyOf = useEmptyOf();
   return (
     <div
       id={path}
@@ -28,7 +30,11 @@ export function FieldSourceError({
       <div className="flex gap-2 items-center">
         {schema &&
           schema.status === "success" &&
-          !(schema.data.type === "file" || schema.data.type === "image") && (
+          !(
+            schema.data.type === "file" ||
+            schema.data.type === "image" ||
+            schema.data.type === "video"
+          ) && (
             <Button
               variant="outline"
               className="hover:bg-bg-error-secondary-hover"

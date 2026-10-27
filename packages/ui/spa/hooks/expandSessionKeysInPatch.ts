@@ -1,5 +1,4 @@
 import {
-  FILE_REF_SUBTYPE_TAG,
   VAL_EXTENSION,
   type ImageMetadata,
   type PatchId,
@@ -7,13 +6,13 @@ import {
   type Source,
 } from "@valbuild/core";
 import { ParentRef, Patch } from "@valbuild/shared/internal";
-import type { ToolName } from "../utils/toolNames";
+import type { ToolName } from "@valbuild/shared/internal";
 import {
   buildFileRefValue,
   getInlineImgInfo,
   isRemoteSchema,
   resolveSerializedSchemaAtPath,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
 
 /**
  * Sentinel value an LLM can place in a `create_patch` payload anywhere it
@@ -22,13 +21,19 @@ import {
  * the patch to reference the resulting on-disk file.
  *
  * `_type: "ai_session_file"` is what makes this unambiguous against an actual
- * FileSource/ImageSource (which use `_type: "file"`).
+ * media source, which carries no `_type` at all.
  */
+/**
+ * The subtype key of a {@link SessionKey}. Its own constant, not Val's: media
+ * sources have no `_tag`, and this marker outlived the one they used to share.
+ */
+const SESSION_SUBTYPE_TAG = "_tag" as const;
+
 export type SessionKey = {
   readonly key: string;
   readonly filePath: string;
   readonly [VAL_EXTENSION]: "ai_session_file";
-  readonly [FILE_REF_SUBTYPE_TAG]: "image" | "file";
+  readonly [SESSION_SUBTYPE_TAG]: "image" | "file";
   readonly alt?: string;
   readonly hotspot?: { readonly x: number; readonly y: number };
 };
@@ -37,7 +42,7 @@ export function isSessionKey(v: unknown): v is SessionKey {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
   if (o[VAL_EXTENSION] !== "ai_session_file") return false;
-  if (o[FILE_REF_SUBTYPE_TAG] !== "image" && o[FILE_REF_SUBTYPE_TAG] !== "file")
+  if (o[SESSION_SUBTYPE_TAG] !== "image" && o[SESSION_SUBTYPE_TAG] !== "file")
     return false;
   if (typeof o.key !== "string") return false;
   if (typeof o.filePath !== "string") return false;
@@ -200,7 +205,7 @@ function mergeMetadata(
   const merged: ImageMetadata = serverMetadata
     ? { ...serverMetadata }
     : ({} as ImageMetadata);
-  if (sessionKey[FILE_REF_SUBTYPE_TAG] === "image") {
+  if (sessionKey[SESSION_SUBTYPE_TAG] === "image") {
     if (sessionKey.alt !== undefined) merged.alt = sessionKey.alt;
     if (sessionKey.hotspot !== undefined) merged.hotspot = sessionKey.hotspot;
   }
@@ -266,7 +271,7 @@ export function planSessionKeyExpansion(args: {
         return {
           kind: "wrong-tool",
           suggestedTool: "add_session_image_to_gallery",
-          reason: `Patch op #${opIndex} targets an images gallery (s.images()) with a SessionKey. Galleries use file paths as keys; use add_session_image_to_gallery instead.`,
+          reason: `Patch op #${opIndex} targets an images gallery (s.imagedir()) with a SessionKey. Galleries use file paths as keys; use add_session_image_to_gallery instead.`,
         };
       }
       continue;
@@ -279,10 +284,10 @@ export function planSessionKeyExpansion(args: {
       if (leafSchema.type === "image" || leafSchema.type === "file") {
         if (valueIsSessionKey) {
           const sk = op.value as SessionKey;
-          if (sk[FILE_REF_SUBTYPE_TAG] !== leafSchema.type) {
+          if (sk[SESSION_SUBTYPE_TAG] !== leafSchema.type) {
             return {
               kind: "error",
-              message: `Patch op #${opIndex}: SessionKey _tag is '${sk[FILE_REF_SUBTYPE_TAG]}' but the schema is '${leafSchema.type}'.`,
+              message: `Patch op #${opIndex}: SessionKey _tag is '${sk[SESSION_SUBTYPE_TAG]}' but the schema is '${leafSchema.type}'.`,
             };
           }
           sites.push({
@@ -346,7 +351,7 @@ export function planSessionKeyExpansion(args: {
     if (foundSiteCount > 0 && inlineImg.kind === "not-allowed") {
       return {
         kind: "error",
-        message: `Patch op #${opIndex} inserts an inline image into a richtext that does not allow inline images (options.inline.img is not enabled).`,
+        message: `Patch op #${opIndex} inserts an inline image into a richtext that does not allow inline images (options.img is not enabled).`,
       };
     }
   }
@@ -370,12 +375,9 @@ export function planSessionKeyExpansion(args: {
     for (let siteId = 0; siteId < sites.length; siteId++) {
       const site = sites[siteId];
       const metadata = mergeMetadata(metadataBySiteId[siteId], site.sessionKey);
-      const subtype: "image" | "file" =
-        site.kind === "leaf" ? site.subtype : "image";
       const refValue = buildFileRefValue(
         site.sessionKey.filePath,
         metadata as unknown as Record<string, unknown>,
-        subtype,
       );
 
       if (site.kind === "leaf") {

@@ -1,0 +1,1243 @@
+import {
+  ArrowUpCircle,
+  AlertTriangle,
+  Bell,
+  ChevronDown,
+  Columns2,
+  Eye,
+  GitCompare,
+  History,
+  Link2,
+  LucideIcon,
+  Menu,
+  PanelRight,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  UserRound,
+  X,
+} from "lucide-react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "../designSystem/cn";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../designSystem/tooltip";
+import { DEMO_NEW_TAB_OFF, useValDemo } from "../../demo/ValDemoContext";
+import { Avatar } from "../Avatar";
+import { AccountErrorDot } from "./AccountError";
+import { StudioMark } from "./ValLogo";
+import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
+import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
+import { LocaleFilter } from "./LocaleFilter";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
+import {
+  ProposalLocationChip,
+  ProposalSwitcher,
+} from "../proposals/ProposalSwitcher";
+import {
+  ProposalActionButton,
+  ProposalProgress,
+} from "../proposals/ProposalBar";
+import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import { Spinner } from "../designSystem/spinner";
+
+/**
+ * Proposals, when this project has them: the switcher, and in a proposal the
+ * controls that take Publish's place. See `docs/proposals.md`, Flow B.
+ */
+export type TopBarProposals = {
+  location: StudioLocation;
+  /**
+   * Still finding out where this Studio is (before `/stat` answers, at an
+   * address it has not been at before), or which proposal it is in (before
+   * the proposal's own read). The switcher says it is loading, and on the
+   * site Publish waits: at a proposal's address the site's Publish would be
+   * taken back a moment later.
+   */
+  loading?: boolean;
+  /** On the way to another address: "Opening “Spring campaign”…". */
+  leaving?: string | null;
+  /** Open proposals, for the switcher. */
+  open: ProposalSummary[];
+  onOpenSite: () => void;
+  onOpenProposal: (name: string) => void;
+  onNewProposal: () => void;
+  onShowAllProposals: () => void;
+  onSave: () => void;
+  /**
+   * Validation errors that would make the save fail: Save becomes "Fix N" and
+   * goes to them, as the site's Publish does. A save is refused with them --
+   * the proposal's address would serve content its schema says is invalid.
+   */
+  saveBlockedBy?: { errors: number; onShow: () => void };
+  /** Build the proposal's staged files, so its address shows them. */
+  onBuild?: () => void;
+  /** Publish the proposal: merge it into the site. */
+  onPublish: () => void;
+  /**
+   * The proposal against the site. Absent until the Studio can show that
+   * (it arrives with merging, which is what it previews).
+   */
+  onCompare?: () => void;
+  onRename: () => void;
+  onCopyLink: () => void;
+  onClose: () => void;
+  /** For stories. */
+  defaultSwitcherOpen?: boolean;
+  /** The Save/Publish button's caret menu, the proposal's acts with it. */
+  defaultMenuOpen?: boolean;
+};
+
+export type TopBarProps = {
+  breakpoint: ShellBreakpoint;
+  projectName: string;
+  /**
+   * The project's page in Val Build. Absent leaves the name as a label — see
+   * `ProjectName`.
+   */
+  projectHref?: string;
+  /**
+   * Where Val Build's web components are served from. With it (and a
+   * `projectHref`) the name becomes a button that opens Val Build's project
+   * switcher — see `ProjectSwitcher`.
+   */
+  webComponentsUrl?: string;
+  /** See `ShellData.studioMode`. */
+  studioMode?: "fs" | "http";
+  openPanel: ShellPanel | null;
+  onTogglePanel: (panel: ShellPanel) => void;
+  /** Opens the navigation: the rail's panels, reached from a menu button. */
+  onOpenMenu: () => void;
+  /**
+   * `undefined` means Val has no notification feed to show, and the bell is
+   * hidden; a number — including 0 — means show it.
+   */
+  unreadNotifications?: number;
+  /**
+   * Whether to offer the history page.
+   *
+   * False in FS mode: local dev has git, not a commit archive, so there is no
+   * published history to list and the endpoint answers
+   * `not-supported-in-fs-mode`. Better to not offer the button than to open a
+   * page whose only content is an apology.
+   */
+  historyEnabled?: boolean;
+  /** Whether the history page is the one being shown. */
+  historyActive?: boolean;
+  /** Go to the history page. A navigation, not a panel toggle. */
+  onOpenHistory?: () => void;
+  /**
+   * Go to the Validate page. Shown in every mode: every mode has something to
+   * validate. Absent in stories and embeds that do not route.
+   */
+  onOpenValidate?: () => void;
+  /**
+   * The Updates notice (valbuild/home `docs/plans/upgrades-v2.md`, piece E):
+   * there only while there is something to upgrade, marked when that fixes a
+   * vulnerability, and opening the project's Updates in Val Build, where
+   * upgrades are made. On a phone it is a row in the account sheet.
+   */
+  upgrade?: UpgradeButton;
+  /** Whether the Validate page is the one being shown. */
+  validateActive?: boolean;
+  /**
+   * Errors the Validate page would show: the Studio's own, plus what "Check
+   * everything" found this session. Zero shows no badge.
+   */
+  validateCount?: number;
+  /** Absent until a profile loads, and in modes that have none. */
+  user?: { name: string; avatarUrl?: string };
+  onOpenSearch: () => void;
+  /**
+   * The project's languages, for the locale filter. Empty hides it entirely.
+   */
+  locales?: string[];
+  /** The language being shown, or `null` for all of them. */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
+  onPreview: () => void;
+  /**
+   * Opens the canvas beside the editor.
+   *
+   * `undefined` means the current selection has no route Val can put on a
+   * canvas, and the button is not shown — an inert one would be worse.
+   */
+  onToggleCanvas?: () => void;
+  isCanvasOpen?: boolean;
+  onPublish: () => void;
+  /**
+   * The real publish control, when there is one.
+   *
+   * Publishing is not a button press: it needs a commit summary, it is
+   * disabled by validation errors and conflicting patches, and in `fs` mode it
+   * says "Save" instead. That behaviour already exists, so the app passes the
+   * control itself rather than the shell growing a second copy of the rules.
+   */
+  publishSlot?: ReactNode;
+  /** Number of changes Publish would ship. 0 disables the button. */
+  pendingChanges: number;
+  /**
+   * Opens the review view. Absent in layouts that have none.
+   *
+   * Review is the first of the three actions — Review, Preview, Publish — read
+   * left to right in the order someone shipping a change does them: see what
+   * changed, look at it on the page, send it. It used to sit between Preview
+   * and Publish, which put the step you do FIRST in the middle; before that it
+   * lived only in the Quick actions panel, two clicks away behind an icon that
+   * does not say "review".
+   */
+  onCompare?: () => void;
+  /**
+   * The number on Review's badge. 0 shows the button with no badge.
+   *
+   * The same count the Quick actions panel puts on "Review N changes" — one
+   * number, so the two cannot disagree — but zeroed when every pending patch
+   * has been reverted. There is still something to review THERE (Discard lives
+   * in that view, and Publish is off until it is used), so the button stays;
+   * what it must not do is advertise changes that will not ship.
+   */
+  reviewCount?: number;
+  publishState?: PublishState;
+  /**
+   * Set when the account could not be loaded, and the studio has stopped trying.
+   *
+   * This is the case where `user` is absent, so it also has to *put* a control
+   * here: with nothing to show, the top bar dropped the account button
+   * altogether and there was no way left to reach the panel that explains it.
+   */
+  accountError?: { message: string };
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`. Absent leaves
+   * Val's. Shown only below the desktop breakpoint, where the rail is not.
+   */
+  logo?: ShellLogo;
+  /** Blinks the mark, as a terminal caret does while it waits. */
+  isLoading?: boolean;
+  /**
+   * The preview URL, so "Open in a new tab" is a link. See `PreviewButton`.
+   */
+  previewHref?: string;
+  /**
+   * Whether this project has an assistant. See `ShellProps.aiEnabled`.
+   *
+   * Absent hides the button rather than disabling it: it is the only thing in
+   * the bar that opens a panel with nothing behind it. On mobile the button is
+   * not here at all — the bottom bar carries it.
+   */
+  aiEnabled?: boolean;
+  /** Absent for a project without proposals: nothing here changes. */
+  proposals?: TopBarProposals;
+  /**
+   * The plan's status, in the middle of the bar beside where you are: a
+   * Hosted trial's days and publishes, a Free project's changes left. Only
+   * on a desktop; the shell puts it above the editor below that.
+   */
+  planStatus?: ReactNode;
+};
+
+/** `blocked` means validation errors are stopping the publish. */
+export type PublishState = "idle" | "publishing" | "error" | "blocked";
+
+/**
+ * The floating top bar.
+ *
+ * Review, Preview and Publish stay visible at every breakpoint above mobile —
+ * in that order, which is the order they are done in; on mobile Preview,
+ * Publish and the assistant move to the sticky bottom bar, Review moves to the
+ * Quick actions panel, and the top bar keeps only navigation, history,
+ * notifications and account.
+ */
+export function TopBar({
+  breakpoint,
+  projectName,
+  projectHref,
+  webComponentsUrl,
+  studioMode,
+  openPanel,
+  onTogglePanel,
+  onOpenMenu,
+  unreadNotifications,
+  historyEnabled = false,
+  historyActive = false,
+  onOpenHistory,
+  onOpenValidate,
+  upgrade,
+  validateActive = false,
+  validateCount = 0,
+  user,
+  onOpenSearch,
+  locales,
+  locale = null,
+  onLocaleChange,
+  onPreview,
+  onToggleCanvas,
+  isCanvasOpen,
+  onPublish,
+  publishSlot,
+  pendingChanges,
+  onCompare,
+  reviewCount,
+  publishState = "idle",
+  accountError,
+  logo,
+  isLoading,
+  aiEnabled = false,
+  previewHref,
+  proposals,
+  planStatus,
+}: TopBarProps) {
+  const proposalLocation =
+    proposals?.location.kind === "proposal" ? proposals.location : null;
+  /*
+   * Above a phone, where you are is the middle of the bar: the switcher --
+   * which in a proposal also holds what is done with the proposal itself, as
+   * the phone's sheet does -- and what its address is doing after a save.
+   * Save, Build and Publish are one split button where Publish is on the site
+   * (`ProposalActionButton`). On a phone where you are is a chip of a fixed
+   * width (see `ProposalLocationChip`), and everything about the proposal is
+   * in the sheet behind it.
+   */
+  const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
+    ? "phone"
+    : "centered";
+  const switcher = proposals !== undefined && (
+    <ProposalSwitcher
+      location={proposals.location}
+      proposals={proposals.open}
+      onOpenSite={proposals.onOpenSite}
+      onOpenProposal={proposals.onOpenProposal}
+      onNewProposal={proposals.onNewProposal}
+      onShowAllProposals={proposals.onShowAllProposals}
+      onRename={proposals.onRename}
+      onCompare={proposals.onCompare}
+      onCopyLink={proposals.onCopyLink}
+      onClose={proposals.onClose}
+      loading={proposals.loading}
+      leaving={proposals.leaving ?? null}
+      defaultOpen={proposals.defaultSwitcherOpen}
+    />
+  );
+  const inProposal =
+    proposals !== undefined && proposalLocation !== null
+      ? {
+          progress: <ProposalProgress location={proposalLocation} />,
+          action: (
+            <ProposalActionButton
+              location={proposalLocation}
+              onSave={proposals.onSave}
+              onBuild={proposals.onBuild}
+              onPublish={proposals.onPublish}
+              saveBlockedBy={proposals.saveBlockedBy}
+              defaultMenuOpen={proposals.defaultMenuOpen}
+            />
+          ),
+        }
+      : null;
+  const isMobile = breakpoint === "mobile";
+  const isDesktop = breakpoint === "desktop";
+  const org = orgOfProject(projectName);
+  const members =
+    org !== null &&
+    projectHref !== undefined &&
+    webComponentsUrl !== undefined ? (
+      <ProjectMembersButton
+        projectName={projectName}
+        projectHref={projectHref}
+        webComponentsUrl={webComponentsUrl}
+        studioMode={studioMode}
+        breakpoint={breakpoint}
+      />
+    ) : null;
+  return (
+    <header
+      className={cn(
+        "absolute z-full top-3 h-11 flex items-center gap-1.5 px-2 rounded-lg",
+        /*
+         * While one of the bar's own menus is open, the bar goes above the
+         * panels. They are `z-full` too and come later in the shell, so a
+         * menu dropping out of the bar was drawn underneath an open panel.
+         */
+        "has-[[role=menu]]:z-overlay",
+        "bg-bg-float border shadow-sm",
+        /*
+         * In a proposal the bar wears the proposal colour: where you are must
+         * never be in doubt, and a screenshot should say where it was taken.
+         *
+         * The tint is LAYERED over `bg-bg-float` as an image, never swapped
+         * in for it: `--bg-proposal-soft` is translucent in dark mode, so as
+         * the background colour it let the editor show through the bar.
+         */
+        proposalLocation !== null
+          ? "border-border-proposal ring-1 ring-border-proposal bg-[linear-gradient(var(--bg-proposal-soft),var(--bg-proposal-soft))]"
+          : "border-border-float",
+        // Leaves room for the rail on desktop; full-bleed below that.
+        isDesktop ? "left-[4.75rem] right-3" : "left-3 right-3",
+      )}
+    >
+      {!isDesktop && (
+        <button
+          type="button"
+          aria-label="Open navigation"
+          onClick={onOpenMenu}
+          // Where Pages, Media, Data and Settings are below the desktop: a
+          // tour step about one of them points here when the rail is not
+          // drawn. See `measureTarget`.
+          data-val-tour="pages media data settings"
+          className="grid place-items-center w-8 h-8 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary shrink-0"
+        >
+          <Menu size={17} />
+        </button>
+      )}
+      {!isDesktop && (
+        <div className="grid place-items-center w-7 h-7 shrink-0 text-fg-primary">
+          <StudioMark logo={logo} className="h-5" blinking={isLoading} />
+        </div>
+      )}
+      {/*
+       * Not on a phone, where there is room for no name at all: the project's
+       * is at the top of the navigation sheet, behind the menu button, and the
+       * proposal's is in the sheet behind the location chip.
+       */}
+      {layout !== "phone" && (
+        <>
+          {projectHref !== undefined && webComponentsUrl !== undefined ? (
+            <ProjectSwitcher
+              projectName={projectName}
+              projectHref={projectHref}
+              webComponentsUrl={webComponentsUrl}
+              studioMode={studioMode}
+              breakpoint={breakpoint}
+            />
+          ) : (
+            <ProjectName projectName={projectName} projectHref={projectHref} />
+          )}
+        </>
+      )}
+      {layout === "phone" && proposals !== undefined && (
+        <ProposalLocationChip
+          location={proposals.location}
+          open={openPanel === "proposals"}
+          onClick={() => onTogglePanel("proposals")}
+          busy={
+            proposals.loading === true || (proposals.leaving ?? null) !== null
+          }
+        />
+      )}
+      {/* On a phone Search sits on the right, beside the account. */}
+      {layout === "phone" && <div className="flex-1" />}
+      <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
+      {/* Where you are, in the middle of the bar. */}
+      {layout === "centered" && (
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          {planStatus}
+          {switcher}
+          {inProposal?.progress}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {/*
+         * Who else is here, and a way to bring more people in. Above mobile it
+         * leads the cluster, to the left of the locale: it is about the
+         * project, not about the change being made. On a phone it is the one
+         * project-level control that stays in the top bar, further right.
+         */}
+        {!isMobile && members}
+        {/*
+         * Before the divider: everything after it is something you DO, and
+         * this is what you are looking at while you do it. On a phone it moves
+         * to the bottom bar, where the actions are.
+         */}
+        {!isMobile && locales !== undefined && onLocaleChange !== undefined && (
+          <LocaleFilter
+            locales={locales}
+            value={locale}
+            onChange={onLocaleChange}
+          />
+        )}
+        {!isMobile && (
+          <>
+            <ReviewButton
+              onCompare={onCompare}
+              pendingChanges={pendingChanges}
+              reviewCount={reviewCount}
+            />
+            {/*
+             * Wrappers, only so the tour has something to point at.
+             *
+             * `PreviewButton` is a split control and the publish control is
+             * supplied by the app (`publishSlot`), so neither is a single
+             * element this file can put an attribute on. `inline-flex` rather
+             * than `contents`: a box with no layout of its own measures zero,
+             * and a spotlight on a zero-sized box is a dot.
+             */}
+            <span data-val-tour="preview" className="inline-flex">
+              <PreviewButton
+                onPreview={onPreview}
+                previewHref={previewHref}
+                onToggleCanvas={onToggleCanvas}
+                isCanvasOpen={isCanvasOpen}
+              />
+            </span>
+            <span data-val-tour="publish" className="inline-flex">
+              {inProposal !== null ? (
+                // In a proposal, Save -- then Publish -- is where Publish is
+                // on the site.
+                inProposal.action
+              ) : proposals?.loading ? (
+                <PublishPlaceholder />
+              ) : (
+                (publishSlot ?? (
+                  <PublishButton
+                    pendingChanges={pendingChanges}
+                    onPublish={onPublish}
+                    publishState={publishState}
+                  />
+                ))
+              )}
+            </span>
+            <BarDivider />
+          </>
+        )}
+        {/*
+         * Validate, History and the bell are one button on a phone - the
+         * bottom bar's bell, with the activity sheet behind it.
+         */}
+        {/*
+         * Labelled on a desktop: an icon alone said "something about
+         * upgrades" and kept what in its tooltip. Below that, an icon.
+         */}
+        {upgrade !== undefined && isDesktop && (
+          <button
+            type="button"
+            aria-label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium hover:bg-bg-float-raised",
+              upgrade.vulnerable
+                ? "text-fg-error-on-surface"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={15} className="shrink-0" />
+            ) : (
+              <ArrowUpCircle size={15} className="shrink-0" />
+            )}
+            {upgrade.label}
+          </button>
+        )}
+        {upgrade !== undefined && !isMobile && !isDesktop && (
+          <IconButton
+            label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={16} className="text-fg-error-on-surface" />
+            ) : (
+              <ArrowUpCircle size={16} />
+            )}
+            {upgrade.vulnerable && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-bg-error-primary"
+              />
+            )}
+          </IconButton>
+        )}
+        {onOpenValidate && !isMobile && (
+          <IconButton
+            label={
+              validateCount > 0
+                ? `Validate (${validateCount} ${validateCount === 1 ? "error" : "errors"})`
+                : "Validate"
+            }
+            active={validateActive}
+            onClick={onOpenValidate}
+          >
+            <ShieldCheck size={16} />
+            {validateCount > 0 && (
+              <span
+                aria-hidden
+                className="absolute -right-1 -top-1 min-w-4 rounded-full bg-bg-warning-primary px-1 text-[10px] font-medium leading-4 text-fg-warning-primary"
+              >
+                {validateCount > 99 ? "99+" : validateCount}
+              </span>
+            )}
+          </IconButton>
+        )}
+        {historyEnabled && !isMobile && (
+          <IconButton
+            label="History"
+            active={historyActive}
+            onClick={onOpenHistory ?? (() => undefined)}
+          >
+            <History size={16} />
+          </IconButton>
+        )}
+        {/*
+         * Above mobile only: on a phone the assistant is in the bottom bar,
+         * where the thumb is - see `MobileBottomBar`. Two Sparkles buttons on
+         * one screen would be two places to look for the same panel, and the
+         * top right corner of a phone is the furthest point from a thumb.
+         */}
+        {aiEnabled && !isMobile && (
+          <IconButton
+            label="AI assistant"
+            active={openPanel === "ai"}
+            onClick={() => onTogglePanel("ai")}
+            tourTarget="ai"
+          >
+            <Sparkles size={16} />
+          </IconButton>
+        )}
+        {!isMobile && (
+          <IconButton
+            label="Quick actions"
+            active={openPanel === "utility"}
+            onClick={() => onTogglePanel("utility")}
+            tourTarget="utility"
+          >
+            <PanelRight size={16} />
+          </IconButton>
+        )}
+        {unreadNotifications !== undefined && !isMobile && (
+          <IconButton
+            label={
+              unreadNotifications > 0
+                ? `Notifications (${unreadNotifications} unread)`
+                : "Notifications"
+            }
+            active={openPanel === "notifications"}
+            onClick={() => onTogglePanel("notifications")}
+          >
+            <Bell size={16} />
+            {unreadNotifications > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums">
+                {unreadNotifications > 9 ? "9+" : unreadNotifications}
+              </span>
+            )}
+          </IconButton>
+        )}
+        {/*
+         * Always there on a phone, even with nobody signed in: the theme, auto
+         * save and the deploy feed are behind it, and nothing else on a phone
+         * leads to them.
+         */}
+        {(user || accountError || isMobile) && (
+          <>
+            {/* On a phone there is nothing before it to divide it from. */}
+            {!isMobile && <BarDivider />}
+            <button
+              type="button"
+              aria-label={
+                accountError
+                  ? `Account: ${accountError.message}`
+                  : user
+                    ? `Account: ${user.name}`
+                    : "Account and settings"
+              }
+              title={accountError?.message}
+              onClick={() => onTogglePanel("account")}
+              className="relative shrink-0 rounded-full"
+            >
+              {user ? (
+                <Avatar name={user.name} imageUrl={user.avatarUrl} size="sm" />
+              ) : (
+                <span className="grid h-6 w-6 place-items-center rounded-full text-fg-secondary">
+                  <UserRound size={15} />
+                </span>
+              )}
+              {accountError && <AccountErrorDot />}
+            </button>
+          </>
+        )}
+      </div>
+    </header>
+  );
+}
+
+/**
+ * Preview, with the canvas as its other half.
+ *
+ * One control, because they are one intention — "show me the page" — that
+ * differs only in where it opens. Two buttons side by side made that a choice
+ * about chrome rather than about the page, and the canvas is the one people
+ * want most of the time, so it is the default action and the tab stays for the
+ * times it is not.
+ *
+ * Shaped like a split button: the main half acts, the caret offers the other
+ * way. The canvas half disappears when there is nothing to put on one, and the
+ * control quietly becomes an ordinary Preview button rather than offering a
+ * dead option.
+ */
+export function PreviewButton({
+  onPreview,
+  previewHref,
+  onToggleCanvas,
+  isCanvasOpen,
+  canvasActionLabel,
+  onExitCanvas,
+  className,
+  menuPlacement = "below",
+  alwaysShowLabel,
+}: {
+  onPreview: () => void;
+  /**
+   * The preview URL, when the shell can name one.
+   *
+   * Turns "Open in a new tab" into a real link — see `PreviewMenuItem`. Absent
+   * falls back to `onPreview`, which is what the stories use.
+   */
+  previewHref?: string;
+  onToggleCanvas?: () => void;
+  isCanvasOpen?: boolean;
+  /**
+   * What the canvas half does next, for the label and for assistive tech.
+   *
+   * Absent means it opens and closes the canvas, which is what it does beside
+   * the editor. On a phone it does not: there the canvas is a pane and this
+   * button moves between it and the editor, so what it will do next depends on
+   * which one you are looking at, and only the caller knows that.
+   */
+  canvasActionLabel?: string;
+  /**
+   * Leaving the canvas, where that is not what the main half does.
+   *
+   * Given one, the menu offers it; without one the menu offers the main half's
+   * own toggle, which is the desktop control unchanged. There is always a way
+   * out in the menu either way — the phone's other one is the X on the
+   * workspace strip.
+   */
+  onExitCanvas?: () => void;
+  /** For the mobile bar, where this shares a row with Publish. */
+  className?: string;
+  /**
+   * Which way the menu opens.
+   *
+   * `above` for the mobile bottom bar: a menu that drops down from a control at
+   * the bottom of the screen opens off the screen.
+   */
+  menuPlacement?: "below" | "above";
+  /**
+   * Keep the word "Preview" at every width.
+   *
+   * The top bar hides it below `md` because it is competing with the project
+   * name, the search box and four icons. The mobile bottom bar has room, and a
+   * bare icon there is the least discoverable control in the app.
+   */
+  alwaysShowLabel?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => setIsOpen(false), []);
+  useDismissOnOutsidePointer(containerRef, isOpen, close);
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen]);
+
+  const labelClassName = alwaysShowLabel ? undefined : "hidden md:inline";
+  // Opening a new tab is the one way to preview a demo cannot offer.
+  const newTabOff = useValDemo() !== null ? DEMO_NEW_TAB_OFF : undefined;
+
+  // Without a canvas there is nothing to choose between, so there is no menu.
+  if (!onToggleCanvas && newTabOff !== undefined) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-disabled
+            aria-description={newTabOff}
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float opacity-50 cursor-not-allowed",
+              className,
+            )}
+          >
+            <Eye size={14} />
+            <span className={labelClassName}>Preview</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64 text-xs">
+          {newTabOff}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (!onToggleCanvas) {
+    return (
+      <button
+        type="button"
+        onClick={onPreview}
+        className={cn(
+          "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary",
+          className,
+        )}
+      >
+        <Eye size={14} />
+        <span className={labelClassName}>Preview</span>
+      </button>
+    );
+  }
+
+  return (
+    // The height is on the wrapper so a caller can change it — `tailwind-merge`
+    // lets `h-9` from the mobile bar replace the default rather than fight it.
+    <div ref={containerRef} className={cn("relative h-8", className)}>
+      <div
+        className={cn(
+          "inline-flex h-full w-full items-stretch overflow-hidden rounded-md border",
+          isCanvasOpen
+            ? "border-border-float bg-bg-float-raised text-fg-primary"
+            : "border-border-float text-fg-secondary",
+        )}
+      >
+        <button
+          type="button"
+          aria-label={
+            canvasActionLabel ??
+            (isCanvasOpen ? "Close the canvas" : "Open the canvas")
+          }
+          /*
+           * Pressed only where this really is a toggle.
+           *
+           * Beside the editor it is one: the canvas is a region that is either
+           * there or not, and `isCanvasOpen` says which. On a phone it is not —
+           * the canvas stays open while you look at the editor pane, and the
+           * button navigates between the two — so `aria-pressed` there would
+           * announce "Preview, pressed" at someone who is looking at the
+           * editor. A caller that supplies its own action label is saying it
+           * has taken over what the button MEANS, which is exactly the case
+           * where the pressed state stops being true.
+           */
+          aria-pressed={
+            canvasActionLabel === undefined ? isCanvasOpen : undefined
+          }
+          onClick={onToggleCanvas}
+          className="inline-flex flex-1 items-center justify-center gap-1.5 px-2.5 text-xs font-medium hover:bg-bg-float-raised hover:text-fg-primary"
+        >
+          <Columns2 size={14} />
+          <span className={labelClassName}>Preview</span>
+        </button>
+        <span aria-hidden className="w-px self-stretch bg-border-float" />
+        <button
+          type="button"
+          aria-label="Other ways to preview"
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen((open) => !open)}
+          className="grid w-6 place-items-center hover:bg-bg-float-raised hover:text-fg-primary"
+        >
+          <ChevronDown size={13} />
+        </button>
+      </div>
+      {isOpen && (
+        <div
+          role="menu"
+          className={cn(
+            "absolute right-0 z-full w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg",
+            menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
+          )}
+        >
+          {onExitCanvas ? (
+            <PreviewMenuItem
+              icon={X}
+              label="Exit Preview"
+              detail="Back to the editor, and stop the page"
+              onClick={() => {
+                setIsOpen(false);
+                onExitCanvas();
+              }}
+            />
+          ) : (
+            <PreviewMenuItem
+              icon={Columns2}
+              label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
+              detail="Beside the editor, in the studio"
+              onClick={() => {
+                setIsOpen(false);
+                onToggleCanvas();
+              }}
+            />
+          )}
+          <PreviewMenuItem
+            icon={Link2}
+            label="Open in a new tab"
+            detail="The page with your unpublished changes"
+            /*
+             * An `href` where there is one, so this behaves like a link: middle
+             * click, modifier click, and "Copy link address" — which is the
+             * point, because the link turns preview ON for whoever opens it and
+             * is therefore worth sending to someone.
+             */
+            href={previewHref}
+            disabledReason={newTabOff}
+            onClick={() => {
+              setIsOpen(false);
+              if (previewHref === undefined) onPreview();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewMenuItem({
+  icon: Icon,
+  label,
+  detail,
+  onClick,
+  href,
+  disabledReason,
+}: {
+  icon: LucideIcon;
+  label: string;
+  detail: string;
+  onClick: () => void;
+  /** Renders the item as a link. See "Open in a new tab" above. */
+  href?: string;
+  /**
+   * Shown, but not offered: the item stays where it is and says why in a
+   * tooltip, rather than disappearing from a menu someone has seen before.
+   */
+  disabledReason?: string;
+}) {
+  const shared =
+    "flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
+  const inner = (
+    <>
+      <Icon size={14} className="mt-0.5 shrink-0" />
+      <span className="min-w-0">
+        <span className="block text-xs">{label}</span>
+        <span className="block text-[0.6875rem] text-fg-secondary-alt">
+          {detail}
+        </span>
+      </span>
+    </>
+  );
+  if (disabledReason !== undefined) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            role="menuitem"
+            aria-disabled
+            aria-description={disabledReason}
+            className={cn(shared, "opacity-50 cursor-not-allowed")}
+          >
+            {inner}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-w-64 text-xs">
+          {disabledReason}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (href !== undefined) {
+    return (
+      <a
+        role="menuitem"
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onClick}
+        className={shared}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <button type="button" role="menuitem" onClick={onClick} className={shared}>
+      {inner}
+    </button>
+  );
+}
+
+/**
+ * Where Publish goes, while it is not known yet whether this is the site or a
+ * proposal: the same size, so nothing moves when the real one arrives.
+ */
+export function PublishPlaceholder({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block h-8 w-[5.5rem] animate-pulse rounded-md bg-bg-float-raised",
+        className,
+      )}
+    />
+  );
+}
+
+/** Groups the bar's controls: actions, then surfaces, then the account. */
+function BarDivider() {
+  return <span aria-hidden className="w-px h-5 mx-0.5 bg-border-float" />;
+}
+
+/**
+ * Review, first of the three actions and to the left of Preview.
+ *
+ * Offered whether or not anything is pending. It used to be `invisible` with
+ * nothing queued — present in the layout so the bar would not reflow, but
+ * unreachable and hidden from assistive tech. That made "is anything of mine
+ * still unpublished?" unanswerable from the bar: an absent button and a button
+ * whose data has not loaded look identical, so the only way to find out was to
+ * publish and see what happened. The phone's Quick actions row already answers
+ * it — see `reviewChangesLabel` — and this is the same rule above that
+ * breakpoint. What it opens says the same thing in a sentence; see
+ * `NothingToReview`.
+ *
+ * Never `null`, which is what it was before it was `invisible`, and the reason
+ * survives both: this group is `ml-auto`, so its right edge is pinned and its
+ * left edge grows — a button mounting inside it moves the group's left edge,
+ * and everything left of that edge, by its own width. That happens exactly when
+ * the first change lands, which is exactly when someone is working in there,
+ * and while Review sat BETWEEN Preview and Publish it also moved Preview out
+ * from under a click that had already started. `canvas.spec.ts` caught it as a
+ * click that hit nothing; a person gets the same miss and no error. A button
+ * that is always there holds the space by being there.
+ *
+ * The badge shows `reviewCount`, which is the pending patch count zeroed when
+ * all of it has been reverted. In that case the button stays — the review view
+ * is where Discard lives, and Publish is disabled until it is used, so removing
+ * the only route to it would strand the editor — but it carries no number,
+ * because the honest number is zero and a "0" badge reads as a bug.
+ */
+function ReviewButton({
+  onCompare,
+  pendingChanges,
+  reviewCount,
+}: {
+  onCompare?: () => void;
+  pendingChanges: number;
+  reviewCount?: number;
+}) {
+  if (!onCompare) return null;
+  const hasWork = pendingChanges > 0;
+  const showCount = hasWork && reviewCount !== undefined && reviewCount > 0;
+  return (
+    <button
+      type="button"
+      onClick={onCompare}
+      data-val-tour="review"
+      aria-label={
+        showCount
+          ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
+          : "Review changes"
+      }
+      className={cn(
+        "relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md shrink-0",
+        "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+      )}
+    >
+      <GitCompare size={15} />
+      <span className="text-[0.8125rem]">Review</span>
+      {showCount && (
+        // The notification bell's badge, to the pixel: two counters in one bar
+        // that are shaped differently read as two different kinds of thing.
+        <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums">
+          {reviewCount > 9 ? "9+" : reviewCount}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function IconButton({
+  label,
+  active,
+  onClick,
+  children,
+  tourTarget,
+}: {
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  /** Marks this button as the thing a tour step points at. See `StudioTour`. */
+  tourTarget?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+      data-val-tour={tourTarget}
+      className={cn(
+        "relative grid place-items-center w-8 h-8 rounded-md shrink-0",
+        active
+          ? "bg-bg-float-raised text-fg-primary"
+          : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function PublishButton({
+  pendingChanges,
+  onPublish,
+  publishState = "idle",
+  className,
+}: {
+  pendingChanges: number;
+  onPublish: () => void;
+  publishState?: PublishState;
+  className?: string;
+}) {
+  // Nothing to ship, mid-flight, or blocked by validation errors: all three
+  // mean the button must not accept another click.
+  const disabled =
+    pendingChanges === 0 ||
+    publishState === "publishing" ||
+    publishState === "blocked";
+  return (
+    <button
+      type="button"
+      onClick={onPublish}
+      disabled={disabled}
+      title={
+        publishState === "blocked"
+          ? "Fix the validation errors before publishing"
+          : undefined
+      }
+      className={cn(
+        "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
+        publishState === "error"
+          ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
+          : "bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary hover:bg-bg-brand-primary-hover",
+        "disabled:bg-bg-disabled disabled:text-fg-disabled",
+        className,
+      )}
+    >
+      {publishState === "publishing" ? (
+        <Spinner size={14} />
+      ) : publishState === "error" ? (
+        <AlertTriangle size={14} className="shrink-0" />
+      ) : (
+        <Upload size={14} className="shrink-0" />
+      )}
+      {/*
+       * Truncates, so the button can be narrower than its word. On the phone's
+       * bottom bar this shares a row with Preview and three icon buttons, and
+       * `min-w-0` there is only half the answer: a label that cannot clip makes
+       * the button refuse to shrink however small its box is asked to be.
+       */}
+      <span className="truncate">
+        {publishState === "publishing"
+          ? "Publishing…"
+          : publishState === "error"
+            ? "Publish failed"
+            : "Publish"}
+      </span>
+      {publishState === "idle" && pendingChanges > 0 && (
+        <span className="shrink-0 tabular-nums opacity-80">
+          {pendingChanges}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * The project's name, where there is no switcher to offer: Val runs one
+ * project per config, so switching projects is Val Build's, and a connected
+ * project gets `ProjectSwitcher` instead.
+ *
+ * It is a link to the project in Val Build when there is one: the name is
+ * where an editor already points at "this project", and everything Val does
+ * not do to a project — members, keys, subscription — is over there. A project
+ * that is not connected has no page, so the name stays a plain label rather
+ * than becoming a link that goes nowhere.
+ */
+export function ProjectName({
+  projectName,
+  projectHref,
+}: {
+  projectName: string;
+  projectHref?: string;
+}) {
+  const shared =
+    "min-w-0 px-2 text-[0.8125rem] font-semibold tracking-tight truncate";
+  if (projectHref === undefined) {
+    return <span className={shared}>{projectName}</span>;
+  }
+  return (
+    <a
+      href={projectHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`Open ${projectName} in Val Build`}
+      className={cn(
+        shared,
+        "rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+      )}
+    >
+      {projectName}
+    </a>
+  );
+}
+
+/**
+ * The way into the global search. A hinted pill on wide screens so the
+ * shortcut is discoverable; an icon once space is tight.
+ */
+function SearchTrigger({
+  breakpoint,
+  onClick,
+}: {
+  breakpoint: ShellBreakpoint;
+  onClick: () => void;
+}) {
+  if (breakpoint === "mobile") {
+    return (
+      <button
+        type="button"
+        aria-label="Search"
+        onClick={onClick}
+        className="grid place-items-center w-8 h-8 shrink-0 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+      >
+        <Search size={16} />
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      // Labelled as well as captioned: the word and the shortcut are both
+      // `lg:inline`, so between the mobile breakpoint and `lg` this button has
+      // an icon and nothing else to take its name from.
+      aria-label="Search"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 h-8 pl-2 pr-1.5 rounded-md text-xs text-fg-secondary-alt border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
+    >
+      <Search size={14} />
+      <span className="hidden lg:inline">Search</span>
+      <kbd className="hidden lg:inline px-1.5 py-0.5 rounded border border-border-float text-[0.625rem] font-sans">
+        ⌘K
+      </kbd>
+    </button>
+  );
+}
+
+function isMobileBreakpoint(breakpoint: ShellBreakpoint): boolean {
+  return breakpoint === "mobile";
+}

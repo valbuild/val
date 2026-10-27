@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { CodeLanguage, ReifiedRender } from "../render";
-import { ModuleFilePath, SourcePath } from "../val";
+import { ItemPreviewInput, PreviewItem } from "../preview";
+import { SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
@@ -16,6 +15,18 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
+  /**
+   * Set by `.multiline()`: the field is a growing text box rather than a
+   * single-line input.
+   *
+   * A property of the schema rather than a `render` variant, because it says
+   * what the string IS — text that may hold line breaks — and not merely how one
+   * field is drawn. It is read the same way a render is, straight off the
+   * serialized schema where the field is drawn.
+   */
+  multiline?: boolean;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: {
     maxLength?: number;
     minLength?: number;
@@ -45,83 +56,158 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
-    private readonly renderInput:
-      | { as: "textarea" }
-      | { as: "code"; language: CodeLanguage }
-      | null = null,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly isMultiline: boolean = false,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .string()
+   *   .describe("Shown in the browser tab and in search results");
+   * export default c.define("/example.val.ts", schema, "Hello");
+   */
   describe(description: string | null): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
   /**
    * @deprecated Use `minLength` instead
+   *
+   * @example
+   * const schema = s.string().minLength(2);
+   * export default c.define("/example.val.ts", schema, "Hi");
    */
   min(minLength: number): StringSchema<Src> {
     return this.minLength(minLength);
   }
 
+  /**
+   * Validate that the string is at least `minLength` characters long.
+   *
+   * @example
+   * const schema = s.string().minLength(2);
+   * export default c.define("/example.val.ts", schema, "Hi");
+   */
   minLength(minLength: number): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, minLength },
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
   /**
    * @deprecated Use `maxLength` instead
+   *
+   * @example
+   * const schema = s.string().maxLength(60);
+   * export default c.define("/example.val.ts", schema, "A title that fits");
    */
   max(maxLength: number): StringSchema<Src> {
     return this.maxLength(maxLength);
   }
 
+  /**
+   * Validate that the string is at most `maxLength` characters long.
+   *
+   * @example
+   * const schema = s.string().maxLength(60);
+   * export default c.define("/example.val.ts", schema, "A title that fits");
+   */
   maxLength(maxLength: number): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, maxLength },
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
+  /**
+   * Validate that the string matches `regexp`.
+   *
+   * `message` is what the editor is shown when it does not match. Without one
+   * the error names the pattern, which is rarely what a non-developer needs.
+   *
+   * @example
+   * const schema = s
+   *   .string()
+   *   .regexp(/^[a-z0-9-]+$/, "Lower case letters, digits and dashes only");
+   * export default c.define("/example.val.ts", schema, "my-slug");
+   */
   regexp(regexp: RegExp, message?: string): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, regexp, regExpMessage: message },
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.string().validate((val) =>
+   *   val.trim() === val ? false : "Must not start or end with a space",
+   * );
+   * export default c.define("/example.val.ts", schema, "Hello");
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): StringSchema<Src> {
@@ -130,10 +216,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions.concat(validationFunction),
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -226,57 +313,93 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     ) as unknown as StringSchema<Src | null>;
   }
 
-  readonly(): StringSchema<Src> {
+  readonly(isReadonly: boolean = true): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
-  hidden(): StringSchema<Src> {
+  hidden(isHidden: boolean = true): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     );
   }
 
+  /**
+   * Do not stega encode this string.
+   *
+   * Val normally encodes an invisible pointer back to the source into every
+   * string it hands your app, which is what makes click-to-edit work. A raw
+   * string is handed over exactly as written — use it wherever the value is
+   * not rendered as visible text: a slug, a class name, an `id`, a URL,
+   * anything parsed or compared.
+   *
+   * @example
+   * const schema = s.object({
+   *   title: s.string(),
+   *   slug: s.string().raw(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   title: "Hello",
+   *   slug: "hello",
+   * });
+   */
   raw(): StringSchema<Src extends null ? RawString | null : RawString> {
     return new StringSchema(
       this.options,
       this.opt,
       true,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.isMultiline,
     ) as unknown as StringSchema<
       Src extends null ? RawString | null : RawString
     >;
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
+      multiline: this.isMultiline ? true : undefined,
+      preview: this.previewInput ? true : undefined,
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
@@ -300,48 +423,75 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  render(
-    input: { as: "textarea" } | { as: "code"; language: CodeLanguage },
-  ): StringSchema<Src> {
+  /**
+   * This string holds text that may run to several lines: the editor gives it a
+   * growing text box instead of a single-line input.
+   *
+   * Nothing else changes — the value is still a plain string, and no validation
+   * is added or removed. For code, use `s.code({ language })` instead, which is
+   * its own schema type.
+   *
+   * @example
+   * const schema = s.string().multiline();
+   * export default c.define("/example.val.ts", schema, "Line one\nLine two");
+   */
+  multiline(): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      input,
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      true,
     );
   }
 
-  protected executeRender(
-    sourcePath: SourcePath | ModuleFilePath,
-    src: Src,
-  ): ReifiedRender {
-    if (this.renderInput) {
-      if (this.renderInput.as === "code") {
-        return {
-          [sourcePath]: {
-            status: "success" as const,
-            data: {
-              layout: this.renderInput.as,
-              language: this.renderInput.language,
-            },
-          },
-        };
-      }
-      return {
-        [sourcePath]: {
-          status: "success" as const,
-          data: {
-            layout: this.renderInput.as,
-          },
-        },
-      };
-    }
-    return {};
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.string().preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
+   */
+  preview(select: ItemPreviewInput<Src>): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+      this.isMultiline,
+    );
   }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
+  /**
+   * Nothing: a string has no items, so there is nothing to preview. Its layout
+   * is a `render`, which travels in the serialized schema instead of through
+   * this pipeline.
+   */
 }
 
 export const string = <T extends string>(

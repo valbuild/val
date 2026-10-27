@@ -2,6 +2,7 @@ import chalk from "chalk";
 import fs from "fs";
 import path from "path";
 import simpleGit, { StatusResult } from "simple-git";
+import { gitHubOwnerAndRepo } from "./gitRemote";
 import { confirm } from "@inquirer/prompts";
 import { transformNextAppRouterValProvider } from "./codemods/transformNextAppRouterValProvider";
 import { diffLines } from "diff";
@@ -259,18 +260,11 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
       : false;
     analysis.isGitClean = getGitStatusIsClean(gitStatus);
     // get owner and repo from git remote:
-    if (gitRemoteOrigin) {
-      // Split the URL by colon
-      const parts = gitRemoteOrigin.split(":");
-
-      // Extract owner and repo
-      const owner = parts[0].split("@")[1];
-      const repo = parts[1].replace(".git", ""); // Remove .git extension if present
-
-      analysis.gitRemote = {
-        owner,
-        repo,
-      };
+    const gitHubRemote = gitRemoteOrigin
+      ? gitHubOwnerAndRepo(gitRemoteOrigin)
+      : null;
+    if (gitHubRemote) {
+      analysis.gitRemote = gitHubRemote;
     }
   } catch {
     // ignored
@@ -936,6 +930,8 @@ async function plan(
     }
   }
 
+  plan.gitRemote = analysis.gitRemote ?? false;
+
   return plan;
 }
 
@@ -966,19 +962,18 @@ Val was successfully initialized!
 
   When you want to enable editor support, connect the project by opening the following link:
   
-  ${chalk.bgBlack
-    .hex("#37cd99")
-    .underline(
-      `https://admin.val.build/connect${
-        plan.gitRemote
-          ? `?github_repo=${encodeURIComponent(
-              [plan.gitRemote.repo, plan.gitRemote.owner].join("/"),
-            )}&org=${encodeURIComponent(
-              plan.gitRemote.owner,
-            )}&project=${encodeURIComponent(plan.gitRemote.repo)}`
-          : ""
-      }`,
-    )}
+  ${chalk.bgBlack.hex("#37cd99").underline(
+    `https://admin.val.build/new?${new URLSearchParams({
+      hosting: "own",
+      ...(plan.gitRemote
+        ? {
+            repo: `${plan.gitRemote.owner}/${plan.gitRemote.repo}`,
+            org: plan.gitRemote.owner,
+            project: plan.gitRemote.repo,
+          }
+        : {}),
+    }).toString()}`,
+  )}
 
 `);
 }

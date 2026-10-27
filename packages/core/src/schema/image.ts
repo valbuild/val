@@ -1,33 +1,69 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+import { CustomValidateFunction, Schema, SchemaAssertResult } from ".";
 import {
-  CustomValidateFunction,
-  Schema,
-  SchemaAssertResult,
-  SerializedSchema,
-} from ".";
-import { VAL_EXTENSION } from "../source";
-import { FileSource, FILE_REF_PROP } from "../source/file";
-import { ImageSource } from "../source/image";
+  GalleryImageSource,
+  ImageSource,
+  galleryKeyOf,
+  galleryMarker,
+  isRemoteMediaPath,
+} from "../source/media";
 import { getValPath, ModulePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { FileMetadata, Internal, ValModule } from "..";
-import { RemoteSource } from "../source/remote";
-import { ReifiedRender } from "../render";
-import { ImagesEntryMetadata } from "./images";
+import { Internal, ValModule } from "..";
+import { ItemPreviewInput, PreviewItem } from "../preview";
+import { AltSource, ImagedirEntryMetadata } from "./imagedir";
 import { getSource } from "../module";
+import { mimeTypeMatchesAccept } from "../mimeType";
+
+/**
+ * How an uploaded image is re-encoded in the browser, before it is uploaded.
+ *
+ * Off unless a schema asks for it. When it is on, the image is converted to
+ * `type` and scaled down to fit `maxWidth` x `maxHeight` - unless the result
+ * would be BIGGER than the original and no downscale was needed, in which case
+ * the original bytes are kept. See `architecture/media.md`.
+ *
+ * `type` is required so that adding a format later is additive: a schema
+ * written today keeps saying exactly which format it asked for.
+ */
+export type ImageEncodeOptions = {
+  type: "webp";
+  /** Passed to `canvas.toBlob`. Between 0 and 1. @default 0.8 */
+  quality?: number;
+  /** @default 2560 */
+  maxWidth?: number;
+  /** @default 2560 */
+  maxHeight?: number;
+};
+
+/** `false` (or absent) uploads the bytes exactly as the editor picked them. */
+export type ImageEncodeOption = false | ImageEncodeOptions;
+
+/**
+ * What a GALLERY-BACKED field may say for itself.
+ *
+ * Not `ImageOptions`: `directory` and `accept` belong to the gallery, and a
+ * field repeating them is how two copies of one fact get to disagree. `encode`
+ * is different — it describes what happens to the bytes on their way IN, so a
+ * field that wants the original where its gallery re-encodes has to be able to
+ * say `encode: false`, and there is nowhere else to say it.
+ */
+export type GalleryImageOptions = {
+  encode?: ImageEncodeOption;
+};
 
 export type ImageOptions = {
-  ext?: ["jpg"] | ["webp"];
-  directory?: string;
-  prefix?: string;
+  dir?: string;
   accept?: string;
+  encode?: ImageEncodeOption;
 };
 
 export type SerializedImageSchema = {
   type: "image";
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: ImageOptions;
   opt: boolean;
   remote?: boolean;
@@ -48,12 +84,7 @@ export type ImageMetadata = {
     y: number;
   };
 };
-export class ImageSchema<
-  Src extends
-    | FileSource<ImageMetadata | undefined>
-    | RemoteSource<ImageMetadata | undefined>
-    | null,
-> extends Schema<Src> {
+export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
   constructor(
     private readonly options?: ImageOptions,
     private readonly opt: boolean = false,
@@ -61,15 +92,40 @@ export class ImageSchema<
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, ImagesEntryMetadata>
+      Record<string, ImagedirEntryMetadata<AltSource>>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .image()
+   *   .describe("Shown at the top of the page, 16:9 works best");
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/png",
+   * });
+   */
   describe(description: string | null): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
@@ -80,10 +136,35 @@ export class ImageSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
     );
   }
 
-  remote(): ImageSchema<Src | RemoteSource<ImageMetadata | undefined>> {
+  /**
+   * Store the image on Val's remote content host instead of in your repository.
+   *
+   * The bytes still go into the patch store when the image is uploaded — the
+   * push to the remote host happens at publish. What changes is where the
+   * published image lives: `path` becomes a remote URL rather than a path
+   * under `/public`, so the repository does not grow with every upload.
+   *
+   * The `path` of a remote image is a URL on the content host, and it is not
+   * something to write by hand: upload the image in the Studio, or write a
+   * local path and let `npx val validate --fix` upload it and rewrite the
+   * `path` to the ref below.
+   *
+   * @example
+   * const schema = s
+   *   .image({ accept: "image/webp", dir: "/public/val/images" })
+   *   .remote();
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/example.webp",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/webp",
+   * });
+   */
+  remote(): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
       this.opt,
@@ -93,9 +174,39 @@ export class ImageSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-    ) as ImageSchema<Src | RemoteSource<ImageMetadata | undefined>>;
+      this.previewInput,
+    );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The second argument carries the `path` of the field being validated, for
+   * when the message needs to say where the problem is.
+   *
+   * @example
+   * const schema = s.image().validate((val) =>
+   *   val.alt ? false : "Every image needs alt text",
+   * );
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/png",
+   *   alt: "An example",
+   * });
+   */
   validate(validationFunction: CustomValidateFunction<Src>): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
@@ -106,6 +217,7 @@ export class ImageSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -130,7 +242,28 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
+    if (typeof src.path !== "string") {
+      return {
+        [path]: [
+          ...customValidationErrors,
+          {
+            message: `Image did not have a path string. Got: ${typeof src.path}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    // A field picked from a gallery holds the gallery's KEY, and whether that
+    // key is a local path or a remote ref is the gallery's to decide — and its
+    // to fix: uploading an entry renames its key, and the fields that hold it
+    // with it. So such a field only asks whether the gallery has it, below.
+    // Asking here as well reported every image picked from a `.remote()`
+    // gallery as one to download, because the field itself is never remote.
+    const galleryEntries = this.galleryEntries();
+    // Remote-ness is a property of the path, not of a marker on the value:
+    // anything outside /public is remote.
+    const isRemotePath = isRemoteMediaPath(src.path);
+    if (!galleryEntries && this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -142,7 +275,7 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (!galleryEntries && this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -154,12 +287,12 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
+    if (!galleryEntries && !this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Expected locale image, but found remote.`,
+            message: `Expected local image, but found remote.`,
             value: src,
             fixes: ["image:download-remote"],
           },
@@ -167,34 +300,59 @@ export class ImageSchema<
       } as ValidationErrors;
     }
 
-    if (typeof src[FILE_REF_PROP] !== "string") {
-      return {
-        [path]: [
-          ...customValidationErrors,
-          {
-            message: `Image did not have a file reference string. Got: ${typeof src[
-              FILE_REF_PROP
-            ]}`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+    if (src.hotspot !== undefined) {
+      if (
+        typeof src.hotspot !== "object" ||
+        src.hotspot === null ||
+        typeof src.hotspot.x !== "number" ||
+        typeof src.hotspot.y !== "number"
+      ) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `Hotspot must be an object with x and y as numbers.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
     }
 
-    if (src[VAL_EXTENSION] !== "file") {
-      return {
-        [path]: [
-          ...customValidationErrors,
-          {
-            message: `Image did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
-            value: src,
-          },
-        ],
-      } as ValidationErrors;
+    if (galleryEntries) {
+      // The dimensions and mime type of a gallery image are stored once, in the
+      // gallery. Repeating them on the field is how the two get to disagree.
+      const repeated = (["width", "height", "mimeType"] as const).filter(
+        (key) => src[key] !== undefined,
+      );
+      if (repeated.length > 0) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            {
+              message: `An image from a gallery must not carry its own ${repeated.join(", ")}: ${repeated.length === 1 ? "it is" : "they are"} stored in the gallery module.`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+      // The same match reading the field makes (`fillFromGallery`): the key,
+      // or the local path inside a ref an upload through the field stored.
+      if (galleryKeyOf(src.path, (key) => key in galleryEntries) === null) {
+        return {
+          [path]: [
+            ...customValidationErrors,
+            galleryMarker("image", src, this.galleryModulePath()),
+          ],
+        } as ValidationErrors;
+      }
+      return customValidationErrors.length > 0
+        ? ({ [path]: customValidationErrors } as ValidationErrors)
+        : false;
     }
 
     const { accept } = this.options || {};
-    const mimeType = src.metadata?.mimeType ?? "";
+    const mimeType = src.mimeType ?? "";
 
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
@@ -210,20 +368,7 @@ export class ImageSchema<
     }
 
     if (accept && mimeType && mimeType.includes("/")) {
-      const acceptedTypes = accept.split(",").map((type) => type.trim());
-
-      const isValidMimeType = acceptedTypes.some((acceptedType) => {
-        if (acceptedType === "*/*") {
-          return true;
-        }
-        if (acceptedType.endsWith("/*")) {
-          const baseType = acceptedType.slice(0, -2);
-          return mimeType.startsWith(baseType);
-        }
-        return acceptedType === mimeType;
-      });
-
-      if (!isValidMimeType) {
+      if (!mimeTypeMatchesAccept(mimeType, accept)) {
         return {
           [path]: [
             ...customValidationErrors,
@@ -237,13 +382,13 @@ export class ImageSchema<
       }
     }
 
-    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
+    const fileMimeType = Internal.filenameToMimeType(src.path);
     if (!fileMimeType) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            message: `Could not determine mime type from file extension. Got: ${src.path}`,
             value: src,
             fixes: ["image:check-metadata"],
           },
@@ -264,29 +409,19 @@ export class ImageSchema<
       } as ValidationErrors;
     }
 
-    if (src.metadata) {
-      if (src.metadata.hotspot) {
-        if (
-          typeof src.metadata.hotspot !== "object" ||
-          typeof src.metadata.hotspot.x !== "number" ||
-          typeof src.metadata.hotspot.y !== "number"
-        ) {
-          return {
-            [path]: [
-              ...customValidationErrors,
-              {
-                message: `Hotspot must be an object with x and y as numbers.`,
-                value: src,
-              },
-            ],
-          } as ValidationErrors;
-        }
-      }
+    // Whether the dimensions match the bytes can only be answered by reading
+    // the file, which this package deliberately cannot do — so it is always
+    // handed on as a fix.
+    if (
+      src.width !== undefined ||
+      src.height !== undefined ||
+      src.mimeType !== undefined
+    ) {
       return {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and the mime type.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `Image metadata has not been checked against the file.`,
             value: src,
             fixes: ["image:check-metadata"],
           },
@@ -294,26 +429,40 @@ export class ImageSchema<
       } as ValidationErrors;
     }
 
-    const isReferencedModule = Object.keys(this.moduleMetadata).length > 0;
-    if (src.metadata === undefined && isReferencedModule) {
-      if (customValidationErrors.length === 0) {
-        return false;
-      }
-      return {
-        [path]: [...customValidationErrors],
-      } as ValidationErrors;
-    }
-
     return {
       [path]: [
         ...customValidationErrors,
         {
-          message: `Could not validate Image metadata.`,
+          message: `Image metadata is missing: width, height and mimeType.`,
           value: src,
           fixes: ["image:add-metadata"],
         },
       ],
     } as ValidationErrors;
+  }
+
+  /**
+   * The entries of the gallery this field points at, or null when it is a
+   * standalone field.
+   *
+   * `AltSource` rather than a specific alt type: a field never reads an entry's
+   * alt — it carries its own — so it only needs the entry keys and the
+   * dimensions, and a gallery of any alt shape can back it.
+   */
+  /** The module path of the gallery this field points at. */
+  private galleryModulePath(): string {
+    return Object.keys(this.moduleMetadata)[0] ?? "";
+  }
+
+  private galleryEntries(): Record<
+    string,
+    ImagedirEntryMetadata<AltSource>
+  > | null {
+    const modulePaths = Object.keys(this.moduleMetadata);
+    if (modulePaths.length === 0) {
+      return null;
+    }
+    return this.moduleMetadata[modulePaths[0] as ModulePath];
   }
 
   protected executeAssert(
@@ -349,26 +498,13 @@ export class ImageSchema<
         },
       };
     }
-    if (!(FILE_REF_PROP in src)) {
+    if (!("path" in src) || typeof src.path !== "string") {
       return {
         success: false,
         errors: {
           [path]: [
             {
-              message: `Value of this schema must use: 'c.image' (error type: missing_ref_prop)`,
-              typeError: true,
-            },
-          ],
-        },
-      };
-    }
-    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
-      return {
-        success: false,
-        errors: {
-          [path]: [
-            {
-              message: `Value of this schema must use: 'c.image' (error type: missing_file_extension)`,
+              message: `An image must be an object with a 'path' (error type: missing_path)`,
               typeError: true,
             },
           ],
@@ -391,23 +527,25 @@ export class ImageSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  readonly(): ImageSchema<Src> {
+  readonly(isReadonly: boolean = true): ImageSchema<Src> {
     return new ImageSchema<Src>(
       this.options,
       this.opt,
       this.isRemote,
       this.customValidateFunctions,
       this.moduleMetadata,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  hidden(): ImageSchema<Src> {
+  hidden(isHidden: boolean = true): ImageSchema<Src> {
     return new ImageSchema<Src>(
       this.options,
       this.opt,
@@ -415,17 +553,79 @@ export class ImageSchema<
       this.customValidateFunctions,
       this.moduleMetadata,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  protected executeSerialize(): SerializedSchema {
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.image().preview(({ val }) => ({
+   *     title: val.alt ?? "Image",
+   *     image: val,
+   *   })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   {
+   *     path: "/public/val/example.png",
+   *     width: 100,
+   *     height: 100,
+   *     mimeType: "image/png",
+   *     alt: "An example",
+   *   },
+   * ]);
+   */
+  preview(select: ItemPreviewInput<Src>): ImageSchema<Src> {
+    return new ImageSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
+  protected executeSerialize(): SerializedImageSchema {
     const modulePaths = this.moduleMetadata
       ? Object.keys(this.moduleMetadata)
       : [];
     return {
       type: "image",
+      preview: this.previewInput ? true : undefined,
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
@@ -439,24 +639,65 @@ export class ImageSchema<
       description: this.description,
     };
   }
-
-  protected executeRender(): ReifiedRender {
-    return {};
-  }
 }
 
-export const image = (
-  options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
-): ImageSchema<ImageSource | RemoteSource<ImageMetadata | undefined>> => {
+/**
+ * An image picked from a gallery. Its dimensions and mime type live in the
+ * gallery, so the field carries only what a person typed.
+ */
+export function image(
+  galleryModule: ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<GalleryImageSource>;
+/** An image of its own, carrying its own dimensions and mime type. */
+export function image(options?: ImageOptions): ImageSchema<ImageSource>;
+export function image(
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
+  return imageOf(false, options, galleryOptions);
+}
+
+/**
+ * `s.image()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): the same schema, with `.remote()` already applied. See
+ * `initSchema`.
+ */
+export function remoteImage(
+  galleryModule: ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<GalleryImageSource>;
+export function remoteImage(options?: ImageOptions): ImageSchema<ImageSource>;
+export function remoteImage(
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
+  return imageOf(true, options, galleryOptions);
+}
+
+function imageOf(
+  remote: boolean,
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, ImagesEntryMetadata>>,
+      options as ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, ImagesEntryMetadata>> = {};
+    const allModules: Record<
+      string,
+      Record<string, ImagedirEntryMetadata<AltSource>>
+    > = {};
     for (const valModule of [
-      options as ValModule<Record<string, ImagesEntryMetadata>>,
+      options as ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -466,10 +707,18 @@ export const image = (
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        ImagesEntryMetadata
+        ImagedirEntryMetadata<AltSource>
       >;
     }
-    return new ImageSchema({}, false, false, [], allModules);
+    return new ImageSchema<GalleryImageSource>(
+      galleryOptions?.encode !== undefined
+        ? { encode: galleryOptions.encode }
+        : {},
+      false,
+      remote,
+      [],
+      allModules,
+    );
   }
-  return new ImageSchema(options as ImageOptions);
-};
+  return new ImageSchema(options as ImageOptions, false, remote);
+}

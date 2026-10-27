@@ -55,14 +55,11 @@ export { valNextAppRouter };
 `;
 
 // TODO: use from @valbuild/core
-type ConfigDirectory = `/public/${string}`;
-
-// TODO: use from @valbuild/core
 type ValConfig = {
   project?: string;
   root?: string;
   files?: {
-    directory: ConfigDirectory;
+    remote?: boolean;
   };
   gitCommit?: string;
   gitBranch?: string;
@@ -185,28 +182,21 @@ export const testSchema = s.object({
    */
   richText: s.richtext({
     // styling:
-    style: {
-      bold: true, // enables bold
-      italic: true, // enables italic text
-      lineThrough: true, // enables line/strike-through
-    },
-    // block-level elements:
-    block: {
-      // tags:
-      h1: true, // enables h1
-      h2: true,
-      h3: true,
-      h4: true,
-      h5: true,
-      h6: true,
-      ul: true, // enables unordered lists
-      ol: true, // enables ordered lists
-    },
-    // inline elements:
-    inline: {
-      a: true,
-      img: true,
-    },
+    bold: true, // enables bold
+    italic: true, // enables italic text
+    lineThrough: true, // enables line/strike-through
+    // block-level tags:
+    h1: true, // enables h1
+    h2: true,
+    h3: true,
+    h4: true,
+    h5: true,
+    h6: true,
+    ul: true, // enables unordered lists
+    ol: true, // enables ordered lists
+    // inline tags:
+    a: true,
+    img: true,
   }),
 
   /**
@@ -215,16 +205,16 @@ export const testSchema = s.object({
    * @docs https://val.build/docs/images
    *
    * When defining content use the following syntax:
-   * @example c.image('/public/myimage.png') // path to the image file, use the VS Code plugin or the \`@valbuild/cli validate --fix\` command to add metadata
+   * @example { path: '/public/myimage.png' } // the VS Code plugin fills in width, height and mimeType as you type the path; \`@valbuild/cli validate --fix\` adds them too
    *
    * @see ValImage component to see how to render this in your app
    */
   image: s.image().nullable(),
 
   /**
-   * String enums: presents as a dropdown in the UI
+   * Enums: presents as a dropdown in the UI
    */
-  stringEnum: s.union(s.literal("lit-0"), s.literal("lit-1")),
+  stringEnum: s.enum("lit-0", "lit-1"),
 
   /**
    * Raw strings disables the stega (steganography) feature that automatically tags content when using the overlay.
@@ -233,11 +223,12 @@ export const testSchema = s.object({
   slug: s.string().raw(),
 
   /**
-   * Object unions: presents as a dropdown in the UI and the different fields
+   * Discriminated unions: presents as a dropdown in the UI, plus the fields of
+   * whichever variant is selected
    *
-   * @docs https://val.build/docs/api/schema/union
+   * @docs https://val.build/docs/api/schema/discriminated-union
    */
-  objectUnions: s.union(
+  objectUnions: s.discriminatedUnion(
     "type",
     s.object({
       type: s.literal("page-type-1"),

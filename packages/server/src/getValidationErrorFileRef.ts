@@ -1,16 +1,22 @@
-import { FILE_REF_PROP, ValidationError } from "@valbuild/core";
+import { ValidationError } from "@valbuild/core";
 
+/**
+ * The media path a validation error is about, if it is about media at all.
+ *
+ * There is no schema in hand here — a `ValidationError` carries only the value
+ * it flagged — so the shape is all there is to go on.
+ */
 export function getValidationErrorFileRef(validationError: ValidationError) {
-  const maybeRef =
+  const maybePath =
     validationError.value &&
     typeof validationError.value === "object" &&
-    FILE_REF_PROP in validationError.value &&
-    typeof validationError.value[FILE_REF_PROP] === "string"
-      ? validationError.value[FILE_REF_PROP]
+    "path" in validationError.value &&
+    typeof validationError.value.path === "string"
+      ? validationError.value.path
       : undefined;
 
-  if (!maybeRef) {
+  if (!maybePath) {
     return null;
   }
-  return maybeRef;
+  return maybePath;
 }

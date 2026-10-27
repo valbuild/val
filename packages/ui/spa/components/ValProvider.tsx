@@ -1,5 +1,46 @@
+import { createRequestPublish } from "../publish/requestPublish";
+import {
+  createStudioJobClient,
+  isTransientPublishError,
+  runStudioJob,
+  STUDIO_OUT_OF_DATE_MESSAGE,
+  markStudioOutOfDate,
+  rememberLoadedLayer,
+  siteMovedSinceLoad,
+  studioOutOfDateRefusals,
+  subscribeStudioOutOfDate,
+} from "@valbuild/shared/publish";
+import { randomUUID } from "../utils/randomUUID";
+import {
+  createProposalsClient,
+  sameStudioPageAt,
+} from "../proposals/proposalsClient";
+import { waitForAddress } from "../proposals/useProposals";
+import {
+  createPublishJobs,
+  isSettled,
+  publishingPatchIds,
+  heldBackPatchIds,
+  type PublishJobs,
+  type PublishJobsState,
+  type TrackedPublish,
+  heldByContent,
+} from "../publish/publishJobs";
+import { publishProgress } from "../publish/publishProgress";
+import { netChangeModules } from "./netChangeModules";
+import {
+  EDGE_CACHE_MS,
+  otherEditorsJobs,
+  type ObservedJob,
+} from "../publish/publishIndicator";
+import { PUBLISH_TAB_ID } from "../publish/tabId";
+import { canBuildHere } from "../publish/handoff";
+import { toast } from "./designSystem/sonner";
+import { describeChangesWithoutModule } from "../utils/describeChangesWithoutModule";
 import React, {
+  createContext,
   Dispatch,
+  ReactNode,
   SetStateAction,
   useCallback,
   useContext,
@@ -10,32 +51,41 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import {
-  FILE_REF_PROP,
+  hasRemoteFileSchema,
   ImageMetadata,
   Internal,
   Json,
   ModuleFilePath,
-  ModuleFilePathSep,
   ModulePath,
   PatchId,
   SerializedSchema,
   SourcePath,
   ValConfig,
   ValModules,
+  VideoSource,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/core/patch";
+import { deepEqual, Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import {
   ParentRef,
   SharedValConfig,
   ValClient,
-  getNextAppRouterSourceFolder,
+  getPageRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
+import { readableProfilesError } from "../utils/readableProfilesError";
+import { describePublishRefusal } from "../utils/describePublishRefusal";
+import {
+  newestUnpublished,
+  pendingNeedsBuild,
+  pressedAlready,
+} from "../publish/pressForPage";
+import type { ChainProgress } from "../utils/describePendingChangesStall";
+import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
-import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
-import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
-import { createValidationWorker } from "../validation/createValidationWorker";
+import { useValDemo } from "../demo/ValDemoContext";
+import { checkDemoUpload } from "../demo/demoUploads";
 import { SerializedPatchSet } from "../utils/PatchSets";
+import type { PublishRequestStatus } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -43,21 +93,46 @@ import {
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
 import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
+import { StudioOutOfDateDialog } from "./StudioOutOfDateDialog";
+import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
-import { useSchemas, useSyncEngine } from "./ValFieldProvider";
-export { useSyncEngine } from "./ValFieldProvider";
+import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
+import { ProjectLocalesProvider } from "../hooks/ProjectLocalesProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
+import { ValStoreProvider } from "../stores/react/ValStoreProvider";
+import { useValSystem } from "../stores/react/SystemContext";
+import type { StatusSnapshot } from "../stores/StatusStore";
+import type { PatchErrorEntry, PatchRecord } from "../stores/types";
+import type { PatchAtPath } from "../stores/PatchStore";
+import {
+  deployPreparedJob,
+  useStudioDeploy,
+  type UseStudioDeploy,
+} from "../publish/useStudioDeploy";
+import {
+  useSiteHandoff,
+  type HandoffPressed,
+  type UseSiteHandoff,
+} from "../publish/useSiteHandoff";
+import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
+import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
+import { AIChatActionsProvider } from "./AIChatActionsContext";
+import { useAssistantAvailabilityOf } from "../hooks/useAssistantAvailability";
+import { useThemeSettingsOf } from "../hooks/useThemeSettings";
 import {
   useAIWebSocket,
   type AIMessageHandler,
   type AIClientMessage,
+  type AIModel,
+  type AIModelInfo,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
+import { concatModulePath } from "../utils/sourcePath";
 
 export type { AITool };
 
@@ -107,20 +182,123 @@ export type AIMessagesResponse = {
 };
 
 type ValContextValue = {
-  syncEngine: ValSyncEngine;
   mode: "http" | "fs" | "unknown";
+  /**
+   * Why this server cannot publish this project at all, or `null`.
+   *
+   * A fact about the DEPLOYMENT, not about this client's changes: true before
+   * anything was edited, and unchanged by discarding, staging or fixing. The
+   * server's own words -- it knows which branch and which repository, and a
+   * message assembled here could only ever say the generic version.
+   *
+   * See `PublishRefusal` in `@valbuild/shared`'s `ApiRoutes`. The Studio shows
+   * it and turns the publish action off; `/save` refuses the same way for a
+   * client whose stat is a poll out of date.
+   */
+  publishRefusal: string | null;
+  /**
+   * How this project's source is kept, or `null` when nothing said.
+   *
+   * `"managed"` means the Studio is the deployer -- see `ValSourceMode` and
+   * `summarizeDeployments`. `null` is treated as `"connected"` everywhere it is
+   * read, because that is the story the Studio has always told and an older
+   * server saying nothing is not evidence that a project has no repository.
+   */
+  sourceMode: "managed" | "connected" | null;
+  /**
+   * The proposal this Studio is in, or `null` on the site. From `/stat`;
+   * the same object until the server names a different one.
+   */
+  proposal: { name: string; branch: string } | null;
+  /**
+   * The branch History lists, or `null` where there is none to list: the
+   * proposal's in a proposal, else the site's -- the git mirror's, or the one
+   * content reports for a managed project. From `/stat`, falling back to
+   * `config.gitBranch` from a server that predates the field.
+   */
+  historyBranch: string | null;
+  /**
+   * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
+   * address moves the base the server answers with; see `useStatus`.
+   */
+  refreshStat: () => void;
   profileId: string | null;
   profileAuthError: string | null;
+  /**
+   * Why loading the people who made the changes failed, if it did.
+   *
+   * Separate from `profileAuthError`, which is only the `fs`-mode 401 and is
+   * shown as a global banner. This is any other failure — a project that is not
+   * configured, a server that is down — and it is not global: the studio works
+   * fine without knowing who anyone is, so it belongs beside the account rather
+   * than across the top of the screen.
+   */
+  profilesError: { message: string; willRetry: boolean } | null;
+  /** Ask for the profiles again, from the first attempt. */
+  retryProfiles: () => void;
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
+  /**
+   * The browser-side build, and it lives HERE rather than in the hook.
+   *
+   * `useStudioDeploy` guards against two deploys racing with a ref, and a ref
+   * is per instance -- so a hook called from the publish button, the summary
+   * sheet and the shell would give each of them its own guard and its own
+   * phase. The three would not see each other: two could start a build of the
+   * same commit, and the shell's spinner would stop while the button's was
+   * still going.
+   *
+   * One here, for the same reason `publishSummaryState` is here.
+   */
+  deploy: UseStudioDeploy;
+  /**
+   * A publish from a page that cannot build, handed to a Studio tab. One here
+   * for the same reason as `deploy`: the button that starts it and the card
+   * that reports on it have to read one state. See `publish/handoff.ts`.
+   */
+  handoff: UseSiteHandoff;
+  /**
+   * A managed project's publish jobs: this tab's presses, and the job it
+   * builds. One here for the same reason as `deploy`. See
+   * `publish/publishJobs.ts`.
+   */
+  publishJobs: PublishJobs;
+  publishJobsState: PublishJobsState;
+  /**
+   * Every publish job on the branch, as the websocket last reported it --
+   * other editors' as well as this tab's -- so the status bar can say that
+   * someone is publishing. See `publish/publishIndicator.ts`.
+   */
+  observedPublishJobs: readonly ObservedJob[];
+  /**
+   * The changes a publish that is still running holds, as content said:
+   * pressed on this tab, another tab or another device -- and kept until
+   * content lists them as pending again. See `heldByContent`.
+   */
+  serverPublishingPatchIds: ReadonlySet<string>;
+  /**
+   * When content said the holds `serverPublishingPatchIds` was last moved by,
+   * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
+   */
+  serverPublishingReportedAt: number | undefined;
+  /**
+   * The changes a publish that failed on its content holds back from later
+   * publishes, until Try again or Discard, as content said (`heldBackPatches`
+   * on `/stat` and the socket). Pending, and not ready to publish.
+   */
+  serverHeldBackPatchIds: ReadonlySet<string>;
+  /**
+   * Whether a press of Publish is a publish job here: every managed project,
+   * and a connected one hosted on the platform (the server says, on `/stat`).
+   */
+  publishesAsJobs: boolean;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
   config: ValConfig | undefined;
   authenticationState: AuthenticationState;
   profiles: Record<AuthorId, Profile>;
   deployments: ValEnrichedDeployment[];
-  dismissDeployment: (deploymentId: string) => void;
   observedCommitShas: Set<string>;
   remoteFiles:
     | {
@@ -128,6 +306,7 @@ type ValContextValue = {
         publicProjectId: string;
         coreVersion: string;
         buckets: string[];
+        remoteHost?: string;
       }
     | {
         status: "loading" | "not-asked";
@@ -149,6 +328,20 @@ type ValContextValue = {
   sendWsMessage: (data: AIClientMessage) => boolean;
   isWsConnected: boolean;
   aiAuthError: boolean;
+  /**
+   * Why the assistant is unavailable, once the studio has stopped trying.
+   *
+   * Distinct from `aiAuthError`, which is the 401 and terminal from the first
+   * answer. This is any other failure that has run out of attempts.
+   */
+  aiConnectionError: string | null;
+  /** Try the assistant's connection again, from the first attempt. */
+  retryAiConnection: () => void;
+  /**
+   * Ask again which models the project's keys reach — after the AI setup
+   * (`<val-ai-setup>`) saves or removes a key — without reconnecting.
+   */
+  refreshAiModels: () => Promise<void>;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -161,6 +354,11 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
+  /** The model to use, or null when no key makes any model reachable. */
+  availableAiModel: AIModel | null;
+  availableAiModels: AIModelInfo[];
+  selectedAiModel: AIModel | null;
+  selectAiModel: (model: AIModel) => void;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -170,16 +368,31 @@ type ValContextValue = {
     files: { filePath: string; metadata: ImageMetadata }[];
   }>;
 };
-const ValContext = React.createContext<ValContextValue>(
-  new Proxy(
-    {},
-    {
-      get: () => {
-        throw new Error("Cannot use ValContext outside of ValProvider");
-      },
+/**
+ * The context value that means "nobody mounted a provider".
+ *
+ * A Proxy that throws on any property read, so a hook which genuinely cannot do
+ * its job without a provider fails loudly at the first field it touches rather
+ * than quietly computing from undefined.
+ *
+ * Named, rather than inline in `createContext`, so a hook that CAN answer
+ * without a provider can recognise it by identity — see `useCurrentAuthorId`.
+ * The alternative is catching the throw, which means either swallowing every
+ * error raised during a destructure or matching on a message string.
+ */
+const NO_VAL_PROVIDER = new Proxy(
+  {},
+  {
+    get: () => {
+      throw new Error("Cannot use ValContext outside of ValProvider");
     },
-  ) as ValContextValue,
-);
+  },
+) as ValContextValue;
+
+const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
+
+/** How many publish jobs the status bar remembers. See `observedPublishJobs`. */
+const OBSERVED_JOBS_KEPT = 20;
 
 export function useClient() {
   return useContext(ValContext).client;
@@ -193,6 +406,7 @@ export function ValProvider({
   dispatchValEvents,
   theme,
   setTheme,
+  handsOffPublish = false,
 }: {
   children: React.ReactNode;
   client: ValClient;
@@ -201,12 +415,28 @@ export function ValProvider({
   dispatchValEvents: boolean;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
+  /**
+   * May a publish that cannot build HERE open a builder tab to build it?
+   *
+   * The tab is `/val?publish-handoff=…`, which the platform isolates in every
+   * browser (COEP `require-corp`), where the Studio itself is isolated only
+   * where `credentialless` is understood -- so not in WebKit, and not on any
+   * iPhone. `prepare` asks `crossOriginIsolated` first, so a page that CAN
+   * build never opens a tab: Chrome's Studio publishes in place, and only the
+   * overlay (never isolated) and a WebKit Studio hand off.
+   *
+   * Off by default, and set by the two mounts that publish: the overlay's and
+   * the Studio's. The builder tab's own provider leaves it off -- it builds
+   * with `deploy` directly, and a tab that could not build handing off to
+   * another tab would be the loop an iPhone met before the tab was isolated.
+   */
+  handsOffPublish?: boolean;
 }) {
   // config parameter is unused but kept for API compatibility
   void _config;
+  const demo = useValDemo();
   const [
     stat,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _setStat,
     authenticationState,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -214,19 +444,55 @@ export function ValProvider({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setIsAuthenticated,
     serviceUnavailable,
+    subscribePublishJobs,
+    contentHolds,
+    contentHoldsAt,
+    refreshStat,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
-  const wsEnabled =
-    isStatConnected &&
-    ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true
-      : false);
+  /**
+   * Whether to open the AI socket: whenever there is a project to open it for.
+   *
+   * It used to ask the config whether either AI feature was wanted. It cannot
+   * ask that any more, and should not: whether the ASSISTANT is on is now the
+   * project's own content (`s.settings()`, `assistant.enabled`), which lives in
+   * the
+   * store this component builds below — and the old question had a false
+   * negative in it anyway, since a project that had disabled commit summaries
+   * and enabled the chat got no socket at all.
+   *
+   * Nothing is lost by opening it: the socket's job is to report what is
+   * reachable, and a project with no key gets `availableModel: null`, which is
+   * what turns both features off downstream. Commit summaries still honour
+   * `config.ai.commitMessages.disabled`, and the chat still honours settings —
+   * each where it is used, rather than here.
+   *
+   * "A project to open it for" is meant literally. The socket lives at the
+   * content server under `/v1/<project>/ai`, so with no `project` in the
+   * config the server can only refuse — `/ai/initialize` answers 401 "Project
+   * is not configured" — and that refusal used to surface as a "Login to use
+   * AI chat" prompt in every project created from a template, which no login
+   * can fix. With no project there is no assistant to offer, so nothing is
+   * opened and every way in to the chat stays hidden (`isAIChatEnabled`).
+   * `project` here is the server's resolved one, `VAL_PROJECT` included: see
+   * `clientConfig`.
+   */
+  const statConfig =
+    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const wsEnabled = isStatConnected && !!statConfig?.project;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
     isConnected: isWsConnected,
     authError: aiAuthError,
+    connectionError: aiConnectionError,
+    retryConnection: retryAiConnection,
+    refreshModels: refreshAiModels,
+    availableModel: availableAiModel,
+    availableModels: availableAiModels,
+    selectedModel: selectedAiModel,
+    selectModel: selectAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -313,29 +579,7 @@ export function ValProvider({
     [client],
   );
 
-  const syncEngine = useMemo(
-    () =>
-      new ValSyncEngine(
-        client,
-        (moduleFilePath, newSource) => {
-          if (dispatchValEvents) {
-            defaultOverlayEmitter(moduleFilePath, newSource);
-          }
-        },
-        createValidationWorker,
-      ),
-    // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
-    [dispatchValEvents],
-  );
-
-  // Push client-side valModules into the engine. Re-runs on HMR-driven
-  // reference changes, which causes the engine to re-extract schemas/sources
-  // and re-invalidate subscribers without a server round-trip.
-  useEffect(() => {
-    syncEngine.setValModules(valModules ?? null);
-  }, [valModules, syncEngine]);
-  const runtimeConfig =
-    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const runtimeConfig = statConfig;
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
     boolean | undefined
@@ -360,12 +604,288 @@ export function ValProvider({
   }, [serviceUnavailable, showServiceUnavailable]);
 
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
+  /**
+   * What the store system needs out of `/stat`, memoised on the values.
+   *
+   * Memoised because it is handed to an effect: a fresh object per render would
+   * re-announce the same stat on every render, and `receiveStat` fetches the
+   * patch ops it does not have.
+   *
+   * Two fields only. The store system needs the ordered patch ids to learn about
+   * another session's work, and `baseSha` so a write has an honest `parentRef` —
+   * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
+   * which build answered and `schemaSha` which schema it runs;
+   * `jsonEntriesSha` is an input to a refetch it does not do yet.
+   */
+  const statPatches =
+    "data" in stat && stat.data ? stat.data.patches : undefined;
+  const statMode = "data" in stat && stat.data ? stat.data.mode : undefined;
+  /**
+   * Who the person at the keyboard is. `/stat` is the only thing that says.
+   *
+   * The same value `useCurrentAuthorId` reads out of context, kept as one
+   * expression here so the store system and the review UI cannot end up
+   * disagreeing about who you are.
+   */
+  const statProfileId =
+    "data" in stat && stat.data ? stat.data.profileId : null;
+  /**
+   * Unpublished changes the server threw away because it could not read them.
+   *
+   * Cleared by the next stat, because the server drains the notice when it hands
+   * it over — so this changes only when `statPatches` does, and the effect that
+   * feeds the stores cannot deliver it twice.
+   */
+  const statRemoved =
+    "data" in stat && stat.data ? stat.data.removed : undefined;
+  /*
+   * Which of the announced ids have already SHIPPED.
+   *
+   * `undefined` where the server does not say — `fs` mode, or one that predates
+   * the field — and that is not the same as an empty list: absent leaves every
+   * record where it is, empty would un-apply the chain.
+   */
+  const statApplied =
+    "data" in stat && stat.data ? stat.data.appliedPatches : undefined;
+  /** The publish head, carried to `/save`. See `newestCommitSha`. */
+  const statHead =
+    "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
+  /**
+   * The head of the PATCH chain, which is not `statHead` (that is the publish
+   * head). What the next write names as its parent — see `PatchSync`.
+   */
+  const statPatchHead =
+    "data" in stat && stat.data ? stat.data.headPatchId : undefined;
+  /** The chain version of `statPatchHead`, so an older answer can be ignored. */
+  const statHeadVersion =
+    "data" in stat && stat.data ? stat.data.headVersion : undefined;
+  /**
+   * Which build answered: its chain is relative to the source with this sha.
+   * See `BaseAlignment`.
+   */
+  const statSourcesSha =
+    "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
+  /** Which schema that build runs. See `SchemaFreshnessWatch`. */
+  const statSchemaSha =
+    "data" in stat && stat.data ? stat.data.schemaSha : undefined;
+  const storeStat = useMemo(
+    () =>
+      baseSha !== undefined && statPatches !== undefined
+        ? {
+            baseSha,
+            patches: statPatches,
+            removed: statRemoved,
+            appliedPatches: statApplied,
+            headCommitSha: statHead,
+            headPatchId: statPatchHead,
+            headVersion: statHeadVersion,
+            sourcesSha: statSourcesSha,
+            schemaSha: statSchemaSha,
+          }
+        : null,
+    [
+      baseSha,
+      statPatches,
+      statRemoved,
+      statApplied,
+      statHead,
+      statPatchHead,
+      statHeadVersion,
+      statSourcesSha,
+      statSchemaSha,
+    ],
+  );
+
+  const getDirectFileUploadSettings = useCallback(async (): Promise<
+    | {
+        status: "success";
+        data: {
+          nonce: string | null;
+          baseUrl: string;
+          contentBaseUrl: string | null;
+          contentAuthNonce: string | null;
+        };
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+  > => {
+    let res = await client("/direct-file-upload-settings", "POST", {});
+    let retries = 0;
+    while (res.status === null && retries < 5) {
+      Internal.log.debug(
+        "Failed to get direct file upload settings, retrying...",
+        res,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
+      res = await client("/direct-file-upload-settings", "POST", {});
+      retries++;
+    }
+    if (res.status === 200) {
+      return { status: "success", data: res.json };
+    }
+    return {
+      status: "error",
+      error: "Could not get direct file upload settings",
+    };
+  }, [client]);
+
+  /**
+   * The store system. One per Studio, built here.
+   *
+   * Here rather than inside `ValStoreProvider` because this component's own body
+   * reads it — the unsaved-edit count below, publish and discard, the error
+   * surfaces — and a system created in a child is created below the component
+   * that has to use it. `ValStoreProvider` puts it in context and feeds it.
+   *
+   * ONE system, for the life of the provider.
+   *
+   * `mode` is deliberately NOT a dependency, even though it configures the
+   * system: it arrives from `/stat`, which lands after the first render, so
+   * memoising on it built the system twice. The first one had already taken the
+   * project in and attached its listeners — which happens at construction, so
+   * nothing detached them — and its `PatchSync` retry loop kept running against
+   * a system nobody could reach. Any patch created in that window went with it.
+   *
+   * It is pushed in below instead.
+   */
+  const system = useMemo(
+    () =>
+      createValSystem(client, {
+        writes: true,
+        uploadSettings: getDirectFileUploadSettings,
+        ...(demo !== null
+          ? {
+              checkUpload: (file: { data: string | null }) =>
+                checkDemoUpload(demo.uploads, file),
+            }
+          : {}),
+        /*
+         * A managed project's Publish is a request for a publish job, which
+         * `usePublishSummary` asks for. Offered to every system: only the
+         * managed path calls it.
+         */
+        requestPublish: createRequestPublish(
+          createStudioJobClient({ api: "/api/val" }),
+        ),
+      }),
+    [client, getDirectFileUploadSettings, demo],
+  );
+
+  /** See {@link ValContextValue.serverPublishingPatchIds}. */
+  const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
+  /*
+   * The chain's version, so a hold is let go once the store has taken in what
+   * content said: committed, or forgotten. See `heldByContent`.
+   */
+  const heldChainVersion = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        system.patchStore.events.on("patch:chain", onChange),
+      [system],
+    ),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+  );
+  // From `contentHolds`, as what is publishing is: see `ContentHolds`.
+  const serverHeldBackPatchIds = useMemo(
+    () => new Set<string>(contentHolds?.heldBackPatches ?? []),
+    [contentHolds],
+  );
+  // From `contentHolds`, not the stat: see `ContentHolds`.
+  const serverPublishingPatchIds = useMemo(() => {
+    void heldChainVersion;
+    const store = system.patchStore;
+    const published = store.publishedPatchIds();
+    const unpublished = new Set<string>(
+      store
+        .allRecords()
+        .filter((record) => !record.appliedAt && !published.has(record.patchId))
+        .map((record) => record.patchId),
+    );
+    heldByContentRef.current = heldByContent(
+      heldByContentRef.current,
+      contentHolds,
+      (patchId) => unpublished.has(patchId),
+    );
+    return heldByContentRef.current;
+  }, [contentHolds, system, heldChainVersion]);
+
+  /**
+   * Whether this project has an assistant, from its settings module.
+   *
+   * Read off the stores directly rather than through `useAssistantAvailability`,
+   * because this component BUILDS the system and mounts the provider that
+   * carries the answer ABOVE the one that puts the system in context. The
+   * subscriptions are the same ones every other reader gets.
+   */
+  const assistant = useAssistantAvailabilityOf(system);
+  /**
+   * The project's `theme` section, read here for the same reason and handed to
+   * `ValThemeProvider` below. See `useThemeSettingsOf`.
+   */
+  const settingsTheme = useThemeSettingsOf(system);
+  useEffect(() => {
+    if (statMode === "fs" || statMode === "http") {
+      system.setMode(statMode);
+    }
+  }, [system, statMode]);
+  /**
+   * Pushed in like the mode, and for the same reason — see `System.setAuthorId`.
+   *
+   * Without this a patch created here carried no author, and a locally created
+   * record is never re-fetched: every change made in the session showed as
+   * "Unknown author" next to the ones already on the server, until a reload.
+   */
+  useEffect(() => {
+    system.setAuthorId(statProfileId);
+  }, [system, statProfileId]);
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
-  const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
+  /**
+   * What is worth re-merging for, as a value rather than a reference.
+   *
+   * `/stat` hands back a fresh array every time, so the arrays themselves are
+   * useless as dependencies. Their LENGTHS were used instead — and that is
+   * precisely blind to the update that matters: the content service reports a
+   * deployment moving from pending to success as the same row with a new state,
+   * so the list a poll returns is the same length as the one before it and the
+   * merge never ran. Progress only ever showed up if it happened to arrive on
+   * the socket, which appends.
+   */
+  const deploymentsFingerprint =
+    "data" in stat && stat.data?.deployments
+      ? stat.data.deployments
+          .map(
+            (d) =>
+              // The message is part of what a poll can CHANGE, not just of what
+              // it carries: a content service that learns a deployment's git
+              // message after the fact - the webhook resolves it from GitHub,
+              // and that call can fail and be retried - sends the same
+              // deployment, in the same state, at the same instant, with a
+              // message where there was none. Left out of the fingerprint, that
+              // update reached `stat` and stopped there, and the row stayed on
+              // its short sha until something else moved.
+              `${d.deploymentId}:${d.deploymentState}:${d.updatedAt}:${d.commitMessage ?? ""}`,
+          )
+          .join(",")
+      : "";
+  const commitsFingerprint =
+    "data" in stat && stat.data?.commits
+      ? stat.data.commits.map((c) => c.commitSha).join(",")
+      : "";
   useEffect(() => {
     if ("data" in stat && stat.data) {
       setDeployments((prev) => {
+        /*
+         * Not in a proposal. Its commits are SAVES, which its address serves
+         * as soon as they answer, and none of them is ever deployed -- so the
+         * feed showed each one "Building", for good. Deploys are the site's.
+         */
+        if (stat.data?.proposal) {
+          return prev.length === 0 ? prev : [];
+        }
         if (
           (stat.data?.deployments && stat.data.deployments?.length > 0) ||
           (stat.data?.commits && stat.data.commits?.length > 0)
@@ -374,21 +894,12 @@ export function ValProvider({
             prev,
             stat.data?.commits || [],
             stat.data?.deployments || [],
-          ).filter((d) => !dismissedDeploymentsRef.current.has(d.commitSha));
+          );
         }
         return prev;
       });
     }
-  }, [
-    "data" in stat && stat.data?.deployments && stat.data?.deployments.length,
-    "data" in stat && stat.data?.commits && stat.data?.commits.length,
-  ]);
-  const dismissDeployment = useCallback((commitSha: string) => {
-    setDeployments((prev) => {
-      return prev.filter((d) => d.commitSha !== commitSha);
-    });
-    dismissedDeploymentsRef.current.add(commitSha);
-  }, []);
+  }, [deploymentsFingerprint, commitsFingerprint]);
   const [observedCommitShas, setObservedCommitShas] = useState<Set<string>>(
     new Set(),
   );
@@ -414,19 +925,41 @@ export function ValProvider({
     status: "not-asked",
   });
   const [requiresRemoteFiles, setRequiresRemoteFiles] = useState(false);
+  // Read from the local `system` rather than through `useSchemas()`: the context
+  // that hook reads is provided by this component's own return value.
   const schemas = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
+    useCallback(
+      (onChange: () => void) =>
+        system.schemaStore.events.on("schema:init", onChange),
+      [system],
+    ),
+    useCallback(() => system.schemaStore.all(), [system]),
+    useCallback(() => system.schemaStore.all(), [system]),
   );
   useEffect(() => {
     if (schemas) {
       const schemasData = schemas;
       let requiresRemoteFiles = false;
       for (const schema of Object.values(schemasData)) {
-        if (findRequiredRemoteFiles(schema)) {
-          requiresRemoteFiles = true;
-          break;
+        /**
+         * Caught, because this is the same function the SERVER uses to decide
+         * whether a publish needs remote credentials, and there it must throw on
+         * a schema type it does not know — returning `false` would let a publish
+         * drop remote files silently. Here the cost of throwing is the whole
+         * Studio, and all that is at stake is whether to fetch remote settings.
+         * So: log it, and carry on as if this schema wanted nothing remote.
+         */
+        try {
+          if (hasRemoteFileSchema(schema)) {
+            requiresRemoteFiles = true;
+            break;
+          }
+        } catch (err) {
+          Internal.log.error(
+            "could not tell whether a schema needs remote files. Remote " +
+              "uploads may be unavailable.",
+            err,
+          );
         }
       }
       setRequiresRemoteFiles(requiresRemoteFiles);
@@ -447,6 +980,9 @@ export function ValProvider({
                   (bucket) => bucket.bucket,
                 ),
                 publicProjectId: res.json.publicProjectId,
+                ...(res.json.remoteHost !== undefined
+                  ? { remoteHost: res.json.remoteHost }
+                  : {}),
               });
             } else {
               if ("errorCode" in res.json && res.json.errorCode) {
@@ -466,7 +1002,7 @@ export function ValProvider({
             }
           })
           .catch((err) => {
-            console.error("Error getting remote settings", err);
+            Internal.log.error("Error getting remote settings", err);
             setRemoteFiles({
               status: "inactive",
               reason: "unknown-error",
@@ -482,118 +1018,509 @@ export function ValProvider({
     }
   }, [requiresRemoteFiles]);
 
-  const syncEngineInitStatus = useRef<
-    "not-initialized" | "done" | "in-progress" | "retry"
-  >("not-initialized");
-  const [startSyncPoll, setStartSyncPoll] = useState(false);
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-
-  useEffect(() => {
-    if (initializedAt === null && syncEngineInitStatus.current === "done") {
-      syncEngineInitStatus.current = "not-initialized";
-    }
-    if (
-      "data" in stat &&
-      stat.data &&
-      syncEngineInitStatus.current === "not-initialized"
-    ) {
-      syncEngineInitStatus.current = "in-progress";
-      let timeout: NodeJS.Timeout | null = null;
-      const exec = async () => {
-        if ("data" in stat && stat.data) {
-          console.debug("ValSyncEngine init started...", stat.data.profileId);
-          const res = await syncEngine.init(
-            stat.data.mode,
-            stat.data.baseSha,
-            stat.data.schemaSha,
-            stat.data.sourcesSha,
-            stat.data.patches,
-            stat.data.profileId,
-            stat.data.commitSha ?? null,
-            Date.now(),
-          );
-          console.debug("ValSyncEngine init result", res);
-          if (res.status === "retry") {
-            syncEngineInitStatus.current = "retry";
-            timeout = setTimeout(exec, 4000);
-          } else {
-            console.debug("Val is initialized!", res);
-            syncEngineInitStatus.current = "done";
-            if (timeout) {
-              clearTimeout(timeout);
-            }
-            setStartSyncPoll(true);
-          }
-        } else {
-          syncEngineInitStatus.current = "not-initialized";
-          throw Error(
-            "Unexpected state: init was started with stat.data but now it is not there",
-          );
-        }
-      };
-      exec();
-      return () => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-      };
-    } else if (
-      "data" in stat &&
-      stat.data &&
-      syncEngineInitStatus.current === "done"
-    ) {
-      syncEngine.syncWithUpdatedStat(
-        stat.data.mode,
-        stat.data.baseSha,
-        stat.data.schemaSha,
-        stat.data.sourcesSha,
-        stat.data.patches,
-        stat.data.profileId,
-        stat.data.commitSha ?? null,
-        Date.now(),
-      );
-    }
-  }, [stat, syncEngine, initializedAt]);
-
-  useEffect(() => {
-    if (!startSyncPoll) {
-      return;
-    }
-    let timeout: NodeJS.Timeout | null = null;
-    const sync = async () => {
-      // We got a reset, so we must re-initialize
-      if (initializedAt === null) {
-        setStartSyncPoll(false);
-        syncEngineInitStatus.current = "not-initialized";
-        return;
-      }
-      await syncEngine.sync(Date.now());
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      timeout = setTimeout(sync, 1000);
-    };
-    sync();
-    return () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    };
-  }, [syncEngine, initializedAt, startSyncPoll]);
-
+  /**
+   * Intake and `/stat` are `ValStoreProvider`'s, below.
+   *
+   * There used to be ~100 lines here: an init state machine, a retry timer and a
+   * 1s poll that re-issued `/schema`, `/sources` and `/patches` on every tick.
+   * None of it is needed any more, and the reason is where the data comes from.
+   *
+   * The Studio is handed the host app's `ValModules` as a prop, so schema and
+   * committed source are already in this process — `host.receive` derives both,
+   * with no round trip and nothing to retry. What is genuinely remote is the
+   * patch chain, and `/stat` already announces it: `StatStore` names the ordered
+   * ids and `PatchStore` fetches only the ones it does not have. `useStat` still
+   * polls, because that is how a second editor's work arrives; nothing else does.
+   */
   const [publishSummaryState, setPublishSummaryState] =
     useState<PublishSummaryState>({
       type: "not-asked",
     });
+  /** See {@link ValContextValue.deploy}. One per Studio, not one per caller. */
+  const deploy = useStudioDeploy();
+  /**
+   * A publish that went live is a commit this Studio has seen the site serve.
+   * `/stat` says the same thing eventually, but in http mode it is polled so
+   * rarely that the list lagged the site by minutes.
+   */
+  const markObserved = useCallback((commit: string) => {
+    setObservedCommitShas((prev) => {
+      if (prev.has(commit)) return prev;
+      const next = new Set(prev);
+      next.add(commit);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    if (
+      deploy.state.status === "done" &&
+      deploy.state.result.status !== "failed" &&
+      deploy.state.commit !== null
+    ) {
+      markObserved(deploy.state.commit);
+    }
+  }, [deploy.state, markObserved]);
+  /**
+   * What a builder tab pressed for this page, followed by this page's tracker.
+   * A ref: the tracker is made below, after the handoff that hears it.
+   */
+  const onHandoffPressed = useRef<(pressed: HandoffPressed) => void>(() => {});
+  /** See {@link ValContextValue.handoff}. */
+  /** This page's tracker, read by the handoff. A ref for the same reason. */
+  const trackedStatus = useRef<
+    (requestId: string) => PublishRequestStatus | null
+  >(() => null);
+  const handoff = useSiteHandoff({
+    enabled: handsOffPublish,
+    onPressed: (pressed) => onHandoffPressed.current(pressed),
+    requestStatus: (requestId) => trackedStatus.current(requestId),
+  });
 
-  const pendingOpsCount = useSyncExternalStore(
-    syncEngine.subscribe("pending-ops-count"),
-    () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
+  /*
+   * The publish jobs, made once. The tracker outlives renders, so what it
+   * calls back into -- the deploy, the handoff, what a settled request does --
+   * is read through refs.
+   */
+  const deployRef = useRef(deploy.deploy);
+  deployRef.current = deploy.deploy;
+  const handoffRef = useRef(handoff);
+  const refreshStatRef = useRef(refreshStat);
+  refreshStatRef.current = refreshStat;
+  handoffRef.current = handoff;
+  const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
+  const onNeedsBuilder = useRef<(jobId: string) => void>(() => {});
+  /** "Published" toasts waiting for the edge window to end. */
+  const liveToasts = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = liveToasts.current;
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+  const publishJobs = useMemo(() => {
+    const client = createStudioJobClient({ api: "/api/val" });
+    const jobs = createPublishJobs({
+      client,
+      tab: PUBLISH_TAB_ID,
+      build: (job, onPhase) => {
+        const handoff = handoffRef.current;
+        if (handoff.active()) {
+          /*
+           * This page cannot build: a job it took goes to the tab it opened,
+           * which runs it as this tab. Only queued work -- that tab makes the
+           * presses itself, and builds the jobs they start.
+           */
+          const pressed =
+            jobs
+              .get()
+              .requests.filter((request) => !isSettled(request.status))
+              .at(-1)?.requestId ?? null;
+          return handoff.runJob(
+            job,
+            PUBLISH_TAB_ID,
+            pressed,
+            () => client.renew(job.id, PUBLISH_TAB_ID),
+            () => client.cancel(job.id),
+          );
+        }
+        return runStudioJob({
+          client,
+          job,
+          tab: PUBLISH_TAB_ID,
+          deploy: (prepared) => deployPreparedJob(deployRef.current, prepared),
+          onPhase,
+          // A connected tab takes work it cannot build, and says so.
+          canBuild: canBuildHere,
+          /*
+           * Managed, where only a tab builds: a page that cannot pressed a
+           * publish it guessed needs no build (`pendingNeedsBuild`), and one
+           * that does after all is given back for a builder tab.
+           */
+          buildsElsewhere: !connectedJobsRef.current,
+        });
+      },
+      /*
+       * Not the builder tab a page opened: it runs the one press it was
+       * opened for, as that page's tab, and asks for that press's queued job
+       * itself. Elsewhere, where this page can build -- or while a builder
+       * tab it opened is open to build what this page takes.
+       */
+      takesQueuedWork: () =>
+        handsOffPublish &&
+        // A proposal's address may reach its own merge's job, and no other.
+        !atProposalRef.current &&
+        (connectedJobsRef.current ||
+          canBuildHere() ||
+          handoffRef.current.active() ||
+          /*
+           * A page that cannot build, waiting on a press of its own that it
+           * made without a builder tab (one of content alone): when its turn
+           * comes, its job is this page's to take, and nobody else's.
+           */
+          jobs
+            .get()
+            .requests.some(
+              (request) =>
+                !isSettled(request.status) && request.handedOffAt === undefined,
+            )),
+      onSettled: (request) => onPublishSettled.current(request),
+      onNeedsBuilder: (jobId) => onNeedsBuilder.current(jobId),
+    });
+    return jobs;
+  }, [handsOffPublish]);
+  /*
+   * The builder tab's press is this page's: it pressed as this tab, under the
+   * id this page minted. Followed without its job -- the tab builds that.
+   */
+  trackedStatus.current = (requestId) =>
+    publishJobs
+      .get()
+      .requests.find((request) => request.requestId === requestId)?.status ??
+    null;
+  onHandoffPressed.current = (pressed) =>
+    publishJobs.track({
+      requestId: pressed.requestId,
+      request: pressed.request,
+      job: null,
+      patchIds: pressed.patchIds,
+      ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
+      ...(pressed.merge !== undefined ? { merge: pressed.merge } : {}),
+      viaTab: true,
+    });
+  /*
+   * A publish this page pressed without a builder tab -- it guessed one of
+   * content alone -- whose job needs a build after all: only a tap may open
+   * the tab, so the editor is asked for one. The tab presses the same request
+   * again, finds it pressed, and builds its job.
+   */
+  onNeedsBuilder.current = (jobId) => {
+    const open = publishJobs
+      .get()
+      .requests.filter((request) => !isSettled(request.status));
+    const request =
+      open.find((candidate) => candidate.jobId === jobId) ?? open.at(-1);
+    if (request === undefined) return;
+    toast("This publish needs a build", {
+      id: `needs-builder:${request.requestId}`,
+      description:
+        "It changes something the live site cannot show without one, and this browser builds in a tab of its own.",
+      duration: Infinity,
+      action: {
+        label: "Build in a new tab",
+        onClick: () => {
+          handoffRef.current.prepare(true, {
+            requestId: request.requestId,
+            after: null,
+            // A merge's tab presses the merge again, not the site's changes.
+            ...(request.merge !== undefined ? { merge: request.merge } : {}),
+          });
+        },
+      },
+    });
+  };
+  onPublishSettled.current = (request) => {
+    const status = request.status;
+    const id = `publish:${request.requestId}`;
+    toast.dismiss(`needs-builder:${request.requestId}`);
+    // A publish a builder tab handed to content: the card's last word.
+    handoffRef.current.settled(request.requestId, status);
+    if (status.kind === "live") {
+      markObserved(status.commit);
+      /*
+       * Not at Live: at the end of the edge window, when every visitor gets
+       * the change. Until then the status bar spins "Reaching edges", and
+       * this is the announcement that it stopped. See `EDGE_CACHE_MS`.
+       */
+      const settledAt = request.settledAt ?? Date.now();
+      const timer = setTimeout(
+        () => {
+          liveToasts.current.delete(timer);
+          toast("Published", {
+            id,
+            description: "Every visitor now sees your changes.",
+          });
+        },
+        Math.max(0, settledAt + EDGE_CACHE_MS - Date.now()),
+      );
+      liveToasts.current.add(timer);
+      return;
+    }
+    if (status.kind !== "failed") return;
+    /*
+     * What the failure holds back is content's to say, and with no socket
+     * (or one that missed it) the next `/stat` could be twenty minutes away.
+     * Until it says, `heldBackPatchIds` holds this press's changes back.
+     */
+    refreshStatRef.current();
+    /*
+     * After the seal (connected): the change is published, and CI's build of
+     * it failed. Nothing to try again or discard -- the next publish builds
+     * again -- so the one action is the run itself.
+     */
+    if (status.actions.includes("re-run-build")) {
+      toast.error("Published, not on the site yet", {
+        id,
+        description: "The build failed. The next publish builds it again.",
+        duration: Infinity,
+        action: {
+          label: "View run",
+          onClick: () => {
+            void createStudioJobClient({ api: "/api/val" })
+              .newestCiRun()
+              .then((run) => {
+                if (run?.url) window.open(run.url, "_blank", "noopener");
+                else
+                  system.status.reportError(
+                    "The build's run could not be found",
+                    "The workflow did not say where its run is.",
+                  );
+              })
+              .catch((e: unknown) =>
+                system.status.reportError(
+                  "The build's run could not be found",
+                  e instanceof Error ? e.message : String(e),
+                ),
+              );
+          },
+        },
+      });
+      return;
+    }
+    /*
+     * It broke a page, and on a project with proposals its changes have left
+     * the site: they are in a proposal of their own, which is where they are
+     * fixed and published (its Publish is the Try again). Nothing here to try
+     * again or discard, so the one action is going there.
+     */
+    if (status.movedTo !== undefined) {
+      const moved = status.movedTo;
+      toast.error("Publishing broke the site", {
+        id,
+        description: `${
+          moved.changes === 1
+            ? "Its change is"
+            : `Its ${moved.changes} changes are`
+        } in the proposal “${moved.displayName}”, to be fixed and published there. ${status.message}`,
+        duration: Infinity,
+        action: {
+          label: "Open the proposal",
+          onClick: () => {
+            const client = createProposalsClient({ api: "/api/val" });
+            void waitForAddress(client, moved.proposal)
+              .then((origin) =>
+                window.location.assign(
+                  sameStudioPageAt(origin, window.location),
+                ),
+              )
+              .catch((e: unknown) =>
+                system.status.reportError(
+                  "The proposal could not be opened",
+                  e instanceof Error ? e.message : String(e),
+                ),
+              );
+          },
+        },
+      });
+      return;
+    }
+    const reportOutcome = (
+      outcome: Awaited<ReturnType<PublishJobs["discard"]>>,
+    ) => {
+      if (!outcome.ok) {
+        system.status.reportError("Could not publish", outcome.message);
+      } else if (outcome.stillHeld !== undefined) {
+        system.status.reportError(
+          `${outcome.stillHeld.length} of these changes were kept`,
+          "Another publish that is under way includes them.",
+        );
+      }
+    };
+    toast.error("Could not publish", {
+      id,
+      description: status.message,
+      // Until it is acted on: nothing else says this publish is not live.
+      duration: Infinity,
+      ...(status.actions.includes("try-again")
+        ? {
+            action: {
+              label: "Try again",
+              onClick: () => {
+                /*
+                 * In the click, where a page that cannot build may open the
+                 * tab that will -- and that tab presses the try again, as
+                 * this page: see `publish/handoff.ts`. A no-op where this
+                 * page can build.
+                 *
+                 * The last edit is sent first, as Publish does: on an iPhone
+                 * this page is paused once the tab opens, and the tab waits
+                 * for that edit. Where the try again stays on this page, it
+                 * is only the save autosave was about to make.
+                 */
+                const after = newestUnpublished(system.patchStore);
+                void system.patchSync.flush().catch(() => undefined);
+                if (
+                  handoffRef.current.prepare(
+                    // A merge's files come from content: see `pressMerge`.
+                    // Connected, every change is deployed: see `needsBuild`.
+                    request.merge !== undefined ||
+                      statSourceMode !== "managed" ||
+                      pendingNeedsBuild(system.patchStore),
+                    {
+                      tryAgainOf: request.requestId,
+                      after,
+                      // A merge's try again presses the merge: see `tryAgain`.
+                      ...(request.merge !== undefined
+                        ? { merge: request.merge }
+                        : {}),
+                    },
+                  )
+                ) {
+                  return;
+                }
+                // What the new job will take: everything pending now, edits
+                // saved since the failure included.
+                const store = system.patchStore;
+                const published = store.publishedPatchIds();
+                const pending = store
+                  .allRecords()
+                  .filter(
+                    (record) =>
+                      !store.isPending(record.patchId) &&
+                      !record.appliedAt &&
+                      !published.has(record.patchId),
+                  )
+                  .map((record) => record.patchId);
+                void publishJobs
+                  .tryAgain(request.requestId, { patchIds: pending })
+                  .then((done) => {
+                    if (!done.ok) handoffRef.current.cancel(done.message);
+                    reportOutcome(done);
+                  });
+              },
+            },
+          }
+        : {}),
+      ...(status.actions.includes("discard")
+        ? {
+            cancel: {
+              label: "Discard changes",
+              onClick: () => {
+                void publishJobs.discard(request.requestId).then(reportOutcome);
+              },
+            },
+          }
+        : {}),
+    });
+  };
+  const publishJobsState = useSyncExternalStore(
+    publishJobs.subscribe,
+    publishJobs.get,
+    publishJobs.get,
+  );
+  const statSourceMode =
+    "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const statProposal =
+    "data" in stat && stat.data ? (stat.data.proposal ?? null) : null;
+  const proposalName = statProposal?.name ?? null;
+  const proposalBranch = statProposal?.branch ?? null;
+  // Held by value: every stat is a new object, and the proposal is not.
+  const proposal = useMemo(
+    () =>
+      proposalName === null || proposalBranch === null
+        ? null
+        : { name: proposalName, branch: proposalBranch },
+    [proposalName, proposalBranch],
+  );
+  const publishesAsJobs =
+    "data" in stat && stat.data
+      ? (stat.data.publishJobs ?? statSourceMode === "managed")
+      : false;
+  /*
+   * A connected job is built by CI: the tab's part is the prepare, which any
+   * tab can do -- so a free tab takes queued work whether or not it could
+   * build a site.
+   */
+  const connectedJobsRef = useRef(false);
+  connectedJobsRef.current = publishesAsJobs && statSourceMode === "connected";
+  const atProposalRef = useRef(false);
+  atProposalRef.current = proposal !== null;
+  /*
+   * At a proposal's address too, where saves are commits rather than jobs:
+   * Publish there merges the proposal, which IS a job, and this tracker
+   * follows it to Live. It takes no queued work there (see above).
+   */
+  const followsJobs = publishesAsJobs || proposal !== null;
+  useEffect(() => {
+    if (!followsJobs) return;
+    publishJobs.start();
+    const off = subscribePublishJobs(() => publishJobs.nudge());
+    return () => {
+      off();
+      publishJobs.stop();
+    };
+  }, [followsJobs, publishJobs, subscribePublishJobs]);
+  const [observedPublishJobs, setObservedPublishJobs] = useState<
+    readonly ObservedJob[]
+  >([]);
+  useEffect(
+    () =>
+      subscribePublishJobs((nudge) => {
+        if (nudge.status === null) return;
+        const status = nudge.status;
+        const at = Date.now();
+        setObservedPublishJobs((jobs) => {
+          const before = jobs.find((job) => job.id === nudge.id);
+          const sealedAt =
+            before?.sealedAt ?? (status === "sealed" ? at : undefined);
+          const next: ObservedJob = {
+            id: nudge.id,
+            status,
+            seenAt: at,
+            ...(sealedAt !== undefined ? { sealedAt } : {}),
+          };
+          // The newest few: an old job says nothing a newer one does not.
+          return [next, ...jobs.filter((job) => job.id !== nudge.id)].slice(
+            0,
+            OBSERVED_JOBS_KEPT,
+          );
+        });
+      }),
+    [subscribePublishJobs],
+  );
+  /**
+   * What every progress surface reads: the deploy, seen through the publish
+   * jobs. See `publishProgress`. A clock is not a dependency -- a settled
+   * request carries its own times.
+   */
+  const deployView = useMemo<UseStudioDeploy>(
+    () => ({
+      deploy: deploy.deploy,
+      state: publishProgress(deploy.state, publishJobsState, Date.now()),
+    }),
+    [deploy.deploy, deploy.state, publishJobsState],
+  );
+
+  /**
+   * Warn before leaving with edits that have not reached the server.
+   *
+   * The engine counted queued OPERATIONS here, most of which were reads it had
+   * issued itself — so a slow `/sources` fetch was enough to make the browser ask
+   * "are you sure you want to leave". This counts unsaved PATCHES, which is the
+   * only thing a user can actually lose by closing the tab.
+   */
+  const unsavedCount = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        system.patchStore.events.on("patch:chain", onChange),
+      [system],
+    ),
+    useCallback(() => system.patchStore.pendingPatchIds().length, [system]),
+    useCallback(() => system.patchStore.pendingPatchIds().length, [system]),
   );
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (pendingOpsCount > 0) {
+      if (unsavedCount > 0) {
         event.preventDefault();
         event.returnValue = ""; // Required for Chrome and some other browsers
       }
@@ -602,8 +1529,8 @@ export function ValProvider({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [pendingOpsCount]);
-  const profilesData = useProfilesData(
+  }, [unsavedCount]);
+  const { state: profilesData, retry: retryProfiles } = useProfilesData(
     client,
     authenticationState,
     "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -611,57 +1538,46 @@ export function ValProvider({
     runtimeConfig?.project,
   );
 
-  const getDirectFileUploadSettings = useCallback(async (): Promise<
-    | {
-        status: "success";
-        data: {
-          nonce: string | null;
-          baseUrl: string;
-          contentBaseUrl: string | null;
-          contentAuthNonce: string | null;
-        };
-      }
-    | {
-        status: "error";
-        error: string;
-      }
-  > => {
-    let res = await client("/direct-file-upload-settings", "POST", {});
-    let retries = 0;
-    while (res.status === null && retries < 5) {
-      console.warn(
-        "Failed to get direct file upload settings, retrying...",
-        res,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
-      res = await client("/direct-file-upload-settings", "POST", {});
-      retries++;
-    }
-    if (res.status === 200) {
-      return { status: "success", data: res.json };
-    }
-    return {
-      status: "error",
-      error: "Could not get direct file upload settings",
-    };
-  }, [client]);
-
   return (
     <ValContext.Provider
       value={{
         client,
         publishSummaryState,
         setPublishSummaryState,
-        syncEngine,
-        profileId: "data" in stat && stat.data ? stat.data.profileId : null,
+        deploy: deployView,
+        handoff,
+        publishJobs,
+        publishJobsState,
+        observedPublishJobs,
+        serverPublishingPatchIds,
+        serverPublishingReportedAt: contentHoldsAt,
+        serverHeldBackPatchIds,
+        publishesAsJobs,
+        profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
+        publishRefusal:
+          "data" in stat && stat.data
+            ? (stat.data.publishRefusal?.message ?? null)
+            : null,
+        sourceMode:
+          "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
+        proposal,
+        historyBranch:
+          "data" in stat && stat.data
+            ? (stat.data.historyBranch ?? stat.data.config.gitBranch ?? null)
+            : null,
+        refreshStat,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
+        profilesError:
+          profilesData.status === "error"
+            ? { message: profilesData.error, willRetry: profilesData.willRetry }
+            : null,
+        retryProfiles,
         serviceUnavailable: showServiceUnavailable,
         baseSha,
         observedCommitShas,
         deployments,
-        dismissDeployment,
         authenticationState,
         config: runtimeConfig,
         profiles:
@@ -671,60 +1587,183 @@ export function ValProvider({
         sendWsMessage,
         isWsConnected,
         aiAuthError,
+        aiConnectionError,
+        retryAiConnection,
+        refreshAiModels,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
+        availableAiModel,
+        availableAiModels,
+        selectedAiModel,
+        selectAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
       <TooltipProvider>
-        {theme !== undefined && setTheme ? (
-          <ValThemeProvider
-            theme={theme}
-            setTheme={setTheme}
-            config={runtimeConfig}
-          >
-            <ValErrorProvider syncEngine={syncEngine}>
-              <ValPortalProvider>
-                <ValRemoteProvider remoteFiles={remoteFiles}>
-                  <ValFieldProvider
-                    syncEngine={syncEngine}
-                    getDirectFileUploadSettings={getDirectFileUploadSettings}
-                    config={runtimeConfig}
-                  >
-                    <LocalModulesErrorBanner syncEngine={syncEngine} />
-                    {children}
-                    <SchemaOutOfDateGate syncEngine={syncEngine} />
-                  </ValFieldProvider>
-                </ValRemoteProvider>
-              </ValPortalProvider>
-            </ValErrorProvider>
-          </ValThemeProvider>
-        ) : (
-          children
-        )}
+        {/*
+          Configured and connected are two different questions, and the studio
+          answers them in two different places: whether to offer an assistant at
+          all, and whether an affordance that needs a live conversation can do
+          anything yet.
+        */}
+        <AIChatActionsProvider
+          /*
+           * Shown unless the project has turned it off. An assistant nobody has
+           * decided about is still offered: the panel is where the offer is
+           * made, so hiding it would leave no way to accept.
+           */
+          isAIChatEnabled={wsEnabled && assistant !== "off"}
+          /*
+           * "Online" is stricter, and deliberately: it is what decides whether
+           * an affordance that needs a LIVE conversation is offered (mentioning
+           * a field, chiefly), and an unconfigured assistant cannot take a
+           * message until someone has said yes.
+           */
+          isAIChatOnline={wsEnabled && isWsConnected && assistant === "on"}
+        >
+          {theme !== undefined && setTheme ? (
+            <ValThemeProvider
+              theme={theme}
+              setTheme={setTheme}
+              config={runtimeConfig}
+              settingsTheme={settingsTheme}
+            >
+              <ValStoreProvider
+                system={system}
+                valModules={valModules ?? null}
+                stat={storeStat}
+              >
+                <ValErrorProvider>
+                  <AutoPublishProvider>
+                    <ValPortalProvider>
+                      <ValRemoteProvider remoteFiles={remoteFiles}>
+                        <ValFieldProvider
+                          getDirectFileUploadSettings={
+                            getDirectFileUploadSettings
+                          }
+                          config={runtimeConfig}
+                        >
+                          {/*
+                          Tell the host page when a module's source moves, so the
+                          customer's own components behind the Studio show the
+                          edit rather than the committed value.
+                        */}
+                          <ValOverlayEmitter enabled={dispatchValEvents} />
+                          <LocalModulesErrorBanner />
+                          <ProjectLocalesProvider>
+                            {children}
+                          </ProjectLocalesProvider>
+                          <SchemaOutOfDateGate />
+                          <StudioOutOfDateGate />
+                        </ValFieldProvider>
+                      </ValRemoteProvider>
+                    </ValPortalProvider>
+                  </AutoPublishProvider>
+                </ValErrorProvider>
+              </ValStoreProvider>
+            </ValThemeProvider>
+          ) : (
+            children
+          )}
+        </AIChatActionsProvider>
       </TooltipProvider>
     </ValContext.Provider>
   );
 }
 
-function SchemaOutOfDateGate({ syncEngine }: { syncEngine: ValSyncEngine }) {
-  const subscribe = useMemo(
-    () => syncEngine.subscribe("schema-out-of-date"),
-    [syncEngine],
+/**
+ * The site moved onto other dependencies after this page loaded, and a publish
+ * was refused for it. See `publish/loadedLayer.ts`.
+ *
+ * Also where the page takes the reading it is compared against, because this
+ * is the first place inside the provider that knows the source mode: only a
+ * managed project's Studio is served by the build it publishes.
+ */
+function StudioOutOfDateGate() {
+  const buildsInTab = useStudioBuildsInTab();
+  useEffect(() => {
+    if (buildsInTab) rememberLoadedLayer();
+  }, [buildsInTab]);
+  const refusals = useSyncExternalStore(
+    subscribeStudioOutOfDate,
+    studioOutOfDateRefusals,
+    studioOutOfDateRefusals,
   );
-  const getSnapshot = useCallback(
-    () => syncEngine.getSchemaOutOfDateSnapshot(),
-    [syncEngine],
-  );
-  const schemaOutOfDate = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getSnapshot,
-  );
-  if (!schemaOutOfDate) return null;
+  const [dismissedAt, setDismissedAt] = useState(0);
+  if (refusals === 0 || refusals === dismissedAt) return null;
+  return <StudioOutOfDateDialog onClose={() => setDismissedAt(refusals)} />;
+}
+
+/**
+ * The schema on the server no longer matches the one this Studio holds.
+ *
+ * Once true it stays true — see `SchemaFreshness` in `StatusStore`. There is no
+ * way back without a reload, because every open field was resolved against a
+ * schema that has been replaced, and a gate that could flicker off would let the
+ * user keep editing against one that is gone.
+ */
+function SchemaOutOfDateGate() {
+  const status = useValStatus();
+  if (status.schema !== "out-of-date") return null;
   return <SchemaOutOfDateDialog />;
 }
+
+/**
+ * Everything the editor is TOLD: errors, the network, the schema's freshness.
+ *
+ * One subscription for all of them, because `StatusStore` emits one event for
+ * all of them — a UI shows them together, and splitting them into four
+ * subscriptions would be four re-renders for one piece of news.
+ */
+function useValStatus(): StatusSnapshot {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.status.events.on("status:change", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? EMPTY_STATUS : val.system.status.current()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+const EMPTY_STATUS: StatusSnapshot = {
+  errors: [],
+  networkErrorSince: null,
+  schemaError: null,
+  schema: "current",
+};
+
+/**
+ * How many times a failing `/profiles` is tried before it gives up.
+ *
+ * It used to be unbounded — a fixed two second retry, forever. Against a
+ * misconfigured project (`/profiles` answering 404 "Project not found") that is
+ * not resilience: the request will never succeed, and the only thing the retry
+ * produces is a console filling with the same stack every two seconds, which
+ * buries every other error in the studio.
+ */
+const PROFILES_MAX_ATTEMPTS = 5;
+/** The wait after the first failure. Doubled after each one after that. */
+const PROFILES_RETRY_BASE_MS = 1000;
+
+type ProfilesData =
+  | { status: "not-asked" }
+  | { data?: Record<AuthorId, Profile>; status: "loading" }
+  | {
+      data?: Record<AuthorId, Profile>;
+      status: "error";
+      error: string;
+      /** Whether another attempt is already scheduled. */
+      willRetry: boolean;
+    }
+  | { data?: Record<AuthorId, Profile>; status: "auth-error"; error: string }
+  | { data: Record<AuthorId, Profile>; status: "done" };
 
 function useProfilesData(
   client: ValClient,
@@ -732,27 +1771,32 @@ function useProfilesData(
   mode: "http" | "fs" | "unknown",
   serviceUnavailable: boolean | undefined,
   project: string | undefined,
-) {
-  const loadProfileDataRef = useRef(true);
-  const [profilesData, setProfilesData] = useState<
-    | {
-        data: Record<AuthorId, Profile>;
-        status: "done";
-      }
-    | {
-        data?: Record<AuthorId, Profile>;
-        status: "loading" | "error";
-      }
-    | {
-        data?: Record<AuthorId, Profile>;
-        status: "auth-error";
-        error: string;
-      }
-    | {
-        status: "not-asked";
-      }
-  >({ status: "not-asked" });
+): { state: ProfilesData; retry: () => void } {
+  const [profilesData, setProfilesData] = useState<ProfilesData>({
+    status: "not-asked",
+  });
+  /**
+   * How many times this has been tried since the last success or manual retry.
+   *
+   * A ref rather than state: it is read inside the request that increments it,
+   * and rendering has nothing to say about it — what the UI shows is the status
+   * and whether another attempt is coming, both of which are in state.
+   */
+  const attempts = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRetry = useCallback(() => {
+    if (retryTimer.current !== null) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  }, []);
+  useEffect(() => clearRetry, [clearRetry]);
+
+  // Through a ref so a failure can schedule the next attempt without the
+  // callback having to name itself.
+  const loadProfilesRef = useRef<() => void>(() => undefined);
   const loadProfiles = useCallback(async () => {
+    attempts.current += 1;
     setProfilesData((prev) => ({
       status: "loading",
       data: "data" in prev ? prev.data : undefined,
@@ -767,6 +1811,7 @@ function useProfilesData(
           avatar: profile.avatar,
         };
       }
+      attempts.current = 0;
       setProfilesData({
         status: "done",
         data: profilesById,
@@ -782,19 +1827,52 @@ function useProfilesData(
         data: "data" in prev ? prev.data : undefined,
       }));
     } else {
-      console.error("Could not get profiles", res.json);
-      loadProfileDataRef.current = true;
+      const willRetry = attempts.current < PROFILES_MAX_ATTEMPTS;
+      if (!willRetry) {
+        // Logged once, when there is nothing left to try — not on every
+        // attempt, which is what made this the loudest thing in the console.
+        Internal.log.error("Could not get profiles", res.json);
+      }
       setProfilesData((prev) => ({
         status: "error",
+        error: readableProfilesError(res.json),
+        willRetry,
         data: "data" in prev ? prev.data : undefined,
       }));
+      if (willRetry) {
+        // Backing off rather than a fixed interval: a server that is briefly
+        // busy recovers in the first second or two, and one that is
+        // misconfigured is not going to answer differently on the fifth ask.
+        const delay = PROFILES_RETRY_BASE_MS * 2 ** (attempts.current - 1);
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          loadProfilesRef.current();
+        }, delay);
+      }
     }
-  }, [client, mode, profilesData]);
+  }, [client, mode]);
+  loadProfilesRef.current = () => void loadProfiles();
+
+  /** Start again from the first attempt, because someone asked. */
+  const retry = useCallback(() => {
+    clearRetry();
+    attempts.current = 0;
+    loadProfilesRef.current();
+  }, [clearRetry]);
+
   useEffect(() => {
     if (
       authenticationState === "not-asked" ||
       authenticationState === "loading"
     ) {
+      return;
+    }
+    // Not before the server has said which mode it is in. Authentication can
+    // resolve first, and the two checks below are both about the mode: with
+    // it still "unknown", the fs-mode check for a project could not apply, and
+    // a project with none configured got a 500 from `/profiles` on every load
+    // — a race, so it came and went with how fast `/stat` answered.
+    if (mode === "unknown") {
       return;
     }
     if (mode !== "fs" && authenticationState !== "authorized") {
@@ -806,27 +1884,23 @@ function useProfilesData(
     if (serviceUnavailable) {
       return;
     }
-    if (!loadProfileDataRef.current) {
+    // Only the first ask. Retries are the timer's job, and a manual one is the
+    // retry callback's — an effect that re-fires on every status change cannot
+    // tell "try again" from "the status changed because we tried".
+    if (profilesData.status !== "not-asked") {
       return;
     }
-    loadProfileDataRef.current = false;
-    if (profilesData.status === "error") {
-      // Wait a bit before retrying...
-      setTimeout(() => loadProfiles(), 2000);
-    } else if (profilesData.status === "not-asked") {
-      loadProfiles();
-    }
+    loadProfiles();
   }, [
     authenticationState,
-    client,
     loadProfiles,
     mode,
-    profilesData,
+    profilesData.status,
     serviceUnavailable,
     project,
   ]);
 
-  return profilesData;
+  return { state: profilesData, retry };
 }
 
 export function useAuthenticationState() {
@@ -843,38 +1917,165 @@ export function useConnectionStatus() {
  * Hook to add a patch to any module file path.
  * Use this when you need to add a patch dynamically to different modules.
  */
+/**
+ * Add a patch to any module, from outside a field.
+ *
+ * `useAddPatch` is the hook a field uses and is bound to that field's path and
+ * instance; this is for the callers that are not fields — the AI writer, a bulk
+ * action. No `creatorId`, so nothing is suppressed and every reader of the paths
+ * it touches is woken, which is right: an edit that did not come from a field on
+ * screen has no instance to leave asleep.
+ */
 export function useAddModuleFilePatch() {
-  const { syncEngine } = useContext(ValContext);
+  const val = useValSystem();
   const addModuleFilePatch = useCallback(
     (
       moduleFilePath: ModuleFilePath,
       patch: Patch,
       type: SerializedSchema["type"],
     ) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
+      // `type` existed so the engine could decide whether two consecutive
+      // patches were mergeable. Nothing merges any more — one patch per edit —
+      // so it is unused. Kept in the signature because the call sites pass it.
+      void type;
+      if (val === null) {
+        Internal.log.error("cannot write patch: no store system is mounted");
+        return;
+      }
+      void val.system.patchStore
+        .createPatch(moduleFilePath, patch)
+        .then((res) => {
+          if (res.status !== "created") {
+            Internal.log.error("could not write patch", res.message);
+          }
+        });
     },
-    [syncEngine],
+    [val],
   );
   return { addModuleFilePatch };
 }
 
 export function useDeletePatches() {
-  const syncEngine = useSyncEngine();
+  const val = useValSystem();
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
-      // Delete in batches of 100 patch ids (since it is added to request url as query param)
-      const batches = [];
-      for (let i = 0; i < patchIds.length; i += 100) {
-        batches.push(patchIds.slice(i, i + 100));
+      if (val === null) {
+        Internal.log.error("cannot discard: no store system is mounted");
+        return;
       }
-      for (const batch of batches) {
-        syncEngine.deletePatches(batch, Date.now());
+      // In batches of 100: the ids go into the request URL as query params, and
+      // a chain long enough to matter is long enough to exceed a URL limit.
+      for (let i = 0; i < patchIds.length; i += 100) {
+        const batch = patchIds.slice(i, i + 100);
+        const discard = () =>
+          val.system.discard(batch).then((res) => {
+            if (res.status === "discarded") return;
+            if (res.publishJobId === undefined) {
+              val.system.status.reportError("Not discarded", res.message);
+              return;
+            }
+            const publishJobId = res.publishJobId;
+            /*
+             * A publish holds the change. Discarding it from under the publish
+             * would publish a page without the change it was built with, so
+             * the server refuses -- and the two ways on are to let the publish
+             * end, or to stop it. "Cancel publish" stops it and then does the
+             * discard that was asked for, so the button finishes the job
+             * rather than leading to the same refusal again.
+             */
+            toast.error("Being published right now", {
+              id: `discard-held:${publishJobId}`,
+              description: res.message,
+              duration: Infinity,
+              action: {
+                label: "Cancel publish",
+                onClick: () => {
+                  void createStudioJobClient({ api: "/api/val" })
+                    .cancel(publishJobId)
+                    .then((cancelled) => {
+                      if (cancelled) return discard();
+                      val.system.status.reportError(
+                        "The publish could not be cancelled",
+                        "It is already going live. Discard the change once it is published.",
+                      );
+                    })
+                    .catch((e: unknown) =>
+                      val.system.status.reportError(
+                        "The publish could not be cancelled",
+                        e instanceof Error ? e.message : String(e),
+                      ),
+                    );
+                },
+              },
+              cancel: { label: "Wait", onClick: () => {} },
+            });
+          });
+        void discard();
       }
     },
-    [syncEngine],
+    [val],
   );
   return { deletePatches };
 }
+
+/**
+ * Tell the editor about unpublished changes to files the project no longer has,
+ * with Discard beside the message.
+ *
+ * A renamed or deleted `.val` file leaves its unpublished changes behind. They
+ * no longer hold the editor (see `withoutModule` on `source:patch-apply`), but
+ * they cannot be shown or published either, and only the editor knows whether
+ * the file is coming back. So: one toast, kept until it is acted on, updated in
+ * place as the set changes and gone when it is empty.
+ */
+export function useChangesWithoutModuleNotice(): void {
+  const val = useValSystem();
+  const { deletePatches } = useDeletePatches();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offHead = val.system.patchStore.events.on("patch:head", onChange);
+      return () => {
+        offChain();
+        offHead();
+      };
+    },
+    [val],
+  );
+  // A string, so the snapshot is equal by value and the effect below runs once
+  // per change of the set rather than once per event.
+  const getSnapshot = useCallback(
+    () =>
+      val === null
+        ? "[]"
+        : JSON.stringify(val.system.patchStore.changesWithoutModule()),
+    [val],
+  );
+  const key = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  useEffect(() => {
+    if (val === null) return;
+    const changes = val.system.patchStore.changesWithoutModule();
+    const notice = describeChangesWithoutModule(changes);
+    if (notice === null) {
+      toast.dismiss(CHANGES_WITHOUT_MODULE_TOAST);
+      return;
+    }
+    const patchIds = changes.map((change) => change.patchId);
+    toast.error(notice.title, {
+      id: CHANGES_WITHOUT_MODULE_TOAST,
+      description: notice.description,
+      duration: Infinity,
+      action: {
+        label: "Discard",
+        onClick: () => deletePatches(patchIds),
+      },
+      cancel: { label: "Keep", onClick: () => {} },
+    });
+  }, [val, key, deletePatches]);
+}
+
+const CHANGES_WITHOUT_MODULE_TOAST = "changes-without-module";
 
 export function useAIContext() {
   const {
@@ -899,12 +2100,57 @@ export function useAIContext() {
   };
 }
 
-export function useDeployments() {
-  const { deployments, dismissDeployment, observedCommitShas } =
-    useContext(ValContext);
-  return { deployments, dismissDeployment, observedCommitShas };
+/**
+ * The model AI calls should ask for, or null when there is none.
+ *
+ * Null is the ordinary state for a project with no AI key configured: with
+ * bring-your-own-key there is no fallback, so the callers treat it as "AI is
+ * off" rather than as an error.
+ */
+export function useAvailableAIModel(): AIModel | null {
+  const { availableAiModel } = useContext(ValContext);
+  return availableAiModel;
 }
 
+/**
+ * The models on offer, the one selected, and how to change it.
+ *
+ * The list is what the project's keys can actually reach — reported by the
+ * providers, not guessed here — so a picker built from it can only offer
+ * models that will work.
+ */
+export function useAIModelSelection(): {
+  models: AIModelInfo[];
+  selected: AIModel | null;
+  select: (model: AIModel) => void;
+} {
+  const { availableAiModels, selectedAiModel, selectAiModel } =
+    useContext(ValContext);
+  return {
+    models: availableAiModels,
+    selected: selectedAiModel,
+    select: selectAiModel,
+  };
+}
+
+export function useDeployments() {
+  const { deployments, observedCommitShas } = useContext(ValContext);
+  return { deployments, observedCommitShas };
+}
+
+/**
+ * The patch-set grouping, for the review UI.
+ *
+ * ON DEMAND, and that is the difference from the engine. The engine maintained
+ * the grouping incrementally on every keystroke, so typing paid for a structure
+ * only the review screen ever looked at. `system.getPatchSets()` builds it when
+ * asked and appends to it when the chain has only grown — see `PatchSetChain`,
+ * which decides append against rebuild with a prefix test rather than by
+ * remembering which moments require a reset.
+ *
+ * Asynchronous for the same reason: the grouping is in the worker realm, so
+ * there is no synchronous answer to give.
+ */
 export function usePatchSets():
   | {
       status: "success";
@@ -917,93 +2163,477 @@ export function usePatchSets():
   | {
       status: "not-asked";
     } {
-  const { syncEngine } = useContext(ValContext);
-  const serializedPatchSets = useSyncExternalStore(
-    syncEngine.subscribe("patch-sets"),
-    () => syncEngine.getSerializedPatchSetsSnapshot(),
-    () => syncEngine.getSerializedPatchSetsSnapshot(),
-  );
-  return { status: "success", data: serializedPatchSets };
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const [state, setState] = useState<
+    | { status: "success"; data: SerializedPatchSet }
+    | { status: "error"; error: string }
+    | { status: "not-asked" }
+  >({ status: "not-asked" });
+
+  /**
+   * The last answer, serialized, so an unchanged one keeps its identity.
+   *
+   * `chainVersion` bumps for every movement of the chain — a save landing, a
+   * stat arriving, a patch being marked published — and most of those do not
+   * change the GROUPING at all. Handing back a fresh object each time made the
+   * compare view recompute its change trees in the worker and rebuild every row,
+   * which is what "it re-does the whole thing" and the blinking were.
+   */
+  const lastSerialized = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (val === null) {
+      return;
+    }
+    let cancelled = false;
+    void val.system
+      .getPatchSets()
+      .then((data) => {
+        if (cancelled) return;
+        const serialized = JSON.stringify(data);
+        if (serialized === lastSerialized.current) {
+          // Same grouping. Not merely an optimisation: replacing the object is
+          // what makes everything downstream treat it as news.
+          return;
+        }
+        lastSerialized.current = serialized;
+        setState({ status: "success", data });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `chainVersion` is the dependency that matters: the grouping is a function
+    // of the chain, so it is re-read exactly when the chain moves.
+  }, [val, chainVersion]);
+
+  return state;
 }
 
-export function useCommittedPatches() {
-  const { syncEngine } = useContext(ValContext);
-  const allPatches = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
+/** Moved by every change to the patch chain. See `PatchStore`'s `bump`. */
+export function useChainVersion(): number {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
   );
-  const currentPatchIds = useCurrentPatchIds();
-  const committedPatchIds = useMemo(() => {
-    const committedPatchIds: Set<PatchId> = new Set();
-    for (const patchId of currentPatchIds) {
-      const patchData = allPatches[patchId];
-      if (patchData?.isCommitted) {
-        committedPatchIds.add(patchId);
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.patchStore.chainVersion()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Increments on every successful publish.
+ *
+ * Views that render state derived from the pending patches - the compare view
+ * above all - are stale the moment a publish goes through: the patches they
+ * were showing are committed and the base they were diffed against has moved.
+ * Use this as a reload key so they rebuild from scratch instead of leaving the
+ * pre-publish result on screen.
+ */
+export function usePublishCount(): number {
+  const val = useValSystem();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (val === null) return;
+    // `patch:forget-published` is the moment a publish has actually landed and
+    // the chain has been trimmed — after the source promotion, so a view that
+    // rebuilds on this key rebuilds against the new base rather than the old.
+    return val.system.patchStore.events.on("patch:head", () => {
+      setCount((previous) => previous + 1);
+    });
+  }, [val]);
+  return count;
+}
+
+/**
+ * Patches in the chain that have already shipped in a commit.
+ *
+ * Mostly an `http` mode question: there a published patch stays on the server and
+ * is re-applied, so being in the chain and having shipped are different facts. In
+ * `fs` mode a published patch is deleted, so this empties out as soon as the
+ * publish is forgotten.
+ *
+ * TWO sources, because either one alone is wrong for a while. `appliedAt` is the
+ * server's answer and is only ever seen on a record FETCHED after its commit — so
+ * a session that just published its own patches would see none of them as
+ * shipped until a refetch, and the review UI would go on offering to discard
+ * patches that are already in a commit. `publishedPatchIds()` covers exactly that
+ * window. `PatchStore.filePatchIds` applies the same union, for the same reason.
+ */
+export function useCommittedPatches(): ReadonlySet<PatchId> {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    const committed = new Set<PatchId>();
+    if (val === null) return committed;
+    void chainVersion;
+    const published = val.system.patchStore.publishedPatchIds();
+    for (const record of val.system.patchStore.allRecords()) {
+      if (record.appliedAt || published.has(record.patchId)) {
+        committed.add(record.patchId);
       }
     }
-    return committedPatchIds;
-  }, [allPatches, currentPatchIds]);
-  return committedPatchIds;
+    return committed;
+  }, [val, chainVersion]);
 }
 
+/**
+ * The commits the patches still in the chain went out in, newest first.
+ *
+ * The deploy line is drawn over patches that shipped in a specific commit, and
+ * that commit is the one thing they can be labelled with honestly. Reading the
+ * newest entry of the deployment feed instead is wrong in two ways at once: it
+ * can lag a commit the chain already knows about, and two undeployed commits
+ * would both be described by whichever one happened to be first.
+ */
+export function useDeployingCommitShas(): string[] {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    const shas: string[] = [];
+    const seen = new Set<string>();
+    // Records are in chain order, so the newest commit is at the end.
+    for (const record of val.system.patchStore.allRecords()) {
+      const sha = record.appliedAt?.commitSha;
+      if (sha !== undefined && !seen.has(sha)) {
+        seen.add(sha);
+        shas.unshift(sha);
+      }
+    }
+    return shas;
+  }, [val, chainVersion]);
+}
+
+/**
+ * Of these paths, the ones whose value is the same as the server's.
+ *
+ * A change that has been undone by a later change is still a change: the
+ * patches are real, they are in the chain, and they will be committed. But
+ * there is nothing to SHOW for them, and a compare view listing "hero.title"
+ * with the same text on both sides is describing work that will not happen.
+ *
+ * Answered by walking `sources` and `baseSources` to the same path, which is
+ * what makes the two sides comparable at all — see `useServerSourceAtPath`.
+ *
+ * Read out of the store rather than subscribed to per path: the caller is a
+ * whole-list view that already re-renders when source moves, and one
+ * subscription per row would be one wake per row for a single keystroke. This
+ * is the same rule `useShallowModulesAtPaths` follows, and the reason neither
+ * may be called from a field.
+ */
+export function useNoOpSourcePaths(
+  paths: SourcePath[],
+): ReadonlySet<SourcePath> {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  /*
+   * `sourcesVersion` alone is not enough. A publish moves `baseSources` through
+   * `promoteToBase` / `promotePublished`, and neither bumps a revision — on
+   * purpose, since the DISPLAYED value does not move. So the chain is watched
+   * too: it is what actually changes when a publish or a discard lands.
+   */
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    const equal = new Set<SourcePath>();
+    if (val === null) return equal;
+    void sourcesVersion;
+    void chainVersion;
+    const store = val.system.sourceStore;
+    for (const path of paths) {
+      const after = store.peek(path);
+      const before = store.peekBase(path);
+      // Only a settled pair can be compared. Anything still loading is not
+      // "unchanged", it is unknown, and calling it unchanged would hide a real
+      // change behind a slow read.
+      if (after.status !== "ready" || before.status !== "ready") continue;
+      if (
+        deepEqual(
+          after.data as ReadonlyJSONValue,
+          before.data as ReadonlyJSONValue,
+        )
+      ) {
+        equal.add(path);
+      }
+    }
+    return equal;
+  }, [val, sourcesVersion, chainVersion, paths]);
+}
+
+/**
+ * Whether publishing would change anything at all.
+ *
+ * False when every module carrying an unpublished patch already matches the
+ * server — the "edit it, then edit it back" case. The patches exist and can be
+ * discarded, but committing them would produce a commit with no diff in it, so
+ * Publish is disabled and the compare view says so rather than listing rows
+ * that claim a change and then show the same value twice.
+ *
+ * Deliberately module-level, not row-level: a module whose net effect is
+ * nothing has nothing to ship regardless of how the rows inside it group.
+ */
+export function useHasNetChanges(): boolean {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  const chainVersion = useChainVersion();
+  const committed = useCommittedPatches();
+  const publishing = usePublishingPatchIds();
+
+  /*
+   * Read off the CHAIN, not off the patch sets.
+   *
+   * `usePatchSets` is grouped asynchronously in a worker and reports
+   * `not-asked` until the first result. Mapping that to "no modules" made this
+   * hook answer "nothing changes" during the window — which disables Publish
+   * and zeroes Review as though everything had been reverted, on a project
+   * where nothing has. `patchStore.allRecords()` already names each record's
+   * module and is synchronous, so there is no window.
+   */
+  const { compare: modules, changesOnPublishing } = useMemo<
+    ReturnType<typeof netChangeModules>
+  >(() => {
+    if (val === null) return { compare: [], changesOnPublishing: false };
+    void chainVersion;
+    return netChangeModules(
+      val.system.patchStore.allRecords(),
+      committed,
+      publishing,
+    );
+  }, [val, chainVersion, committed, publishing]);
+
+  return useMemo(() => {
+    // As in the loop below: what is not known yet counts as a change. `false`
+    // would mean "nothing to publish", and it is not this hook's place to
+    // disable Publish because the system has not finished arriving.
+    if (val === null) return true;
+    /*
+     * Nothing uncommitted means nothing has been REVERTED — there is no
+     * pending work to cancel out. Answering `false` here labelled a chain of
+     * already-published records, which is what an `http` publish leaves
+     * behind, as "every change has been reverted, discard them" — about
+     * records that cannot be discarded.
+     */
+    if (modules.length === 0) return true;
+    // See `netChangeModules`: compared with a base that is about to move.
+    if (changesOnPublishing) return true;
+    void sourcesVersion;
+    void chainVersion;
+    const store = val.system.sourceStore;
+    for (const moduleFilePath of modules) {
+      const after = store.moduleSource(moduleFilePath);
+      // The module root as a source path — core's own conversion, rather than
+      // an assertion between two brands that do not overlap.
+      const before = store.peekBase(
+        Internal.joinModuleFilePathAndModulePath(
+          moduleFilePath,
+          "" as ModulePath,
+        ),
+      );
+      // Unknown counts AS a change: a module still loading must not be able to
+      // disable Publish, which would silently drop real work.
+      if (after === undefined || before.status !== "ready") return true;
+      if (
+        !deepEqual(after as ReadonlyJSONValue, before.data as ReadonlyJSONValue)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [val, sourcesVersion, chainVersion, modules, changesOnPublishing]);
+}
+
+/**
+ * Patches the server has that this session did not create.
+ *
+ * Another editor's work, or this editor's from a previous session. Named
+ * "server-side" by the engine, which kept three separate id lists and had a hook
+ * for each; the store keeps ONE ordered chain and marks which entries are still
+ * unsaved, so the three lists are three filters of one list.
+ */
 export function usePendingServerSidePatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  const globalServerSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("global-server-side-patch-ids"),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-  );
-  return globalServerSidePatchIds;
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    const store = val.system.patchStore;
+    return store
+      .allRecords()
+      .map((record) => record.patchId)
+      .filter((patchId) => !store.isPending(patchId));
+  }, [val, chainVersion]);
 }
 
+/** Patches created here that have not reached the server yet. */
 export function usePendingClientSidePatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  const pendingClientSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("pending-client-side-patch-ids"),
-    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
-    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    return val.system.patchStore.pendingPatchIds();
+  }, [val, chainVersion]);
+}
+
+/**
+ * Whether the editor has caught up with the server's pending changes, ONCE.
+ *
+ * Latched: it flips false → true when the first stat's patches have all been
+ * loaded and applied, and never goes back. Later fetches are not this — by then
+ * the editor holds a value and a field showing it is showing the truth, so
+ * dimming the whole editor every time a patch arrives from another tab would be
+ * a flicker with no information in it.
+ *
+ * What it is for: on the first paint a field can be showing PUBLISHED content
+ * while a pending change to it is still in flight. Typing over that produces a
+ * "fix" for something that was never wrong, and the real value lands underneath
+ * it a moment later. So the fields are held — dimmed and inert — until this is
+ * true.
+ */
+export function useInitialPatchesApplied(): boolean {
+  const val = useValSystem();
+  /**
+   * Woken by the head as well as by the chain, and the head is the one that
+   * matters here.
+   *
+   * `chainSettled()` needs every announced patch to be FETCHED and APPLIED, and
+   * those are two different stores' answers. The chain version moves when a
+   * patch's ops arrive; what moves when the source store finally applies them is
+   * `patch:head`, emitted from `PatchStore`'s `source:patch-apply` handler.
+   *
+   * Listening to the chain alone left the last step unheard — this latch is what
+   * holds every field dimmed and inert, so it stayed dimmed until some unrelated
+   * re-render happened to re-read. It survived only because a repeated `/stat`
+   * used to bump the chain unconditionally, which is exactly the wasted pulse
+   * that has now been removed.
+   *
+   * Cheap to widen: there is one of these in the Studio, it latches once, and
+   * after that the subscription answers `true` without reading anything.
+   */
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offHead = val.system.patchStore.events.on("patch:head", onChange);
+      return () => {
+        offChain();
+        offHead();
+      };
+    },
+    [val],
   );
-  return pendingClientSidePatchIds;
+  const getSnapshot = useCallback(
+    () => (val === null ? false : val.system.patchStore.chainSettled()),
+    [val],
+  );
+  const chainSettled = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+  const [settled, setSettled] = useState(false);
+  const ready = settled || chainSettled;
+  useEffect(() => {
+    if (ready) setSettled(true);
+  }, [ready]);
+  return ready;
+}
+
+/**
+ * Every patch in the chain, in order.
+ *
+ * The engine assembled this from three id lists and de-duplicated the overlap;
+ * the store has one ordered chain, so this is that chain.
+ */
+/**
+ * What is still outstanding in the loaded chain, and why, on demand.
+ *
+ * A getter rather than state: it is only read when the wait has already gone on
+ * too long — see `PendingChangesGate` — and as reactive state it would re-render
+ * the editor on every chain change to feed a report nobody is looking at.
+ */
+export function usePendingChangesProgress(): () => ChainProgress {
+  const val = useValSystem();
+  return useCallback(() => {
+    if (val === null) {
+      return {
+        total: 0,
+        settled: 0,
+        unfetched: [],
+        unapplied: [],
+        failed: [],
+        statSeen: false,
+      };
+    }
+    return val.system.patchStore.chainProgress();
+  }, [val]);
+}
+
+/**
+ * The last reason fetching patches failed, latched.
+ *
+ * Latched rather than cleared on success, because it is read after the fact: a
+ * chain that stalled sixty seconds ago and has since had one failing round is
+ * still explained by that round's message.
+ */
+export function usePatchFetchError(): string | null {
+  const val = useValSystem();
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (val === null) return;
+    return val.system.patchStore.events.on("patch:fetch-failed", (event) => {
+      setMessage(event.message);
+    });
+  }, [val]);
+  return message;
 }
 
 export function useCurrentPatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  const globalServerSidePatchIds = usePendingServerSidePatchIds();
-  const pendingClientSidePatchIds = usePendingClientSidePatchIds();
-  const savedServerSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("saved-server-side-patch-ids"),
-    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
-    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
-  );
-  const currentPatchIds = useMemo(() => {
-    const added: Set<PatchId> = new Set();
-    const currentPatchIds: PatchId[] = [];
-    for (const patchId of globalServerSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    if (val === null) return [];
+    void chainVersion;
+    return val.system.patchStore.allRecords().map((record) => record.patchId);
+  }, [val, chainVersion]);
+}
+
+/**
+ * How many pending changes there are — what Publish would ship.
+ *
+ * Committed patches are subtracted. A published patch stays in the chain in
+ * `http` mode until the new commit comes back, and counting it would have
+ * Review offer work that is already in a commit.
+ */
+export function usePendingChangeCount(): number {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const committed = useCommittedPatches();
+  return useMemo(() => {
+    if (val === null) return 0;
+    void chainVersion;
+    let count = 0;
+    for (const record of val.system.patchStore.allRecords()) {
+      if (committed.has(record.patchId)) continue;
+      count++;
     }
-    for (const patchId of savedServerSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
-    }
-    for (const patchId of pendingClientSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
-    }
-    return currentPatchIds;
-  }, [
-    globalServerSidePatchIds,
-    pendingClientSidePatchIds,
-    savedServerSidePatchIds,
-  ]);
-  return currentPatchIds;
+    return count;
+  }, [val, chainVersion, committed]);
 }
 
 export type PendingPatch = {
@@ -1016,80 +2646,88 @@ export type PendingPatch = {
     commitSha: string;
   };
 };
+const NO_PATCHES_AT_PATH: PatchAtPath[] = [];
+
+/**
+ * The chain entries that touch one path.
+ *
+ * ## Per PATH, not a chain walk per field
+ *
+ * `FieldPatchAuthorsSection` renders this on every non-compact field, and it
+ * used to subscribe to `patch:chain` — a project-wide wake-up — and then walk
+ * `allRecords()` itself. So a chain movement cost O(fields on screen x chain
+ * length) and re-rendered every one of those fields, whether or not its own
+ * answer had changed.
+ *
+ * `PatchStore.patchesByPath()` builds the index once per chain version and
+ * hands back the SAME array for a path whose answer has not moved, which is what
+ * lets `useSyncExternalStore` bail out. So one field's keystroke wakes that
+ * field's path and nobody else's, and the walk happens once for the whole
+ * screen rather than once per field.
+ */
 export function usePendingPatches(
   sourcePath: SourcePath | ModuleFilePath,
 ): PendingPatch[] | null {
-  const { syncEngine } = useContext(ValContext);
-
-  const allPatches = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
   );
-  const currentPatchIds = useCurrentPatchIds();
-  const cachedSourcePathsByPatchId = useRef<
-    Record<PatchId, Set<SourcePath | ModuleFilePath>>
-  >({});
-  const patchesMetadata = useMemo((): PendingPatch[] | null => {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath);
-    const patches: PendingPatch[] = [];
-    for (const patchId of currentPatchIds) {
-      const patchData = allPatches[patchId];
-      if (patchData?.moduleFilePath !== moduleFilePath) {
-        continue;
-      }
-      const cachedSourcePaths = cachedSourcePathsByPatchId.current[patchId];
-      if (cachedSourcePathsByPatchId.current[patchId]) {
-        if (cachedSourcePaths.has(sourcePath)) {
-          const patchData = allPatches[patchId];
-          if (patchData) {
-            patches.push(patchData);
-          }
-          continue;
-        }
-      }
-      const ops = patchData.patch;
-      for (const op of ops) {
-        const opModulePath = Internal.patchPathToModulePath(op.path);
-        if (modulePath && opModulePath === modulePath) {
-          if (!cachedSourcePathsByPatchId.current[patchId]) {
-            cachedSourcePathsByPatchId.current[patchId] = new Set();
-          }
-          cachedSourcePathsByPatchId.current[patchId].add(sourcePath);
-          const patchData = allPatches[patchId];
-          if (patchData) {
-            patches.push(patchData);
-          }
-          break;
-        }
-      }
-    }
-    return patches;
-  }, [allPatches, currentPatchIds, sourcePath]);
-  return patchesMetadata;
+  const getSnapshot = useCallback(
+    () =>
+      val === null
+        ? null
+        : (val.system.patchStore.patchesByPath().get(sourcePath) ??
+          NO_PATCHES_AT_PATH),
+    [val, sourcePath],
+  );
+  const at = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  // Mapped to the review shape here, keyed on the store's own stable array — so
+  // this is stable for exactly as long as that one is.
+  return useMemo(
+    () =>
+      at === null
+        ? null
+        : at.map((entry) => toPendingPatch(entry.record, entry.isPending)),
+    [at],
+  );
 }
 
 export function usePendingPatchesForModule(
   moduleFilePath: ModuleFilePath,
 ): PendingPatch[] {
-  const { syncEngine } = useContext(ValContext);
-  const allPatches = useSyncExternalStore(
-    syncEngine.subscribe("all-patches"),
-    () => syncEngine.getAllPatchesSnapshot(),
-    () => syncEngine.getAllPatchesSnapshot(),
-  );
-  const currentPatchIds = useCurrentPatchIds();
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
   return useMemo((): PendingPatch[] => {
-    const patches: PendingPatch[] = [];
-    for (const patchId of currentPatchIds) {
-      const patchData = allPatches[patchId];
-      if (patchData?.moduleFilePath === moduleFilePath) {
-        patches.push(patchData);
-      }
-    }
-    return patches;
-  }, [allPatches, currentPatchIds, moduleFilePath]);
+    if (val === null) return [];
+    void chainVersion;
+    const store = val.system.patchStore;
+    return store
+      .allRecords()
+      .filter((record) => record.moduleFilePath === moduleFilePath)
+      .map((record) => toPendingPatch(record, store.isPending(record.patchId)));
+  }, [val, chainVersion, moduleFilePath]);
+}
+
+/**
+ * A chain record in the shape the review UI reads.
+ *
+ * `createdAt` and `authorId` are optional on a `PatchRecord` — the chain does
+ * not need them to apply a patch — but a review row has to show something, so
+ * the defaults are here rather than at every call site.
+ */
+function toPendingPatch(record: PatchRecord, isPending: boolean): PendingPatch {
+  return {
+    moduleFilePath: record.moduleFilePath,
+    patch: record.patch,
+    isPending,
+    createdAt: record.createdAt ?? "",
+    authorId: record.authorId ?? null,
+    isCommitted: record.appliedAt ?? undefined,
+  };
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {
@@ -1097,18 +2735,210 @@ export function useValMode(): "http" | "fs" | "unknown" {
   return mode;
 }
 
-export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
-export function useLoadingStatus(): LoadingStatus {
-  const { syncEngine } = useContext(ValContext);
-  const pendingOpsCount = useSyncExternalStore(
-    syncEngine.subscribe("pending-ops-count"),
-    () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
+/** See {@link ValContextValue.sourceMode}. */
+export function useSourceMode(): "managed" | "connected" | null {
+  const { sourceMode } = useContext(ValContext);
+  return sourceMode;
+}
+
+/**
+ * Whether the Studio itself is what makes a publish live.
+ *
+ * True for a managed project and false for everything else, `null` included:
+ * see {@link ValContextValue.sourceMode} for why absence reads as connected.
+ * One function rather than the comparison at each call site, because getting
+ * the `null` side wrong is invisible until a project runs against an older
+ * server.
+ */
+export function useStudioIsDeployer(): boolean {
+  return useSourceMode() === "managed";
+}
+
+/**
+ * Does this Studio build its project's publishes in the tab? A managed one
+ * always; a connected one when content runs its publishes as jobs -- the tab's
+ * build is the fast way to the site there, and CI's build of the push the
+ * fallback (docs/app-mode.md, "Since changed: connected builds in the tab").
+ * Wider than {@link useStudioIsDeployer}, which is about the deploy feed and
+ * the site's own update, and stays managed-only.
+ */
+export function useStudioBuildsInTab(): boolean {
+  const mode = useSourceMode();
+  const { publishesAsJobs } = useContext(ValContext);
+  return mode === "managed" || (mode === "connected" && publishesAsJobs);
+}
+
+/**
+ * Other editors' publish jobs, as the websocket last reported them: every job
+ * on the branch but this tab's own. This tab's own are told by its requests
+ * (`publishProgress`), which are authoritative -- a lost "sealed" nudge must
+ * not leave one of them looking like someone else's publish still running.
+ */
+export function useOtherPublishJobs(): readonly ObservedJob[] {
+  const { observedPublishJobs, publishJobsState } = useContext(ValContext);
+  return useMemo(
+    () => otherEditorsJobs(observedPublishJobs, publishJobsState),
+    [observedPublishJobs, publishJobsState],
   );
-  if (pendingOpsCount > 0) {
-    return "loading";
-  }
-  return "success";
+}
+
+/**
+ * The changes this tab's presses are publishing: see `publishingPatchIds`.
+ * Not pending work while they go, so Publish does not offer them again.
+ */
+export function usePublishingPatchIds(): ReadonlySet<string> {
+  const {
+    publishJobsState,
+    serverPublishingPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
+  return useMemo(
+    () =>
+      publishingPatchIds(
+        publishJobsState,
+        serverPublishingPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverPublishingPatchIds, serverPublishingReportedAt],
+  );
+}
+
+/**
+ * The changes a failed publish holds back: pending, and not ready to publish.
+ * See {@link ValContextValue.serverHeldBackPatchIds}.
+ */
+export function useHeldBackPatchIds(): ReadonlySet<string> {
+  const {
+    publishJobsState,
+    serverHeldBackPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
+  return useMemo(
+    () =>
+      heldBackPatchIds(
+        publishJobsState,
+        serverHeldBackPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverHeldBackPatchIds, serverPublishingReportedAt],
+  );
+}
+
+/** See {@link ValContextValue.handoff}. */
+export function useSiteHandoffState(): UseSiteHandoff {
+  return useContext(ValContext).handoff;
+}
+
+/** This page's own presses: see {@link PublishJobsState}. */
+export function usePublishJobsState(): PublishJobsState {
+  return useContext(ValContext).publishJobsState;
+}
+
+/**
+ * The browser-side build: what it is doing, and how to start one.
+ *
+ * The one in the provider, so every caller shares the guard and the phase —
+ * see {@link ValContextValue.deploy}. The state is the deploy SEEN THROUGH the
+ * publish jobs (`publishProgress`), so a press queued behind another, or one
+ * content is verifying, reads as a publish under way like a build does.
+ */
+export function useStudioDeployState(): UseStudioDeploy {
+  return useContext(ValContext).deploy;
+}
+
+/** See {@link ValContextValue.publishRefusal}. */
+/**
+ * The proposal this Studio is in -- its name and branch -- or `null` on the
+ * site. valbuild/home `docs/proposals.md`.
+ */
+export function useCurrentProposal(): { name: string; branch: string } | null {
+  return useContext(ValContext).proposal;
+}
+
+/** See `historyBranch` on the context: `null` where History has nothing to list. */
+export function useHistoryBranch(): string | null {
+  return useContext(ValContext).historyBranch;
+}
+
+export function usePublishRefusal(): string | null {
+  const { publishRefusal } = useContext(ValContext);
+  return publishRefusal;
+}
+
+/**
+ * Re-exported from `ValFieldProvider`, which is where the store-backed one
+ * lives. Two copies of this existed — an identical body in each file — and both
+ * were imported around the app.
+ */
+export { useLoadingStatus, type LoadingStatus } from "./ValFieldProvider";
+
+/**
+ * Has the project been taken in? Re-derived here rather than imported, because
+ * `ValFieldProvider` keeps its copy private and this file's callers are outside
+ * a field.
+ */
+function useInitialized(): number | null {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.host.events.on("host:receive", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? null : val.system.host.initializedAt()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Each module's Source as the Studio holds it now -- pending changes applied
+ * -- and its BASE Source, for comparing whole modules: Compare with the site
+ * in a proposal. Read out of the store and moved by any source change, like
+ * `useShallowModulesAtPaths`, because the caller is one whole-list view.
+ */
+export function useModuleSourcesNowAndBase(
+  moduleFilePaths: readonly ModuleFilePath[],
+): {
+  now: Partial<Record<ModuleFilePath, Json>>;
+  base: Partial<Record<ModuleFilePath, Json>>;
+} | null {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  return useMemo(() => {
+    if (val === null) return null;
+    void sourcesVersion;
+    const now: Partial<Record<ModuleFilePath, Json>> = {};
+    const base: Partial<Record<ModuleFilePath, Json>> = {};
+    for (const moduleFilePath of moduleFilePaths) {
+      const current = val.system.sourceStore.moduleSource(moduleFilePath);
+      if (current !== undefined) now[moduleFilePath] = current;
+      const peeked = val.system.sourceStore.peekBase(
+        moduleFilePath as unknown as SourcePath,
+      );
+      if (peeked.status === "ready") base[moduleFilePath] = peeked.data;
+    }
+    return { now, base };
+  }, [val, sourcesVersion, moduleFilePaths]);
+}
+
+/** Moved by every source change anywhere in the project. */
+function useSourcesVersion(): number {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.events.on("source:change", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.sourceStore.sourcesVersion()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 const PublishSummaryState = z.union([
@@ -1125,39 +2955,59 @@ const PublishSummaryState = z.union([
 ]);
 type PublishSummaryState = z.infer<typeof PublishSummaryState>;
 /**
+ * What a press of Publish on this page came to. `handed-off`: a builder tab
+ * presses for it -- see `publish/handoff.ts`.
+ */
+type PagePublishResult =
+  | PublishResult
+  | { status: "error"; message: string }
+  | { status: "handed-off" };
+/**
+ * How Publish in a proposal was pressed: see `publishProposal`. Followed
+ * either way with `useProposalPublish`.
+ */
+export type ProposalPublishPress =
+  | { status: "requested" }
+  | { status: "handed-off" }
+  | { status: "error"; message: string };
+
+/**
+ * The newest publish of `proposal` this tab follows -- pressed here, by the
+ * builder tab it opened, or a Try again of either -- and how far this tab has
+ * got with building it. `null` before any.
+ */
+export function useProposalPublish(proposal: string | null): {
+  request: TrackedPublish;
+  /** Its job is being built in this tab, at this phase. */
+  building: boolean;
+} | null {
+  const { publishJobsState } = useContext(ValContext);
+  return useMemo(() => {
+    if (proposal === null) return null;
+    const request = [...publishJobsState.requests]
+      .reverse()
+      .find((tracked) => tracked.merge === proposal);
+    if (request === undefined) return null;
+    const running = publishJobsState.running;
+    return {
+      request,
+      building: running !== null && running.jobId === request.jobId,
+    };
+  }, [proposal, publishJobsState]);
+}
+/**
  * Responsible for publishing and also managing publishing state
  */
 export function usePublishSummary() {
   const {
-    syncEngine,
-    client,
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
+    proposal,
+    refreshStat,
   } = useContext(ValContext);
+  const val = useValSystem();
   const globalServerSidePatchIds = useCurrentPatchIds();
-  const publishDisabled = useSyncExternalStore(
-    syncEngine.subscribe("publish-disabled"),
-    () => syncEngine.getPublishDisabledSnapshot(),
-    () => syncEngine.getPublishDisabledSnapshot(),
-  );
-  const { patchErrors } = useAllPatchErrors();
-  const hasPatchErrors = useMemo(() => {
-    if (patchErrors) {
-      return Object.values(patchErrors).some((errors) => errors !== null);
-    }
-  }, [patchErrors]);
-  const [canGenerate, setCanGenerate] = useState(false);
-  useEffect(() => {
-    if (
-      runtimeConfig?.ai?.commitMessages?.disabled === undefined ||
-      runtimeConfig.ai.commitMessages.disabled === false
-    ) {
-      setCanGenerate(true);
-    } else {
-      setCanGenerate(false);
-    }
-  }, [runtimeConfig]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -1173,95 +3023,335 @@ export function usePublishSummary() {
       }
     }
   }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
-  const generateSummary = useCallback(async (): Promise<
-    { type: "ai"; text: string } | { type: "error"; message: string }
-  > => {
-    if (globalServerSidePatchIds === null) {
-      return {
-        type: "error",
-        message: "Empty patch set",
-      };
-    }
-    if (
-      "isGenerating" in publishSummaryState &&
-      publishSummaryState.isGenerating
-    ) {
-      return {
-        type: "error",
-        message: "Already generating summary",
-      };
-    }
-    setPublishSummaryState((prev) => {
-      return {
-        ...prev,
-        isGenerating: true,
-      };
-    });
-    try {
-      const res = await client("/commit-summary", "GET", {
-        query: {
-          patch_id: globalServerSidePatchIds,
-        },
-      });
-      if (res.status === 200) {
-        if (res.json.commitSummary) {
-          return { type: "ai", text: res.json.commitSummary };
-        } else {
-          return {
-            type: "error",
-            message: "Commit summary could not be generated",
-          };
-        }
-      } else {
-        return { type: "error", message: res.json.message };
-      }
-    } finally {
-      setPublishSummaryState((prev) => {
-        return {
-          ...prev,
-          isGenerating: false,
-        };
-      });
-    }
-  }, [client, globalServerSidePatchIds, publishSummaryState]);
   const [isPublishing, setIsPublishing] = useState(false);
+  /**
+   * In managed mode the commit is only half of a publish.
+   *
+   * There is no repository and no host watching one, so nothing outside this
+   * browser will turn the commit into a running site -- the Studio is the
+   * deployer. A connected project's `deploy` is never called: there a host
+   * genuinely does pick the commit up, which is what `Building` in the feed
+   * has always meant.
+   */
+  const studioIsDeployer = useStudioIsDeployer();
+  /*
+   * Who opens a builder tab for a page that cannot build: every Studio that
+   * builds its publishes in the tab, connected ones included. Gated on
+   * `studioIsDeployer` it was managed-only, so a connected project's Studio on
+   * an iPhone -- WebKit, never cross-origin isolated -- built nothing and every
+   * publish waited for CI.
+   */
+  const buildsInTab = useStudioBuildsInTab();
+  const { state: deployState } = useContext(ValContext).deploy;
+  const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
+  /*
+   * A build does not hold the button where publishes are jobs. The press is a
+   * request, and content queues it behind the one being built: this tab takes
+   * it when its build ends, or another free tab does sooner. So an editor can
+   * publish what they wrote next while the last publish is still building,
+   * here or anywhere else, and the wait for CI -- minutes -- never stops
+   * them. Only the press itself holds it (`isPublishing`).
+   *
+   * Without jobs the build follows the commit in this page and the deploy
+   * refuses a second one, so a press then would commit a change and leave it
+   * saved and not live: the build still holds the button there.
+   */
+  const busyHere = deployState.status === "running" && !publishesAsJobs;
+  /*
+   * Whether a page that cannot build needs a builder tab for this publish.
+   * Managed, not for one of content alone, which goes live on the build
+   * already live -- a guess at what the server decides (`pendingNeedsBuild`),
+   * and a job that needs a build after all asks for the tab with one more
+   * tap. Connected, always: every change there is deployed, and the tab
+   * builds it sooner than CI does.
+   */
+  const sourceMode = useSourceMode();
+  const needsBuild = (): boolean =>
+    sourceMode !== "managed" ||
+    val === null ||
+    pendingNeedsBuild(val.system.patchStore);
   const publish = useCallback(
-    async (summary: string) => {
+    async (summary: string): Promise<PagePublishResult> => {
+      /*
+       * A page that cannot build hands the publish to a Studio tab. The press
+       * that opened the summary normally prepared it already -- that is the
+       * moment the browser lets a tab open -- and this is the fallback for a
+       * publish that did not come from one. It may be blocked, and the card
+       * then offers the tab as a button.
+       */
+      const handedOff =
+        handoff.active() ||
+        handoff.prepare(buildsInTab && needsBuild(), {
+          after: val ? newestUnpublished(val.system.patchStore) : null,
+        });
+      /*
+       * And the tab presses, not this page: on an iPhone this page is paused
+       * from the moment the tab takes the screen, and a press that waited on
+       * it never went out. See `publish/handoff.ts`. (Handled, too, when the
+       * tab could not be told what to do: the card says so, and this page
+       * cannot build what it would press.)
+       */
+      if (handedOff) return { status: "handed-off" };
       if (globalServerSidePatchIds === null) {
+        handoff.cancel("No changes to publish");
         return {
           status: "error",
           message: "No changes to publish",
         };
       }
       if (isPublishing) {
+        handoff.cancel("Already publishing");
         return {
           status: "error",
           message: "Already publishing",
         };
       }
+      if (val === null) {
+        handoff.cancel("No store system is mounted");
+        return { status: "error", message: "No store system is mounted" };
+      }
+      /*
+       * Not while this page is updating the site: the update has already
+       * copied the new layer in, and a job built now would be refused by the
+       * layer check. See `publish/siteOperation.ts`.
+       */
+      const lock = beginSiteOperation("publish");
+      if (!lock.ok) {
+        const message = busyMessage(lock.busy);
+        handoff.cancel(message);
+        return { status: "error", message };
+      }
       setIsPublishing(true);
-      return syncEngine
-        .publish(globalServerSidePatchIds, summary, Date.now())
+      /*
+       * Before the request, so that nothing is requested that this Studio
+       * would then build with the wrong version of itself: the job's build
+       * would be refused by the layer check, and fail its attempts. See
+       * `publish/loadedLayer.ts`.
+       */
+      if (studioIsDeployer && (await siteMovedSinceLoad())) {
+        setIsPublishing(false);
+        lock.release();
+        markStudioOutOfDate();
+        handoff.cancel(STUDIO_OUT_OF_DATE_MESSAGE);
+        return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
+      }
+      /*
+       * Where publishes are jobs, a press is a REQUEST: nothing is committed
+       * here, and the build (the tab's, or CI's), the check and the seal all
+       * follow it (valbuild/home, docs/app-mode.md, "Publishing is a queued
+       * job"). A connected project on a host of its own commits, and its host
+       * picks the commit up.
+       */
+      const publishOptions = publishesAsJobs ? { request: true } : undefined;
+      /**
+       * One retry for `chain-moved`, and no more.
+       *
+       * The gate refuses when an edit lands while it is validating, because what
+       * it checked is then not what would be published. That race is with the
+       * user's own last keystroke — they typed, then clicked Save — so the
+       * honest response is to run the gate again rather than to report a
+       * failure they cannot act on. Bounded, so a project being edited from
+       * another tab cannot spin here.
+       */
+      const attempt = async (): Promise<PublishResult> => {
+        const first = await val.system.publish(
+          globalServerSidePatchIds,
+          summary,
+          publishOptions,
+        );
+        if (first.status === "refused" && first.reason === "chain-moved") {
+          return val.system.publish(
+            globalServerSidePatchIds,
+            summary,
+            publishOptions,
+          );
+        }
+        return first;
+      };
+      return attempt()
         .then((res) => {
-          if (res.status === "done") {
+          /*
+           * A save at a proposal's address moved the base the server answers
+           * with: the saved changes are in the address's snapshot now. Read
+           * it now, not when the stat's wait runs out -- see `useStatus`.
+           */
+          if (res.status === "published" && proposal !== null) {
+            refreshStat();
+          }
+          if (res.status === "published" || res.status === "requested") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
               type: "not-asked",
               isGenerating: prev.isGenerating,
             }));
           }
+          if (res.status === "requested") {
+            /*
+             * Tracked until it is Live. The job it came with is built here; a
+             * press queued behind another is built when its turn comes, by
+             * whichever free tab asks first. (A page that cannot build never
+             * gets here: its builder tab presses, and says what it pressed.)
+             */
+            publishJobs.track(res);
+          } else if (res.status === "refused") {
+            // Said out loud rather than swallowed: a publish button that does
+            // nothing and reports nothing is how a user comes to believe their
+            // work has shipped.
+            const said = describePublishRefusal(res);
+            handoff.cancel(said.message);
+            val.system.status.reportError(said.message, said.details);
+          } else if (res.status === "failed") {
+            handoff.cancel("Could not publish");
+            val.system.status.reportError(
+              "Could not publish",
+              res.patchErrors
+                ? Object.entries(res.patchErrors)
+                    .map(([patchId, message]) => `${patchId}: ${message}`)
+                    .join("\n")
+                : res.message,
+            );
+          }
           return res;
+        })
+        .catch((error: unknown) => {
+          handoff.cancel("Could not publish");
+          throw error;
         })
         .finally(() => {
           setIsPublishing(false);
+          lock.release();
         });
     },
     [
+      val,
       globalServerSidePatchIds,
       isPublishing,
       runtimeConfig?.project,
-      syncEngine,
+      setPublishSummaryState,
+      studioIsDeployer,
+      buildsInTab,
+      handoff,
+      publishJobs,
+      publishesAsJobs,
+      proposal,
+      refreshStat,
     ],
+  );
+  /**
+   * Publish in a proposal: merge it into the site, as a publish request like
+   * any other -- pressed, built by this tab or the builder tab a page that
+   * cannot build opens, followed to Live by the same tracker, and announced
+   * the same way. Only the press is the merge's own, and that it has no gate
+   * here: it ships the proposal's last save, which the caller makes first,
+   * and content's merge checks decide whether it may.
+   *
+   * Call it in the press, before anything awaits, for the same reason as
+   * `preparePublish`. `handed-off`: a builder tab presses it; follow it with
+   * `useProposalPublish`, which finds it once the tab says what it pressed.
+   */
+  const publishProposal = useCallback(
+    async (
+      proposalName: string,
+      /**
+       * Whether the merge will build (`mergeNeedsBuild`). A page that cannot
+       * build opens a builder tab at the press only for one that will: a merge
+       * of content alone, or of code already built, goes live on a build the
+       * site or the proposal already has, and this page presses it itself.
+       * One that needs a build after all asks for the tab with another tap
+       * (`onNeedsBuilder`).
+       */
+      options: { needsBuild: boolean } = { needsBuild: true },
+    ): Promise<ProposalPublishPress> => {
+      /*
+       * Not `buildsInTab`: this address's own saves are commits, and build
+       * nothing, but a merge is a managed publish of the site.
+       */
+      if (handoff.prepare(options.needsBuild, { merge: proposalName })) {
+        return { status: "handed-off" };
+      }
+      const lock = beginSiteOperation("publish");
+      if (!lock.ok) {
+        return { status: "error", message: busyMessage(lock.busy) };
+      }
+      try {
+        if (studioIsDeployer && (await siteMovedSinceLoad())) {
+          markStudioOutOfDate();
+          return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
+        }
+        const requestId = randomUUID();
+        const client = createStudioJobClient({ api: "/api/val" });
+        try {
+          const pressed = await client.pressMerge(
+            proposalName,
+            requestId,
+            PUBLISH_TAB_ID,
+          );
+          publishJobs.track({
+            requestId,
+            request: pressed.request,
+            job: pressed.job,
+            merge: proposalName,
+          });
+          return { status: "requested" };
+        } catch (error) {
+          /*
+           * No answer is not a no: content may have taken the press and lost
+           * only the reply, and the merge is then under way with nobody
+           * following it. It says whether it did; followed if so, and its
+           * job claimed by pressing it again (see `PublishJobs`).
+           */
+          const landed = isTransientPublishError(error)
+            ? await pressedAlready({ client, requestId })
+            : null;
+          if (landed !== null) {
+            publishJobs.track({
+              requestId,
+              request: landed,
+              job: null,
+              merge: proposalName,
+            });
+            return { status: "requested" };
+          }
+          return {
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      } finally {
+        lock.release();
+      }
+    },
+    [handoff, studioIsDeployer, publishJobs],
+  );
+  /**
+   * Try again on a failed publish of a proposal, from its dialog: what the
+   * failure's own "Try again" does -- the tracker's try again, which presses
+   * the merge anew and replaces the failed request -- and that failure's
+   * notice goes, since the dialog is where it is answered. In the press, as
+   * `publishProposal`.
+   */
+  const retryProposalPublish = useCallback(
+    async (
+      proposalName: string,
+      failedRequestId: string,
+      options: { needsBuild: boolean } = { needsBuild: true },
+    ): Promise<ProposalPublishPress> => {
+      toast.dismiss(`publish:${failedRequestId}`);
+      // In a tab only for a merge that builds: see `publishProposal`.
+      if (
+        handoff.prepare(options.needsBuild, {
+          tryAgainOf: failedRequestId,
+          merge: proposalName,
+        })
+      ) {
+        return { status: "handed-off" };
+      }
+      const done = await publishJobs.tryAgain(failedRequestId);
+      return done.ok
+        ? { status: "requested" }
+        : { status: "error", message: done.message };
+    },
+    [handoff, publishJobs],
   );
   const setSummary = useCallback(
     (
@@ -1294,10 +3384,59 @@ export function usePublishSummary() {
   );
   return {
     publish,
-    publishDisabled: publishDisabled || hasPatchErrors,
-    isPublishing,
-    generateSummary,
-    canGenerate,
+    publishProposal,
+    retryProposalPublish,
+    /**
+     * The engine kept a `publishDisabled` flag that it set on entering publish
+     * and cleared on the way out, and a caller could not tell why it was set.
+     * The one reason left is that a publish is already running.
+     *
+     * NOT a change the server refused last time. That disabled Publish until
+     * the change was discarded, although the server refuses the whole commit
+     * when a change does not apply — so a retry cannot publish anything wrong,
+     * and is often all it takes (see `describePublishButton`).
+     */
+    publishDisabled: isPublishing || busyHere,
+    /*
+     * A publish is not over when the commit lands. In managed mode the build
+     * that makes it live runs here, so a button that stopped spinning at the
+     * commit would say "done" over a site that has not changed.
+     */
+    isPublishing:
+      isPublishing ||
+      busyHere ||
+      // Or in a Studio tab this page handed it to.
+      handoff.state?.kind === "opening" ||
+      handoff.state?.kind === "running",
+    deployState,
+    /**
+     * Call in the press that starts a publish. On a page that cannot build it
+     * opens the Studio tab that will, which a browser only allows in the press
+     * itself -- not after the AI has written the commit message. See
+     * `publish/handoff.ts`.
+     *
+     * `true` when it did: that tab presses, so there is no commit message to
+     * wait for here. It presses what the server has, so this page's last edit
+     * is sent now, while the page still runs.
+     */
+    preparePublish: (): boolean => {
+      const after = val ? newestUnpublished(val.system.patchStore) : null;
+      /*
+       * Before the tab opens, not after: on an iPhone this page is paused the
+       * moment it does, and a save not yet sent then never is. Started here,
+       * its request is on the wire first. A publish that stays on this page
+       * flushes as well, so nothing is sent that would not have been.
+       */
+      void val?.system.patchSync.flush().catch(() => undefined);
+      return handoff.prepare(buildsInTab && needsBuild(), { after });
+    },
+    /**
+     * Whether the project wants AI to write its commit messages.
+     *
+     * `ai.commitMessages.disabled` is an explicit opt-out, so absent config
+     * means enabled — same reading the removed REST path had.
+     */
+    aiEnabled: runtimeConfig?.ai?.commitMessages?.disabled !== true,
     summary: publishSummaryState,
     setSummary,
   };
@@ -1313,7 +3452,7 @@ function saveSummaryStateInLocalStorage(
       JSON.stringify(publishSummaryState),
     );
   } catch (e) {
-    console.error("Error setting publish summary in local storage", e);
+    Internal.log.debug("Error setting publish summary in local storage", e);
   }
   return publishSummaryState;
 }
@@ -1332,14 +3471,14 @@ function getSummaryStateFromLocalStorage(
       if (parseRes.success) {
         return parseRes.data;
       } else {
-        console.warn(
+        Internal.log.debug(
           "Error parsing publish summary from local storage",
           parseRes.error,
         );
       }
     }
   } catch (e) {
-    console.error("Error getting publish summary from local storage", e);
+    Internal.log.debug("Error getting publish summary from local storage", e);
   }
   return null;
 }
@@ -1348,7 +3487,7 @@ function deleteSummaryStateFromLocalStorage(project?: string) {
   try {
     localStorage.removeItem("val-publish-summary-" + (project || "unknown"));
   } catch (e) {
-    console.error("Error deleting publish summary from local storage", e);
+    Internal.log.debug("Error deleting publish summary from local storage", e);
   }
 }
 
@@ -1364,25 +3503,46 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
  * The general idea is to avoid re-rendering the entire source tree when a single value changes.
  */
 export type ShallowSource = EnsureAllTypes<{
+  /** The module file path a view points at. */
+  view: string;
   array: SourcePath[];
   object: Record<string, SourcePath>;
+  /**
+   * The sections a settings module actually has, keyed by name.
+   *
+   * Shaped like an object's, and for the same reason — but only the keys that
+   * are PRESENT appear, which is how a caller tells an unset section from a set
+   * one: every settings key is optional.
+   */
+  settings: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
-  union: string | Record<string, SourcePath>;
+  /** The variant's own keys: a discriminated union's value IS an object. */
+  "discriminated-union": Record<string, SourcePath>;
+  /** One of the enum's values. */
+  enum: string;
   boolean: boolean;
   keyOf: string;
   route: string;
+  locale: string;
   number: number;
   string: string;
   date: string;
   dateTime: string;
+  color: string;
+  code: string;
   file: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    mimeType?: string;
   };
   image: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    alt?: string;
+    hotspot?: { x: number; y: number };
   };
+  video: VideoSource;
   literal: string;
   richtext: unknown[];
 }>;
@@ -1399,41 +3559,284 @@ export function useCurrentProfile() {
   return null;
 }
 
-export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
-  const initializedAt = useSyncExternalStore(
-    syncEngine.subscribe("initialized-at"),
-    () => syncEngine.getInitializedAtSnapshot(),
-    () => syncEngine.getInitializedAtSnapshot(),
-  );
-  return initializedAt.data;
+/**
+ * Who the person at the keyboard is, as an author id.
+ *
+ * `profileId` and the `authorId` on a patch are the same keyspace — `/profiles`
+ * is keyed by `profile.profileId` — so this is what tells "your own change"
+ * apart from someone else's.
+ *
+ * Resolved exactly the way `useCurrentProfile` resolves the profile, including
+ * the `fs` fallback: there `profileId` is null (there is no session to have
+ * one) and the studio treats the single local profile as you. Kept beside it
+ * so the two cannot drift into disagreeing about who you are.
+ */
+export function useCurrentAuthorId(): string | null {
+  const context = useContext(ValContext);
+  /*
+   * No provider is an honest `null` here, not a crash.
+   *
+   * The default context throws on any property read, which is the right guard
+   * for a hook that cannot do its job without a provider. This hook can: "who
+   * is the current author" has a correct answer when nobody is mounted, and it
+   * is nobody. Without this, one presentational component reaching for the
+   * author takes down every render of the whole review screen — which is what
+   * happened when the summary strip started naming authors, and it took out
+   * every ComparePatchSets story, not only the ones about authorship.
+   *
+   * Recognised by IDENTITY rather than by catching the throw. A `try` around
+   * the destructure would swallow every error raised inside it, not only this
+   * one, so a real fault in a mounted provider would surface as a silent
+   * "nobody" instead of a stack trace; matching on the message string would be
+   * worse again. `useContext` is still called unconditionally, so hook order is
+   * unaffected.
+   */
+  if (context === NO_VAL_PROVIDER) {
+    return null;
+  }
+  const { profileId, profiles, mode } = context;
+  if (profileId) {
+    return profileId;
+  }
+  if (mode === "fs") {
+    const [firstAuthorId] = Object.keys(profiles);
+    return firstAuthorId ?? null;
+  }
+  return null;
+}
+
+/**
+ * How long the chain must sit still before auto-save writes it.
+ *
+ * A trailing edge, not a rate limit: the timer restarts on every chain
+ * movement, so a burst of typing produces one save at the end of it rather than
+ * one per keystroke. Long enough that a normal pause between words does not
+ * trigger it, short enough that stopping to look at the page writes what you
+ * just typed.
+ */
+const AUTO_SAVE_DEBOUNCE_MS = 700;
+
+type AutoPublishContextValue = {
+  autoPublish: boolean;
+  setAutoPublish: (next: boolean) => void;
 };
 
-export function useAutoPublish() {
-  const { syncEngine } = useContext(ValContext);
-  const autoPublish = useSyncExternalStore(
-    syncEngine.subscribe("auto-publish"),
-    () => syncEngine.getAutoPublishSnapshot(),
-    () => syncEngine.getAutoPublishSnapshot(),
+/**
+ * Shared, and that is the fix rather than an implementation detail.
+ *
+ * `useAutoPublish` used to hold its own `useState` per call site, and it has
+ * three: the toggle in the tools menu, the Save button that disables itself when
+ * it is on, and the draft-changes list that hides itself. Toggling it in one
+ * updated only that one — the button stayed enabled, the list stayed open — and
+ * each copy ALSO ran the publish effect, so every chain movement fired three
+ * concurrent publishes of the same patches. Two of them were refused as
+ * `already-publishing` and dropped on the floor, which is the only reason it
+ * ever looked like it worked.
+ */
+const AutoPublishContext = createContext<AutoPublishContextValue>({
+  autoPublish: false,
+  setAutoPublish: () => {},
+});
+
+const AUTO_PUBLISH_STORAGE_KEY = "val-auto-publish";
+
+/**
+ * Write every pending change to disk on a pause in typing, without a summary.
+ *
+ * `fs` mode only — it is the dev-server workflow, where "publish" means writing
+ * the `.val.ts` files on disk and there is nothing to write a commit message
+ * for. Kept in `localStorage` because it is a preference of the person editing,
+ * not of the project.
+ */
+export function AutoPublishProvider({ children }: { children: ReactNode }) {
+  const val = useValSystem();
+  const mode = useValMode();
+  const [autoPublish, setAutoPublishState] = useState(() => {
+    try {
+      return localStorage.getItem(AUTO_PUBLISH_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  /**
+   * Only what the server already has.
+   *
+   * A patch still in the write queue cannot be published — `/save` reads the
+   * store on disk — and naming it would just shorten the prefix `publish`
+   * takes. It goes in the next round, which is one debounce away.
+   */
+  const savedPatchIds = usePendingServerSidePatchIds();
+
+  /**
+   * The batch that just failed, so it is not tried again unchanged.
+   *
+   * A failed `/save` reports per-patch errors, and recording them bumps the
+   * chain — which is what `savedPatchIds` is memoised on, so the effect re-runs
+   * with an identical batch and publishes it again 700 ms later. Nothing in
+   * `publish` stops that: it gates on validation errors, not on a previous
+   * refusal from the server. The result was one `POST /save` and one toast every
+   * 700 ms, forever, with nobody typing.
+   *
+   * Cleared on any outcome that is not a failure, and a changed chain gives a
+   * different key on its own — so this holds back the identical retry and
+   * nothing else. The next keystroke tries again, which is the right trigger:
+   * the batch is different by then.
+   */
+  const failedBatch = useRef<string | null>(null);
+
+  /**
+   * Save on a PAUSE, not on the chain moving.
+   *
+   * The previous version ran on every chain movement, which for a field being
+   * typed into is once per patch: a `POST /save` per keystroke, each one
+   * rewriting the `.val.ts` files. `savedPatchIds` changes identity whenever the
+   * chain does, so the effect re-runs and the timer restarts — a trailing-edge
+   * debounce for free, and the cleanup means a torn-down provider cannot fire.
+   */
+  useEffect(() => {
+    if (!autoPublish || mode !== "fs" || val === null) {
+      return;
+    }
+    if (savedPatchIds.length === 0) {
+      return;
+    }
+    const batch = savedPatchIds.join(",");
+    if (failedBatch.current === batch) {
+      // Already tried, exactly as it stands, and it failed. Waiting for the
+      // chain to change is the only thing that can make a difference — see
+      // `failedBatch`.
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void val.system
+        .publish(savedPatchIds, undefined, { exact: true })
+        .then((res) => {
+          if (cancelled) {
+            return;
+          }
+          if (res.status === "failed") {
+            failedBatch.current = batch;
+            val.system.status.reportError(
+              "Changes could not be saved to disk.",
+              res.message,
+            );
+            return;
+          }
+          failedBatch.current = null;
+          if (res.status === "published") {
+            /*
+             * Everything is on disk and nothing new has arrived: the moment to
+             * check the whole project.
+             *
+             * The per-save gate only validates the modules the batch touched,
+             * which is what keeps typing cheap — but a break that belongs to no
+             * single module's patches, or a module nobody has opened, is invisible
+             * to it. Skipped when the chain has already moved on: another save is
+             * coming, and a whole-project pass in front of it in the worker queue
+             * is the lag this design exists to avoid.
+             */
+            if (val.system.patchStore.allRecords().length === 0) {
+              void val.system.validateEverything();
+            }
+          }
+          /*
+           * Every other outcome is silent, deliberately.
+           *
+           * `refused: validation-errors` is the gate working, and the fields
+           * already show the errors — a toast per pause in typing would be the
+           * loudest possible way to say something the screen is saying already.
+           * `already-publishing`, `chain-moved` and `nothing-to-publish` all
+           * mean the next pause handles it.
+           */
+        });
+    }, AUTO_SAVE_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [autoPublish, mode, val, savedPatchIds]);
+
+  const value = useMemo<AutoPublishContextValue>(
+    () => ({
+      autoPublish,
+      setAutoPublish: (next: boolean) => {
+        setAutoPublishState(next);
+        try {
+          localStorage.setItem(AUTO_PUBLISH_STORAGE_KEY, next.toString());
+        } catch {
+          // A browser with storage disabled still gets the setting, just not
+          // across reloads.
+        }
+      },
+    }),
+    [autoPublish],
   );
-  return {
-    autoPublish,
-    setAutoPublish: (autoPublish: boolean) => {
-      syncEngine.setAutoPublish(Date.now(), autoPublish);
+
+  return (
+    <AutoPublishContext.Provider value={value}>
+      {children}
+    </AutoPublishContext.Provider>
+  );
+}
+
+export function useAutoPublish(): AutoPublishContextValue {
+  return useContext(AutoPublishContext);
+}
+
+/**
+ * Whether a whole-project validation is running.
+ *
+ * Worth showing: it is the one validation the editor did not ask for, it can
+ * take a moment on a large project, and "checking everything" is a different
+ * thing to be told than "saved".
+ */
+export function useFullValidationRunning(): boolean {
+  const val = useValSystem();
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    if (val === null) {
+      return;
+    }
+    return val.system.validationStore.events.on(
+      "validation:full-pass",
+      (event) => {
+        setRunning(event.running);
+      },
+    );
+  }, [val]);
+  return running;
+}
+
+/**
+ * Tell the editor something went wrong, once.
+ *
+ * The same queue every other announcement goes through — it surfaces as a toast
+ * and stays in the transient-errors list afterwards — reachable from a component
+ * rather than only from the sync layer. `StatusStore.reportError` de-duplicates
+ * by message, so a handler that fails on every attempt says it once.
+ *
+ * For things the person DID and that visibly did not happen. Not for background
+ * failures the studio recovers from on its own, which have their own reporting
+ * and would only be noise here.
+ */
+export function useReportError(): (message: string, details?: string) => void {
+  const val = useValSystem();
+  return useCallback(
+    (message: string, details?: string) => {
+      val?.system.status.reportError(message, details);
     },
-  };
+    [val],
+  );
 }
 
 export function useGlobalTransientErrors() {
-  const { syncEngine } = useContext(ValContext);
-  const globalTransientErrors = useSyncExternalStore(
-    syncEngine.subscribe("global-transient-errors"),
-    () => syncEngine.getGlobalTransientErrorsSnapshot(),
-    () => syncEngine.getGlobalTransientErrorsSnapshot(),
-  );
+  const val = useValSystem();
+  const status = useValStatus();
   return {
-    globalTransientErrors,
+    globalTransientErrors: status.errors,
     removeGlobalTransientErrors: (ids: string[]) => {
-      syncEngine.removeGlobalTransientErrors(ids);
+      val?.system.status.dismissErrors(ids);
     },
   };
 }
@@ -1456,27 +3859,23 @@ export function useGlobalError():
         | "unauthorized";
     }
   | null {
-  const { syncEngine, remoteFiles, profileAuthError } = useContext(ValContext);
-  const networkError = useSyncExternalStore(
-    syncEngine.subscribe("network-error"),
-    () => syncEngine.getNetworkErrorSnapshot(),
-    () => syncEngine.getNetworkErrorSnapshot(),
-  );
-  const schemaError = useSyncExternalStore(
-    syncEngine.subscribe("schema-error"),
-    () => syncEngine.getSchemaErrorSnapshot(),
-    () => syncEngine.getSchemaErrorSnapshot(),
-  );
-  if (networkError !== null) {
+  const { remoteFiles, profileAuthError } = useContext(ValContext);
+  const status = useValStatus();
+  if (status.networkErrorSince !== null) {
     return {
       type: "network-error" as const,
-      networkError,
+      // The timestamp the network started failing, not a count: the banner
+      // shows how long it has been down, and a number that only goes up would
+      // reset that every time another request failed.
+      networkError: status.networkErrorSince,
     };
   }
-  if (schemaError !== null) {
+  if (status.schemaError !== null) {
     return {
       type: "schema-error" as const,
-      schemaError,
+      // Rendered as a reload key rather than read: the caller only needs it to
+      // change when the error does.
+      schemaError: status.schemaError.length,
     };
   }
   if (profileAuthError !== null) {
@@ -1495,26 +3894,29 @@ export function useGlobalError():
   return null;
 }
 
-export function useAllPatchErrors() {
-  const { syncEngine } = useContext(ValContext);
-  const [allModuleFilePaths, setAllModuleFilePaths] = useState<
-    ModuleFilePath[]
-  >([]);
-  const schemas = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
-  );
-  useEffect(() => {
-    setAllModuleFilePaths(Object.keys(schemas) as ModuleFilePath[]);
-  }, [schemas]);
-
-  const patchErrors = useSyncExternalStore(
-    syncEngine.subscribe("patch-errors", allModuleFilePaths),
-    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
-    () => syncEngine.getPatchErrorsSnapshot(allModuleFilePaths),
-  );
-  return { patchErrors };
+/**
+ * Patches the server refused, per patch id.
+ *
+ * A patch can apply here and still be rejected by `/save`: the client applies to
+ * evaluated JSON with JSONOps, the server applies to the `.val.ts` AST, and the
+ * two can genuinely disagree (a `c.image` metadata key that is not literally
+ * present, a non-literal initializer). So a server-reported failure never
+ * resolves itself and the publish gate has to read it.
+ *
+ * Recorded by `system.publish` when `/save` names them.
+ */
+export function useAllPatchErrors(): {
+  patchErrors:
+    | Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>>
+    | undefined;
+} {
+  const val = useValSystem();
+  const status = useValStatus();
+  return useMemo(() => {
+    if (val === null) return { patchErrors: undefined };
+    void status;
+    return { patchErrors: val.system.patchErrors() };
+  }, [val, status]);
 }
 
 export function useErrors() {
@@ -1572,9 +3974,70 @@ export function useErrors() {
   return { globalErrors, skippedPatches };
 }
 
+/**
+ * Why the assistant is unavailable, and how to ask again.
+ *
+ * `null` while it is connecting or still retrying. Only once the studio has
+ * given up is there anything a person can do about it — see
+ * `useAIWebSocket` — and a chat panel that offers a composer while nothing is
+ * listening is worse than one that says so.
+ */
+export function useAIConnectionError(): {
+  message: string;
+  retry: () => void;
+} | null {
+  const { aiAuthError, aiConnectionError, retryAiConnection } =
+    useContext(ValContext);
+  return useMemo(() => {
+    /**
+     * Being signed out is NOT reported here, deliberately.
+     *
+     * It used to be, as "You are not signed in to the assistant" with a retry —
+     * and a retry re-opens the socket with the same credentials, so it fails
+     * again. Meanwhile the chat's own signed-out prompt, which is the only
+     * thing that can say HOW to sign in (the `val login` command in `fs` mode,
+     * the authorize link in `http`), was replaced by that message and never
+     * seen. The chat reads `authError` for itself; this is for the case where
+     * the studio is signed in and still cannot reach the assistant.
+     */
+    if (aiAuthError) return null;
+    if (aiConnectionError !== null) {
+      return { message: aiConnectionError, retry: retryAiConnection };
+    }
+    return null;
+  }, [aiAuthError, aiConnectionError, retryAiConnection]);
+}
+
+/** See `refreshAiModels`. */
+export function useRefreshAIModels(): () => Promise<void> {
+  return useContext(ValContext).refreshAiModels;
+}
+
 export function useProfilesByAuthorId() {
   const { profiles } = useContext(ValContext);
   return profiles;
+}
+
+/**
+ * Why the profiles could not be loaded, and how to ask again.
+ *
+ * `null` while it is working or still trying. Only once the studio has given up
+ * is there anything for a person to do about it, and only then is there anything
+ * worth putting on screen — a message that appears and disappears while a retry
+ * loop runs is noise, not information.
+ */
+export function useProfilesError(): {
+  message: string;
+  retry: () => void;
+} | null {
+  const { profilesError, retryProfiles } = useContext(ValContext);
+  return useMemo(
+    () =>
+      profilesError === null || profilesError.willRetry
+        ? null
+        : { message: profilesError.message, retry: retryProfiles },
+    [profilesError, retryProfiles],
+  );
 }
 
 /**
@@ -1609,13 +4072,20 @@ export function useShallowModulesAtPaths<
   moduleFilePaths: ModuleFilePath[],
   type: SchemaType,
 ): ShallowSourcesOf<SchemaType> {
-  const { syncEngine } = useContext(ValContext);
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("sources", moduleFilePaths || []),
-    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
-    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
-  );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  const val = useValSystem();
+  const initializedAt = useInitialized();
+  const sourcesVersion = useSourcesVersion();
+  const sourcesRes = useMemo(() => {
+    if (val === null) return null;
+    void sourcesVersion;
+    // Read out of the store rather than subscribed to per module: the callers
+    // are whole-list views (a nav tree, a route list) that already re-render on
+    // any source change, and one subscription per module would be one wake per
+    // module for a single keystroke.
+    return (moduleFilePaths ?? []).map((moduleFilePath) =>
+      val.system.sourceStore.moduleSource(moduleFilePath),
+    );
+  }, [val, sourcesVersion, moduleFilePaths]);
   return useMemo((): ShallowSourcesOf<SchemaType> => {
     if (initializedAt === null) {
       return { status: "loading" };
@@ -1642,8 +4112,15 @@ export function useShallowModulesAtPaths<
         );
       }
       const source = sourcesRes?.[i];
-      if (!source) {
+      if (source === undefined) {
+        // Recorded and skipped. The engine skipped it too, but by leaving a HOLE
+        // in the array it was building — so every module after a missing one was
+        // read at the wrong index and mapped to the wrong path. Reading is
+        // positional here, so an absent module can simply be left out; callers
+        // only walk `data` when the status is `success`, which a missing module
+        // rules out.
         notFoundPaths.push(moduleFilePath);
+        continue;
       }
       const mappedSource = mapSource(
         moduleFilePath,
@@ -1671,8 +4148,14 @@ export function useShallowModulesAtPaths<
   }, [sourcesRes, type, initializedAt, moduleFilePaths]);
 }
 
-// TODO: this should be in the next package somehow - that might require a lot of refactoring to accomplish though
-export function useNextAppRouterSrcFolder():
+/**
+ * The route folder this project's pages live in — `/app`, `/src/app`,
+ * `/routes` or `/src/routes`.
+ *
+ * TODO: this should be in the framework packages somehow - that might require a
+ * lot of refactoring to accomplish though.
+ */
+export function usePageRouterSrcFolder():
   | {
       status: "success";
       data: string | null;
@@ -1689,7 +4172,7 @@ export function useNextAppRouterSrcFolder():
     if (schemas.status === "success") {
       let currentSrcFolder: string | null = null;
       for (const moduleFilePath in schemas.data) {
-        const maybeCurrentSrcFolder = getNextAppRouterSourceFolder(
+        const maybeCurrentSrcFolder = getPageRouterSourceFolder(
           moduleFilePath as ModuleFilePath,
         );
         if (maybeCurrentSrcFolder) {
@@ -1730,7 +4213,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return { status: "success", data: null };
   }
   const type: SerializedSchema["type"] = schemaType;
-  if (type === "object" || type === "record") {
+  if (type === "object" || type === "record" || type === "settings") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -1743,7 +4226,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["object" | "record"] = {};
+    const data: ShallowSource["object" | "record" | "settings"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }
@@ -1802,6 +4285,8 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   } else if (
     type === "date" ||
     type === "dateTime" ||
+    type === "color" ||
+    type === "code" ||
     type === "string" ||
     type === "literal"
   ) {
@@ -1817,25 +4302,15 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "file" || type === "image") {
+  } else if (type === "file" || type === "image" || type === "video") {
     if (
       typeof source !== "object" ||
-      !(FILE_REF_PROP in source) ||
-      source[FILE_REF_PROP] === undefined
+      !("path" in source) ||
+      typeof source.path !== "string"
     ) {
       return {
         status: "error",
-        error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
-      };
-    }
-    if (
-      "metadata" in source &&
-      source.metatadata &&
-      typeof source.metatadata !== "object"
-    ) {
-      return {
-        status: "error",
-        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+        error: `Expected object with a path property, got ${typeof source}`,
       };
     }
     // TODO: verify that metadata values is of type Json
@@ -1865,13 +4340,29 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "union") {
-    if (typeof source === "string") {
+  } else if (type === "locale") {
+    if (typeof source !== "string") {
       return {
-        status: "success",
-        data: source as ShallowSource[SchemaType],
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
       };
     }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "enum") {
+    if (typeof source !== "string") {
+      return {
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "discriminated-union") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -1884,13 +4375,33 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["union"] = {};
+    const data: ShallowSource["discriminated-union"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }
     return {
       status: "success",
       data: data as ShallowSource[SchemaType],
+    };
+  } else if (type === "view") {
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    const target = source["view"];
+    if (typeof target !== "string") {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    // The module the view points at. A leaf, like `keyOf`: the row navigates
+    // there, and everything about the target is read at the target's own path.
+    return {
+      status: "success",
+      data: target as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;
@@ -1899,21 +4410,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       error: `Unknown schema type: ${exhaustiveCheck}`,
     };
   }
-}
-
-function concatModulePath(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  key: string | number,
-): SourcePath {
-  if (!modulePath) {
-    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
-  }
-  return (moduleFilePath +
-    ModuleFilePathSep +
-    modulePath +
-    "." +
-    JSON.stringify(key)) as SourcePath;
 }
 
 type AuthorId = string;

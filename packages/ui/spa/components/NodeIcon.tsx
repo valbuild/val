@@ -4,9 +4,12 @@ import {
   Type,
   Calendar,
   Clock,
+  Palette,
   Code,
+  FileCode,
   FileIcon,
   FileText,
+  Film,
   Hash,
   ImageIcon,
   Key,
@@ -44,7 +47,9 @@ export function NodeIcon({
       return <Code size={size} className={className} />;
     case "array":
       return <List size={size} className={className} />;
-    case "union":
+    case "discriminated-union":
+      return <Split size={size} className={className} />;
+    case "enum":
       return <Split size={size} className={className} />;
     case "richtext":
       return <FileText size={size} className={className} />;
@@ -58,8 +63,14 @@ export function NodeIcon({
       return <Calendar size={size} className={className} />;
     case "dateTime":
       return <Clock size={size} className={className} />;
+    case "color":
+      return <Palette size={size} className={className} />;
+    case "code":
+      return <FileCode size={size} className={className} />;
     case "image":
       return <ImageIcon size={size} className={className} />;
+    case "video":
+      return <Film size={size} className={className} />;
     default:
       return <HelpCircle size={size} className={className} />;
   }

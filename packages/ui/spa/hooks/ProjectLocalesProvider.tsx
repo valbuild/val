@@ -1,0 +1,99 @@
+import { Json, SourcePath } from "@valbuild/core";
+import { ReactNode, useMemo } from "react";
+import { useSchemas, useSourceAtPath } from "../components/ValFieldProvider";
+import { settingsModuleFilePath } from "./assistantSettings";
+import { sourcePathOfItem } from "../utils/sourcePathOfItem";
+import { ProjectLocalesContext } from "./useProjectLocales";
+
+/**
+ * Read the project's languages once, and put them where fields can see them.
+ *
+ * Mounted by `ValProvider`, inside `ValFieldProvider` — not by the roots. There
+ * are two of those (the Studio shell and the on-page overlay) and each renders
+ * its own field tree, so a provider mounted per root is a provider a root can
+ * be written without: the overlay was, and every locale field in it offered no
+ * languages while `emptyOf` wrote locale-keyed records with no keys. One mount,
+ * below everything that supplies the store and above everything that draws a
+ * field, is the position where that cannot happen again.
+ */
+export function ProjectLocalesProvider({ children }: { children: ReactNode }) {
+  const locales = useLocalesFromSettings();
+  return (
+    <ProjectLocalesContext.Provider value={locales}>
+      {children}
+    </ProjectLocalesContext.Provider>
+  );
+}
+
+/**
+ * The languages this project publishes, read from its settings module.
+ *
+ * Called ONCE, by {@link ProjectLocalesProvider} above. Everything else asks
+ * {@link useProjectLocales}, which is a context read. That split is the whole
+ * point of this file existing separately: the read below is a whole-project
+ * subscription — `useSchemas` wakes on every schema change, `useSourceAtPath`
+ * on the settings module — and a field is mounted once per field, so a copy of
+ * it in every field and every filtered row makes one edit O(project). See
+ * `perFieldSubscriptions.test.ts`.
+ *
+ * Empty where the project has no settings module, no `locales` section, or
+ * nothing in it — all of which mean the same thing, and mean it in the same way
+ * for every consumer: this project has not said it is translated, so nothing
+ * about locales is shown.
+ *
+ * Read from the SOURCE, defensively, because a settings module is a file people
+ * edit: `available` can hold anything at the moment it is being typed, and a
+ * field that refused to render until it was well-formed would disappear exactly
+ * when someone was fixing it.
+ */
+function useLocalesFromSettings(): string[] {
+  const schemas = useSchemas();
+  const moduleFilePath =
+    schemas.status === "success" ? settingsModuleFilePath(schemas.data) : null;
+  // A path that cannot exist, rather than `undefined`: the hook below is a
+  // hook, so it has to be called on every render whether or not this project
+  // has a settings module. It resolves to nothing, which is the answer.
+  const availablePath: SourcePath = moduleFilePath
+    ? sourcePathOfItem(sourcePathOfItem(moduleFilePath, "locales"), "available")
+    : ("" as SourcePath);
+  const source = useSourceAtPath(availablePath);
+  const tags = useMemo(() => {
+    if (!("data" in source) || !Array.isArray(source.data)) {
+      return EMPTY;
+    }
+    // Deduplicated, in first-declared order. A hand-edited settings module can
+    // name the same language twice — the Settings panel deliberately keeps both
+    // rows so the duplicate can be removed by position — but a language is
+    // either one of this project's or it is not, and a list that repeats one
+    // gives every picker two identical options under one React key.
+    // Validation still sees the duplicate: it reads the settings source, not
+    // this.
+    return [
+      ...new Set(
+        (source.data as Json[]).filter(
+          (tag): tag is string => typeof tag === "string",
+        ),
+      ),
+    ];
+  }, [source]);
+  /**
+   * The same array back until the languages themselves change.
+   *
+   * `useSourceAtPath` hands back a new object whenever anything it watches
+   * moves, so the memo above recomputes — and a fresh array here would be a new
+   * `locales` prop on the shell, a new context value for the whole tree, and a
+   * new predicate for every filtered row, on every keystroke anywhere in the
+   * project. Reference stability is load-bearing in this codebase; see
+   * `architecture/stores.md`.
+   *
+   * Keyed on the content rather than the array, so the identity survives a
+   * recompute that produced the same languages.
+   */
+  const key = tags.join("\u0000");
+  // `tags` is deliberately not a dependency: when `key` is unchanged the
+  // languages are identical, and depending on the array would defeat the point.
+  return useMemo(() => tags, [key]);
+}
+
+/** One empty array, so "this project has no languages" is also stable. */
+const EMPTY: string[] = [];

@@ -1,6 +1,6 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
-import { ReifiedRender } from "../render";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import {
   ValidationError,
   ValidationErrors,
@@ -13,6 +13,8 @@ type RouteOptions = {
 
 export type SerializedRouteSchema = {
   type: "route";
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: {
     include?: {
       source: string;
@@ -41,10 +43,28 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.route().describe("Where the button goes");
+   * export default c.define("/example.val.ts", schema, "/a-page-slug");
+   */
   describe(description: string | null): RouteSchema<Src> {
     return new RouteSchema<Src>(
       this.options,
@@ -53,6 +73,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
     );
   }
 
@@ -76,6 +97,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -99,9 +121,30 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.route().validate((val) =>
+   *   val.endsWith("/") ? "Leave off the trailing slash" : false,
+   * );
+   * export default c.define("/example.val.ts", schema, "/a-page-slug");
+   */
   validate(validationFunction: (src: Src) => false | string): RouteSchema<Src> {
     return new RouteSchema<Src>(
       this.options,
@@ -110,6 +153,7 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -185,34 +229,85 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     ) as unknown as RouteSchema<Src | null>;
   }
 
-  readonly(): RouteSchema<Src> {
+  readonly(isReadonly: boolean = true): RouteSchema<Src> {
     return new RouteSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  hidden(): RouteSchema<Src> {
+  hidden(isHidden: boolean = true): RouteSchema<Src> {
     return new RouteSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
     );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.route().preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["/a-page-slug"]);
+   */
+  preview(select: ItemPreviewInput<Src>): RouteSchema<Src> {
+    return new RouteSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
     return {
       type: "route",
+      preview: this.previewInput ? true : undefined,
       options: {
         include: this.options?.include && {
           source: this.options.include.source,
@@ -234,10 +329,6 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executeRender(): ReifiedRender {
-    return {};
   }
 }
 

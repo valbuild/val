@@ -55,10 +55,22 @@ export type LspCompletionItem = {
   data?: unknown;
 };
 
+/** A `documentChanges` entry: either a resource operation or a document's edits. */
+export type LspDocumentChange =
+  | { kind: "create" | "delete"; uri: string }
+  | { kind: "rename"; oldUri: string; newUri: string }
+  | {
+      textDocument: { uri: string; version: number | null };
+      edits: LspTextEdit[];
+    };
+
 export type LspCodeAction = {
   title: string;
   kind?: string;
-  edit?: { changes?: Record<string, LspTextEdit[]> };
+  edit?: {
+    changes?: Record<string, LspTextEdit[]>;
+    documentChanges?: LspDocumentChange[];
+  };
 };
 
 export type LspSession = {
@@ -87,16 +99,39 @@ export type LspSession = {
     position: { line: number; character: number },
   ): Promise<LspCompletionItem[]>;
   resolveCompletion(item: LspCompletionItem): Promise<LspCompletionItem>;
-  dispose(): void;
+  dispose(): Promise<void>;
 };
+
+/** How long a graceful shutdown gets before this falls back to a kill. */
+const SHUTDOWN_DEADLINE_MS = 2_000;
 
 export async function startLspSession({
   valRoot = EXAMPLE_APP,
-}: { valRoot?: string } = {}): Promise<LspSession> {
+  capabilities = {},
+  env = {},
+}: {
+  valRoot?: string;
+  /**
+   * Added to the server process's environment. Setting `process.env` in a test
+   * does not reach it: Jest hands each test file its own copy of `process.env`,
+   * and `spawn` inherits the real one.
+   */
+  env?: Record<string, string>;
+  /**
+   * `InitializeParams.capabilities`. Defaults to `{}` — the bare client a
+   * hand-written LSP config sends. Pass something here to exercise a fix that
+   * is gated on a capability, e.g. `workspace.workspaceEdit.resourceOperations`.
+   */
+  capabilities?: Record<string, unknown>;
+} = {}): Promise<LspSession> {
   let child: ChildProcessWithoutNullStreams | undefined = spawn(
     process.execPath,
     [BIN, "--stdio"],
-    { cwd: valRoot, stdio: ["pipe", "pipe", "pipe"] },
+    {
+      cwd: valRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...env },
+    },
   );
 
   const client = createMessageConnection(
@@ -134,7 +169,7 @@ export async function startLspSession({
   }>("initialize", {
     processId: process.pid,
     rootUri: `file://${valRoot}`,
-    capabilities: {},
+    capabilities,
     initializationOptions: {
       client: { name: "lsp-test-client", version: "0.0.0" },
       supportedProtocolVersions: { min: 1, max: PROTOCOL_VERSION },
@@ -200,10 +235,62 @@ export async function startLspSession({
         item,
       );
     },
-    dispose() {
-      client.dispose();
-      child?.kill();
+    async dispose() {
+      const proc = child;
       child = undefined;
+      if (proc === undefined) {
+        client.dispose();
+        return;
+      }
+      /**
+       * A graceful shutdown, asked for over the protocol, not a kill from the
+       * outside.
+       *
+       * `client.dispose()` can leave a write still queued on the connection —
+       * disposing the connection object does not guarantee its writer has
+       * drained. Killing the child right after that closes the pipe underneath
+       * the queued write: the write lands on a dead stream, `vscode-jsonrpc`
+       * raises `EPIPE` as an unhandled rejection, and Jest attributes it to
+       * whichever test happens to be RUNNING when it lands — not to this one,
+       * since nothing here is async from that test's point of view. That is
+       * the intermittent failure this replaces: passed on re-run with nothing
+       * in this package touched, because it was a race, not a logic bug.
+       *
+       * The standard LSP `shutdown`/`exit` sequence asks the server to close
+       * its own end first, so the child exits on its own — and `client.dispose()`
+       * only runs once it actually has, which is what makes the ordering safe
+       * rather than merely usually fast enough.
+       */
+      const alreadyExited = proc.exitCode !== null || proc.signalCode !== null;
+      const exited = alreadyExited
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            proc.once("exit", () => resolve());
+          });
+      try {
+        await client.sendRequest("shutdown");
+        client.sendNotification("exit");
+      } catch {
+        // The connection may already be going down on its own; the deadline
+        // below covers that either way.
+      }
+      // Cleared once the race is decided either way: an uncleared timer is
+      // exactly the kind of leak that leaves a jest worker unable to exit on
+      // its own, which is the failure mode this whole rewrite exists to stop
+      // adding to.
+      let deadline: ReturnType<typeof setTimeout> | undefined = undefined;
+      const exitedInTime = await Promise.race([
+        exited.then(() => true),
+        new Promise<boolean>((resolve) => {
+          deadline = setTimeout(() => resolve(false), SHUTDOWN_DEADLINE_MS);
+        }),
+      ]);
+      clearTimeout(deadline);
+      if (!exitedInTime) {
+        proc.kill();
+        await exited;
+      }
+      client.dispose();
     },
   };
 }

@@ -1,4 +1,15 @@
+import {
+  base64ToBytes,
+  bytesToBase64,
+  bytesToUtf8,
+  utf8ToBytes,
+} from "./bytes";
+import type { ValContentVersion, ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import {
+  commitCarriesFiles,
+  commitCarriesRemoteFiles,
+} from "./commitCarriesRemoteFiles";
 import {
   ValModules,
   PatchId,
@@ -10,10 +21,12 @@ import {
   ValConfig,
   Internal,
   FileSource,
-  RemoteSource,
+  MediaSource,
   Schema,
   SelectorSource,
+  hasRemoteFileSchema,
 } from "@valbuild/core";
+import { ReifiedPreview } from "@valbuild/core";
 import {
   Api,
   ParentRef,
@@ -22,34 +35,60 @@ import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
+  VAL_STUDIO_HEADER,
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
+  parseJob,
+  AnalyticsBeacon,
 } from "@valbuild/shared/internal";
-import { decodeJwt, encodeJwt, getExpire } from "./jwt";
+import type { JwtFailureReason, JwtResult } from "./jwt";
+import { clientConfig, historyBranchOf } from "./clientConfig";
 import { z } from "zod";
-import { ValOpsFS } from "./ValOpsFS";
+import { parseRangeHeader } from "./httpRange";
+import {
+  isHlsPlaylistPath,
+  rewriteDraftPlaylist,
+} from "./rewriteDraftPlaylist";
+import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
+import { splitJobPrepare } from "./jobPrepare";
+import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
 import {
   AuthorId,
   BaseSha,
   CommitSha,
+  draftOverlay,
   formatPatchSourceError,
   OrderedPatches,
   SchemaSha,
   SourcesSha,
+  ValOps,
+  type GenericErrorMessage,
+  type PreparedCommit,
+  bufferReader,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
-import { ValOpsHttp } from "./ValOpsHttp";
+import type { StudioCheckInput } from "./studioValidation";
+import type { ValOpsHttp } from "./ValOpsHttp";
+import type { ValPatchStore } from "./ValOpsMemory";
+import { isFsOps, isHttpOps, isMemoryOps } from "./opsKind";
+import type { ValServerPlatform } from "./platform";
 import { result } from "@valbuild/core/fp";
+import type { HistoryError } from "./history/HistoryError";
+import { historyErrorMessage } from "./history/HistoryError";
+import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
+import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getSettings } from "./getSettings";
 import {
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-} from "./personalAccessTokens";
-import path from "path";
-import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
-import { ReifiedRender } from "@valbuild/core";
-import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+  forwardToStudioApi,
+  type AdminProxyResult,
+  type ValBuildCredential,
+} from "./adminProxy";
+import type { RemoteFileAuth } from "./valServerConfig";
+import {
+  getErrorMessageFromUnknownJson,
+  newestCommitSha,
+} from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
   route: string;
@@ -62,7 +101,109 @@ export type ValServerOptions = {
   apiKey?: string;
   project?: string;
   config: ValConfig;
+  /**
+   * Called after a save has applied its patches, with the files it produced.
+   *
+   * EXPERIMENTAL. The seam a host needs when "commit" does not mean "write to
+   * the working tree and let git take it from here". `patchedSourceFiles` is
+   * already path -> content (null = delete), which is what such a host
+   * publishes, so this hands over the thing that already exists rather than
+   * inventing a format.
+   *
+   * It runs AFTER the files are saved, not instead: the save is what makes the
+   * patches consumed, and a host that also wants them elsewhere is adding a
+   * destination, not replacing one. Throwing here fails the save.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>;
+  /**
+   * What a publish DOES, in `http` mode.
+   *
+   * EXPERIMENTAL. By default a publish there is a git commit through the
+   * content API — the content service holds the patches, and publishing means
+   * turning them into a commit on the project's repository. A host whose
+   * "publish" is something else entirely (this one builds the site and flips a
+   * pointer) has no way to say so.
+   *
+   * The default is handed over as {@link CommitContext.commitToGit} rather than
+   * simply skipped, and that is the whole point: it lets a host REPLACE the
+   * commit (never call it) or ADD to it (call it, then do its own work with the
+   * files). Those are two genuinely different products — one where the
+   * repository is the source of truth and one where the build is — and this
+   * seam should not decide which.
+   *
+   * Return what the route should report. Throwing fails the publish, with the
+   * patches left where they were.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>;
 };
+
+/** What {@link ValServerOptions.publishOverride} is given. */
+export type CommitContext = {
+  /** The files this commit produced: `path -> content`, `null` = delete. */
+  patchedSourceFiles: Record<string, string | null>;
+  /** Everything else the commit knows, for a host that needs more. */
+  preparedCommit: PreparedCommit;
+  message: string;
+  authorId: AuthorId;
+  /**
+   * The default: a git commit through the content API.
+   *
+   * Call it to publish to the repository as well, or leave it alone to replace
+   * that step. Not calling it means the patches are NOT marked published by the
+   * content API, so a host that replaces the commit owns that too.
+   */
+  commitToGit: () => Promise<CommitResult>;
+};
+
+/** What a publish reports back, in either shape. */
+export type CommitResult =
+  | {
+      isNotFastForward?: boolean;
+      updatedFiles: string[];
+      commit: CommitSha;
+      /**
+       * The commit this one was built on.
+       *
+       * Optional because it is only as available as the content service is
+       * willing to say: a service that predates this field sends nothing, and
+       * `undefined` there means "not reported", never "this commit has no
+       * parent". A host that needs it has to handle its absence rather than
+       * treat it as a root commit.
+       *
+       * What it is FOR: a host that keeps its own record of what each commit
+       * changed -- a build cache, an incremental publisher -- can only tell
+       * whether its record is complete by chaining the commits it holds back to
+       * the one it last built. Without a parent the record is a set of
+       * snapshots with no way to notice a gap, and a commit made by somebody
+       * else in between is silently absent rather than detected.
+       *
+       * Not `CommitSha`-typed for the same reason it is optional: it is
+       * reported by a remote service and validated on arrival, and a branded
+       * type here would suggest this end had checked it.
+       */
+      parent?: string;
+      /**
+       * The git tree this commit points at.
+       *
+       * Optional for the same reason as {@link parent}. A tree hash identifies
+       * the CONTENT of a commit rather than the commit itself, so two commits
+       * with the same tree are the same source -- which is what lets a host
+       * recognise that a commit it is being asked to build is one it has built
+       * already, under a different sha, and skip the work.
+       */
+      tree?: string;
+      branch: string;
+      /**
+       * The chain version the publish moved the branch to, where the content
+       * service versions its chain and the publish applied anything. Passed
+       * on to the Studio, so a `/stat` read before the publish is dropped.
+       */
+      headVersion?: number;
+      error?: undefined;
+    }
+  | { isNotFastForward?: boolean; error: GenericErrorMessage };
 
 export type ValServerConfig = ValServerOptions &
   (
@@ -75,19 +216,85 @@ export type ValServerConfig = ValServerOptions &
         mode: "http";
         apiKey: string;
         project: string;
-        commit: string;
-        branch: string;
+        /**
+         * The repository this project's commits are mirrored into, if any.
+         *
+         * Absent is a project whose content service is the store of record --
+         * which is every project that has not attached a repository, and the
+         * normal case. See `git` on {@link ValApiOptions}.
+         */
+        git?: { commit: string; branch: string };
         root?: string;
+        /** See `projectSource` on {@link ValApiOptions}. */
+        projectSource?: Record<string, string>;
+        /** See `publishJob` on {@link ValApiOptions}. */
+        publishJob?: string;
+        /** See `publishBuild` on {@link ValApiOptions}. */
+        publishBuild?: string;
+        /** See `proposal` on {@link ValApiOptions}. */
+        proposal?: ValProposal;
+        /** See `contentVersion` on {@link ValApiOptions}. */
+        contentVersion?: ValContentVersion;
+        config: ValConfig;
+      }
+    /**
+     * EXPERIMENTAL -- a host that holds the project's source itself.
+     *
+     * Neither of the other two fits a host that builds and publishes its own
+     * output: `fs` assumes a working tree it can watch and write, and `http`
+     * assumes Val's content service owns the patch chain and that a commit is a
+     * git commit. See {@link ValOpsMemory}, and `commitPrepared` above for
+     * where the publish goes.
+     */
+    | {
+        mode: "memory";
+        /** The project's source, by path. */
+        sourceFiles: Record<string, string>;
+        /** Where pending patches live. Defaults to memory; see ValPatchStore. */
+        patchStore?: ValPatchStore;
+        /** See ValServerOverrides. Off by default; memory mode authenticates. */
+        unsafelyAllowUnauthenticated?: boolean;
         config: ValConfig;
       }
   );
 
 export type ValServer = ServerOf<Api>;
+
+/**
+ * Where a local file a publish commits is written. Fixed: it was configurable
+ * (`files.directory` in val.config.ts), nobody configured it, and the schemas
+ * have their own `dir` for any collection that wants somewhere else.
+ */
+const FILES_DIRECTORY = "/public/val";
+
+/**
+ * `/validate` and `/validate/fix` on a platform without the full check (a
+ * server in a browser tab). 501: nothing the caller does makes it available,
+ * so the Studio offers no Try again.
+ */
+const studioValidationUnavailable: {
+  status: 501;
+  json: { message: string };
+} = {
+  status: 501,
+  json: {
+    message:
+      "Checking everything needs the project's files and Val's file hosts, and this Studio runs without them.",
+  },
+};
+
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
+  /**
+   * The Node-only parts, passed in. `createValServer` passes `nodePlatform`;
+   * the demo passes the browser one. See {@link ValServerPlatform}.
+   */
+  platform: ValServerPlatform,
 ): ServerOf<Api> => {
+  const { decodeJwtWithoutVerifying, encodeJwt, getExpire, verifyJwt } =
+    platform.jwt;
   const AIContentBlock = z.union([
     z.object({
       type: z.literal("text"),
@@ -113,30 +320,7 @@ export const ValServer = (
       }),
     ),
   });
-  let serverOps: ValOpsHttp | ValOpsFS;
-  if (options.mode === "fs") {
-    serverOps = new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
-      formatter: options.formatter,
-      config: options.config,
-    });
-  } else if (options.mode === "http") {
-    serverOps = new ValOpsHttp(
-      options.valContentUrl,
-      options.project,
-      options.commit,
-      options.branch,
-      { apiKey: options.apiKey },
-      valModules,
-      {
-        formatter: options.formatter,
-        root: options.root,
-        config: options.config,
-      },
-    );
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    throw new Error("Invalid mode: " + (options as any)?.mode);
-  }
+  const serverOps = platform.createOps(valModules, options);
   const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
@@ -153,7 +337,9 @@ export const ValServer = (
     return url.toString();
   };
   const commit =
-    options.mode === "http" ? (options.commit as CommitSha) : undefined;
+    options.mode === "http"
+      ? (options.git?.commit as CommitSha | undefined)
+      : undefined;
 
   const getAppErrorUrl = (error: string): string => {
     if (!options.project) {
@@ -194,7 +380,20 @@ export const ValServer = (
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
-          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
+          // NOTE: this token is signed by val.build with a key we do not
+          // hold, so we cannot verify it. What stands in for a signature check
+          // is where it came from: the POST above, authenticated with the
+          // project's api key, to the configured `valBuildUrl`. It is not user
+          // input - but it is only as trustworthy as that host and that
+          // channel, and `valBuildUrl` is overridable (`opts.valBuildUrl`,
+          // `VAL_BUILD_URL`) and not required to be https. Point it at a plain
+          // http host and this payload - which is re-signed into the session
+          // cookie below - is whatever the network says it is.
+          const decoded = decodeJwtWithoutVerifying(token);
+          if (!decoded.success) {
+            return null;
+          }
+          const verification = ValAppJwtPayload.safeParse(decoded.data);
           if (!verification.success) {
             return null;
           }
@@ -203,14 +402,143 @@ export const ValServer = (
             token,
           };
         } else {
-          console.debug("Failed to get data from code: ", res.status);
+          Internal.log.debug("Failed to get data from code: ", res.status);
           return null;
         }
       })
       .catch((err) => {
-        console.debug("Failed to get user from code: ", err);
+        Internal.log.debug("Failed to get user from code: ", err);
         return null;
       });
+  };
+
+  /**
+   * `/admin/proxy/*`, for Val Build's web components in the Studio: forwarded
+   * to the Studio API on the content server. See `adminProxy.ts` for what is
+   * forwarded and why.
+   *
+   * Three refusals before anything leaves this server, and the `code`s are
+   * the ones the components act on:
+   * - no `x-val-studio` header: 403, since a cross-site request cannot set it;
+   * - no Val Build behind this Studio (no `valBuildUrl`, or fs mode without
+   *   a `val login`): 404 `not-connected`, which the component shows as such
+   *   rather than as an outage — though `/admin/status` keeps the Studio from
+   *   mounting it at all in that case;
+   * - a deployed Studio without a valid session: 401 `unauthenticated`, which
+   *   the component answers by asking the Studio to sign in.
+   */
+  const adminProxy = async (
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    req: {
+      path: string;
+      rawQuery: string;
+      body: unknown;
+      headers: Partial<Record<typeof VAL_STUDIO_HEADER, string>>;
+      cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>;
+    },
+  ): Promise<AdminProxyResult> => {
+    if (req.headers[VAL_STUDIO_HEADER] !== "1") {
+      return {
+        status: 403,
+        json: {
+          code: "forbidden",
+          message: `Requests to the Val Build proxy need the ${VAL_STUDIO_HEADER} header.`,
+        },
+      };
+    }
+    const credential = await getValBuildCredential(req.cookies);
+    if (credential.status !== "ok" || !options.valBuildUrl) {
+      if (!serverOps.requiresAuth || !options.valBuildUrl) {
+        return {
+          status: 404,
+          json: {
+            code: "not-connected",
+            message: "This Studio is not connected to Val Build.",
+          },
+        };
+      }
+      return {
+        status: 401,
+        json: {
+          code: "unauthenticated",
+          message:
+            credential.status === "invalid"
+              ? credential.message
+              : "Sign in to Val Build.",
+        },
+      };
+    }
+    // To the content server, which serves the Studio API: Val Build's sign-in
+    // (`valBuildUrl`) is what makes the credential, the content server is
+    // what the components' data comes from.
+    return forwardToStudioApi({
+      method,
+      path: req.path,
+      rawQuery: req.rawQuery,
+      body: req.body,
+      credential: credential.credential,
+      contentUrl: options.valContentUrl,
+    });
+  };
+
+  /**
+   * What this Studio can act on Val Build with, for the editor in front of it:
+   *
+   * - the session's token, in a deployed Studio (and in a local one where
+   *   someone signed in through the Studio anyway);
+   * - otherwise, in fs mode, the developer's own `val login` token from
+   *   `.val/pat.json` — the same file `val validate --fix` reads.
+   *
+   * An api key is never one of them: it is the project, not a person, and
+   * these requests are answered with a person's projects.
+   */
+  const getValBuildCredential = async (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ): Promise<
+    | { status: "ok"; credential: ValBuildCredential }
+    | { status: "none" }
+    | { status: "invalid"; message: string }
+  > => {
+    const session = getSessionToken(cookies);
+    if (session.status === "ok") {
+      return { status: "ok", credential: { bearer: session.token } };
+    }
+    if (options.mode === "fs") {
+      const pat = await platform.readValLoginToken(options);
+      if (pat !== null) {
+        return { status: "ok", credential: { pat } };
+      }
+      return { status: "none" };
+    }
+    return session;
+  };
+
+  /** The editor's Val Build token, from inside their session cookie. */
+  const getSessionToken = (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ):
+    | { status: "ok"; token: string }
+    | { status: "none" }
+    | { status: "invalid"; message: string } => {
+    const cookie = cookies[VAL_SESSION_COOKIE];
+    if (typeof cookie !== "string" || !options.valSecret) {
+      return { status: "none" };
+    }
+    const verified = verifyJwt(cookie, options.valSecret);
+    if (!verified.success) {
+      return {
+        status: "invalid",
+        message: sessionErrorMessage(verified.reason),
+      };
+    }
+    const payload = IntegratedServerJwtPayload.safeParse(verified.data);
+    if (!payload.success) {
+      return {
+        status: "invalid",
+        message: "Session invalid. You will need to login again.",
+      };
+    }
+    return { status: "ok", token: payload.data.token };
   };
 
   const getAuth = (
@@ -220,8 +548,17 @@ export const ValServer = (
     | { id: string; error?: undefined }
     | { error: null; id: null } => {
     const cookie = cookies[VAL_SESSION_COOKIE];
+    /*
+     * `requiresAuth`, not `patchesAreLocal`.
+     *
+     * These four exits return anonymous SUCCESS -- `{ error: null }` -- and all
+     * 29 routes below treat that as authorised. That is right for fs mode,
+     * which is a developer's own machine with no credential to require. It was
+     * keyed on the wrong question: a local patch store is about publishing, not
+     * about who may write, and memory mode is local AND deployed.
+     */
     if (!options.valSecret) {
-      if (serverOps instanceof ValOpsFS) {
+      if (!serverOps.requiresAuth) {
         return {
           error: null,
           id: null,
@@ -233,37 +570,37 @@ export const ValServer = (
       }
     }
     if (typeof cookie === "string") {
-      const decodedToken = decodeJwt(cookie, options.valSecret);
-      if (!decodedToken) {
-        if (serverOps instanceof ValOpsFS) {
+      const verifiedToken = verifyJwt(cookie, options.valSecret);
+      if (!verifiedToken.success) {
+        if (!serverOps.requiresAuth) {
           return {
             error: null,
             id: null,
           };
         }
         return {
-          error:
-            "Could not verify session (invalid token). You will need to login again.",
+          error: sessionErrorMessage(verifiedToken.reason),
         };
       }
-      const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
+      const verification = IntegratedServerJwtPayload.safeParse(
+        verifiedToken.data,
+      );
       if (!verification.success) {
-        if (serverOps instanceof ValOpsFS) {
+        if (!serverOps.requiresAuth) {
           return {
             error: null,
             id: null,
           };
         }
         return {
-          error:
-            "Session invalid or, most likely, expired. You will need to login again.",
+          error: "Session invalid. You will need to login again.",
         };
       }
       return {
         id: verification.data.sub,
       };
     } else {
-      if (serverOps instanceof ValOpsFS) {
+      if (!serverOps.requiresAuth) {
         return {
           error: null,
           id: null,
@@ -303,83 +640,172 @@ export const ValServer = (
     };
   };
 
-  let remoteFileAuth: { apiKey: string } | { pat: string } | null = null;
+  let remoteFileAuth: RemoteFileAuth | null = null;
+  /**
+   * The credential for remote-file work, memoised for the life of the server.
+   *
+   * The rule itself is `resolveRemoteFileAuth` in `valServerConfig`, shared with
+   * the MCP image tool — what is left here is the memoisation and the shape the
+   * api routes answer in. Memoised because in fs mode it reads a file off disk,
+   * and every remote image in a gallery would otherwise read it again.
+   */
   const getRemoteFileAuth = async (): Promise<
     | {
         status: 200;
-        json: { remoteFileAuth: { apiKey: string } | { pat: string } };
+        json: { remoteFileAuth: RemoteFileAuth };
       }
     | {
         status: 400;
         json: {
-          errorCode: "project-not-configured" | "pat-error";
+          errorCode: "project-not-configured" | "pat-error" | "api-key-missing";
           message: string;
         };
       }
   > => {
     if (remoteFileAuth) {
-      return {
-        status: 200,
-        json: { remoteFileAuth },
-      };
+      return { status: 200, json: { remoteFileAuth } };
     }
-    if (options.apiKey) {
-      remoteFileAuth = {
-        apiKey: options.apiKey,
-      };
-    } else if (serverOps instanceof ValOpsFS) {
-      const projectRootDir = options.config.root || ".";
-      if (!projectRootDir) {
-        return {
-          status: 400,
-          json: {
-            errorCode: "project-not-configured",
-            message: "Root directory was empty",
-          },
-        };
-      }
-      const fs = await import("fs");
-      const patPath = getPersonalAccessTokenPath(path.join(process.cwd()));
-      let patFile;
-
-      try {
-        patFile = await fs.promises.readFile(patPath, "utf-8");
-      } catch (err) {
-        return {
-          status: 400,
-          json: {
-            errorCode: "pat-error",
-            message: "Could not read personal access token file",
-          },
-        };
-      }
-      const patRes = parsePersonalAccessTokenFile(patFile);
-      if (patRes.success) {
-        remoteFileAuth = {
-          pat: patRes.data.pat,
-        };
-      } else {
-        return {
-          status: 400,
-          json: {
-            errorCode: "pat-error",
-            message: "Could not parse personal access token file",
-          },
-        };
-      }
-    }
-    if (!remoteFileAuth) {
+    const resolved = await platform.resolveRemoteFileAuth(options);
+    if (resolved.status === "error") {
       return {
         status: 400,
+        json: { errorCode: resolved.errorCode, message: resolved.message },
+      };
+    }
+    remoteFileAuth = resolved.auth;
+    return { status: 200, json: { remoteFileAuth } };
+  };
+
+  /**
+   * Hand one publish-API call to content and carry the answer back.
+   *
+   * `JSON.parse` and nothing more. That is not validation -- there is no schema
+   * here and no knowledge of content's shapes -- it is the round trip a JSON
+   * body has to make to travel as `json` rather than as a string. A body that
+   * does not parse is a gateway's error page rather than content answering, so
+   * it comes back as a message with the original status instead of throwing:
+   * a publish that failed is something the editor has to be told in words.
+   */
+  const proxyPublishApi = async (
+    path: string | undefined,
+    method: "GET" | "POST",
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.publishApi(path ?? "", {
+      method,
+      ...(body === undefined ? {} : { body }),
+    });
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
         json: {
-          errorCode: "project-not-configured",
-          message: "Remote file auth is not configured",
+          message:
+            answer.body.trim() === ""
+              ? `The publish API answered ${answer.status} with no body.`
+              : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
         },
       };
     }
+  };
+
+  /** The person a session names, or `null` for an anonymous one. */
+  const profileOf = (auth: ReturnType<typeof getAuth>): string | null =>
+    "id" in auth && auth.id ? auth.id : null;
+
+  /** One proposals-API call, carried as `proxyPublishApi` carries one. */
+  const proxyProposalsApi = async (
+    path: string | undefined,
+    method: "GET" | "POST" | "PATCH",
+    profileId: string | null,
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.proposalsApi(
+      path ?? "",
+      { method, ...(body === undefined ? {} : { body }) },
+      profileId,
+    );
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
+        json: {
+          message:
+            answer.body.trim() === ""
+              ? `The proposals API answered ${answer.status} with no body.`
+              : `The proposals API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+        },
+      };
+    }
+  };
+
+  /**
+   * What the Studio's full check reads: base plus the patches the caller is
+   * showing, as `/sources/~` resolves an explicit `patch_id` list -- including
+   * `draftOverlay`, so a module changed by a publish after this build is
+   * checked as the caller sees it, not as this build has it.
+   */
+  const studioCheckInput = async (
+    cookies: Parameters<typeof getAuth>[0],
+    moduleFilePath: ModuleFilePath,
+    patchIds: PatchId[] | undefined,
+  ): Promise<
+    | { status: "ok"; input: StudioCheckInput }
+    | { status: 401 | 500; json: { message: string } }
+  > => {
+    const auth = getAuth(cookies);
+    if (auth.error) {
+      return { status: 401, json: { message: auth.error } };
+    }
+    if (isHttpOps(serverOps) && !("id" in auth)) {
+      return { status: 401, json: { message: "Unauthorized" } };
+    }
+    const moduleErrors = await serverOps.getModuleErrors();
+    if (moduleErrors?.length > 0) {
+      return {
+        status: 500,
+        json: {
+          message:
+            "Val could not load this project's modules, so nothing can be checked. Check val.modules.",
+        },
+      };
+    }
+    // An EXPLICITLY empty list is base, never "everything": `fetchPatches`
+    // reads an empty filter as no filter (see `/sources/~`).
+    let patchOps: OrderedPatches =
+      patchIds !== undefined && patchIds.length === 0
+        ? { patches: [] }
+        : await serverOps.fetchPatches({ patchIds, excludePatchOps: false });
+    if ("error" in patchOps && patchOps.error) {
+      return "unauthorized" in patchOps && patchOps.unauthorized
+        ? { status: 401, json: { message: "Unauthorized" } }
+        : {
+            status: 500,
+            json: {
+              message:
+                "The unpublished changes could not be read, so nothing was checked.",
+            },
+          };
+    }
+    patchOps = {
+      ...patchOps,
+      patches: draftOverlay(patchOps.patches, patchOps.commits),
+    };
+    const analysis = serverOps.analyzePatches(patchOps.patches);
+    const { sources } = await serverOps.getSourcesWithPatchesApplied({
+      ...analysis,
+      ...patchOps,
+    });
     return {
-      status: 200,
-      json: { remoteFileAuth },
+      status: "ok",
+      input: {
+        moduleFilePath,
+        schemas: await serverOps.getSchemas(),
+        sources,
+        fileLastUpdatedByPatchId: analysis.fileLastUpdatedByPatchId,
+      },
     };
   };
 
@@ -436,6 +862,44 @@ export const ValServer = (
           status: 302,
           redirectTo: redirectToRes,
         };
+      },
+    },
+    /**
+     * Content analytics beacons, outside the hosted platform.
+     *
+     * On a site Val hosts, the platform's loader answers this route before a
+     * request reaches the app, and counts. Everywhere else nothing counts yet:
+     * this checks the beacon and answers, so a site with analytics on does not
+     * fill its visitors' consoles with 404s. In local dev it also logs a line
+     * per beacon, which is how the showcase shows analytics working.
+     */
+    "/analytics": {
+      POST: async (req) => {
+        const parsed = AnalyticsBeacon.safeParse(req.body);
+        if (!parsed.success) {
+          const body = req.body;
+          const version =
+            typeof body === "object" && body !== null && "v" in body
+              ? body.v
+              : undefined;
+          if (typeof version === "number" && version !== 1) {
+            // A newer format than this server knows: not an error.
+            return { status: 200, json: { counted: false } };
+          }
+          return {
+            status: 400,
+            json: { message: "Not a valid Val analytics beacon" },
+          };
+        }
+        if (options.mode === "fs") {
+          const beacon = parsed.data;
+          const count = (paths: Record<string, string[]>) =>
+            Object.values(paths).reduce((n, list) => n + list.length, 0);
+          Internal.log.debug(
+            `analytics: ${beacon.route}${beacon.view ? " (page view)" : ""}: ${count(beacon.rendered)} rendered, ${count(beacon.viewed)} viewed`,
+          );
+        }
+        return { status: 200, json: { counted: false } };
       },
     },
     "/draft/stat": {
@@ -644,111 +1108,6 @@ export const ValServer = (
       },
     },
 
-    "/session": {
-      GET: async (req) => {
-        const cookies = req.cookies;
-        if (serverOps instanceof ValOpsFS) {
-          return {
-            status: 200,
-            json: {
-              mode: "local",
-              enabled: await callbacks.isEnabled(),
-            },
-          };
-        }
-        if (!options.project) {
-          return {
-            status: 500,
-            json: {
-              message: "Project is not set",
-            },
-          };
-        }
-        if (!options.valSecret) {
-          return {
-            status: 500,
-            json: {
-              message: "Secret is not set",
-            },
-          };
-        }
-        return withAuth(options.valSecret, cookies, "session", async (data) => {
-          if (!options.valBuildUrl) {
-            return {
-              status: 500,
-              json: {
-                message: "Val is not correctly setup. Build url is missing",
-              },
-            };
-          }
-          const url = new URL(
-            `/api/val/${options.project}/auth/session`,
-            options.valBuildUrl,
-          );
-          const fetchRes = await fetch(url, {
-            headers: getAuthHeaders(data.token, "application/json"),
-          });
-          if (fetchRes.status === 200) {
-            const json = z
-              .object({
-                member_role: z
-                  .union([
-                    z.literal("owner"),
-                    z.literal("developer"),
-                    z.literal("editor"),
-                  ])
-                  .optional(),
-                id: z.string(),
-                full_name: z.string().optional(),
-                username: z.string().optional(),
-                avatar_url: z.string().optional(),
-              })
-              .safeParse(await fetchRes.json());
-            if (json.success) {
-              return {
-                status: fetchRes.status,
-                json: {
-                  mode: "proxy",
-                  enabled: await callbacks.isEnabled(),
-                  ...json.data,
-                },
-              };
-            } else {
-              const message = getErrorMessageFromUnknownJson(
-                json,
-                "Could not parse session response. Unexpected error (no error message). Status: " +
-                  fetchRes.status,
-              );
-              return {
-                status: 500,
-                json: {
-                  message: message,
-                  ...json,
-                },
-              };
-            }
-          } else {
-            const json = z
-              .object({
-                message: z.string(),
-              })
-              .safeParse(await fetchRes.json());
-            const message = getErrorMessageFromUnknownJson(
-              json,
-              "Unknown error",
-            );
-            return {
-              status: fetchRes.status as ValServerErrorStatus,
-              json: {
-                message: message,
-                ...json,
-              },
-            };
-          }
-        });
-      },
-    },
-
     "/logout": {
       GET: async (req) => {
         const query = req.query;
@@ -822,7 +1181,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -848,9 +1207,15 @@ export const ValServer = (
         }
         const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
 
-        const settingsRes = await getSettings(options.project, remoteFileAuth);
+        // The content url this server was CONFIGURED with, not whatever was in
+        // the environment when @valbuild/server was built. See getSettings.
+        const settingsRes = await getSettings(
+          options.project,
+          remoteFileAuth,
+          options.valContentUrl,
+        );
         if (!settingsRes.success) {
-          console.warn(
+          Internal.log.warn(
             "Could not get remote files settings: " + settingsRes.message,
           );
           return {
@@ -868,6 +1233,9 @@ export const ValServer = (
             publicProjectId: settingsRes.data.publicProjectId,
             remoteFileBuckets: settingsRes.data.remoteFileBuckets,
             coreVersion: Internal.VERSION.core || "unknown",
+            ...(settingsRes.data.remoteHost !== undefined
+              ? { remoteHost: settingsRes.data.remoteHost }
+              : {}),
           },
         };
       },
@@ -886,7 +1254,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -904,6 +1272,8 @@ export const ValServer = (
           schemaSha: SchemaSha;
           patches: PatchId[];
           profileId?: AuthorId;
+          // FS mode only; http never sends or returns it.
+          jsonEntriesSha?: string;
         } | null);
         if (currentStat.type === "error" && currentStat.networkError) {
           return {
@@ -927,35 +1297,157 @@ export const ValServer = (
             json: currentStat.error,
           };
         }
-        const mode =
-          serverOps instanceof ValOpsFS
-            ? "fs"
-            : serverOps instanceof ValOpsHttp
-              ? "http"
-              : "unknown";
-        if (mode === "unknown") {
-          return {
-            status: 500,
-            json: {
-              message:
-                "Server mode is neither fs nor http - this is an internal Val bug",
-            },
-          };
-        }
+        /*
+         * The wire value names a class and the question it answers does not.
+         *
+         * The client reads `mode` to decide whether it auto-saves and hides the
+         * account panel, or whether it publishes and shows deployments -- which
+         * is {@link ValOps.patchesAreLocal} and nothing else. It was derived by
+         * `instanceof` while there were exactly two implementations, so a third
+         * local store fell through to `"unknown"` and the Studio refused to
+         * start against a server that was working.
+         */
+        const mode = serverOps.patchesAreLocal ? "fs" : "http";
+        /*
+         * Why publishing is unavailable, so the Studio can say so.
+         *
+         * Spread rather than set to null, so a server that can publish sends
+         * no such key at all: the Studio's "can I publish" is then the
+         * presence of the field, and there is no null to mistake for a reason
+         * it failed to compute.
+         */
+        const publishRefusal = serverOps.publishRefusal();
+        /*
+         * How this project's source is kept, when the store knows.
+         *
+         * Spread for the same reason `publishRefusal` is: absent has to keep
+         * meaning "not reported" rather than becoming a mode. The Studio
+         * narrates a publish differently for a managed project -- there is
+         * nothing outside the browser to finish it -- so a wrong default here
+         * shows one story to a project that lives by the other.
+         */
+        const sourceMode = serverOps.sourceMode();
+        // Spread like the two above: absent is "on the site".
+        const proposal = serverOps.currentProposal();
+        const config = clientConfig(options);
+        const historyBranch = historyBranchOf({
+          mode,
+          proposal,
+          gitBranch: config.gitBranch ?? null,
+          projectBranch: serverOps.projectBranch(),
+        });
         return {
           status: 200,
           json: {
             ...currentStat,
             profileId: profileId ?? null,
             mode,
-            config: options.config,
+            ...(publishRefusal ? { publishRefusal } : {}),
+            ...(sourceMode ? { sourceMode } : {}),
+            ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
+            ...(proposal ? { proposal } : {}),
+            ...(historyBranch ? { historyBranch } : {}),
+            // Not `options.config` verbatim: in proxy mode the branch the
+            // server resolved is filled in where the file did not name one.
+            // See `clientConfig`.
+            config,
           },
         };
       },
     },
+    /**
+     * The content service's publish API, reached through this deployment.
+     *
+     * The Studio builds a managed project in its own tab and then publishes
+     * what it built. It cannot talk to content directly -- it holds a session
+     * cookie for this origin and no credential content would accept -- so the
+     * whole conversation comes through here.
+     *
+     * Three things happen, and nothing else: the session is checked, the
+     * credential is swapped for a publish-scoped one (see
+     * `ValOpsHttp.publishApi`), and content's answer is carried back with its
+     * status intact. The Studio parses that answer with the same module
+     * `val publish` uses, so there is no copy of content's shapes here to
+     * fall out of step.
+     */
+    "/publish-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyPublishApi(req.path, "GET");
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyPublishApi(
+          req.path,
+          "POST",
+          req.body === undefined ? undefined : JSON.stringify(req.body),
+        );
+      },
+    },
+    /**
+     * The content service's proposals API, reached through this deployment --
+     * the switcher, the list and the dialogs. The session is checked and its
+     * profile sent along, because a proposal is changed by a person; see
+     * `ValOpsHttp.proposalsApi` for what may be reached.
+     */
+    "/proposals-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(req.path, "GET", profileOf(auth));
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "POST",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+      PATCH: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "PATCH",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+    },
+    "/proposal-site-sources": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const modules = await serverOps.siteSourcesUnderSnapshot();
+        if (modules === null) {
+          return {
+            status: 404,
+            json: { message: "This is not a proposal's address." },
+          };
+        }
+        return { status: 200, json: { modules } };
+      },
+    },
     "/upload/patches": {
       POST: async (req) => {
-        if (serverOps instanceof ValOpsHttp) {
+        if (isHttpOps(serverOps)) {
           return {
             status: 400,
             json: {
@@ -1003,6 +1495,139 @@ export const ValServer = (
         };
       },
     },
+    "/validate": {
+      POST: async (req) => {
+        const checked = await studioCheckInput(
+          req.cookies,
+          req.body.moduleFilePath,
+          req.body.patchIds,
+        );
+        if (checked.status !== "ok") {
+          return checked;
+        }
+        if (!platform.studioValidation) {
+          return studioValidationUnavailable;
+        }
+        const res = await platform.studioValidation.checkModuleForStudio(
+          serverOps,
+          checked.input,
+        );
+        switch (res.status) {
+          case "unknown-module":
+            return {
+              status: 404,
+              json: {
+                message: `There is no module '${req.body.moduleFilePath}' in this project.`,
+              },
+            };
+          case "invalid-source":
+            return {
+              status: 200,
+              json: {
+                moduleFilePath: req.body.moduleFilePath,
+                errors: {},
+                invalidSource: res.message,
+              },
+            };
+          case "ok":
+            return {
+              status: 200,
+              json: {
+                moduleFilePath: req.body.moduleFilePath,
+                errors: res.errors,
+                remoteHosts: res.remoteHosts,
+              },
+            };
+        }
+      },
+    },
+    "/validate/fix": {
+      POST: async (req) => {
+        const checked = await studioCheckInput(
+          req.cookies,
+          req.body.moduleFilePath,
+          req.body.patchIds,
+        );
+        if (checked.status !== "ok") {
+          return checked;
+        }
+        if (!platform.studioValidation) {
+          return studioValidationUnavailable;
+        }
+        const res = await platform.studioValidation.fixForStudio(serverOps, {
+          ...checked.input,
+          sourcePath: req.body.sourcePath,
+          fix: req.body.fix,
+        });
+        switch (res.status) {
+          case "unknown-module":
+            return {
+              status: 404,
+              json: {
+                message: `There is no module '${req.body.moduleFilePath}' in this project.`,
+              },
+            };
+          case "not-found":
+            return {
+              status: 404,
+              json: {
+                message:
+                  "This error is no longer there. Check the module again to see what is left.",
+              },
+            };
+          case "not-in-studio":
+            return {
+              status: 400,
+              json: {
+                message:
+                  "This fix cannot be made from the Studio yet. Run `val validate --fix` in the project.",
+              },
+            };
+          case "ok":
+            return {
+              status: 200,
+              json: {
+                patch: res.patch,
+                remainingErrors: res.remainingErrors,
+              },
+            };
+        }
+      },
+    },
+    "/external-urls/check": {
+      POST: async (req) => {
+        /*
+         * The same door as every other route, which in fs mode is an open one.
+         *
+         * `getAuth` returns anonymous success when there is no `valSecret` and
+         * nothing requires auth — a developer's own machine, where there is no
+         * credential to require and 29 other routes already behave this way.
+         * So this is not a session gate in fs mode, and it is not meant to be
+         * the thing that makes the endpoint safe: what does that is
+         * `addressGuard`, which refuses every address that is not on the
+         * public internet, on the RESOLVED address, at every redirect hop.
+         */
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        /*
+         * Every URL in the batch at once, and nothing beyond it.
+         *
+         * The concurrency here is the batch size the route caps at, which is
+         * what keeps "check a thousand links" from becoming a thousand
+         * simultaneous outbound sockets: the client sends ten, waits, sends
+         * the next ten. Doing them in parallel WITHIN a batch is what makes a
+         * batch worth having — ten five-second timeouts in series is a minute.
+         */
+        const results = await Promise.all(
+          req.body.urls.map(
+            async (url) => [url, await platform.probeUrl(url)] as const,
+          ),
+        );
+        return { status: 200, json: { results: Object.fromEntries(results) } };
+      },
+    },
     "/direct-file-upload-settings": {
       POST: async (req) => {
         const cookies = req.cookies;
@@ -1015,7 +1640,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           // In FS mode patch-file uploads are buffered through this server (no remote round-trip),
           // so baseUrl points at /api/val/upload. AI image uploads, however, go straight to the
           // content host — we resolve a contentBaseUrl + a PAT-issued nonce here so the browser
@@ -1024,13 +1649,28 @@ export const ValServer = (
           let contentBaseUrl: string | null = null;
           let contentAuthNonce: string | null = null;
           if (!options.project) {
-            console.warn(
+            Internal.log.debug(
               "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
+            );
+          } else if (!isFsOps(serverOps)) {
+            /*
+             * Presigning needs a content host to presign AGAINST, and a local
+             * store does not necessarily have one configured: `fs` mode has the
+             * developer's `valContentUrl`, and a host holding its own source has
+             * no such setting.
+             *
+             * Warned and disabled, like the missing-project case above, rather
+             * than failing the request: everything else this route answers --
+             * the patch upload base url -- still works, and the only thing lost
+             * is the browser posting AI images straight to the content host.
+             */
+            Internal.log.debug(
+              "Direct content-host uploads (AI images) disabled: this store has no content host to presign against.",
             );
           } else {
             const authDataRes = await getRemoteFileAuth();
             if (authDataRes.status !== 200) {
-              console.warn(
+              Internal.log.warn(
                 "Direct content-host uploads (AI images) disabled: " +
                   authDataRes.json.message,
               );
@@ -1045,7 +1685,7 @@ export const ValServer = (
                 contentBaseUrl = presignedAuthNonce.data.baseUrl;
                 contentAuthNonce = presignedAuthNonce.data.nonce;
               } else {
-                console.warn(
+                Internal.log.warn(
                   "Direct content-host uploads (AI images) disabled: " +
                     presignedAuthNonce.error.message,
                 );
@@ -1108,7 +1748,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1122,6 +1762,23 @@ export const ValServer = (
         const sessionId = req.body.sessionId ?? null;
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const newPatchIds: PatchId[] = [];
+        /*
+         * The chain version the LAST patch made — the head this batch leaves.
+         * The client keeps the highest version it has seen, so a `/stat` read
+         * before this write cannot put its parent back behind it. Absent in
+         * `fs` mode and from an older content API.
+         */
+        let headVersion: number | undefined;
+        /*
+         * What this request has saved so far: the whole answer to a save, and
+         * the saved part of one refused for the plan. One builder for both, so
+         * the client records a partly saved batch exactly as a saved one.
+         */
+        const savedSoFar = () => ({
+          newPatchIds,
+          parentRef,
+          ...(headVersion !== undefined ? { headVersion } : {}),
+        });
         for (const patch of patches) {
           const createPatchRes = await serverOps.createPatch(
             patch.path,
@@ -1137,7 +1794,25 @@ export const ValServer = (
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
-                  message: "Patch id conflict",
+                  message:
+                    "The change was written against a different starting point than the server has.",
+                },
+              };
+            } else if (createPatchRes.error.errorType === "plan-refused") {
+              /*
+               * Val Build refused it for the plan. Passed on as its 403 rather
+               * than a patch error: the patch is fine and the Studio keeps it,
+               * and the reason travels as data so the fix can sit beside it.
+               * The patches before this one in the batch ARE saved, and are
+               * reported as a 200 would report them.
+               */
+              return {
+                status: 403,
+                json: {
+                  type: "plan-refused",
+                  message: createPatchRes.error.error.message,
+                  error: createPatchRes.error.refusal,
+                  ...savedSoFar(),
                 },
               };
             } else {
@@ -1164,14 +1839,12 @@ export const ValServer = (
               patchId: createPatchRes.value.patchId,
             };
             newPatchIds.push(createPatchRes.value.patchId);
+            headVersion = createPatchRes.value.headVersion;
           }
         }
         return {
           status: 200,
-          json: {
-            newPatchIds,
-            parentRef,
-          },
+          json: savedSoFar(),
         };
       },
       GET: async (req): Promise<z.infer<Api["/patches"]["GET"]["res"]>> => {
@@ -1187,7 +1860,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1202,7 +1875,7 @@ export const ValServer = (
         });
         if (fetchedPatchesRes.error) {
           // Error is singular
-          console.error("Val: Failed to get patches", fetchedPatchesRes.error);
+          Internal.log.error("Failed to get patches", fetchedPatchesRes.error);
           return {
             status: 500,
             json: {
@@ -1216,7 +1889,7 @@ export const ValServer = (
           Object.keys(fetchedPatchesRes.errors).length > 0
         ) {
           // Errors is plural. Different property than above.
-          console.error("Val: Failed to get patches", fetchedPatchesRes.errors);
+          Internal.log.error("Failed to get patches", fetchedPatchesRes.errors);
           return {
             status: 500,
             json: {
@@ -1248,7 +1921,7 @@ export const ValServer = (
         return {
           status: 200,
           json: {
-            patches: patches,
+            patches,
             baseSha: await serverOps.getBaseSha(),
           },
         };
@@ -1265,7 +1938,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1276,7 +1949,7 @@ export const ValServer = (
         const ids = query.id;
         const deleteRes = await serverOps.deletePatches(ids);
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
-          console.error("Val: Failed to delete patches", deleteRes.errors);
+          Internal.log.error("Failed to delete patches", deleteRes.errors);
           return {
             status: 500,
             json: {
@@ -1284,7 +1957,27 @@ export const ValServer = (
               errors: Object.entries(deleteRes.errors).map(([id, error]) => ({
                 patchId: id as PatchId,
                 ...error,
+                /*
+                 * Kept, so the Studio can say the change is being published
+                 * and offer to cancel that publish: content names the job.
+                 */
+                ...("publishJobId" in error &&
+                typeof error.publishJobId === "string"
+                  ? { publishJobId: error.publishJobId }
+                  : {}),
               })),
+            },
+          };
+        }
+        if (req.body?.reportHeadVersion === true) {
+          return {
+            status: 200,
+            json: {
+              deleted: ids,
+              ...("headVersion" in deleteRes &&
+              deleteRes.headVersion !== undefined
+                ? { headVersion: deleteRes.headVersion }
+                : {}),
             },
           };
         }
@@ -1308,7 +2001,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1318,7 +2011,7 @@ export const ValServer = (
         }
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
-          console.error("Val: Module errors", moduleErrors);
+          Internal.log.error("Module errors", moduleErrors);
           return {
             status: 500,
             json: {
@@ -1339,7 +2032,7 @@ export const ValServer = (
             serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
           }
         } catch (e) {
-          console.error("Val: Failed to serialize schemas", e);
+          Internal.log.error("Failed to serialize schemas", e);
           return {
             status: 500,
             json: {
@@ -1361,6 +2054,92 @@ export const ValServer = (
       },
     },
 
+    // #region json
+    // Loads the content of a single `.jsonValues()` entry by key, so the Studio
+    // can lazily load just the entry being opened, and the runtime can read draft
+    // edits. With apply_patches (default true) pending patches for the entry are
+    // replayed server-side; the Studio passes false and overlays its own.
+    "/json": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (isHttpOps(serverOps) && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const { key, keys, offset, limit } = req.query;
+        // Defaults to true, mirroring /sources/~. The Studio opts out.
+        const applyPatches = req.query.apply_patches !== false;
+        const isWindow = offset !== undefined || limit !== undefined;
+        const shapes = [key !== undefined, keys !== undefined, isWindow].filter(
+          Boolean,
+        ).length;
+        if (shapes !== 1) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Exactly one of 'key', 'keys' or 'offset'+'limit' must be given",
+            },
+          };
+        }
+        if (isWindow && (offset === undefined || limit === undefined)) {
+          return {
+            status: 400,
+            json: { message: "'offset' and 'limit' must be given together" },
+          };
+        }
+        if (key !== undefined) {
+          const res = await serverOps.getJsonEntry(moduleFilePath, key, {
+            applyPatches,
+          });
+          if (res.status === "unauthorized") {
+            return { status: 401, json: { message: res.message } };
+          }
+          if (res.status === "not-found") {
+            return { status: 404, json: { message: res.message } };
+          }
+          if (res.status === "error") {
+            return { status: 500, json: { message: res.message } };
+          }
+          return {
+            status: 200,
+            json: { path: moduleFilePath, key, content: res.content },
+          };
+        }
+        const res = await serverOps.getJsonEntries(
+          moduleFilePath,
+          keys !== undefined
+            ? { keys }
+            : { offset: offset as number, limit: limit as number },
+          { applyPatches },
+        );
+        if (res.status === "unauthorized") {
+          return { status: 401, json: { message: res.message } };
+        }
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
+        }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
+        }
+        return {
+          status: 200,
+          json: {
+            path: moduleFilePath,
+            entries: res.entries,
+            missing: res.missing,
+            errors: res.errors,
+            ...(res.offset !== undefined ? { offset: res.offset } : {}),
+            ...(res.limit !== undefined ? { limit: res.limit } : {}),
+            total: res.total,
+          },
+        };
+      },
+    },
+
     // #region sources
     "/sources/~": {
       PUT: async (req) => {
@@ -1377,7 +2156,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1388,7 +2167,7 @@ export const ValServer = (
         const sourcesSha = await serverOps.getSourcesSha();
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
-          console.error("Val: Module errors", moduleErrors);
+          Internal.log.error("Module errors", moduleErrors);
           return {
             status: 500,
             json: {
@@ -1415,33 +2194,57 @@ export const ValServer = (
             },
           };
         }
+        /*
+         * What this build's draft applies: the pending patches and the ones
+         * published AFTER this build, which it does not have -- see
+         * `draftOverlay`. `getSources` already applied both, but
+         * `analyzePatches` skips every patch with `appliedAt`, so a module
+         * changed only by a post-build publish was reported with no
+         * `patches`, and a reader that sends only changed modules (TanStack's
+         * `fetchValDraft`) left it out: the page was rendered with this
+         * build's older value. Chain order, which is what the Studio applies.
+         */
+        patchOps = {
+          ...patchOps,
+          patches: draftOverlay(patchOps.patches, patchOps.commits),
+        };
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
         const unpatchedSources = sourcesRes.sources;
         // Default to true to keep the legacy contract for older clients.
         // The studio client always passes false: it owns patch application
-        // and rendering, and treats /sources/~ as a pure un-patched read.
+        // and validation, and treats /sources/~ as a pure un-patched read.
         const applyPatches = query.apply_patches !== false;
-        if (applyPatches) {
+        // NOTE: previews are computed here even when the client applies patches
+        // itself: the preview functions live on the Schema instances and are not
+        // part of the serialized schema, so the client cannot derive them. They
+        // are computed on the patched sources, so that previews (list titles /
+        // subtitles / images) reflect the patches that apply.
+        let patchedSources = sourcesRes.sources;
+        if ((patchOps.patches?.length ?? 0) > 0) {
           const onlyPatchedTreeModules = await serverOps.getSources({
             ...patchAnalysis,
             ...patchOps,
           });
-          sourcesRes = {
-            sources: {
-              ...sourcesRes.sources,
-              ...(onlyPatchedTreeModules.sources || {}),
-            },
-            errors: {
-              ...sourcesRes.errors,
-              ...(onlyPatchedTreeModules.errors || {}),
-            },
+          patchedSources = {
+            ...sourcesRes.sources,
+            ...(onlyPatchedTreeModules.sources || {}),
           };
+          if (applyPatches) {
+            sourcesRes = {
+              sources: patchedSources,
+              errors: {
+                ...sourcesRes.errors,
+                ...(onlyPatchedTreeModules.errors || {}),
+              },
+            };
+          }
         }
-        const renderRes = applyPatches
-          ? await serverOps.getRenders(schemasRes, sourcesRes.sources)
-          : { renders: {} as Record<ModuleFilePath, ReifiedRender | null> };
+        const previewRes = await serverOps.getPreviews(
+          schemasRes,
+          patchedSources,
+        );
 
         let sourcesValidation: {
           errors: Record<
@@ -1452,7 +2255,7 @@ export const ValServer = (
             }
           >;
           files: Record<SourcePath, FileSource>;
-          remoteFiles: Record<SourcePath, RemoteSource>;
+          remoteFiles: Record<SourcePath, MediaSource>;
         } = {
           errors: {},
           files: {},
@@ -1472,12 +2275,9 @@ export const ValServer = (
               sourcesRes.sources,
               sourcesValidation.files,
             );
-            // TODO : actually do something with this
-            await serverOps.validateRemoteFiles(
-              schemas,
-              sourcesRes.sources,
-              sourcesValidation.remoteFiles,
-            );
+            // Remote files are not checked here: their check asks each host
+            // over the network, so it is the Studio's full check that runs it,
+            // one module at a time (`/validate`).
           }
         }
 
@@ -1487,7 +2287,7 @@ export const ValServer = (
           {
             source: Json;
             baseSource?: Json;
-            render: ReifiedRender | null;
+            preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1531,7 +2331,7 @@ export const ValServer = (
                 applyPatches && hasPatches
                   ? unpatchedSources[moduleFilePath]
                   : undefined,
-              render: renderRes.renders[moduleFilePath] || null,
+              preview: previewRes.previews[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||
@@ -1564,6 +2364,321 @@ export const ValServer = (
       },
     },
 
+    "/publish-job-prepare": {
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        // A fresh isolate's server has heard nothing yet: ask, rather than refuse.
+        if (isHttpOps(serverOps)) {
+          await serverOps.learnProjectExpectation();
+        }
+        if (
+          !isHttpOps(serverOps) ||
+          !serverOps.publishesAsJobs() ||
+          (serverOps.sourceMode() === "managed" && !serverOps.embedsSource())
+        ) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "This deployment cannot prepare a publish job for this project.",
+            },
+          };
+        }
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return { status: 409, json: { message: refusal.message } };
+        }
+        const { jobId, tab, patchIds } = req.body;
+        /*
+         * CONNECTED: the job's sources are what `/save` would commit -- its
+         * own changes, applied as `/save` applies them -- and content pushes
+         * them at the seal. The tab ALSO builds the job, as a managed one is
+         * built (docs/app-mode.md, "Since changed: connected builds in the
+         * tab"): from this deployment's embedded source, the commits since it
+         * and the job's changes. A deployment that embeds no source answers
+         * `buildable: false`, and the tab reports "no build": CI builds the
+         * push either way.
+         */
+        if (serverOps.sourceMode() === "connected") {
+          const jobPatches = await serverOps.fetchPatches({
+            patchIds,
+            excludePatchOps: false,
+          });
+          if (jobPatches.error) {
+            return {
+              status: 500,
+              json: { message: jobPatches.error.message },
+            };
+          }
+          const found = new Set<string>(
+            jobPatches.patches.map((patch) => patch.patchId),
+          );
+          const gone = patchIds.filter((id) => !found.has(id));
+          if (gone.length > 0) {
+            return {
+              status: 409,
+              json: {
+                message: `This publish's changes are no longer all there (${gone.length} discarded).`,
+              },
+            };
+          }
+          const prepared = await serverOps.prepare({
+            ...serverOps.analyzePatches(
+              jobPatches.patches,
+              jobPatches.commits,
+              commit,
+            ),
+            ...jobPatches,
+          });
+          if (prepared.hasErrors) {
+            return {
+              status: 500,
+              json: {
+                message:
+                  "This publish's changes could not be rendered into source: " +
+                  JSON.stringify(prepared.sourceFilePatchErrors).slice(0, 500),
+              },
+            };
+          }
+          const split = splitJobPrepare({
+            // Every file the job's changes wrote is what the push writes.
+            chainOnly: { patchedSourceFiles: {} },
+            withJob: prepared,
+            jobPatchIds: patchIds,
+          });
+          const build = serverOps.embedsSource()
+            ? await buildSourcesOf(platform, serverOps, patchIds, commit)
+            : null;
+          if (build !== null && "status" in build) return build;
+          /*
+           * A build of no commit says what Val source it holds instead, so
+           * the content service can compare it with the branch -- the
+           * template's build a `/new` project is served before CI's first.
+           */
+          const deploymentFiles =
+            commit === undefined
+              ? await serverOps.embeddedValSourceShas()
+              : null;
+          const sent = await serverOps.prepareJob(jobId, {
+            tab,
+            filesDirectory: FILES_DIRECTORY,
+            ...split.archive,
+            ...(commit !== undefined ? { gitCommit: commit } : {}),
+            ...(deploymentFiles !== null ? { deploymentFiles } : {}),
+            // Said, so content waits for this tab's build. A server that does
+            // not say it gets CI's: what Val servers before this one get.
+            ...(build !== null ? { tabBuilds: true as const } : {}),
+          });
+          return jobPrepareAnswer(sent, {
+            sourceFiles: build?.sourceFiles ?? {},
+            binaryFiles: build?.binaryFiles ?? {},
+            binaryFilesUnread: build?.binaryFilesUnread ?? [],
+            branch: serverOps.projectBranch(),
+            buildable: build !== null,
+          });
+        }
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+        );
+        if ("status" in built) return built;
+        const { split } = built;
+        const sent = await serverOps.prepareJob(jobId, {
+          tab,
+          filesDirectory: FILES_DIRECTORY,
+          ...split.archive,
+        });
+        return jobPrepareAnswer(sent, {
+          sourceFiles: built.sourceFiles,
+          binaryFiles: built.binaryFiles,
+          binaryFilesUnread: built.binaryFilesUnread,
+          branch: serverOps.projectBranch(),
+          buildable: true,
+        });
+      },
+    },
+    "/publish-selected": {
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const profileId = profileOf(auth);
+        if (profileId === null) {
+          return { status: 401, json: { message: "Sign in to publish" } };
+        }
+        if (isHttpOps(serverOps)) {
+          await serverOps.learnProjectExpectation();
+        }
+        if (
+          !isHttpOps(serverOps) ||
+          serverOps.sourceMode() !== "managed" ||
+          !serverOps.publishesAsJobs() ||
+          serverOps.currentProposal() !== null
+        ) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "Publish selected is for a site whose publishes are proposals: this deployment cannot.",
+            },
+          };
+        }
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return { status: 409, json: { message: refusal.message } };
+        }
+        const { patchIds, displayName, requestId } = req.body;
+        /*
+         * The selection's content over the site's head, exactly as a publish
+         * job of it is prepared: this build's source, the commits since it,
+         * and the selection on top. Only what the selection touched is saved,
+         * so the proposal's save is the selection and nothing else.
+         */
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+          {
+            binaries: false,
+          },
+        );
+        if ("status" in built) return built;
+        if (built.headCommitSha === undefined) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "The content service does not say where the site's head is, which Publish selected needs: it is older than this Studio.",
+            },
+          };
+        }
+        const selected = new Set<string>(patchIds);
+        const prepared: PreparedCommit = {
+          ...built.withJob,
+          patchedSourceFiles: built.split.archive.patchedSourceFiles,
+          patchedBinaryFilesDescriptors:
+            built.split.archive.patchedBinaryFilesDescriptors,
+          moduleVersions: built.split.archive.modules,
+          appliedPatches: Object.fromEntries(
+            Object.entries(built.withJob.appliedPatches)
+              .map(([path, ids]) => [
+                path,
+                ids.filter((id) => selected.has(id)),
+              ])
+              .filter(([, ids]) => ids.length > 0),
+          ),
+        };
+        /*
+         * Moved and based in one transaction, on the head the selection was
+         * prepared over: content refuses the create when the site is no
+         * longer there, and nothing has moved.
+         */
+        const created = await serverOps.proposalsApi(
+          "",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              displayName,
+              kind: "publish",
+              patchIds,
+              requestId,
+              base: built.headCommitSha,
+            }),
+          },
+          profileId,
+        );
+        const createdBody = PublishProposalCreated.safeParse(
+          safeJson(created.body),
+        );
+        const createdError = ContentError.safeParse(safeJson(created.body));
+        if (created.status === 409) {
+          /*
+           * Content refuses a base that is not the site's head -- a publish
+           * landed in between, and pressing again prepares over the new one.
+           * Any other refusal is content's to put in words, and again would
+           * be refused the same way.
+           */
+          const message = createdError.success ? createdError.data.message : "";
+          return /base is not the site's head/.test(message)
+            ? {
+                status: 409,
+                json: {
+                  message:
+                    "The site was published while this was being prepared. Nothing was published: publish them again.",
+                  headMoved: true,
+                },
+              }
+            : {
+                status: 409,
+                json: {
+                  message:
+                    message ||
+                    "The changes could not be moved into a proposal to publish them.",
+                },
+              };
+        }
+        if (created.status !== 200 || !createdBody.success) {
+          return {
+            status: 500,
+            json: {
+              message: `The changes could not be moved into a proposal to publish them (${created.status}): ${created.body.slice(0, 300)}`,
+            },
+          };
+        }
+        const proposal = createdBody.data.proposal.name;
+        const saved = await serverOps.commit(
+          prepared,
+          `Publish selected: ${displayName}`,
+          profileId as AuthorId,
+          FILES_DIRECTORY,
+          undefined,
+          proposal,
+        );
+        if (saved.error) {
+          return {
+            status: 502,
+            json: {
+              message: `The changes are in a proposal, but could not be saved there: ${saved.error.message}`,
+              proposal,
+            },
+          };
+        }
+        return { status: 200, json: { proposal } };
+      },
+    },
+    "/admin/status": {
+      GET: async (req) => {
+        const credential = await getValBuildCredential(req.cookies);
+        return {
+          status: 200,
+          json: {
+            connected:
+              Boolean(options.valBuildUrl) && credential.status === "ok",
+            /*
+             * How an editor signs in to Val Build here, which only the server
+             * knows. NOT the stat `mode`: that says whether patches are local,
+             * and a deployed memory-mode host reports `fs` while having no
+             * working directory to run `val login` in. Only a developer's own
+             * checkout (fs mode) signs in with `val login`.
+             */
+            signIn: options.mode === "fs" ? "val-login" : "studio",
+          },
+        };
+      },
+    },
+    "/admin/proxy": {
+      GET: (req) => adminProxy("GET", req),
+      POST: (req) => adminProxy("POST", req),
+      PUT: (req) => adminProxy("PUT", req),
+      DELETE: (req) => adminProxy("DELETE", req),
+    },
     "/profiles": {
       GET: async (req) => {
         const cookies = req.cookies;
@@ -1577,6 +2692,16 @@ export const ValServer = (
           };
         }
         if (!options.project) {
+          /*
+           * Nobody to name, rather than an error, when the patches are local:
+           * a `pnpm dev` without a project, or the demo. Profiles live in the
+           * project on val.build, so without one there are none -- and a 500
+           * made the Studio retry and then show an error no setting fixes.
+           * A server that relays to val.build does need one.
+           */
+          if (serverOps.patchesAreLocal) {
+            return { status: 200, json: { profiles: [] } };
+          }
           return {
             status: 500,
             json: {
@@ -1587,7 +2712,7 @@ export const ValServer = (
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
           if (
-            serverOps instanceof ValOpsFS &&
+            serverOps.patchesAreLocal &&
             authDataRes.json.errorCode === "pat-error"
           ) {
             return {
@@ -1656,7 +2781,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -1669,59 +2794,17 @@ export const ValServer = (
             },
           };
         }
-        return withAuth(options.valSecret, cookies, "profiles", (data) => {
-          return execFetch(
-            getProfileAuthHeaders(authData, data, "application/json"),
-          );
-        });
-      },
-    },
-    "/commit-summary": {
-      GET: async (req) => {
-        const cookies = req.cookies;
-        const auth = getAuth(cookies);
-        if (auth.error) {
-          return {
-            status: 401,
-            json: {
-              message: auth.error,
-            },
-          };
-        }
-
-        const query = req.query;
-        const patchIds = query.patch_id as PatchId[];
-        const patches = await serverOps.fetchPatches({
-          patchIds,
-          excludePatchOps: false,
-        });
-        const analysis = serverOps.analyzePatches(
-          patches.patches,
-          patches.commits,
-          commit,
-        );
-        const preparedCommit = await serverOps.prepare({
-          ...analysis,
-          ...patches,
-        });
-        const res = await serverOps.getCommitSummary(preparedCommit);
-        if (res.error) {
-          console.error("Failed to summarize", res.error);
-          return {
-            status: 400,
-            json: {
-              message: res.error.message,
-            },
-          };
-        }
-        return {
-          status: 200,
-          json: {
-            baseSha: await serverOps.getBaseSha(),
-            patchIds,
-            commitSummary: res.commitSummary,
+        return withAuth(
+          verifyJwt,
+          options.valSecret,
+          cookies,
+          "profiles",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
           },
-        };
+        );
       },
     },
     "/save": {
@@ -1759,17 +2842,134 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        /*
+         * Can this deployment publish this project AT ALL?
+         *
+         * After the fetch above, deliberately: that call is what tells the
+         * data layer what the project expects, and asking before it would be
+         * asking a question nothing has answered yet. It is still before
+         * anything is written, which is the part that matters.
+         *
+         * The Studio already knows -- `/stat` carries the same refusal, so the
+         * action is disabled with the reason shown. This is the second half of
+         * that: a stat can be stale by a poll, and nothing may reach `prepare`
+         * on a project it cannot mirror.
+         */
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return {
+            status: 409,
+            json: {
+              message: refusal.message,
+              publishRefusal: refusal,
+            },
+          };
+        }
+        /*
+         * Exactly the patches this request consumes, and the ONLY ones it may
+         * delete afterwards.
+         *
+         * Taken from what was fetched rather than from what was asked for, and
+         * held across everything below, because the store keeps accepting writes
+         * while this runs. A change typed during a save is not in this list, is
+         * not applied, and must still be here when the save finishes — that is
+         * the whole contract, and `deleteAllPatches` broke it by removing the
+         * store wholesale.
+         */
+        const consumed = patches.patches.map((patch) => patch.patchId);
+        /*
+         * Has somebody else published since this was decided?
+         *
+         * The client names the newest commit it knew about; anything newer here
+         * means the review screen it acted on described a world that has moved.
+         * The answer is "look again" rather than "your commit was rejected".
+         *
+         * Git's own not-fast-forward guard cannot see this: the chain is
+         * fetched and committed fresh at this point, so the parent commit sent
+         * is always the server's current one.
+         *
+         * Checked HERE, before `analyzePatches` and `prepare`, rather than just
+         * before the commit: a publish that is going to be refused should not
+         * first pay to apply every patch in it. And compared against the
+         * commits `fetchPatches` just returned — `applicable/patches` filters
+         * its PATCHES by the requested ids and never its commits, so the second
+         * whole-chain fetch this used to make asked for a list it already had.
+         *
+         * Only when the client sends a head. One that does not publishes
+         * exactly as it did before, and this cannot start refusing publishes for
+         * a field it never sets.
+         */
+        if (isHttpOps(serverOps)) {
+          const expectedHead = body.expectedHeadCommitSha;
+          if (expectedHead !== undefined) {
+            const serverHead = newestCommitSha(patches.commits);
+            if (serverHead !== null && serverHead !== expectedHead) {
+              return {
+                status: 409,
+                json: {
+                  message:
+                    "Someone else published while you were reviewing. Nothing was published — open Review again to see what changed.",
+                  headMoved: true,
+                },
+              };
+            }
+          }
+        }
         const analysis = serverOps.analyzePatches(
           patches.patches,
           patches.commits,
           commit,
         );
-        const preparedCommit = await serverOps.prepare({
+        let preparedCommit = await serverOps.prepare({
           ...analysis,
           ...patches,
         });
+        /*
+         * In `fs` mode a change that cannot be applied is removed rather than
+         * blocking the save.
+         *
+         * Refusing the whole commit is right for a git commit — it is one
+         * atomic thing, and the content api owns its own patches. It is wrong
+         * for auto-save: the editor keeps typing, every save fails on the same
+         * patch, and nothing is ever written again. So the failing change and
+         * the rest of its module's chain go, the rest is written, and the person
+         * editing is told what was thrown away.
+         */
+        let removed: DroppedPatch[] = [];
+        if (preparedCommit.hasErrors && serverOps.patchesAreLocal) {
+          removed = computePatchesToDrop(preparedCommit);
+          /*
+           * Nothing to drop means nothing a second `prepare` could do better.
+           *
+           * `hasErrors` covers failures no patch is to blame for — a binary file
+           * that could not be written, a module that could not be formatted, a
+           * `.val.ts` that could not be read at all. Re-preparing every module
+           * with an unchanged patch set would fail identically, and logging
+           * "removed unpublished changes []" on the way would say something
+           * untrue. It falls through to the 400 instead, which is the honest
+           * answer: this save did not happen and the changes are still here.
+           */
+          if (removed.length > 0) {
+            const doomed = new Set(removed.map((entry) => entry.patchId));
+            const survivors = patches.patches.filter(
+              (patch) => !doomed.has(patch.patchId),
+            );
+            const survivingPatches = { ...patches, patches: survivors };
+            // One retry is enough: what is left of each module is the prefix
+            // that already applied, and `prepare` walks modules independently,
+            // so nothing new can fail.
+            preparedCommit = await serverOps.prepare({
+              ...serverOps.analyzePatches(survivors, patches.commits, commit),
+              ...survivingPatches,
+            });
+            Internal.log.error(
+              "removed unpublished changes that could not be applied",
+              removed,
+            );
+          }
+        }
         if (preparedCommit.hasErrors) {
-          console.error(
+          Internal.log.error(
             "Failed to create commit",
             JSON.stringify(
               {
@@ -1796,72 +2996,226 @@ export const ValServer = (
                   ),
                 ),
                 binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+                // Attributed to the patch that caused it, so the studio can
+                // name the offending change and offer to remove it instead of
+                // leaving the editor with "Failed to publish changes".
+                unappliablePatches: preparedCommit.unappliablePatches,
               },
             },
           };
         }
-        if (serverOps instanceof ValOpsFS) {
-          const isRemoteRequired = getIsRemoteRequired(
-            await serverOps.getSchemas(),
-          );
-          let mode: "skip-remote" | "upload-remote";
-          let remoteFileAuthRes:
-            | undefined
-            | Awaited<ReturnType<typeof getRemoteFileAuth>>;
-          if (isRemoteRequired) {
-            mode = "upload-remote";
-            remoteFileAuthRes = await getRemoteFileAuth();
-          } else {
-            mode = "skip-remote";
+        if (serverOps.patchesAreLocal) {
+          /*
+           * Writing the files is the one step that is not shared.
+           *
+           * Everything around it is: applying the patches, telling the ops the
+           * sources moved, handing the result to the host, dropping the patches
+           * this request consumed. Only the destination differs -- `fs` mode has
+           * a working tree to write into and remote binaries to push, and a host
+           * that holds its own source has neither. So this branch is on the
+           * store that CAN write files rather than on "is this local", which is
+           * what the rest of the flow asks.
+           */
+          /*
+           * Remote binary files, which publish separately from the source.
+           *
+           * Val uploads a remote file at PUBLISH rather than when it is added:
+           * until then the bytes are a pending change like any other. So a
+           * local store has to push them before the source that references them
+           * goes live, or the new build ships a URL that 404s. `ValOpsFS` does
+           * this inside `saveOrUploadFiles`, alongside writing its working
+           * tree; a store with no working tree does only the push.
+           */
+          if (isMemoryOps(serverOps)) {
+            /*
+             * A commit with no files uploads nothing and needs no credentials;
+             * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
+             * through `uploadRemoteFiles` where the project is remote, because
+             * that is where a local file is refused rather than dropped.
+             */
+            const isRemoteRequired =
+              commitCarriesRemoteFiles(preparedCommit) ||
+              (commitCarriesFiles(preparedCommit) &&
+                getIsRemoteRequired(await serverOps.getSchemas()));
+            if (isRemoteRequired) {
+              const authRes = await getRemoteFileAuth();
+              if (authRes.status !== 200) {
+                return authRes;
+              }
+              const uploadRes = await serverOps.uploadRemoteFiles(
+                preparedCommit,
+                authRes.json.remoteFileAuth,
+              );
+              if (Object.keys(uploadRes.errors).length > 0) {
+                Internal.log.error(
+                  "Failed to upload remote files",
+                  uploadRes.errors,
+                );
+                return {
+                  status: 400,
+                  json: {
+                    message: "Failed to save files",
+                    details: Object.entries(uploadRes.errors).map(
+                      ([ref, error]) => ({
+                        message: `Got error: ${error.message} in ${ref}`,
+                      }),
+                    ),
+                  },
+                };
+              }
+            }
           }
-          if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
-            return remoteFileAuthRes;
+          if (isFsOps(serverOps)) {
+            // Credentials when THIS save uploads a remote file, not whenever
+            // the project has a remote schema. See `commitCarriesRemoteFiles`.
+            const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
+            let mode: "skip-remote" | "upload-remote";
+            let remoteFileAuthRes:
+              | undefined
+              | Awaited<ReturnType<typeof getRemoteFileAuth>>;
+            if (isRemoteRequired) {
+              mode = "upload-remote";
+              remoteFileAuthRes = await getRemoteFileAuth();
+            } else {
+              mode = "skip-remote";
+            }
+            if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
+              return remoteFileAuthRes;
+            }
+            const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
+            const saveRes = await serverOps.saveOrUploadFiles(
+              preparedCommit,
+              mode,
+              remoteFileAuth,
+            );
+            if (Object.keys(saveRes.errors).length > 0) {
+              Internal.log.error("Failed to save files", saveRes.errors);
+              return {
+                status: 400,
+                json: {
+                  message: "Failed to save files",
+                  details: Object.entries(saveRes.errors).map(
+                    ([key, error]) => {
+                      return {
+                        message: `Got error: ${error} in ${key}`,
+                      };
+                    },
+                  ),
+                },
+              };
+            }
           }
-          const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
-          const saveRes = await serverOps.saveOrUploadFiles(
+          /*
+           * The host's destination, after the store's own.
+           *
+           * Ordered this way so a store that writes has already succeeded by
+           * the time the host is told: `commitPrepared` throwing fails the save,
+           * and a host that publishes what it was handed should not be handed
+           * files the store could not write.
+           */
+          if (options.commitPrepared) {
+            await options.commitPrepared({
+              patchedSourceFiles: preparedCommit.patchedSourceFiles,
+            });
+          }
+          /*
+           * The files on disk are the committed content now, so say so here too.
+           *
+           * Nothing else will: the sources are memoised per `ValOps` instance
+           * and are re-read by awaiting each module's `def`, which is the app's
+           * own `import()` — that resolves from the module registry, not from
+           * the file this save just rewrote. So until the host rebuilds its
+           * module graph, every read of committed content answers with what was
+           * there before the save. A page rendering draft content sees exactly
+           * that once the patches below are gone: `getJsonEntry` resolves the
+           * committed entry and has no patches left to replay over it.
+           *
+           * Before `deletePatches`, because it needs the patches it is adopting
+           * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
+           * move with them.
+           */
+          await serverOps.adoptCommittedSources(
+            { ...analysis, ...patches },
             preparedCommit,
-            mode,
-            remoteFileAuth,
           );
-          if (Object.keys(saveRes.errors).length > 0) {
-            console.error("Val: Failed to save files", saveRes.errors);
-            return {
-              status: 400,
-              json: {
-                message: "Failed to save files",
-                details: Object.entries(saveRes.errors).map(([key, error]) => {
-                  return {
-                    message: `Got error: ${error} in ${key}`,
-                  };
-                }),
-              },
-            };
-          }
-          const deleteRes = await serverOps.deleteAllPatches();
-          if (deleteRes.error) {
-            console.error(
-              `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+          /*
+           * Only what this request consumed.
+           *
+           * This used to be `deleteAllPatches()`, which renamed the whole store
+           * aside and deleted it. Anything typed while the save was in flight
+           * went with it — never applied, and indistinguishable on the client
+           * from having been published, because both look like "the patch is
+           * gone and the base moved". A visible edit that exists nowhere on
+           * disk, with nothing reporting a problem.
+           */
+          const deleteRes = await serverOps.deletePatches(consumed);
+          if ("error" in deleteRes && deleteRes.error !== undefined) {
+            Internal.log.error(
+              `got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+            );
+          } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
+            // Per patch, and not fatal: the files are written, so the save
+            // succeeded. A patch left behind is announced again on the next
+            // stat, applies to a base that already contains it, and is removed
+            // then.
+            Internal.log.error(
+              "could not clean up some patches after publish",
+              deleteRes.errors,
             );
           }
           return {
             status: 200,
-            json: {} as Record<string, never>, // TODO:
+            json: removed.length > 0 ? { removed } : {},
           };
-        } else if (serverOps instanceof ValOpsHttp) {
+        } else if (isHttpOps(serverOps)) {
           if (auth.error === undefined && auth.id) {
             const message =
               body.message ||
               "Val CMS update (" +
                 Object.keys(analysis.patchesByModule).length +
                 " files changed)";
-            const commitRes = await serverOps.commit(
-              preparedCommit,
-              message,
-              auth.id as AuthorId,
-              options.config.files?.directory || "/public/val",
-            );
+            /*
+             * Before the commit, because after it the files are no longer the
+             * patch's to read. See `binaryFiles` on the route.
+             */
+            const managedBranch =
+              serverOps.sourceMode() === "managed"
+                ? serverOps.projectBranch()
+                : null;
+            const committedBinaries =
+              serverOps.sourceMode() === "managed"
+                ? await readCommittedBinaryFiles(
+                    serverOps,
+                    preparedCommit.patchedBinaryFilesDescriptors,
+                    platform.bytesToBase64,
+                  )
+                : null;
+            const commitToGit = () =>
+              serverOps.commit(
+                preparedCommit,
+                message,
+                auth.id as AuthorId,
+                FILES_DIRECTORY,
+                undefined,
+              );
+            /*
+             * A host may publish somewhere other than the repository.
+             *
+             * See `publishOverride`. It is handed `commitToGit` rather than
+             * having it skipped, so it can replace the commit or add to it --
+             * and it is the host, not this route, that knows which.
+             */
+            const commitRes = options.publishOverride
+              ? await options.publishOverride({
+                  patchedSourceFiles: preparedCommit.patchedSourceFiles,
+                  preparedCommit,
+                  message,
+                  authorId: auth.id as AuthorId,
+                  commitToGit,
+                })
+              : await commitToGit();
             if (commitRes.error) {
-              console.error("Failed to commit", commitRes.error);
+              Internal.log.error("Failed to commit", commitRes.error);
               if (
                 "isNotFastForward" in commitRes &&
                 commitRes.isNotFastForward
@@ -1884,9 +3238,40 @@ export const ValServer = (
               };
             }
             // TODO: serverOps.markApplied(patchIds);
+            /*
+             * The new head, back to the client that made it.
+             *
+             * Nothing else tells it in time: `headCommitSha` moves on a `/stat`
+             * response, so until the next poll the client still believes the
+             * pre-publish head — and its next publish sent that as
+             * `expectedHeadCommitSha`, hit the check above against the commit it
+             * had itself just made, and was told somebody else had published.
+             */
             return {
               status: 200,
-              json: {} as Record<string, never>, // TODO:
+              json: {
+                commitSha: commitRes.commit,
+                /*
+                 * For the Studio to BUILD, when it is the deployer. See
+                 * `sourceFiles` on the route: the build must contain the text
+                 * this commit wrote, and only this handler has it.
+                 */
+                ...(serverOps.sourceMode() === "managed"
+                  ? { sourceFiles: preparedCommit.patchedSourceFiles }
+                  : {}),
+                ...(managedBranch !== null ? { branch: managedBranch } : {}),
+                ...(commitRes.headVersion !== undefined
+                  ? { headVersion: commitRes.headVersion }
+                  : {}),
+                ...(committedBinaries !== null
+                  ? {
+                      binaryFiles: committedBinaries.files,
+                      ...(committedBinaries.unread.length > 0
+                        ? { binaryFilesUnread: committedBinaries.unread }
+                        : {}),
+                    }
+                  : {}),
+              },
             };
           }
           return {
@@ -1944,14 +3329,64 @@ export const ValServer = (
             }
             const json = (await upstreamRes.json()) as {
               nonce: string;
+              providers?: unknown;
+              models?: unknown;
             };
             const wsUrl =
               options.valContentUrl
                 .replace(/^https:/, "wss:")
                 .replace(/^http:/, "ws:") + `/v1/${options.project}/ai/connect`;
+            // Forwarded as-is, minus anything that is not a string: which
+            // providers are reachable is the content server's to decide, and
+            // this only has to carry the answer without editorialising.
+            const providers = Array.isArray(json.providers)
+              ? json.providers.filter(
+                  (provider): provider is string =>
+                    typeof provider === "string",
+                )
+              : undefined;
+            // Same posture as `providers`: forwarded, shape-checked, not
+            // interpreted. Which models a key can reach is the content
+            // server's answer to give, and a malformed entry is dropped rather
+            // than allowed to sink the whole response.
+            const models = Array.isArray(json.models)
+              ? json.models.flatMap((entry) => {
+                  if (typeof entry !== "object" || entry === null) {
+                    return [];
+                  }
+                  const model = entry as Record<string, unknown>;
+                  if (
+                    typeof model.provider !== "string" ||
+                    typeof model.model !== "string" ||
+                    typeof model.label !== "string"
+                  ) {
+                    return [];
+                  }
+                  return [
+                    {
+                      provider: model.provider,
+                      model: model.model,
+                      label: model.label,
+                      contextWindow:
+                        typeof model.contextWindow === "number"
+                          ? model.contextWindow
+                          : null,
+                    },
+                  ];
+                })
+              : undefined;
             return {
               status: 200 as const,
-              json: { nonce: json.nonce, wsUrl },
+              json: {
+                nonce: json.nonce,
+                wsUrl,
+                // Explicit, because the distinction matters and truthiness
+                // is a bad way to express it: an empty array means "no
+                // reachable provider", which the client must be able to tell
+                // apart from an older server that reports nothing at all.
+                ...(providers !== undefined ? { providers } : {}),
+                ...(models !== undefined ? { models } : {}),
+              },
             };
           } catch (err) {
             return {
@@ -1963,7 +3398,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -1974,11 +3409,17 @@ export const ValServer = (
             json: { message: "Secret is not configured" },
           };
         }
-        return withAuth(options.valSecret, cookies, "ai/initialize", (data) => {
-          return execFetch(
-            getProfileAuthHeaders(authData, data, "application/json"),
-          );
-        });
+        return withAuth(
+          verifyJwt,
+          options.valSecret,
+          cookies,
+          "ai/initialize",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
       },
     },
     "/ai/sessions": {
@@ -2065,7 +3506,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2076,11 +3517,17 @@ export const ValServer = (
             json: { message: "Secret is not configured" },
           };
         }
-        return withAuth(options.valSecret, cookies, "ai/sessions", (data) => {
-          return execFetch(
-            getProfileAuthHeaders(authData, data, "application/json"),
-          );
-        });
+        return withAuth(
+          verifyJwt,
+          options.valSecret,
+          cookies,
+          "ai/sessions",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
       },
       PATCH: async (req) => {
         const cookies = req.cookies;
@@ -2145,7 +3592,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2157,6 +3604,7 @@ export const ValServer = (
           };
         }
         return withAuth(
+          verifyJwt,
           options.valSecret,
           cookies,
           "ai/sessions/rename",
@@ -2262,7 +3710,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2274,6 +3722,7 @@ export const ValServer = (
           };
         }
         return withAuth(
+          verifyJwt,
           options.valSecret,
           cookies,
           "ai/sessions/messages",
@@ -2309,7 +3758,7 @@ export const ValServer = (
         }
         const authData = authDataRes.json.remoteFileAuth;
         let headers: HeadersInit;
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           headers = getProfileAuthHeaders(authData, null, "application/json");
         } else {
           if (!("id" in auth) || !auth.id) {
@@ -2402,7 +3851,12 @@ export const ValServer = (
                 },
               };
             }
-            if (serverOps instanceof ValOpsFS) {
+            // Deliberately `ValOpsFS` and not `patchesAreLocal`: this writes
+            // BYTES into a patch directory, which is a thing only the fs store
+            // has. A local store without local binary files (ValOpsMemory, which
+            // uses Val's remote files) skips it, and the draft image is served
+            // from the content host rather than mirrored.
+            if (isFsOps(serverOps)) {
               // Mirror the binaries from the content host into local patch
               // storage so /files?patch_id=... can serve them. Match upstream
               // entries to client-provided keys by filePath.
@@ -2439,22 +3893,24 @@ export const ValServer = (
                     },
                   };
                 }
-                const arrayBuffer = await binaryRes.arrayBuffer();
-                const base64 = Buffer.from(arrayBuffer).toString("base64");
-                const dataUrl = `data:${file.metadata.mimeType};base64,${base64}`;
+                // Bytes straight through. This used to base64 the buffer,
+                // wrap it in a data: URL, and hand that to a method whose first
+                // act was to unwrap it again - ceremony to satisfy a convention
+                // that no longer exists.
+                const bytes = new Uint8Array(await binaryRes.arrayBuffer());
                 const type: "image" | "file" =
                   file.metadata.mimeType.startsWith("image/")
                     ? "image"
                     : "file";
-                const saveRes =
-                  await serverOps.saveBase64EncodedBinaryFileFromPatch(
-                    file.filePath,
-                    req.body.parentRef,
-                    req.body.patchId,
-                    dataUrl,
-                    type,
-                    file.metadata,
-                  );
+                const saveRes = await serverOps.saveBinaryFileFromPatch(
+                  file.filePath,
+                  req.body.parentRef,
+                  req.body.patchId,
+                  bytes,
+                  file.metadata.mimeType,
+                  type,
+                  file.metadata,
+                );
                 if (saveRes.error) {
                   return {
                     status: 500 as const,
@@ -2511,7 +3967,7 @@ export const ValServer = (
         }
         const authData = authDataRes.json.remoteFileAuth;
         let headers: HeadersInit;
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           headers = getProfileAuthHeaders(authData, null, "application/json");
         } else {
           if (!("id" in auth) || !auth.id) {
@@ -2582,6 +4038,185 @@ export const ValServer = (
     },
 
     //#region files
+    // #region history
+    "/history/commits": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await serverOps.listCommits(req.query.branch, {
+          limit: req.query.limit,
+          cursor: req.query.cursor,
+        });
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: res.value,
+          // The head moves, so a listing is never reusable.
+          headers: { "Cache-Control": "no-store" },
+        };
+      },
+    },
+    "/history/commit": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getHistoricalPatchSet(
+          serverOps,
+          req.query.commit_sha,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        /*
+         * Immutable ONLY when nothing in the answer was transient.
+         *
+         * What a commit recorded cannot change, so a clean answer is reusable
+         * forever - that is what makes comparing many commits cheap. But a
+         * module marked `unavailable` means a blob fetch failed, and a warning
+         * means an entry read against GitHub did; both can succeed on the next
+         * try. Cached for a year, one flaky read would become "nothing was
+         * recorded for this module" for the rest of the session and beyond.
+         *
+         * `private`, not `public`: this route is behind the session cookie, and
+         * a shared cache holding it would hand one project's module sources to
+         * whoever asked next. The browser's own cache is where the reuse was
+         * wanted anyway.
+         */
+        const settled =
+          res.value.warnings.length === 0 &&
+          Object.values(res.value.modules).every(
+            (module) => module.failures.length === 0,
+          );
+        return {
+          status: 200,
+          json: res.value,
+          headers: {
+            "Cache-Control": settled
+              ? "private, max-age=31536000, immutable"
+              : "no-store",
+          },
+        };
+      },
+    },
+    "/history/module": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getModuleAtCommit(
+          serverOps,
+          req.query.commit_sha,
+          req.query.module_file_path as ModuleFilePath,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        // Immutable only when the answer settled — a module reported
+        // unavailable means a blob fetch failed and may succeed next time, and
+        // caching that for a year turns one flaky read into a permanent gap.
+        const settled = res.value === null || res.value.failures.length === 0;
+        return {
+          status: 200,
+          json: {
+            moduleFilePath: req.query.module_file_path,
+            module: res.value,
+          },
+          headers: {
+            "Cache-Control": settled
+              ? "private, max-age=31536000, immutable"
+              : "no-store",
+          },
+        };
+      },
+    },
+    "/history/json": {
+      GET: async (req) => {
+        // Authenticated, for the reasons on /history/files below.
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        // Loaded here, not with the server: it parses a `.val.ts` with the
+        // TypeScript compiler. See `patch/ts/publishKit.ts`.
+        const { getJsonEntryAtCommit } =
+          await import("./history/getJsonEntryAtCommit");
+        const res = await getJsonEntryAtCommit(
+          serverOps,
+          req.query.commit_sha,
+          req.query.path as ModuleFilePath,
+          req.query.key,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: {
+            path: req.query.path as ModuleFilePath,
+            key: req.query.key,
+            content: res.value,
+          },
+        };
+      },
+    },
+    "/history/files": {
+      GET: async (req) => {
+        /*
+         * Authenticated, unlike /files.
+         *
+         * This used to reason "same as /files" and that was wrong twice over.
+         * /files is open because a `patch_id` is an unguessable UUID standing
+         * in for a credential, and because it HAS to be: a draft image is
+         * fetched by the app's own backend during Next image optimisation,
+         * backend-to-backend, with no cookies to send.
+         *
+         * A commit sha is not a secret - it is in `git log`, in the GitHub UI,
+         * on every PR - so the first argument does not transfer. And nothing
+         * fetches this server-side; both callers are the Studio in a browser
+         * that has the session cookie (the history pane's <img>, and
+         * stageRestore's fetch, both same-origin so the cookie goes). So the
+         * second does not either, and there is nothing to trade away by
+         * asking.
+         */
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await serverOps.getFileAtCommit(
+          req.query.commit_sha,
+          req.query.path,
+          req.query.remote === "true",
+        );
+        if (result.isErr(res)) {
+          const response = historyErrorResponse(res.error);
+          // The stream branch of this route's response union has no json, so
+          // narrow to the shapes it does allow.
+          if (response.status === 401 || response.status === 404) {
+            return response;
+          }
+          return { status: 400, json: response.json };
+        }
+        return {
+          status: 200,
+          headers: {
+            "Content-Type":
+              guessMimeTypeFromPath(req.query.path) ??
+              "application/octet-stream",
+            // A file at a fixed commit cannot change.
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          body: bufferToReadableStream(res.value),
+        };
+      },
+    },
+    // #endregion history
     "/files": {
       GET: async (req) => {
         const query = req.query;
@@ -2595,40 +4230,25 @@ export const ValServer = (
         //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
         // Thus: attack surface + ease of attack + benefit = low probability of attack
         // If we couldn't argue that patch ids are secret enough, then this would be a problem.
-        let cacheControl: string | undefined;
-        let fileBuffer;
-        let mimeType: string | undefined;
+        // Note that /history/files, which looks like the same endpoint, IS
+        // authenticated: its token is a commit sha, which is published, and
+        // nothing fetches it backend-to-backend. Neither half of the argument
+        // above transfers. See architecture/media.md, "Why /files has no auth,
+        // and /history/files does".
         const remote = query.remote === "true";
-        if (query.patch_id) {
-          fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
-            filePath,
-            query.patch_id as PatchId,
-            remote,
+        const patchId = query.patch_id;
+        if (!patchId && isHttpOps(serverOps) && remote) {
+          Internal.log.error(
+            `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
           );
-          mimeType = Internal.filenameToMimeType(filePath);
-          // TODO: reenable this:
-          // cacheControl = "public, max-age=20000, immutable";
-        } else {
-          if (serverOps instanceof ValOpsHttp && remote) {
-            console.error(
-              `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
-            );
-          }
-          fileBuffer = await serverOps.getBinaryFile(filePath);
         }
-
-        if (fileBuffer) {
-          return {
-            status: 200,
-            headers: {
-              // TODO: we could use ETag and return 304 instead
-              "Content-Type": mimeType || "application/octet-stream",
-              "Cache-Control":
-                cacheControl || "public, max-age=0, must-revalidate",
-            },
-            body: bufferToReadableStream(fileBuffer),
-          };
-        } else {
+        // Opened, not read: a video is seeked in by many small ranges, and
+        // only the asked-for bytes are read where the mode can (fs).
+        const opened = await serverOps.openBinaryFile(
+          filePath,
+          patchId ? { patchId: patchId as PatchId, remote } : null,
+        );
+        if (!opened) {
           return {
             status: 404,
             json: {
@@ -2636,6 +4256,66 @@ export const ValServer = (
             },
           };
         }
+        // A DRAFT playlist names files that are drafts too, at URLs that only
+        // resolve once published. See `rewriteDraftPlaylist`. Playlists are
+        // small, so one is read whole to be rewritten.
+        const file =
+          patchId && isHlsPlaylistPath(filePath)
+            ? bufferReader(
+                utf8ToBytes(
+                  rewriteDraftPlaylist(
+                    bytesToUtf8(await opened.read(0, opened.size - 1)),
+                    { playlistPath: filePath, patchId, remote },
+                  ),
+                ),
+              )
+            : opened;
+        const headers = {
+          // TODO: we could use ETag and return 304 instead
+          // From the extension, published or draft: a `<video>` and an HLS
+          // player both decide what they are holding by it, and it used to be
+          // set for drafts only.
+          "Content-Type":
+            Internal.filenameToMimeType(filePath) || "application/octet-stream",
+          // TODO: a file requested with a patch_id is immutable for that
+          // patch, so it could be served "public, max-age=20000, immutable"
+          // instead. There used to be a `cacheControl` variable here for
+          // that, but its only assignment was commented out, so every
+          // response has always taken the revalidate branch.
+          "Cache-Control": "public, max-age=0, must-revalidate",
+          "Accept-Ranges": "bytes",
+        };
+        const range = parseRangeHeader(req.headers.range, file.size);
+        if (range.kind === "unsatisfiable") {
+          return {
+            status: 416,
+            headers: { ...headers, "Content-Range": `bytes */${file.size}` },
+            json: {
+              message: `Range not satisfiable: ${req.headers.range}`,
+            },
+          };
+        }
+        if (range.kind === "range") {
+          const slice = await file.read(range.start, range.end);
+          return {
+            status: 206,
+            headers: {
+              ...headers,
+              "Content-Range": `bytes ${range.start}-${range.end}/${file.size}`,
+              "Content-Length": String(slice.length),
+            },
+            body: bufferToReadableStream(slice),
+          };
+        }
+        const body =
+          file.size === 0
+            ? new Uint8Array(0)
+            : await file.read(0, file.size - 1);
+        return {
+          status: 200,
+          headers: { ...headers, "Content-Length": String(body.length) },
+          body: bufferToReadableStream(body),
+        };
       },
     },
   };
@@ -2698,7 +4378,7 @@ function getStateFromCookie(stateCookie: string):
     }
   | { success: false; error: string } {
   try {
-    const decoded = Buffer.from(stateCookie, "base64").toString("utf8");
+    const decoded = bytesToUtf8(base64ToBytes(stateCookie));
     const parsed = JSON.parse(decoded) as unknown;
 
     if (!parsed) {
@@ -2771,7 +4451,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
       };
     }
   }
-  console.error(
+  Internal.log.error(
     "Unexpected failure (did not get a json) - Val down?",
     fetchRes.status,
     await fetchRes.text(),
@@ -2785,7 +4465,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
 }
 
 function createStateCookie(state: StateCookie): string {
-  return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
+  return bytesToBase64(utf8ToBytes(JSON.stringify(state)));
 }
 
 const ValAppJwtPayload = z.object({
@@ -2807,7 +4487,25 @@ export type IntegratedServerJwtPayload = z.infer<
   typeof IntegratedServerJwtPayload
 >;
 
+/**
+ * The message we show the user when their session cookie does not verify. The
+ * distinction matters: an expired session is normal and self-explanatory, while
+ * a bad signature means the cookie was tampered with or `VAL_SECRET` changed.
+ */
+function sessionErrorMessage(reason: JwtFailureReason): string {
+  switch (reason) {
+    case "expired":
+      return "Session expired. You will need to login again.";
+    case "malformed":
+    case "invalid-signature":
+      return "Could not verify session (invalid token). You will need to login again.";
+    case "missing-secret":
+      return "Setup is not correct: secret is missing";
+  }
+}
+
 async function withAuth<T>(
+  verifyJwt: (token: string, secretKey: string) => JwtResult,
   secret: string,
   cookies: ValCookies<VAL_SESSION_COOKIE>,
   errorMessageType: string,
@@ -2830,29 +4528,30 @@ async function withAuth<T>(
 > {
   const cookie = cookies[VAL_SESSION_COOKIE];
   if (typeof cookie === "string") {
-    const decodedToken = decodeJwt(cookie, secret);
-    if (!decodedToken) {
+    const verifiedToken = verifyJwt(cookie, secret);
+    if (!verifiedToken.success) {
       return {
         status: 401 as const,
         json: {
-          message: "Could not verify session. You will need to login again.",
-          details: "Invalid token",
+          message: sessionErrorMessage(verifiedToken.reason),
+          details: verifiedToken.reason,
         },
       };
     }
-    const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
+    const verification = IntegratedServerJwtPayload.safeParse(
+      verifiedToken.data,
+    );
     if (!verification.success) {
       return {
         status: 401 as const,
         json: {
-          message:
-            "Session invalid or, most likely, expired. You will need to login again.",
+          message: "Session invalid. You will need to login again.",
           details: fromError(verification.error).toString(),
         },
       };
     }
     return handler(verification.data).catch((err) => {
-      console.error(`Failed while processing: ${errorMessageType}`, err);
+      Internal.log.error(`Failed while processing: ${errorMessageType}`, err);
       return {
         status: 500 as const,
         json: {
@@ -2917,7 +4616,35 @@ export const ENABLE_COOKIE_VALUE = {
 } as const;
 const chunkSize = 1024 * 1024;
 
-export function bufferToReadableStream(buffer: Buffer) {
+/**
+ * Turn a HistoryError into the HTTP answer it deserves.
+ *
+ * The `kind` travels in the body alongside the message, because the Studio
+ * decides what to OFFER from it - "cannot restore this field" and "cannot
+ * restore this module at all" are different affordances, and a rendered string
+ * cannot be told apart.
+ */
+function historyErrorResponse(
+  error: HistoryError,
+):
+  | { status: 401; json: { message: string } }
+  | { status: 404; json: { message: string } }
+  | { status: 400; json: { message: string; kind?: string } }
+  | { status: 500; json: { message: string; kind?: string } } {
+  const message = historyErrorMessage(error);
+  switch (error.kind) {
+    case "commit-not-found":
+      return { status: 404, json: { message } };
+    case "not-supported-in-fs-mode":
+      // Not an error in the request - this deployment simply has no history
+      // service. 400 rather than 500 so it does not read as a bug.
+      return { status: 400, json: { message, kind: error.kind } };
+    default:
+      return { status: 500, json: { message, kind: error.kind } };
+  }
+}
+
+export function bufferToReadableStream(buffer: Uint8Array) {
   const stream = new ReadableStream({
     start(controller) {
       let offset = 0;
@@ -3051,4 +4778,185 @@ function getIsRemoteRequired(
     }
   }
   return false;
+}
+
+/**
+ * What a tab builds a job from: this deployment's embedded source, the
+ * commits since it (as though pending: together they are the branch's head),
+ * and the job's own pending changes on top. Managed and connected alike.
+ *
+ * `split.archive` is the managed job's archive; a connected job's archive is
+ * the push's, made from its own changes alone, by the caller.
+ */
+async function buildSourcesOf(
+  platform: ValServerPlatform,
+  serverOps: ValOpsHttp,
+  patchIds: string[],
+  commit: CommitSha | undefined,
+  /**
+   * Read the job's binary files back for a build. Off for a caller that only
+   * commits what was prepared, which names the files rather than carrying them.
+   */
+  options: { binaries: boolean } = { binaries: true },
+): Promise<
+  | { status: 409 | 500; json: { message: string } }
+  | {
+      split: ReturnType<typeof splitJobPrepare>;
+      /** The job's content, prepared: what a save of the job commits. */
+      withJob: PreparedCommit;
+      /** The branch's head the commits it was prepared over reach, at the least. */
+      headCommitSha: string | null | undefined;
+      sourceFiles: Record<string, string | null>;
+      binaryFiles: Record<string, string>;
+      binaryFilesUnread: string[];
+    }
+> {
+  const chain = await serverOps.fetchPatches({
+    patchIds: undefined,
+    excludePatchOps: false,
+  });
+  if (chain.error) {
+    return { status: 500, json: { message: chain.error.message } };
+  }
+  /*
+   * The job's content, in two steps from this build's embedded source.
+   *
+   * The commits since this build, as though pending, are the branch's
+   * head. The job's pending changes on top of them are its content: whatever was applied since the job started came
+   * out of its own changes (docs/app-mode.md, "Publishing is a queued
+   * job"), and were that ever not so, the seal would restart the job
+   * rather than publish it. Chain order, both times.
+   */
+  const job = new Set<string>(patchIds);
+  const committed = chain.patches
+    .filter((patch) => patch.appliedAt !== null)
+    .map((patch) => ({ ...patch, appliedAt: null }));
+  const pending = chain.patches.filter(
+    (patch) => patch.appliedAt === null && job.has(patch.patchId),
+  );
+  const known = new Set<string>(chain.patches.map((patch) => patch.patchId));
+  const gone = patchIds.filter((id) => !known.has(id));
+  if (gone.length > 0) {
+    return {
+      status: 409,
+      json: {
+        message: `This publish's changes are no longer all there (${gone.length} discarded).`,
+      },
+    };
+  }
+  const prepareOf = (patches: typeof chain.patches) =>
+    serverOps.prepare({
+      ...serverOps.analyzePatches(patches, chain.commits, commit),
+      ...chain,
+      patches,
+    });
+  const chainOnly = await prepareOf(committed);
+  const withJob = await prepareOf([...committed, ...pending]);
+  if (chainOnly.hasErrors || withJob.hasErrors) {
+    return {
+      status: 500,
+      json: {
+        message:
+          "This publish's changes could not be rendered into source: " +
+          JSON.stringify(
+            (withJob.hasErrors ? withJob : chainOnly).sourceFilePatchErrors,
+          ).slice(0, 500),
+      },
+    };
+  }
+  const split = splitJobPrepare({
+    chainOnly,
+    withJob,
+    jobPatchIds: patchIds,
+  });
+  // Read now, while the job's changes still hold their files.
+  const binaries = options.binaries
+    ? await readCommittedBinaryFiles(
+        serverOps,
+        split.archive.patchedBinaryFilesDescriptors,
+        platform.bytesToBase64,
+      )
+    : { files: {}, unread: [] };
+  return {
+    split,
+    withJob,
+    headCommitSha: chain.headCommitSha,
+    sourceFiles: split.buildSourceFiles,
+    binaryFiles: binaries.files,
+    binaryFilesUnread: binaries.unread,
+  };
+}
+
+/**
+ * `/publish-job-prepare`'s answer from content's: the job as content has it
+ * now, and what the tab builds from. Content's refusal is passed on -- 409
+ * as 409, anything else as 502, which the tab reads as "content answered,
+ * and has counted the attempt" (see `runStudioJob`).
+ */
+function jobPrepareAnswer(
+  sent: { status: number; body: string },
+  build: {
+    sourceFiles: Record<string, string | null>;
+    binaryFiles: Record<string, string>;
+    binaryFilesUnread: string[];
+    branch: string | null;
+    buildable: boolean;
+  },
+):
+  | { status: 409 | 502; json: { message: string } }
+  | {
+      status: 200;
+      json: {
+        job: ReturnType<typeof parseJob>["job"];
+        sourceFiles: Record<string, string | null>;
+        binaryFiles: Record<string, string>;
+        binaryFilesUnread: string[];
+        branch: string | null;
+        buildable: boolean;
+      };
+    } {
+  if (sent.status !== 200) {
+    let message = `The content service did not prepare the publish (${sent.status}).`;
+    try {
+      const parsed: unknown = JSON.parse(sent.body);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "message" in parsed &&
+        typeof parsed.message === "string"
+      ) {
+        message = parsed.message;
+      }
+    } catch {
+      // not JSON: the status says enough
+    }
+    return { status: sent.status === 409 ? 409 : 502, json: { message } };
+  }
+  try {
+    const prepared = parseJob(
+      JSON.parse(sent.body),
+      "POST /v1/publish-jobs/{id}/prepare",
+    );
+    return { status: 200, json: { job: prepared.job, ...build } };
+  } catch (e) {
+    return {
+      status: 502,
+      json: { message: e instanceof Error ? e.message : String(e) },
+    };
+  }
+}
+
+/** What `/publish-selected` reads from content's proposal create. */
+const PublishProposalCreated = z.object({
+  proposal: z.object({ name: z.string() }),
+});
+/** Content's refusal, in its words. */
+const ContentError = z.object({ message: z.string() });
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }

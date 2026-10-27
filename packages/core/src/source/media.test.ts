@@ -1,0 +1,266 @@
+import { createRemoteRef } from "./remote";
+import { fillFromGallery, isRemoteMediaPath, mediaUrl } from "./media";
+
+const REMOTE_REF = createRemoteRef("https://remote.val.build", {
+  publicProjectId: "p1",
+  coreVersion: "1.0.0",
+  bucket: "b1",
+  validationHash: "vh",
+  fileHash: "fh",
+  filePath: "public/val/hero_a1b2c.png",
+});
+
+describe("mediaUrl", () => {
+  test.each([
+    {
+      name: "published /public path drops the /public prefix",
+      src: { path: "/public/val/hero_a1b2c.png" },
+      expected: "/val/hero_a1b2c.png",
+    },
+    {
+      name: "drafted /public path is served by the files API",
+      src: { path: "/public/val/hero_a1b2c.png", patch_id: "pt1" },
+      expected: "/api/val/files/public/val/hero_a1b2c.png?patch_id=pt1",
+    },
+    {
+      name: "published remote ref is the path itself",
+      src: { path: REMOTE_REF },
+      expected: REMOTE_REF,
+    },
+    {
+      name: "drafted remote ref is served locally, carrying the ref",
+      src: { path: REMOTE_REF, patch_id: "pt2" },
+      expected: `/api/val/files/public/val/hero_a1b2c.png?patch_id=pt2&remote=true&ref=${encodeURIComponent(
+        REMOTE_REF,
+      )}`,
+    },
+    {
+      name: "absolute path outside /public is served as written",
+      src: { path: "/images/hero.png" },
+      expected: "/images/hero.png",
+    },
+    {
+      // A path that is neither under /public nor a valid remote ref must still
+      // produce something: this runs on every read now that there is no _type
+      // to short-circuit on.
+      name: "garbage path does not throw",
+      src: { path: "not-a-path", patch_id: "pt3" },
+      expected: "not-a-path?patch_id=pt3",
+    },
+  ])("$name", ({ src, expected }) => {
+    expect(mediaUrl(src)).toBe(expected);
+  });
+});
+
+describe("isRemoteMediaPath", () => {
+  test("only /public is local", () => {
+    expect(isRemoteMediaPath("/public/val/x.png")).toBe(false);
+    expect(isRemoteMediaPath(REMOTE_REF)).toBe(true);
+    expect(isRemoteMediaPath("/images/x.png")).toBe(true);
+  });
+});
+
+describe("fillFromGallery", () => {
+  const galleryEntry = { width: 8, height: 8, mimeType: "image/png" };
+  const schema = {
+    type: "image" as const,
+    opt: false,
+    referencedModule: "/content/gallery.val.ts",
+  };
+
+  test("fills width, height and mimeType from a local key", () => {
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({ "/public/img/hero_a1b2c.png": galleryEntry }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      ...galleryEntry,
+    });
+  });
+
+  test("finds a remote ref by the local path it was uploaded from", () => {
+    const filled = fillFromGallery({ path: REMOTE_REF }, schema, () => ({
+      "public/val/hero_a1b2c.png": galleryEntry,
+    }));
+    expect(filled).toEqual({ path: REMOTE_REF, ...galleryEntry });
+  });
+
+  test("finds a remote ref by the local key an upload through the field writes", () => {
+    // The Studio keys the gallery entry by the local path inside the ref, with
+    // its leading slash, and stores the ref in the field.
+    const filled = fillFromGallery({ path: REMOTE_REF }, schema, () => ({
+      "/public/val/hero_a1b2c.png": galleryEntry,
+    }));
+    expect(filled).toEqual({ path: REMOTE_REF, ...galleryEntry });
+  });
+
+  test("leaves an authored alt alone", () => {
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png", alt: "An override" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": { ...galleryEntry, alt: "The gallery's" },
+      }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      alt: "An override",
+      ...galleryEntry,
+    });
+  });
+
+  test("takes the gallery's alt when the field has none", () => {
+    // The alt an editor typed once for a file used in several places. Dropping
+    // it means every gallery-backed image renders with an empty alt.
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": { ...galleryEntry, alt: "The gallery's" },
+      }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      alt: "The gallery's",
+      ...galleryEntry,
+    });
+  });
+
+  test("a gallery alt of null is not an alt", () => {
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({ "/public/img/hero_a1b2c.png": { ...galleryEntry, alt: null } }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      ...galleryEntry,
+    });
+  });
+
+  test("a locale-record alt is left in the gallery", () => {
+    // The field's `alt` is a string. Copying an object into it would be a lie;
+    // making the override locale-shaped is a separate change.
+    const filled = fillFromGallery(
+      { path: "/public/img/hero_a1b2c.png" },
+      schema,
+      () => ({
+        "/public/img/hero_a1b2c.png": {
+          ...galleryEntry,
+          alt: { en: "A hero", no: "En helt" },
+        },
+      }),
+    );
+    expect(filled).toEqual({
+      path: "/public/img/hero_a1b2c.png",
+      ...galleryEntry,
+    });
+  });
+
+  test("a path the gallery does not track is returned untouched", () => {
+    const src = { path: "/public/img/missing.png" };
+    expect(
+      fillFromGallery(src, schema, () => ({
+        "/public/img/hero_a1b2c.png": galleryEntry,
+      })),
+    ).toEqual(src);
+  });
+
+  describe("a video set's defaults", () => {
+    const videoSchema = {
+      type: "video" as const,
+      opt: false,
+      referencedModule: "/content/videos.val.ts",
+    };
+    const poster = { path: "/public/val/videos/intro-poster_a627f.webp" };
+    const entry = {
+      mimeType: "video/mp4",
+      width: 640,
+      height: 360,
+      duration: 4,
+      alt: "The set's description",
+      hotspot: { x: 0.2, y: 0.8 },
+      poster,
+      posterTime: 1,
+      startTime: 0.5,
+      endTime: 3.5,
+      captions: [{ path: "/public/val/videos/intro.vtt", srclang: "en" }],
+    };
+    const fill = (src: { path: string } & Record<string, unknown>) =>
+      fillFromGallery(src, videoSchema, () => ({
+        "/public/val/videos/intro_51df2.mp4": entry,
+      }));
+
+    test("a field with nothing of its own takes every default", () => {
+      expect(fill({ path: "/public/val/videos/intro_51df2.mp4" })).toEqual({
+        path: "/public/val/videos/intro_51df2.mp4",
+        ...entry,
+      });
+    });
+
+    test("a field overrides key by key", () => {
+      const filled = fill({
+        path: "/public/val/videos/intro_51df2.mp4",
+        startTime: 2,
+        hotspot: { x: 0.5, y: 0.5 },
+      });
+      expect(filled).toMatchObject({
+        startTime: 2,
+        hotspot: { x: 0.5, y: 0.5 },
+        endTime: 3.5,
+        alt: "The set's description",
+      });
+    });
+
+    test("the poster and its time are overridden together", () => {
+      const filled = fill({
+        path: "/public/val/videos/intro_51df2.mp4",
+        posterTime: 2,
+      });
+      expect(filled).toMatchObject({ posterTime: 2 });
+      expect(filled).not.toHaveProperty("poster");
+    });
+
+    test("captions are overridden as a whole list, an empty one included", () => {
+      const filled = fill({
+        path: "/public/val/videos/intro_51df2.mp4",
+        captions: [],
+      });
+      expect(filled).toMatchObject({ captions: [] });
+    });
+  });
+
+  test("an image takes the gallery's focal point when it has none of its own", () => {
+    const entries = {
+      "/public/img/hero_a1b2c.png": {
+        ...galleryEntry,
+        hotspot: { x: 0.1, y: 0.9 },
+      },
+    };
+    expect(
+      fillFromGallery(
+        { path: "/public/img/hero_a1b2c.png" },
+        schema,
+        () => entries,
+      ),
+    ).toMatchObject({ hotspot: { x: 0.1, y: 0.9 } });
+    expect(
+      fillFromGallery(
+        { path: "/public/img/hero_a1b2c.png", hotspot: { x: 0.5, y: 0.5 } },
+        schema,
+        () => entries,
+      ),
+    ).toMatchObject({ hotspot: { x: 0.5, y: 0.5 } });
+  });
+
+  test("a field with no referenced module is returned untouched", () => {
+    const src = { path: "/public/val/hero_a1b2c.png" };
+    expect(
+      fillFromGallery(src, { type: "image" as const, opt: false }, () => {
+        throw new Error("must not be asked for a module");
+      }),
+    ).toEqual(src);
+  });
+});

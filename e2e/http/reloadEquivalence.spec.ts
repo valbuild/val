@@ -1,0 +1,323 @@
+import { expect, test, type Page } from "@playwright/test";
+import {
+  contextAs,
+  mock,
+  openHttpStudio,
+  publishAll,
+  sessionCookie,
+  writePatch,
+} from "./httpMode";
+import { expectSameAsReload, markLive } from "./reloadEquivalence";
+
+/**
+ * An open Studio shows what a reload would — after each thing that can happen
+ * to it from somewhere else.
+ *
+ * See `reloadEquivalence.ts` for the rule and how it is checked. Each test
+ * here is one way the server's state can move while a Studio is open: another
+ * browser of the same user, another user, a publish. The assertion is the
+ * same every time, which is the point — a divergence anywhere is the same bug.
+ */
+
+const AUTHORS = "/content/authors.val.ts";
+
+test.use({
+  storageState: { cookies: [sessionCookie("ada")], origins: [] },
+});
+
+test.beforeEach(async () => {
+  await mock.reset();
+});
+
+test("a change Ada writes in another browser", async ({ page, browser }) => {
+  // Ada already has a change of her own here, so the chain is not empty.
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["freekh", "name"], value: "Ada, here" },
+  ]);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    await markLive(page);
+    await writePatch(elsewhere, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "from another browser" },
+    ]);
+    await expectSameAsReload(browser, page, "ada", "Ada's other browser wrote");
+  } finally {
+    await other.close();
+  }
+});
+
+test("a change another user writes", async ({ page, browser }) => {
+  // Every editor sees every pending change: Linus's has to show up here.
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["freekh", "name"], value: "Ada, here" },
+  ]);
+  const linus = await contextAs(browser, "linus");
+  try {
+    const theirs = await linus.newPage();
+    await openHttpStudio(theirs);
+    await markLive(page);
+    await writePatch(theirs, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Linus, pending" },
+    ]);
+    await expectSameAsReload(browser, page, "ada", "Linus wrote");
+  } finally {
+    await linus.close();
+  }
+});
+
+test("a change another user publishes, before it is built", async ({
+  page,
+  browser,
+}) => {
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["freekh", "name"], value: "Ada, pending" },
+  ]);
+  const linus = await contextAs(browser, "linus");
+  try {
+    const theirs = await linus.newPage();
+    await openHttpStudio(theirs);
+    await markLive(page);
+    await writePatch(theirs, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Linus, published" },
+    ]);
+    // Asserted, because `publishAll` reports a refusal rather than throwing,
+    // and two pages agreeing on an unpublished draft would pass this test.
+    expect(await publishAll(theirs, "Linus ships")).toMatchObject({
+      status: "published",
+    });
+    await expectSameAsReload(browser, page, "ada", "Linus published");
+  } finally {
+    await linus.close();
+  }
+});
+
+test("Ada's own publish, before it is built", async ({ page, browser }) => {
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["teddy", "name"], value: "Ada, published" },
+  ]);
+  await markLive(page);
+  expect(await publishAll(page, "Ada ships")).toMatchObject({
+    status: "published",
+  });
+  await expectSameAsReload(browser, page, "ada", "Ada published");
+});
+
+test("Ada's own publish, seen from her other browser", async ({
+  page,
+  browser,
+}) => {
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["teddy", "name"], value: "Ada, first" },
+  ]);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    await openHttpStudio(page);
+    await markLive(page);
+    expect(
+      await publishAll(elsewhere, "Ada ships from the other browser"),
+    ).toMatchObject({ status: "published" });
+    await expectSameAsReload(
+      browser,
+      page,
+      "ada",
+      "Ada published from her other browser",
+    );
+  } finally {
+    await other.close();
+  }
+});
+
+test("Ada's own publish never takes it off the screen of her other browser", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * The publish marks Ada's patches applied, and the websocket tells this page.
+   * The site still serves the build from before the publish, so the change has
+   * to stay on screen from the chain.
+   *
+   * Sampled the whole time rather than compared once at the end: a page that
+   * took a newer chain with an OLD applied list showed the pre-publish value,
+   * and `expectSameAsReload` still passed, because the `/stat` poll that
+   * follows a commit put it back within seconds.
+   */
+  const NAME = "Ada, never reverted";
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["teddy", "name"], value: NAME },
+  ]);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    // Again: `next dev` can reload an open page while it compiles for a new
+    // one, so this page is opened after the other one is up.
+    await openHttpStudio(page);
+    await markLive(page);
+    // What this page shows for the edited field, read straight off the store.
+    const shown = () =>
+      page.evaluate(
+        ({ module }) => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | { teddy?: { name?: unknown } }
+            | undefined;
+          return authors?.teddy?.name;
+        },
+        { module: AUTHORS },
+      );
+    await expect.poll(shown, { timeout: 30_000 }).toBe(NAME);
+    // From here on, every value the field takes is recorded.
+    await page.evaluate(
+      ({ module }) => {
+        const seen = new Set<unknown>();
+        Reflect.set(window, "__valSeenNames", seen);
+        const sample = () => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | { teddy?: { name?: unknown } }
+            | undefined;
+          seen.add(authors?.teddy?.name);
+        };
+        sample();
+        setInterval(sample, 20);
+      },
+      { module: AUTHORS },
+    );
+    expect(
+      await publishAll(elsewhere, "Ada ships from the other browser"),
+    ).toMatchObject({ status: "published" });
+    // Until this page has heard of the publish: the patch reads as shipped.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const stores = Reflect.get(window, "__VAL_STORES__") as {
+              system: {
+                patchStore: {
+                  allRecords(): { patchId: string }[];
+                  pendingAmong(ids: Iterable<string>): Set<string>;
+                };
+              };
+            };
+            const ids = stores.system.patchStore
+              .allRecords()
+              .map((record) => record.patchId);
+            return stores.system.patchStore.pendingAmong(ids).size;
+          }),
+        { timeout: 30_000 },
+      )
+      .toBe(0);
+    await page.waitForTimeout(1_000);
+    expect(
+      await page.evaluate(() => [
+        ...(Reflect.get(window, "__valSeenNames") as Set<unknown>),
+      ]),
+      "the open Studio showed something other than the published value",
+    ).toEqual([NAME]);
+    // And an edit after it leaves the published change where it is.
+    await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Ada, after" },
+    ]);
+    await expectSameAsReload(browser, page, "ada", "Ada published elsewhere");
+  } finally {
+    await other.close();
+  }
+});
+
+test("Ada publishes three times in a row, and nothing she published leaves her open Studio", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * Edit, publish, edit again, publish again -- with the site still serving
+   * the build from before the first publish, and no reload in between. Each
+   * round's value has to stay on screen from the moment it is typed, each
+   * later edit has to leave the earlier published ones where they are, and
+   * the page has to agree with a reload at the end.
+   *
+   * Published from Ada's other browser, so this page learns of every publish
+   * the way a Studio does on a project that publishes as jobs: from the
+   * websocket, not from a publish of its own.
+   */
+  const NAMES = ["Ada, round one", "Ada, round two", "Ada, round three"];
+  const FIELDS = ["teddy", "freekh", "teddy"] as const;
+  await openHttpStudio(page);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    // Again: `next dev` can reload an open page while it compiles for a new
+    // one, so this page is opened after the other one is up.
+    await openHttpStudio(page);
+    await markLive(page);
+    const shownOn = (on: Page, author: string) =>
+      on.evaluate(
+        ({ module, author }) => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | Record<string, { name?: unknown } | undefined>
+            | undefined;
+          return authors?.[author]?.name;
+        },
+        { module: AUTHORS, author },
+      );
+    const shown = (author: string) => shownOn(page, author);
+    const expected: Record<string, string> = {};
+    for (const [round, name] of NAMES.entries()) {
+      const field = FIELDS[round];
+      await writePatch(page, AUTHORS, [
+        { op: "replace", path: [field, "name"], value: name },
+      ]);
+      expected[field] = name;
+      for (const [author, value] of Object.entries(expected)) {
+        await expect.poll(() => shown(author), { timeout: 30_000 }).toBe(value);
+      }
+      /*
+       * And in the browser that publishes, before it does: it publishes what
+       * it holds, and it learns of this round's edit by the chain moving.
+       * Pressed before that, it has only the rounds already shipped and
+       * rightly answers `nothing-to-publish` -- which is what a person who
+       * looked at that browser first would never do.
+       */
+      await expect
+        .poll(() => shownOn(elsewhere, field), { timeout: 30_000 })
+        .toBe(name);
+      expect(
+        await publishAll(elsewhere, `Ada ships round ${round + 1}`),
+      ).toMatchObject({ status: "published" });
+      // Given time to hear of the publish, then nothing has moved.
+      await page.waitForTimeout(2_000);
+      for (const [author, value] of Object.entries(expected)) {
+        expect(
+          await shown(author),
+          `round ${round + 1}: ${author} left the open Studio after the publish`,
+        ).toBe(value);
+      }
+    }
+    await expectSameAsReload(browser, page, "ada", "Ada published three times");
+  } finally {
+    await other.close();
+  }
+});

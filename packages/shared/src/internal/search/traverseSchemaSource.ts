@@ -1,0 +1,271 @@
+import {
+  Internal,
+  Source,
+  SerializedObjectSchema,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
+import { sourcePathOfChild } from "./sourcePath";
+
+/**
+ * Traverses a schema and source pair, calling a callback for each leaf node.
+ * Handles all schema types including primitives, objects, arrays, records, unions, richtext, files, images, etc.
+ *
+ * @param source - The JSON source data
+ * @param schema - The serialized schema
+ * @param path - The current source path
+ * @param callback - Function called for each traversable node with { source, schema, path }
+ */
+export function traverseSchemaSource(
+  source: Source,
+  schema: SerializedSchema,
+  path: SourcePath,
+  callback: (opts: {
+    source: Source;
+    schema: SerializedSchema;
+    path: SourcePath;
+  }) => void,
+): void {
+  if (!schema?.type) {
+    throw new Error("Schema not found for " + path);
+  }
+
+  if (source === null) {
+    return;
+  }
+
+  // An un-loaded `.jsonValues()` entry is an opaque `{_type:"json"}` marker, not
+  // the value its schema describes. Skip it — its content is traversed once
+  // loaded, since the sync engine substitutes it in place of the marker.
+  //
+  // Without this the marker falls through to whichever branch its ITEM schema
+  // selects: an object/record item walks the marker's OWN keys, so an entry
+  // schema with a field named `_type` or `patch_id` would index the marker's
+  // internals as if they were content.
+  if (Internal.isJson(source)) {
+    return;
+  }
+
+  // Handle primitives
+  if (schema.type === "string") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  if (schema.type === "number") {
+    if (typeof source === "number") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  if (schema.type === "boolean") {
+    if (typeof source === "boolean") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle richtext - flatten and call callback
+  if (schema.type === "richtext") {
+    callback({ source, schema, path });
+    return;
+  }
+
+  // Handle file/image/video
+  if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
+    if (
+      source &&
+      typeof source === "object" &&
+      "path" in source &&
+      typeof source.path === "string"
+    ) {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle date
+  if (schema.type === "date") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle dateTime
+  if (schema.type === "dateTime") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle color
+  if (schema.type === "color") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle code
+  if (schema.type === "code") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle keyOf
+  if (schema.type === "keyOf") {
+    if (typeof source === "string" || typeof source === "number") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle literal
+  if (schema.type === "literal") {
+    callback({ source, schema, path });
+    return;
+  }
+
+  // Handle enum: a leaf, like a literal with more than one allowed value
+  if (schema.type === "enum") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle route and locale: both are plain strings at a leaf
+  if (schema.type === "route" || schema.type === "locale") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
+  // Handle array
+  if (schema.type === "array") {
+    if (!Array.isArray(source)) {
+      return;
+    }
+    if (!schema.item) {
+      throw new Error(
+        "Schema (" + schema.type + ") item not found for " + path,
+      );
+    }
+    for (let i = 0; i < source.length; i++) {
+      const subPath = sourcePathOfChild(path, i);
+      traverseSchemaSource(source[i], schema.item, subPath, callback);
+    }
+    return;
+  }
+
+  // Handle object, record and settings
+  if (
+    schema.type === "object" ||
+    schema.type === "record" ||
+    // Settings walks like an object, and starting from the SOURCE is what makes
+    // its optional keys work: an absent section has nothing to traverse.
+    schema.type === "settings"
+  ) {
+    if (
+      typeof source !== "object" ||
+      source === null ||
+      Array.isArray(source)
+    ) {
+      return;
+    }
+    for (const key in source) {
+      const subSchema =
+        schema.type === "record" ? schema.item : schema.items?.[key];
+      if (!subSchema) {
+        continue;
+      }
+      const subPath = sourcePathOfChild(path, key);
+      traverseSchemaSource(
+        (source as Record<string, Source>)[key],
+        subSchema,
+        subPath,
+        callback,
+      );
+    }
+    return;
+  }
+
+  // Handle discriminated union: descend through the variant the value takes
+  if (schema.type === "discriminated-union") {
+    const schemaKey = schema.key;
+    if (
+      source &&
+      typeof source === "object" &&
+      !Array.isArray(source) &&
+      schemaKey in source
+    ) {
+      const itemKey = (source as Record<string, Source>)[schemaKey];
+      if (typeof itemKey === "string") {
+        const schemaOfItem = (schema.items as SerializedObjectSchema[])
+          .filter((item) => item.type === "object")
+          .find((item) => {
+            const itemKeySchema = item.items[schemaKey];
+            if (itemKeySchema?.type === "literal") {
+              return itemKeySchema.value === itemKey;
+            }
+            return false;
+          });
+        if (schemaOfItem) {
+          traverseSchemaSource(source, schemaOfItem, path, callback);
+        }
+      }
+    }
+    return;
+  }
+
+  if (schema.type === "view") {
+    // The source here is a pointer — a module file path, not content. Indexing
+    // it would make every view a hit for its target's filename, and the target
+    // is already indexed under its own path.
+    return;
+  }
+
+  // Exhaustive check
+  const exhaustiveCheck: never = schema;
+  throw new Error(
+    "Unsupported schema type: " + JSON.stringify(exhaustiveCheck),
+  );
+}
+
+/**
+ * Flattens richtext source to a plain string, extracting only text content.
+ * Used for indexing richtext content in search.
+ */
+export function flattenRichText(source: Source): string {
+  let res = "";
+  function rec(child: Source): void {
+    if (typeof child === "string") {
+      res += child;
+    } else {
+      if (
+        child &&
+        typeof child === "object" &&
+        "children" in child &&
+        Array.isArray(child.children)
+      ) {
+        for (const c of child.children) {
+          rec(c);
+        }
+      }
+    }
+  }
+  rec({ children: source });
+  return res;
+}

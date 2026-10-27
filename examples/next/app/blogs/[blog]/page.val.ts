@@ -5,9 +5,8 @@ import { linkSchema } from "../../../components/link.val";
 const blogSchema = s.object({
   title: s.string(),
   content: s.richtext({
-    inline: {
-      a: s.route(),
-    },
+    bold: true,
+    a: s.route(),
   }),
   author: s.keyOf(authorsVal),
   link: linkSchema,
@@ -15,19 +14,16 @@ const blogSchema = s.object({
 
 export default c.define(
   "/app/blogs/[blog]/page.val.ts",
-  s
-    .router(
-      nextAppRouter,
-      s.string().describe("The URL of the blog post"),
-      blogSchema,
-    )
-    .render({
-      as: "list",
-      select: ({ val }) => ({
-        title: val.title,
-        subtitle: val.author,
-      }),
-    }),
+  s.router(
+    nextAppRouter,
+    s.string().describe("The URL of the blog post"),
+    // The preview lives on the BLOG POST (the value being previewed): the
+    // router's rows, search and references all read it from there.
+    blogSchema.preview(({ val }) => ({
+      title: val.title,
+      subtitle: val.author,
+    })),
+  ),
   {
     "/blogs/blog2": {
       title: "Blog 2",

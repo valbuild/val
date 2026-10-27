@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "./designSystem/button";
 import { RoutePattern } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
 import { extractRoutePatternParams } from "../utils/extractRoutePatternParams";
+import { routePatternToString } from "./NavMenu/SitemapItem";
 
 export function RouteForm({
   routePattern,
@@ -36,14 +37,38 @@ export function RouteForm({
   const [errors, setErrors] = useState<{
     [paramName: string]: string | undefined;
   }>({});
+  /**
+   * Seed the form from `defaultValue` when the ROUTE changes - not when its
+   * array is rebuilt.
+   *
+   * `routePattern` is an array prop whose identity belongs to the sitemap:
+   * `collectNewPageRoutes` copies `item.routePattern` by reference, so every
+   * sitemap rebuild hands this component an equal-but-new array. With the array
+   * itself as the dependency, that re-ran this effect and overwrote what the
+   * editor had typed - and because the submit is disabled while `fullPath ===
+   * defaultValue`, the reset put the form back to the URL it already had and
+   * the button went disabled and stayed that way.
+   *
+   * Keyed on the pattern's STRING form, which is what "the same route" actually
+   * means - `routePatternToString` is careful to keep `[x]` and `[[x]]` apart,
+   * so two genuinely different routes still re-seed. The pattern is read
+   * through a ref so the effect uses the current one without depending on its
+   * identity. `RouteForm.test.tsx` pins both halves.
+   */
+  const patternRef = useRef(routePattern);
+  patternRef.current = routePattern;
+  const patternKey = routePatternToString(routePattern);
   useEffect(() => {
     if (defaultValue) {
-      const result = extractRoutePatternParams(routePattern, defaultValue);
+      const result = extractRoutePatternParams(
+        patternRef.current,
+        defaultValue,
+      );
       if (result.status === "success") {
         setParams(result.params);
       }
     }
-  }, [defaultValue, routePattern]);
+  }, [defaultValue, patternKey]);
   const fullPath = useMemo(() => {
     return (
       "/" +

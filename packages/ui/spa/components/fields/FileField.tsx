@@ -1,12 +1,9 @@
 import {
   FileMetadata,
   ImageMetadata,
-  FILE_REF_PROP,
-  VAL_EXTENSION,
   Internal,
   ModuleFilePath,
   SourcePath,
-  FILE_REF_SUBTYPE_TAG,
   SerializedImageSchema,
   SerializedFileSchema,
 } from "@valbuild/core";
@@ -16,14 +13,11 @@ import { FieldNotFound } from "../FieldNotFound";
 import { FieldSchemaError } from "../FieldSchemaError";
 import { FieldSchemaMismatchError } from "../FieldSchemaMismatchError";
 import { FieldSourceError } from "../FieldSourceError";
-import { ValidationErrors } from "../ValidationError";
 import {
   useValConfig,
-  useSchemaAtPath,
   useShallowSourceAtPath,
-  useAddPatch,
-  useFieldCreatorId,
-  useSchemas,
+  useValField,
+  useModuleSchema,
   useFilePatchIds,
 } from "../ValFieldProvider";
 import {
@@ -31,14 +25,22 @@ import {
   useRemoteFiles,
 } from "../ValRemoteProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
-import { File, Loader2, SquareArrowOutUpRight } from "lucide-react";
+import { File, SquareArrowOutUpRight, Upload, X } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
 import { useEffect } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
+import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
+import { MediaSummaryRow } from "./MediaSummaryRow";
+import { FontSpecimen } from "../FontPreview";
+import { inputAccept, isFontAccept } from "../../utils/fileAccept";
+import { FontFieldRow, FontSetGrid } from "./FontField";
+import { useIsListedField } from "../ListedField";
+import { RenameFileButton } from "./RenameFileButton";
+import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 
 const textEncoder = new TextEncoder();
@@ -56,8 +58,12 @@ export async function createFilePatch(
     schema: SerializedImageSchema | SerializedFileSchema;
     remoteHost: string;
   } | null,
-  directory: string | undefined = "/public/val",
-  skipMetadataInReplace: boolean = false,
+  dir: string | undefined = "/public/val",
+  /**
+   * True when the field is backed by a gallery. The dimensions and mime type
+   * then live in the gallery module, so the field carries only the path.
+   */
+  galleryBacked: boolean = false,
 ): Promise<{ patch: Patch; filePath: string }> {
   const newFilePath = Internal.createFilename(
     data,
@@ -69,7 +75,7 @@ export async function createFilePatch(
     return { patch: [], filePath: "" };
   }
 
-  const filePath = `${directory}/${newFilePath}`;
+  const filePath = `${dir}/${newFilePath}`;
   const remoteFileHash = Internal.remote.hashToRemoteFileHash(fileHash);
   const ref = remote
     ? Internal.remote.createRemoteRef(remote.remoteHost, {
@@ -86,17 +92,15 @@ export async function createFilePatch(
         ),
         fileHash: remoteFileHash,
         filePath:
-          `${(directory ?? "/public/val").slice(1)}/${newFilePath}` as `public/${string}`,
+          `${(dir ?? "/public/val").slice(1)}/${newFilePath}` as `public/${string}`,
       })
     : filePath;
   return {
     patch: [
       {
         value: {
-          [FILE_REF_PROP]: ref,
-          [VAL_EXTENSION]: remote ? "remote" : "file",
-          ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
-          ...(skipMetadataInReplace ? {} : { metadata }),
+          path: ref,
+          ...(galleryBacked ? {} : metadata),
         },
         op: "replace",
         path,
@@ -123,24 +127,31 @@ export function FileField({
   compact?: boolean;
 }) {
   const type = "file";
-  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const remoteFiles = useRemoteFiles();
-  const schemas = useSchemas();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const [showAsVideo, setShowAsVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
     addPatch,
     patchPath,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
-  } = useAddPatch(path, creatorId);
+  } = useValField(path, type);
   const portalContainer = useValPortal();
+  const listed = useIsListedField();
+  /**
+   * The hidden file input, clicked by name.
+   *
+   * A `<label htmlFor>` would open the dialog without any script, but a label is
+   * not announced as a button and cannot be tabbed to as one — and "Choose
+   * asset" is the field's primary action.
+   */
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [progressPercentage, setProgressPercentage] = useState<number | null>(
     null,
   );
@@ -150,27 +161,23 @@ export function FileField({
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
     if (maybeSourceData) {
-      if (maybeSourceData.metadata) {
-        // We can't set the url before it is server side (since the we will be loading)
-        if (!maybeClientSideOnly) {
-          const patchId = filePatchIds.get(maybeSourceData[FILE_REF_PROP]);
-          const nextUrl =
-            VAL_EXTENSION in maybeSourceData &&
-            maybeSourceData[VAL_EXTENSION] === "remote"
-              ? Internal.convertRemoteSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "remote",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url
-              : Internal.convertFileSource({
-                  ...maybeSourceData,
-                  [VAL_EXTENSION]: "file",
-                  ...(patchId ? { patch_id: patchId } : {}),
-                }).url;
-          setUrl(nextUrl);
-          setLoading(false);
-        }
+      // We can't set the url before it is server side (since the we will be loading)
+      if (!maybeClientSideOnly) {
+        const patchId = filePatchIds.get(maybeSourceData.path);
+        setUrl(
+          Internal.mediaUrl({
+            path: maybeSourceData.path,
+            ...(patchId ? { patch_id: patchId } : {}),
+          }),
+        );
+        setLoading(false);
       }
+    } else if (maybeSourceData === null) {
+      // The field was cleared. The URL is state rather than derived, so it
+      // survives the source going away unless it is cleared too — and a row
+      // still naming the file you just removed is indistinguishable from the
+      // removal not having worked.
+      setUrl(null);
     }
   }, [sourceAtPath, filePatchIds]);
   useEffect(() => {
@@ -185,8 +192,8 @@ export function FileField({
       setShowAsVideo(true);
     }
     if (maybeSourceData) {
-      if (typeof maybeSourceData.metadata?.mimeType === "string") {
-        if (maybeSourceData.metadata.mimeType.startsWith("video/")) {
+      if (typeof maybeSourceData.mimeType === "string") {
+        if (maybeSourceData.mimeType.startsWith("video/")) {
           setShowAsVideo(true);
         } else {
           setShowAsVideo(false);
@@ -195,6 +202,60 @@ export function FileField({
     }
   }, [schemaAtPath, maybeSourceData]);
 
+  /**
+   * Hooks first, guards after — see the same note in `ImageField`.
+   *
+   * These two `useMemo`s sat below the `loading` / `not-found` / wrong-type
+   * returns, so an `s.file().nullable()` field that nothing has uploaded to yet
+   * ran fewer hooks on its first render than on its second and crashed the
+   * Studio with "Rendered more hooks than during the previous render".
+   */
+  const fileSchema =
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "file"
+      ? schemaAtPath.data
+      : undefined;
+  const referencedModule = fileSchema?.referencedModule;
+  /**
+   * The referenced GALLERY's schema, not the project's.
+   *
+   * `useSchemas()` answers the same question and wakes on every schema change
+   * anywhere; this component is mounted once per media field. See
+   * `perFieldSubscriptions.test.ts`.
+   */
+  const referencedModuleSchema = useModuleSchema(
+    referencedModule as ModuleFilePath | undefined,
+  );
+  const acceptOptions = useMemo(() => {
+    if (!fileSchema) {
+      return undefined;
+    }
+    if (fileSchema.options?.accept) {
+      return fileSchema.options.accept;
+    }
+    if (!referencedModule) {
+      return undefined;
+    }
+    if (
+      referencedModuleSchema?.type === "record" &&
+      referencedModuleSchema.accept
+    ) {
+      return referencedModuleSchema.accept;
+    }
+    return undefined;
+  }, [fileSchema, referencedModule, referencedModuleSchema]);
+  /**
+   * Where an upload from this field is stored: the gallery it references, or
+   * `createFilePatch`'s `/public/val` default.
+   *
+   * Unlike `s.image()`, `FileOptions` has no `dir` — so a standalone
+   * `s.file()` cannot choose one. Left as it is rather than added here: that is
+   * an API change to `packages/core`, not a fix.
+   */
+  const uploadDirectory = useMemo(() => {
+    return referencedModuleSchema?.type === "record"
+      ? referencedModuleSchema.dir
+      : undefined;
+  }, [referencedModuleSchema]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -234,41 +295,17 @@ export function FileField({
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  // Not before a bucket is picked either: see `ImageField`.
   const remoteFileUploadDisabled =
     schemaAtPath.data.type === "file" &&
     schemaAtPath.data.remote &&
-    remoteFiles.status !== "ready";
-  const referencedModule = schemaAtPath.data.referencedModule;
+    (remoteFiles.status !== "ready" || !currentRemoteFileBucket);
   const missingModules =
-    referencedModule && schemas.status === "success"
-      ? schemas.data[referencedModule as ModuleFilePath]
-        ? []
-        : [referencedModule]
+    referencedModule && referencedModuleSchema === undefined
+      ? [referencedModule]
       : [];
   const disabled =
     readonly || remoteFileUploadDisabled || missingModules.length > 0;
-  const acceptOptions = useMemo(() => {
-    if (
-      schemaAtPath.data.type !== "file" ||
-      !referencedModule ||
-      schemas.status !== "success"
-    ) {
-      return undefined;
-    }
-    if (schemaAtPath.data.options?.accept) {
-      return schemaAtPath.data.options.accept;
-    }
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    if (moduleSchema?.type === "record" && moduleSchema.accept) {
-      return moduleSchema.accept;
-    }
-    return undefined;
-  }, [schemaAtPath.data, referencedModule, schemas]);
-  const moduleDirectory = useMemo(() => {
-    if (!referencedModule || schemas.status !== "success") return undefined;
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [referencedModule, schemas]);
   const remoteData =
     schemaAtPath.data.remote &&
     remoteFiles.status === "ready" &&
@@ -282,16 +319,14 @@ export function FileField({
         }
       : null;
   let filePathRef = null;
-  if (source?._ref) {
+  if (source?.path) {
     if (schemaAtPath.data.remote) {
-      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(
-        source?._ref,
-      );
+      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(source.path);
       if (splitRemoteRefDataRes.status === "success") {
         filePathRef = splitRemoteRefDataRes.filePath;
       }
     } else {
-      filePathRef = source?._ref;
+      filePathRef = source.path;
     }
   }
 
@@ -299,9 +334,41 @@ export function FileField({
   if (filePathRef) {
     filename = filePathRef.split("/").slice(-1)[0];
   }
+  /**
+   * What the summary row says under the name.
+   *
+   * An `s.file()` records only the mime type — no byte size — so that is all
+   * there is to say, and it is absent rather than guessed when even that is
+   * missing.
+   */
+  const fileDetail =
+    typeof source?.mimeType === "string" ? source.mimeType : null;
+  /**
+   * A font is shown set in itself. A field picked from a set carries no
+   * `mimeType` of its own (the set's entry has it), so the extension answers
+   * for it — every font extension maps to its `font/` type.
+   */
+  const isFont = Internal.isFontMimeType(
+    fileDetail ?? (filename ? Internal.filenameToMimeType(filename) : null),
+  );
+  /**
+   * Picked from a font set — `s.font(fontsVal)`, or `s.file()` pointed at
+   * one. Such a field is a row in its parent and opens on the set: see
+   * `FontField.tsx`.
+   */
+  const isFontField =
+    !!referencedModule &&
+    referencedModuleSchema?.type === "record" &&
+    isFontAccept(referencedModuleSchema.accept);
+  if (isFontField && listed) {
+    return (
+      <div id={path}>
+        <FontFieldRow path={path} url={url} filename={filename} />
+      </div>
+    );
+  }
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       {missingModules.length > 0 && (
         <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {missingModules.length === 1
@@ -314,108 +381,184 @@ export function FileField({
           {error}
         </div>
       )}
-      <div className="grid gap-2">
-        {filename && (
-          <div className="flex gap-2 items-center">
-            <div className="text-sm text-fg-secondary">{filename}</div>
-            {loading && (
-              <Loader2
-                className={`animate-spin text-fg-secondary ${
-                  loading ? "block" : "hidden"
-                }`}
-                size={16}
-              />
-            )}
-            {progressPercentage !== null && (
-              <div className="text-sm text-fg-secondary">
-                {progressPercentage}%
-              </div>
-            )}
-          </div>
-        )}
-        {referencedModule && (
-          <ModuleMediaPicker
+      <div className="flex flex-col gap-5">
+        {/*
+         * The same summary row the image field uses: which file, then what can
+         * be done with it. A file has no picture to identify it by, so the name
+         * and type are the whole answer and used to be a bare line of text with
+         * the controls somewhere below.
+         */}
+        <MediaSummaryRow
+          url={url}
+          name={filename}
+          detail={fileDetail}
+          isImage={false}
+          thumbnail={
+            isFont && url ? <FontSpecimen url={url} variant="tile" /> : null
+          }
+          uploading={loading}
+          progressPercentage={progressPercentage}
+          actions={
+            <>
+              {/*
+               * One control for "which file". A field that owns its file opens
+               * the dialog directly; one pointing into a collection opens the
+               * list, with the upload inside it — choosing a file and adding one
+               * to the collection are the same decision from here.
+               */}
+              {!referencedModule && (
+                <Button
+                  variant={"outline"}
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  {source ? "Replace" : "Choose asset"}
+                </Button>
+              )}
+              {source && filename && !readonly && (
+                <RenameFileButton
+                  path={path}
+                  filePath={source.path}
+                  filename={filename}
+                  metadata={
+                    typeof source.mimeType === "string"
+                      ? { mimeType: source.mimeType }
+                      : undefined
+                  }
+                  fileType="file"
+                  referencedModule={
+                    referencedModule as ModuleFilePath | undefined
+                  }
+                  disabled={loading}
+                  portalContainer={portalContainer}
+                />
+              )}
+              {source && (
+                <a
+                  className="inline-flex items-center gap-1.5 text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={filename ?? undefined}
+                  href={Internal.mediaUrl(source)}
+                >
+                  Open file
+                  <SquareArrowOutUpRight size={12} />
+                </a>
+              )}
+              {isFontField && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  Upload font
+                </Button>
+              )}
+              {referencedModule && !isFontField && (
+                <ModuleMediaPicker
+                  compact
+                  footer={
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn(
+                        "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
+                        "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                        "disabled:pointer-events-none disabled:opacity-50",
+                      )}
+                    >
+                      <Upload size={13} />
+                      Upload into {prettyModuleName(referencedModule)}
+                    </button>
+                  }
+                  modulePath={referencedModule as ModuleFilePath}
+                  selectedRef={source?.path ?? null}
+                  onSelect={(entry: GalleryEntry) => {
+                    // Only the path: the mime type stays in the gallery, which
+                    // is the one place that has it.
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath,
+                          value: { path: entry.filePath },
+                        },
+                      ],
+                      "file",
+                    );
+                  }}
+                  isImage={false}
+                  disabled={disabled}
+                  portalContainer={portalContainer}
+                />
+              )}
+              {/*
+               * Clearing the field, for a schema that allows it. Same rule as
+               * `ImageField`: a file opened on its own has no `Field` wrapper
+               * and so no nullable checkbox, and `readonly` alone gates it
+               * because taking a file out needs none of what putting one in
+               * does — with the same one exception, an upload in flight, whose
+               * `replace` is enqueued after the read and would land on top of
+               * the `null` and put the file back.
+               */}
+              {schemaAtPath.data.opt && source && !readonly && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => {
+                    addPatch(
+                      [{ op: "replace", path: patchPath, value: null }],
+                      type,
+                    );
+                  }}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                  Remove
+                </Button>
+              )}
+            </>
+          }
+        />
+        {/* A font field opens on its set: the choice is made by looking. */}
+        {isFontField && (
+          <FontSetGrid
             modulePath={referencedModule as ModuleFilePath}
-            selectedRef={source?._ref ?? null}
-            onSelect={(entry: GalleryEntry) => {
+            selectedRef={source?.path ?? null}
+            disabled={disabled}
+            onSelect={(ref) => {
+              // Only the path, as from the picker: the set has the rest.
               addPatch(
-                [
-                  {
-                    op: "replace",
-                    path: patchPath,
-                    value: {
-                      [FILE_REF_PROP]: entry.filePath,
-                      [VAL_EXTENSION]: "file",
-                      metadata: entry.metadata as JSONValue,
-                    },
-                  },
-                ],
+                [{ op: "replace", path: patchPath, value: { path: ref } }],
                 "file",
               );
             }}
-            isImage={false}
-            disabled={disabled}
-            portalContainer={portalContainer}
           />
         )}
-        <div className="flex gap-4 items-center">
-          {source &&
-            (showAsVideo ? (
-              <div className="flex flex-col gap-2">
-                <video
-                  className="w-full h-auto rounded-lg"
-                  controls
-                  src={
-                    VAL_EXTENSION in source &&
-                    source[VAL_EXTENSION] === "remote"
-                      ? Internal.convertRemoteSource({
-                          ...source,
-                          [VAL_EXTENSION]: "remote",
-                        }).url
-                      : Internal.convertFileSource({
-                          ...source,
-                          [VAL_EXTENSION]: "file",
-                        }).url
-                  }
-                />
-                <Button asChild variant={"secondary"} disabled={disabled}>
-                  <label htmlFor={`file_input:${path}`}>Upload</label>
-                </Button>
-              </div>
-            ) : (
-              <>
-                <Button asChild variant={"secondary"} disabled={disabled}>
-                  <label htmlFor={`file_input:${path}`}>Upload</label>
-                </Button>
-                <a
-                  className="flex gap-2 items-center"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download={filename}
-                  href={
-                    VAL_EXTENSION in source &&
-                    source[VAL_EXTENSION] === "remote"
-                      ? Internal.convertRemoteSource({
-                          ...source,
-                          [VAL_EXTENSION]: "remote",
-                        }).url
-                      : Internal.convertFileSource({
-                          ...source,
-                          [VAL_EXTENSION]: "file",
-                        }).url
-                  }
-                >
-                  <span> Open file</span>
-                  <SquareArrowOutUpRight />
-                </a>
-              </>
-            ))}
+        {/* A video or a font is worth showing at size; anything else is a name. */}
+        {isFont && url && !loading && (
+          <FontSpecimen key={url} url={url} variant="inspector" />
+        )}
+        {source && showAsVideo && (
+          <video
+            className="w-full h-auto rounded-lg"
+            controls
+            src={Internal.mediaUrl(source)}
+          />
+        )}
+        <div>
           <input
             disabled={disabled}
             hidden
+            ref={fileInputRef}
             id={`file_input:${path}`}
             type="file"
-            accept={acceptOptions}
+            accept={inputAccept(acceptOptions)}
             onChange={(ev) => {
               readFile(ev).then((res) => {
                 const type = "file";
@@ -439,7 +582,7 @@ export function FileField({
                   metadata,
                   type,
                   remoteData,
-                  moduleDirectory,
+                  uploadDirectory,
                   !!referencedModule,
                 )
                   .then(({ patch, filePath }) => {
@@ -491,7 +634,7 @@ export function FileField({
                       });
                   })
                   .catch((err) => {
-                    console.error("Failed to create file patch", err);
+                    Internal.log.error("Failed to create file patch", err);
                     setLoading(false);
                     setUrl(prevUrl);
                     setError("Could not upload file. Please try again later");

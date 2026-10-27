@@ -1,9 +1,5 @@
 import type { Node as PMNode, Mark } from "prosemirror-model";
-import {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import {} from "@valbuild/core";
 import type {
   EditorDocument,
   EditorBlockNode,
@@ -148,10 +144,8 @@ function serializeInlineContent(node: PMNode): EditorInlineNode[] {
       const inlineImg: EditorInlineNode = {
         tag: "img",
         src: {
-          [FILE_REF_PROP]: ref,
-          [VAL_EXTENSION]: "file",
-          [FILE_REF_SUBTYPE_TAG]: "image",
-          ...(hasMetadata ? { metadata: { width, height, mimeType } } : {}),
+          path: ref,
+          ...(hasMetadata ? { width, height, mimeType } : {}),
         },
         ...(child.attrs.alt ? { alt: child.attrs.alt as string } : {}),
       };

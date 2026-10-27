@@ -1,5 +1,59 @@
 export { createService, Service } from "./Service";
+// The external-record adapter contract. Types plus the `ok`/`err` helpers; the
+// registry that executes them arrives with the read endpoints.
+export {
+  defineExternal,
+  ok,
+  err,
+  isExternalResult,
+  EXTERNAL_RESULT,
+} from "./externalRecords";
+export type {
+  AdapterFor,
+  BoundExternalRecord,
+  ExternalAuthor,
+  ExternalBuilder,
+  ExternalCtx,
+  ExternalDefinition,
+  ExternalFile,
+  ExternalIssue,
+  ExternalKeyPage,
+  ExternalRecords,
+  ExternalResult,
+  ExternalSearchHit,
+  ExternalSearchPage,
+  ExternalSort,
+  ItemOfModule,
+  ReadonlyRecordHasNoWrites,
+  Returns,
+} from "./externalRecords";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+export {
+  contentFromEnv,
+  proposalFromEnv,
+  layeredSnapshot,
+  proposalSnapshot,
+  proposalSnapshotForReaders,
+} from "./proposal";
+export type { ValContentVersion, ValProposal } from "./proposal";
+// Exported for a host that has to build the same config the API router builds:
+// two copies of this decision drift, and a registry that thinks it is in fs mode
+// while the Studio thinks it is in proxy mode reads different content from the
+// same project.
+export { initHandlerOptions, createValOps } from "./valServerConfig";
+// Which credential talks to the content host about remote files: the app's api
+// key, else the developer's own `val login` token off disk. Exported for
+// `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api
+// routes get — two copies of this would let the MCP endpoint decide it cannot
+// upload remotely while the Studio in the same process can.
+export { resolveRemoteFileAuth } from "./valServerConfig";
+// The Val app's refusal of a project whose media is not remote, for `val
+// publish` to give before a build goes out rather than after.
+export { APP_MODE_REQUIRES_REMOTE_FILES } from "./valServerConfig";
+export type {
+  RemoteFileAuth,
+  ResolveRemoteFileAuthResult,
+} from "./valServerConfig";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";
@@ -13,6 +67,43 @@ export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { analyzeValModule } from "./patch/ts/valModule";
 export type { ValModuleAnalysis } from "./patch/ts/valModule";
 export { createFixPatch } from "./createFixPatch";
+export { askOncePerHost } from "./remoteHostCheck";
+// The precondition layer behind `val validate --fix`: read the file, check it is
+// on disk, extract metadata, pick a bucket, upload or download the bytes. The
+// CLI drove this alone until the language server needed the same fixes; keeping
+// one copy here is what stops an editor fix drifting from a CLI fix.
+export {
+  fixHandlers,
+  currentFixHandlers,
+  createDefaultValFSHost,
+  handleFileMetadata,
+  handleRemoteFileUpload,
+  handleRemoteGalleryFileUpload,
+  handleRemoteFileDownload,
+  handleRemoteFileCheck,
+  handleUniqueFolderCheck,
+  handleCheckAllFiles,
+  handleJsonValuesExtractEntry,
+  handleExternalUpload,
+} from "./fixHandlers";
+export {
+  handleVideosetMetadata,
+  handleVideosetUploadRemote,
+  handleVideosetCheckRemote,
+  handleVideosetCheckAllFiles,
+  videosetEntryVideoSchema,
+  filesOfVideosetEntry,
+} from "./videosetFixes";
+export type {
+  FixHandler,
+  ModulePatch,
+  FixHandlerContext,
+  FixHandlerResult,
+  IValRemote,
+  ValidationEvent,
+  ValidationError,
+  ValModule,
+} from "./fixHandlers";
 export * from "./jwt";
 export type { ValServer } from "./ValServer";
 export { getSettings } from "./getSettings";
@@ -21,12 +112,17 @@ export {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 export { uploadRemoteFile } from "./uploadRemoteFile";
-
 // Building blocks for editor tooling (see @valbuild/language-server). These are
 // the pieces needed to reproduce a `val validate --fix` decision inside an
 // editor, so that quick fixes take the same code path as the CLI and the Val UI
 // rather than reimplementing metadata extraction and remote-ref checking.
-export { extractImageMetadata, extractFileMetadata } from "./extractMetadata";
+export {
+  extractImageMetadata,
+  extractFileMetadata,
+  extractVideoMetadata,
+  extractVideoMetadataFromFile,
+} from "./extractMetadata";
+export { filesOfVideo } from "./videoFiles";
 export { validateMetadata } from "./validateMetadata";
 export { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 export {
@@ -35,8 +131,22 @@ export {
   getCachedRemoteFileDir,
   getCachedRemoteFilePath,
 } from "./checkRemoteRef";
-export { hasRemoteFileSchema } from "./hasRemoteFileSchema";
+// Re-exported rather than defined here: this used to be the server's own copy,
+// and it disagreed with the Studio's. One implementation now lives in
+// `@valbuild/core`, where both realms can reach it. Kept exported because it is
+// public API of this package.
+export { hasRemoteFileSchema } from "@valbuild/core";
 export { getFileExt } from "./getFileExt";
+// The one implementation of "format a written file the way this project does".
+// Exported for the CLI and re-exported by `@valbuild/next` / `@valbuild/tanstack`
+// so an app's `formatter` and `val validate --fix` run the same code: the CLI's
+// own `prettier.format(code, { filepath })` did not read `.prettierrc` at all.
+export { createPrettierFormatter } from "./createPrettierFormatter";
+export type {
+  PrettierLike,
+  PrettierLikeConfig,
+  ValFormatter,
+} from "./createPrettierFormatter";
 export {
   evalValConfigFile,
   findAndEvalValConfigFile,
@@ -47,21 +157,55 @@ export {
   persistPersonalAccessToken,
   ValLoginError,
   DEFAULT_LOGIN_HOST,
-  DEFAULT_LOGIN_MAX_DURATION,
-  DEFAULT_LOGIN_POLL_INTERVAL,
+  DEFAULT_LOGIN_EXPIRES_IN_SECONDS,
+  DEFAULT_LOGIN_POLL_INTERVAL_SECONDS,
 } from "./login";
 export type {
   ValLoginErrorCode,
   ValLoginResult,
-  ValLoginSession,
+  ValDeviceAuthorization,
 } from "./login";
-export { createModulePathMap, getModulePathRange } from "./modulePathMap";
+export {
+  createModulePathMap,
+  createJsonEntryPathMap,
+  getModulePathRange,
+} from "./modulePathMap";
+export { findJsonEntryFilePath } from "./jsonEntryLocation";
+// The two halves of routing a patch op into a `.jsonValues()` entry's own
+// `*.val.json`. Exported because every writer of entry content needs them and
+// there must not be a second implementation: the Studio's publish
+// (`ValOps.prepare`), `val validate --fix` (`Service.patch`) and the editor's
+// quick fixes all classify and rebase the same way, or they disagree about
+// which file an edit belongs in.
+export { classifyJsonValuesOp, rebaseContentOp } from "./patch/jsonValuesPatch";
+export type { JsonValuesOpClass } from "./patch/jsonValuesPatch";
+// `extractJsonValuesEntry` writes both files; `planJsonValuesEntryExtraction`
+// works out the same two changes as text so the editor can hand them back as a
+// `WorkspaceEdit` instead. Same reasoning as the pair above: one implementation,
+// two ways of applying it.
+export {
+  extractJsonValuesEntry,
+  planJsonValuesEntryExtraction,
+} from "./extractJsonValuesEntry";
+export type { JsonValuesEntryExtraction } from "./extractJsonValuesEntry";
 export type { ModulePathMap } from "./modulePathMap";
 // Exposed for the CLI's `debug` command and the snapshot replay harness, which
 // need to drive the same ops the app's api routes drive.
 export { ValOpsFS } from "./ValOpsFS";
 export { ValOpsHttp } from "./ValOpsHttp";
-export { loadValModules } from "./loadValModules";
+export {
+  ValOpsMemory,
+  InMemoryPatchStore,
+  type ValPatchStore,
+  type StoredPatch,
+  type ValOpsMemoryOptions,
+} from "./ValOpsMemory";
+export {
+  loadValModules,
+  createValModuleFileInspector,
+  findDefaultExport,
+} from "./loadValModules";
+export type { ValModuleFileInspection } from "./loadValModules";
 export { formatPatchSourceError } from "./ValOps";
 export {
   compareWithCapturedReport,
@@ -75,3 +219,30 @@ export type {
   PatchSourceError,
   PreparedCommit,
 } from "./ValOps";
+// The data layer itself, and the shapes it hands back. Exported for
+// `@valbuild/mcp`, whose tool registry runs against `ValOps` rather than the
+// Studio's browser stores: the tools moved out of this package, but the layer
+// they are written against did not, and re-declaring these there would be a
+// second description of one contract.
+export type { ValOps } from "./ValOps";
+export type {
+  AuthorId,
+  BinaryFileType,
+  MetadataOfType,
+  Schemas,
+  Sources,
+} from "./ValOps";
+export type { ValServerConfig } from "./ValServer";
+export type { CommitContext, CommitResult } from "./ValServer";
+
+/**
+ * The local-dev patch store, exported so the CLI's debug tooling can read a
+ * snapshot back with the same code the server uses rather than a second
+ * implementation of the layout.
+ */
+export { readPatchStore, describePatchStoreProblems } from "./patchStore";
+export type {
+  PatchStoreEntry,
+  PatchStoreProblem,
+  ReadPatchStoreResult,
+} from "./patchStore";

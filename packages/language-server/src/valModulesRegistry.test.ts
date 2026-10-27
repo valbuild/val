@@ -110,6 +110,51 @@ export default config.modules([{ def: () => import("./content/page.val") }]);
     ).toBe(true);
   });
 
+  describe("answers registered when it cannot tell", () => {
+    // The caller publishes the missing-module diagnostic instead of the
+    // module's own, so a false "unregistered" hides every real finding.
+    test("a path alias, which needs the tsconfig to resolve", () => {
+      expect(
+        registers(
+          `export default config.modules([{ def: () => import("_/content/page.val") }]);`,
+          "/content/page.val.ts",
+        ),
+      ).toBe(true);
+      // Including for a module the alias plainly does not name: without the
+      // compiler options there is no telling which one it resolves to.
+      expect(
+        registers(
+          `export default config.modules([{ def: () => import("_/content/page.val") }]);`,
+          "/content/authors.val.ts",
+        ),
+      ).toBe(true);
+    });
+
+    test("a val.modules that registers nothing we can see", () => {
+      // A registry that builds its list elsewhere looks like this from here.
+      expect(
+        registers(
+          `import { entries } from "./entries";
+export default config.modules(entries);
+`,
+          "/content/page.val.ts",
+        ),
+      ).toBe(true);
+    });
+
+    test("but a bare package import is not a module we failed to resolve", () => {
+      expect(
+        registers(
+          `export default config.modules([
+  { def: () => import("@valbuild/core") },
+  { def: () => import("./content/page.val") },
+]);`,
+          "/content/authors.val.ts",
+        ),
+      ).toBe(false);
+    });
+  });
+
   test("handles parent-relative specifiers", () => {
     expect(
       isModuleRegistered({

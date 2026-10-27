@@ -6,6 +6,36 @@ import Script from "next/script";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
+import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
+
+/**
+ * How often the embedded Studio announces itself to the opener.
+ *
+ * It repeats because the parent's `message` listener may not be attached yet
+ * when this frame first loads, and it does not need an ACK: the parent clears
+ * `iframeSrc` on the first one it receives, which unmounts this frame and
+ * takes the interval with it. 100ms matches the parent's own
+ * `DRAFT_HANDSHAKE_POLL_MS`, so the two sides of the handshake tick together.
+ *
+ * `setInterval` was previously called with NO delay, which is a 0ms interval —
+ * a `postMessage` every tick of the event loop for as long as the handshake
+ * took.
+ */
+const VAL_READY_PING_MS = 100;
+
+/**
+ * Whether the Studio's stylesheet has loaded in this page. `val-css-loaded`
+ * fires once per page, so a `ValApp` that mounts again after it -- the `/val`
+ * route left and come back to -- must not wait for it a second time.
+ */
+let studioStylesLoaded = false;
+
+/**
+ * The longest the loading screen covers the page. Past it, whatever the Studio
+ * shows -- unstyled, or its own error -- is better than a spinner that never
+ * ends.
+ */
+const LOADING_SCREEN_MAX_MS = 15_000;
 
 export const ValApp = ({
   config,
@@ -29,7 +59,7 @@ export const ValApp = ({
           },
           "*",
         );
-      });
+      }, VAL_READY_PING_MS);
       return () => {
         clearInterval(interval);
       };
@@ -42,6 +72,28 @@ export const ValApp = ({
       window.dispatchEvent(new CustomEvent("val-append-studio"));
     }
   });
+
+  /*
+   * Whether the loading screen still covers the page: until the Studio's
+   * stylesheet has loaded, or the wait runs out. Its own state rather than
+   * `loadingTheme`, which a new `config` sets again after the event has fired.
+   */
+  const [covering, setCovering] = useState(() => !studioStylesLoaded);
+  useEffect(() => {
+    if (!covering) {
+      return;
+    }
+    const onCssLoaded = () => {
+      studioStylesLoaded = true;
+      setCovering(false);
+    };
+    window.addEventListener("val-css-loaded", onCssLoaded);
+    const timeout = setTimeout(() => setCovering(false), LOADING_SCREEN_MAX_MS);
+    return () => {
+      window.removeEventListener("val-css-loaded", onCssLoaded);
+      clearTimeout(timeout);
+    };
+  }, [covering]);
 
   // this theme is used to avoid flickering
   const [loadingTheme, setLoadingTheme] = useState<string | null>(
@@ -59,8 +111,10 @@ export const ValApp = ({
       setLoadingTheme(config.defaultTheme);
     }
   }, [config]);
-  const darkBg = "#0c111d";
-  const lightBg = "white";
+  // The studio's canvas, so the loading screen is the same colour as what
+  // replaces it rather than a flash of a different one.
+  const darkBg = canvasDarkBg;
+  const lightBg = canvasLightBg;
   useEffect(() => {
     if (inMessageMode || loadingTheme === null) {
       return;
@@ -72,22 +126,34 @@ export const ValApp = ({
     body.style.backgroundColor = loadingTheme === "dark" ? darkBg : lightBg;
     body.style.minHeight = "100vh";
     body.style.minWidth = "100%";
-    window.addEventListener("val-css-loaded", () => {
+    // A stable reference: `removeEventListener` compares by identity, so a
+    // second arrow function removes nothing and every re-run of this effect
+    // used to leave another listener behind.
+    const onCssLoaded = () => {
       // css was loaded, has been loaded, so let app decide what to do
       setLoadingTheme(null);
-    });
+    };
+    window.addEventListener("val-css-loaded", onCssLoaded);
     return () => {
       body.style.backgroundColor = prevBodyBg;
       body.style.minHeight = prevBodyMinHeight;
       body.style.minWidth = prevBodyMinWidth;
-      window.removeEventListener("val-css-loaded", () => {
-        setLoadingTheme(null);
-      });
+      window.removeEventListener("val-css-loaded", onCssLoaded);
     };
   }, [inMessageMode, loadingTheme]);
 
-  if (loadingTheme !== null && isClientSIde) {
-    return (
+  /*
+   * The loading screen stays up until the Studio's stylesheet has loaded, as
+   * an overlay above the Studio mounting underneath it. It used to be rendered
+   * INSTEAD of the Studio and dropped at hydration, which was before the
+   * Studio's script had even been requested: the spinner went, an empty page
+   * stood there while the Studio downloaded, and then the Studio appeared.
+   * It is the first element both in the server render and after, so hydration
+   * keeps it rather than restarting it. Only with a theme to draw it in --
+   * `config.defaultTheme`, as the templates set -- as before.
+   */
+  const loadingScreen =
+    !covering || loadingTheme === null || inMessageMode ? null : (
       <div
         style={{
           color: loadingTheme === "dark" ? "white" : "black",
@@ -96,13 +162,16 @@ export const ValApp = ({
           alignItems: "center",
           padding: "1rem",
           backgroundColor: loadingTheme === "dark" ? darkBg : lightBg,
-          minHeight: "100vh",
-          minWidth: "100%",
+          position: "fixed",
+          inset: 0,
+          zIndex: 2147483647,
         }}
       >
         <style>
           {`.${valPrefixedClass}animate-spin {
+  display: inline-flex;
   animation: ${valPrefixedClass}spin 2s linear infinite;
+  will-change: transform;
 }
 @keyframes ${valPrefixedClass}spin {
   0% {
@@ -113,28 +182,34 @@ export const ValApp = ({
   }
 }`}
         </style>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn(["animate-spin"])}
-        >
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
+        {/* The span spins, not the SVG: Safari wobbles a spinning SVG that
+            sits at a fractional pixel offset, which centring produces. */}
+        <span className={cn(["animate-spin"])}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        </span>
       </div>
     );
+  if (isClientSIde && loadingScreen !== null) {
+    return loadingScreen;
   }
   if (inMessageMode) {
     return <div>Val Studio is disabled: in message mode</div>;
   }
   return (
     <>
+      {loadingScreen}
       <Script
         type="module"
         src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}

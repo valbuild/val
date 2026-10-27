@@ -4,8 +4,12 @@ import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
 import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
 import { Path, Selector } from "../selector";
-import { RemoteSource } from "../source/remote";
-import { FileSource } from "../source/file";
+import {
+  GalleryVideoSource,
+  IsVideoSource,
+  MediaSource,
+  ResolvedVideo,
+} from "../source/media";
 
 export type SerializedVal = {
   val: SerializedVal | Json;
@@ -22,10 +26,12 @@ export function isSerializedVal(val: unknown): val is SerializedVal {
 
 export type JsonOfSource<T extends Source> = Json extends T
   ? Json
-  : T extends RemoteSource
-    ? { url: string }
-    : T extends FileSource
-      ? { url: string }
+  : T extends GalleryVideoSource
+    ? IsVideoSource<T> extends true
+      ? ResolvedVideo<T>
+      : T & { url: string }
+    : T extends MediaSource
+      ? T & { url: string }
       : T extends SourceObject
         ? {
             [key in keyof T]: JsonOfSource<T[key]>;
@@ -105,4 +111,20 @@ export function getValPath(
   valOrSelector: Val<Json> | Selector<Source>,
 ): SourcePath | undefined {
   return valOrSelector[Path];
+}
+
+/**
+ * Gives an object Val read the path it was read from, where `getValPath`
+ * finds it: the readers' (`stegaEncode`'s) half of `getValPath`, for objects,
+ * which have no text to carry a path in.
+ *
+ * Not enumerable, and a symbol: `Object.keys`, `JSON.stringify` and every walk
+ * that reads content as data still see only the content.
+ */
+export function setValPath(target: object, path: SourcePath): void {
+  Object.defineProperty(target, Path, {
+    value: path,
+    enumerable: false,
+    configurable: true,
+  });
 }

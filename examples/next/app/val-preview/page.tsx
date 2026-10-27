@@ -15,9 +15,9 @@ import { fetchVal } from "../../val/rsc";
 export default async function ValPreviewPage({
   searchParams,
 }: {
-  searchParams: { c?: string; p?: string; props?: string };
+  searchParams: Promise<{ c?: string; p?: string; props?: string }>;
 }) {
-  const { c, p, props } = searchParams;
+  const { c, p, props } = await searchParams;
   if (!c) {
     return <div>Missing ?c=&lt;component module path&gt;</div>;
   }

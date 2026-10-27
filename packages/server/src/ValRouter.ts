@@ -1,15 +1,10 @@
-import { promises as fs } from "fs";
-import * as path from "path";
-import { DEFAULT_CONTENT_HOST, ValConfig, ValModules } from "@valbuild/core";
-import {
-  Api,
-  ApiEndpoint,
-  ValServerGenericResult,
-} from "@valbuild/shared/internal";
+import { ValConfig, ValModules, Internal } from "@valbuild/core";
+import type { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
-import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
-import { fromError } from "zod-validation-error";
-import { z, ZodError } from "zod";
+import { ValServer, ValServerCallbacks } from "./ValServer";
+import { initHandlerOptions } from "./valServerConfig";
+import { nodePlatform } from "./nodePlatform";
+import { createValRequestHandler } from "./ValRouterCore";
 
 type Versions = {
   versions?: {
@@ -17,6 +12,10 @@ type Versions = {
     next?: string;
   };
 };
+import type { ValPatchStore } from "./ValOpsMemory";
+import type { ValContentVersion, ValProposal } from "./proposal";
+import type { CommitContext, CommitResult } from "./ValServer";
+
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
 
 type ValServerOverrides = Partial<{
@@ -58,22 +57,127 @@ type ValServerOverrides = Partial<{
    */
   mode: "proxy" | "local";
   /**
-   * Current git commit.
+   * The project's source, by path -- and, by being present, the choice of an
+   * in-memory store over the local filesystem.
    *
-   * Required if mode is "proxy".
+   * EXPERIMENTAL. For a host that HOLDS the project's source rather than having
+   * it on a disk: it hands it over here, patches live in `patchStore`, and a
+   * publish is whatever `commitPrepared` does with the files. See
+   * `ValOpsMemory`.
+   *
+   * Selected by presence rather than by a `mode` value because unlike "local"
+   * and "proxy" this one cannot be inferred from the environment -- there is
+   * nothing to infer it FROM, and a mode that can be turned on without
+   * supplying the source would be a server with no content in it.
+   *
+   * An environment that has no disk can still say it EXPECTS this, by setting
+   * `VAL_MODE=memory`. That does not select the mode; it makes forgetting to
+   * pass the source an error here rather than an `EPERM` from `fs` mode two
+   * layers down.
+   */
+  sourceFiles: Record<string, string>;
+  /**
+   * Serve memory mode without authenticating any request. Off by default.
+   *
+   * Set this only when the host authorises every request before it reaches
+   * Val. Without it, memory mode requires a verified session like `http` mode
+   * does -- unlike `fs` mode, this one runs deployed, so an unauthenticated
+   * server is one where anyone who can reach the port can create patches and
+   * trigger a publish.
+   */
+  unsafelyAllowUnauthenticated?: boolean;
+  /**
+   * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
+   * which is not durable -- see `ValPatchStore`.
+   */
+  patchStore: ValPatchStore;
+  /**
+   * The git commit this code was built from, and the branch a publish mirrors
+   * into -- for a project that HAS a repository.
+   *
+   * OPTIONAL, including in http mode, and absent is the normal case for a
+   * project whose content service is the store of record. It used to be
+   * required, which made a repository a precondition for editing anything: a
+   * deployment with no commit to name fell through to `fs` mode and reached
+   * for a working tree that was not there.
+   *
+   * What it is FOR, where there is one: a publish turns pending patches into
+   * new `.val.ts` text, and to patch a file you must first read it. That read
+   * goes to the content service AT THIS COMMIT. Give it a commit the deployed
+   * code did not come from and the publish writes over a different version of
+   * the file than the one the site is running.
+   *
+   * It is NOT what a committed render reads -- that reads the source compiled
+   * into the build and asks the content service nothing.
+   *
+   * A normal deploy bakes this at build time, because the commit really is a
+   * property of those bytes. `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` supply it
+   * where a build system sets environment variables instead.
+   *
+   * FLAT, and the same two names `val.config.ts` uses, so that there is one
+   * way to say this rather than two. An app reads these off its platform --
+   * `process.env.VERCEL_GIT_COMMIT_SHA` and friends, which are typed
+   * `string | undefined` -- and a pair of optional strings takes that as it
+   * comes. A nested `{ commit, branch }` would make every caller write the
+   * ternary that turns two maybe-strings into one maybe-object. Sharing the
+   * names with `ValConfig` is what makes the bindings' `{ versions,
+   * ...config }` carry them here with nothing to map.
+   *
+   * Taken together or not at all: `initHandlerOptions` refuses one without
+   * the other rather than resolving half a repository.
    *
    * @example "e83c5163316f89bfbde7d9ab23ca2e25604af290"
    */
-  gitCommit: string;
-
+  gitCommit?: string;
   /**
-   * Current git branch.
-   *
-   * Required if mode is "proxy".
+   * The branch a publish mirrors into. See {@link ValApiOptions.gitCommit},
+   * which this is required with and meaningless without.
    *
    * @example "main"
    */
-  gitBranch: string;
+  gitBranch?: string;
+  /**
+   * The project's own source files, by path with no leading slash, as the
+   * RUNNING build was made from them.
+   *
+   * Where a publish reads the `.val.ts` text it patches. Without it that text
+   * is fetched from the content service at {@link gitCommit}, which only a
+   * project with a repository has -- so a project whose content service is the
+   * store of record could not produce `.val.ts` at all, and a build made after
+   * a save carried none of the save's edits. A host that builds the project
+   * itself embeds its source in the build and hands it over here.
+   */
+  projectSource?: Record<string, string>;
+  /**
+   * The publish job the RUNNING build was made for, when a Studio built it in
+   * a tab. Such a build has no commit to name its place in the content
+   * service's chain with, so it names its job, and the service places it by
+   * that rather than at whichever build is live.
+   */
+  publishJob?: string;
+  /**
+   * The build the platform is running this server in, by its hash, when a
+   * platform says (`VAL_BUILD`). Sent with every position this server asks
+   * the content service about, because it is the one thing that says WHICH
+   * build is asking: after a publish, an edge can keep serving the previous
+   * build for up to a minute, and without it that build is placed at the new
+   * one -- whose changes it does not hold, so they drop out of the overlay.
+   */
+  publishBuild?: string;
+  /**
+   * The proposal this server runs at the address of, when a platform serves
+   * one. See {@link ValProposal}: its branch, its position, its save route,
+   * and the snapshot that replaces the bundle's Source for what it saved.
+   */
+  proposal?: ValProposal;
+  /**
+   * The content version the site serves, when a platform says it differs from
+   * the one this build bundles (`VAL_CONTENT`; read it with `contentFromEnv`).
+   * See {@link ValContentVersion}: its Source replaces the bundle's for what
+   * it holds, and its publish is this server's position. Ignored at a
+   * proposal's address.
+   */
+  contentVersion?: ValContentVersion;
   /**
    * The base url of Val.
    *
@@ -133,114 +237,59 @@ export async function createValServer(
   config: ValConfig,
   callbacks: ValServerCallbacks,
   formatter?: (code: string, filePath: string) => string | Promise<string>,
+  /**
+   * Called after a save has applied its patches. EXPERIMENTAL — see
+   * `ValServerOptions.commitPrepared`.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>,
+  /**
+   * What a publish does in http mode. EXPERIMENTAL — see
+   * `ValServerOptions.publishOverride`.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
     valModules,
     {
       formatter,
+      commitPrepared,
+      publishOverride,
       ...valServerConfig,
     },
     callbacks,
+    nodePlatform,
   );
 }
 
-async function initHandlerOptions(
-  route: string,
-  opts: ValApiOptions,
-  config: ValConfig,
-): Promise<ValServerConfig> {
-  const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
-  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
-  const isProxyMode =
-    opts.mode === "proxy" ||
-    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
-  const valEnableRedirectUrl =
-    opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL;
-  const valDisableRedirectUrl =
-    opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL;
-
-  const maybeValProject = opts.project || process.env.VAL_PROJECT;
-  const valBuildUrl =
-    opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
-  const valContentUrl =
-    opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
-  if (isProxyMode) {
-    if (!maybeApiKey || !maybeValSecret) {
-      throw new Error(
-        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode",
-      );
-    }
-    const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
-    if (!maybeGitCommit) {
-      throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
-    }
-    const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
-    if (!maybeGitBranch) {
-      throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
-    }
-    if (!maybeValProject) {
-      throw new Error(
-        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set.",
-      );
-    }
-    const coreVersion = opts.versions?.core;
-    if (!coreVersion) {
-      throw new Error("Could not determine version of @valbuild/core");
-    }
-    const nextVersion = opts.versions?.next;
-    if (!nextVersion) {
-      throw new Error("Could not determine version of @valbuild/next");
-    }
-
-    return {
-      mode: "http",
-      route,
-      apiKey: maybeApiKey,
-      valSecret: maybeValSecret,
-      commit: maybeGitCommit,
-      branch: maybeGitBranch,
-      root: opts.root,
-      project: maybeValProject,
-      valEnableRedirectUrl,
-      valDisableRedirectUrl,
-      valContentUrl,
-      valBuildUrl,
-      config,
-    };
-  } else {
-    const cwd = process.cwd();
-    const valBuildUrl =
-      opts.valBuildUrl ||
-      process.env.VAL_BUILD_URL ||
-      "https://admin.val.build";
-    return {
-      mode: "fs",
-      cwd,
-      route,
-      valDisableRedirectUrl,
-      valEnableRedirectUrl,
-      valBuildUrl,
-      valContentUrl,
-      apiKey: maybeApiKey,
-      valSecret: maybeValSecret,
-      project: maybeValProject,
-      config,
-    };
-  }
-}
-
 // TODO: remove
+/**
+ * `fs` and `path` are imported INSIDE this function, not at the top of the file.
+ *
+ * This is the only thing in this module that touches either, and it is a local
+ * development convenience: scanning upwards for a `.git` to guess the commit and
+ * branch. A static import put `fs` in the module graph of everything reaching
+ * `createValApiRouter` -- which is every server integration, including ones that
+ * run where there is no filesystem. Workerd provides no `fs`, so such a build
+ * could not be bundled at all without stubbing it.
+ *
+ * The `await import` costs nothing here: the only caller is the CLI, on a
+ * machine that has both.
+ */
 export async function safeReadGit(
   cwd: string,
 ): Promise<{ commit?: string; branch?: string }> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   async function findGitHead(
     currentDir: string,
     depth: number,
   ): Promise<{ commit?: string; branch?: string }> {
     const gitHeadPath = path.join(currentDir, ".git", "HEAD");
     if (depth > 1000) {
-      console.error(
+      Internal.log.error(
         `Reached max depth while scanning for .git folder. Current working dir: ${cwd}.`,
       );
       return {
@@ -281,7 +330,7 @@ export async function safeReadGit(
   try {
     return findGitHead(cwd, 0);
   } catch (err) {
-    console.error("Error while reading .git", err);
+    Internal.log.error("Error while reading .git", err);
     return {
       commit: undefined,
       branch: undefined,
@@ -289,10 +338,13 @@ export async function safeReadGit(
   }
 }
 
+/** Only reached from {@link safeReadGit}; same reason for the local imports. */
 async function readCommit(
   gitDir: string,
   branchName: string,
 ): Promise<string | undefined> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   try {
     return (
       await fs.readFile(
@@ -311,285 +363,10 @@ export function createValApiRouter<Res>(
   convert: (valServerRes: ValServerGenericResult) => Res,
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();
-  // valServerPromise is created at module-eval time, but only awaited per request.
-  // Without this no-op catch, a config error (e.g. proxy mode without a project)
-  // rejects with no handler attached, which becomes an unhandledRejection and kills
-  // the dev server. The error is still reported per request by the try/catch below.
-  valServerPromise.catch(() => {
-    // handled below
-  });
-  return async (req): Promise<Res> => {
-    let valServer: ValServer;
-    try {
-      valServer = await valServerPromise;
-    } catch (err) {
-      const error = {
-        message: "Val: could not start the Val server",
-        details: err instanceof Error ? err.message : String(err),
-      };
-      console.error(error.message + ": " + error.details);
-      return convert({
-        status: 500,
-        json: error,
-      });
-    }
-    const url = new URL(req.url);
-    if (!url.pathname.startsWith(route)) {
-      const error = {
-        message: "Val: routes are not configured correctly",
-        details: `Check you api routes. Expected pathname to start with "${route}", but it was: "${url.pathname}"`,
-      };
-      console.error(error);
-      return convert({
-        status: 500,
-        json: error,
-      });
-    }
-
-    const path = url.pathname.slice(route.length);
-    const groupQueryParams = (arr: [string, string][]) => {
-      const map: Record<string, string[]> = {};
-      for (const [key, value] of arr) {
-        const list = map[key] || [];
-        list.push(value);
-        map[key] = list;
-      }
-      return map;
-    };
-    async function getValServerResponse(
-      reqApiRoutePath: string,
-      req: Request,
-    ): Promise<ValServerGenericResult> {
-      const anyApi =
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        Api as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const anyValServer = valServer as any;
-      const method = req.method?.toUpperCase();
-      let route = null;
-      let path: string | undefined = undefined;
-      for (const routeDef of Object.keys(Api)) {
-        if (routeDef === reqApiRoutePath) {
-          route = routeDef;
-          break;
-        }
-        if (reqApiRoutePath.startsWith(routeDef)) {
-          const reqDefinition = (anyApi?.[routeDef]?.[method] as ApiEndpoint)
-            ?.req;
-          if (reqDefinition) {
-            route = routeDef;
-            if (reqDefinition.path) {
-              const subPath = reqApiRoutePath.slice(routeDef.length);
-              const pathRes = reqDefinition.path.safeParse(subPath);
-              if (!pathRes.success) {
-                return zodErrorResult(
-                  pathRes.error,
-                  `invalid path: '${subPath}' endpoint: '${routeDef}'`,
-                );
-              } else {
-                path = pathRes.data;
-              }
-            }
-            break;
-          }
-        }
-      }
-      if (!route) {
-        return {
-          status: 404,
-          json: {
-            message: "Route not found. Valid routes are: " + Object.keys(Api),
-            details: {
-              route,
-              method,
-            },
-          },
-        };
-      }
-
-      const apiEndpoint = anyApi?.[route]?.[method] as ApiEndpoint;
-      const reqDefinition = apiEndpoint?.req;
-      if (!reqDefinition) {
-        return {
-          status: 404,
-          json: {
-            message: `Requested method ${method} on route ${route} is not valid. Valid methods are: ${Object.keys(
-              anyApi[route],
-            ).join(", ")}`,
-            details: {
-              route,
-              method,
-            },
-          },
-        };
-      }
-      const endpointImpl = anyValServer?.[route]?.[method] as (
-        reqData: Record<string, unknown>,
-      ) => Promise<ValServerGenericResult>;
-      if (!endpointImpl) {
-        return {
-          status: 500,
-          json: {
-            message:
-              "Missing server implementation of route with method. This might be caused by a mismatch between Val package versions.",
-            details: {
-              valid: {
-                route: {
-                  server: Object.keys(anyValServer || {}),
-                  api: Object.keys(anyApi || {}),
-                },
-                method: {
-                  server: Object.keys(anyValServer?.[route] || {}),
-                  api: Object.keys(anyApi?.[route] || {}),
-                },
-              },
-              route,
-              method,
-            },
-          },
-        };
-      }
-      let bodyRes;
-      try {
-        bodyRes = reqDefinition.body
-          ? reqDefinition.body.safeParse(await req.json())
-          : ({ success: true, data: {} } as z.ZodSafeParseSuccess<unknown>);
-        if (!bodyRes.success) {
-          return zodErrorResult(bodyRes.error, "invalid body data");
-        }
-      } catch (e) {
-        return {
-          status: 400,
-          json: {
-            message: "Could not parse request body",
-            details: {
-              error: JSON.stringify(e),
-            },
-          },
-        };
-      }
-
-      const cookiesRes = reqDefinition.cookies
-        ? getCookies(req, reqDefinition.cookies)
-        : ({ success: true, data: {} } as z.ZodSafeParseSuccess<
-            Record<string, string>
-          >);
-      if (!cookiesRes.success) {
-        return zodErrorResult(cookiesRes.error, "invalid cookies");
-      }
-      const actualQueryParams = groupQueryParams(
-        Array.from(url.searchParams.entries()),
-      );
-      let query = {};
-      if (reqDefinition.query) {
-        const queryRules = reqDefinition.query;
-        const queryRes = z.object(queryRules).safeParse(actualQueryParams);
-        if (!queryRes.success) {
-          return zodErrorResult(
-            queryRes.error,
-            `invalid query params: (${JSON.stringify(actualQueryParams)})`,
-          );
-        }
-        query = queryRes.data;
-      }
-
-      const res = await endpointImpl({
-        body: bodyRes.data,
-        cookies: cookiesRes.data,
-        query,
-        path,
-      });
-      if (res.status === 500) {
-        return {
-          status: 500,
-          json: {
-            message: res.json?.message || "Internal Server Error",
-          },
-        };
-      }
-      const resDef = apiEndpoint.res;
-      if (resDef) {
-        const responseResult = resDef.safeParse(res);
-        if (!responseResult.success) {
-          return {
-            status: 500,
-            json: {
-              message:
-                "Could not validate response. This is likely a bug in Val server.",
-              details: {
-                response: res,
-                errors: formatZodErrorString(responseResult.error),
-              },
-            },
-          };
-        }
-      }
-      return res;
-    }
-
-    if (path.startsWith("/static")) {
-      return convert(
-        await uiRequestHandler(path.slice("/static".length), url.href),
-      );
-    } else {
-      return convert(await getValServerResponse(path, req));
-    }
-  };
-}
-
-function formatZodErrorString(error: ZodError): string {
-  const errors = fromError(error).toString();
-  return errors.length > 640 ? `${errors.slice(0, 640)}...` : errors;
-}
-
-function zodErrorResult(
-  error: ZodError,
-  message: string,
-): ValServerGenericResult {
-  return {
-    status: 400,
-    json: {
-      message: "Bad Request: " + message,
-      details: {
-        errors: formatZodErrorString(error),
-      },
-    },
-  };
-}
-
-// TODO: is this naive implementation is too naive?
-function getCookies<
-  Cookies extends {
-    val_session?: z.ZodString | z.ZodOptional<z.ZodString>;
-    val_state?: z.ZodString | z.ZodOptional<z.ZodString>;
-    val_enable?: z.ZodString | z.ZodOptional<z.ZodString>;
-  },
->(
-  req: Request,
-  cookiesDef: Cookies,
-):
-  | z.ZodSafeParseSuccess<{
-      [K in keyof Cookies]: Cookies[K] extends z.ZodType
-        ? z.infer<Cookies[K]>
-        : never;
-    }>
-  | z.ZodSafeParseError<Record<string, string>> {
-  const input: Record<string, string> = {};
-  const cookieParts = req.headers?.get("Cookie")?.split("; ");
-  for (const name of Object.keys(cookiesDef)) {
-    const cookie = cookieParts?.find((cookie) => cookie.startsWith(`${name}=`));
-    const value = cookie
-      ? decodeURIComponent(cookie?.split("=")[1])
-      : undefined;
-    if (value) {
-      input[name.trim()] = value;
-    }
-  }
-  return z.object(cookiesDef).safeParse(input) as
-    | z.ZodSafeParseSuccess<{
-        [K in keyof Cookies]: Cookies[K] extends z.ZodType
-          ? z.infer<Cookies[K]>
-          : never;
-      }>
-    | z.ZodSafeParseError<Record<string, string>>;
+  return createValRequestHandler(
+    route,
+    valServerPromise,
+    convert,
+    uiRequestHandler,
+  );
 }

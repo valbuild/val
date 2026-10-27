@@ -6,15 +6,26 @@ import { KeyOfField } from "./fields/KeyOfField";
 import { NumberField } from "./fields/NumberField";
 import { ObjectFields } from "./fields/ObjectFields";
 import { RecordFields } from "./fields/RecordFields";
+import { SettingsFields } from "./fields/SettingsFields";
 import { RichTextField } from "./fields/RichTextField";
+import { LocaleField } from "./fields/LocaleField";
 import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
-import { UnionField } from "./fields/UnionField";
+import { DiscriminatedUnionField } from "./fields/DiscriminatedUnionField";
+import { EnumField } from "./fields/EnumField";
 import { DateField } from "./fields/DateField";
 import { DateTimeField } from "./fields/DateTimeField";
+import { CodeField } from "./fields/CodeField";
+import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
+import { VideoField } from "./fields/VideoField";
+import { ViewField } from "./fields/ViewField";
+import { LiteralField } from "./fields/LiteralField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
+import { ValidationErrors } from "./ValidationError";
+import { useFieldErrorsOwned } from "./FieldErrorsOwner";
+import { usePendingWriteHold } from "./PendingWriteHold";
 
 export type ErrorDisplay = "default" | "compact" | "none";
 
@@ -27,6 +38,7 @@ export function AnyField({
   inline,
   hideUpload,
   errorDisplay = "default",
+  ignoreHidden,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
@@ -36,11 +48,32 @@ export function AnyField({
   inline?: boolean;
   hideUpload?: boolean;
   errorDisplay?: ErrorDisplay;
+  /**
+   * Draw this even if its schema says `hidden`.
+   *
+   * `hidden` means "do not list this among its parent's fields". The page an
+   * editor has NAVIGATED to is not a parent's field list — it is the thing
+   * being looked at — so honouring the flag there renders a blank page instead
+   * of hiding anything. Set by `Module`, and nowhere else.
+   */
+  ignoreHidden?: boolean;
 }) {
-  if (schema.hidden) {
+  // Before the guard: a hook below an early return is a hook-order trap — see
+  // `architecture/quirks.md`.
+  const writeHeld = usePendingWriteHold();
+  if (schema.hidden && !ignoreHidden) {
     return null;
   }
-  const effectiveReadonly = readonly || schema.readonly;
+  /*
+   * The schema's own `readonly`, the caller's, and the write hold.
+   *
+   * The hold is the first load's patches not being in yet — see
+   * `PendingChangesGate`. Folded in here rather than handled separately because
+   * "you may look at this field but not change it" is a state fields already
+   * implement, and a second mechanism for it would be a second thing to keep
+   * right in every field.
+   */
+  const effectiveReadonly = readonly || schema.readonly || writeHeld;
   const leafProps = { readonly: effectiveReadonly, compact };
   let leaf: React.ReactNode;
   if (schema.type === "string") {
@@ -87,6 +120,17 @@ export function AnyField({
         errorDisplay={errorDisplay}
       />
     );
+  } else if (schema.type === "settings") {
+    return (
+      <SettingsFields
+        key={path}
+        path={path}
+        readonly={effectiveReadonly}
+        compact={compact}
+        inline={inline}
+        errorDisplay={errorDisplay}
+      />
+    );
   } else if (schema.type === "record") {
     return (
       <RecordFields
@@ -98,9 +142,9 @@ export function AnyField({
         errorDisplay={errorDisplay}
       />
     );
-  } else if (schema.type === "union") {
+  } else if (schema.type === "discriminated-union") {
     return (
-      <UnionField
+      <DiscriminatedUnionField
         key={path}
         path={path}
         readonly={effectiveReadonly}
@@ -109,10 +153,14 @@ export function AnyField({
         errorDisplay={errorDisplay}
       />
     );
+  } else if (schema.type === "enum") {
+    leaf = <EnumField key={path} path={path} readonly={effectiveReadonly} />;
   } else if (schema.type === "keyOf") {
     leaf = <KeyOfField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "route") {
     leaf = <RouteField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "locale") {
+    leaf = <LocaleField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "richtext") {
     leaf = (
       <RichTextField
@@ -126,12 +174,19 @@ export function AnyField({
     leaf = <DateField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "dateTime") {
     leaf = <DateTimeField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "color") {
+    leaf = <ColorField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "code") {
+    leaf = <CodeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
     leaf = <FileField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "video") {
+    leaf = <VideoField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {
-    leaf = (
-      <FieldSchemaError path={path} error="Literal fields are not editable" />
-    );
+    // Always read-only: a literal's value IS its schema. See `LiteralField`.
+    leaf = <LiteralField key={path} path={path} compact={compact} />;
+  } else if (schema.type === "view") {
+    leaf = <ViewField key={path} path={path} schema={schema} />;
   } else {
     const exhaustiveCheck: never = schema;
     leaf = (
@@ -152,5 +207,32 @@ export function AnyField({
       </div>
     );
   }
-  return <>{leaf}</>;
+  return (
+    <>
+      {leaf}
+      {/*
+       * The errors, when nothing above is already showing them.
+       *
+       * A field inside an object has a `Field` wrapper that puts them under the
+       * labelled row, which is the right place and where they should stay. A
+       * field opened on its own — the module editor, the canvas's fields column —
+       * has no wrapper, so without this it would show none at all.
+       *
+       * The leaves used to render their own copy unconditionally, which is what
+       * put the same message above the input and below it. See
+       * `FieldErrorsOwner`.
+       */}
+      {errorDisplay === "default" && <UnownedFieldErrors path={path} />}
+    </>
+  );
+}
+
+function UnownedFieldErrors({ path }: { path: SourcePath }) {
+  // A component of its own so the hook is not called for a leaf whose errors
+  // are somebody else's business.
+  const owned = useFieldErrorsOwned();
+  if (owned) {
+    return null;
+  }
+  return <ValidationErrors path={path} />;
 }

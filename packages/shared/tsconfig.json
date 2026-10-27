@@ -1,6 +1,18 @@
 {
   "compilerOptions": {
-    "lib": ["es2020"],
+    // es2022 and dom for `publish/`, which runs in a browser tab and came in
+    // using `new Error(message, { cause })` -- and whose builder type reads
+    // `@valbuild/tanstack-build`'s source, which needs both.
+    "lib": ["es2022", "dom"],
+    // Declared, not auto-discovered: TypeScript 6 no longer includes every
+    // @types package it can find, so leaving this unset loses the node and
+    // jest globals. The packages are still resolved through the default
+    // typeRoots walk up to the workspace root.
+    "types": ["node", "jest"],
+    // Set explicitly: with neither given, TypeScript falls back to commonjs
+    // and the node10 resolver, which 6 deprecates and 7 removes.
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,

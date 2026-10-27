@@ -11,6 +11,20 @@ module.exports = {
         md: "1000px",
       },
     },
+    /**
+     * The layering scale, smallest to largest.
+     *
+     * `hover` is a highlight over content, `window` is anything floating that
+     * belongs to the content (an editor toolbar, a link popover), `full` is the
+     * app's own chrome (the rail, the bars, the floating panels), and `overlay`
+     * is a modal that deliberately covers all of it.
+     *
+     * Use a name. `5` and `50` are here for the vendored design-system
+     * primitives — dialogs, dropdowns, tooltips — which ship with `z-50` and are
+     * modal layers in their own right. Anything else reaching for a raw number
+     * beats the whole scale: `z-50` on the rich text toolbar put it over the
+     * shell's Pages panel, and `z-[60]` on a node view put it over that.
+     */
     zIndex: {
       5: 5,
       50: 50,
@@ -24,6 +38,28 @@ module.exports = {
       serif: ["Space Grotesk", "sans-serif"],
     },
     extend: {
+      screens: {
+        // The floating shell layout switches to its full desktop chrome
+        // (permanent left rail) at 1200px, which sits between Tailwind's
+        // `lg` (1024px) and `xl` (1280px).
+        desktop: "1200px",
+        /**
+         * A touch screen, not a narrow one.
+         *
+         * iOS Safari zooms the page in whenever a focused field computes under
+         * 16px, and it does that on an iPad at 1024px just as readily as on a
+         * phone — so the question is the INPUT DEVICE, not the width, and a
+         * `md:` breakpoint would answer the wrong one. `raw` emits the media
+         * query verbatim rather than as a min-width.
+         *
+         * `any-pointer`, not `pointer`: `pointer` describes only the PRIMARY
+         * device, so an iPad with a keyboard case — or any touch laptop —
+         * reports `fine` and stops matching, while its touchscreen goes on
+         * zooming. `any-pointer` asks whether the device has a coarse input at
+         * all, which is the question.
+         */
+        touch: { raw: "(any-pointer: coarse)" },
+      },
       colors: {
         "bg-selection": "var(--bg-selection)",
         "text-selection": "var(--text-selection)",
@@ -44,6 +80,7 @@ module.exports = {
         "fg-brand-primary": "var(--fg-brand-primary)",
         "fg-brand-primary-alt": "var(--fg-brand-primary-alt)",
         "border-brand-primary": "var(--border-brand-primary)",
+        "border-focus": "var(--border-focus)",
         "bg-brand-secondary": "var(--bg-brand-secondary)",
         "bg-brand-secondary-hover": "var(--bg-brand-secondary-hover)",
         "fg-brand-secondary": "var(--fg-brand-secondary)",
@@ -71,6 +108,22 @@ module.exports = {
         "border-error-secondary": "var(--border-error-secondary)",
         "bg-disabled": "var(--bg-disabled)",
         "fg-disabled": "var(--fg-disabled)",
+        "fg-error-on-surface": "var(--fg-error-on-surface)",
+        "bg-page-selection": "var(--bg-page-selection)",
+        "bg-page-selection-fill": "var(--bg-page-selection-fill)",
+        "bg-page-selection-soft": "var(--bg-page-selection-soft)",
+        "bg-canvas": "var(--bg-canvas)",
+        "bg-surface": "var(--bg-surface)",
+        "bg-float": "var(--bg-float)",
+        "bg-float-raised": "var(--bg-float-raised)",
+        "border-float": "var(--border-float)",
+        // A proposal: the chrome says where you are. See `ProposalSwitcher`.
+        "bg-proposal": "var(--bg-proposal)",
+        "bg-proposal-hover": "var(--bg-proposal-hover)",
+        "bg-proposal-soft": "var(--bg-proposal-soft)",
+        "fg-proposal": "var(--fg-proposal)",
+        "fg-on-proposal": "var(--fg-on-proposal)",
+        "border-proposal": "var(--border-proposal)",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
@@ -145,12 +198,43 @@ module.exports = {
             transform: "rotate(360deg)",
           },
         },
+        /**
+         * The halo behind the "Take a tour" button.
+         *
+         * A spreading ring rather than a change of colour or size: the button
+         * sits in a row of other buttons, and anything that moves or reflows
+         * would push its neighbours about once a second. A box shadow costs
+         * no layout, and fading it to transparent as it spreads is what makes
+         * it read as a glow rather than as a second border.
+         *
+         * Only ever applied behind `motion-safe:` — see `TourLauncher`.
+         */
+        /*
+         * The tour's ring arriving somewhere new: one beat outwards, so the eye
+         * finds where it went, and then still. Once, not a loop: a ring that
+         * keeps pulsing at what someone is already reading is a distraction.
+         * Behind `motion-safe:`, like the glow below.
+         */
+        "tour-arrive": {
+          "0%": { boxShadow: "0 0 0 0 var(--border-brand-secondary)" },
+          "100%": { boxShadow: "0 0 0 10px transparent" },
+        },
+        "tour-glow": {
+          "0%, 100%": {
+            boxShadow: "0 0 0 0 var(--border-brand-secondary)",
+          },
+          "50%": {
+            boxShadow: "0 0 0 5px transparent",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "rotate-clock-hour-hand": "rotate-clock 12s linear infinite",
         "rotate-clock-minute-hand": "rotate-clock 1s linear infinite",
+        "tour-glow": "tour-glow 2.4s ease-in-out infinite",
+        "tour-arrive": "tour-arrive 0.7s ease-out 1",
       },
     },
   },

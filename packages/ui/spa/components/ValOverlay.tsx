@@ -41,10 +41,15 @@ import {
   useAuthenticationState,
   useCurrentPatchIds,
   useValMode,
+  useSiteHandoffState,
   useShallowModulesAtPaths,
+  usePublishJobsState,
 } from "./ValProvider";
+import { ownPublishCard } from "../publish/ownPublishCard";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
+import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
+import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { useTheme } from "./ValThemeProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
@@ -58,6 +63,7 @@ import {
   HoverCardTrigger,
 } from "./designSystem/hover-card";
 import { PublishButton } from "./PublishButton";
+import { PublishHandoffCard } from "./shell/PublishHandoff";
 import {
   Select,
   SelectContent,
@@ -68,9 +74,20 @@ import {
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
+import {
+  OverlayDock,
+  OverlayMenuDivider,
+  OverlayMenuLauncher,
+} from "./shell/OverlayMenu";
+import { ValLogo } from "./shell/ValLogo";
+import {
+  useLockBodyScroll,
+  useVisualViewport,
+} from "./shell/useVisualViewport";
 import { AIChat } from "./AIChat";
 import type { AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
+import { useAIChatActions } from "./AIChatActionsContext";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -240,9 +257,20 @@ export function ValOverlay(props: ValOverlayProps) {
             }
           }
         }
-        if (boundingBox) {
-          setBoundingBox(boundingBox);
-        }
+        /**
+         * Set unconditionally, `null` included.
+         *
+         * `null` is the answer whenever the pointer is over nothing Val
+         * tracks, and it has to be written: this used to set only when it
+         * found something, so the box stayed parked over the last piece of
+         * content the pointer crossed for as long as select mode was on. That
+         * box is the thing that turns a click into "edit this" — it sits above
+         * the page and stops the event — so whatever the page had at those
+         * coordinates stopped responding, and a link under it could not be
+         * followed. The stale outline looked like a rendering quirk; the dead
+         * link underneath was the real cost.
+         */
+        setBoundingBox(boundingBox);
       };
       const touchListener = (ev: TouchEvent) => {
         listener(ev.touches[0].clientX, ev.touches[0].clientY);
@@ -289,7 +317,12 @@ export function ValOverlay(props: ValOverlayProps) {
     }
   }, [mode, editMode]);
 
-  const { theme } = useTheme();
+  /*
+   * `theme` as well as `resolvedTheme`: `theme === null` still means "nothing
+   * has said what mode this is yet", which is what the menu shows its loading
+   * state for. `resolvedTheme` is never null, because it is what gets stamped.
+   */
+  const { theme, resolvedTheme, themeStyle } = useTheme();
   const [dropZone, setDropZoneRaw] = useState<DropZones | null>(null);
   const config = useValConfig();
   const defaultDropZone = "val-menu-right-center"; // TODO: get from config
@@ -320,7 +353,7 @@ export function ValOverlay(props: ValOverlayProps) {
         setDropZoneRaw(defaultDropZone);
       }
     } catch (e) {
-      console.error("Error getting drop zone from local storage", e);
+      Internal.log.debug("Error getting drop zone from local storage", e);
       setDropZoneRaw(defaultDropZone);
     }
   }, [config]);
@@ -335,7 +368,7 @@ export function ValOverlay(props: ValOverlayProps) {
         localStorage.setItem("val-menu-drop-zone-default", dropZone);
       }
     } catch (e) {
-      console.error("Error setting drop zone to local storage", e);
+      Internal.log.debug("Error setting drop zone to local storage", e);
     }
   };
 
@@ -383,7 +416,13 @@ export function ValOverlay(props: ValOverlayProps) {
   return (
     <OverlaySessionContext.Provider value={{ bornSessionId, setBornSessionId }}>
       <div
-        {...(theme ? { "data-mode": theme } : {})}
+        data-mode={resolvedTheme}
+        /*
+         * The theme travels with `data-mode`, and this realm is the one where
+         * it matters most: the outlines the canvas draws around editable
+         * elements are `--bg-page-selection*`, which the accent moves.
+         */
+        style={themeStyle}
         id="val-overlay-container"
       >
         <Window
@@ -398,7 +437,7 @@ export function ValOverlay(props: ValOverlayProps) {
               "cursor-pointer",
               "rounded-sm",
               "transition-all duration-150 ease-in-out",
-              "border-2 border-bg-brand-primary hover:border-bg-brand-primary-hover",
+              "border-2 border-bg-page-selection bg-bg-page-selection-fill",
             )}
             style={maxRect(
               {
@@ -440,9 +479,9 @@ export function ValOverlay(props: ValOverlayProps) {
               className={cn(
                 "absolute z-[8997] pointer-events-none",
                 "rounded-sm",
-                "border-2 border-bg-brand-primary",
+                "border-2 border-bg-page-selection",
                 "transition-opacity duration-200 ease-out",
-                allBoundingBoxesVisible ? "opacity-50" : "opacity-0",
+                allBoundingBoxesVisible ? "opacity-70" : "opacity-0",
               )}
               style={maxRect(
                 {
@@ -464,6 +503,7 @@ export function ValOverlay(props: ValOverlayProps) {
         <ChatWindow
           isOpen={isChatOpen && props.draftMode}
           onClose={() => setIsChatOpen(false)}
+          onOpen={() => setIsChatOpen(true)}
         />
         {editMode === null && (
           <DraggableValMenu
@@ -508,6 +548,10 @@ function Window({
   const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = windowInnerWidth < 1024;
+  const visualViewport = useVisualViewport(isMobile);
+  // Stop the user's page scrolling behind a full-screen sheet — on iOS
+  // that also drags the visual viewport around.
+  useLockBodyScroll(isMobile && editMode !== null);
   const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
 
   useEffect(() => {
@@ -689,11 +733,15 @@ function Window({
 
   return (
     <div
-      className={classNames("fixed top-0 left-0 z-[8998]", {
-        hidden: editMode === null,
-        "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
-        "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
-      })}
+      className={classNames(
+        "fixed top-0 left-0",
+        isMobile ? "z-[9001]" : "z-[8998]",
+        {
+          hidden: editMode === null,
+          "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
+          "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
+        },
+      )}
     >
       <div
         className={classNames("fixed top-0 left-0", {
@@ -709,32 +757,31 @@ function Window({
       ></div>
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
-          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
-          {
-            "w-[calc(100vw-32px)] h-[calc(100svh-32px)] max-h-[calc(100svh-32px)]":
-              isMobile,
-          },
+          "flex flex-col bg-bg-float text-fg-primary",
+          isMobile
+            ? "fixed inset-x-0 border-0 rounded-none"
+            : "absolute rounded-lg border border-border-float shadow-xl",
         )}
         ref={ref}
-        style={{
-          top: windowPos.y,
-          left: windowPos.x,
-          ...(!isMobile && windowSize.width > 0
-            ? {
-                width: windowSize.width,
-                height: windowSize.height,
+        style={
+          isMobile
+            ? // Pinned to the visual viewport, not the layout viewport: with
+              // the keyboard up those are different rectangles and only this
+              // one is the part of the screen the user can see.
+              { top: visualViewport.offsetTop, height: visualViewport.height }
+            : {
+                top: windowPos.y,
+                left: windowPos.x,
+                ...(windowSize.width > 0
+                  ? { width: windowSize.width, height: windowSize.height }
+                  : { maxWidth: "640px" }),
               }
-            : !isMobile
-              ? { maxWidth: "640px" }
-              : {}),
-        }}
+        }
       >
         {/* Header bar - for dragging on desktop, shows close button on mobile */}
         <div
           className={classNames(
-            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
-            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
             {
               "cursor-grab active:cursor-grabbing": !isMobile,
             },
@@ -746,8 +793,8 @@ function Window({
             }
           }}
         >
-          <div className="text-sm font-semibold text-fg-primary">
-            Edit Content
+          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
+            Edit content
           </div>
           <div className="flex justify-center">
             {!isMobile && (
@@ -758,7 +805,7 @@ function Window({
             {isMobile && (
               <button
                 onClick={handleClose}
-                className="p-1 rounded hover:bg-bg-secondary transition-colors"
+                className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary transition-colors"
                 aria-label="Close"
               >
                 <X size={18} />
@@ -880,11 +927,19 @@ function Window({
 function ChatWindow({
   isOpen,
   onClose,
+  onOpen,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onOpen: () => void;
 }) {
+  const assistant = useAssistantAvailability();
   const chatRef = useRef<AIChatHandle | null>(null);
+  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
+  useEffect(() => {
+    setOpenAIChatImpl(onOpen);
+    return () => setOpenAIChatImpl(null);
+  }, [onOpen, setOpenAIChatImpl]);
   const { bornSessionId, setBornSessionId } = useContext(OverlaySessionContext);
   // Capture the seeded-from-sessionStorage value once so later state changes
   // don't re-trigger useAI's mount-load effect. This is how a user coming
@@ -921,6 +976,10 @@ function ChatWindow({
   const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = windowInnerWidth < 1024;
+  const visualViewport = useVisualViewport(isMobile);
+  // Stop the user's page scrolling behind a full-screen sheet — on iOS
+  // that also drags the visual viewport around.
+  useLockBodyScroll(isMobile && isOpen);
 
   useEffect(() => {
     const handleResize = () => {
@@ -1015,19 +1074,22 @@ function ChatWindow({
 
   return (
     <div
-      className="fixed top-0 left-0 z-[8999]"
+      className={cn("fixed top-0 left-0", isMobile ? "z-[9001]" : "z-[8999]")}
       style={!isOpen ? { display: "none" } : undefined}
     >
       <div
         className={classNames(
-          "absolute flex flex-col rounded-lg bg-bg-primary text-fg-primary border border-border-secondary",
-          "shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]",
-          { "w-[calc(100vw-32px)] h-[calc(100svh-32px)]": isMobile },
+          "flex flex-col bg-bg-float text-fg-primary",
+          isMobile
+            ? "fixed inset-x-0 border-0 rounded-none"
+            : "absolute rounded-lg border border-border-float shadow-xl",
         )}
         ref={ref}
         style={
           isMobile
-            ? { top: 16, left: 16 }
+            ? // See the edit window: with the keyboard open the chat input has
+              // to sit above it, which only the visual viewport can tell us.
+              { top: visualViewport.offsetTop, height: visualViewport.height }
             : {
                 top: windowPos.y,
                 left: windowPos.x,
@@ -1038,8 +1100,7 @@ function ChatWindow({
       >
         <div
           className={classNames(
-            "grid grid-cols-3 items-center px-4 py-3 border-b border-border-secondary rounded-t-lg bg-gradient-to-b from-bg-secondary/30 to-bg-primary",
-            "shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]",
+            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
             { "cursor-grab active:cursor-grabbing": !isMobile },
           )}
           onMouseDown={(ev) => {
@@ -1049,7 +1110,9 @@ function ChatWindow({
             }
           }}
         >
-          <div className="text-sm font-semibold text-fg-primary">AI Chat</div>
+          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
+            AI assistant
+          </div>
           <div className="flex justify-center">
             {!isMobile && (
               <GripHorizontal size={16} className="text-fg-secondary" />
@@ -1066,23 +1129,33 @@ function ChatWindow({
           </div>
         </div>
         <div className="flex-1 overflow-hidden">
-          <AIChat
-            ref={chatRef}
-            onSendMessage={sendMessage}
-            onUploadFile={uploadAiImage}
-            onNewSession={newSession}
-            isConnected={isConnected}
-            authError={authError}
-            mode={mode}
-            sessions={sessions}
-            currentSessionId={currentSessionId}
-            onLoadSession={loadSession}
-            onFetchSessions={getSessions}
-            onSetSessionName={setSessionName}
-            isLoadingSession={isLoadingSession}
-            onAnswerToolQuestions={answerToolQuestions}
-            onCancelToolQuestion={cancelToolQuestion}
-          />
+          {/*
+            The same offer the Studio's panel makes, for the same reason: this
+            window is reachable while nobody has said whether the project has an
+            assistant, and it must ask rather than open a chat that cannot send.
+          */}
+          {assistant === "unconfigured" ? (
+            <EnableAssistantPrompt />
+          ) : (
+            <AIChat
+              ref={chatRef}
+              chatEditorRef={chatEditorRef}
+              onSendMessage={sendMessage}
+              onUploadFile={uploadAiImage}
+              onNewSession={newSession}
+              isConnected={isConnected}
+              authError={authError}
+              mode={mode}
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onLoadSession={loadSession}
+              onFetchSessions={getSessions}
+              onSetSessionName={setSessionName}
+              isLoadingSession={isLoadingSession}
+              onAnswerToolQuestions={answerToolQuestions}
+              onCancelToolQuestion={cancelToolQuestion}
+            />
+          )}
         </div>
         {!isMobile && (
           <>
@@ -1134,9 +1207,12 @@ function ChatWindow({
 // menu is exactly icon + padding + border tall: an inline icon sits on the text
 // baseline, which adds descender space that varies with the inherited
 // line-height and makes the buttons different heights
+// Kept in step with OverlayMenuButton: the overlay's own buttons and the ones
+// rendered inside its windows have to look like the same control.
 const buttonClassName =
-  "inline-flex items-center justify-center p-2 rounded-md disabled:bg-bg-disabled transition-colors border";
-const buttonInactiveClassName = "hover:bg-bg-primary-hover border-bg-primary";
+  "inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors disabled:text-fg-disabled disabled:pointer-events-none";
+const buttonInactiveClassName =
+  "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
 
 function WindowField({
   path: path,
@@ -1155,7 +1231,9 @@ function WindowField({
   if (schemaAtPath.status === "error") {
     return (
       <div className="flex flex-col gap-4">
-        <div className="text-fg-error text-sm">{schemaAtPath.error}</div>
+        <div className="text-fg-error-on-surface text-sm">
+          {schemaAtPath.error}
+        </div>
       </div>
     );
   }
@@ -1262,7 +1340,7 @@ function DropZoneLabel({ dropZone }: { dropZone: DropZones }) {
       </div>
     );
   } else {
-    console.warn("Unknown drop zone:", dropZone);
+    Internal.log.warn("Unknown drop zone:", dropZone);
     return null;
   }
 }
@@ -1295,6 +1373,9 @@ function ValMenu({
       : "horizontal";
   const authenticationState = useAuthenticationState();
   const portalContainer = useValPortal();
+  // The publish popover, or a publish in flight, holds the menu open: see
+  // `PublishButton`'s `onHoldOpenChange`.
+  const [publishHoldsMenuOpen, setPublishHoldsMenuOpen] = useState(false);
 
   const showAllBoundingBoxesWithFadeIn = () => {
     const boxes = findAllValPathElements();
@@ -1316,14 +1397,35 @@ function ValMenu({
       setShowAllBoundingBoxes(false);
     }, 200);
   };
-  const { theme, setTheme } = useTheme();
+  /*
+   * `resolvedTheme`, so the switch shows the mode that is on screen. `theme`
+   * can still be null here — nobody has chosen — while the project's own
+   * default from `s.settings()` is what is being drawn.
+   */
+  const { resolvedTheme, setTheme } = useTheme();
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  // Shown unless the project has turned it off, or has no project to run it
+  // in: an assistant nobody has decided about is offered here, and the panel
+  // asks before it is used. The same flag as the Studio's (see `wsEnabled` in
+  // `ValProvider`), so the two cannot disagree about whether there is one.
+  const { isAIChatEnabled: isChatEnabled } = useAIChatActions();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
+  const handoff = useSiteHandoffState();
+  /*
+   * A publish this page made itself -- one of content alone, which opens no
+   * builder tab -- has no tab's card to follow it, so it gets one of its own.
+   */
+  const publishJobsState = usePublishJobsState();
+  const [dismissedPublishes, setDismissedPublishes] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const own =
+    handoff.state === null
+      ? ownPublishCard(publishJobsState, dismissedPublishes)
+      : null;
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
       ? "top"
@@ -1342,6 +1444,16 @@ function ValMenu({
                   : dropZone === "val-menu-left-top"
                     ? "bottom"
                     : "top";
+  // The launcher grows from the edge it is docked to, and it needs the dock
+  // without the drop-zone prefix.
+  const launcherDock = dropZone.replace("val-menu-", "") as OverlayDock;
+  // Collapsed, the circle still has to say whether there is work outstanding.
+  const launcherStatus: "none" | "changes" | "errors" =
+    validationErrorCount > 0
+      ? "errors"
+      : patchIds.length > 0
+        ? "changes"
+        : "none";
   const allDropZones: DropZones[] = [
     "val-menu-left-top",
     "val-menu-left-center",
@@ -1357,14 +1469,14 @@ function ValMenu({
       {/* See ValNextProvider: this same snippet is used there  */}
       {loading && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
             <AnimatedClock size={16} />
           </div>
         </div>
       )}
       {authenticationState === "login-required" && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
             <a
               href={urlOf("/api/val/authorize", {
                 redirect_to: window.location.href,
@@ -1375,6 +1487,50 @@ function ValMenu({
           </div>
         </div>
       )}
+      {handoff.state !== null && (
+        /*
+         * A publish handed to a Studio tab, because this page cannot build.
+         * Beside the dock rather than in a window: it is news about something
+         * happening elsewhere, and editing carries on under it.
+         */
+        <div className={handoffCardPositionClassName(dropZone)}>
+          <PublishHandoffCard
+            state={handoff.state}
+            onReload={() => window.location.reload()}
+            onOpenStudio={handoff.openStudio}
+            onDismiss={
+              handoff.state.kind === "opening" ||
+              handoff.state.kind === "running"
+                ? undefined
+                : handoff.dismiss
+            }
+          />
+        </div>
+      )}
+      {own !== null && (
+        <div className={handoffCardPositionClassName(dropZone)}>
+          <PublishHandoffCard
+            state={own.card}
+            onReload={() => window.location.reload()}
+            onBuildInTab={() => {
+              // In the tap: only a tap may open a tab. It presses the same
+              // request again, finds it pressed, and builds its job.
+              handoff.prepare(true, {
+                requestId: own.requestId,
+                after: null,
+              });
+            }}
+            onDismiss={
+              own.card.kind === "publishing"
+                ? undefined
+                : () =>
+                    setDismissedPublishes(
+                      (prev) => new Set([...prev, own.requestId]),
+                    )
+            }
+          />
+        </div>
+      )}
       <AnimateHeight
         isOpen={
           draftMode &&
@@ -1383,15 +1539,13 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <div
-          className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2 items-center",
-            {
-              "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
-              "opacity-70": ghost,
-            },
-          )}
+        <OverlayMenuLauncher
+          orientation={dir}
+          dock={launcherDock}
+          ghost={ghost}
+          status={launcherStatus}
+          mark={<ValMark />}
+          holdOpen={publishHoldsMenuOpen}
         >
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
@@ -1455,15 +1609,7 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <div
-            className={classNames("self-stretch border-border-primary", {
-              // a horizontal rule in the vertical menu, a vertical rule in the
-              // horizontal one - otherwise it is an invisible element that
-              // only eats gap
-              "border-t": dir === "vertical",
-              "border-l": dir === "horizontal",
-            })}
-          ></div>
+          <OverlayMenuDivider orientation={dir} />
           <HoverCard>
             <HoverCardTrigger asChild>
               <MenuButton
@@ -1505,7 +1651,11 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <PublishButton compact />
+          <PublishButton
+            compact
+            onHoldOpenChange={setPublishHoldsMenuOpen}
+            popoverSide={publishPopoverSide}
+          />
           <HoverCard>
             <HoverCardTrigger asChild>
               <MenuButton
@@ -1587,9 +1737,11 @@ function ValMenu({
                     ))}
                   </SelectContent>
                 </Select>
-                <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+                <span>
+                  {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+                </span>
                 <Switch
-                  checked={theme === "dark"}
+                  checked={resolvedTheme === "dark"}
                   onCheckedChange={(checked) => {
                     if (checked) {
                       setTheme("dark");
@@ -1601,7 +1753,7 @@ function ValMenu({
               </div>
             </PopoverContent>
           </Popover>
-        </div>
+        </OverlayMenuLauncher>
       </AnimateHeight>
       <AnimateHeight
         isOpen={
@@ -1610,15 +1762,12 @@ function ValMenu({
           authenticationState !== "login-required"
         }
       >
-        <div
-          className={classNames(
-            "flex relative rounded bg-bg-primary text-fg-primary gap-2 justify-center items-center",
-            {
-              "flex-col py-4 px-2": dir === "vertical",
-              "flex-row px-4 py-2": dir === "horizontal",
-              "opacity-70": ghost,
-            },
-          )}
+        <OverlayMenuLauncher
+          orientation={dir}
+          dock={launcherDock}
+          ghost={ghost}
+          status={launcherStatus}
+          mark={<ValMark />}
         >
           <MenuButton
             label="Enable preview mode"
@@ -1653,10 +1802,15 @@ function ValMenu({
             icon={<X size={16} />}
             onClick={() => disableOverlay()}
           />
-        </div>
+        </OverlayMenuLauncher>
       </AnimateHeight>
     </div>
   );
+}
+
+/** The Val mark, sized for the collapsed launcher. */
+function ValMark() {
+  return <ValLogo className="h-6" />;
 }
 
 function useValRouterSourcePathFromCurrentPathname() {
@@ -1754,9 +1908,12 @@ function PendingChangesBadge({
         "absolute -top-2 -right-2 inline-flex justify-center items-center px-1 h-4 min-w-[1rem] text-[9px] font-medium leading-none rounded-full tabular-nums",
         // ring in the menu background color so the badge reads as a separate
         // dot on top of the button instead of blending into it
-        "ring-2 ring-bg-primary",
+        "ring-2 ring-bg-float",
         {
-          "bg-bg-brand-primary text-fg-brand-primary": !isError,
+          // A pending-change count is information, not a warning: it inverts to
+          // the foreground colour rather than spending the brand hue on it.
+          // Validation errors stay red, because they block publishing.
+          "bg-fg-primary text-bg-float": !isError,
           "bg-bg-error-primary text-fg-error-primary": isError,
         },
       )}
@@ -1794,8 +1951,7 @@ const MenuButton = React.forwardRef<
     ref,
   ) => {
     const sharedClassName = classNames(buttonClassName, {
-      "bg-bg-brand-primary text-fg-brand-primary border-border-brand-primary hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary":
-        active,
+      "bg-bg-float-raised text-fg-primary": active,
       [buttonInactiveClassName]: !active,
     });
 
@@ -1949,6 +2105,32 @@ function DraggableValMenu(props: ValMenuProps) {
 }
 
 // NOTE: This is also used in ValNextProvider to display a loading spinner
+/**
+ * Where the handoff card sits: off the dock's edge, toward the page, far
+ * enough out to clear the bar in any of its eight positions.
+ */
+function handoffCardPositionClassName(dropZone: string | null): string {
+  const base = "fixed transform z-[8999]";
+  switch (dropZone) {
+    case "val-menu-left-top":
+      return `${base} left-4 top-20`;
+    case "val-menu-left-center":
+      return `${base} left-20 top-1/2 -translate-y-1/2`;
+    case "val-menu-left-bottom":
+      return `${base} left-4 bottom-20`;
+    case "val-menu-center-top":
+      return `${base} left-1/2 -translate-x-1/2 top-20`;
+    case "val-menu-center-bottom":
+      return `${base} left-1/2 -translate-x-1/2 bottom-20`;
+    case "val-menu-right-top":
+      return `${base} right-4 top-20`;
+    case "val-menu-right-center":
+      return `${base} right-20 top-1/2 -translate-y-1/2`;
+    default:
+      return `${base} right-4 bottom-20`;
+  }
+}
+
 function getPositionClassName(dropZone: string | null) {
   let className = "fixed transform";
   if (dropZone === "val-menu-left-top") {

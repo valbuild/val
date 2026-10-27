@@ -1,26 +1,21 @@
 import { SourcePath, ValidationError } from "@valbuild/core";
 import classNames from "classnames";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { FieldErrorList } from "./FieldErrorList";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
-import {
-  useAllSources,
-  useLoadingStatus,
-  useSchemas,
-} from "./ValFieldProvider";
+import { useGetNavPath, useIsInitialized } from "./ValFieldProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
-import { getNavPathFromAll } from "./getNavPath";
+import { Spinner } from "./designSystem/spinner";
 
 /**
  * Inline error display rendered below a field in the editor.
  *
- * The visual style is owned by `FieldErrorList` and is shared with the
- * `/val/errors` page so the same field reads identically in both views.
+ * The visual style is owned by `FieldErrorList`.
  */
 export function FieldValidationError({
   validationErrors,
@@ -39,11 +34,16 @@ export function FieldValidationError({
 
 export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
   const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
+  const getNavPath = useGetNavPath();
   const validationErrors = useAllValidationErrors();
-  const loadingStatus = useLoadingStatus();
-  const isLoading = loadingStatus === "loading";
+  /**
+   * The spinner means "the project has not been taken in yet", which is what
+   * this badge can honestly say. `useLoadingStatus()` also carries the write
+   * queue, so every compact row's icon flipped between a spinner and a warning
+   * triangle on every save round trip — a flicker with no information in it,
+   * on a component that is mounted once per row.
+   */
+  const isLoading = !useIsInitialized();
   const messages: string[] = [];
   if (validationErrors) {
     for (const errorPath in validationErrors) {
@@ -61,9 +61,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
       <TooltipTrigger asChild>
         <button
           onClick={() => {
-            const schemasData =
-              schemas.status === "success" ? schemas.data : undefined;
-            const navPath = getNavPathFromAll(path, allSources, schemasData);
+            const navPath = getNavPath(path);
             navigate(navPath ?? path, {
               scrollToPath: path,
             });
@@ -74,11 +72,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
           )}
           aria-label="Go to validation error"
         >
-          {isLoading ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <AlertTriangle size={16} />
-          )}
+          {isLoading ? <Spinner size={16} /> : <AlertTriangle size={16} />}
         </button>
       </TooltipTrigger>
       <TooltipContent

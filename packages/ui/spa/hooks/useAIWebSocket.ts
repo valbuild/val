@@ -1,11 +1,149 @@
+import { Internal } from "@valbuild/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
+import {
+  resolvePreferredModel,
+  writePreferredModel,
+} from "./aiModelPreference";
 
 // --- Shared types (must match server-side definitions) ---
 
-export const AIModel = z.enum(["openai-gpt-5.1"]);
+/**
+ * The AI providers the content server has an implementation for.
+ *
+ * The one thing the server is authoritative about. Which models exist is this
+ * client's business — see `VAL_AI_MODELS`.
+ */
+export const AIProviderId = z.enum(["openai", "anthropic"]);
+export type AIProviderId = z.infer<typeof AIProviderId>;
+
+/**
+ * A model, as this client names it: a provider plus that provider's own model
+ * id, which the server passes through to the SDK untouched.
+ */
+export const AIModel = z.object({
+  provider: AIProviderId,
+  model: z.string().min(1),
+});
 export type AIModel = z.infer<typeof AIModel>;
+
+export type AIModelInfo = {
+  ref: AIModel;
+  /** What to call it in the UI. */
+  label: string;
+};
+
+/**
+ * The models the Studio offers, best first within each provider.
+ *
+ * This is the catalog, and it lives here rather than on the content server so
+ * that offering a newly released model is a change to the editor and nothing
+ * else. The server only checks that it implements the provider and that the
+ * caller has a key for it.
+ *
+ * Order is the fallback order: with bring-your-own-key an org may have a key
+ * for one provider and not another, so the first entry whose provider is
+ * reachable is the one used.
+ */
+export const VAL_AI_MODELS: AIModelInfo[] = [
+  {
+    ref: { provider: "openai", model: "gpt-5.1" },
+    label: "GPT-5.1",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-sonnet-5" },
+    label: "Claude Sonnet 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-opus-5" },
+    label: "Claude Opus 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-haiku-4-5" },
+    label: "Claude Haiku 4.5",
+  },
+];
+
+/**
+ * The first model in the catalog whose provider the server says is reachable.
+ *
+ * Null once the server has answered and none of them are — which with
+ * bring-your-own-key means no key is configured for any provider we can drive,
+ * and callers treat that as "AI is off" rather than as an error.
+ */
+export function pickAvailableModel(
+  serverProviders: string[] | undefined,
+): AIModel | null {
+  if (serverProviders === undefined) {
+    // An older content server does not report them, and had a shared OpenAI
+    // key with one model — so the original default is the right guess.
+    return VAL_AI_MODELS[0].ref;
+  }
+  const reachable = new Set(serverProviders);
+  return (
+    VAL_AI_MODELS.find((info) => reachable.has(info.ref.provider))?.ref ?? null
+  );
+}
+
+/**
+ * The server's model list, as `AIModelInfo`.
+ *
+ * Entries for a provider this version does not implement are dropped: the
+ * content server may know a provider before the Studio does, and offering one
+ * we cannot drive would be a picker entry that always fails.
+ */
+function toModelInfos(
+  reported: { provider: string; model: string; label: string }[] | undefined,
+): AIModelInfo[] {
+  if (!reported) {
+    return [];
+  }
+  return reported.flatMap((entry) => {
+    const provider = AIProviderId.safeParse(entry.provider);
+    if (!provider.success) {
+      return [];
+    }
+    return [
+      {
+        ref: { provider: provider.data, model: entry.model },
+        label: entry.label || entry.model,
+      },
+    ];
+  });
+}
+
+/**
+ * What to offer when the server reports no models of its own.
+ *
+ * With `providers` reported, the built-in catalog filtered to those providers:
+ * every entry is one the server said it can reach.
+ *
+ * With `providers` absent — an older content server — only the fallback model.
+ * Offering the whole catalog there would let someone pick a provider that
+ * server may have no key or no implementation for, and `pickAvailableModel`
+ * already treats a silent server as the original single-model default. One
+ * entry also means the picker hides itself, which is the honest UI for "there
+ * is no choice to make".
+ */
+function fallbackModels(
+  serverProviders: string[] | undefined,
+  fallback: AIModel | null,
+): AIModelInfo[] {
+  if (serverProviders === undefined) {
+    const known = fallback
+      ? VAL_AI_MODELS.find(
+          (info) =>
+            info.ref.provider === fallback.provider &&
+            info.ref.model === fallback.model,
+        )
+      : undefined;
+    return known ? [known] : [];
+  }
+  return VAL_AI_MODELS.filter((info) =>
+    serverProviders.includes(info.ref.provider),
+  );
+}
 
 export const AITool = z.object({
   name: z.string(),
@@ -49,14 +187,43 @@ export const AIErrorCode = z.enum([
   "authentication_required",
   "session_not_found",
   "internal_error",
+  // The content server grew these with BYOK.
+  "byok_invalid_key",
+  "provider_not_configured",
+  "model_refusal",
 ]);
 export type AIErrorCode = z.infer<typeof AIErrorCode>;
+
+/** Something the client can offer after an error, e.g. a link to set up a key. */
+export const AIErrorAction = z.object({
+  type: z.literal("setup_byok"),
+  label: z.string(),
+  url: z.string(),
+});
+export type AIErrorAction = z.infer<typeof AIErrorAction>;
 
 export const AIErrorMessage = z.object({
   type: z.literal("ai_error"),
   id: z.string(),
-  code: AIErrorCode,
+  /**
+   * Unknown codes fall back rather than failing the parse.
+   *
+   * This enum is strict and sits inside a discriminated union, so a code the
+   * server has but this client does not used to drop the entire message: the
+   * user saw the turn hang instead of the reason it stopped, and the only
+   * trace was a console log. The server is free to add codes without waiting
+   * for a Studio release; the message still arrives, with its text intact.
+   */
+  code: AIErrorCode.catch("internal_error"),
   message: z.string(),
+  resetDate: z.string().optional(),
+  action: AIErrorAction.optional(),
+  /**
+   * The provider's own account of the failure — status, error type, request id,
+   * verbatim message — for a developer who wants to work around the problem
+   * rather than guess at it. Shown behind a disclosure, never in the message.
+   */
+  details: z.string().optional(),
 });
 export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
 
@@ -68,7 +235,10 @@ export const AIResponseMessage = z.object({
   metadata: z
     .object({
       model: z.string().optional(),
+      /** Input and output together, every tool round's re-sent context included. */
       tokensUsed: z.number().optional(),
+      /** What the model produced this turn, across every step. */
+      outputTokens: z.number().optional(),
     })
     .optional(),
 });
@@ -81,6 +251,25 @@ export const AIStreamingMessage = z.object({
 });
 export type AIStreamingMessage = z.infer<typeof AIStreamingMessage>;
 
+/**
+ * A prompt the user stopped. Not an error: the client should settle rather than
+ * report a failure, keeping whatever text arrived first.
+ */
+export const AICancelledMessage = z.object({
+  type: z.literal("ai_cancelled"),
+  id: z.string(),
+  sessionId: z.string().optional(),
+  partialResponse: z.string().optional(),
+});
+export type AICancelledMessage = z.infer<typeof AICancelledMessage>;
+
+export const AISessionUnhiddenMessage = z.object({
+  type: z.literal("ai_session_unhidden"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AISessionUnhiddenMessage = z.infer<typeof AISessionUnhiddenMessage>;
+
 export const AIAgentHandoffMessage = z.object({
   type: z.literal("ai_agent_handoff"),
   id: z.string(),
@@ -91,12 +280,31 @@ export const AIAgentHandoffMessage = z.object({
 });
 export type AIAgentHandoffMessage = z.infer<typeof AIAgentHandoffMessage>;
 
+/**
+ * Output tokens produced by the turn so far — cumulative, not a delta.
+ *
+ * Sent only when the prompt asked (`reportUsage`), because a Studio that does
+ * not know the type would drop each one with a console error. `estimated` is
+ * the server counting what it has streamed — text, thinking, tool arguments —
+ * between the exact reports it gets at the end of each model step.
+ */
+export const AIUsageMessage = z.object({
+  type: z.literal("ai_usage"),
+  id: z.string(),
+  outputTokens: z.number(),
+  estimated: z.boolean(),
+});
+export type AIUsageMessage = z.infer<typeof AIUsageMessage>;
+
 export const AIServerMessage = z.discriminatedUnion("type", [
   AIResponseMessage,
   AIStreamingMessage,
   AIToolCallMessage,
   AIErrorMessage,
+  AICancelledMessage,
+  AISessionUnhiddenMessage,
   AIAgentHandoffMessage,
+  AIUsageMessage,
 ]);
 
 export type AIServerMessage = z.infer<typeof AIServerMessage>;
@@ -116,6 +324,15 @@ export const AIPromptMessage = z.object({
   message: z.union([z.string(), z.array(AIMessageContentBlock)]),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
+  /**
+   * Create the session outside the chat list. For work the user did not start a
+   * conversation for — the publish flow's commit summary — so it does not put a
+   * session in the sidebar per publish. Honoured only when the session is
+   * created; `ai_unhide_session` reveals it later.
+   */
+  hidden: z.boolean().optional(),
+  /** Ask for `ai_usage` messages while the turn runs. */
+  reportUsage: z.boolean().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -164,7 +381,26 @@ export type AIGetSessionsWithMessagesMessage = z.infer<
   typeof AIGetSessionsWithMessagesMessage
 >;
 
-export type AIClientMessage = AIPromptMessage | AIToolResultMessage;
+/** Stop an in-flight prompt. `id` is the id of the `ai_prompt` to stop. */
+export const AICancelMessage = z.object({
+  type: z.literal("ai_cancel"),
+  id: z.string(),
+});
+export type AICancelMessage = z.infer<typeof AICancelMessage>;
+
+/** Bring a hidden session into the chat list, so the user can open it. */
+export const AIUnhideSessionMessage = z.object({
+  type: z.literal("ai_unhide_session"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
+
+export type AIClientMessage =
+  | AIPromptMessage
+  | AIToolResultMessage
+  | AICancelMessage
+  | AIUnhideSessionMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 
@@ -191,6 +427,20 @@ export function getRecentSession(sessions: AISession[]): AISession | null {
 // --- Hook ---
 
 const RECONNECT_DELAY = 3000;
+/**
+ * How many times a failing connection is tried before it gives up.
+ *
+ * It used to be unbounded: every failed `/ai/initialize` and every closed
+ * socket scheduled another attempt three seconds later, for as long as the tab
+ * was open. Where the assistant is enabled but cannot start — no API key on the
+ * server, the AI service down — that is a request every three seconds and a
+ * `console.warn` beside it, forever, and the panel still shows a composer that
+ * looks like it works.
+ *
+ * Attempts reset the moment a socket opens, so a connection that drops after
+ * working gets the full allowance again rather than inheriting an old count.
+ */
+const MAX_CONNECT_ATTEMPTS = 5;
 
 export function useAIWebSocket(
   enabled: boolean,
@@ -200,44 +450,154 @@ export function useAIWebSocket(
   send: (message: AIClientMessage) => boolean;
   isConnected: boolean;
   authError: boolean;
+  /**
+   * Why the assistant is unavailable, once there is nothing left to try.
+   *
+   * `null` while it is connecting or retrying: a message that comes and goes
+   * with a retry loop is noise, and the panel has nothing useful to say until
+   * the studio has actually stopped.
+   */
+  connectionError: string | null;
+  /** Try to connect again, from the first attempt. */
+  retryConnection: () => void;
+  /**
+   * Ask again which models the project's keys reach, without touching the
+   * socket: after a key is added or removed in the Studio's AI setup, the
+   * assistant should come on (or go off) without a reload.
+   */
+  refreshModels: () => Promise<void>;
+  /**
+   * The model to use, picked from what the server said is available.
+   *
+   * Null once the server has answered and nothing it offers is a model this
+   * client knows — which with bring-your-own-key means no key is configured
+   * for any provider the Studio can drive.
+   */
+  availableModel: AIModel | null;
+  /**
+   * Every model the project's keys can actually reach, as the providers report
+   * them. Empty when the content server does not report them (or could not
+   * reach a provider), in which case the built-in catalog is what is offered.
+   */
+  availableModels: AIModelInfo[];
+  /** The model the editor picked, or the best default until they pick one. */
+  selectedModel: AIModel | null;
+  selectModel: (model: AIModel) => void;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [availableModel, setAvailableModel] = useState<AIModel | null>(null);
+  const [availableModels, setAvailableModels] = useState<AIModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
+  const selectModel = useCallback((model: AIModel) => {
+    setSelectedModel(model);
+    writePreferredModel(model);
+  }, []);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attemptsRef = useRef(0);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   const clientRef = useRef(client);
   clientRef.current = client;
 
+  /**
+   * One attempt failed. Try again, or stop and say so.
+   *
+   * Both outcomes are here rather than at the call sites so there is one place
+   * that decides when to stop — the initialize call, the socket closing and a
+   * thrown request all fail differently and all have to stop in the same way.
+   */
+  const failed = useCallback((message: string) => {
+    if (attemptsRef.current >= MAX_CONNECT_ATTEMPTS) {
+      // Warned once, where there is nothing left to try. It used to warn on
+      // every attempt, which is what made this the loudest thing in the console.
+      Internal.log.debug("Giving up on the AI connection:", message);
+      setConnectionError(message);
+      return;
+    }
+    scheduleReconnectRef.current();
+  }, []);
+
+  /** What `/ai/initialize` says the keys reach, as the picker's state. */
+  const applyModels = useCallback(
+    (json: {
+      providers?: string[];
+      models?: { provider: string; model: string; label: string }[];
+    }) => {
+      const fallback = pickAvailableModel(json.providers);
+      setAvailableModel(fallback);
+      // What the providers actually offer, when the server could ask them. The
+      // built-in catalog is the fallback, filtered to reachable providers, so
+      // an older content server or a provider that would not answer still
+      // leaves a usable picker rather than an empty one.
+      const reported = toModelInfos(json.models);
+      const offered =
+        reported.length > 0
+          ? reported
+          : fallbackModels(json.providers, fallback);
+      setAvailableModels(offered);
+      setSelectedModel(
+        resolvePreferredModel(
+          offered.map((info) => info.ref),
+          fallback,
+        ),
+      );
+    },
+    [],
+  );
+  const applyModelsRef = useRef(applyModels);
+  applyModelsRef.current = applyModels;
+
+  const refreshModels = useCallback(async () => {
+    if (!enabledRef.current) return;
+    try {
+      const res = await clientRef.current("/ai/initialize", "POST", {});
+      if (res.status === 200) {
+        applyModelsRef.current(res.json);
+      }
+    } catch {
+      // The socket's own retries report a connection that is gone; a refresh
+      // that could not be made leaves the models as they were.
+    }
+  }, []);
+
   const connect = useCallback(async () => {
     if (!enabledRef.current) return;
+    attemptsRef.current += 1;
 
     try {
       const res = await clientRef.current("/ai/initialize", "POST", {});
 
       if (res.status === 401) {
+        // Terminal on its own: another attempt with the same credentials gets
+        // the same answer, and `authError` is what the UI shows for it.
         setAuthError(true);
         return;
       }
 
       if (res.status !== 200) {
-        console.warn(
-          "AI WebSocket initialize failed:",
-          res.status,
-          res.json.message,
+        failed(
+          typeof res.json.message === "string"
+            ? res.json.message
+            : `The assistant could not be started (${res.status})`,
         );
-        scheduleReconnect();
         return;
       }
       setAuthError(false);
+      applyModelsRef.current(res.json);
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
       );
 
       ws.onopen = () => {
+        // A working connection resets the allowance: a drop after an hour of
+        // use is not the fifth failure of a connection that never worked.
+        attemptsRef.current = 0;
+        setConnectionError(null);
         setIsConnected(true);
       };
 
@@ -246,7 +606,7 @@ export function useAIWebSocket(
           const json = JSON.parse(event.data);
           const parsed = AIServerMessage.safeParse(json);
           if (!parsed.success) {
-            console.error(
+            Internal.log.error(
               "Could not parse AI WebSocket message",
               parsed.error,
               "Original message:",
@@ -258,7 +618,7 @@ export function useAIWebSocket(
             handler(parsed.data);
           }
         } catch (e) {
-          console.error("Error processing AI WebSocket message", e);
+          Internal.log.error("Error processing AI WebSocket message", e);
         }
       };
 
@@ -266,21 +626,20 @@ export function useAIWebSocket(
         setIsConnected(false);
         if (wsRef.current === ws) {
           wsRef.current = null;
-          scheduleReconnect();
+          failed("Lost the connection to the assistant");
         }
       };
 
       ws.onerror = () => {
-        console.warn("AI WebSocket error");
+        Internal.log.debug("AI WebSocket error");
         ws.close();
       };
 
       wsRef.current = ws;
     } catch (e) {
-      console.warn("AI WebSocket connect error", e);
-      scheduleReconnect();
+      failed(e instanceof Error ? e.message : "Could not reach the assistant");
     }
-  }, []);
+  }, [failed]);
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return;
@@ -290,6 +649,22 @@ export function useAIWebSocket(
         connect();
       }
     }, RECONNECT_DELAY);
+  }, [connect]);
+  // Through a ref because `failed` is defined above it: the two call each other,
+  // and a ref is the one direction that does not need the other to exist yet.
+  const scheduleReconnectRef = useRef(scheduleReconnect);
+  scheduleReconnectRef.current = scheduleReconnect;
+
+  /** Start over, because someone asked. */
+  const retryConnection = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    attemptsRef.current = 0;
+    setConnectionError(null);
+    setAuthError(false);
+    connect();
   }, [connect]);
 
   useEffect(() => {
@@ -323,9 +698,21 @@ export function useAIWebSocket(
       wsRef.current.send(JSON.stringify(message));
       return true;
     }
-    console.warn("AI WebSocket not open, cannot send");
+    Internal.log.debug("AI WebSocket not open, cannot send");
     return false;
   }, []);
 
-  return { subscribeToMessages, send, isConnected, authError };
+  return {
+    subscribeToMessages,
+    send,
+    isConnected,
+    authError,
+    connectionError,
+    retryConnection,
+    refreshModels,
+    availableModel,
+    availableModels,
+    selectedModel,
+    selectModel,
+  };
 }

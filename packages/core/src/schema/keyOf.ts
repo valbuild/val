@@ -14,12 +14,20 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { RawString } from "./string";
-import { ReifiedRender } from "../render";
+import { ItemPreviewInput, PreviewItem } from "../preview";
+import { FieldRender } from "../render";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
+  /**
+   * `{ as: "inline" }` shows the selected entry's content below the selector.
+   * About this field alone; no list reads it. See `render.ts`.
+   */
+  render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   path: SourcePath;
   schema?: SerializedRefSchema | undefined;
   opt: boolean;
@@ -65,10 +73,30 @@ export class KeyOfSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * import authorsVal from "./authors.val"; // a record module
+   * const schema = s.keyOf(authorsVal).describe("Who wrote this post");
+   * export default c.define("/example.val.ts", schema, "ada");
+   */
   describe(description: string | null): KeyOfSchema<Sel, Src> {
     return new KeyOfSchema(
       this.schema,
@@ -78,9 +106,34 @@ export class KeyOfSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * import authorsVal from "./authors.val"; // a record module
+   * const schema = s
+   *   .keyOf(authorsVal)
+   *   .validate((val) =>
+   *     val === "placeholder" ? "Pick a real author" : false,
+   *   );
+   * export default c.define("/example.val.ts", schema, "ada");
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): KeyOfSchema<Sel, Src> {
@@ -92,6 +145,8 @@ export class KeyOfSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -291,39 +346,126 @@ export class KeyOfSchema<
   }
 
   nullable(): KeyOfSchema<Sel, Src | null> {
-    return new KeyOfSchema(
+    return new KeyOfSchema<Sel, Src | null>(
       this.schema,
       this.sourcePath,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
-  readonly(): KeyOfSchema<Sel, Src> {
+  readonly(isReadonly: boolean = true): KeyOfSchema<Sel, Src> {
     return new KeyOfSchema(
       this.schema,
       this.sourcePath,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
-  hidden(): KeyOfSchema<Sel, Src> {
+  hidden(isHidden: boolean = true): KeyOfSchema<Sel, Src> {
     return new KeyOfSchema(
       this.schema,
       this.sourcePath,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this reference is laid out in the editor: `{ as: "inline" }` shows the
+   * selected entry's content below the selector, so it can be read (and
+   * reached) without leaving the field.
+   *
+   * This is about the keyOf field alone. Whether a LIST of references draws
+   * its rows inline is the list's own `.render(...)` — see `render.ts`.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * import authorsVal from "./authors.val"; // a record module
+   * const schema = s.object({
+   *   author: s.keyOf(authorsVal).render({ as: "inline" }),
+   * });
+   * export default c.define("/example.val.ts", schema, { author: "ada" });
+   */
+  render(input: FieldRender): KeyOfSchema<Sel, Src> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+      this.previewInput,
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * import authorsVal from "./authors.val"; // a record module
+   * const schema = s.array(
+   *   s.keyOf(authorsVal).preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["ada"]);
+   */
+  preview(select: ItemPreviewInput<Src>): KeyOfSchema<Sel, Src> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -354,6 +496,8 @@ export class KeyOfSchema<
     }
     return {
       type: "keyOf",
+      render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       path: path,
       schema: serializedSchema,
       opt: this.opt,
@@ -365,10 +509,6 @@ export class KeyOfSchema<
       hidden: this.isHidden,
       description: this.description,
     } satisfies SerializedKeyOfSchema;
-  }
-
-  protected executeRender(): ReifiedRender {
-    return {};
   }
 }
 

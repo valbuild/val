@@ -1,12 +1,9 @@
 import * as React from "react";
 import {
-  ImageMetadata,
   ImageSource,
   Internal,
-  ListRecordRender,
   ModuleFilePath,
   ModulePath,
-  RemoteSource,
   SourcePath,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
@@ -17,7 +14,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-  useAllRenders,
+  useAllPreviews,
 } from "../ValFieldProvider";
 import { useValPortal } from "../ValPortalProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
@@ -34,14 +31,22 @@ import {
   CommandItem,
   CommandList,
 } from "../designSystem/command";
-import { Button } from "../designSystem/button";
+import { Button, insetFocusRing } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { Link, Check, ChevronsUpDown } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
+import { Link, Check, ChevronsUpDown, Earth, Plus } from "lucide-react";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
+import {
+  CreatableRouter,
+  useCreatableRouters,
+  useCreateRouteEntry,
+} from "../useCreateRouteEntry";
+import { NewPageForm, AvailableRoute } from "../NavMenu/NewPageForm";
+import { NewExternalPageForm } from "../NewExternalPageForm";
+import { CommandSeparator } from "../designSystem/command";
+import { ReadonlyGuard } from "./ReadonlyGuard";
 
 export interface RouteSelectorRoute {
   route: string;
@@ -49,7 +54,7 @@ export interface RouteSelectorRoute {
   preview?: {
     title: string;
     subtitle?: string | null;
-    image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+    image?: ImageSource | string | null;
   } | null;
 }
 
@@ -65,6 +70,11 @@ export interface RouteSelectorProps {
   isLoading?: boolean;
   zIndex?: number;
   readonly?: boolean;
+  /**
+   * Let the editor create a page - or an external link - from inside the
+   * dropdown, instead of leaving to create it and coming back to link it.
+   */
+  allowCreate?: boolean;
 }
 
 export function RouteSelector({
@@ -79,8 +89,24 @@ export function RouteSelector({
   isLoading = false,
   zIndex,
   readonly,
+  allowCreate = false,
 }: RouteSelectorProps) {
   const [open, setOpen] = React.useState(false);
+  const [creating, setCreating] = React.useState<null | "page" | "external">(
+    null,
+  );
+  const { pageRouters, externalRouter } = useCreatableRouters();
+  const createRouteEntry = useCreateRouteEntry();
+
+  // Closing the popover discards a half-filled form: reopening into someone
+  // else's abandoned input is worse than starting clean.
+  const closeAndReset = () => {
+    setOpen(false);
+    setCreating(null);
+  };
+
+  const canCreatePage = allowCreate && !readonly && pageRouters.length > 0;
+  const canCreateExternal = allowCreate && !readonly && externalRouter !== null;
 
   // Filter routes based on include/exclude patterns
   const filteredRoutes = routes.filter((routeInfo) => {
@@ -109,7 +135,8 @@ export function RouteSelector({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-start text-left border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            "w-full justify-start text-left border border-border-primary bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            insetFocusRing,
             className,
           )}
         >
@@ -132,83 +159,156 @@ export function RouteSelector({
         }}
         container={portalContainer}
       >
-        <Command>
-          <CommandInput placeholder={placeholder} />
-          <CommandList>
-            {isLoading ? (
-              <div className="py-6 text-center text-sm">Loading...</div>
-            ) : filteredRoutes.length === 0 ? (
-              <CommandEmpty>No routes found.</CommandEmpty>
-            ) : (
-              <CommandGroup>
-                {filteredRoutes.map((routeInfo) => {
-                  const preview = routeInfo.preview;
-                  const filterValue = preview
-                    ? `${routeInfo.route} ${preview.title}`
-                    : routeInfo.route;
-                  return (
-                    <CommandItem
-                      key={routeInfo.route}
-                      value={filterValue}
-                      onSelect={() => {
-                        onChange(routeInfo.route);
-                        setOpen(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Check
-                        className={cn(
-                          "h-4 w-4 shrink-0",
-                          value === routeInfo.route
-                            ? "opacity-100"
-                            : "opacity-0",
-                        )}
-                      />
-                      {preview ? (
-                        <DropdownPreviewRow
-                          title={preview.title}
-                          subtitle={preview.subtitle ?? null}
-                          image={preview.image ?? null}
+        {creating === "page" && (
+          <NewPageForm
+            routes={pageRouters.map(toAvailableRoute)}
+            onSubmit={(moduleFilePath, urlPath) => {
+              const router = pageRouters.find(
+                (candidate) => candidate.moduleFilePath === moduleFilePath,
+              );
+              if (!router) {
+                return;
+              }
+              // Select it immediately rather than waiting for the new entry to
+              // come back through the routes list: linking is what the editor
+              // opened this dropdown to do.
+              if (createRouteEntry(router, urlPath) !== null) {
+                onChange(urlPath);
+              }
+              closeAndReset();
+            }}
+            onCancel={() => setCreating(null)}
+          />
+        )}
+        {creating === "external" && externalRouter && (
+          <NewExternalPageForm
+            existingKeys={externalRouter.existingKeys}
+            schemes={externalRouter.schemes}
+            onSubmit={(url) => {
+              if (createRouteEntry(externalRouter, url) !== null) {
+                onChange(url);
+              }
+              closeAndReset();
+            }}
+            onCancel={() => setCreating(null)}
+          />
+        )}
+        {creating === null && (
+          <Command>
+            <CommandInput placeholder={placeholder} />
+            <CommandList>
+              {isLoading ? (
+                <div className="py-6 text-center text-sm">Loading...</div>
+              ) : filteredRoutes.length === 0 ? (
+                <CommandEmpty>No routes found.</CommandEmpty>
+              ) : (
+                <CommandGroup>
+                  {filteredRoutes.map((routeInfo) => {
+                    const preview = routeInfo.preview;
+                    const filterValue = preview
+                      ? `${routeInfo.route} ${preview.title}`
+                      : routeInfo.route;
+                    return (
+                      <CommandItem
+                        key={routeInfo.route}
+                        value={filterValue}
+                        onSelect={() => {
+                          onChange(routeInfo.route);
+                          setOpen(false);
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        <Check
+                          className={cn(
+                            "h-4 w-4 shrink-0",
+                            value === routeInfo.route
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
                         />
-                      ) : (
-                        <span className="truncate">{routeInfo.route}</span>
-                      )}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+                        {preview ? (
+                          <DropdownPreviewRow
+                            title={preview.title}
+                            subtitle={preview.subtitle ?? null}
+                            image={preview.image ?? null}
+                          />
+                        ) : (
+                          <span className="truncate">{routeInfo.route}</span>
+                        )}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+              {(canCreatePage || canCreateExternal) && (
+                <>
+                  <CommandSeparator />
+                  <CommandGroup>
+                    {canCreatePage && (
+                      <CommandItem
+                        value="__val_new_page__"
+                        onSelect={() => setCreating("page")}
+                        className="flex items-center gap-2"
+                      >
+                        <Plus className="h-4 w-4 shrink-0" />
+                        <span>New page</span>
+                      </CommandItem>
+                    )}
+                    {canCreateExternal && (
+                      <CommandItem
+                        value="__val_new_external_page__"
+                        onSelect={() => setCreating("external")}
+                        className="flex items-center gap-2"
+                      >
+                        <Earth className="h-4 w-4 shrink-0" />
+                        <span>New external page</span>
+                      </CommandItem>
+                    )}
+                  </CommandGroup>
+                </>
+              )}
+            </CommandList>
+          </Command>
+        )}
       </PopoverContent>
     </Popover>
   );
 }
 
+function toAvailableRoute(router: CreatableRouter): AvailableRoute {
+  return {
+    moduleFilePath: router.moduleFilePath,
+    routePattern: router.routePattern,
+    patternString: router.patternString,
+    existingKeys: router.existingKeys,
+    keyDescription: router.keyDescription,
+    routeParams: router.routeParams,
+  };
+}
+
 function useRouteSelectorRoutes(
   routesWithModulePaths: Array<{ route: string; moduleFilePath: string }>,
 ): RouteSelectorRoute[] {
-  const allRenders = useAllRenders();
+  const allPreviews = useAllPreviews();
   return React.useMemo(() => {
-    const renderItemsByModule = new Map<
+    const previewItemsByModule = new Map<
       string,
       Map<string, RouteSelectorRoute["preview"]>
     >();
     return routesWithModulePaths.map(({ route, moduleFilePath }) => {
-      if (!renderItemsByModule.has(moduleFilePath)) {
+      if (!previewItemsByModule.has(moduleFilePath)) {
         const itemMap = new Map<string, RouteSelectorRoute["preview"]>();
-        const renderAtModule = allRenders[moduleFilePath as ModuleFilePath];
-        if (renderAtModule) {
-          const moduleRender = renderAtModule[moduleFilePath as ModuleFilePath];
+        const previewAtModule = allPreviews[moduleFilePath as ModuleFilePath];
+        if (previewAtModule) {
+          const modulePreview =
+            previewAtModule[moduleFilePath as ModuleFilePath];
           if (
-            moduleRender &&
-            "data" in moduleRender &&
-            moduleRender.data &&
-            moduleRender.data.layout === "list" &&
-            moduleRender.data.parent === "record"
+            modulePreview &&
+            "data" in modulePreview &&
+            modulePreview.data &&
+            modulePreview.data.rows?.parent === "record"
           ) {
-            const recordRender = moduleRender.data as ListRecordRender;
-            for (const [key, value] of recordRender.items) {
+            for (const [key, value] of modulePreview.data.rows.items) {
               itemMap.set(key, {
                 title: value.title,
                 subtitle: value.subtitle ?? null,
@@ -217,13 +317,13 @@ function useRouteSelectorRoutes(
             }
           }
         }
-        renderItemsByModule.set(moduleFilePath, itemMap);
+        previewItemsByModule.set(moduleFilePath, itemMap);
       }
       const preview =
-        renderItemsByModule.get(moduleFilePath)?.get(route) ?? null;
+        previewItemsByModule.get(moduleFilePath)?.get(route) ?? null;
       return { route, moduleFilePath, preview };
     });
-  }, [routesWithModulePaths, allRenders]);
+  }, [routesWithModulePaths, allPreviews]);
 }
 
 export function RouteField({
@@ -304,7 +404,6 @@ export function RouteField({
 
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <RouteSelector
           routes={routesWithPreview}
@@ -327,6 +426,7 @@ export function RouteField({
           portalContainer={portalContainer}
           isLoading={isLoading}
           readonly={readonly}
+          allowCreate
         />
         {source && selectedRouteInfo && (
           <button
@@ -348,11 +448,7 @@ export function RouteField({
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }

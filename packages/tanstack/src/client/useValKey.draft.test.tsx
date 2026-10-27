@@ -1,0 +1,204 @@
+/**
+ * @jest-environment jsdom
+ */
+import "./__suspense-test-setup__"; // must come first — polyfills TextEncoder for @valbuild/shared
+import React from "react";
+import { act, render, screen } from "@testing-library/react";
+import { initVal, type Json, ModuleFilePath } from "@valbuild/core";
+import { raw } from "@valbuild/react/stega";
+import { initValClient } from "./initValClient";
+import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";
+
+const { s, c } = initVal();
+
+const path = "/pages.val.ts" as ModuleFilePath;
+const pagesVal = c.define(
+  path,
+  s.record(s.object({ title: s.string() })).jsonValues(),
+  {
+    "/a": c.json(() => Promise.resolve({ default: { title: "published A" } })),
+  },
+);
+
+const { useValKeyStega } = initValClient({});
+
+function Show({ entryKey }: { entryKey: string }) {
+  const entry = useValKeyStega(pagesVal, entryKey);
+  return React.createElement(
+    "span",
+    { "data-testid": "val" },
+    entry === undefined ? "nothing" : raw(entry.title),
+  );
+}
+
+function tree(store: ValExternalStore, entryKey = "/a", draftMode = true) {
+  return React.createElement(ValOverlayProvider, {
+    store,
+    suspend: false,
+    draftMode,
+    children: React.createElement(React.Suspense, {
+      fallback: React.createElement(
+        "span",
+        { "data-testid": "fallback" },
+        "loading",
+      ),
+      children: React.createElement(Show, { entryKey }),
+    }),
+  });
+}
+
+const shown = () => screen.getByTestId("val").textContent;
+
+/**
+ * `useValKey` reads a `.jsonValues()` entry. Until Phase 7 it always resolved the
+ * entry's bundled import thunk, so the Studio's unpublished edits were invisible
+ * to any client component using it — while the same page's server components
+ * showed them.
+ */
+describe("useValKey draft state", () => {
+  it("renders the published entry when there is no draft view", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(tree(store, "/a", false));
+    });
+    expect(shown()).toBe("published A");
+  });
+
+  it("renders the DRAFT entry once the overlay has the module", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(tree(store));
+    });
+    await act(async () => {
+      // What the sync engine now emits: the module's PATCHED source, with the
+      // entry's content substituted in place of its lazy marker.
+      store.update(path, { "/a": { title: "edited A" } });
+    });
+    expect(shown()).toBe("edited A");
+  });
+
+  it("renders an entry that exists ONLY in the draft state", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(tree(store, "/added"));
+    });
+    await act(async () => {
+      store.update(path, {
+        "/a": { title: "published A" },
+        "/added": { title: "brand new" },
+      });
+    });
+    expect(shown()).toBe("brand new");
+  });
+
+  it("renders nothing for an entry DELETED in the draft state", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(tree(store));
+    });
+    await act(async () => {
+      // The module is in the draft view and "/a" is not in it: it was deleted.
+      // Falling back to the bundled entry would render content the editor removed.
+      store.update(path, { "/b": { title: "some other page" } });
+    });
+    expect(shown()).toBe("nothing");
+  });
+
+  it("falls back to the published entry while the draft view still has a marker", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(tree(store));
+    });
+    await act(async () => {
+      // The Studio has not loaded this entry's content yet, so the draft view
+      // cannot answer — better the published content than a blank page.
+      store.update(path, { "/a": { _type: "json" } });
+    });
+    expect(shown()).toBe("published A");
+  });
+});
+
+/*
+ * At a proposal's address the server sends its snapshot with the entries the
+ * proposal saved filled in (`proposalSnapshotForReaders` in
+ * @valbuild/server). A reviewer who is not editing sees those -- the same
+ * entries the server rendered, so hydration changes nothing.
+ */
+describe("useValKey at a proposal's address", () => {
+  const snapshotTree = (snapshot: Record<ModuleFilePath, Json>) =>
+    React.createElement(ValOverlayProvider, {
+      store: new ValExternalStore(),
+      suspend: false,
+      draftMode: false,
+      snapshot,
+      children: React.createElement(React.Suspense, {
+        fallback: React.createElement("span", { "data-testid": "fallback" }),
+        children: React.createElement(Show, { entryKey: "/a" }),
+      }),
+    });
+
+  it("renders the entry the proposal saved, not the build's", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: { "/a": { title: "saved A" } } }));
+    });
+    expect(shown()).toBe("saved A");
+  });
+
+  it("renders nothing for a record the proposal saved as null", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: null }));
+    });
+    expect(shown()).toBe("nothing");
+  });
+
+  it("renders the build's entry where the proposal saved none", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: { "/a": { _type: "json" } } }));
+    });
+    expect(shown()).toBe("published A");
+  });
+});
+
+/*
+ * After a content-only publish the server renders a draft page's entries from
+ * the content version (`snapshotJsonEntry`), and the Studio's overlay sends the
+ * module with markers in place of entries it has not loaded. A marker is "the
+ * draft view cannot say", so the page has to fall back the way the server did
+ * -- to the snapshot, then the build -- or hydration swaps the published entry
+ * for the build's older one.
+ */
+describe("useValKey in draft mode over a content version", () => {
+  const draftTree = (store: ValExternalStore) =>
+    React.createElement(ValOverlayProvider, {
+      store,
+      suspend: false,
+      draftMode: true,
+      snapshot: { [path]: { "/a": { title: "content version A" } } },
+      children: React.createElement(React.Suspense, {
+        fallback: React.createElement("span", { "data-testid": "fallback" }),
+        children: React.createElement(Show, { entryKey: "/a" }),
+      }),
+    });
+
+  it("renders the content version's entry while the overlay has only a marker", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(draftTree(store));
+    });
+    await act(async () => {
+      store.update(path, { "/a": { _type: "json" } });
+    });
+    expect(shown()).toBe("content version A");
+  });
+
+  it("still renders the overlay's entry once it has one", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(draftTree(store));
+    });
+    await act(async () => {
+      store.update(path, { "/a": { title: "edited A" } });
+    });
+    expect(shown()).toBe("edited A");
+  });
+});

@@ -12,13 +12,54 @@ import type {
   EditorStyleConfig,
   RichTextEditorRef,
 } from "./types";
+import { placeholderImage } from "../stories/placeholderAssets";
 
 const SAMPLE_IMAGES: EditorImage[] = [
-  { url: "https://placehold.co/600x400/e2e8f0/475569?text=Mountains" },
-  { url: "https://placehold.co/600x400/fce7f3/9d174d?text=Sunset" },
-  { url: "https://placehold.co/600x400/d1fae5/065f46?text=Forest" },
-  { url: "https://placehold.co/600x400/dbeafe/1e40af?text=Ocean" },
-  { url: "https://placehold.co/600x400/fef3c7/92400e?text=Desert" },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#e2e8f0",
+      fg: "#475569",
+      text: "Mountains",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#fce7f3",
+      fg: "#9d174d",
+      text: "Sunset",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#d1fae5",
+      fg: "#065f46",
+      text: "Forest",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#dbeafe",
+      fg: "#1e40af",
+      text: "Ocean",
+    }),
+  },
+  {
+    url: placeholderImage({
+      width: 600,
+      height: 400,
+      bg: "#fef3c7",
+      fg: "#92400e",
+      text: "Desert",
+    }),
+  },
 ];
 
 const meta: Meta<typeof RichTextEditor> = {
@@ -109,7 +150,10 @@ const fullFeaturedDoc: EditorDocument = [
     tag: "p",
     children: [
       "Inline image: ",
-      { tag: "img", src: "https://placehold.co/100x30?text=Inline" },
+      {
+        tag: "img",
+        src: placeholderImage({ width: 100, height: 30, text: "Inline" }),
+      },
     ],
   },
 ];
@@ -254,7 +298,10 @@ export const LinksAndImages: Story = {
         children: [
           { tag: "a", href: "https://example.com", children: ["A link"] },
           " and inline image: ",
-          { tag: "img", src: "https://placehold.co/100x30?text=Inline" },
+          {
+            tag: "img",
+            src: placeholderImage({ width: 100, height: 30, text: "Inline" }),
+          },
         ],
       },
     ],
@@ -440,6 +487,44 @@ export const ToolbarDisabled: Story = {
   },
 };
 
+/**
+ * `s.richtext()` with no options at all — the bare case.
+ *
+ * `fixedToolbar` is still on here, exactly as the real serialization leaves it;
+ * what suppresses the bar is that nothing would go IN it. Compare with
+ * `ToolbarEnabled`: this one should have no strip above the text, no doubled
+ * border along its top edge, and the first line sitting directly under the
+ * editor's own padding rather than 56px down.
+ */
+export const NoOptions: Story = {
+  args: {
+    defaultValue: sampleDoc,
+    features: {
+      bold: false,
+      italic: false,
+      strikethrough: false,
+      code: false,
+      link: false,
+      image: false,
+      h1: false,
+      h2: false,
+      h3: false,
+      h4: false,
+      h5: false,
+      h6: false,
+      bulletList: false,
+      orderedList: false,
+      blockquote: false,
+      codeBlock: false,
+      details: false,
+      button: false,
+      fixedToolbar: true,
+      floatingToolbar: false,
+      gutter: false,
+    },
+  },
+};
+
 // 9. Gutter + insert block types
 export const GutterEnabled: Story = {
   args: {
@@ -601,7 +686,7 @@ const linkCatalogItems: EditorLinkCatalogItem[] = [
   {
     title: "Acme Corp",
     subtitle: "https://acme.example.com",
-    image: "https://placehold.co/64x64?text=A",
+    image: placeholderImage({ width: 64, height: 64, text: "A" }),
     href: "https://acme.example.com",
   },
   {
@@ -612,7 +697,7 @@ const linkCatalogItems: EditorLinkCatalogItem[] = [
   {
     title: "Docs Portal",
     subtitle: "Internal documentation hub",
-    image: "https://placehold.co/64x64?text=D",
+    image: placeholderImage({ width: 64, height: 64, text: "D" }),
     href: "https://docs.example.com",
   },
 ];
@@ -735,7 +820,13 @@ const imagePickerDoc: EditorDocument = [
       "An inline image: ",
       {
         tag: "img",
-        src: "https://placehold.co/120x40/fce7f3/9d174d?text=Inline",
+        src: placeholderImage({
+          width: 120,
+          height: 40,
+          bg: "#fce7f3",
+          fg: "#9d174d",
+          text: "Inline",
+        }),
       },
       " sits within text.",
     ],
@@ -1123,6 +1214,54 @@ export const SchemaViolationWithExternalErrors: Story = {
         kind: "validation.content",
         fixes: [{ id: "fix-it", label: "Fix content" }],
       },
+    ],
+  },
+};
+
+/**
+ * URLs written as text, on a site at `https://blank.no` with the pages `/`,
+ * `/jobb` and `/om-oss`. Paste a URL (or several), type one followed by a
+ * space, or put the cursor in one and press Ctrl/⌘+K.
+ */
+const pastedUrlsDoc: EditorDocument = [
+  {
+    tag: "p",
+    children: [
+      "Kilder: https://ssb.no/statistikk og https://www.nav.no/arbeid.",
+    ],
+  },
+  {
+    tag: "p",
+    children: [
+      "Se ledige stillinger på https://blank.no/jobb, eller les ",
+      { tag: "a", href: "https://blank.no/om-oss", children: ["om oss"] },
+      ".",
+    ],
+  },
+  {
+    tag: "p",
+    children: ["Denne siden finnes ikke: https://blank.no/finnes-ikke"],
+  },
+];
+
+export const PastedUrls: Story = {
+  args: {
+    defaultValue: pastedUrlsDoc,
+    siteOrigins: ["https://blank.no"],
+    routes: ["/", "/jobb", "/om-oss"],
+  },
+};
+
+/** `s.richtext({ a: true })`: only the project's routes can be linked. */
+export const PastedUrlsRouteLinksOnly: Story = {
+  args: {
+    defaultValue: pastedUrlsDoc,
+    siteOrigins: ["https://blank.no"],
+    routes: ["/", "/jobb", "/om-oss"],
+    linkCatalog: [
+      { title: "Forsiden", subtitle: "/", href: "/" },
+      { title: "Jobb", subtitle: "/jobb", href: "/jobb" },
+      { title: "Om oss", subtitle: "/om-oss", href: "/om-oss" },
     ],
   },
 };

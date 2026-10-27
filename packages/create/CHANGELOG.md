@@ -1,0 +1,202 @@
+# @valbuild/create
+
+## 0.144.5
+
+### Patch Changes
+
+- [#838](https://github.com/valbuild/val/pull/838) [`c15f366`](https://github.com/valbuild/val/commit/c15f366f8b71ba1f49e6a5fdc98026592247bb12) Thanks [@freekh](https://github.com/freekh)! - `npm create @valbuild` now also takes a feature's packages off `allowBuilds` in the template's `pnpm-workspace.yaml` when you leave that feature out. That is where the templates list the packages allowed to run build scripts now, because pnpm 11 no longer reads `pnpm.onlyBuiltDependencies` in `package.json`.
+
+- [#830](https://github.com/valbuild/val/pull/830) [`0ee047a`](https://github.com/valbuild/val/commit/0ee047a5c527f0122b4aa1aa167a0fbe4849fc37) Thanks [@freekh](https://github.com/freekh)! - `val connect` now opens [admin.val.build/new](https://admin.val.build/new?hosting=own) in your browser, on "your own hosting", with the GitHub repository and the `val.config.ts` project it found filled in. It says what it found, and prints the link too, for when no browser opens.
+
+  `npm create @valbuild` now ends by saying how to connect the new project: push it to GitHub, then pick it on admin.val.build/new or run `val connect`. `@valbuild/init` links to the same page, and now reads the GitHub repository from `origin` correctly.
+
+## 0.142.0
+
+### Minor Changes
+
+- [#815](https://github.com/valbuild/val/pull/815) [`9d64e32`](https://github.com/valbuild/val/commit/9d64e329cf913191e8c6c473cb3911b50db3e979) Thanks [@freekh](https://github.com/freekh)! - `npm create @valbuild` now creates projects from [`valbuild/templates`](https://github.com/valbuild/templates), and asks which template you want as well as which framework:
+
+  - **Full** — a site to build on: a theme editors can change in Val Studio, a set of sections, light and dark mode, and Storybook.
+  - **Minimal** — Val set up and nothing else: one example page you can delete, and no CSS framework.
+
+  Both are available for TanStack Start and Next.js. TanStack Start is now offered first and is the default. Every template includes Val's MCP endpoint, which you can still decline; TanStack Start projects get it too, which the old starter did not have.
+
+  Answer up front with `--template`:
+
+  ```sh
+  pnpm create @valbuild@latest my-app --template tanstack-full
+  pnpm create @valbuild@latest my-app --nextjs --template minimal
+  ```
+
+  The list of templates is read from the templates repository when you run the command, so new templates show up without a new version of `@valbuild/create`. Set `VAL_TEMPLATES_REF` to a branch of `valbuild/templates` to try one before it lands.
+
+## 0.128.0
+
+### Patch Changes
+
+- [#653](https://github.com/valbuild/val/pull/653) [`42903e5`](https://github.com/valbuild/val/commit/42903e5406b0f2cfc41373d38f49f5bcccd44bcc) Thanks [@freekh](https://github.com/freekh)! - `npm create @valbuild` now says when your Node is too old, instead of throwing `ERR_REQUIRE_ESM`
+
+  On Node 20 the command failed with a stack trace ending in
+
+  ```
+  Error [ERR_REQUIRE_ESM]: require() of ES Module .../degit/dist/index.js
+  from .../@valbuild/create/dist/valbuild-create.cjs.prod.js not supported.
+  ```
+
+  which names a file inside a package manager's dlx cache and says nothing about
+  what to do. The package has always needed Node `^22.13.0 || >=23.5.0` — its
+  dependencies are ESM-only, so loading it needs Node's `require(esm)` — but
+  `engines` never stopped anyone: npm only warns, pnpm enforces it with
+  `engine-strict`, and neither warning shows up in `npm create` / `pnpm create`
+  output.
+
+  The version is now checked before anything is loaded:
+
+  ```
+  Val needs Node ^22.13.0 || >=23.5.0, but this is Node 20.11.0.
+
+  Upgrade Node, then run the same command again:
+
+    nvm install --lts && nvm use --lts   # or fnm, volta, asdf
+    https://nodejs.org/en/download       # or an installer
+  ```
+
+  The range is read from `engines.node` and printed as it is written, rather
+  than paraphrased: `^22.13.0 || >=23.5.0` is not "22.13.0 or newer" — it
+  excludes 23.0 to 23.4 — and a message that rounded it off would send you to
+  install a Node that still gets refused. A version or range the check cannot
+  parse is allowed through, so it can only ever explain a failure that was going
+  to happen anyway.
+
+  The README also now notes that PowerShell needs the package name quoted:
+  `npm create "@valbuild@latest"`. Unquoted, PowerShell reads `@valbuild` as
+  splatting and drops the argument, so the command fails with
+  `ERR_PNPM_MISSING_ARGS  Missing the template package name` before npm or pnpm
+  sees a name at all.
+
+## 0.127.0
+
+### Patch Changes
+
+- [#669](https://github.com/valbuild/val/pull/669) [`ddc5f43`](https://github.com/valbuild/val/commit/ddc5f43ac7c9733f9ea1ff62b05c070c65461e26) Thanks [@freekh](https://github.com/freekh)! - `create` no longer copies the template repository's own CI into your project
+
+  The templates are downloaded whole — that is what lets you clone one directly
+  and run it — so a workflow a template runs on itself arrived in every new
+  project too. The TanStack starter now has one (it installs the template weekly
+  and checks that Val Studio still opens, which is how a bad release gets found),
+  and in a scaffolded project that workflow is a job about somebody else's
+  repository. `.github/` is now removed after the template is downloaded.
+
+## 0.125.0
+
+### Minor Changes
+
+- [#644](https://github.com/valbuild/val/pull/644) [`d751975`](https://github.com/valbuild/val/commit/d751975914aab6b66431998f5c447fbf11a785c0) Thanks [@freekh](https://github.com/freekh)! - `npm create @valbuild` now asks which framework you want
+
+  TanStack Start joins Next.js as a starter, and choosing between them is the
+  first question — before the project name, because everything after it depends
+  on the answer.
+
+  ```sh
+  pnpm create @valbuild@latest my-app --tanstack
+  pnpm create @valbuild@latest my-app --framework tanstack   # same thing
+  pnpm create @valbuild@latest my-app --nextjs
+  ```
+
+  Like every other question here, a flag answers it and the prompt is skipped, so
+  a scripted setup never blocks. `--framework` also takes `next`, `next.js` and
+  `tanstack-start`, and the last flag wins if you pass more than one. A framework
+  we do not have a starter for is an error naming the ones we do, rather than a
+  silent fall back to Next.js.
+
+  The feature questions now follow the starter. The TanStack Start starter does
+  not ship an MCP endpoint yet, so it is not asked about there — and a `--mcp` or
+  `--image-uploads` flag given anyway is turned off with a note, rather than
+  producing a project whose success message points a coding agent at an endpoint
+  that is not in it.
+
+## 0.123.0
+
+### Minor Changes
+
+- [#613](https://github.com/valbuild/val/pull/613) [`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2) Thanks [@freekh](https://github.com/freekh)! - Val's MCP endpoint moves to its own package, and can now upload images
+
+  Everything that serves Val's content tools over MCP — the tool registry, the
+  write path behind it, the request guards and the access-token verification —
+  now lives in **`@valbuild/mcp`** instead of being split between
+  `@valbuild/server` and `@valbuild/next`.
+
+  **Nothing changes for an app that already mounts it.** `initValMcp` is still
+  exported from `@valbuild/next/server` and behaves exactly as before; it is now a
+  ten-line binding over `@valbuild/mcp`, supplying the Next version that
+  `initHandlerOptions` asks for. A host that is not Next can call
+  `initValMcp` from `@valbuild/mcp` directly.
+
+  If you built your own host on `createValTools`, import it from `@valbuild/mcp`
+  rather than `@valbuild/server`; the tool types moved with it.
+
+  ## Image uploads
+
+  An agent can now add an image, with a new `upload_image` tool. It takes a path
+  to a file on the machine your app runs on, or the image inline as base64, and
+  puts it in an `s.image()` field or an `s.images()` gallery.
+
+  Uploads are converted **only where the Studio would convert them**: `encode` is
+  off unless the schema asks for it (`s.image({ encode: { type: "webp" } })`), and
+  when it does, which images are converted, how far they are scaled and when the
+  original wins are the same decisions the browser makes — the same code, now
+  shared. An upload to a schema without `encode` is stored exactly as it arrived,
+  whatever its size.
+
+  One thing the tool does that the Studio does not: it refuses an image the
+  schema's `accept` does not cover, checked on the bytes that would actually be
+  stored. The Studio does not need to — its file picker carries `accept` — and
+  validation reports a mismatch as server-repairable, so nothing downstream would
+  stop it. An agent has no picker. Note the ordering:
+  `s.image({ accept: "image/webp", encode: { type: "webp" } })` still takes a PNG,
+  because the conversion happens first and it is the result that is checked.
+
+  It is the one tool you construct yourself, because it needs an image library
+  and `sharp` ships a compiled binary per platform. Val does not put one in every
+  project that installs it, so you decide:
+
+  ```sh
+  npm install sharp
+  ```
+
+  ```ts
+  import sharp from "sharp";
+  import { createValImageTools } from "@valbuild/mcp";
+  import { sharpImageProcessor } from "@valbuild/mcp/sharp";
+
+  const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
+    extraTools: createValImageTools(sharpImageProcessor(sharp)),
+  });
+  ```
+
+  Leave `extraTools` out and everything else works as before — the agent can read,
+  validate and edit content, it just cannot add an image. `sharp` is passed in
+  rather than imported, so you can supply another encoder: `ValImageProcessor` is
+  two functions, `read` and `encode`.
+
+  Remotely stored images work too — `s.image().remote()` and
+  `s.images({ remote: true })` — and they need nothing extra from the MCP client.
+  Adding one does not upload anything to Val's content host: the bytes go into the
+  patch store like any other unpublished change, and the push to
+  `remote.val.build` happens when you publish, exactly as it does for an image
+  added through the Studio. All the tool has to do first is ask the project which
+  bucket to name in the ref, and the credential for that is the one your app
+  already has — its API key when it has one, and in local development the
+  `val login` token in your project, the same one `val validate --fix` uses. If
+  you have not logged in, it says so and writes nothing.
+
+  ## `npm create @valbuild` asks
+
+  The starter template now ships the MCP endpoint, and `npm create @valbuild`
+  asks whether you want it — and, if you do, whether agents should be able to
+  upload images, saying that this adds `sharp`. Both default to yes, and both can
+  be answered up front for a scripted setup:
+
+  ```sh
+  pnpm create @valbuild my-app --mcp --no-image-uploads
+  ```

@@ -29,3 +29,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
+          # `pnpm run release` uploads the Studio's bundler wasm to
+          # content.val.build before it publishes (rolldown:upload). Only
+          # needed when the wasm changed -- it is content-addressed, so an
+          # unchanged one is found and nothing is sent. Same value as the
+          # secret of this name on valbuild/home.
+          VAL_STATIC_UPLOAD_TOKEN: ${{ secrets.VAL_STATIC_UPLOAD_TOKEN }}

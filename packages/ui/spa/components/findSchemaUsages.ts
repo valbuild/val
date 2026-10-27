@@ -1,11 +1,12 @@
 import {
+  Internal,
+  isValViewSource,
   ModuleFilePath,
   SerializedObjectSchema,
   SerializedSchema,
   Source,
   SourcePath,
 } from "@valbuild/core";
-import { sourcePathConcat } from "./traverseSchemas";
 
 export type SchemaUsage = {
   /** Where in content the schema is used. */
@@ -113,7 +114,10 @@ export function findSchemaUsages(
     sourcePath: SourcePath,
     moduleFilePath: ModuleFilePath,
     schema: SerializedSchema | undefined,
-    source: Source,
+    // `unknown` rather than `Source`, so the guards below narrow to a plain
+    // record: narrowing `Source` keeps its marker objects (json, external,
+    // view), which cannot be indexed by a string.
+    source: unknown,
   ) => {
     if (schema === undefined) {
       return;
@@ -128,13 +132,9 @@ export function findSchemaUsages(
           const sourceValue = source[key];
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
-          if (sourceValue !== undefined) {
-            go(
-              sourcePathConcat(sourcePath, key),
-              moduleFilePath,
-              schemaValue,
-              sourceValue,
-            );
+          const childPath = Internal.createValPathOfItem(sourcePath, key);
+          if (sourceValue !== undefined && childPath !== undefined) {
+            go(childPath, moduleFilePath, schemaValue, sourceValue);
           }
         }
       }
@@ -142,19 +142,16 @@ export function findSchemaUsages(
       if (isArraySource(source)) {
         let i = 0;
         for (const sourceValue of source) {
-          go(
-            sourcePathConcat(sourcePath, i),
-            moduleFilePath,
-            schema.item,
-            sourceValue,
-          );
+          const childPath = Internal.createValPathOfItem(sourcePath, i);
+          if (childPath !== undefined) {
+            go(childPath, moduleFilePath, schema.item, sourceValue);
+          }
           i++;
         }
       }
-    } else if (schema.type === "union") {
-      // String unions have no sub-schemas to descend into
+    } else if (schema.type === "discriminated-union") {
       const schemaKey = schema.key;
-      if (typeof schemaKey === "string" && isRecordSource(source)) {
+      if (isRecordSource(source)) {
         const itemKey = source[schemaKey];
         if (typeof itemKey === "string") {
           const schemaOfItem = onlyObjectSchemas(schema.items).find((item) => {
@@ -204,10 +201,15 @@ function onlyObjectSchemas(
   return objects;
 }
 
-function isRecordSource(source: Source): source is Record<string, Source> {
-  return typeof source === "object" && !!source && !Array.isArray(source);
+function isRecordSource(source: unknown): source is Record<string, Source> {
+  return (
+    typeof source === "object" &&
+    !!source &&
+    !Array.isArray(source) &&
+    !isValViewSource(source)
+  );
 }
 
-function isArraySource(source: Source): source is Source[] {
+function isArraySource(source: unknown): source is Source[] {
   return typeof source === "object" && !!source && Array.isArray(source);
 }

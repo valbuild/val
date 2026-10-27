@@ -1,0 +1,958 @@
+import { SourcePath } from "../val";
+import {
+  imagedir,
+  ImagedirEntryMetadata,
+  SerializedImagedirSchema,
+} from "./imagedir";
+import { initVal } from "../initVal";
+import { record } from "./record";
+import { string } from "./string";
+
+// Strip deferred-check errors (require CLI/filesystem context, not schema validation)
+function filterCheckErrors(
+  result:
+    | false
+    | Record<string, { message: string; fixes?: string[]; value?: unknown }[]>
+    | undefined,
+) {
+  if (!result) return result;
+  const checkFixes = ["images:check-unique-folder", "images:check-all-files"];
+  const filtered: Record<
+    string,
+    { message: string; fixes?: string[]; value?: unknown }[]
+  > = {};
+  for (const [key, errors] of Object.entries(result)) {
+    const nonCheck = errors.filter(
+      (e) => !e.fixes?.some((f) => checkFixes.includes(f)),
+    );
+    if (nonCheck.length > 0) filtered[key] = nonCheck;
+  }
+  return Object.keys(filtered).length > 0 ? filtered : false;
+}
+
+describe("ImagesSchema", () => {
+  describe("assert", () => {
+    test("should return success if src is a valid images object", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Test image",
+        },
+      };
+      expect(schema["executeAssert"]("path" as SourcePath, src)).toEqual({
+        success: true,
+        data: src,
+      });
+    });
+
+    test("should return error if src is null (non-nullable)", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const result = schema["executeAssert"]("path" as SourcePath, null);
+      expect(result.success).toEqual(false);
+    });
+
+    test("should return success if src is null (nullable)", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+      }).nullable();
+      expect(schema["executeAssert"]("path" as SourcePath, null)).toEqual({
+        success: true,
+        data: null,
+      });
+    });
+
+    test("should return error if src is not an object", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const result = schema["executeAssert"]("path" as SourcePath, "test");
+      expect(result.success).toEqual(false);
+    });
+
+    test("should return error if src is an array", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const result = schema["executeAssert"]("path" as SourcePath, []);
+      expect(result.success).toEqual(false);
+    });
+  });
+
+  describe("validate", () => {
+    test("should validate directory prefix", () => {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/wrong/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Test image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const allErrors = Object.values(result as object).flat();
+      const dirError = allErrors.find((e: { message: string }) =>
+        e.message.includes("must be within"),
+      );
+      expect(dirError).toBeTruthy();
+      expect((dirError as { message: string }).message).toContain(
+        "must be within the /public/val/images/ directory",
+      );
+    });
+
+    test("should accept valid directory prefix", () => {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/images/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Test image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // Should not have directory error since path is valid
+      const filteredResult0 = filterCheckErrors(result);
+      if (filteredResult0) {
+        const errors = Object.values(filteredResult0 as object).flat();
+        const hasDirError = errors.some((e: { message: string }) =>
+          e.message.includes("directory"),
+        );
+        expect(hasDirError).toBe(false);
+      }
+    });
+
+    test("should validate mimeType against accept pattern", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: "Test image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const allErrors = Object.values(result as object).flat();
+      const mimeError = allErrors.find((e: { message: string }) =>
+        e.message.includes("Mime type mismatch"),
+      );
+      expect(mimeError).toBeTruthy();
+      expect((mimeError as { message: string }).message).toContain(
+        "Mime type mismatch",
+      );
+    });
+
+    test("should accept wildcard mimeType patterns", () => {
+      const schema = imagedir("/public/val", { accept: "image/*" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: "Test image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // Should not have mime type error (but may have metadata check error)
+      if (result) {
+        const errors = Object.values(result as object).flat();
+        const hasMimeError = errors.some((e: { message: string }) =>
+          e.message.includes("Mime type mismatch"),
+        );
+        expect(hasMimeError).toBe(false);
+      }
+    });
+
+    test("should validate required width and height", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src = {
+        "/public/val/test.webp": {
+          mimeType: "image/webp",
+          alt: "Test image",
+        },
+      };
+      const result = schema["executeValidate"](
+        "path" as SourcePath,
+        src as unknown as Record<string, ImagedirEntryMetadata>,
+      );
+      expect(result).toBeTruthy();
+    });
+
+    test("should validate alt with custom alt schema", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+        alt: string().minLength(10),
+      });
+      // `ImagedirEntryMetadata<string>`, not the default: this schema's alt is
+      // a required string, so an entry cannot carry null.
+      const src: Record<string, ImagedirEntryMetadata<string>> = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Short", // Less than 10 chars
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+    });
+
+    test("should allow null alt when using nullable alt schema", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+        alt: string().nullable(),
+      });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // Should not have alt-related errors
+      if (result) {
+        const errors = Object.values(result as object).flat();
+        const hasAltError = errors.some(
+          (e: { message: string }) =>
+            e.message.includes("alt") || e.message.includes("string"),
+        );
+        expect(hasAltError).toBe(false);
+      }
+    });
+
+    test("should use default directory /public/val", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Test",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // Should not have directory error
+      const filteredResult1 = filterCheckErrors(result);
+      if (filteredResult1) {
+        const errors = Object.values(filteredResult1 as object).flat();
+        const hasDirError = errors.some((e: { message: string }) =>
+          e.message.includes("directory"),
+        );
+        expect(hasDirError).toBe(false);
+      }
+    });
+
+    test("should validate hotspot if present", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Test",
+          hotspot: { x: "invalid", y: 0.5 },
+        },
+      };
+      const result = schema["executeValidate"](
+        "path" as SourcePath,
+        src as unknown as Record<string, ImagedirEntryMetadata>,
+      );
+      expect(result).toBeTruthy();
+    });
+  });
+
+  describe("serialization", () => {
+    test("should serialize with correct type", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const serialized = schema["executeSerialize"]();
+      expect(serialized.type).toBe("record");
+      expect((serialized as SerializedImagedirSchema).mediaType).toBe("images");
+      expect(serialized.accept).toBe("image/webp");
+      expect(serialized.dir).toBe("/public/val");
+      expect(serialized.opt).toBe(false);
+      expect(serialized.remote).toBe(false);
+    });
+
+    test("should serialize with custom directory", () => {
+      const schema = imagedir("/public/val/custom", { accept: "image/png" });
+      const serialized = schema["executeSerialize"]();
+      expect(serialized.dir).toBe("/public/val/custom");
+    });
+
+    test("should serialize remote flag", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const serialized = schema["executeSerialize"]();
+      expect(serialized.remote).toBe(true);
+    });
+
+    test("should serialize nullable flag", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+      }).nullable();
+      const serialized = schema["executeSerialize"]();
+      expect(serialized.opt).toBe(true);
+    });
+
+    /**
+     * A field backed by this gallery reads `encode` from here: `s.image(gallery)`
+     * serializes with EMPTY options, so the gallery's copy is the only one there
+     * is. See `resolveEncodeSettings` in the ui package.
+     */
+    test("should serialize the encode option so a backed field can inherit it", () => {
+      expect(
+        imagedir("/public/val", { encode: { type: "webp", maxWidth: 1200 } })[
+          "executeSerialize"
+        ]().encode,
+      ).toEqual({ type: "webp", maxWidth: 1200 });
+      expect(
+        imagedir("/public/val", { encode: false })["executeSerialize"]().encode,
+      ).toBe(false);
+    });
+
+    test("should not invent an encode option when the schema said nothing", () => {
+      expect(
+        imagedir("/public/val")["executeSerialize"]().encode,
+      ).toBeUndefined();
+    });
+  });
+
+  describe("remote", () => {
+    test("should create remote variant", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const remoteSchema = schema.remote();
+      expect(remoteSchema["executeSerialize"]().remote).toBe(true);
+    });
+
+    test("should reject remote URLs when remote is not enabled", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: "Remote image",
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasRemoteError = errors.some((e: { message: string }) =>
+        e.message.includes("Remote URLs are not allowed"),
+      );
+      expect(hasRemoteError).toBe(true);
+    });
+
+    test("should accept remote URLs when remote is enabled", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: "Remote image",
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(filterCheckErrors(result)).toBeFalsy();
+    });
+
+    test("should flag local paths as upload-remote when remote is enabled", () => {
+      const schema = imagedir("/public/val/images", {
+        accept: "image/webp",
+      }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/images/local.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Local image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // A local path in a remote gallery is a fixable error (upload to remote).
+      const filteredResult2 = filterCheckErrors(result);
+      expect(filteredResult2).toBeTruthy();
+      const errors = Object.values(filteredResult2 as object).flat();
+      const uploadError = errors.find((e: { fixes?: string[] }) =>
+        e.fixes?.includes("images:upload-remote"),
+      );
+      expect(uploadError).toBeTruthy();
+      expect(uploadError?.value).toBe("/public/val/images/local.webp");
+    });
+
+    test("should flag only local paths when mixing remote and local", () => {
+      const schema = imagedir("/public/val/images", {
+        accept: "image/webp",
+      }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/images/local.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Local image",
+        },
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/remote.webp":
+          {
+            width: 1920,
+            height: 1080,
+            mimeType: "image/webp",
+            alt: "Remote image",
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      const filtered = filterCheckErrors(result);
+      expect(filtered).toBeTruthy();
+      const errors = Object.values(filtered as object).flat();
+      // Exactly the local entry is flagged for upload; the remote URL is valid.
+      const uploadErrors = errors.filter((e: { fixes?: string[] }) =>
+        e.fixes?.includes("images:upload-remote"),
+      );
+      expect(uploadErrors).toHaveLength(1);
+      expect(uploadErrors[0]?.value).toBe("/public/val/images/local.webp");
+    });
+
+    test("should reject invalid remote URLs", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "not-a-valid-url": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Invalid URL",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasUrlError = errors.some((e: { message: string }) =>
+        e.message.includes("Expected a remote URL"),
+      );
+      expect(hasUrlError).toBe(true);
+    });
+
+    test("should reject paths outside directory when remote is enabled but path is not a URL", () => {
+      const schema = imagedir("/public/val/images", {
+        accept: "image/webp",
+      }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/other/image.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Wrong directory",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasError = errors.some((e: { message: string }) =>
+        e.message.includes("Expected a remote URL"),
+      );
+      expect(hasError).toBe(true);
+    });
+
+    test("should accept http URLs when remote is enabled", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "http://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: "HTTP image",
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(filterCheckErrors(result)).toBeFalsy();
+    });
+
+    test("should reject non-Val remote URLs", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "https://example.com/image.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "External image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasInvalidFormatError = errors.some((e: { message: string }) =>
+        e.message.includes("Invalid remote URL format"),
+      );
+      expect(hasInvalidFormatError).toBe(true);
+    });
+
+    test("should reject remote URLs with wrong directory in path", () => {
+      const schema = imagedir("/public/val/images", {
+        accept: "image/webp",
+      }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
+        // Remote URL with public/val/other instead of public/val/images
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/other/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: "Wrong directory in remote",
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasDirectoryError = errors.some((e: { message: string }) =>
+        e.message.includes("not in expected directory"),
+      );
+      expect(hasDirectoryError).toBe(true);
+    });
+  });
+
+  /**
+   * A field picked from a gallery holds the gallery's KEY. In a `.remote()`
+   * gallery an uploaded entry is keyed by its ref, so the field holds the ref
+   * -- which is what the Studio's picker writes, and what `val validate --fix`
+   * writes when it uploads the entry. Whether the bytes belong on Val Remote
+   * is the gallery's to say and to fix, not the field's.
+   */
+  describe("a field picked from a remote gallery", () => {
+    const REF =
+      "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/remote.webp";
+    const LOCAL = "/public/val/images/local.webp";
+    const ENTRY: ImagedirEntryMetadata = {
+      width: 800,
+      height: 600,
+      mimeType: "image/webp",
+      alt: null,
+    };
+
+    function fieldOf(remote: boolean) {
+      const { s, c } = initVal();
+      const schema = s.imagedir("/public/val/images");
+      const gallery = c.define(
+        "/content/gallery.val.ts",
+        remote ? schema.remote() : schema,
+        { [REF]: ENTRY, [LOCAL]: ENTRY },
+      );
+      return s.image(gallery);
+    }
+
+    test("holding the gallery's ref is valid, not a download", () => {
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: REF,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("holding a local key the gallery has is valid: uploading it is the gallery's fix", () => {
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: LOCAL,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("a ref the gallery as built does not have is a membership marker, for the project to answer", () => {
+      // The schema holds the gallery as it was evaluated; whether the gallery
+      // has the image NOW is the gallery module's current Source, which only
+      // a project-wide snapshot has (`resolveSchemaSourceFixes`).
+      const missing = REF.replace("remote.webp", "other.webp");
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: missing,
+      });
+      expect(result).toEqual({
+        path: [
+          {
+            message: `The gallery does not have an image at '${missing}'.`,
+            value: {
+              path: missing,
+              gallery: "/content/gallery.val.ts",
+              source: { path: missing },
+            },
+            fixes: ["image:check-gallery"],
+          },
+        ],
+      });
+    });
+
+    test("a ref whose local path is the gallery's key is valid: an upload through the field", () => {
+      // The Studio stores the ref in the field and keys the entry by the local
+      // path inside it, which is also how `fillFromGallery` reads it.
+      const uploaded =
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/local.webp";
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: uploaded,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("with files: { remote: true } the field is .remote() too, and still defers to the gallery", () => {
+      // Every media factory comes back remote, s.image(gallery) included. A
+      // field holding the gallery's local key must not be told to upload
+      // itself: the entry is the gallery's to upload, and the fix renames the
+      // field with it.
+      const { s, c } = initVal({ files: { remote: true } });
+      const gallery = c.define(
+        "/content/gallery.val.ts",
+        s.imagedir("/public/val/images"),
+        { [REF]: ENTRY, [LOCAL]: ENTRY },
+      );
+      const field = s.image(gallery);
+      expect(field["executeSerialize"]().remote).toBe(true);
+      for (const path of [REF, LOCAL]) {
+        expect(field["executeValidate"]("path" as SourcePath, { path })).toBe(
+          false,
+        );
+      }
+    });
+
+    test("the gallery's own key errors are where a misplaced ref is reported", () => {
+      // The same ref in a gallery that is not `.remote()`: the field is fine,
+      // the gallery's key is not.
+      const result = fieldOf(false)["executeValidate"]("path" as SourcePath, {
+        path: REF,
+      });
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("directory validation", () => {
+    test("should reject paths with wrong prefix", () => {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/wrong/path/image.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Wrong path",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasDirError = errors.some((e: { message: string }) =>
+        e.message.includes("directory"),
+      );
+      expect(hasDirError).toBe(true);
+    });
+
+    test("should accept paths with exact directory match", () => {
+      const schema = imagedir("/public", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/image.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Public root image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // Should not have directory error
+      const filteredResult3 = filterCheckErrors(result);
+      if (filteredResult3) {
+        const errors = Object.values(filteredResult3 as object).flat();
+        const hasDirError = errors.some((e: { message: string }) =>
+          e.message.includes("directory"),
+        );
+        expect(hasDirError).toBe(false);
+      }
+    });
+
+    test("should report both the key error and the entry error for the same entry", () => {
+      // Key errors (wrong directory) and entry errors (bad metadata) are both
+      // reported at the entry's path, so merging must concatenate them rather
+      // than let one overwrite the other.
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/wrong/path/image.webp": {
+          width: 0,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Wrong path and bad width",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.some((m) => m.includes("must be within the"))).toBe(true);
+      expect(
+        messages.some((m) =>
+          m.includes("Expected 'width' to be a positive number"),
+        ),
+      ).toBe(true);
+    });
+
+    test("should accept paths in subdirectories", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/nested/deep/image.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: "Nested image",
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      // Should not have directory error
+      const filteredResult4 = filterCheckErrors(result);
+      if (filteredResult4) {
+        const errors = Object.values(filteredResult4 as object).flat();
+        const hasDirError = errors.some((e: { message: string }) =>
+          e.message.includes("directory"),
+        );
+        expect(hasDirError).toBe(false);
+      }
+    });
+  });
+
+  describe("defaults", () => {
+    test("should default accept to image/* when options are omitted", () => {
+      const schema = imagedir("/public/val");
+      const serialized = schema["executeSerialize"]();
+      expect((serialized as SerializedImagedirSchema).mediaType).toBe("images");
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.dir).toBe("/public/val");
+      expect(serialized.remote).toBe(false);
+      expect(serialized.opt).toBe(false);
+    });
+
+    test("should default accept to image/* when options are empty", () => {
+      const serialized = imagedir("/public/val")["executeSerialize"]();
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.dir).toBe("/public/val");
+    });
+
+    test("should default accept to image/* when only directory is given", () => {
+      const serialized = imagedir("/public/images")["executeSerialize"]();
+      expect(serialized.accept).toBe("image/*");
+      expect(serialized.dir).toBe("/public/images");
+    });
+
+    test("should default alt to a nullable string when options are omitted", () => {
+      const serialized = imagedir("/public/val")["executeSerialize"]();
+      expect(serialized.alt).toMatchObject({ type: "string", opt: true });
+    });
+
+    test("should accept any image mime type when options are omitted", () => {
+      const schema = imagedir("/public/val");
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: null,
+        },
+      };
+      expect(
+        filterCheckErrors(schema["executeValidate"]("path" as SourcePath, src)),
+      ).toBeFalsy();
+    });
+
+    test("should reject non-image mime types when options are omitted", () => {
+      const schema = imagedir("/public/val");
+      const src = {
+        "/public/val/test.pdf": {
+          width: 800,
+          height: 600,
+          mimeType: "application/pdf",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"](
+        "path" as SourcePath,
+        src as unknown as Record<string, ImagedirEntryMetadata>,
+      );
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasMimeError = errors.some((e: { message: string }) =>
+        e.message.includes("Mime type mismatch"),
+      );
+      expect(hasMimeError).toBe(true);
+    });
+
+    test("should use the default /public/val directory when options are omitted", () => {
+      const schema = imagedir("/public/val");
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/other/test.png": {
+          width: 800,
+          height: 600,
+          mimeType: "image/png",
+          alt: null,
+        },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasDirError = errors.some((e: { message: string }) =>
+        e.message.includes("must be within the /public/val/ directory"),
+      );
+      expect(hasDirError).toBe(true);
+    });
+
+    test("should not allow remote refs when options are omitted", () => {
+      const schema = imagedir("/public/val");
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
+          {
+            width: 800,
+            height: 600,
+            mimeType: "image/webp",
+            alt: null,
+          },
+      };
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasRemoteError = errors.some((e: { message: string }) =>
+        e.message.includes("Remote URLs are not allowed"),
+      );
+      expect(hasRemoteError).toBe(true);
+    });
+  });
+
+  describe("custom validation", () => {
+    test("should support custom validation function", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).validate(
+        (src) => {
+          if (Object.keys(src ?? {}).length === 0) {
+            return "At least one image is required";
+          }
+          return false;
+        },
+      );
+      const src: Record<string, ImagedirEntryMetadata> = {};
+      const result = schema["executeValidate"]("path" as SourcePath, src);
+      expect(result).toBeTruthy();
+      const errors = Object.values(result as object).flat();
+      const hasCustomError = errors.some((e: { message: string }) =>
+        e.message.includes("At least one image is required"),
+      );
+      expect(hasCustomError).toBe(true);
+    });
+  });
+
+  describe("the entry type follows the alt schema", () => {
+    test("a locale record alt accepts a record of locales, and validates it", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+        alt: record(string()),
+      });
+      // The point of the change: this source is only expressible because the
+      // entry's alt follows the schema. Typed as the schema's own entry type,
+      // with no assertion, it would not compile if alt were still string | null.
+      const src: Record<
+        string,
+        ImagedirEntryMetadata<Record<string, string>>
+      > = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: { en: "A hero image", no: "Et heltebilde" },
+        },
+      };
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      expect(result).toBeFalsy();
+    });
+
+    test("a locale record alt still validates the strings inside it", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+        alt: record(string().minLength(10)),
+      });
+      const src: Record<
+        string,
+        ImagedirEntryMetadata<Record<string, string>>
+      > = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: { en: "Short" },
+        },
+      };
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.join(" ")).toContain("Expected string to be at least");
+    });
+
+    test("a required alt rejects null, which the old entry type let through", () => {
+      const schema = imagedir("/public/val", {
+        accept: "image/webp",
+        alt: string(),
+      });
+      // `alt: null` used to typecheck here, because the entry type said
+      // `string | null` whatever the schema said, and was then refused at
+      // runtime. It no longer typechecks, so this pins the runtime half: the
+      // value has to be forced past the type to reach the validator at all.
+      const src = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: null,
+        },
+      } as unknown as Record<string, ImagedirEntryMetadata<string>>;
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.join(" ")).toContain("Expected 'string', got 'null'");
+    });
+
+    test("a locale-alt gallery can still back an s.image() field", () => {
+      const { s, c } = initVal();
+      // The widening in image.ts. A field carries its own alt and never reads
+      // the gallery's, so `s.image(gallery)` accepts a gallery of any alt
+      // shape — without this it would only accept `string | null` ones, which
+      // would have left the locale form unusable with fields.
+      const gallery = c.define(
+        "/content/localeGallery.val.ts",
+        s.imagedir("/public/val/locale", { alt: s.record(s.string()) }),
+        {
+          "/public/val/locale/hero.png": {
+            width: 10,
+            height: 10,
+            mimeType: "image/png",
+            alt: { en: "Hero", no: "Helt" },
+          },
+        },
+      );
+      const field = s.image(gallery);
+      const serialized = field["executeSerialize"]();
+      expect(serialized.type).toBe("image");
+    });
+
+    test("alt defaults to a nullable string when the option is omitted", () => {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: null,
+        },
+      };
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      expect(result).toBeFalsy();
+    });
+  });
+});

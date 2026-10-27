@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { ValProvider } from "./components/ValProvider";
 import { Themes } from "./components/ValThemeProvider";
 import { Fonts } from "./Fonts";
-import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import { DEFAULT_CONTENT_HOST, Internal } from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
 import { useValModules } from "./hooks/useValModules";
 import { VERSION } from "../src";
@@ -64,13 +64,13 @@ function Overlay() {
         ) {
           setDraftModeLoading(event.detail.value);
         } else {
-          console.error(
-            "Val: invalid event detail (val-overlay-spa)",
+          Internal.log.error(
+            "invalid event detail (val-overlay-spa)",
             event.detail,
           );
         }
       } else {
-        console.error("Val: invalid event (val-overlay-spa)", event);
+        Internal.log.error("invalid event (val-overlay-spa)", event);
       }
     };
     window.addEventListener("val-overlay-spa", listener);
@@ -106,6 +106,7 @@ function Overlay() {
             valModules={valModules}
             theme={theme}
             setTheme={setTheme}
+            handsOffPublish
           >
             <ErrorBoundary FallbackComponent={FallbackComponent}>
               <ValRouter overlay>

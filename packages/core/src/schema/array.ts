@@ -4,17 +4,45 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { RenderSelector, ReifiedRender } from "../render";
+import {
+  ArrayPreview,
+  ItemPreviewInput,
+  PreviewItem,
+  ReifiedPreview,
+  PreviewScope,
+  mergePreviewInto,
+} from "../preview";
+import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";
+  /**
+   * How this array lays out its ITEMS: `{ as: "inline" }` edits each one in
+   * its row. Static config, carried whole — see `render.ts`.
+   */
+  render?: FieldRender;
   item: SerializedSchema;
   opt: boolean;
+  /**
+   * Set when this schema declares a `preview` — of the ARRAY ITSELF as a
+   * value, for when it is the item of another container. Whether this array's
+   * ROWS preview is carried by the ITEM's serialized schema, where the closure
+   * is declared.
+   *
+   * The preview itself cannot be serialized — it is a user closure — but whether
+   * one EXISTS can be, and that is worth carrying: it lets the non-host side
+   * skip asking the host to preview a module that cannot produce one. Measured
+   * in a browser: mounting 260 fields across 141 modules spent ~2.3ms of 3.1ms
+   * calling `executePreview` on modules that returned nothing.
+   */
+  preview?: true;
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
@@ -34,10 +62,31 @@ export class ArraySchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .array(s.string())
+   *   .describe("Bullet points shown under the heading");
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
+   */
   describe(description: string | null): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
@@ -46,9 +95,35 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The function is given the whole array. To validate one item, put a
+   * `.validate(...)` on the ITEM schema instead — that reports the error on
+   * the item's own row.
+   *
+   * @example
+   * const schema = s.array(s.string()).validate((val) =>
+   *   val.length <= 3 ? false : "At most 3 items",
+   * );
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): ArraySchema<T, Src> {
@@ -59,6 +134,8 @@ export class ArraySchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -129,43 +206,70 @@ export class ArraySchema<
   }
 
   nullable(): ArraySchema<T, Src | null> {
-    return new ArraySchema(
+    // Explicit type args: `previewInput` would otherwise pin inference to `Src`.
+    return new ArraySchema<T, Src | null>(
       this.item,
       true,
-      [],
+      this.customValidateFunctions as ((src: Src | null) => false | string)[],
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
-  readonly(): ArraySchema<T, Src> {
+  readonly(isReadonly: boolean = true): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
-  hidden(): ArraySchema<T, Src> {
+  hidden(isHidden: boolean = true): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
+      this.renderInput,
+    );
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    return [{ key: "*", schema: this.item }];
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
     );
   }
 
   protected executeSerialize(): SerializedArraySchema {
     return {
       type: "array",
+      render: this.renderInput ?? undefined,
       item: this.item["executeSerialize"](),
       opt: this.opt,
+      preview: this.previewInput ? true : undefined,
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
@@ -175,20 +279,13 @@ export class ArraySchema<
     };
   }
 
-  private renderInput: {
-    as: "list";
-    select: (input: { val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  } | null = null;
-
-  protected override executeRender(
+  protected override executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedRender {
-    const res: ReifiedRender = {};
+    scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
       return res;
     }
@@ -199,53 +296,158 @@ export class ArraySchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.item["executeRender"](subPath, itemSrc);
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
+      if (scope !== undefined && !scope.wantsUnder(subPath)) {
+        continue;
       }
+      mergePreviewInto(
+        res,
+        // `true`: this item is a ROW, and its preview is the closure reified
+        // into `rows` below. See `executePreview` on `Schema`.
+        this.item["executePreview"](subPath, itemSrc, scope, true),
+      );
     }
-    if (this.renderInput) {
-      const { select, as: layout } = this.renderInput;
-      if (layout !== "list") {
-        res[sourcePath] = {
-          status: "error",
-          message: "Unknown layout type: " + layout,
-        };
+    // The rows preview comes from the ITEM schema's own `preview` — the
+    // container just runs it per row. Asked as a fact rather than by running
+    // the closure, so an empty list still previews as an empty list.
+    if (this.item["declaresItemPreview"]()) {
+      // The whole list when the LIST is what is being shown; only the wanted
+      // rows when it is not. The user's closure is the real expense — a list
+      // view asks for the container and gets every row, a single field asks for
+      // its own path and costs one call.
+      // Non-null once, as a value, rather than a boolean the compiler cannot
+      // tie back to `scope`: no scope and a scope that wants this exact path
+      // both mean the whole list, and anything else is a window.
+      const window =
+        scope !== undefined && !scope.wants(sourcePath) ? scope : null;
+      const items: ArrayPreview["items"] = [];
+      for (let index = 0; index < src.length; index++) {
+        const itemSrc = src[index];
+        if (itemSrc === null || itemSrc === undefined) {
+          continue;
+        }
+        if (
+          window !== null &&
+          !window.wantsUnder(unsafeCreateSourcePath(sourcePath, index))
+        ) {
+          continue;
+        }
+        // Per ITEM, not per list: the closure is user code, and one row whose
+        // data trips it up must not take out the whole list. Before scoping,
+        // one throwing row produced an error at the container and no items at
+        // all.
+        try {
+          // NB NB: display is actually defined by the user
+          const item = this.item["executePreviewItem"](itemSrc);
+          if (item !== null) {
+            const { title, subtitle, image } = item;
+            items.push([index, { title, subtitle, image }]);
+          }
+        } catch (e) {
+          res[unsafeCreateSourcePath(sourcePath, index)] = {
+            status: "error",
+            message: e instanceof Error ? e.message : "Unknown error",
+          };
+        }
       }
-      try {
-        res[sourcePath] = {
-          status: "success",
-          data: {
-            layout: "list",
-            parent: "array",
-            items: src.map((val) => {
-              // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = select({ val });
-              return { title, subtitle, image };
-            }),
-          },
-        };
-      } catch (e) {
-        res[sourcePath] = {
-          status: "error",
-          message: e instanceof Error ? e.message : "Unknown error",
-        };
-      }
+      const rows: ReifiedPreview = {};
+      rows[sourcePath] = {
+        status: "success",
+        data: { rows: { parent: "array", items } },
+      };
+      mergePreviewInto(res, rows);
+    }
+    // ...and what the LIST ITSELF is called, which is a different closure on a
+    // different schema: `s.array(section.preview(...)).preview(...)` previews
+    // its rows AND names itself for when it is nested in something. Merged
+    // rather than assigned, or one of the two would win. See `PreviewNode`.
+    //
+    // Unless this list is itself a ROW of an outer array or record, which has
+    // already run this very closure to reify it — a container both PASSES the
+    // flag to its items and RECEIVES it as one, and honouring only the first
+    // half ran `s.array(s.array(x).preview(...))`'s closure twice per row.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
     }
     return res;
   }
 
-  render(input: {
-    as: "list";
-    select: (input: { val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | null;
-    };
-  }) {
-    this.renderInput = input;
-    return this;
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
+  /**
+   * How this ARRAY ITSELF is shown where a preview of it is needed — when it
+   * is the item of another container, in search, in references. What its rows
+   * show is the ITEM schema's `preview`, not this. Never how the field is
+   * edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * // The preview of the ARRAY, for where it is an item of something else.
+   * // What its own rows show is the ITEM schema's preview — see below.
+   * const tags = s.array(s.string()).preview(({ val }) => ({
+   *   title: `${val.length} tags`,
+   * }));
+   * export default c.define("/example.val.ts", s.record(tags), {
+   *   "a-post": ["news", "release"],
+   * });
+   *
+   * @example
+   * // Rows of an array come from the ITEM's preview, not the array's:
+   * const author = s
+   *   .object({ name: s.string(), role: s.string() })
+   *   .preview(({ val }) => ({ title: val.name, subtitle: val.role }));
+   * export default c.define("/example.val.ts", s.array(author), [
+   *   { name: "Ada", role: "Engineer" },
+   * ]);
+   */
+  preview(select: ItemPreviewInput<Src>): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * How this array lays out its ITEMS in the editor: `{ as: "inline" }` draws
+   * each item's own editor inside its (sortable) row, instead of a preview row
+   * that navigates to it. It reaches the direct items only.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s
+   *   .array(s.object({ title: s.string(), body: s.string() }))
+   *   .render({ as: "inline" });
+   * export default c.define("/example.val.ts", schema, [
+   *   { title: "Hello", body: "World" },
+   * ]);
+   */
+  render(input: FieldRender): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.previewInput,
+      input,
+    );
   }
 }
 

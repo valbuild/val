@@ -13,36 +13,42 @@
 @tailwind utilities;
 
 @layer base {
-  /* :host for use with Shadow DOM, copied from the TailwindCSS prelude */
+  /* :host for use with Shadow DOM, copied from the TailwindCSS prelude.
+     `[data-mode="light"]` is listed here rather than in a block of its own so
+     light is declared exactly once: a subtree can opt back into light even
+     when an ancestor is dark, which is what the theme switch inside the shell
+     needs (and what a light region nested in a dark host page needs). */
   :host,
-  :root {
+  :root,
+  *[data-mode="light"] {
     --colors-base-white: #ffffff;
 
-    --colors-gray-light-mode-gray-100: #f2f4f7;
-    --colors-gray-light-mode-gray-200: #e4e7ec;
-    --colors-gray-light-mode-gray-300: #d0d5dd;
-    --colors-gray-light-mode-gray-400: #98a2b3;
-    --colors-gray-light-mode-gray-500: #697586;
-    --colors-gray-light-mode-gray-600: #475467;
-    --colors-gray-light-mode-gray-700: #344054;
-    --colors-gray-light-mode-gray-800: #182230;
-    --colors-gray-light-mode-gray-900: #101828;
-    --colors-gray-light-mode-gray-950: #0c111d;
-    --colors-gray-light-mode-gray-50: #f9fafb;
-    --colors-gray-light-mode-gray-25: #fcfcfd;
+    --colors-gray-light-mode-gray-100: #f4f4f5;
+    --colors-gray-light-mode-gray-150: #eeeef0;
+    --colors-gray-light-mode-gray-200: #e8e8ea;
+    --colors-gray-light-mode-gray-300: #c6c6ce;
+    --colors-gray-light-mode-gray-400: #86868f;
+    --colors-gray-light-mode-gray-500: #66666f;
+    --colors-gray-light-mode-gray-600: #52525a;
+    --colors-gray-light-mode-gray-700: #3f3f46;
+    --colors-gray-light-mode-gray-800: #27272a;
+    --colors-gray-light-mode-gray-900: #18181b;
+    --colors-gray-light-mode-gray-950: #09090b;
+    --colors-gray-light-mode-gray-50: #fafafa;
+    --colors-gray-light-mode-gray-25: #fcfcfc;
 
     --colors-gray-dark-mode-gray-25: #fafafa;
-    --colors-gray-dark-mode-gray-50: #f5f5f6;
-    --colors-gray-dark-mode-gray-100: #f0f1f1;
-    --colors-gray-dark-mode-gray-200: #ececed;
-    --colors-gray-dark-mode-gray-300: #cecfd2;
-    --colors-gray-dark-mode-gray-400: #94969c;
-    --colors-gray-dark-mode-gray-500: #85888e;
-    --colors-gray-dark-mode-gray-600: #51525c;
-    --colors-gray-dark-mode-gray-700: #333741;
-    --colors-gray-dark-mode-gray-800: #25282f;
-    --colors-gray-dark-mode-gray-900: #161b26;
-    --colors-gray-dark-mode-gray-950: #0c111d;
+    --colors-gray-dark-mode-gray-50: #f5f5f5;
+    --colors-gray-dark-mode-gray-100: #f0f0f1;
+    --colors-gray-dark-mode-gray-200: #e4e4e7;
+    --colors-gray-dark-mode-gray-300: #d6d6da;
+    --colors-gray-dark-mode-gray-400: #a3a3ab;
+    --colors-gray-dark-mode-gray-500: #90909a;
+    --colors-gray-dark-mode-gray-600: #52525a;
+    --colors-gray-dark-mode-gray-700: #36363d;
+    --colors-gray-dark-mode-gray-800: #1e1e22;
+    --colors-gray-dark-mode-gray-900: #131316;
+    --colors-gray-dark-mode-gray-950: #08080a;
 
     --colors-warning-yellow-25: #fffcf5;
     --colors-warning-yellow-50: #fffaeb;
@@ -79,6 +85,34 @@
     --colors-error-red-900: #420007;
     --colors-error-red-1000: #330005;
 
+    /* Drawn on top of the user's own page, not on a Val surface, so these
+       are declared once and never flip with the theme: the page underneath
+       does not follow Val's theme, and a token that inverts would go pale on
+       a light site or muddy on a dark one. green-600 is the step that clears
+       3:1 against both white and black — green-500 is only 2.76:1 on white,
+       which contrast.test.ts holds this to. */
+    --bg-page-selection: var(--colors-brand-green-600);
+    --bg-page-selection-fill: rgba(7, 148, 85, 0.12);
+    /* The resting outline on every field the canvas found. Every element on
+       the page carries one at once, so it is the same hue held well back —
+       enough to see the shape of what is editable, not enough to redraw the
+       customer's page in green. */
+    --bg-page-selection-soft: rgba(7, 148, 85, 0.4);
+
+    /* The one colour in the Val mark, and the only brand value that a
+       project's own accent does NOT move.
+
+       `s.settings()`'s `theme.accent` regenerates the whole
+       `--colors-brand-green-*` ramp (see `accentRamp` in @valbuild/shared), so
+       the mark named a step of that ramp and recoloured with the chrome — by
+       accident rather than by decision. It has its own token now, declared
+       here beside the other values that never flip, so that "always green, in
+       both themes" (architecture/logo.md) is true because something says so.
+
+       Same value as green-400, and not `var()` into it: a var would be
+       overridden along with the ramp, which is the whole thing this avoids. */
+    --brand-val-green: #47cd89;
+
     --radius: 0.5rem;
 
     /* (Text) Selection colors */
@@ -86,21 +120,21 @@
     --text-selection: var(--colors-gray-light-mode-gray-900);
 
     /* Primary colors */
-    --bg-primary: var(--colors-base-white);
-    --bg-primary-hover: var(--colors-gray-light-mode-gray-100);
+    --bg-primary: var(--colors-gray-light-mode-gray-25);
+    --bg-primary-hover: var(--colors-gray-light-mode-gray-150);
     --fg-primary: var(--colors-gray-light-mode-gray-900);
     --fg-primary-alt: var(--colors-gray-light-mode-gray-500);
     --border-primary: var(--colors-gray-light-mode-gray-300);
 
     /* Secondary colors */
-    --bg-secondary: var(--colors-gray-light-mode-gray-50);
-    --bg-secondary-hover: var(--colors-gray-light-mode-gray-100);
+    --bg-secondary: var(--colors-gray-light-mode-gray-100);
+    --bg-secondary-hover: var(--colors-gray-light-mode-gray-150);
     --fg-secondary: var(--colors-gray-light-mode-gray-700);
     --fg-secondary-alt: var(--colors-gray-light-mode-gray-500);
     --border-secondary: var(--colors-gray-light-mode-gray-200);
 
     /* Tertiary colors */
-    --bg-tertiary: var(--colors-gray-light-mode-gray-100);
+    --bg-tertiary: var(--colors-gray-light-mode-gray-150);
     --fg-tertiary: var(--colors-gray-light-mode-gray-600);
 
     /* Brand colors */
@@ -110,6 +144,20 @@
     --fg-brand-primary: var(--colors-brand-green-1000);
     --fg-brand-primary-alt: var(--colors-brand-green-900);
     --border-brand-primary: var(--colors-brand-green-300);
+
+    /*
+     * The focus ring, and the only token any focus style should name.
+     *
+     * A step darker than `--border-brand-primary`, which is a resting border
+     * on a filled surface and is too pale to READ as focus on white:
+     * green-600 is the step that clears 3:1 against both white and black,
+     * which `contrast.test.ts` holds this to.
+     *
+     * Declared here — in the block that a shadow root can actually see — for
+     * the reason the whole ring was invisible before it existed. See the note
+     * on the shadcn compatibility block below.
+     */
+    --border-focus: var(--colors-brand-green-600);
     /* Brand secondary */
     --bg-brand-secondary: var(--colors-brand-green-800);
     --bg-brand-secondary-hover: var(--colors-brand-green-700);
@@ -127,8 +175,8 @@
     /* Warning secondary: filled accent (rail, icon, pill) */
     --bg-warning-secondary: var(--colors-warning-yellow-500);
     --bg-warning-secondary-hover: var(--colors-warning-yellow-600);
-    --fg-warning-secondary: var(--colors-warning-yellow-50);
-    --fg-warning-secondary-alt: var(--colors-warning-yellow-100);
+    --fg-warning-secondary: var(--colors-warning-yellow-950);
+    --fg-warning-secondary-alt: var(--colors-warning-yellow-900);
     --border-warning-secondary: var(--colors-warning-yellow-600);
 
     /* Error colors */
@@ -145,8 +193,52 @@
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
 
+    /* Error text sitting directly on a normal surface. The
+       `fg-error-secondary` pair above is only legible against a tinted error
+       background, so icons and inline error copy need their own value. */
+    --fg-error-on-surface: var(--colors-error-red-500);
+
+    /* Shell surfaces: the canvas the editor sits on, and the floating
+       surfaces (rail, panels, bars) that hover above it. In light mode the
+       canvas is tinted and floating surfaces sit above it; in dark mode the
+       relationship inverts.
+
+       Note that nothing here is `--colors-base-white`, and that is the point.
+       The Studio fills the viewport, so a surface at full white is a lamp
+       rather than a background — and with the canvas only 4% below it, the
+       whole shell read as one bright sheet. Every neutral surface therefore
+       sits one step down the light ramp: floats at gray-25, the canvas at
+       gray-100, raised fills at gray-150. The luminance gap between a panel
+       and the canvas roughly doubles, so the floating layout reads as
+       layered while the total light coming off the chrome drops.
+
+       `contrast.test.ts` holds the consequences: muted text and the panel
+       hairline both had to come down a nudge with the surfaces (gray-500 and
+       gray-300), because on a softer background yesterday's values go
+       washed out rather than quiet. Darken these surfaces further and
+       `--fg-secondary-alt` on `--bg-float-raised` is the pair that fails
+       first. */
+    --bg-canvas: var(--colors-gray-light-mode-gray-100);
+    --bg-surface: var(--colors-gray-light-mode-gray-25);
+    --bg-float: var(--colors-gray-light-mode-gray-25);
+    --bg-float-raised: var(--colors-gray-light-mode-gray-150);
+    --border-float: var(--colors-gray-light-mode-gray-300);
+
+    /*
+     * A proposal. Not a brand colour and not a status: a PLACE, so a
+     * screenshot says it was taken in a proposal rather than on the site.
+     * Violet, because nothing else in the studio is.
+     */
+    /* A project's own: `proposalCustomProperties` in @valbuild/shared. */
+    --bg-proposal: var(--theme-proposal-light-bg, #6d28d9);
+    --bg-proposal-hover: var(--theme-proposal-light-bg-hover, #5b21b6);
+    --bg-proposal-soft: var(--theme-proposal-light-bg-soft, #f3efff);
+    --fg-proposal: var(--theme-proposal-light-fg, #6d28d9);
+    --fg-on-proposal: var(--theme-proposal-light-fg-on, #ffffff);
+    --border-proposal: var(--theme-proposal-light-border, #a78bfa);
+
     /* Disabled colors */
-    --bg-disabled: var(--colors-gray-light-mode-gray-100);
+    --bg-disabled: var(--colors-gray-light-mode-gray-150);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
   }
 
@@ -181,6 +273,10 @@
     --fg-brand-primary: var(--colors-brand-green-100);
     --fg-brand-primary-alt: var(--colors-brand-green-200);
     --border-brand-primary: var(--colors-brand-green-500);
+
+    /* See the light value. Lighter rather than mirrored, as the error colour
+       is: green-600 is nearly invisible against the dark canvas. */
+    --border-focus: var(--colors-brand-green-400);
     /* Brand secondary */
     --bg-brand-secondary: var(--colors-brand-green-200);
     --bg-brand-secondary-hover: var(--colors-brand-green-300);
@@ -216,10 +312,57 @@
     --fg-error-secondary-alt: var(--colors-error-red-400);
     --border-error-secondary: var(--colors-error-red-300);
 
+    /* Error text on a normal surface: red-500 is too dim against the dark
+       canvas, so this lightens rather than mirroring the light value. */
+    --fg-error-on-surface: var(--colors-error-red-300);
+
+    /* Shell surfaces. Four steps up from the canvas: the canvas is darkest,
+       the editor's own field surfaces sit just above it, and the floating
+       chrome is lifted one step further so a panel reads as hovering rather
+       than as part of the page. */
+    --bg-canvas: var(--colors-gray-dark-mode-gray-950);
+    --bg-surface: var(--colors-gray-dark-mode-gray-900);
+    --bg-float: var(--colors-gray-dark-mode-gray-900);
+    --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
+    --border-float: var(--colors-gray-dark-mode-gray-700);
+
+    --bg-proposal: var(--theme-proposal-dark-bg, #7c3aed);
+    --bg-proposal-hover: var(--theme-proposal-dark-bg-hover, #8b5cf6);
+    --bg-proposal-soft: var(
+      --theme-proposal-dark-bg-soft,
+      rgba(139, 92, 246, 0.16)
+    );
+    --fg-proposal: var(--theme-proposal-dark-fg, #c4b5fd);
+    --fg-on-proposal: var(--theme-proposal-dark-fg-on, #ffffff);
+    --border-proposal: var(--theme-proposal-dark-border, #7c3aed);
+
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);
     --fg-disabled: var(--colors-gray-dark-mode-gray-500);
   }
+  /*
+   * The shadcn compatibility block, and a trap.
+   *
+   * NEITHER of these selectors matches in the Studio. `:root` matches a
+   * DOCUMENT's root element, and the Studio always mounts inside a shadow root
+   * with this stylesheet linked into it (`App.tsx`, `Overlay.tsx`) — a shadow
+   * tree's root is a DocumentFragment, so `:root` matches nothing there. And
+   * `.dark` is never applied: `darkMode` is `[data-mode="dark"]`.
+   *
+   * So every token below is undefined at render time, and `hsl(var(--x))`
+   * resolves to `hsl()`, which is invalid at computed-value time. For a colour
+   * that degrades quietly (a background goes transparent, a foreground
+   * inherits) — but in a `box-shadow` it takes the WHOLE declaration down, so
+   * `ring-ring` painted nothing at all and every focus ring in the Studio was
+   * invisible. Storybook imports this file into the document, where `:root`
+   * DOES match, which is why it looked right everywhere it was designed.
+   *
+   * Focus styling therefore names `--border-focus` (declared above, in a block
+   * that a shadow root can see) and never `ring-ring` / `ring-offset-*`.
+   * `focusRingTokens.test.ts` holds that line. The rest of this block is left
+   * as it is: it is dead, but reviving 300+ call sites at once is a visual
+   * change of its own rather than a fix.
+   */
   :root {
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
@@ -297,6 +440,54 @@
 }
 
 @layer components {
+  /*
+   * A scrollbar that belongs to Val rather than to the operating system.
+   *
+   * The default one is drawn by the platform, so on a Mac set to "always show
+   * scrollbars" it is a wide light bar that sits inside a dark floating panel
+   * looking like part of someone else's application. This is the same
+   * scrollbar, restyled: thin, on the panel's own border colour, over a
+   * transparent track. It still takes layout width, which is what we want —
+   * an overlay bar appearing and disappearing would shift the text under it.
+   */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-primary) transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track,
+  .scrollbar-slim::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: var(--border-primary);
+    border-radius: 9999px;
+    /* A transparent border clipped to the content box is how a webkit thumb
+       gets padding: it insets the bar without narrowing the hit target. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb:hover {
+    background-color: var(--fg-secondary-alt);
+  }
+
+  /*
+   * A scroller with no bar at all.
+   *
+   * For the small floating strips that can run out of room on a phone — the
+   * canvas toolbar — where the bar would be most of the height of the thing it
+   * is scrolling and the content is obviously swipeable without it.
+   */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ProseMirror base styles (from prosemirror-view/style/prosemirror.css) */
   .ProseMirror {
     position: relative;
@@ -388,6 +579,21 @@
   .rich-text-editor .ProseMirror li {
     @apply mb-1;
   }
+  /*
+   * No trailing gap under the last block.
+   *
+   * Every block element in here carries `mb-3` so paragraphs breathe. On the
+   * LAST one that margin is inside the editor's padding box with nothing after
+   * it, so it is 12px of dead space at the bottom of the field — which is why a
+   * single-line rich text box could not match a string field's height however
+   * the padding was set. Removing it makes an empty field exactly one line plus
+   * its padding, the same arithmetic `Input`'s `h-10` is.
+   */
+  .val-rich-text-editor > :last-child,
+  .rich-text-editor .ProseMirror > :last-child {
+    margin-bottom: 0;
+  }
+
   .val-rich-text-editor blockquote,
   .rich-text-editor .ProseMirror blockquote {
     @apply border-l-4 border-border-primary pl-4 italic text-fg-secondary mb-3;
@@ -462,6 +668,51 @@
   }
 }
 
+/*
+ * The "still working" text effect: a bright band sweeping through the label.
+ *
+ * It has to be a background gradient clipped to the glyphs, not an opacity
+ * pulse - a pulse reads as "blinking error" and, at the 1-2s period that looks
+ * calm, spends half its time nearly invisible. The sweep never drops the text
+ * below `--fg-tertiary`, so the label stays readable at every frame.
+ *
+ * `-webkit-text-fill-color` is what actually makes the glyphs transparent in
+ * WebKit; `color` alone is ignored there once `background-clip: text` is on.
+ */
+@keyframes val-shimmer-text {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+.val-shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--fg-tertiary) 0%,
+    var(--fg-tertiary) 30%,
+    var(--fg-primary) 50%,
+    var(--fg-tertiary) 70%,
+    var(--fg-tertiary) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: val-shimmer-text 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .val-shimmer-text {
+    animation: none;
+    background-image: none;
+    color: var(--fg-secondary);
+    -webkit-text-fill-color: var(--fg-secondary);
+  }
+}
+
 @keyframes val-scroll-highlight {
   0%,
   50% {
@@ -478,10 +729,85 @@
   animation: val-scroll-highlight 2.5s ease-out forwards;
 }
 
+/*
+ * What is behind a transparent image: the conventional grey checkerboard.
+ *
+ * Without it a PNG with a transparent background and one with a background
+ * the same colour as the Studio's look identical — and a logo that is dark on
+ * transparent vanishes entirely in dark mode. Theme tokens, so the squares are
+ * a quiet step apart in either mode rather than a bright white board inside a
+ * dark UI. Put it on the element whose box IS the picture, never on a
+ * letterboxed one, or it draws squares around the image as well as behind it.
+ */
+.val-checkerboard {
+  background-color: var(--bg-primary);
+  background-image: conic-gradient(
+    var(--bg-tertiary) 25%,
+    transparent 0 50%,
+    var(--bg-tertiary) 0 75%,
+    transparent 0
+  );
+  background-size: 12px 12px;
+}
+
 #val-overlay-container {
   visibility: visible;
 }
 
 #val-app-container {
   visibility: visible !important;
+}
+
+/*
+ * Nothing typeable may compute under 16px on a touch device.
+ *
+ * iOS Safari zooms the whole page in when it focuses a field smaller than
+ * that, and it does not zoom back out — so one tap on a filter box leaves the
+ * editor scaled up and half off screen for the rest of the session. It is the
+ * one layout bug a user cannot undo from inside the app.
+ *
+ * The viewport meta is not an option, for two independent reasons: a `<meta>`
+ * inside a shadow root is inert, so it would have to be written into the HOST
+ * page's head and would change the customer's own layout; and iOS ignores
+ * `user-scalable=no` regardless. Font size is the only lever that works.
+ *
+ * OUTSIDE `@layer`, AND ABOVE `.text-xs` ON SPECIFICITY. Both are needed, and
+ * for different reasons. Tailwind v3 resolves `@layer` at build time and emits
+ * PLAIN CSS — there are no native cascade layers in the output — so ordering
+ * here is source order and specificity, nothing else. Being last in the file
+ * settles ties; it does not settle `input` (0,0,1) against `.text-xs` (0,1,0),
+ * which the class still wins. Hence `input[class]` (0,1,1), which clears every
+ * size utility, with the bare selectors kept for controls carrying no class at
+ * all. Measured both ways: with only the bare selectors a `text-xs` filter box
+ * still computed 12px on a phone.
+ *
+ * Nothing in the Studio sets a typeable control above 16px, so there is nothing
+ * here for this to shrink.
+ *
+ * `select` covers a native one; the Radix trigger is a `<button>` and carries
+ * `touch:` at its own call site, as does anything that is not a form control.
+ *
+ * `any-pointer`, not `pointer`: `pointer` reports only the PRIMARY device, so
+ * an iPad with a keyboard case or a touch laptop answers `fine` and this stops
+ * matching — while the touchscreen still zooms. `any-pointer` asks whether any
+ * input on the device is coarse.
+ */
+@media (any-pointer: coarse) {
+  input,
+  textarea,
+  select,
+  input[class],
+  textarea[class],
+  select[class],
+  [contenteditable="true"] {
+    font-size: 16px;
+  }
+
+  /* Edited in place, so they are typeable even though they are not inputs. */
+  .val-rich-text-editor h5,
+  .rich-text-editor .ProseMirror h5,
+  .val-rich-text-editor h6,
+  .rich-text-editor .ProseMirror h6 {
+    font-size: 16px;
+  }
 }

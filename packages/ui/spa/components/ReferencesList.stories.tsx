@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ReferencesList, ReferencesListItem } from "./ReferencesList";
+import { placeholderImage } from "./stories/placeholderAssets";
 
 // Non-router reference: a record (`authors`) keyed by an id, pointing at a field inside.
 function makeItem(
@@ -18,7 +19,13 @@ function makeItem(
     preview: opts.withImage
       ? {
           title: `Author ${index}`,
-          image: `https://placehold.co/64x64/e2e8f0/475569?text=${index}`,
+          image: placeholderImage({
+            width: 64,
+            height: 64,
+            bg: "#e2e8f0",
+            fg: "#475569",
+            text: `${index}`,
+          }),
         }
       : null,
     patchPath,
@@ -44,7 +51,13 @@ function makeRouterItem(
     preview: opts.withImage
       ? {
           title: `Blog ${index}`,
-          image: `https://placehold.co/64x64/e2e8f0/475569?text=${index}`,
+          image: placeholderImage({
+            width: 64,
+            height: 64,
+            bg: "#e2e8f0",
+            fg: "#475569",
+            text: `${index}`,
+          }),
         }
       : null,
     patchPath,
@@ -150,7 +163,13 @@ function makeLongItem(
     preview: opts.withImage
       ? {
           title: `Spring campaign ${index}`,
-          image: `https://placehold.co/64x64/e2e8f0/475569?text=${index}`,
+          image: placeholderImage({
+            width: 64,
+            height: 64,
+            bg: "#e2e8f0",
+            fg: "#475569",
+            text: `${index}`,
+          }),
         }
       : null,
     patchPath,

@@ -1,15 +1,27 @@
 import {
-  ListRecordRender as ListRecordRender,
+  Internal,
+  ModuleFilePath,
   SourcePath,
+  isInlineRender,
 } from "@valbuild/core";
+import { useMemo, type ReactNode } from "react";
+import { isLocaleSchema } from "@valbuild/shared/internal";
 import {
-  useRenderOverrideAtPath,
+  usePreviewAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSourceAtPath,
 } from "../ValFieldProvider";
+import {
+  RecordRowError,
+  RecordRowSkeleton,
+  VirtualizedRecordList,
+} from "./VirtualizedRecordList";
+import { useValSystem } from "../../stores/react/SystemContext";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import { useLocaleFilterPredicate } from "../LocaleFilterProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -17,14 +29,17 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { PreviewWithRender } from "../../components/PreviewWithRender";
-import { ValidationErrors } from "../../components/ValidationError";
+import { RefPreview } from "../../components/RefPreview";
+import type { ValidationError } from "@valbuild/core";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
+import { LocaleFiltered } from "../LocaleFilterProvider";
+import { FieldNull } from "../../components/FieldNull";
+import { ContentViewsBadge } from "../../analytics/ContentViewsBadge";
 
 export function RecordFields({
   path,
@@ -41,9 +56,9 @@ export function RecordFields({
 }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
-  const { navigate } = useNavigation();
+  const matchesLocale = useLocaleFilterPredicate();
   const schemaAtPath = useSchemaAtPath(path);
-  const renderAtPath = useRenderOverrideAtPath(path);
+  const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
@@ -80,118 +95,411 @@ export function RecordFields({
       />
     );
   }
-  if (schemaAtPath.data.mediaType) {
-    return <ModuleGallery path={path} />;
-  }
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
+  // BEFORE the media dispatch below, and that order is the point. A record
+  // that has not been created renders nothing on either path — which reads as
+  // "this record is empty", a different and writable state. A gallery is the
+  // case where that is not merely misleading: `s.imagedir().nullable()` keeps
+  // its media options, so a null one reached `ModuleGallery`, looked like an
+  // empty gallery, and offered an upload whose `add` patch targeted `null`.
+  // See `FieldNull`.
+  if (source === null) {
+    return <FieldNull path={path} schema={schema} readonly={readonly} />;
+  }
+  if (schema.mediaType) {
+    return <ModuleGallery path={path} />;
+  }
+  /**
+   * The keys the locale filter leaves on screen.
+   *
+   * A locale-keyed record is the case where a key IS a language, so the filter
+   * can answer from the key alone — no entry has to be loaded to know it is
+   * Norwegian. Every other record is untouched, because its keys say nothing
+   * about language.
+   */
+  const visibleKeys = (keys: string[]): string[] =>
+    keys.filter((key) => matchesLocale({ key, keySchema: schema.key }));
 
-  if (inline) {
-    const sourceEntries = source as Record<string, SourcePath> | null;
-    if (sourceEntries === null) {
-      return null;
-    }
+  /**
+   * Whether the KEY already answered the filter for every row.
+   *
+   * For a locale-keyed record it did — `visibleKeys` filtered on it — and
+   * asking each entry again is the same question with three subscriptions
+   * attached per row. It could not even disagree: a locale-keyed record opens a
+   * scope, and a scope may not contain another, so the entry has no locale of
+   * its own to find.
+   *
+   * Every other record's keys say nothing about language, so there the entry is
+   * the only thing that can answer and `LocaleFiltered` does the work.
+   */
+  const keyDecidesLocale =
+    schema.key !== undefined && isLocaleSchema(schema.key);
+
+  // Entries are rendered in place either because the caller asked for it
+  // (`inline` prop) or because the record itself declares
+  // `.render({ as: "inline" })` — the record counterpart of the inline rows in
+  // `SortableList`. Records are unordered, so there is nothing to sort; the key
+  // is the row's label.
+  if (inline || isInlineRender(schema)) {
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
-            : Object.entries(sourceEntries).map(([key, itemPath]) => (
-                <Field
-                  key={itemPath}
-                  label={key}
-                  path={itemPath}
-                  type={schema.item.type}
-                  readonly={readonly || schema.item.readonly}
-                  compact={compact}
-                  errorDisplay={errorDisplay}
-                >
-                  <AnyField
+            : Object.entries(source)
+                .filter(([key]) =>
+                  matchesLocale({ key, keySchema: schema.key }),
+                )
+                .map(([key, itemPath]) => (
+                  <LocaleFilteredRow
+                    key={itemPath}
                     path={itemPath}
-                    schema={schema.item}
-                    readonly={readonly || schema.item.readonly}
-                    compact={compact}
-                    inline={inline}
-                    errorDisplay={errorDisplay}
-                  />
-                </Field>
-              ))}
+                    alreadyFiltered={keyDecidesLocale}
+                  >
+                    <Field
+                      label={key}
+                      path={itemPath}
+                      type={schema.item.type}
+                      readonly={readonly || schema.item.readonly}
+                      compact={compact}
+                      errorDisplay={errorDisplay}
+                    >
+                      <AnyField
+                        path={itemPath}
+                        schema={schema.item}
+                        readonly={readonly || schema.item.readonly}
+                        compact={compact}
+                        inline={inline}
+                        errorDisplay={errorDisplay}
+                      />
+                    </Field>
+                  </LocaleFilteredRow>
+                ))}
         </div>
       </div>
     );
   }
 
-  const renderListAtPathData =
-    renderAtPath &&
-    "data" in renderAtPath &&
-    renderAtPath.data &&
-    renderAtPath.data.layout === "list" &&
-    renderAtPath.data.parent === "record"
-      ? renderAtPath.data
+  const previewAtPathData =
+    previewAtPath &&
+    "data" in previewAtPath &&
+    previewAtPath.data &&
+    previewAtPath.data.rows?.parent === "record"
+      ? previewAtPath.data
       : undefined;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
-      {renderAtPath?.status === "error" && (
-        <PreviewError error={renderAtPath.message} path={path} />
+      {previewAtPath?.status === "error" && (
+        <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {renderListAtPathData && (
-        <ListRecordRenderComponent path={path} {...renderListAtPathData} />
+      {previewAtPathData && (
+        <RecordPreviewList
+          path={path}
+          // The KEYS come from the source, not from the preview's `items`: for a
+          // `.jsonValues()` record `items` covers only the loaded entries, and a
+          // list that rendered just those could never scroll far enough to load
+          // the rest. Each row looks its own item up by key (resolveRefPreview),
+          // so a key with no item falls back to a skeleton or the default preview.
+          keys={visibleKeys(Object.keys(source))}
+          jsonValues={schema.jsonValues === true}
+          keyDecidesLocale={keyDecidesLocale}
+        />
       )}
-      {!renderListAtPathData && (
-        <div className="grid grid-cols-1 gap-4">
-          {source &&
-            Object.entries(source).map(([key]) => (
+      {!previewAtPathData && (
+        <RecordCardList
+          path={path}
+          keys={visibleKeys(Object.keys(source))}
+          jsonValues={schema.jsonValues === true}
+          validationErrors={validationErrors}
+          keyDecidesLocale={keyDecidesLocale}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What an unwritten row is called.
+ *
+ * A locale-keyed record holds every declared language, so a row whose entry is
+ * `null` is a language nobody has translated into — the state the whole design
+ * exists to make countable. The generic `<empty>` said the same thing as a row
+ * whose content happens to be blank, which is the one distinction that matters
+ * here. Every other record keeps the generic wording: its keys say nothing
+ * about language, so there is nothing better to call it.
+ */
+const UNTRANSLATED_LABEL = (keyDecidesLocale: boolean): string | undefined =>
+  keyDecidesLocale ? "Not translated" : undefined;
+
+/**
+ * Row height estimate for the default card layout: gap (16) + border (2) +
+ * card padding (32) + key header (40) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ */
+const CARD_ROW_HEIGHT = 146;
+/**
+ * Row height estimate for a `.preview(...)` row: gap (16) + border (2) +
+ * {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ */
+const PREVIEW_ROW_HEIGHT = 74;
+/**
+ * What `ListPreviewItem` occupies: its own `p-2` (16) around a 40px thumbnail,
+ * which is also the tallest the title + subtitle column gets. The skeleton for
+ * an un-loaded entry is fixed to this so the virtualizer's measurements do not
+ * jump when the entry arrives and the row becomes a real preview.
+ */
+const PREVIEW_ROW_CONTENT_HEIGHT = 56;
+
+/**
+ * A record row, filtered by the locale picker unless the KEY already answered.
+ *
+ * `LocaleFiltered` costs a schema lookup and two source reads per row, so it is
+ * worth not asking when the answer is known: see `keyDecidesLocale` in
+ * `RecordFields`.
+ */
+function LocaleFilteredRow({
+  path,
+  alreadyFiltered,
+  children,
+}: {
+  path: SourcePath;
+  alreadyFiltered: boolean;
+  children: ReactNode;
+}) {
+  if (alreadyFiltered) {
+    return <>{children}</>;
+  }
+  return <LocaleFiltered path={path}>{children}</LocaleFiltered>;
+}
+
+function RecordCardList({
+  path,
+  keys,
+  jsonValues,
+  validationErrors,
+  keyDecidesLocale,
+}: {
+  path: SourcePath;
+  keys: string[];
+  jsonValues: boolean;
+  validationErrors: Record<SourcePath, ValidationError[]>;
+  /** `keys` is already locale-filtered — see `keyDecidesLocale` in `RecordFields`. */
+  keyDecidesLocale: boolean;
+}) {
+  const { navigate } = useNavigation();
+  const val = useValSystem();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
+    moduleFilePath,
+    jsonValues,
+  );
+  return (
+    <VirtualizedRecordList
+      moduleFilePath={moduleFilePath}
+      keys={keys}
+      estimatedRowHeight={CARD_ROW_HEIGHT}
+      jsonValues={jsonValues}
+      className="grid grid-cols-1"
+      renderRow={(key) => {
+        const loadError = errorByKey.get(key);
+        if (loadError !== undefined) {
+          return (
+            <div className="pb-4">
+              <RecordRowError
+                path={sourcePathOfItem(path, key)}
+                label={key}
+                message={loadError}
+                height={96}
+                onRetry={() =>
+                  void val?.system.sourceStore.retryEntry(moduleFilePath, key)
+                }
+              />
+            </div>
+          );
+        }
+        return (
+          <LocaleFilteredRow
+            path={sourcePathOfItem(path, key)}
+            alreadyFiltered={keyDecidesLocale}
+          >
+            <div className="pb-4">
               <div
-                key={key}
                 onClick={() => navigate(sourcePathOfItem(path, key))}
                 className={classNames(
-                  "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                  "bg-bg-primary cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
                   "hover:bg-bg-secondary-hover",
                 )}
               >
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-2">
                   <div className="pb-4 font-semibold text-md">{key}</div>
+                  <ContentViewsBadge
+                    path={sourcePathOfItem(path, key)}
+                    className="ml-auto"
+                  />
                   {isParentError(
                     sourcePathOfItem(path, key),
                     validationErrors,
                   ) && <ErrorIndicator />}
                 </div>
                 <div>
-                  <PreviewWithRender path={sourcePathOfItem(path, key)} />
+                  {unloadedKeys.has(key) ? (
+                    // An un-loaded `.jsonValues()` entry: a preview here would read
+                    // the opaque marker, which is what made these lists a wall of
+                    // spinners.
+                    <RecordRowSkeleton
+                      path={sourcePathOfItem(path, key)}
+                      height={PREVIEW_ROW_CONTENT_HEIGHT}
+                    />
+                  ) : (
+                    <RefPreview
+                      path={sourcePathOfItem(path, key)}
+                      nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                    />
+                  )}
                 </div>
               </div>
-            ))}
-        </div>
-      )}
-    </div>
+            </div>
+          </LocaleFilteredRow>
+        );
+      }}
+    />
   );
 }
 
-function ListRecordRenderComponent({
+/**
+ * Which rows of a `.jsonValues()` record cannot render a preview yet: the ones
+ * whose value in the patched source is still a lazy marker, split by whether the
+ * load merely has not happened (`unloadedKeys` → skeleton) or FAILED
+ * (`errorByKey` → error + retry). A failure is memoized by the engine, so
+ * without the split a failed row pulses as a skeleton forever.
+ *
+ * Computed once for the whole list rather than per row: one source subscription
+ * instead of one per visible row.
+ */
+function useJsonEntryRowStates(
+  moduleFilePath: ModuleFilePath,
+  jsonValues: boolean,
+): {
+  unloadedKeys: ReadonlySet<string>;
+  errorByKey: ReadonlyMap<string, string>;
+} {
+  const val = useValSystem();
+  const moduleSource = useSourceAtPath(moduleFilePath);
+  const data = "data" in moduleSource ? moduleSource.data : undefined;
+  return useMemo(() => {
+    const unloadedKeys = new Set<string>();
+    const errorByKey = new Map<string, string>();
+    if (
+      !jsonValues ||
+      data === undefined ||
+      data === null ||
+      typeof data !== "object" ||
+      Array.isArray(data)
+    ) {
+      return { unloadedKeys, errorByKey };
+    }
+    for (const [key, value] of Object.entries(data)) {
+      if (!Internal.isJson(value)) {
+        continue;
+      }
+      const error = val?.system.sourceStore.entryError(moduleFilePath, key);
+      if (error !== undefined) {
+        errorByKey.set(key, error);
+      } else {
+        unloadedKeys.add(key);
+      }
+    }
+    return { unloadedKeys, errorByKey };
+    // `SourceStore.loadEntry` records the failure before it settles, and a
+    // failure leaves the marker in place — so the module source this memo
+    // depends on has not changed, and the memo would not re-run on its own.
+    // It does not need to: `peek` reports `entry-failed` for a path inside the
+    // entry, which is what wakes the row, and this map is read on that render.
+  }, [jsonValues, data, val, moduleFilePath]);
+}
+
+function RecordPreviewList({
   path,
-  items,
+  keys,
+  jsonValues,
+  keyDecidesLocale,
 }: {
   path: SourcePath;
-  items: ListRecordRender["items"];
+  /** Every key of the record, in source order — see the call site. */
+  keys: string[];
+  jsonValues: boolean;
+  /** `keys` is already locale-filtered — see `keyDecidesLocale` in `RecordFields`. */
+  keyDecidesLocale: boolean;
 }) {
   const { navigate } = useNavigation();
+  const val = useValSystem();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
+    moduleFilePath,
+    jsonValues,
+  );
   return (
-    <div className="flex flex-col space-y-4 w-full">
-      {items.map(([key]) => (
-        <button
-          key={key}
-          onClick={() => navigate(sourcePathOfItem(path, key))}
-          className={classNames(
-            "hover:bg-bg-secondary-hover",
-            "border rounded-lg cursor-pointer border-border-primary",
-          )}
-        >
-          <PreviewWithRender path={sourcePathOfItem(path, key)} />
-        </button>
-      ))}
-    </div>
+    <VirtualizedRecordList
+      moduleFilePath={moduleFilePath}
+      keys={keys}
+      estimatedRowHeight={PREVIEW_ROW_HEIGHT}
+      jsonValues={jsonValues}
+      className="flex flex-col w-full"
+      renderRow={(key) => {
+        const loadError = errorByKey.get(key);
+        if (loadError !== undefined) {
+          return (
+            <div className="pb-4">
+              <RecordRowError
+                path={sourcePathOfItem(path, key)}
+                label={key}
+                message={loadError}
+                height={72}
+                onRetry={() =>
+                  void val?.system.sourceStore.retryEntry(moduleFilePath, key)
+                }
+              />
+            </div>
+          );
+        }
+        return (
+          <LocaleFilteredRow
+            path={sourcePathOfItem(path, key)}
+            alreadyFiltered={keyDecidesLocale}
+          >
+            <div className="pb-4">
+              <button
+                onClick={() => navigate(sourcePathOfItem(path, key))}
+                className={classNames(
+                  "w-full hover:bg-bg-secondary-hover",
+                  "border rounded-lg cursor-pointer border-border-primary",
+                )}
+              >
+                <div className="flex items-start gap-1">
+                  <div className="flex-1 min-w-0">
+                    {unloadedKeys.has(key) ? (
+                      <RecordRowSkeleton
+                        path={sourcePathOfItem(path, key)}
+                        height={PREVIEW_ROW_CONTENT_HEIGHT}
+                      />
+                    ) : (
+                      <RefPreview
+                        path={sourcePathOfItem(path, key)}
+                        nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                      />
+                    )}
+                  </div>
+                  <ContentViewsBadge
+                    path={sourcePathOfItem(path, key)}
+                    className="mt-2 mr-2"
+                  />
+                </div>
+              </button>
+            </div>
+          </LocaleFilteredRow>
+        );
+      }}
+    />
   );
 }
 

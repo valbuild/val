@@ -117,7 +117,7 @@ describe("serializeEditorDocument / parseEditorDocument round-trip", () => {
     expect(roundTrip(input)).toEqual(input);
   });
 
-  test("inline image with file source object", () => {
+  test("inline image with a media source object", () => {
     const input: EditorDocument = [
       {
         tag: "p",
@@ -125,7 +125,7 @@ describe("serializeEditorDocument / parseEditorDocument round-trip", () => {
           "Before ",
           {
             tag: "img",
-            src: { _ref: "/public/img.png", _type: "file", _tag: "image" },
+            src: { path: "/public/img.png" },
           },
           " after",
         ],
@@ -134,7 +134,7 @@ describe("serializeEditorDocument / parseEditorDocument round-trip", () => {
     expect(roundTrip(input)).toEqual(input);
   });
 
-  test("inline image with plain string src normalizes to file source", () => {
+  test("inline image with plain string src normalizes to a media source", () => {
     const input: EditorDocument = [
       {
         tag: "p",
@@ -148,7 +148,7 @@ describe("serializeEditorDocument / parseEditorDocument round-trip", () => {
       const imgNode = result[0].children[1];
       expect(imgNode).toEqual({
         tag: "img",
-        src: { _ref: "/public/img.png", _type: "file", _tag: "image" },
+        src: { path: "/public/img.png" },
       });
     }
   });

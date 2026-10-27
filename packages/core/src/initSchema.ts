@@ -1,22 +1,33 @@
 // import type { F } from "ts-toolbelt";
 import { array } from "./schema/array";
-import { number } from "./schema/number";
+import { int, number } from "./schema/number";
 import { object } from "./schema/object";
 import { string } from "./schema/string";
 import { boolean } from "./schema/boolean";
 import { union } from "./schema/union";
-import { richtext } from "./schema/richtext";
-import { image } from "./schema/image";
+import { discriminatedUnion } from "./schema/discriminatedUnion";
+import { enumSchema } from "./schema/enum";
+import { richtext, remoteRichtext } from "./schema/richtext";
+import { image, remoteImage } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
+import { view } from "./schema/view";
 import { record } from "./schema/record";
-import { file } from "./schema/file";
-import { files } from "./schema/files";
+import { file, remoteFile } from "./schema/file";
+import { font, remoteFont } from "./schema/font";
+import { video, remoteVideo } from "./schema/video";
+import { filedir, fileset } from "./schema/filedir";
+import { fontdir, fontset } from "./schema/fontdir";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
+import { code } from "./schema/code";
+import { color } from "./schema/color";
+import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
-import { images } from "./schema/images";
+import { imagedir, imageset, remoteImagedir } from "./schema/imagedir";
+import { videodir, videoset, remoteVideodir } from "./schema/videodir";
+import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -68,24 +79,71 @@ export type InitSchema = {
    */
   readonly number: typeof number;
   /**
-   * Define a union.
+   * Define a whole number. The source is an ordinary `number`; `s.int()` adds
+   * the rule that it has no decimals.
    *
-   * @example // union of string literals
-   * const schema = s.union(s.literal("test"), s.literal("test2"));
-   * export default c.define("/example.val.ts", schema, "test");
+   * Takes `.min()`, `.max()` and `.step()` for what the value may be, and
+   * `.render({ as: "slider", min, max })` to edit it with a slider.
    *
-   * @example // union of string literals
-   * const schema = s.union("type", s.object({
-   *   type: s.literal("test"),
-   *   value: s.string()
-   * }), s.object({
-   *   type: s.literal("test2"),
-   *   value: s.string()
-   * }));
+   * @example
+   * const schema = s.object({
+   *   columns: s.int().min(1).max(6),
+   *   opacity: s.int().min(0).max(100).step(5).render({
+   *     as: "slider",
+   *     min: 0,
+   *     max: 100,
+   *   }),
+   * });
    * export default c.define("/example.val.ts", schema, {
-   *   type: "test",
+   *   columns: 3,
+   *   opacity: 40,
+   * });
+   */
+  readonly int: typeof int;
+  /**
+   * Define one of several object shapes, told apart by a tag field.
+   *
+   * The first argument names the field that carries the tag; every object must
+   * set it to a distinct `s.literal(...)`. The editor shows a dropdown of the
+   * tags and the fields of whichever one is selected.
+   *
+   * @example
+   * const schema = s.discriminatedUnion("type",
+   *   s.object({ type: s.literal("text"), value: s.string() }),
+   *   s.object({ type: s.literal("image"), value: s.image() }),
+   * );
+   * export default c.define("/example.val.ts", schema, {
+   *   type: "text",
    *   value: "test"
    * });
+   *
+   */
+  readonly discriminatedUnion: typeof discriminatedUnion;
+  /**
+   * Define a string that must be one of a fixed set of values.
+   *
+   * The editor shows a dropdown of the values, in the order they are given.
+   *
+   * @example
+   * const schema = s.enum("primary", "secondary", "ghost");
+   * export default c.define("/example.val.ts", schema, "primary");
+   *
+   */
+  readonly enum: typeof enumSchema;
+  /**
+   * Define a union.
+   *
+   * @deprecated Use `s.discriminatedUnion` for a tagged union of objects, or
+   * `s.enum` for one of a fixed set of strings.
+   *
+   * @example // was: a union of string literals
+   * const schema = s.enum("test", "test2");
+   *
+   * @example // was: a tagged union of objects
+   * const schema = s.discriminatedUnion("type",
+   *   s.object({ type: s.literal("test"), value: s.string() }),
+   *   s.object({ type: s.literal("test2"), value: s.string() }),
+   * );
    *
    */
   readonly union: typeof union;
@@ -93,7 +151,8 @@ export type InitSchema = {
    * Define a rich text.
    *
    * @example
-   * const schema = s.richtext();
+   * // Every tag and style is off until the options ask for it.
+   * const schema = s.richtext({ h1: true, bold: true });
    * export default c.define("/example.val.ts", schema, [
    *   { tag: "h1", children: ["Title 1"] },
    * ]);
@@ -102,19 +161,29 @@ export type InitSchema = {
   /**
    * Define an image.
    *
-   * Use c.image to create an image source.
+   * An image is an object with a `path`. `width`, `height` and `mimeType` are
+   * read from the file — the VS Code extension fills them in as you type the
+   * path, and `npx val validate --fix` adds any that are missing. `alt` and
+   * `hotspot` are yours to set.
    *
    * @example
    * const schema = s.image();
-   * export default c.define("/example.val.ts", schema, c.image("/public/val/example.png", {
-   *  width: 100,
-   *  height: 100,
-   *  mimeType: "image/png",
-   *  hotspot: {
-   *    x: 0.5,
-   *    y: 0.5
-   *  }
-   * }));
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/png",
+   *   alt: "An example",
+   *   hotspot: { x: 0.5, y: 0.5 },
+   * });
+   *
+   * @example
+   * // Backed by a gallery: width, height and mimeType live there.
+   * import galleryVal from "./gallery.val"; // an s.imagedir() module
+   * const schema = s.image(galleryVal);
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   * });
    *
    */
   readonly image: typeof image;
@@ -138,6 +207,23 @@ export type InitSchema = {
    */
   readonly keyOf: typeof keyOf;
   /**
+   * Show another module as part of this one, in the Val editor only.
+   *
+   * The source is a pointer — `{ view: "/other.val.ts" }` — and nothing else.
+   * The module it names keeps its own source, patches, validation and address;
+   * the editor shows a row here that navigates to it.
+   *
+   * @example
+   * import otherVal from "./other.val"; // another module
+   * const schema = s.object({ shared: s.view(otherVal), title: s.string() });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
+   *
+   */
+  readonly view: typeof view;
+  /**
    * Define a record.
    *
    * @example
@@ -149,14 +235,66 @@ export type InitSchema = {
   /**
    * Define a file.
    *
-   * Use `c.file` to create a file source.
+   * A file is an object with a `path`. `mimeType` comes from the extension —
+   * `npx val validate --fix` adds it.
    *
    * @example
    * const schema = s.file();
-   * export default c.define("/example.val.ts", schema, c.file("/public/val/example.png"));
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
    *
    */
   readonly file: typeof file;
+  /**
+   * A font picked from an `s.fontdir()`: `s.file(fontsVal)` for fonts, which
+   * refuses a module that is not a font set. The Studio shows it in its parent
+   * as the font's "A" and file name, and opens it on the set to pick from.
+   *
+   * @example
+   * ```typescript
+   * import fontsVal from "./fonts.val"; // an s.fontdir() module
+   * const schema = s.object({ headingFont: s.font(fontsVal) });
+   * // source: { headingFont: { path: "/public/val/fonts/inter_a1b2c.woff2" } }
+   * ```
+   */
+  readonly font: typeof font;
+  /**
+   * Define a video.
+   *
+   * A video is an object with a `path` and a `mimeType`: an `.mp4` / `.webm`
+   * file, or — with `stream: { type: "hls" }` — an HLS stream the Studio
+   * transcodes an upload into, in the browser. `width`, `height` and
+   * `duration` are read from the file (`npx val validate --fix` adds them);
+   * `posterTime`, `startTime`, `endTime`, `hotspot`, `alt` and `captions` are
+   * authored in the Studio.
+   *
+   * @example
+   * const schema = s.video({ stream: { type: "hls" } });
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/intro_3b9d7/master.m3u8",
+   *   mimeType: "application/vnd.apple.mpegurl",
+   *   width: 1920,
+   *   height: 1080,
+   *   duration: 42.5,
+   *   startTime: 2,
+   *   alt: "The team walking into the office",
+   *   captions: [
+   *     { path: "/public/val/intro_en_8f2a1.vtt", srclang: "en", label: "English" },
+   *   ],
+   * });
+   *
+   * @example
+   * // Picked from a set: mimeType, width, height and duration live there.
+   * import videosVal from "./videos.val"; // an s.videodir() module
+   * const schema = s.video(videosVal);
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/videos/intro_51df2.mp4",
+   *   startTime: 2,
+   * });
+   */
+  readonly video: typeof video;
   /**
    * Define a date.
    *
@@ -178,6 +316,42 @@ export type InitSchema = {
    */
   readonly datetime: typeof datetime;
   /**
+   * Define a color.
+   *
+   * Stored as a CSS color string, so it can be used directly in `style`
+   * attributes or set as a CSS custom property.
+   *
+   * The notation is decided by the `format` option, which defaults to `"hsl"`.
+   * Set `alpha: true` to allow transparency.
+   *
+   * @example
+   * const schema = s.color();
+   * export default c.define("/example.val.ts", schema, "hsl(217.22 91.22% 59.8%)");
+   *
+   * @example
+   * const schema = s.color({ format: "hex" });
+   * export default c.define("/example.val.ts", schema, "#3b82f6");
+   *
+   */
+  readonly color: typeof color;
+  /**
+   * Define a string edited in a code editor.
+   *
+   * Pass a `language` to syntax highlight it; leave it out for a plain
+   * monospaced editor. The value is a plain string, and — unlike `s.string()` —
+   * it is never stega encoded, so the code reaches your app as it was written.
+   *
+   * @example
+   * const schema = s.code({ language: "typescript" });
+   * export default c.define("/example.val.ts", schema, "const a = 1;");
+   *
+   * @example
+   * const schema = s.code();
+   * export default c.define("/example.val.ts", schema, "no highlighting here");
+   *
+   */
+  readonly code: typeof code;
+  /**
    * Define a string that references a route path in your application.
    *
    * To create router pages you can use the s.router() function.
@@ -189,6 +363,20 @@ export type InitSchema = {
    * ```
    */
   readonly route: typeof route;
+  /**
+   * Define one of the project's languages.
+   *
+   * The languages themselves are declared in the settings module, under
+   * `locales.available` — this says only that a value is one of them, which is
+   * checked against that list.
+   *
+   * @example // a field: everything under this object is in this language
+   * const schema = s.object({ locale: s.locale(), title: s.string() });
+   *
+   * @example // a key: one entry per language
+   * const schema = s.record(s.locale(), s.object({ title: s.string() }));
+   */
+  readonly locale: typeof locale;
   /**
    * Create a page router.
    * Each key is the path of the page.
@@ -209,19 +397,41 @@ export type InitSchema = {
    * });
    * ```
    *
+   * @example Route parameters, by the names the route file gives them
+   * ```typescript
+   * import { s, c, tanstackRouter } from "../val.config";
+   * // `/about` is English and `/nb/about` Norwegian: `{-$locale}` is an
+   * // optional segment, and `{ null }` says what a URL without it is in.
+   * const locale = s
+   *   .enum("nb")
+   *   .nullable()
+   *   .locales({ nb: "nb-NO" }, { null: "en-US" });
+   * export default c.define(
+   *   "/src/routes/{-$locale}.$slug.val.ts",
+   *   s.router(tanstackRouter, { locale, slug: s.string() }, s.object({ title: s.string() })),
+   *   {
+   *     "/about": { title: "About us" },
+   *     "/nb/about": { title: "Om oss" },
+   *   },
+   * );
+   * ```
+   *
    * @param router - The router configuration (e.g., nextAppRouter)
    * @param schema - The schema for each route item
    * @returns A RecordSchema configured as a router
    */
   readonly router: typeof router;
   /**
-   * Define a collection of images.
+   * Define a directory of images: a whole module of images, keyed by file
+   * path, that fields pick from with `s.image(galleryVal)`.
+   *
+   * The first argument is the directory uploads land in, and must start with
+   * `/public`.
    *
    * @example
    * ```typescript
-   * const schema = s.images({
+   * const schema = s.imagedir("/public/val/images", {
    *   accept: "image/webp",
-   *   directory: "/public/val/images",
    *   alt: s.string().minLength(4),
    * });
    * export default c.define("/content/images.val.ts", schema, {
@@ -234,15 +444,18 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly images: typeof images;
+  readonly imagedir: typeof imagedir;
   /**
-   * Define a collection of files.
+   * Define a directory of files: a whole module of files, keyed by file path,
+   * that fields pick from with `s.file(filesVal)`.
+   *
+   * The first argument is the directory uploads land in, and must start with
+   * `/public`.
    *
    * @example
    * ```typescript
-   * const schema = s.files({
+   * const schema = s.filedir("/public/val/documents", {
    *   accept: "application/pdf",
-   *   directory: "/public/val/documents",
    * });
    * export default c.define("/content/documents.val.ts", schema, {
    *   "/public/val/documents/report.pdf": {
@@ -251,12 +464,183 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly files: typeof files;
+  readonly filedir: typeof filedir;
+  /**
+   * Define a directory of fonts: an `s.filedir()` that accepts the web font
+   * formats, and whose files the Studio previews as type. A field picks from
+   * it with `s.font(fontsVal)`.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.fontdir("/public/val/fonts");
+   * export default c.define("/content/fonts.val.ts", schema, {
+   *   "/public/val/fonts/inter_a1b2c.woff2": {
+   *     mimeType: "font/woff2",
+   *   },
+   * });
+   * ```
+   */
+  readonly fontdir: typeof fontdir;
+  /**
+   * Define a directory of videos. A field picks from it with
+   * `s.video(videosVal)`.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.videodir("/public/val/videos", {
+   *   stream: { type: "hls" },
+   * });
+   * export default c.define("/content/videos.val.ts", schema, {
+   *   "/public/val/videos/intro_51df2.mp4": {
+   *     mimeType: "video/mp4",
+   *     width: 1280,
+   *     height: 720,
+   *     duration: 12.5,
+   *     alt: "The team, introducing itself",
+   *   },
+   * });
+   * ```
+   */
+  readonly videodir: typeof videodir;
+  /**
+   * Define a collection of images.
+   *
+   * @deprecated Use `s.imagedir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.imageset({ dir: "/public/val/images", accept: "image/webp" })
+   * const schema = s.imagedir("/public/val/images", { accept: "image/webp" });
+   * ```
+   */
+  readonly imageset: typeof imageset;
+  /**
+   * Define a collection of files.
+   *
+   * @deprecated Use `s.filedir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.fileset({ dir: "/public/val/documents", accept: "application/pdf" })
+   * const schema = s.filedir("/public/val/documents", {
+   *   accept: "application/pdf",
+   * });
+   * ```
+   */
+  readonly fileset: typeof fileset;
+  /**
+   * Define a collection of fonts.
+   *
+   * @deprecated Use `s.fontdir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.fontset({ dir: "/public/val/fonts" })
+   * const schema = s.fontdir("/public/val/fonts");
+   * ```
+   */
+  readonly fontset: typeof fontset;
+  /**
+   * Define a collection of videos.
+   *
+   * @deprecated Use `s.videodir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } })
+   * const schema = s.videodir("/public/val/videos", { stream: { type: "hls" } });
+   * ```
+   */
+  readonly videoset: typeof videoset;
+  /**
+   * Define the project's settings.
+   *
+   * One per project, at the root of the content tree — a module file path with
+   * no directory segment, `/settings.val.ts` by convention. Every section is
+   * optional, so `{}` is a complete settings module and stays one as sections
+   * are added.
+   *
+   * @example
+   * ```typescript
+   * export default c.define("/settings.val.ts", s.settings(), {});
+   * ```
+   *
+   * @example
+   * ```typescript
+   * export default c.define("/settings.val.ts", s.settings(), {
+   *   assistant: {
+   *     enabled: true,
+   *     context: "A CMS for developers. British English throughout.",
+   *     tone: "Plain and direct. Sentence case in headings.",
+   *   },
+   * });
+   * ```
+   */
+  readonly settings: typeof settings;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
 // };
-export function initSchema() {
+export type InitSchemaOptions = {
+  /**
+   * Every media schema is remote: `files.remote` in `val.config.ts`.
+   *
+   * `s.image()`, `s.file()`, `s.video()`, `s.imagedir()`, `s.filedir()`,
+   * `s.fontdir()` and `s.videodir()` (and their deprecated `*set` names) come back with `.remote()` already applied, and so does the
+   * image `s.richtext({ img: true })` builds for itself. Nothing downstream
+   * needs to know: the Studio, the MCP tools, validation and publishing all
+   * read `remote` off the schema, exactly as they do for a `.remote()` written
+   * by hand.
+   *
+   * It is the factories that change, not the schemas, so a schema built here
+   * is indistinguishable from one written with `.remote()`.
+   */
+  remote?: boolean;
+};
+
+export function initSchema(options?: InitSchemaOptions): InitSchema {
+  const media =
+    options?.remote === true
+      ? {
+          image: remoteImage,
+          file: remoteFile,
+          font: remoteFont,
+          video: remoteVideo,
+          richtext: remoteRichtext,
+          imagedir: remoteImagedir,
+          filedir: ((dir, options) =>
+            filedir(dir, options).remote()) satisfies typeof filedir,
+          fontdir: ((dir, options) =>
+            fontdir(dir, options).remote()) satisfies typeof fontdir,
+          videodir: remoteVideodir,
+          imageset: ((options) =>
+            imageset(options).remote()) satisfies typeof imageset,
+          fileset: ((options) =>
+            fileset(options).remote()) satisfies typeof fileset,
+          fontset: ((options) =>
+            fontset(options).remote()) satisfies typeof fontset,
+          videoset: ((options) =>
+            videoset(options).remote()) satisfies typeof videoset,
+        }
+      : {
+          image,
+          file,
+          font,
+          video,
+          richtext,
+          imagedir,
+          filedir,
+          fontdir,
+          videodir,
+          imageset,
+          fileset,
+          fontset,
+          videoset,
+        };
   // locales: F.Narrow<Locales>
   return {
     string,
@@ -264,20 +648,36 @@ export function initSchema() {
     array,
     object,
     number,
+    int,
+    discriminatedUnion,
+    enum: enumSchema,
     union,
     // oneOf,
-    richtext,
-    image,
+    richtext: media.richtext,
+    image: media.image,
     literal,
     keyOf,
+    view,
     record,
-    file,
-    files,
+    file: media.file,
+    font: media.font,
+    video: media.video,
+    filedir: media.filedir,
+    fontdir: media.fontdir,
+    fileset: media.fileset,
+    fontset: media.fontset,
     date,
     datetime,
+    color,
+    code,
+    locale,
     route,
     router,
-    images,
+    imagedir: media.imagedir,
+    videodir: media.videodir,
+    imageset: media.imageset,
+    videoset: media.videoset,
+    settings,
     // i18n: i18n(locales),
   };
 }

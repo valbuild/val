@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { ModuleFilePath, PatchId, DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import {
+  ModuleFilePath,
+  PatchId,
+  DEFAULT_CONTENT_HOST,
+  Internal,
+} from "@valbuild/core";
 import { ValOpsFS } from "../ValOpsFS";
 import { loadValModules } from "../loadValModules";
 import {
@@ -67,7 +72,7 @@ export async function replaySnapshot(
     valModules,
     // The snapshot's own val.config, as evaluated by loadValModules - no need to
     // re-read it, and this way the replay uses exactly the config the snapshot
-    // carries (files.directory in particular).
+    // carries.
     { config: valModules.config },
   );
   const patchesRes = await serverOps.fetchPatches({
@@ -81,7 +86,7 @@ export async function replaySnapshot(
   }
   if (patchesRes.errors && patchesRes.errors.length > 0) {
     for (const err of patchesRes.errors) {
-      console.error(`Snapshot patch could not be read: ${err.message}`);
+      Internal.log.error(`Snapshot patch could not be read: ${err.message}`);
     }
   }
   const analysis: PatchAnalysis & OrderedPatches = {

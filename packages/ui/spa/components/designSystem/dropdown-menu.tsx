@@ -57,10 +57,14 @@ DropdownMenuSubContent.displayName =
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
+    /**
+     * Render the menu inside this element — the Studio's portal node, in
+     * practice. Needed whenever an ancestor clips overflow.
+     */
     container?: HTMLElement | null;
   }
->(({ className, sideOffset = 4, container, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal container={container}>
+>(({ className, sideOffset = 4, container, ...props }, ref) => {
+  const content = (
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
@@ -70,8 +74,24 @@ const DropdownMenuContent = React.forwardRef<
       )}
       {...props}
     />
-  </DropdownMenuPrimitive.Portal>
-));
+  );
+  // Only portal when we are given somewhere to portal to. Radix's default
+  // container is `document.body`, which is OUTSIDE the shadow root that
+  // carries our styles: the menu opens, unstyled and with no stacking context
+  // of its own, behind the Studio — which looks exactly like a trigger that
+  // does nothing. That has now cost us the same bug twice, so the safe
+  // fallback lives here rather than in every call site. Inline can be clipped
+  // by an `overflow-hidden` ancestor; invisible cannot be recovered from.
+  // `TooltipContent` does the same, for the same reason.
+  if (!container) {
+    return content;
+  }
+  return (
+    <DropdownMenuPrimitive.Portal container={container}>
+      {content}
+    </DropdownMenuPrimitive.Portal>
+  );
+});
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 const DropdownMenuItem = React.forwardRef<

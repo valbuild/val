@@ -1,0 +1,77 @@
+import {
+  MediaCollectionType,
+  ModuleFilePath,
+  SerializedSchema,
+} from "@valbuild/core";
+import { MediaModule, NavItemErrors } from "./types";
+import { isFontAccept } from "../../utils/fileAccept";
+
+/**
+ * Whether a module is an `s.imagedir()` / `s.filedir()` / `s.videodir()`
+ * gallery.
+ *
+ * All are records with a `mediaType` marker on the SERIALIZED schema, so this
+ * needs no sources and costs nothing per keystroke.
+ */
+export function isGallerySchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedSchema & {
+  type: "record";
+  mediaType: MediaCollectionType;
+} {
+  return schema?.type === "record" && !!schema.mediaType;
+}
+
+/**
+ * The project's galleries, labelled by the directory each is constrained to -
+ * which is the unit an editor thinks in, rather than the `.val.ts` declaring it.
+ *
+ * A gallery whose schema is `hidden` is left out, for the same reason
+ * `useTrees` leaves a hidden module out of the Explorer: a module has no parent
+ * to be hidden from, so the flag can only mean "do not list this". It stays
+ * reachable — from an `s.view()` row, from a field that picks out of it, from
+ * search — and opens in full.
+ */
+export function collectMediaModules(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+  collectErrors: (moduleFilePath: ModuleFilePath) => NavItemErrors | undefined,
+): MediaModule[] {
+  const media: MediaModule[] = [];
+  for (const moduleFilePathS in schemas) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    const schema = schemas[moduleFilePath];
+    if (!isGallerySchema(schema) || schema.hidden) {
+      continue;
+    }
+    media.push({
+      moduleFilePath,
+      // A gallery without an explicit directory is still a gallery; fall back to
+      // the module path so the row has something to identify it by.
+      dir: schema.dir ?? moduleFilePath,
+      mediaType: schema.mediaType,
+      ...(schema.mediaType === "files" && isFontAccept(schema.accept)
+        ? { fonts: true }
+        : {}),
+      errors: collectErrors(moduleFilePath),
+    });
+  }
+  return media.sort((a, b) => a.dir.localeCompare(b.dir));
+}
+
+/**
+ * Drops the given paths from a path tree.
+ *
+ * Gallery modules live under Media, so they are not also files in the explorer
+ * tree: two entry points for one module is confusing, and the explorer one opens
+ * a record of file paths rather than the gallery.
+ */
+export function excludePathsFromTree<
+  T extends { fullPath: string; children: T[] },
+>(node: T, excludedPaths: ReadonlySet<string>): T {
+  return {
+    ...node,
+    children: node.children
+      .filter((child) => !excludedPaths.has(child.fullPath))
+      .map((child) => excludePathsFromTree(child, excludedPaths)),
+  };
+}

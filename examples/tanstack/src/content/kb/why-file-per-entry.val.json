@@ -1,0 +1,7 @@
+{
+  "title": "Why one file per entry?",
+  "body": "So that reading, validating or patching one entry never costs the whole record.",
+  "order": 1,
+  "author": "ada",
+  "related": "/docs/guides/routing"
+}

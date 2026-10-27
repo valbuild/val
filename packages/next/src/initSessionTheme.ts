@@ -1,5 +1,5 @@
 import { ValConfig } from "@valbuild/core";
-import { VAL_THEME_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import { VAL_THEME_SESSION_STORAGE_KEY } from "@valbuild/shared/client";
 
 export function initSessionTheme(config: ValConfig) {
   if (typeof window === "undefined") {

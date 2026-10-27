@@ -4,7 +4,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -13,6 +13,8 @@ import {
 
 export type SerializedLiteralSchema = {
   type: "literal";
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   value: string;
   opt: boolean;
   customValidate?: boolean;
@@ -22,6 +24,9 @@ export type SerializedLiteralSchema = {
 };
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
+  /** Type-only marker: as a record key, this declares the key set. See `LocaleSchema`. */
+  declare readonly __declaresRecordKeys: true;
+
   constructor(
     private readonly value: string,
     private readonly opt: boolean = false,
@@ -29,10 +34,30 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .literal("hero")
+   *   .describe("The block type — it identifies the variant");
+   * export default c.define("/example.val.ts", schema, "hero");
+   */
   describe(description: string | null): LiteralSchema<Src> {
     return new LiteralSchema(
       this.value,
@@ -41,9 +66,30 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.literal("hero").validate((val) =>
+   *   val === "hero" ? false : "Unknown block type",
+   * );
+   * export default c.define("/example.val.ts", schema, "hero");
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): LiteralSchema<Src> {
@@ -54,6 +100,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -140,38 +187,89 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     return new LiteralSchema<Src | null>(
       this.value,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  readonly(): LiteralSchema<Src> {
+  readonly(isReadonly: boolean = true): LiteralSchema<Src> {
     return new LiteralSchema<Src>(
       this.value,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  hidden(): LiteralSchema<Src> {
+  hidden(isHidden: boolean = true): LiteralSchema<Src> {
     return new LiteralSchema<Src>(
       this.value,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
+      this.previewInput,
     );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.literal("hero").preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["hero"]);
+   */
+  preview(select: ItemPreviewInput<Src>): LiteralSchema<Src> {
+    return new LiteralSchema(
+      this.value,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
     return {
       type: "literal",
+      preview: this.previewInput ? true : undefined,
       value: this.value,
       opt: this.opt,
       customValidate:
@@ -181,10 +279,6 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executeRender(): ReifiedRender {
-    return {};
   }
 }
 

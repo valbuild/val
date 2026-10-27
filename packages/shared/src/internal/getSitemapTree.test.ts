@@ -1,7 +1,7 @@
 import { ModuleFilePath } from "@valbuild/core";
-import { getNextAppRouterSitemapTree } from "./getSitemapTree";
+import { getPageRouterSitemapTree } from "./getSitemapTree";
 
-describe("getNextAppRouterSitemapTree", () => {
+describe("getPageRouterSitemapTree", () => {
   it("should build a complex sitemap tree with various route types", () => {
     const paths: { urlPath: string; moduleFilePath: ModuleFilePath }[] = [
       {
@@ -30,7 +30,7 @@ describe("getNextAppRouterSitemapTree", () => {
       },
     ];
 
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toEqual({
       type: "node",
@@ -145,7 +145,7 @@ describe("getNextAppRouterSitemapTree", () => {
       },
     ];
 
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toEqual({
       type: "node",
@@ -234,7 +234,7 @@ describe("getNextAppRouterSitemapTree", () => {
       },
     ];
 
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toEqual({
       type: "node",
@@ -313,7 +313,7 @@ describe("getNextAppRouterSitemapTree", () => {
     const paths = [
       { urlPath: "/", moduleFilePath: "/app/page.val.ts" as ModuleFilePath },
     ];
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toStrictEqual({
       type: "node",
@@ -339,7 +339,7 @@ describe("getNextAppRouterSitemapTree", () => {
         moduleFilePath: "/app/foo/page.val.ts" as ModuleFilePath,
       },
     ];
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toEqual({
       type: "node",
@@ -379,7 +379,7 @@ describe("getNextAppRouterSitemapTree", () => {
         moduleFilePath: "/app/(main)/foo/page.val.ts" as ModuleFilePath,
       },
     ];
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     expect(sitemap).toStrictEqual({
       type: "node",
       name: "/",
@@ -421,7 +421,7 @@ describe("getNextAppRouterSitemapTree", () => {
         moduleFilePath: "/app/page.val.ts",
       },
     ];
-    const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    const sitemap = getPageRouterSitemapTree("/app", paths);
     console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toEqual({
       type: "node",

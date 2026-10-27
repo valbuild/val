@@ -9,6 +9,9 @@ import { login } from "./login";
 import { lsp } from "./lsp";
 import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
+import { publish } from "./publish";
+import { ciReport } from "./ciReport";
+import { checkBuildTools } from "./checkBuildTools";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -24,6 +27,7 @@ async function main(): Promise<void> {
         login
         files
         connect
+        publish
         versions
         lsp
         debug
@@ -35,6 +39,7 @@ async function main(): Promise<void> {
         --root [root], -r [root] Set project root directory (default process.cwd())
         --fix  [fix]             Attempt to fix validation errors
         --watch, -w              Re-validate on changes to val.config, val.modules and *.val files
+        --strict                 Fail on warnings too (local files in a project with remote files)
 
       
       Command: login
@@ -44,13 +49,65 @@ async function main(): Promise<void> {
 
 
       Command: connect
-      Description: connect your local project to a Val Build project at admin.val.build
+      Description: open admin.val.build to connect this project, with its repository
+                   and val.config.ts project filled in
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 
+      Command: ci-report
+      Description: tell content how CI's build of a commit went, for a connected
+                   project's workflow. Run as its last step, whatever the build did:
+                   a failed build then reads "Published, not on the site yet" in the
+                   Studio, with a link to the run. Never fails the job.
+      Options:
+        --status [failed|succeeded]  How the build went
+        --commit [sha]           The commit built (default GITHUB_SHA)
+        --branch [name]          Its branch (default GITHUB_REF_NAME, else the project's)
+        --url [url]              The run (default this GitHub Actions run)
+
+      Command: publish
+      Description: build this project and publish it through content.val.build.
+        Asks content what to build against, builds the site and its dependency layer from
+        the checkout (needs @valbuild/tanstack-build, rolldown, @tanstack/router-generator
+        and @tanstack/router-plugin installed), declares the artifacts, uploads the ones
+        content does not already hold, and has content verify it by building and rendering
+        a canary before the site changes. With --artifacts, or a .val/publish directory,
+        it publishes that build instead of making one. Authenticates with VAL_PROJECT_TOKEN,
+        or with the "val login" token in .val/pat.json (which needs the project, as
+        "<org>/<project>", in val.config or VAL_PROJECT). Never as a flag: an argument is
+        visible to anyone who can list processes, and it is kept in shell history and in
+        every CI log.
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
+        --artifacts [dir]        Publish a build made elsewhere (default: build the checkout,
+                                 unless <root>/.val/publish exists). The path of each file
+                                 under it is its artifact key: server, client, css, rsc,
+                                 layer, source, or a path under chunk/server, chunk/client,
+                                 chunk/rsc, asset, public
+        --commit [sha]           The commit this build is of (default VAL_GIT_COMMIT,
+                                 else GITHUB_SHA, else git HEAD)
+        --branch [name]          The branch content commits saves to (default VAL_GIT_BRANCH,
+                                 else GITHUB_REF_NAME, else the current git branch)
+        --layer-rev [rev]        Name the dependency layer content already holds, when this
+                                 build does not send one
+        --build-hash [hash]      Identify the build (default: a hash of its artifacts).
+                                 Declaring the same one twice resumes that publish
+        --links-own-css          The app links its own CSS (--no-links-own-css for the
+                                 opposite; omit it when the build did not say)
+        --dry-run                Verify, and stop before the site changes
+        --skip-validation        Publish without running "val validate" first. It runs by
+                                 default, and an error stops the publish
+        --strict                 Let a validation warning stop the publish too
+
+      Command: check-build-tools
+      Description: load what "val publish" builds with, and build a one-line module with
+        it: whether this install could publish, without asking content anything. Val Build
+        runs it on an upgrade's install before a connected project can publish the upgrade.
+        Fails when it could not.
+
       Command: list-unused-files
       Description: EXPERIMENTAL.
-        List files that are in the configured files directory (files.directory, default public/val) but not in use by any Val module.
+        List files that are in the configured files directory (public/val) but not in use by any Val module.
         This is useful for cleaning up unused files.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
@@ -112,6 +169,18 @@ async function main(): Promise<void> {
         out: {
           type: "string",
         },
+        artifacts: {
+          type: "string",
+        },
+        layerRev: {
+          type: "string",
+        },
+        buildHash: {
+          type: "string",
+        },
+        linksOwnCss: {
+          type: "boolean",
+        },
         commit: {
           type: "string",
         },
@@ -127,11 +196,23 @@ async function main(): Promise<void> {
         dryRun: {
           type: "boolean",
         },
+        skipValidation: {
+          type: "boolean",
+        },
+        strict: {
+          type: "boolean",
+        },
         yes: {
           type: "boolean",
         },
         verbose: {
           type: "boolean",
+        },
+        status: {
+          type: "string",
+        },
+        url: {
+          type: "string",
         },
       },
       hardRejection: false,
@@ -181,6 +262,29 @@ async function main(): Promise<void> {
         yes: flags.yes,
         verbose: flags.verbose,
       });
+    case "check-build-tools":
+      return checkBuildTools();
+    case "ci-report":
+      return ciReport({
+        root: flags.root,
+        status: flags.status,
+        commit: flags.commit,
+        branch: flags.branch,
+        url: flags.url,
+      });
+    case "publish":
+      return publish({
+        root: flags.root,
+        artifacts: flags.artifacts,
+        commit: flags.commit,
+        branch: flags.branch,
+        layerRev: flags.layerRev,
+        buildHash: flags.buildHash,
+        linksOwnCss: flags.linksOwnCss,
+        dryRun: flags.dryRun,
+        skipValidation: flags.skipValidation,
+        strict: flags.strict,
+      });
     case "login":
       return login({
         root: flags.root,
@@ -208,6 +312,7 @@ async function main(): Promise<void> {
         root: flags.root,
         fix: flags.fix,
         watch: flags.watch,
+        strict: flags.strict,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);
@@ -228,5 +333,21 @@ void main().catch((err) => {
 async function versions() {
   const foundVersions = getVersions();
   console.log(`${chalk.cyan("@valbuild/core")}: ${foundVersions.coreVersion}`);
-  console.log(`${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`);
+  // Only the framework package this project actually has. Printing the other
+  // as `undefined` reads as something missing rather than something absent.
+  if (foundVersions.nextVersion) {
+    console.log(
+      `${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`,
+    );
+  }
+  if (foundVersions.tanstackVersion) {
+    console.log(
+      `${chalk.cyan("@valbuild/tanstack")}: ${foundVersions.tanstackVersion}`,
+    );
+  }
+  if (!foundVersions.nextVersion && !foundVersions.tanstackVersion) {
+    console.log(
+      `${chalk.yellow("No framework package found")}: install @valbuild/next or @valbuild/tanstack`,
+    );
+  }
 }

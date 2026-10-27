@@ -18,7 +18,6 @@ import {
   Heading6,
   Image,
   Upload,
-  Loader2,
   MousePointerClick,
   PanelTop,
   type LucideIcon,
@@ -60,6 +59,7 @@ import { MediaPickerList } from "../../MediaPicker/MediaPicker";
 import type { GalleryEntry } from "../../MediaPicker/MediaPicker";
 import { LinkCatalogPicker } from "./LinkCatalogPickerComponent";
 import { LinkUrlEditor } from "./LinkUrlEditorComponent";
+import { Spinner } from "../../designSystem/spinner";
 
 export interface ToolbarButtonsProps {
   view: EditorView;
@@ -438,11 +438,7 @@ function ImageInsertDropdown({
           }
         }}
       >
-        {uploading ? (
-          <Loader2 size={16} className="animate-spin" />
-        ) : (
-          <Image size={16} />
-        )}
+        {uploading ? <Spinner size={16} /> : <Image size={16} />}
       </Button>
       {uploading && uploadProgress !== null && uploadProgress !== undefined && (
         <span className="text-[10px] font-medium tabular-nums text-fg-secondary select-none">
@@ -466,7 +462,7 @@ function ImageInsertDropdown({
         <div
           ref={pickerRef}
           className={cn(
-            "absolute left-0 top-full z-50 mt-1 rounded-md",
+            "absolute left-0 top-full z-window mt-1 rounded-md",
             "border border-border-primary bg-bg-primary shadow-xl",
             imageModuleEntries ? "min-w-[280px] p-0" : "min-w-[240px] p-2",
           )}
@@ -521,7 +517,7 @@ function ImageInsertDropdown({
                   }}
                 >
                   {uploading ? (
-                    <Loader2 size={14} className="mr-1.5 animate-spin" />
+                    <Spinner size={14} className="mr-1.5" />
                   ) : (
                     <Upload size={14} className="mr-1.5" />
                   )}
@@ -703,7 +699,7 @@ const ButtonLinkPicker = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "absolute left-0 top-full z-50 mt-1 rounded-md",
+        "absolute left-0 top-full z-window mt-1 rounded-md",
         "border border-border-primary bg-bg-primary shadow-xl",
         hasCatalog
           ? "min-w-[280px] flex flex-col"

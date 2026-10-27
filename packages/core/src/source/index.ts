@@ -1,15 +1,25 @@
-import { FileSource } from "./file";
-import { ImageSource } from "./image";
-import { RemoteSource } from "./remote";
+import { ExternalRecordSrc } from "./external";
+import { ValViewSource } from "./view";
+import { JsonSource } from "./json";
+import { MediaSource } from "./media";
 import { RichTextOptions, RichTextSource } from "./richtext";
+import { SettingsSource } from "./settings";
 
 export type Source =
   | SourcePrimitive
   | SourceObject
   | SourceArray
-  | RemoteSource
-  | FileSource
-  | ImageSource
+  | MediaSource
+  | JsonSource
+  | ExternalRecordSrc
+  | ValViewSource
+  // Last, and deliberately: `SourceObject` cannot express an optional key, so a
+  // settings source (`{}` is valid, and so is `{ ai: { tone: "…" } }`) is not
+  // one. Any object type that does not conflict on `assistant` satisfies this
+  // member,
+  // which is why every arm that dispatches on `Source` must reach `SourceObject`
+  // first — see the `Selector` mapping.
+  | SettingsSource
   | RichTextSource<RichTextOptions>;
 
 export type SourceObject = { [key in string]: Source } & {
@@ -20,8 +30,6 @@ export type SourceObject = { [key in string]: Source } & {
   assert?: never;
   /** Reserved name */
   andThen?: never;
-  /** Reserved name */
-  _ref?: never;
   /** Reserved name */
   _type?: never;
   /** Reserved name */

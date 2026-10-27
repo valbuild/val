@@ -1,0 +1,1077 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ChevronLeft,
+  Monitor,
+  PanelLeft,
+  Smartphone,
+  Undo2,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../components/designSystem/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/designSystem/select";
+import { Button } from "../components/designSystem/button";
+import { cn } from "../components/designSystem/cn";
+import { useValPortal } from "../components/ValPortalProvider";
+import { CompareAuthorFilterMenu, authorsInModel } from "./CompareAuthorFilter";
+import { CompareAuthorsProvider } from "./CompareAuthorsContext";
+import { CompareUndoBar, CompareUndoFooter } from "./CompareUndoBar";
+import { undoWords, type UndoTone } from "./undoWords";
+import {
+  canUndo,
+  consequenceOfUndoing,
+  undoKindOf,
+  undoableRowsOfModel,
+} from "./undoSelection";
+import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
+import { CompareNav } from "./CompareNav";
+import {
+  COMPARE_ROW_ATTR,
+  ComparePaneRows,
+  ShowAllFieldsToggle,
+  hiddenFieldCount,
+} from "./ComparePaneView";
+import type {
+  CompareFocus,
+  CompareModel,
+  CompareNavNode,
+  ComparePageDevice,
+  ComparePageView,
+  ComparePane,
+  CompareUndoKind,
+} from "./types";
+
+/**
+ * "What am I about to publish", as a room you can walk around in.
+ *
+ * The existing review screen (`ComparePatchSets`) answers the same question as
+ * one long scroll of module cards, which is the right shape for *discarding*
+ * things — every row carries its own author and its own Discard button. It is
+ * the wrong shape for *reading*: with forty changes across a site there is no
+ * way to ask "what happened to the blog section" without scrolling past
+ * everything else, and no way to see at a glance that a page was deleted.
+ *
+ * So this is navigation-first. The left side is the set of things that changed
+ * — pages, modules, media directories — and picking one fills the right side
+ * with just that thing's diff.
+ *
+ * ## Reading, then undoing
+ *
+ * It can discard and revert, but only inside a MODE you enter on purpose. The
+ * old screen's problem was that reading and discarding were the same surface,
+ * with a destructive control on every row; a mode keeps the default clean and
+ * makes destroying something a decision rather than a thing the cursor was
+ * near. Editing is still not here — the editor is one click away, and a field
+ * you can type into next to a field you cannot is the confusion
+ * `ComparePatchSets` already removed once.
+ *
+ * Which undo is offered follows from the basis, not from taste: against
+ * Published the change you want gone is a pending patch, so it is DISCARDED;
+ * against a commit those changes already shipped, so the only way back is to
+ * REVERT by writing the old value forward. See `CompareUndo`.
+ *
+ * ## Which side is which
+ *
+ * Left is older, right is newer, and that is never inferred from position —
+ * see `CompareColumns` for the three redundant signals that carry it.
+ *
+ * ## What the dropdown changes
+ *
+ * The basis: what the right column is measured AGAINST. "Published" is the
+ * default and is the publish-preview case; picking a commit turns the same
+ * dialog into the history compare. That is deliberate — one compare surface,
+ * two entry points — and it is why nothing below this component knows which
+ * kind of comparison it is rendering.
+ *
+ * ## Phone
+ *
+ * Three regions do not fit, so the nav becomes a drawer over the diff and the
+ * columns become tabs. The tab pattern is copied from `HistorySplit` rather
+ * than invented, because this is the second place in the Studio that shows two
+ * versions of a thing and they should not need learning twice.
+ */
+export function CompareDialog({
+  open,
+  onOpenChange,
+  model,
+  onSelectBasis,
+  /**
+   * Forced layout, for stories and screenshots.
+   *
+   * The component is responsive on its own; this exists so a story can render
+   * the phone form in a desktop-sized Storybook frame without a viewport addon.
+   */
+  forceLayout,
+  mode = "http",
+  /** Fixed clock, so relative dates in the author popover are screenshottable. */
+  now,
+  /** Start filtered to one person. For stories; the dialog opens unfiltered. */
+  initialAuthorFilter = null,
+  /** Start in undo mode. For stories; the dialog opens read-only. */
+  initialUndoMode = false,
+  /** Who is looking, so the bar can say whose work a closure dragged in. */
+  currentAuthorId = null,
+  focus = null,
+  onUndo,
+  onRevertAll,
+  tone = "calm",
+  renderPage,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  model: CompareModel;
+  onSelectBasis?: (basisId: string) => void;
+  forceLayout?: "desktop" | "mobile";
+  mode?: "fs" | "http" | "unknown";
+  now?: Date;
+  initialAuthorFilter?: string | null;
+  initialUndoMode?: boolean;
+  currentAuthorId?: string | null;
+  /**
+   * Where to open, when the dialog was linked to one change rather than opened
+   * on the whole publish. Null opens on the first change.
+   *
+   * A preference over the model, the same as a pick in the nav: it is
+   * re-checked on every render, so a focus that names a pane the model does
+   * not have YET (schemas still loading, so a page is still filed under its
+   * module) lands once the model has it. A pick in the nav overrides it.
+   */
+  focus?: CompareFocus | null;
+  /** Called with everything that will go — picks and their dependents. */
+  onUndo?: (kind: CompareUndoKind, rowIds: string[]) => void;
+  onRevertAll?: () => void;
+  /**
+   * How loud undo mode is allowed to be. See `UndoTone`.
+   *
+   * Temporary, while the two are being compared on screen. Once one is chosen
+   * this goes and the survivor is the only behaviour.
+   */
+  tone?: UndoTone;
+  /**
+   * The page itself, one side at a time, for a pane that IS a page.
+   *
+   * Given, the pane of a page offers Fields | Page: the same change read as
+   * the fields that differ, or as the two pages a visitor would see. Absent,
+   * there is no switch -- the dialog cannot know where either side of a page
+   * is served, so a caller that cannot say draws fields alone.
+   */
+  renderPage?: (page: ComparePageView) => ReactNode;
+}) {
+  const firstId = useMemo(() => firstNodeId(model), [model]);
+  /* Null until somebody picks: until then the focus, or the first pane, stands. */
+  const [picked, setPicked] = useState<string | null>(null);
+  /*
+   * The selection is a PREFERENCE over the model, not a fact independent of it.
+   *
+   * `useState(firstId)` reads its argument on the first render and never
+   * again, and the model behind this dialog is not fixed once it is open: with
+   * schemas still loading, `toCompareStructure` cannot tell a router from a
+   * data module, so it emits one `node:<module>` pane — and replaces it with a
+   * pane per PAGE the moment the schemas arrive. A stored id pointing at the
+   * pane that no longer exists renders a populated nav beside "Nothing
+   * selected", which reads as the dialog being broken rather than as it still
+   * loading.
+   *
+   * So the stored id is honoured only while the model still has it, and the
+   * first pane stands in otherwise. Derived rather than repaired in an effect:
+   * an effect would render the empty state once before correcting it, and the
+   * flash is the bug. The focus a link asked for is the same kind of
+   * preference, one rank below an actual pick.
+   */
+  const selectedId =
+    [picked, focus?.paneId ?? null].find(
+      (id): id is string => id !== null && model.panes[id] !== undefined,
+    ) ?? firstId;
+  const [showUnchanged, setShowUnchanged] = useState(false);
+  const [showing, setShowing] = useState<"left" | "right">("right");
+  /*
+   * Fields or pages. Kept across panes, so reading a proposal page by page
+   * stays on pages; a pane that is not a page shows its fields whatever this
+   * says, and has no switch to say otherwise.
+   */
+  const [view, setView] = useState<"fields" | "page">("fields");
+  const [device, setDevice] = useState<ComparePageDevice>("desktop");
+  /*
+   * The drawer is closed on arrival, on purpose.
+   *
+   * A phone opening onto a list of files has said nothing about the publish; a
+   * phone opening onto the first diff has. The nav is one tap away and the
+   * header names what you are looking at, so the list is never lost.
+   */
+  const [navOpen, setNavOpen] = useState(false);
+  const [authorFilter, setAuthorFilter] = useState<string | null>(
+    initialAuthorFilter,
+  );
+  const portalContainer = useValPortal();
+  const people = useMemo(
+    () => authorsInModel(model.sections),
+    [model.sections],
+  );
+  const undoKind = undoKindOf(model);
+  /*
+   * Undo is a MODE, entered deliberately.
+   *
+   * This dialog is a reading surface — the whole reason it is navigation-first
+   * is that the old review screen mixed reading with discarding and was hard to
+   * redesign because of it. A destructive control on every row would put that
+   * straight back. A mode keeps the default clean and makes destroying
+   * something a thing you decided to do rather than a thing the cursor was
+   * near.
+   */
+  const [undoing, setUndoing] = useState(initialUndoMode);
+  const pane = selectedId === null ? undefined : model.panes[selectedId];
+  const selectRow = (id: string): void => {
+    setPicked(id);
+  };
+  /*
+   * Narrowing to a person moves the selection if it has to.
+   *
+   * The nav hides the rows that are not theirs, and the selection is not one
+   * of the things it hides — so filtering to somebody whose work is elsewhere
+   * left the dialog showing a change by the person it had just said it was
+   * filtering out, with no row in the list to match it. The first row that
+   * survives is the one the filter was asking for.
+   */
+  const onAuthorFilter = (next: string | null): void => {
+    setAuthorFilter(next);
+    if (selectedId !== null && !nodeIdShown(model, selectedId, next)) {
+      setPicked(firstNodeId(model, next));
+    }
+  };
+  const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
+  const narrow = useNarrowViewport();
+  /*
+   * The viewport decides, and a story can override it.
+   *
+   * This used to read `forceLayout` alone, so the phone form was reachable
+   * from Storybook and nowhere else: a real phone got the 260px rail and two
+   * columns side by side in 390px, which left each cell a few characters wide
+   * and wrapped every value one letter per line.
+   */
+  const isMobile =
+    forceLayout === undefined ? narrow : forceLayout === "mobile";
+
+  /*
+   * Bring the row a link named into view, once.
+   *
+   * The pane's node is STATE, through a callback ref, rather than a ref
+   * object. The dialog's content is portalled, and the portal mounts it a
+   * render after this component's own commit — a render that does not re-run
+   * this component — so an effect reading a ref object ran once, saw null, and
+   * never ran again. State re-renders us when the node arrives.
+   *
+   * Once it has scrolled it never does again: a reader who scrolls away, or
+   * picks another pane and comes back, has moved on from the link. "Once" is
+   * per PANE and row, not per row: while schemas load a page's change sits in
+   * its module's pane, and when they arrive it moves to the page's own pane
+   * under the same row id — which is a new row on screen that the link still
+   * names.
+   */
+  const [paneNode, setPaneNode] = useState<HTMLDivElement | null>(null);
+  const scrolledTo = useRef<string | null>(null);
+  const focusRowId = focus?.rowId ?? null;
+  const focusPaneId = focus?.paneId ?? null;
+  useEffect(() => {
+    if (focusRowId === null || focusPaneId === null) return;
+    if (selectedId !== focusPaneId) return;
+    const key = JSON.stringify([focusPaneId, focusRowId]);
+    if (scrolledTo.current === key) return;
+    const row = findRow(paneNode, focusRowId);
+    if (row === null) return;
+    scrolledTo.current = key;
+    // Optional: jsdom has no layout, and so no `scrollIntoView`.
+    row.scrollIntoView?.({ block: "center" });
+    row.classList.add("val-scroll-highlight");
+    row.addEventListener(
+      "animationend",
+      () => row.classList.remove("val-scroll-highlight"),
+      { once: true },
+    );
+  }, [paneNode, selectedId, focusPaneId, focusRowId]);
+
+  /*
+   * Every row that could be undone, for "Discard all".
+   *
+   * The closure is not applied: this IS the closure — a set containing every
+   * undoable row is closed over `requires` by construction, since anything a
+   * member compels is also a member.
+   */
+  const allUndoableIds = useMemo(
+    () =>
+      undoableRowsOfModel(model)
+        .filter((row) => canUndo(row.undo))
+        .map((row) => row.id),
+    [model],
+  );
+
+  /*
+   * Built once and handed to whichever nav is on screen. The desktop rail and
+   * the phone drawer already drifted apart once over a prop only one of them
+   * was given, which is what a shared local avoids.
+   */
+  const navFilter =
+    people.length > 1 ? (
+      <CompareAuthorFilterMenu
+        profiles={model.profiles}
+        authorIds={people}
+        selected={authorFilter}
+        onSelect={onAuthorFilter}
+        mode={mode}
+        portalContainer={portalContainer}
+      />
+    ) : undefined;
+
+  const pageUrl =
+    renderPage === undefined || pane === undefined ? null : pageUrlOf(pane);
+  /* The route being shown as pages, or null when the pane shows fields. */
+  const shownPage = view === "page" ? pageUrl : null;
+
+  const toggle = (
+    <>
+      {pageUrl !== null && <PaneViewSwitch view={view} onChange={setView} />}
+      {shownPage !== null ? (
+        <DeviceSwitch device={device} onChange={setDevice} />
+      ) : (
+        <ShowAllFieldsToggle
+          showUnchanged={showUnchanged}
+          onChange={setShowUnchanged}
+          hiddenCount={hidden}
+        />
+      )}
+    </>
+  );
+
+  return (
+    <CompareAuthorsProvider
+      value={{
+        profiles: model.profiles,
+        portalContainer,
+        mode,
+        // A fixed clock when one is given: the author popover renders relative
+        // dates, and a component that reads `new Date()` itself cannot be
+        // screenshotted twice and compared.
+        now: now ?? new Date(),
+        authorFilter,
+        undo:
+          undoing && undoKind !== null
+            ? {
+                kind: undoKind,
+                tone,
+                consequenceOf: (rowId) =>
+                  consequenceOfUndoing(rowId, model, currentAuthorId),
+                onQuickUndo: (rowId) =>
+                  onUndo?.(
+                    undoKind,
+                    consequenceOfUndoing(rowId, model, currentAuthorId).ids,
+                  ),
+                compact: isMobile,
+              }
+            : null,
+      }}
+    >
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          /*
+           * Into the shadow root, not `document.body`.
+           *
+           * Radix portals to the body by default, which is OUTSIDE the shadow
+           * root the Studio lives in — and `index.css` is linked into that
+           * root, so the dialog came out with no styles at all: no size, no
+           * centring, laid out below the fold. Storybook never showed it,
+           * because there the stylesheet is on the document and the body IS
+           * the styled tree; the first time this dialog was mounted in the
+           * Studio it was the first time the default was wrong. The same
+           * defect, and the same fix, as the discard confirm in `UtilityPanel`.
+           */
+          container={portalContainer}
+          /*
+           * Do not hand focus to the first control in the header.
+           *
+           * Radix focuses the first focusable child on open. That used to be
+           * the basis picker, which is harmless; moving "Discard changes" to
+           * the left of the header made it the destructive-mode button, so
+           * opening the dialog and pressing Enter would arm a discard. Focus
+           * stays on the content element itself (Radix gives it `tabIndex=-1`),
+           * so the dialog is still focused for the Escape key and tabbing still
+           * starts at the top.
+           */
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          className={cn(
+            "flex flex-col gap-0 overflow-hidden p-0",
+            !isMobile && "h-[85vh] max-h-[85vh] w-[95vw] max-w-[1200px]",
+            /*
+             * The whole screen on a phone. A floating box inside 85vh gave
+             * away a margin on every side of a screen that has none to spare,
+             * and the diff is the only thing anyone opened it to read. `dvh`
+             * rather than `vh`, so the bottom is not under the browser's
+             * toolbar on iOS.
+             */
+            isMobile &&
+              forceLayout === undefined &&
+              "h-dvh max-h-dvh w-screen max-w-none rounded-none border-0 sm:rounded-none",
+            // A phone-sized frame, for stories in a desktop-sized canvas.
+            forceLayout === "mobile" && "h-[720px] w-[390px] max-w-[390px]",
+          )}
+        >
+          {/*
+           * Stacked below `sm`, and `pr-10` at every width.
+           *
+           * Both are about the same corner. `DialogContent` draws its own close
+           * button absolutely in the top right, so a header that runs to the edge
+           * puts the basis dropdown underneath it; and a single row put the title
+           * and the dropdown in the same flex line, where on a phone the title
+           * lost and rendered as "R." over "1…".
+           */}
+          <header className="flex shrink-0 flex-col gap-2 border-b border-border-primary px-4 py-3 pr-10 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+              <div className="min-w-0">
+                <DialogTitle className="truncate text-base">
+                  Review changes
+                </DialogTitle>
+                {/*
+                 * The count describes the whole publish, so under a filter it
+                 * would be describing something other than what is on screen.
+                 * Rather than compute a filtered total — which the model does
+                 * not carry, and which would have to agree exactly with what
+                 * the panes render — the line says whose changes are shown.
+                 */}
+                <DialogDescription className="truncate text-xs text-fg-tertiary">
+                  {authorFilter === null
+                    ? /*
+                       * An fs project SAVES: there is nothing outside the
+                       * editor's own machine to publish to, and the button
+                       * that finishes the job says "Save".
+                       */
+                      `${model.changeCount} ${
+                        model.changeCount === 1 ? "change" : "changes"
+                      } in this ${mode === "fs" ? "save" : "publish"}`
+                    : `Showing changes by ${
+                        model.profiles[authorFilter]?.fullName ?? authorFilter
+                      }`}
+                </DialogDescription>
+              </div>
+              {/*
+               * Next to the title, not next to the close button.
+               *
+               * It sat between the basis picker and the dialog's own X, which
+               * put the control that opens a destructive mode one target away
+               * from the control that dismisses the dialog. Its own row would
+               * have cost a whole band — which is what the previous pass was
+               * spent removing — so it moves left instead, into space the
+               * title was not using, leaving the picker and the X together.
+               */}
+              {undoKind !== null && !undoing && (
+                <Button
+                  size="sm"
+                  /*
+                   * `secondary`, not `outline`. The `outline` variant in this
+                   * design system is `border-transparent` — its own comment
+                   * says the border "has always been transparent" — so the
+                   * button rendered as a bare link, which is the wrong weight
+                   * for the thing that opens a destructive mode.
+                   */
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => setUndoing(true)}
+                >
+                  <Undo2 size={13} aria-hidden />
+                  {/*
+                   * The label is the verb, not the noun, and on a phone it is
+                   * the verb alone: "Discard changes" beside a basis picker
+                   * that already says what is being compared is two words of
+                   * repetition in the tightest row in the dialog.
+                   */}
+                  <span className="hidden sm:inline">
+                    {undoWords(undoKind).mode}
+                  </span>
+                  <span className="sm:hidden">
+                    {undoWords(undoKind).shortMode}
+                  </span>
+                </Button>
+              )}
+            </div>
+            <BasisPicker model={model} onSelectBasis={onSelectBasis} />
+          </header>
+          {undoing && undoKind !== null && !isMobile && (
+            <CompareUndoBar
+              kind={undoKind}
+              tone={tone}
+              revertAll={model.undo?.all}
+              onRevertAll={onRevertAll}
+              portalContainer={portalContainer}
+              undoAll={{
+                /*
+                 * The label carries no number, deliberately — see `undoWords`.
+                 * `allUndoableIds` counts undoable ROWS (a changed list entry
+                 * and each changed field inside it are separate rows) and the
+                 * header counts CHANGES. On this fixture that is 25 against 14,
+                 * and two numbers answering one question is worse than none.
+                 */
+                onUndoAll: () => {
+                  onUndo?.(undoKind, allUndoableIds);
+                  setUndoing(false);
+                },
+              }}
+              onCancel={() => setUndoing(false)}
+            />
+          )}
+          {isMobile ? (
+            <div
+              ref={setPaneNode}
+              className="relative flex min-h-0 flex-1 flex-col px-3 py-3"
+            >
+              <div className="mb-2 flex min-w-0 items-center gap-2">
+                <button
+                  onClick={() => setNavOpen(true)}
+                  className="flex shrink-0 items-center gap-1 rounded border border-border-primary px-2 py-1 text-xs text-fg-secondary"
+                >
+                  <PanelLeft size={12} aria-hidden />
+                  Changes
+                </button>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">
+                  {pane?.description.title ?? "Nothing selected"}
+                </span>
+              </div>
+              {pane === undefined ? (
+                <EmptyPane />
+              ) : (
+                <CompareMobileColumns
+                  leftSide={model.left}
+                  rightSide={model.right}
+                  showing={showing}
+                  onShow={setShowing}
+                  toolbar={toggle}
+                >
+                  {shownPage !== null && renderPage !== undefined ? (
+                    <PageSide
+                      pane={pane}
+                      page={{ url: shownPage, side: showing, device }}
+                      renderPage={renderPage}
+                    />
+                  ) : (
+                    <ComparePaneRows
+                      pane={pane}
+                      showUnchanged={showUnchanged}
+                      showing={showing === "left" ? "before" : "after"}
+                    />
+                  )}
+                </CompareMobileColumns>
+              )}
+              {navOpen && (
+                <div className="absolute inset-0 z-20 flex flex-col bg-bg-primary">
+                  <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
+                    <button
+                      onClick={() => setNavOpen(false)}
+                      className="flex items-center gap-1 text-sm text-fg-secondary"
+                    >
+                      <ChevronLeft size={14} aria-hidden />
+                      Back
+                    </button>
+                  </div>
+                  <CompareNav
+                    className="flex-1 px-2 py-2"
+                    sections={model.sections}
+                    selectedId={selectedId}
+                    authorFilter={authorFilter}
+                    filterSlot={navFilter}
+                    onSelect={(id) => {
+                      selectRow(id);
+                      setNavOpen(false);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div ref={setPaneNode} className="flex min-h-0 flex-1">
+              <CompareNav
+                className="w-[260px] shrink-0 border-r border-border-primary px-2 py-3"
+                sections={model.sections}
+                selectedId={selectedId}
+                authorFilter={authorFilter}
+                filterSlot={navFilter}
+                onSelect={selectRow}
+              />
+              <div className="flex min-w-0 flex-1 flex-col px-4 py-3">
+                {pane === undefined ? (
+                  <EmptyPane />
+                ) : (
+                  <>
+                    <PaneHeading pane={pane} />
+                    <CompareColumns
+                      leftSide={model.left}
+                      rightSide={model.right}
+                      toolbar={toggle}
+                    >
+                      {shownPage !== null && renderPage !== undefined ? (
+                        <ComparePages
+                          pane={pane}
+                          url={shownPage}
+                          device={device}
+                          renderPage={renderPage}
+                        />
+                      ) : (
+                        <ComparePaneRows
+                          pane={pane}
+                          showUnchanged={showUnchanged}
+                          showing="both"
+                        />
+                      )}
+                    </CompareColumns>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {undoing && undoKind !== null && isMobile && (
+            <CompareUndoFooter
+              kind={undoKind}
+              tone={tone}
+              revertAll={model.undo?.all}
+              onRevertAll={onRevertAll}
+              portalContainer={portalContainer}
+              undoAll={{
+                onUndoAll: () => {
+                  onUndo?.(undoKind, allUndoableIds);
+                  setUndoing(false);
+                },
+              }}
+              onDone={() => setUndoing(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </CompareAuthorsProvider>
+  );
+}
+
+/**
+ * The route a pane can be shown as a page at, or null.
+ *
+ * Only a route of THIS site: an external page router's keys are whole URLs on
+ * somebody else's, and neither side of the comparison serves them.
+ */
+export function pageUrlOf(pane: ComparePane): string | null {
+  const url = pane.description.url;
+  return url !== null && url.startsWith("/") ? url : null;
+}
+
+/** Fields | Page, for a pane that is a page. */
+function PaneViewSwitch({
+  view,
+  onChange,
+}: {
+  view: "fields" | "page";
+  onChange: (view: "fields" | "page") => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Compare as"
+      className="flex rounded border border-border-primary p-0.5"
+    >
+      {(["fields", "page"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={view === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            "rounded-sm px-2 py-0.5 text-xs",
+            view === option
+              ? "bg-bg-secondary text-fg-primary"
+              : "text-fg-tertiary hover:text-fg-secondary",
+          )}
+        >
+          {option === "fields" ? "Fields" : "Page"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const DEVICE_ICON: Record<ComparePageDevice, typeof Monitor> = {
+  desktop: Monitor,
+  mobile: Smartphone,
+};
+
+/** The width both pages are drawn at. One control, so the two always agree. */
+function DeviceSwitch({
+  device,
+  onChange,
+}: {
+  device: ComparePageDevice;
+  onChange: (device: ComparePageDevice) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Page width"
+      className="flex rounded border border-border-primary p-0.5"
+    >
+      {(Object.keys(DEVICE_ICON) as ComparePageDevice[]).map((option) => {
+        const Icon = DEVICE_ICON[option];
+        return (
+          <button
+            key={option}
+            type="button"
+            aria-label={option === "desktop" ? "Desktop width" : "Phone width"}
+            aria-pressed={device === option}
+            onClick={() => onChange(option)}
+            className={cn(
+              "grid h-6 w-6 place-items-center rounded-sm",
+              device === option
+                ? "bg-bg-secondary text-fg-primary"
+                : "text-fg-tertiary hover:text-fg-secondary",
+            )}
+          >
+            <Icon size={13} aria-hidden />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Both pages, under the column headings, on the template the rows use -- so
+ * each page sits under the heading that names it.
+ */
+function ComparePages({
+  pane,
+  url,
+  device,
+  renderPage,
+}: {
+  pane: ComparePane;
+  url: string;
+  device: ComparePageDevice;
+  renderPage: (page: ComparePageView) => ReactNode;
+}) {
+  return (
+    <div className="grid h-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-3">
+      <PageSide
+        pane={pane}
+        page={{ url, side: "left", device }}
+        renderPage={renderPage}
+      />
+      <div className="w-4" aria-hidden />
+      <PageSide
+        pane={pane}
+        page={{ url, side: "right", device }}
+        renderPage={renderPage}
+      />
+    </div>
+  );
+}
+
+/**
+ * One side of a page, or why there is none.
+ *
+ * A page the change ADDED is not on the left, and one it removed is not on the
+ * right. Loading it anyway would show the site's 404 under a heading that
+ * says "the site", which reads as the site being broken rather than as the
+ * page being new.
+ */
+function PageSide({
+  pane,
+  page,
+  renderPage,
+}: {
+  pane: ComparePane;
+  page: ComparePageView;
+  renderPage: (page: ComparePageView) => ReactNode;
+}) {
+  const absent =
+    (page.side === "left" && pane.change === "added") ||
+    (page.side === "right" && pane.change === "removed");
+  if (absent) {
+    return (
+      <div className="flex h-full min-h-40 items-center justify-center rounded border border-dashed border-border-primary p-4 text-center text-xs text-fg-tertiary">
+        {page.side === "left"
+          ? "Not here yet: this page is new."
+          : "Not here any more: this page is removed."}
+      </div>
+    );
+  }
+  return <div className="flex h-full min-h-0 flex-col">{renderPage(page)}</div>;
+}
+
+function BasisPicker({
+  model,
+  onSelectBasis,
+}: {
+  model: CompareModel;
+  onSelectBasis?: (basisId: string) => void;
+}) {
+  /*
+   * Gone entirely when there is one thing to compare against.
+   *
+   * That is the whole of fs mode: the content host is a directory, `ValOpsFS`
+   * answers `not-supported-in-fs-mode` for history, so there are no commits —
+   * the only comparison that exists is pending work against what is on disk.
+   * A picker offering that alone is a control that cannot narrow anything, and
+   * a control that does nothing teaches people to distrust the ones that do.
+   * `CompareAuthorFilter` hides itself on the same rule.
+   *
+   * What it is comparing is still said: `CompareColumns` labels both sides.
+   */
+  if (model.basisOptions.length < 2) {
+    return null;
+  }
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+      {/*
+       * The label is dropped below `sm`. In a row that now also holds the undo
+       * button, "Comparing against" is the first thing that can go: the
+       * dropdown's own two lines already say what is being compared and when.
+       *
+       * `sm` and not a narrower breakpoint because there is no narrower one —
+       * this config defines only `md` and `2xl` on top of the defaults.
+       */}
+      <span className="hidden shrink-0 text-xs text-fg-tertiary sm:inline">
+        Comparing against
+      </span>
+      <Select
+        value={model.selectedBasisId}
+        onValueChange={(value) => onSelectBasis?.(value)}
+      >
+        {/*
+         * `flex-1`, not `w-full`, below `sm`.
+         *
+         * The picker is a flex row holding a `shrink-0` label and this trigger,
+         * so `w-full` meant "100% of the row" — label plus trigger then added up
+         * to more than the row and the trigger hung off the right edge of the
+         * dialog. `w-auto` is there to neutralise the `w-[calc(100%-8px)]` the
+         * shared `SelectTrigger` sets for its usual full-width use.
+         */}
+        <SelectTrigger className="h-auto min-h-8 w-auto min-w-0 flex-1 py-1 text-xs sm:w-[210px] sm:flex-none">
+          {/*
+           * A wrapper, because `SelectValue` drops `className`.
+           *
+           * Radix renders `Select.Value` as its own span and does not forward
+           * the prop — measured: the element comes out with `class=""`. So the
+           * constraint has to go on an element we own.
+           *
+           * It is needed at all because `SelectTrigger` is
+           * `flex items-center justify-between`, which makes the value a flex
+           * child, and a flex child's `min-width` defaults to `auto` — it
+           * refuses to shrink below its content. A long commit message then
+           * made the value 665px wide inside a 210px button: `truncate` on the
+           * label had no bounded width to work against, the text ran out of
+           * the dialog and under the close button, and the chevron was
+           * squeezed to zero.
+           */}
+          <span className="min-w-0 flex-1 overflow-hidden text-left">
+            <SelectValue />
+          </span>
+        </SelectTrigger>
+        <SelectContent>
+          {model.basisOptions.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {/*
+               * `title` on both lines, because the trigger shows one clipped
+               * line of what may be a paragraph of commit message. Without it
+               * the only way to read the rest is to guess.
+               */}
+              <span className="block truncate" title={option.label}>
+                {option.label}
+              </span>
+              {option.caption !== undefined && (
+                <span className="block truncate text-xs text-fg-tertiary">
+                  {option.caption}
+                </span>
+              )}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function EmptyPane() {
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <p className="text-sm text-fg-tertiary">
+        Pick something on the left to see what changed.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The row with this id under `root`.
+ *
+ * Compared by value rather than put in a selector: a row id is a source path,
+ * full of quotes and brackets a selector would have to escape.
+ */
+function findRow(root: HTMLElement | null, rowId: string): HTMLElement | null {
+  if (root === null) return null;
+  for (const el of root.querySelectorAll<HTMLElement>(
+    `[${COMPARE_ROW_ATTR}]`,
+  )) {
+    if (el.getAttribute(COMPARE_ROW_ATTR) === rowId) return el;
+  }
+  return null;
+}
+
+function firstNodeId(
+  model: CompareModel,
+  /** Only rows this person touched, matching what the nav will list. */
+  authorFilter: string | null = null,
+): string | null {
+  for (const section of model.sections) {
+    const found = firstOf(section.nodes, authorFilter);
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * The first row that has a pane, depth first.
+ *
+ * Not simply `sections[0].nodes[0]`: the first row is often a folder, which is
+ * structure and has nothing to show. Opening onto a blank right-hand side would
+ * make the dialog look broken on arrival.
+ */
+/**
+ * The name of what you opened, over where it lives.
+ *
+ * The heading of what you navigated to is a TITLE surface — see the rule in
+ * `core/src/preview.ts` — so a module or page whose schema previews is named by
+ * it here. The path below is a LOCATION and is always shown: a preview is a
+ * closure over source and moves as an editor types, and in a review screen the
+ * path is how someone finds the file a change is in.
+ *
+ * The URL earns its own place on the line when a preview supplied the title.
+ * A page's URL is its identity, not a nicer name for it — two drafts called
+ * "Launch" are told apart by `/blog/launch-2026` and nothing else — so a title
+ * that replaced it would take that away. When no preview named the page the
+ * title already IS the route, and repeating it would say one thing twice;
+ * `PathHeading` draws the same distinction with `showUrlInTrail`.
+ */
+function PaneHeading({ pane }: { pane: ComparePane }) {
+  const { description } = pane;
+  const showUrl =
+    description.url !== null && description.origin.title === "preview";
+  /*
+   * The location, unless it would only repeat the name.
+   *
+   * A page nobody previewed is CALLED its route, and `path` is that same
+   * route — so printing both gave `/blogs/blog1` twice on two lines, which
+   * spends the line on nothing and reads as though the two were different
+   * things. Named pages and every data module still show it, because there
+   * the name and the place are genuinely different answers.
+   */
+  const location = pane.path === description.title ? null : pane.path;
+  const below = [showUrl ? description.url : null, location, pane.note]
+    .filter(
+      (part): part is string =>
+        part !== null && part !== undefined && part !== "",
+    )
+    .join(" — ");
+  return (
+    <div className="mb-2 min-w-0">
+      <h2 className="truncate text-sm font-medium text-fg-primary">
+        {description.title}
+      </h2>
+      {below !== "" && (
+        <p className="truncate text-xs text-fg-tertiary">{below}</p>
+      )}
+    </div>
+  );
+}
+
+function firstOf(
+  nodes: CompareNavNode[],
+  authorFilter: string | null = null,
+): string | null {
+  for (const node of nodes) {
+    if (node.change !== undefined && nodeHasAuthor(node, authorFilter)) {
+      return node.id;
+    }
+    const child = firstOf(node.children ?? [], authorFilter);
+    if (child !== null) {
+      return child;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether the nav would still list this row under a filter.
+ *
+ * The same test `navNodeMatches` makes, and it has to stay the same one: this
+ * decides what is SELECTED and that decides what is LISTED, so a disagreement
+ * shows up as a dialog whose right-hand pane is not in its own left-hand list.
+ * A row with no `authorIds` is kept, because it is structure rather than
+ * somebody's work.
+ */
+function nodeHasAuthor(
+  node: CompareNavNode,
+  authorFilter: string | null,
+): boolean {
+  if (authorFilter === null) return true;
+  if (node.authorIds === undefined) return true;
+  return node.authorIds.includes(authorFilter);
+}
+
+/** Whether the node with this id survives the filter, anywhere in the tree. */
+function nodeIdShown(
+  model: CompareModel,
+  id: string,
+  authorFilter: string | null,
+): boolean {
+  const walk = (nodes: CompareNavNode[]): boolean =>
+    nodes.some(
+      (node) =>
+        (node.id === id && nodeHasAuthor(node, authorFilter)) ||
+        walk(node.children ?? []),
+    );
+  return model.sections.some((section) => walk(section.nodes));
+}
+
+/**
+ * Below Tailwind's `lg`: too narrow for the nav rail beside two columns.
+ *
+ * `lg` and not the shell's own mobile breakpoint (768px), because the question
+ * is different. The shell asks whether there is room for its chrome; this asks
+ * whether 260px of nav and two value columns fit in 95% of the screen, and at
+ * 768px that leaves each column about 220px — a commit message or a long string
+ * is unreadable at that width. `CompareColumns` names `lg` for the same reason.
+ */
+const NARROW_QUERY = "(max-width: 1023px)";
+
+/**
+ * Whether the viewport is {@link NARROW_QUERY}, kept current as it resizes.
+ *
+ * Read synchronously on the first render, as `useShellBreakpoint` does: an
+ * effect would paint the desktop layout on a phone first and then swap it,
+ * and the swap remounts every cell of the diff.
+ */
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(
+    () =>
+      typeof window !== "undefined" && window.matchMedia(NARROW_QUERY).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(NARROW_QUERY);
+    const onChange = () => setNarrow(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}

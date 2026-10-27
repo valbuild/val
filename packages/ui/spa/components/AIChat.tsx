@@ -1,11 +1,13 @@
+import { Internal } from "@valbuild/core";
 import React, {
   useState,
   useRef,
   useEffect,
   useCallback,
-  useId,
   useImperativeHandle,
   forwardRef,
+  type RefObject,
+  type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
@@ -13,80 +15,72 @@ import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import {
   Send,
+  Square,
   RotateCcw,
   Sparkles,
-  Check,
-  Loader2,
   LogIn,
-  Search,
   FileText,
-  Database,
-  ShieldCheck,
   Pencil,
   XCircle,
   Plus,
-  Navigation,
-  User,
-  Clock,
   History,
   ChevronLeft,
-  Tag,
   Paperclip,
-  GitCompareArrows,
   X,
-  HelpCircle,
+  AlertTriangle,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
-import { ToolName } from "../utils/toolNames";
-import { useValConfig } from "./ValFieldProvider";
-import { DEFAULT_APP_HOST } from "@valbuild/core";
+import { safeHref } from "../utils/safeHref";
+import { randomUUID } from "../utils/randomUUID";
+import { useComposerFocusRestore } from "./useComposerFocusRestore";
+import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
+import { useValPortal } from "./ValPortalProvider";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
+import { AIChatEditor } from "./AIChatEditor";
+import { AIChatModelPicker } from "./AIChatModelPicker";
+import type {
+  ChatBlockNode,
+  ChatDocument,
+  ChatEditorRef,
+  ChatInlineNode,
+} from "./AIChatEditor";
+import {
+  chatDocumentToPlainText,
+  collectImageKeysFromDoc,
+} from "./AIChatEditor";
+import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
+import { decideBubble } from "./aiChatBubble";
+import { TurnStatsLine } from "./AIChatTurnStats";
+import {
+  addStreamedText,
+  endTurn,
+  reportOutputTokens,
+  startTurn,
+  syncPause,
+  turnPhaseOf,
+  type TurnStats,
+} from "./aiTurnStats";
+import type {
+  AskUserQuestionAnswer,
+  AskUserQuestionItem,
+  ToolActivity,
+} from "./AIChatToolActivities";
+import { Spinner } from "./designSystem/spinner";
+
+export type {
+  AskUserQuestionAnswer,
+  AskUserQuestionItem,
+  ToolActivity,
+  ToolActivityStatus,
+} from "./AIChatToolActivities";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type ChatMessageStatus = "complete" | "streaming" | "error";
-
-export type ToolActivityStatus = "pending" | "complete" | "error";
-
-export type AskUserQuestionItem = {
-  question: string;
-  header?: string;
-  options: { label: string; description?: string }[];
-  multiSelect?: boolean;
-  defaults?: number[];
-};
-
-export type AskUserQuestionAnswer = {
-  question: string;
-  selectedOptions: number[];
-  customAnswer: string | null;
-};
-
-export type ToolActivity = {
-  toolCallId: string;
-  name: string;
-  status: ToolActivityStatus;
-  questions?: AskUserQuestionItem[];
-  answers?: AskUserQuestionAnswer[];
-  cancelled?: boolean;
-};
-
-/**
- * True while an ask_user_question card is still open, i.e. the user has neither
- * submitted answers nor cancelled. Such an activity blocks the assistant turn.
- */
-function isPendingQuestion(activity: ToolActivity): boolean {
-  return (
-    activity.questions !== undefined &&
-    activity.answers === undefined &&
-    !activity.cancelled &&
-    activity.status === "pending"
-  );
-}
 
 export type ChatMessageAttachment = {
   key: string;
@@ -102,8 +96,35 @@ export type ChatMessage = {
   status: ChatMessageStatus;
   error?: string;
   errorCode?: string;
+  /**
+   * Something to offer the user about this error, decided by the server.
+   *
+   * Here rather than derived from `errorCode` because only the server knows
+   * where to send them: the admin URL depends on the org and project, which the
+   * Studio does not assemble. It replaced a hardcoded "add a data pack" link
+   * keyed off a code the server no longer sends.
+   */
+  errorAction?: { label: string; url: string };
+  /**
+   * What the provider said, verbatim. Behind a disclosure because it is for
+   * whoever is going to do something about it, and reads as noise to everyone
+   * else — but findable without a server log, which is the whole point.
+   */
+  errorDetails?: string;
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
+  /**
+   * For user messages composed in the rich editor, the original document so
+   * the bubble can render inline images / field refs without re-parsing HTML
+   * (which would lose `previewUrl`s for image nodes).
+   */
+  userDoc?: ChatDocument;
+  /**
+   * The timer and output tokens shown under an assistant reply. Only on turns
+   * this chat watched happen: a restored session's messages have none, and
+   * show none.
+   */
+  turnStats?: TurnStats;
 };
 
 type AttachedFile = {
@@ -116,18 +137,52 @@ type AttachedFile = {
 
 type CurrentMessage = {
   message: ChatMessage;
-  startedAt: number;
+  /**
+   * The last time anything happened on this turn — a chunk, a tool call or
+   * result, a usage report. The timeout counts from here, so it fires on a
+   * turn that has gone quiet, not on one that is merely long.
+   */
+  lastActivityAt: number;
 };
 
 export type AIChatHandle = {
   /** Create a new empty assistant message in streaming state */
   startAssistantMessage: (id: string) => void;
-  /** Append a token/chunk to the assistant message with the given id */
-  appendAssistantChunk: (id: string, chunk: string) => void;
-  /** Mark the assistant message as complete */
-  completeAssistantMessage: (id: string) => void;
+  /**
+   * Append a token/chunk to the assistant message with the given id.
+   * `fromModel: false` is text the Studio writes itself ("Stopped."), which
+   * must not be counted as output tokens.
+   */
+  appendAssistantChunk: (
+    id: string,
+    chunk: string,
+    options?: { fromModel?: boolean },
+  ) => void;
+  /**
+   * Mark the assistant message as complete. `outputTokens` is the server's
+   * exact count for the turn; `stopped` says the user ended it.
+   */
+  completeAssistantMessage: (
+    id: string,
+    outcome?: { outputTokens?: number; stopped?: boolean },
+  ) => void;
+  /**
+   * The server's output-token count for the turn so far — exact after each
+   * model step, or its own running estimate in between.
+   */
+  reportOutputTokens: (
+    id: string,
+    outputTokens: number,
+    exact: boolean,
+  ) => void;
   /** Mark the assistant message as errored */
-  errorAssistantMessage: (id: string, error: string, code?: string) => void;
+  errorAssistantMessage: (
+    id: string,
+    error: string,
+    code?: string,
+    action?: { label: string; url: string },
+    details?: string,
+  ) => void;
   /** Add a tool call indicator to the current assistant message */
   addToolCall: (
     messageId: string,
@@ -146,23 +201,55 @@ export type AIChatHandle = {
 };
 
 export type AIChatProps = {
+  /**
+   * Stop the running turn. When given, the send button becomes a stop button
+   * while the assistant is streaming — the same control, because the two are
+   * never both available and one of them is always the thing you want.
+   */
+  onCancel?: () => void;
+  /**
+   * The models this project's keys can actually reach, as the providers report
+   * them. Empty hides the picker: with nothing to choose between, a control
+   * that shows one option is noise.
+   */
+  models?: AIModelInfo[];
+  selectedModel?: AIModel | null;
+  onSelectModel?: (model: AIModel) => void;
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
-    text: string,
+    content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
   ) => boolean;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
+  /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
+  chatEditorRef?: RefObject<ChatEditorRef | null>;
   /** Called when the user clicks "New Chat" to start a fresh session */
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
   suggestions?: string[];
+  /**
+   * Shown instead of the empty state, when there is something to do before
+   * a conversation can start — no AI key, and the AI setup to add one.
+   */
+  emptyStateOverride?: ReactNode;
   /** Extra class names on the root container */
   className?: string;
   /** Whether the underlying WebSocket connection is ready */
   isConnected: boolean;
   /** Set when /ai/initialize returned 401 — the user needs to authenticate */
   authError: boolean;
+  /**
+   * Why the assistant cannot be reached, once the studio has stopped retrying.
+   *
+   * Replaces the composer — and the "Connecting…" strip with it — and nothing
+   * else. A composer with nothing listening is an invitation to type a question
+   * that goes nowhere, with silence as the only feedback; but the conversation
+   * above it is still worth reading, and blanking it is not an improvement on a
+   * dead input. `authError` is NOT this: being signed out has its own prompt,
+   * which is the only thing that can say how to sign in.
+   */
+  unavailable?: { message: string; onRetry: () => void };
   /** Val server mode — controls which auth instructions to show on authError */
   mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
@@ -195,6 +282,9 @@ export type AIChatProps = {
 // Defaults
 // ---------------------------------------------------------------------------
 
+/** How long a turn may go without any activity before it is given up on. */
+const TURN_TIMEOUT_MS = 2 * 60 * 1000;
+
 const DEFAULT_SUGGESTIONS = [
   "Summarize recent changes",
   "What am I looking at?",
@@ -223,6 +313,251 @@ function getTextContent(content: AIMessageContent): string {
     .join("\n\n");
 }
 
+// HTML-esque tag set that the rich chat editor produces (see
+// chatDocumentToHtmlText). Restored sessions arrive as strings containing
+// these tags, so we re-render them as formatted React instead of literal text.
+//
+// Must stay in sync with the cases renderHtmlNode handles - including the
+// b/i/s aliases it accepts for strong/em/del. A tag the renderer supports but
+// this gate omits makes the whole message fall through and render its markup
+// as literal text.
+const USER_HTML_TAG_RE =
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field)\b/i;
+
+function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
+  return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
+}
+
+function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
+  if (node.nodeType === 3 /* TEXT_NODE */) return node.nodeValue ?? "";
+  if (node.nodeType !== 1 /* ELEMENT_NODE */) return null;
+  const el = node as Element;
+  const children = renderHtmlChildren(el.childNodes);
+  switch (el.tagName.toLowerCase()) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {children}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {children}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {children}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {children}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {children}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {children}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {children}
+        </ol>
+      );
+    case "li":
+      return <li key={key}>{children}</li>;
+    case "strong":
+    case "b":
+      return <strong key={key}>{children}</strong>;
+    case "em":
+    case "i":
+      return <em key={key}>{children}</em>;
+    case "del":
+    case "s":
+      return <del key={key}>{children}</del>;
+    case "code":
+      return (
+        <code
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+        >
+          {children}
+        </code>
+      );
+    case "br":
+      return <br key={key} />;
+    case "img": {
+      const alt = el.getAttribute("alt");
+      return (
+        <span key={key} className="italic text-fg-secondary">
+          [{alt ? `image: ${alt}` : "image"}]
+        </span>
+      );
+    }
+    case "field": {
+      const path = el.getAttribute("path") ?? "";
+      return (
+        <span
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+        >
+          @{path}
+        </span>
+      );
+    }
+    default:
+      // Rendered from renderHtmlChildren's map, so this needs a key like every
+      // other branch - a shorthand fragment cannot carry one.
+      return <React.Fragment key={key}>{children}</React.Fragment>;
+  }
+}
+
+function renderUserMessageText(text: string): React.ReactNode {
+  if (!USER_HTML_TAG_RE.test(text)) {
+    return <p className="whitespace-pre-wrap">{text}</p>;
+  }
+  const doc = new DOMParser().parseFromString(
+    `<body>${text}</body>`,
+    "text/html",
+  );
+  return <>{renderHtmlChildren(doc.body.childNodes)}</>;
+}
+
+// Render a ChatDocument from the rich editor directly to React. Used for
+// freshly-sent user messages so inline images keep their preview blob URLs
+// (re-parsing HTML would strip the previewUrl off image nodes).
+function ChatDocumentRenderer({
+  doc,
+}: {
+  doc: ChatDocument;
+}): React.ReactElement {
+  return <>{doc.map((block, i) => renderChatBlock(block, i))}</>;
+}
+
+function renderChatBlock(block: ChatBlockNode, key: number): React.ReactNode {
+  switch (block.tag) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {block.children.map((c, i) => renderChatBlock(c, i))}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ol>
+      );
+  }
+}
+
+function renderChatInline(node: ChatInlineNode, key: number): React.ReactNode {
+  if (typeof node === "string") return node;
+  if (node.tag === "br") return <br key={key} />;
+  if (node.tag === "span") {
+    let el: React.ReactNode = node.children[0];
+    for (const style of node.styles) {
+      if (style === "bold") el = <strong key={key}>{el}</strong>;
+      else if (style === "italic") el = <em key={key}>{el}</em>;
+      else if (style === "line-through") el = <del key={key}>{el}</del>;
+      else if (style === "code")
+        el = (
+          <code
+            key={key}
+            className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+          >
+            {el}
+          </code>
+        );
+    }
+    return <React.Fragment key={key}>{el}</React.Fragment>;
+  }
+  if (node.tag === "img") {
+    if (node.previewUrl) {
+      return (
+        <img
+          key={key}
+          src={node.previewUrl}
+          alt={node.alt ?? ""}
+          className="inline-block max-h-16 rounded border border-border-primary align-baseline mx-0.5"
+        />
+      );
+    }
+    return (
+      <span key={key} className="italic text-fg-secondary">
+        [{node.alt ? `image: ${node.alt}` : "image"}]
+      </span>
+    );
+  }
+  if (node.tag === "field_ref") {
+    return (
+      <span
+        key={key}
+        className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+      >
+        @{node.path}
+      </span>
+    );
+  }
+  return null;
+}
+
 function getImageUrls(content: AIMessageContent): string[] {
   if (typeof content === "string") {
     return [];
@@ -241,13 +576,19 @@ function getImageUrls(content: AIMessageContent): string[] {
 
 export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   {
+    onCancel,
+    models,
+    selectedModel,
+    onSelectModel,
     onSendMessage,
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
+    emptyStateOverride,
     className,
     isConnected,
     authError,
+    unavailable,
     mode,
     sessions,
     currentSessionId,
@@ -258,6 +599,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onAnswerToolQuestions,
     onCancelToolQuestion,
     initialMessages,
+    chatEditorRef: chatEditorRefProp,
   },
   ref,
 ) {
@@ -267,20 +609,33 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [currentMessage, setCurrentMessage] = useState<CurrentMessage | null>(
     null,
   );
-  const [inputValue, setInputValue] = useState("");
+  const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  const [hasPendingInlineImage, setHasPendingInlineImage] = useState(false);
+  /**
+   * When the prompt now waiting for its first reply was sent, or `null`.
+   *
+   * A time rather than a flag because the turn's clock starts here, at send,
+   * not when the server's first message arrives — the wait for that first
+   * message is exactly the "Thinking…" time worth showing. The ref is for the
+   * imperative handle, which must not read it from a stale render.
+   */
+  const [awaitingSince, setAwaitingSinceState] = useState<number | null>(null);
+  const awaitingSinceRef = useRef<number | null>(null);
+  const setAwaitingSince = useCallback((since: number | null) => {
+    awaitingSinceRef.current = since;
+    setAwaitingSinceState(since);
+  }, []);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalEditorRef = useRef<ChatEditorRef | null>(null);
+  const editorRef = chatEditorRefProp ?? internalEditorRef;
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showSessions, setShowSessions] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
     null,
   );
   const [renameValue, setRenameValue] = useState("");
-  const config = useValConfig();
-  const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
-  const emptyTitle = config?.ai?.chat?.title;
-  const emptyDescription = config?.ai?.chat?.description;
+  const portalContainer = useValPortal();
 
   // Derive combined list for rendering
   const messages: ChatMessage[] = currentMessage
@@ -294,41 +649,112 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     });
   }, [messages]);
 
-  // 2-minute timeout for in-progress assistant messages. Suspended while an
-  // ask_user_question card is open: that tool sets timeoutMs: null server-side
-  // precisely because it blocks on the user, so the client must not time out
-  // either. The clock is restarted (startedAt is bumped) once the user submits
-  // or cancels, so it measures server time, not thinking time.
+  // Once the assistant message exists, its own status line takes over from
+  // the placeholder one, carrying the same start time.
+  useEffect(() => {
+    if (currentMessage) setAwaitingSince(null);
+  }, [currentMessage, setAwaitingSince]);
+
+  // 2-minute INACTIVITY timeout for in-progress assistant messages: it counts
+  // from the turn's last activity, so a long turn that keeps streaming, calling
+  // tools or reporting usage is never cut off — only one that has gone silent.
+  // It used to count from the start of the turn, which ended every turn longer
+  // than two minutes with "Response timed out" and dropped the reply that
+  // arrived after. Suspended while an ask_user_question card is open: that tool
+  // sets timeoutMs: null server-side precisely because it blocks on the user,
+  // so the client must not time out either.
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
   ).some(isPendingQuestion);
+
+  /**
+   * Move the in-progress message into the finished list. Exactly once.
+   *
+   * The append has to happen from INSIDE the `setCurrentMessage` updater: the
+   * message being retired lives in `currentMessage`, and reading it from the
+   * render closure instead would drop a chunk that streamed in the same tick.
+   * But React may call an updater more than once — twice under `StrictMode`,
+   * which the Studio mounts in — so an unconditional append ran twice and every
+   * assistant reply appeared TWICE in dev, tool activity and all. Appending by
+   * id is what makes it idempotent.
+   *
+   * `id` of `null` means "whatever is in progress", which is what the timeout
+   * wants: it fires for the message it was scheduled for, not for one named by
+   * the server.
+   */
+  const retireCurrentMessage = useCallback(
+    (id: string | null, finish: (message: ChatMessage) => ChatMessage) => {
+      setCurrentMessage((prev) => {
+        if (!prev) return null;
+        if (id !== null && prev.message.id !== id) return prev;
+        const now = Date.now();
+        const settled = finish(prev.message);
+        // Every way out stops the clock — the timeout and an error as much as
+        // a reply. `finish` may already have ended it with a count, and
+        // `endTurn` leaves an ended turn alone.
+        const finished: ChatMessage = settled.turnStats
+          ? { ...settled, turnStats: endTurn(settled.turnStats, now) }
+          : settled;
+        setCompletedMessages((msgs) =>
+          msgs.some((msg) => msg.id === finished.id)
+            ? msgs
+            : [...msgs, finished],
+        );
+        return null;
+      });
+    },
+    [],
+  );
+  const timedOut = useCallback(
+    (message: ChatMessage): ChatMessage => ({
+      ...message,
+      status: "error",
+      error: "Response timed out",
+    }),
+    [],
+  );
   useEffect(() => {
     if (!currentMessage || awaitingUserAnswer) return;
-    const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
+    const remaining =
+      TURN_TIMEOUT_MS - (Date.now() - currentMessage.lastActivityAt);
     if (remaining <= 0) {
-      setCompletedMessages((prev) => [
-        ...prev,
-        {
-          ...currentMessage.message,
-          status: "error",
-          error: "Response timed out",
-        },
-      ]);
-      setCurrentMessage(null);
+      retireCurrentMessage(currentMessage.message.id, timedOut);
       return;
     }
     const timer = setTimeout(() => {
-      setCurrentMessage((prev) => {
-        if (!prev) return null;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "error", error: "Response timed out" },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(null, timedOut);
     }, remaining);
     return () => clearTimeout(timer);
-  }, [currentMessage, awaitingUserAnswer]);
+  }, [currentMessage, awaitingUserAnswer, retireCurrentMessage, timedOut]);
+
+  // The same timeout for a turn the server has not answered at all. Until its
+  // first message there is no current message for the effect above to watch,
+  // so a prompt met with silence used to wait forever — with the status line
+  // counting "Thinking…" up the whole time. It settles as a failed turn of its
+  // own; a reply that does turn up later still starts a message, as one
+  // arriving after the timeout above does.
+  useEffect(() => {
+    if (awaitingSince === null || currentMessage) return;
+    const timer = setTimeout(
+      () => {
+        const now = Date.now();
+        setAwaitingSince(null);
+        setCompletedMessages((msgs) => [
+          ...msgs,
+          {
+            id: randomUUID(),
+            role: "assistant",
+            content: "",
+            status: "error",
+            error: "Response timed out",
+            turnStats: endTurn(startTurn(awaitingSince), now),
+          },
+        ]);
+      },
+      Math.max(0, TURN_TIMEOUT_MS - (Date.now() - awaitingSince)),
+    );
+    return () => clearTimeout(timer);
+  }, [awaitingSince, currentMessage, setAwaitingSince]);
 
   // ---- Local state mutators (shared by imperative handle and inline UI) ----
 
@@ -348,7 +774,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         if (!prev || prev.message.id !== messageId) return prev;
         // Restart the in-progress timeout window from the moment the user
         // acted — see the timeout effect above.
-        return { message: mapMessage(prev.message), startedAt: Date.now() };
+        const now = Date.now();
+        return {
+          message: withPauseSynced(mapMessage(prev.message), now),
+          lastActivityAt: now,
+        };
       });
       // The message may already have been moved to completedMessages (e.g. by
       // an ai_error) while the question card was still open, in which case the
@@ -392,43 +822,83 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   useImperativeHandle(ref, () => ({
     startAssistantMessage(id: string) {
+      const now = Date.now();
       setCurrentMessage({
-        message: { id, role: "assistant", content: "", status: "streaming" },
-        startedAt: Date.now(),
+        message: {
+          id,
+          role: "assistant",
+          content: "",
+          status: "streaming",
+          turnStats: startTurn(awaitingSinceRef.current ?? now),
+        },
+        lastActivityAt: now,
       });
     },
-    appendAssistantChunk(id: string, chunk: string) {
+    appendAssistantChunk(
+      id: string,
+      chunk: string,
+      options?: { fromModel?: boolean },
+    ) {
+      const fromModel = options?.fromModel ?? true;
       setCurrentMessage((prev) =>
         prev?.message.id === id
           ? {
-              ...prev,
+              lastActivityAt: Date.now(),
               message: {
                 ...prev.message,
                 content: getTextContent(prev.message.content) + chunk,
+                turnStats:
+                  prev.message.turnStats && fromModel
+                    ? addStreamedText(prev.message.turnStats, chunk)
+                    : prev.message.turnStats,
               },
             }
           : prev,
       );
     },
-    completeAssistantMessage(id: string) {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== id) return prev;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "complete" },
-        ]);
-        return null;
-      });
+    completeAssistantMessage(
+      id: string,
+      outcome?: { outputTokens?: number; stopped?: boolean },
+    ) {
+      retireCurrentMessage(id, (message) => ({
+        ...message,
+        status: "complete",
+        turnStats:
+          message.turnStats && endTurn(message.turnStats, Date.now(), outcome),
+      }));
     },
-    errorAssistantMessage(id: string, error: string, code?: string) {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== id) return prev;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "error", error, errorCode: code },
-        ]);
-        return null;
-      });
+    reportOutputTokens(id: string, outputTokens: number, exact: boolean) {
+      setCurrentMessage((prev) =>
+        prev?.message.id === id && prev.message.turnStats
+          ? {
+              lastActivityAt: Date.now(),
+              message: {
+                ...prev.message,
+                turnStats: reportOutputTokens(
+                  prev.message.turnStats,
+                  outputTokens,
+                  exact,
+                ),
+              },
+            }
+          : prev,
+      );
+    },
+    errorAssistantMessage(
+      id: string,
+      error: string,
+      code?: string,
+      action?: { label: string; url: string },
+      details?: string,
+    ) {
+      retireCurrentMessage(id, (message) => ({
+        ...message,
+        status: "error",
+        error,
+        errorAction: action,
+        errorCode: code,
+        errorDetails: details,
+      }));
     },
     addToolCall(
       messageId: string,
@@ -445,14 +915,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (prev && prev.message.id === messageId) {
           return {
-            ...prev,
-            message: {
-              ...prev.message,
-              toolActivities: [
-                ...(prev.message.toolActivities ?? []),
-                activity,
-              ],
-            },
+            lastActivityAt: Date.now(),
+            message: withPauseSynced(
+              {
+                ...prev.message,
+                toolActivities: [
+                  ...(prev.message.toolActivities ?? []),
+                  activity,
+                ],
+              },
+              Date.now(),
+            ),
           };
         }
         return prev;
@@ -462,7 +935,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== messageId) return prev;
         return {
-          ...prev,
+          lastActivityAt: Date.now(),
           message: {
             ...prev.message,
             toolActivities: (prev.message.toolActivities ?? []).map((t) =>
@@ -478,7 +951,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== messageId) return prev;
         return {
-          ...prev,
+          lastActivityAt: Date.now(),
           message: {
             ...prev.message,
             toolActivities: (prev.message.toolActivities ?? []).map((t) =>
@@ -505,6 +978,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  const composerDisabled = authError || !isConnected || isStreaming;
+
+  const focusComposer = useCallback(() => {
+    editorRef.current?.focus();
+  }, [editorRef]);
+  // The caret goes back into the composer when the answer lands - see
+  // `useComposerFocusRestore` for why it is armed at send time.
+  const { armForSend } = useComposerFocusRestore(
+    composerDisabled,
+    focusComposer,
+  );
 
   // ---- Handlers ----
 
@@ -516,7 +1000,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       e.target.value = "";
 
       const newEntries: AttachedFile[] = files.map((file) => ({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         file,
         status: "uploading" as const,
         previewUrl: file.type.startsWith("image/")
@@ -537,7 +1021,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               );
             })
             .catch((err) => {
-              console.error("Failed to upload file", {
+              Internal.log.error("Failed to upload file", {
                 fileName: entry.file.name,
                 error: err,
               });
@@ -562,9 +1046,33 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   }, []);
 
   const handleSend = useCallback(
-    (text?: string) => {
-      const content = (text ?? inputValue).trim();
-      if (!content || isStreaming) return;
+    (suggestion?: string) => {
+      if (isStreaming) return;
+
+      let outgoing: string | ChatDocument;
+      let displayText: string;
+      let outgoingDoc: ChatDocument | undefined;
+      if (suggestion !== undefined) {
+        const trimmed = suggestion.trim();
+        if (!trimmed) return;
+        outgoing = trimmed;
+        displayText = trimmed;
+      } else {
+        const editor = editorRef.current;
+        if (!editor || editor.isEmpty()) return;
+        const doc = editor.getDocument();
+        if (
+          collectImageKeysFromDoc(doc).some((k) => k.startsWith("pending:"))
+        ) {
+          // Image still uploading — Send button should already be disabled,
+          // but bail out defensively so a stale pending key never reaches the
+          // server (it would 404 when the AI tries to use it).
+          return;
+        }
+        outgoing = doc;
+        outgoingDoc = doc;
+        displayText = chatDocumentToPlainText(doc);
+      }
 
       const doneAttachments: ChatMessageAttachment[] = attachedFiles
         .filter(
@@ -578,7 +1086,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           previewUrl: f.previewUrl,
         }));
 
-      // Revoke object URLs for files we're sending (they'll be in the message)
       attachedFiles.forEach((f) => {
         if (f.previewUrl && f.status !== "done")
           URL.revokeObjectURL(f.previewUrl);
@@ -589,16 +1096,21 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const userMsg: ChatMessage = {
         id: msgId,
         role: "user",
-        content,
+        content: displayText,
         status: "complete",
         attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
+        userDoc: outgoingDoc,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
-      setInputValue("");
+
+      if (suggestion === undefined) {
+        editorRef.current?.clear();
+        setIsEditorEmpty(true);
+      }
 
       const sent = onSendMessage
         ? onSendMessage(
-            content,
+            outgoing,
             doneAttachments.length > 0 ? doneAttachments : undefined,
           )
         : true;
@@ -610,12 +1122,23 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
+      } else {
+        setAwaitingSince(Date.now());
+        // Streaming is about to disable the composer, which blurs it. Ask for
+        // the caret back once the answer lands.
+        armForSend();
       }
 
-      // Refocus textarea after send
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [inputValue, isStreaming, attachedFiles, onSendMessage],
+    [
+      isStreaming,
+      attachedFiles,
+      onSendMessage,
+      editorRef,
+      armForSend,
+      setAwaitingSince,
+    ],
   );
 
   const handleRetry = useCallback(
@@ -631,9 +1154,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
-        const retryText = getTextContent(errorMsg.content);
+        const retryPayload: string | ChatDocument =
+          errorMsg.userDoc ?? getTextContent(errorMsg.content);
         const sent = onSendMessage
-          ? onSendMessage(retryText, errorMsg.attachments)
+          ? onSendMessage(retryPayload, errorMsg.attachments)
           : true;
         if (!sent) {
           setCompletedMessages((prev) =>
@@ -643,6 +1167,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 : m,
             ),
           );
+        } else {
+          setAwaitingSince(Date.now());
         }
         return;
       }
@@ -659,22 +1185,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
-      onSendMessage?.(
-        getTextContent(prevUserMsg.content),
-        prevUserMsg.attachments,
-      );
+      const retryPayload: string | ChatDocument =
+        prevUserMsg.userDoc ?? getTextContent(prevUserMsg.content);
+      const sent =
+        onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
+      if (sent) setAwaitingSince(Date.now());
     },
-    [messages, onSendMessage],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
+    [messages, onSendMessage, setAwaitingSince],
   );
 
   // ---- Render ----
@@ -698,7 +1215,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   onFetchSessions();
                   setShowSessions(true);
                 }}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <History className="h-3 w-3" />
                 History
@@ -712,7 +1229,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 size="sm"
                 onClick={onNewSession}
                 disabled={isStreaming}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
                 New chat
@@ -746,7 +1263,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   onNewSession();
                   setShowSessions(false);
                 }}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
                 New chat
@@ -777,7 +1294,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                       {isRenaming ? (
                         <input
                           autoFocus
-                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-border-focus"
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={(e) => {
@@ -836,19 +1353,19 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4 p-4 min-w-0 max-w-full">
           {authError ? (
             <AuthPrompt mode={mode} />
           ) : isLoadingSession && isEmpty ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-fg-secondary">
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Spinner size={20} />
               <span className="text-sm">Loading conversation…</span>
             </div>
+          ) : isEmpty && emptyStateOverride !== undefined ? (
+            emptyStateOverride
           ) : isEmpty ? (
             <EmptyState
-              suggestions={effectiveSuggestions}
-              title={emptyTitle}
-              description={emptyDescription}
+              suggestions={suggestions}
               onSelect={(s) => handleSend(s)}
             />
           ) : (
@@ -868,128 +1385,210 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               />
             ))
           )}
+          {awaitingSince !== null && !currentMessage && (
+            <TurnStatsLine
+              className="px-1"
+              stats={startTurn(awaitingSince)}
+              phase="thinking"
+            />
+          )}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
-        {!isConnected && !authError && (
-          <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
-            <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
-            Connecting…
-          </div>
-        )}
-        {/* Attached file previews */}
-        {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {attachedFiles.map((f) => (
-              <div
-                key={f.id}
-                className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
-              >
-                {f.previewUrl ? (
-                  <img
-                    src={f.previewUrl}
-                    alt={f.file.name}
-                    className="h-8 w-8 rounded object-cover"
-                  />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
-                )}
-                <span className="max-w-[120px] truncate">{f.file.name}</span>
-                {f.status === "uploading" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
-                )}
-                {f.status === "error" && (
-                  <XCircle className="h-3 w-3 text-fg-error-primary" />
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeAttachedFile(f.id)}
-                  className="ml-0.5 text-fg-secondary hover:text-fg-primary"
-                  aria-label={`Remove ${f.file.name}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+        {unavailable && !authError ? (
+          <AIUnavailable {...unavailable} />
+        ) : (
+          <>
+            {!isConnected && !authError && (
+              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs touch:text-sm text-fg-secondary">
+                <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+                Connecting…
               </div>
-            ))}
-          </div>
-        )}
-        {onUploadFile && (
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-            accept="image/*"
-          />
-        )}
-        <div className="flex items-end gap-2">
-          {onUploadFile && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={!isConnected || isStreaming || authError}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
-              className="mb-1"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-          )}
-          <div className="flex-1 grid">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={authError}
-              placeholder={isConnected && !authError ? "Ask something…" : ""}
-              rows={1}
-              className={cn(
-                "resize-none overflow-hidden",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-fg-primary",
-                "ring-offset-background placeholder:text-muted-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
-            />
-            {/* Hidden mirror for auto-grow */}
+            )}
+            {/* Attached file previews */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {attachedFiles.map((f) => (
+                  <div
+                    key={f.id}
+                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs touch:text-sm text-fg-primary"
+                  >
+                    {f.previewUrl ? (
+                      <img
+                        src={f.previewUrl}
+                        alt={f.file.name}
+                        className="h-8 w-8 rounded object-cover"
+                      />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
+                    )}
+                    <span className="max-w-[120px] truncate">
+                      {f.file.name}
+                    </span>
+                    {f.status === "uploading" && (
+                      <Spinner size={12} className="text-fg-secondary" />
+                    )}
+                    {f.status === "error" && (
+                      <XCircle className="h-3 w-3 text-fg-error-primary" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttachedFile(f.id)}
+                      className="ml-0.5 text-fg-secondary hover:text-fg-primary"
+                      aria-label={`Remove ${f.file.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {onUploadFile && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+                accept="image/*"
+              />
+            )}
             <div
               className={cn(
-                "whitespace-pre-wrap invisible",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-sm",
+                "flex flex-col rounded-md border border-border-primary bg-bg-primary",
+                "focus-within:outline-none focus-within:ring-2 focus-within:ring-border-focus",
               )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
             >
-              {inputValue + " "}
+              <AIChatEditor
+                ref={editorRef}
+                disabled={composerDisabled}
+                placeholder={isConnected && !authError ? "Ask something…" : ""}
+                onSubmit={() => handleSend()}
+                onUploadAiImage={onUploadFile}
+                getPortalContainer={() => portalContainer}
+                onChange={(doc) => {
+                  const empty =
+                    doc.length === 0 ||
+                    (doc.length === 1 &&
+                      doc[0].tag === "p" &&
+                      doc[0].children.length === 0);
+                  setIsEditorEmpty(empty);
+                  const keys = collectImageKeysFromDoc(doc);
+                  setHasPendingInlineImage(
+                    keys.some((k) => k.startsWith("pending:")),
+                  );
+                }}
+                className={cn(
+                  "max-h-[18rem] overflow-y-auto px-3 pt-3 pb-1",
+                  "text-fg-primary text-base",
+                )}
+              />
+              <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+                {onUploadFile && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={!isConnected || isStreaming || authError}
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Attach files"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                )}
+                {/*
+                  Beside the composer rather than in a settings panel: which
+                  model answers is a per-message decision — a cheap one for a
+                  quick edit, a strong one for a hard question — so it belongs
+                  where the message is written.
+                */}
+                {models && onSelectModel && (
+                  <AIChatModelPicker
+                    models={models}
+                    selectedModel={selectedModel}
+                    onSelectModel={onSelectModel}
+                    disabled={isStreaming}
+                    portalContainer={portalContainer}
+                  />
+                )}
+                {isStreaming && onCancel ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={onCancel}
+                    aria-label="Stop generating"
+                    title="Stop generating"
+                    className="ml-auto"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={
+                      !isConnected ||
+                      isStreaming ||
+                      isUploading ||
+                      hasPendingInlineImage ||
+                      authError ||
+                      isEditorEmpty
+                    }
+                    onClick={() => handleSend()}
+                    aria-label="Send message"
+                    className="ml-auto"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={
-              !isConnected ||
-              isStreaming ||
-              isUploading ||
-              authError ||
-              !inputValue.trim()
-            }
-            onClick={() => handleSend()}
-            aria-label="Send message"
-            className="mb-1"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
 });
+
+/**
+ * The assistant is not there, and this is what is known about why.
+ *
+ * The retry matters more than the message: the usual causes are a key missing
+ * from the server's config or the AI service being down, both of which can be
+ * fixed in another window while this is on screen — and without a button the
+ * only way to find out is to reload the studio.
+ */
+function AIUnavailable({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border-primary bg-bg-secondary p-2.5">
+      <div className="flex gap-2">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-error-primary" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg-primary">
+            The assistant is unavailable
+          </p>
+          <p className="mt-0.5 text-[0.6875rem] text-fg-secondary">{message}</p>
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        className="mt-2 text-xs"
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -1034,13 +1633,9 @@ function AuthPrompt({ mode }: { mode: "http" | "fs" | "unknown" }) {
 
 function EmptyState({
   suggestions,
-  title,
-  description,
   onSelect,
 }: {
   suggestions: string[];
-  title?: string;
-  description?: string;
   onSelect: (text: string) => void;
 }) {
   return (
@@ -1050,10 +1645,10 @@ function EmptyState({
       </div>
       <div>
         <h2 className="text-lg font-semibold text-fg-primary">
-          {title ?? "How can I help?"}
+          How can I help?
         </h2>
         <p className="mt-1 text-sm text-fg-secondary">
-          {description ?? "Ask me anything or pick a suggestion below"}
+          Ask me anything or pick a suggestion below
         </p>
       </div>
       {suggestions.length > 0 && (
@@ -1089,147 +1684,209 @@ function MessageBubble({
   ) => void;
   onCancelToolQuestion: (toolCallId: string) => void;
 }) {
-  const config = useValConfig();
-  const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
-  const project = config?.project;
-  const org = project?.split("/")[0];
-
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
-  const hasPendingQuestion = (message.toolActivities ?? []).some(
-    isPendingQuestion,
+  const activities = message.toolActivities ?? [];
+  const hasPendingQuestion = activities.some(isPendingQuestion);
+  const hasRunningTool = activities.some(
+    (a) => a.status === "pending" && a.questions === undefined,
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
+  const turnStats = isUser ? undefined : message.turnStats;
+  // See aiChatBubble.ts - the rule is subtler than it looks.
+  const { hasBubble, showCursor } = decideBubble({
+    isUser,
+    isError,
+    isStreaming: isStreamingMsg,
+    hasText: textContent.length > 0,
+    hasFiles: fileUrls.length > 0,
+    hasRunningTool,
+    hasPendingQuestion,
+    hasStatusLine: turnStats !== undefined,
+  });
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
-          isUser
-            ? "bg-bg-secondary text-fg-primary max-w-[80%]"
-            : "bg-bg-tertiary text-fg-primary w-full max-w-full",
-          isError && "border border-border-error-primary",
-        )}
-      >
-        {isUser ? (
-          <>
-            {message.attachments && message.attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-1.5">
-                {message.attachments.map((a) =>
-                  a.mimeType?.startsWith("image/") && a.previewUrl ? (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 min-w-0",
+        isUser ? "items-end" : "items-stretch",
+      )}
+    >
+      {/* Tool calls are a row of their own, above the answer - see
+          ToolActivities. */}
+      {!isUser && activities.length > 0 && (
+        <ToolActivities
+          activities={activities}
+          onSubmitAnswers={onSubmitToolAnswers}
+          onCancel={onCancelToolQuestion}
+        />
+      )}
+      {hasBubble && (
+        <div
+          className={cn(
+            "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm touch:text-base leading-relaxed",
+            "[overflow-wrap:anywhere]",
+            isUser
+              ? "bg-bg-secondary text-fg-primary max-w-[80%]"
+              : "bg-bg-tertiary text-fg-primary w-full max-w-full",
+            isError && "border border-border-error-primary",
+          )}
+        >
+          {isUser ? (
+            <>
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {message.attachments.map((a) =>
+                    a.mimeType?.startsWith("image/") && a.previewUrl ? (
+                      <img
+                        key={a.key}
+                        src={a.previewUrl}
+                        alt={a.name}
+                        className="h-16 w-16 rounded object-cover"
+                      />
+                    ) : (
+                      <div
+                        key={a.key}
+                        className="flex items-center gap-1 rounded border border-border-primary bg-bg-primary px-2 py-1 text-xs text-fg-secondary"
+                      >
+                        <FileText className="h-3 w-3 shrink-0" />
+                        <span className="max-w-[120px] truncate">{a.name}</span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+              {fileUrls.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {fileUrls.map((url) => (
                     <img
-                      key={a.key}
-                      src={a.previewUrl}
-                      alt={a.name}
-                      className="h-16 w-16 rounded object-cover"
+                      key={url}
+                      src={url}
+                      alt="Session attachment"
+                      className="max-h-48 rounded object-contain"
                     />
-                  ) : (
-                    <div
-                      key={a.key}
-                      className="flex items-center gap-1 rounded border border-border-primary bg-bg-primary px-2 py-1 text-xs text-fg-secondary"
-                    >
-                      <FileText className="h-3 w-3 shrink-0" />
-                      <span className="max-w-[120px] truncate">{a.name}</span>
-                    </div>
-                  ),
+                  ))}
+                </div>
+              )}
+              {message.userDoc ? (
+                <ChatDocumentRenderer doc={message.userDoc} />
+              ) : (
+                textContent && renderUserMessageText(textContent)
+              )}
+            </>
+          ) : (
+            <div
+              className={cn(
+                "prose prose-sm dark:prose-invert max-w-none",
+                "[&_pre]:overflow-x-auto [&_pre]:max-w-full",
+                "[&_code]:break-words",
+                "[&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full",
+                "[&_a]:break-all",
+              )}
+            >
+              {fileUrls.length > 0 && (
+                <div className="not-prose mb-3 flex flex-wrap gap-2">
+                  {fileUrls.map((url) => (
+                    <img
+                      key={url}
+                      src={url}
+                      alt="AI session image"
+                      className="max-h-64 rounded border border-border-primary object-contain"
+                    />
+                  ))}
+                </div>
+              )}
+              {textContent ? (
+                <ReactMarkdown>{textContent}</ReactMarkdown>
+              ) : isStreamingMsg ||
+                isError ||
+                fileUrls.length > 0 ||
+                hasPendingQuestion ? null : (
+                <p className="text-fg-secondary italic">Empty response</p>
+              )}
+              {showCursor && <StreamingCursor />}
+            </div>
+          )}
+
+          {isError && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex flex-col gap-1">
+                <p className="text-xs text-fg-error-primary">
+                  {message.error ?? "Something went wrong"}
+                </p>
+                {message.errorAction && safeHref(message.errorAction.url) && (
+                  <a
+                    href={safeHref(message.errorAction.url)}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-xs text-fg-brand-primary underline"
+                  >
+                    {message.errorAction.label}
+                  </a>
+                )}
+                {/*
+                  A plain `<details>`: closed by default, so it costs nothing to
+                  everyone who cannot act on it, and one click for whoever can.
+                  No component needed, and it works with find-in-page once open.
+                */}
+                {message.errorDetails && (
+                  <details className="text-xs text-fg-secondary">
+                    <summary className="cursor-pointer select-none">
+                      Details
+                    </summary>
+                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-bg-secondary p-2 font-mono text-[11px] text-fg-secondary">
+                      {message.errorDetails}
+                    </pre>
+                  </details>
                 )}
               </div>
-            )}
-            {fileUrls.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-2">
-                {fileUrls.map((url) => (
-                  <img
-                    key={url}
-                    src={url}
-                    alt="Session attachment"
-                    className="max-h-48 rounded object-contain"
-                  />
-                ))}
-              </div>
-            )}
-            {textContent && (
-              <p className="whitespace-pre-wrap">{textContent}</p>
-            )}
-            {message.status === "complete" && (
-              <div className="mt-1 flex justify-end">
-                <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
-                  <Check className="h-2.5 w-2.5" />
-                  Sent
-                </span>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            {message.toolActivities && message.toolActivities.length > 0 && (
-              <ToolActivitiesIndicator
-                activities={message.toolActivities}
-                onSubmitAnswers={onSubmitToolAnswers}
-                onCancel={onCancelToolQuestion}
-              />
-            )}
-            {fileUrls.length > 0 && (
-              <div className="not-prose mb-3 flex flex-wrap gap-2">
-                {fileUrls.map((url) => (
-                  <img
-                    key={url}
-                    src={url}
-                    alt="AI session image"
-                    className="max-h-64 rounded border border-border-primary object-contain"
-                  />
-                ))}
-              </div>
-            )}
-            {textContent ? (
-              <ReactMarkdown>{textContent}</ReactMarkdown>
-            ) : isStreamingMsg ||
-              isError ||
-              fileUrls.length > 0 ||
-              hasPendingQuestion ? null : (
-              <p className="text-fg-secondary italic">Empty response</p>
-            )}
-            {isStreamingMsg && !hasPendingQuestion && <StreamingCursor />}
-          </div>
-        )}
-
-        {isError && (
-          <div className="mt-2 flex items-center gap-2">
-            <div className="flex flex-col gap-1">
-              <p className="text-xs text-fg-error-primary">
-                {message.error ?? "Something went wrong"}
-              </p>
-              {message.errorCode === "token_limit_reached" && (
-                <a
-                  href={
-                    org
-                      ? `${appHostUrl}/manage-subscription/${org}`
-                      : appHostUrl
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-fg-brand-primary underline"
-                >
-                  Add a data pack to continue using AI
-                </a>
-              )}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onRetry(message.id)}
+                aria-label="Retry"
+                className="h-6 w-6"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-fg-error-primary" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onRetry(message.id)}
-              aria-label="Retry"
-              className="h-6 w-6"
-            >
-              <RotateCcw className="h-3.5 w-3.5 text-fg-error-primary" />
-            </Button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+      {turnStats && (
+        <TurnStatsLine
+          className="px-1"
+          stats={turnStats}
+          phase={turnPhaseOf({
+            status: message.status,
+            stopped: turnStats.stopped,
+            waitingOnUser: hasPendingQuestion,
+            hasRunningTool,
+            hasText: textContent.length > 0,
+          })}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Pause the turn's clock while a question card is open, and resume it once
+ * the card is answered or cancelled — applied after every change to a
+ * message's tools, so no caller has to track the transition itself.
+ */
+function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
+  if (!message.turnStats) return message;
+  return {
+    ...message,
+    turnStats: syncPause(
+      message.turnStats,
+      (message.toolActivities ?? []).some(isPendingQuestion),
+      now,
+    ),
+  };
 }
 
 function StreamingCursor() {
@@ -1245,515 +1902,5 @@ function StreamingCursor() {
         style={{ animationDelay: "300ms" }}
       />
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tool activity display
-// ---------------------------------------------------------------------------
-
-const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
-  {
-    get_all_schema: {
-      label: "Reading schemas",
-      icon: <Database className="h-3 w-3" />,
-    },
-    get_source: {
-      label: "Reading content",
-      icon: <FileText className="h-3 w-3" />,
-    },
-    search_content: {
-      label: "Searching",
-      icon: <Search className="h-3 w-3" />,
-    },
-    validate_content: {
-      label: "Validating",
-      icon: <ShieldCheck className="h-3 w-3" />,
-    },
-    create_patch: {
-      label: "Updating content",
-      icon: <Pencil className="h-3 w-3" />,
-    },
-    add_session_image_to_gallery: {
-      label: "Adding image to gallery",
-      icon: <Paperclip className="h-3 w-3" />,
-    },
-    remove_image_gallery_entry: {
-      label: "Removing image from gallery",
-      icon: <Paperclip className="h-3 w-3" />,
-    },
-    navigate_to: {
-      label: "Navigating to content",
-      icon: <Navigation className="h-3 w-3" />,
-    },
-    get_patches: {
-      label: "Loading changes",
-      icon: <Clock className="h-3 w-3" />,
-    },
-    get_source_path_from_route: {
-      label: "Resolving route",
-      icon: <Navigation className="h-3 w-3" />,
-    },
-    get_current_context: {
-      label: "Gathering context",
-      icon: <User className="h-3 w-3" />,
-    },
-    set_session_name: {
-      label: "Naming session",
-      icon: <Tag className="h-3 w-3" />,
-    },
-    show_compare_view: {
-      label: "Opening compare view",
-      icon: <GitCompareArrows className="h-3 w-3" />,
-    },
-    ask_user_question: {
-      label: "Asking a question",
-      icon: <HelpCircle className="h-3 w-3" />,
-    },
-  };
-
-function ToolActivitiesIndicator({
-  activities,
-  onSubmitAnswers,
-  onCancel,
-}: {
-  activities: ToolActivity[];
-  onSubmitAnswers: (
-    toolCallId: string,
-    answers: AskUserQuestionAnswer[],
-  ) => void;
-  onCancel: (toolCallId: string) => void;
-}) {
-  return (
-    <div className="not-prose flex flex-col gap-1 mb-2">
-      {activities.map((activity) => {
-        const display = TOOL_DISPLAY[activity.name as ToolName] ?? {
-          label: activity.name,
-          icon: <Loader2 className="h-3 w-3" />,
-        };
-        const isPending = activity.status === "pending";
-        const isError = activity.status === "error";
-        if (isPendingQuestion(activity) && activity.questions) {
-          return (
-            <QuestionCard
-              key={activity.toolCallId}
-              questions={activity.questions}
-              onSubmit={(answers) =>
-                onSubmitAnswers(activity.toolCallId, answers)
-              }
-              onCancel={() => onCancel(activity.toolCallId)}
-            />
-          );
-        }
-        if (activity.questions && activity.answers) {
-          return (
-            <AnsweredQuestionSummary
-              key={activity.toolCallId}
-              answers={activity.answers}
-              questions={activity.questions}
-            />
-          );
-        }
-        if (activity.questions && activity.cancelled) {
-          return (
-            <div
-              key={activity.toolCallId}
-              className="flex items-center gap-1.5 text-xs py-0.5 text-fg-secondary"
-            >
-              <XCircle className="h-3 w-3" />
-              <HelpCircle className="h-3 w-3" />
-              <span>Question dismissed</span>
-            </div>
-          );
-        }
-        return (
-          <div
-            key={activity.toolCallId}
-            className={cn(
-              "flex items-center gap-1.5 text-xs py-0.5",
-              isPending
-                ? "text-fg-secondary"
-                : isError
-                  ? "text-fg-error-primary"
-                  : "text-fg-secondary",
-            )}
-          >
-            {isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : isError ? (
-              <XCircle className="h-3 w-3" />
-            ) : (
-              <></>
-            )}
-            <span className="flex items-center gap-1">
-              {display.icon}
-              <span>
-                {display.label}
-                {isPending ? "…" : ""}
-              </span>
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function AnsweredQuestionSummary({
-  questions,
-  answers,
-}: {
-  questions: AskUserQuestionItem[];
-  answers: AskUserQuestionAnswer[];
-}) {
-  return (
-    <div className="flex flex-col gap-0.5 text-xs text-fg-secondary py-0.5">
-      <div className="flex items-center gap-1.5">
-        <HelpCircle className="h-3 w-3" />
-        <span>Asked a question</span>
-      </div>
-      {answers.map((a, i) => {
-        const q = questions[i];
-        const parts: string[] = [];
-        if (q) {
-          a.selectedOptions.forEach((idx) => {
-            const label = q.options[idx]?.label;
-            if (label) parts.push(label);
-          });
-        }
-        if (a.customAnswer) parts.push(a.customAnswer);
-        const answerText = parts.join(", ") || "(no answer)";
-        return (
-          <div key={i} className="pl-4 truncate">
-            <span className="text-fg-tertiary">Q:</span> {a.question}{" "}
-            <span className="text-fg-tertiary">→</span> {answerText}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-type DraftAnswer = {
-  selected: Set<number>;
-  custom: string;
-  otherSelected: boolean;
-};
-
-function initialDrafts(questions: AskUserQuestionItem[]): DraftAnswer[] {
-  return questions.map((q) => {
-    const selected = new Set<number>();
-    if (q.defaults && q.defaults.length > 0) {
-      const validDefaults = q.defaults.filter(
-        (idx) => Number.isInteger(idx) && idx >= 0 && idx < q.options.length,
-      );
-      if (q.multiSelect) {
-        validDefaults.forEach((idx) => selected.add(idx));
-      } else if (validDefaults.length > 0) {
-        selected.add(validDefaults[0]);
-      }
-    }
-    return { selected, custom: "", otherSelected: false };
-  });
-}
-
-function QuestionCard({
-  questions,
-  onSubmit,
-  onCancel,
-}: {
-  questions: AskUserQuestionItem[];
-  onSubmit: (answers: AskUserQuestionAnswer[]) => void;
-  onCancel: () => void;
-}) {
-  const [drafts, setDrafts] = useState<DraftAnswer[]>(() =>
-    initialDrafts(questions),
-  );
-  const [submitted, setSubmitted] = useState(false);
-  // Each group is labelled by its question text, so the ids must be unique
-  // across the several cards a session can accumulate.
-  const baseId = useId();
-
-  const canSubmit = drafts.every(
-    (d) =>
-      d.selected.size > 0 || (d.otherSelected && d.custom.trim().length > 0),
-  );
-
-  const toggleOption = (qi: number, oi: number, multiSelect: boolean) => {
-    if (submitted) return;
-    setDrafts((prev) =>
-      prev.map((d, i) => {
-        if (i !== qi) return d;
-        const next = new Set(d.selected);
-        if (multiSelect) {
-          if (next.has(oi)) next.delete(oi);
-          else next.add(oi);
-          return { ...d, selected: next };
-        }
-        next.clear();
-        next.add(oi);
-        // Single-select: picking an option deselects Other.
-        return { ...d, selected: next, otherSelected: false };
-      }),
-    );
-  };
-
-  const selectOther = (qi: number, multiSelect: boolean) => {
-    if (submitted) return;
-    setDrafts((prev) =>
-      prev.map((d, i) => {
-        if (i !== qi) return d;
-        if (multiSelect) {
-          return { ...d, otherSelected: !d.otherSelected };
-        }
-        // Single-select: selecting Other deselects all listed options.
-        return { ...d, selected: new Set<number>(), otherSelected: true };
-      }),
-    );
-  };
-
-  const setCustom = (qi: number, value: string, multiSelect: boolean) => {
-    if (submitted) return;
-    setDrafts((prev) =>
-      prev.map((d, i) => {
-        if (i !== qi) return d;
-        // Typing in the Other input auto-selects Other. In single-select
-        // mode, this also deselects the listed options.
-        if (multiSelect) {
-          return { ...d, custom: value, otherSelected: true };
-        }
-        return {
-          ...d,
-          custom: value,
-          otherSelected: true,
-          selected: new Set<number>(),
-        };
-      }),
-    );
-  };
-
-  // Radio/checkbox navigation. Each question owns options 0..n-1 plus the
-  // free-text row at index n, all addressed by `${qi}:${index}`.
-  const radioRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
-  const radioKey = (qi: number, index: number) => `${qi}:${index}`;
-
-  // Single-select groups are radiogroups, so they get the radio keyboard
-  // pattern: arrows move focus AND selection, and only the checked radio is in
-  // the tab order (see checkedIndex below). Multi-select groups are checkboxes,
-  // which are each individually tabbable and toggled with Space — that is the
-  // native button behaviour, so they need no key handling.
-  const handleRadioKeyDown = (
-    e: React.KeyboardEvent<HTMLButtonElement>,
-    qi: number,
-    index: number,
-    radioCount: number,
-  ) => {
-    let next: number;
-    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-      next = (index + 1) % radioCount;
-    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-      next = (index - 1 + radioCount) % radioCount;
-    } else {
-      return;
-    }
-    e.preventDefault();
-    const otherIndex = radioCount - 1;
-    if (next === otherIndex) {
-      selectOther(qi, false);
-    } else {
-      toggleOption(qi, next, false);
-    }
-    radioRefs.current.get(radioKey(qi, next))?.focus();
-  };
-
-  const handleSubmit = () => {
-    if (submitted || !canSubmit) return;
-    setSubmitted(true);
-    const answers: AskUserQuestionAnswer[] = questions.map((q, i) => {
-      const d = drafts[i];
-      return {
-        question: q.question,
-        selectedOptions: Array.from(d.selected).sort((a, b) => a - b),
-        customAnswer:
-          d.otherSelected && d.custom.trim().length > 0
-            ? d.custom.trim()
-            : null,
-      };
-    });
-    onSubmit(answers);
-  };
-
-  const handleCancel = () => {
-    if (submitted) return;
-    setSubmitted(true);
-    onCancel();
-  };
-
-  return (
-    <div className="not-prose flex flex-col gap-3 rounded-md border border-border-primary bg-bg-secondary p-3 my-2">
-      <div className="flex items-center gap-1.5 text-xs text-fg-secondary">
-        <HelpCircle className="h-3 w-3" />
-        <span>Please answer to continue</span>
-      </div>
-      {questions.map((q, qi) => {
-        const multiSelect = q.multiSelect === true;
-        const draft = drafts[qi];
-        const otherIndex = q.options.length;
-        const radioCount = otherIndex + 1;
-        const questionLabelId = `${baseId}-q${qi}`;
-        // Roving tabindex for single-select: the checked radio is the group's
-        // single tab stop, falling back to the first control when nothing is
-        // checked yet. Checkboxes are each tabbable, so this is unused there.
-        const checkedIndex = draft.otherSelected
-          ? otherIndex
-          : (Array.from(draft.selected).sort((a, b) => a - b)[0] ?? 0);
-        const tabIndexFor = (index: number) =>
-          multiSelect ? undefined : checkedIndex === index ? 0 : -1;
-        return (
-          <div key={qi} className="flex flex-col gap-1.5">
-            {q.header && (
-              <div className="text-xs uppercase tracking-wide text-fg-tertiary">
-                {q.header}
-              </div>
-            )}
-            <div id={questionLabelId} className="text-sm text-fg-primary">
-              {q.question}
-            </div>
-            {/* The free-text row is the last choice inside the group, so it is
-                reachable by arrow keys and counted in "n of m" announcements. */}
-            <div
-              role={multiSelect ? "group" : "radiogroup"}
-              aria-labelledby={questionLabelId}
-              className="flex flex-col gap-1"
-            >
-              {q.options.map((opt, oi) => {
-                const isSelected = draft.selected.has(oi);
-                return (
-                  <button
-                    key={oi}
-                    ref={(el) => {
-                      radioRefs.current.set(radioKey(qi, oi), el);
-                    }}
-                    type="button"
-                    role={multiSelect ? "checkbox" : "radio"}
-                    aria-checked={isSelected}
-                    tabIndex={tabIndexFor(oi)}
-                    disabled={submitted}
-                    onClick={() => toggleOption(qi, oi, multiSelect)}
-                    onKeyDown={
-                      multiSelect
-                        ? undefined
-                        : (e) => handleRadioKeyDown(e, qi, oi, radioCount)
-                    }
-                    className={cn(
-                      "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors",
-                      isSelected
-                        ? "border-fg-primary bg-bg-primary"
-                        : "border-border-primary bg-bg-primary hover:bg-bg-secondary",
-                      submitted && "opacity-60 cursor-not-allowed",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "shrink-0 h-3.5 w-3.5 flex items-center justify-center border",
-                        multiSelect ? "rounded-sm" : "rounded-full",
-                        isSelected
-                          ? "bg-fg-primary border-fg-primary"
-                          : "border-border-primary",
-                      )}
-                    >
-                      {isSelected && multiSelect && (
-                        <Check className="h-2.5 w-2.5 text-bg-primary" />
-                      )}
-                      {isSelected && !multiSelect && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-bg-primary" />
-                      )}
-                    </span>
-                    <span className="flex-1 leading-tight">
-                      <span className="block text-fg-primary">{opt.label}</span>
-                      {opt.description && (
-                        <span className="block text-xs text-fg-secondary">
-                          {opt.description}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-              <div
-                className={cn(
-                  "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
-                  draft.otherSelected
-                    ? "border-fg-primary bg-bg-primary"
-                    : "border-border-primary bg-bg-primary",
-                  submitted && "opacity-60",
-                )}
-              >
-                <button
-                  ref={(el) => {
-                    radioRefs.current.set(radioKey(qi, otherIndex), el);
-                  }}
-                  type="button"
-                  role={multiSelect ? "checkbox" : "radio"}
-                  aria-checked={draft.otherSelected}
-                  aria-label="Other"
-                  tabIndex={tabIndexFor(otherIndex)}
-                  disabled={submitted}
-                  onClick={() => selectOther(qi, multiSelect)}
-                  onKeyDown={
-                    multiSelect
-                      ? undefined
-                      : (e) => handleRadioKeyDown(e, qi, otherIndex, radioCount)
-                  }
-                  className={cn(
-                    "shrink-0 h-3.5 w-3.5 flex items-center justify-center border",
-                    multiSelect ? "rounded-sm" : "rounded-full",
-                    draft.otherSelected
-                      ? "bg-fg-primary border-fg-primary"
-                      : "border-border-primary",
-                    submitted && "cursor-not-allowed",
-                  )}
-                >
-                  {draft.otherSelected && multiSelect && (
-                    <Check className="h-2.5 w-2.5 text-bg-primary" />
-                  )}
-                  {draft.otherSelected && !multiSelect && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-bg-primary" />
-                  )}
-                </button>
-                <input
-                  type="text"
-                  disabled={submitted}
-                  placeholder="Other (type your own answer)"
-                  value={draft.custom}
-                  onChange={(e) => setCustom(qi, e.target.value, multiSelect)}
-                  className={cn(
-                    "flex-1 bg-transparent text-fg-primary",
-                    "focus:outline-none placeholder:text-fg-tertiary",
-                  )}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      })}
-      <div className="flex items-center justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleCancel}
-          disabled={submitted}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          onClick={handleSubmit}
-          disabled={submitted || !canSubmit}
-        >
-          Submit
-        </Button>
-      </div>
-    </div>
   );
 }

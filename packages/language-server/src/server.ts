@@ -2,12 +2,11 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import { Internal, type ModuleFilePath } from "@valbuild/core";
-import { findAndEvalValConfigFile } from "@valbuild/server";
 import {
   CodeActionKind,
+  DidChangeWatchedFilesNotification,
   type CodeAction,
   type CompletionItem,
-  type Diagnostic,
 } from "vscode-languageserver";
 import {
   createConnection,
@@ -36,16 +35,31 @@ import {
   createValDiagnostics,
   createMissingModuleDiagnostic,
   createProjectErrorDiagnostic,
+  resolveGalleryChecks,
+  type ValDiagnosticData,
 } from "./diagnostics";
-import { createValCodeActions } from "./codeActions";
-import { createValCompletions, resolveValCompletion } from "./completions";
+import { resolveMediaChecks } from "./mediaChecks";
 import {
-  createPublicValFiles,
-  DEFAULT_FILES_DIRECTORY,
-  type PublicValFiles,
-} from "./publicValFiles";
+  createValCodeActions,
+  createMissingModuleCodeAction,
+  adjudicateGalleryCheck,
+  canCreateFiles as clientCanCreateFiles,
+} from "./codeActions";
+import { createValCompletions, resolveValCompletion } from "./completions";
+import { findValModuleDefinition, parseValModule } from "./valModuleDefinition";
+import { createValCommands, valCommandNames } from "./commands";
+import {
+  canRenameFiles as clientCanRenameFiles,
+  createGalleryMembershipActions,
+} from "./galleryFixes";
+import { createPublicValFiles, type PublicValFiles } from "./publicValFiles";
 import { isModuleRegistered } from "./valModulesRegistry";
-import { isValModuleUri, toModuleFilePath, uriToPath } from "./uri";
+import {
+  isValJsonEntryUri,
+  isValModuleUri,
+  toModuleFilePath,
+  uriToPath,
+} from "./uri";
 
 /**
  * How long to wait after an edit before re-evaluating.
@@ -187,19 +201,18 @@ export function applyEnvOverrides(options: ValInitializationOptions): void {
 const PROJECT_WIDE_FILE_RE = /[/\\]val\.(modules|config)\.(ts|js)$/;
 
 /**
- * Report a Val module that `val.modules` does not register.
+ * Whether `val.modules` leaves this module out.
  *
  * Reads `val.modules.{ts,js}` on demand, through the editor's buffer when it is
  * open: adding a module to the registry must clear the diagnostic straight away,
- * not only once the user saves. Returns `undefined` when no such file exists —
- * that is a project-level problem, not something to blame on an individual
- * module.
+ * not only once the user saves. Answers `false` when no such file exists — that
+ * is a project-level problem, not something to blame on an individual module.
  */
-function findMissingModuleDiagnostic(
+function isModuleUnregistered(
   valRoot: string,
   moduleFilePath: ModuleFilePath,
   read: (fsPath: string) => string | undefined,
-): Diagnostic | undefined {
+): boolean {
   for (const candidate of ["val.modules.ts", "val.modules.js"]) {
     const file = path.join(valRoot, candidate);
     let text: string | undefined = read(file);
@@ -210,16 +223,13 @@ function findMissingModuleDiagnostic(
         continue;
       }
     }
-    const registered = isModuleRegistered({
+    return !isModuleRegistered({
       sourceFile: ts.createSourceFile(file, text, ts.ScriptTarget.ES2020),
       valModulesDir: "",
       moduleFilePath,
     });
-    return registered
-      ? undefined
-      : createMissingModuleDiagnostic({ moduleFilePath });
   }
-  return undefined;
+  return false;
 }
 
 /**
@@ -233,6 +243,9 @@ export function createValLanguageServer(connection: Connection): {
   getSession: () => ValSession | undefined;
 } {
   const documents = new TextDocuments(TextDocument);
+  let canRegisterWatchers = false;
+  let canRenameFiles = false;
+  let canCreateFiles = false;
 
   /**
    * The editor's view of a file, by absolute path, or `undefined` when the file
@@ -290,6 +303,37 @@ export function createValLanguageServer(connection: Connection): {
       return;
     }
     try {
+      // An unregistered file is answered from its own text alone, before the
+      // project is consulted at all. Val cannot have evaluated it -- it is not
+      // in the graph `val.modules` describes -- so everything downstream has
+      // only the one thing to say about it, and said it twice: `Service.get`
+      // reports `Module '...' was not found in val.modules` as a fatal on line
+      // 1, beside this diagnostic saying the same. And when the file has no
+      // `export default` neither of them is a finding at all: it is a
+      // `*.val.ts` holding the schemas the modules beside it import, which Val
+      // never serves and there is nothing to register.
+      const unregistered = isModuleUnregistered(
+        project.valRoot,
+        moduleFilePath,
+        readOpenDocument,
+      );
+      if (unregistered) {
+        const definition = findValModuleDefinition(
+          parseValModule(moduleFilePath, document.getText()),
+        );
+        connection.sendDiagnostics({
+          uri,
+          diagnostics: definition
+            ? [
+                createMissingModuleDiagnostic({
+                  moduleFilePath,
+                  range: definition,
+                }),
+              ]
+            : [],
+        });
+        return;
+      }
       // The module's own content changed, so any cached result is stale.
       project.invalidate(moduleFilePath);
       const result = await project.getModule(moduleFilePath);
@@ -315,6 +359,40 @@ export function createValLanguageServer(connection: Connection): {
       // Needed to resolve keyOf/route validation, which has to look at other
       // modules. Built once and refreshed per changed module.
       const snapshotResult = await project.getSnapshot();
+      // Core attaches the gallery checks to every gallery module whether or not
+      // anything is wrong, so they have to be adjudicated by the same fix
+      // handlers `val validate` uses before any of them is shown.
+      // Narrowed once: `project` is module-level and reassigned on shutdown, so
+      // the closures below need a local binding.
+      const activeProject = project;
+      const galleryChecks =
+        result.content.errors !== false && result.content.errors.validation
+          ? await resolveGalleryChecks({
+              validation: result.content.errors.validation,
+              runHandler: (sourcePath, validationError) =>
+                adjudicateGalleryCheck({
+                  sourcePath,
+                  validationError,
+                  moduleFilePath,
+                  valRoot: activeProject.valRoot,
+                  content: result.content,
+                  runFixHandler: (args) => activeProject.runFixHandler(args),
+                }),
+            })
+          : undefined;
+      // Core also defers "does this image's stored metadata match its file",
+      // reporting it on every `s.image()` that carries any metadata, and
+      // "is this remote ref still valid", reporting it on every remote image.
+      // Same treatment: adjudicate with the fix machinery before showing
+      // anything.
+      const mediaChecks =
+        result.content.errors !== false && result.content.errors.validation
+          ? await resolveMediaChecks({
+              validation: result.content.errors.validation,
+              content: result.content,
+              valRoot: activeProject.valRoot,
+            })
+          : undefined;
       const diagnostics = createValDiagnostics({
         moduleFilePath,
         content: result.content,
@@ -323,15 +401,9 @@ export function createValLanguageServer(connection: Connection): {
         ...(snapshotResult.status === "ok"
           ? { snapshot: snapshotResult.snapshot }
           : {}),
+        ...(galleryChecks ? { galleryChecks } : {}),
+        ...(mediaChecks ? { mediaChecks } : {}),
       });
-      const unregistered = findMissingModuleDiagnostic(
-        project.valRoot,
-        moduleFilePath,
-        readOpenDocument,
-      );
-      if (unregistered) {
-        diagnostics.push(unregistered);
-      }
       connection.sendDiagnostics({ uri, diagnostics });
     } catch (e) {
       // Never let a single bad module take the server down.
@@ -370,6 +442,21 @@ export function createValLanguageServer(connection: Connection): {
       return { capabilities: { experimental: { val } } };
     }
 
+    // Whether we may ask the client to watch files for us, rather than relying on
+    // it having been configured to. A VS Code extension can set watchers up
+    // itself; a hand-written Neovim config generally will not, and this is what
+    // makes the server work the same in both.
+    canRegisterWatchers =
+      params.capabilities.workspace?.didChangeWatchedFiles
+        ?.dynamicRegistration === true;
+    // A RenameFile sent to a client that did not announce resourceOperations is
+    // silently dropped, which would rewrite the path and leave the file behind.
+    canRenameFiles = clientCanRenameFiles(params.capabilities);
+    // Same reasoning for the extract-entry fix: it CREATES the `*.val.json` the
+    // rewritten `.val.ts` imports, so a client that drops the create would be
+    // left importing a file that is not there.
+    canCreateFiles = clientCanCreateFiles(params.capabilities);
+
     const clientCapabilities: ValClientCapabilities =
       (
         params.capabilities.experimental as
@@ -389,32 +476,15 @@ export function createValLanguageServer(connection: Connection): {
       "fix/gallery",
       "completions/galleryKey",
       "completions/richtextLink",
+      "fix/missing-module",
+      "fix/upload-remote",
+      "fix/download-remote",
+      "login",
+      "diagnostics/gallery",
     ];
-    const commands: string[] = [];
+    const commands: string[] = valCommandNames();
 
     publicFiles = createPublicValFiles({ valRoot: options.valRoot });
-    // A project can point `files.directory` somewhere other than /public/val, and
-    // media-path completions would list nothing if we assumed the default.
-    // Reading val.config is async and `initialize` is not, so the default stands
-    // until the real value arrives — completions cannot be requested before
-    // `initialize` returns anyway.
-    void findAndEvalValConfigFile(options.valRoot)
-      .then((config) => {
-        const directory = config?.files?.directory;
-        if (directory && directory !== DEFAULT_FILES_DIRECTORY) {
-          publicFiles = createPublicValFiles({
-            valRoot: options.valRoot,
-            directory,
-          });
-        }
-      })
-      .catch((e: unknown) => {
-        // A broken or unreadable val.config is reported per module by the
-        // service; here it only means "keep the default directory".
-        connection.console.warn(
-          `Val: could not read val.config: ${e instanceof Error ? e.message : String(e)}`,
-        );
-      });
     project = createValProject({
       valRoot: options.valRoot,
       open: {
@@ -458,6 +528,58 @@ export function createValLanguageServer(connection: Connection): {
         experimental: { val },
       },
     };
+  });
+
+  const commandHandlers = createValCommands({
+    connection,
+    getProject: () => project,
+    getDocument: (uri) => documents.get(uri),
+  });
+
+  connection.onExecuteCommand(async (params) => {
+    try {
+      await commandHandlers.execute(params.command, params.arguments ?? []);
+    } catch (e) {
+      // A command that throws must not take the server down with it.
+      connection.console.error(
+        `Val: ${params.command} failed: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+  });
+
+  connection.onInitialized(() => {
+    if (!canRegisterWatchers) {
+      return;
+    }
+    // Registered here rather than in `initialize`: dynamic registration is a
+    // request to the client, and the client is not ready to answer one until it
+    // has sent `initialized`.
+    void connection.client
+      .register(DidChangeWatchedFilesNotification.type, {
+        watchers: [
+          { globPattern: "**/*.val.{ts,js}" },
+          // A `.jsonValues()` entry's content is here, not in the `.val.ts`, so
+          // this is the only thing that says an entry changed -- including when
+          // the change is a quick fix the editor just applied.
+          { globPattern: "**/*.val.json" },
+          { globPattern: "**/val.modules.{ts,js}" },
+          { globPattern: "**/val.config.{ts,js}" },
+          // Media completions and file-not-found diagnostics both read this
+          // tree, and nothing else tells us a file arrived in it.
+          { globPattern: "**/public/**" },
+        ],
+      })
+      .catch((e: unknown) => {
+        // A client that declined leaves us on document events alone, which is
+        // what every client did before this existed.
+        connection.console.warn(
+          `Val: could not register file watchers: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      });
   });
 
   connection.onCompletion(async (params): Promise<CompletionItem[]> => {
@@ -521,16 +643,62 @@ export function createValLanguageServer(connection: Connection): {
       return [];
     }
     try {
+      const actions: CodeAction[] = [];
+
+      // Registering a module in val.modules is not a content fix, so it is not
+      // part of the createFixPatch pipeline: it is offered whenever the
+      // diagnostic is present, even if the module could not be evaluated -- a
+      // module Val does not serve is exactly the kind that fails to evaluate.
+      const unregistered = params.context.diagnostics.some(
+        (diagnostic) =>
+          (diagnostic.data as ValDiagnosticData | undefined)?.code ===
+          "val/missing-module",
+      );
+      if (unregistered) {
+        const action = createMissingModuleCodeAction({
+          valRoot: project.valRoot,
+          moduleFilePath,
+          read: readOpenDocument,
+        });
+        if (action) {
+          actions.push(action);
+        }
+      }
+
       const result = await project.getModule(moduleFilePath);
       if (result.status === "error") {
-        return [];
+        return actions;
       }
-      return await createValCodeActions({
-        document,
-        diagnostics: params.context.diagnostics,
-        content: result.content,
-        valRoot: project.valRoot,
-      });
+
+      // Gallery membership: core reports it but offers no fix, because both
+      // remedies are edits elsewhere -- the gallery module, or the file itself.
+      for (const diagnostic of params.context.diagnostics) {
+        const data = diagnostic.data as ValDiagnosticData | undefined;
+        if (data?.code !== "val/gallery-membership" || !data.gallery) {
+          continue;
+        }
+        actions.push(
+          ...(await createGalleryMembershipActions({
+            document,
+            gallery: data.gallery,
+            valRoot: project.valRoot,
+            read: readOpenDocument,
+            allowRename: canRenameFiles,
+          })),
+        );
+      }
+      actions.push(
+        ...(await createValCodeActions({
+          document,
+          diagnostics: params.context.diagnostics,
+          content: result.content,
+          valRoot: project.valRoot,
+          moduleFilePath,
+          read: readOpenDocument,
+          allowCreateFiles: canCreateFiles,
+        })),
+      );
+      return actions;
     } catch (e) {
       connection.console.error(
         `Val: failed to build code actions for ${params.textDocument.uri}: ${
@@ -545,7 +713,12 @@ export function createValLanguageServer(connection: Connection): {
   // per keystroke, which scheduleValidation debounces.
   documents.onDidOpen(({ document }) => scheduleValidation(document.uri));
   documents.onDidChangeContent(({ document }) => {
-    if (PROJECT_WIDE_FILE_RE.test(uriToPath(document.uri))) {
+    if (
+      PROJECT_WIDE_FILE_RE.test(uriToPath(document.uri)) ||
+      // Same reason as in the watched-files handler: an open, unsaved entry file
+      // is read through the editor overlay, but only a fresh Service sees it.
+      isValJsonEntryUri(document.uri)
+    ) {
       // A project-wide fact changed, so every module's cached result is stale --
       // not just this file's. `invalidate()` with no argument clears the content
       // cache too, which the per-module fingerprint check would not.
@@ -560,6 +733,76 @@ export function createValLanguageServer(connection: Connection): {
     scheduleValidation(document.uri);
   });
 
+  /**
+   * React to changes made outside the editor's buffers.
+   *
+   * `didChange` covers what the user types; it says nothing about a `git
+   * checkout`, a `val validate --fix` run in a terminal, or an image dropped
+   * into `/public/val`. Without this the server kept serving a stale evaluation
+   * and stale completion candidates until something happened to be retyped —
+   * and the watchers an editor had already been told to send were feeding a
+   * handler that did not exist.
+   */
+  connection.onDidChangeWatchedFiles(({ changes }) => {
+    if (!project) {
+      return;
+    }
+    let projectWide = false;
+    const changed: ModuleFilePath[] = [];
+    for (const change of changes) {
+      const fsPath = uriToPath(change.uri);
+      if (fsPath === null) {
+        continue;
+      }
+      if (PROJECT_WIDE_FILE_RE.test(fsPath)) {
+        projectWide = true;
+        continue;
+      }
+      // An entry file has no module of its own to invalidate: which module reads
+      // it is recorded in a `.val.ts` import specifier, and the parsed JSON is
+      // cached inside the Service, which only a project-wide invalidate discards.
+      if (isValJsonEntryUri(change.uri)) {
+        projectWide = true;
+        continue;
+      }
+      // A file appearing or vanishing under the files directory changes what a
+      // media path may complete to.
+      publicFiles?.invalidate();
+      if (!isValModuleUri(change.uri)) {
+        continue;
+      }
+      const moduleFilePath = toModuleFilePath(project.valRoot, change.uri);
+      if (moduleFilePath) {
+        changed.push(moduleFilePath);
+      }
+    }
+
+    if (projectWide) {
+      project.invalidate();
+      publicFiles?.invalidate();
+      for (const open of documents.all()) {
+        if (isValModuleUri(open.uri)) {
+          scheduleValidation(open.uri);
+        }
+      }
+      return;
+    }
+
+    for (const moduleFilePath of changed) {
+      project.invalidate(moduleFilePath);
+    }
+    // A module the user is not looking at can still be the one that makes an
+    // open module invalid -- a gallery it references, a record a keyOf points
+    // at -- so revalidate every open module rather than only the changed ones.
+    if (changed.length > 0) {
+      for (const open of documents.all()) {
+        if (isValModuleUri(open.uri)) {
+          scheduleValidation(open.uri);
+        }
+      }
+    }
+  });
+
   documents.onDidClose(({ document }) => {
     const timer = pending.get(document.uri);
     if (timer) {
@@ -568,6 +811,19 @@ export function createValLanguageServer(connection: Connection): {
     }
     // Clear our diagnostics so they do not linger for a file the user closed.
     connection.sendDiagnostics({ uri: document.uri, diagnostics: [] });
+    // Closing an entry file REMOVES an overlay: whatever the buffer said stops
+    // being what the module reads, and the modules that read it are still open,
+    // still showing diagnostics computed from a buffer that no longer exists.
+    // (Opening one needs no case of its own -- `TextDocuments` fires
+    // onDidChangeContent for a didOpen too, which the handler above catches.)
+    if (isValJsonEntryUri(document.uri)) {
+      project?.invalidate();
+      for (const open of documents.all()) {
+        if (isValModuleUri(open.uri)) {
+          scheduleValidation(open.uri);
+        }
+      }
+    }
   });
 
   connection.onShutdown(() => {

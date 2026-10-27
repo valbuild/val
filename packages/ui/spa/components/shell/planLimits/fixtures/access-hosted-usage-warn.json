@@ -1,0 +1,45 @@
+{
+  "plan": "hosted",
+  "changes": null,
+  "refused": {},
+  "trial": {
+    "status": "converted"
+  },
+  "usage": {
+    "meters": [
+      {
+        "meter": "siteRequests",
+        "used": 850000,
+        "included": 1000000,
+        "share": 0.85
+      },
+      {
+        "meter": "renderMs",
+        "used": 21000000,
+        "included": 20000000,
+        "share": 1.05
+      },
+      {
+        "meter": "filesStored",
+        "used": 0,
+        "included": 10000000000,
+        "share": 0
+      },
+      {
+        "meter": "fileReads",
+        "used": 0,
+        "included": 2000000,
+        "share": 0
+      },
+      {
+        "meter": "fileUploads",
+        "used": 0,
+        "included": 50000,
+        "share": 0
+      }
+    ],
+    "warn": ["siteRequests"],
+    "out": ["renderMs"],
+    "resetsAt": "2026-11-01T00:00:00.000Z"
+  }
+}

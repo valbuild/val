@@ -40,7 +40,7 @@ const CommandDialog = ({
         hideClose={hideClose}
         className={cn("p-0 overflow-hidden shadow-lg", contentClassName)}
       >
-        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
+        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-fg-secondary [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
           {children}
         </Command>
       </DialogContent>
@@ -52,14 +52,33 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div className="flex items-center px-3" cmdk-input-wrapper="">
+  // The ring goes on the ROW, not on the input. The input starts after the
+  // search icon and stops short of the row's padding - measured in the router
+  // dropdown, a 890px popover with the input running 194..1034 - so a ring on
+  // it is a rectangle floating inside the box with a gap down each side, which
+  // is not what a focused text field looks like. On the row it runs the full
+  // width of the box, which is where the eye expects the edge to be.
+  //
+  // `ring-inset` because there is nothing outside the row either: a popover
+  // (`p-0` + `overflow-hidden`) clips an outset ring away against its top edge,
+  // and the inline search box (`overflow-visible`) draws it on top of its own
+  // border. `rounded-t-[inherit]` so the two top corners follow whatever radius
+  // the box has - `rounded-md` in a popover, `rounded-lg` in the search box.
+  //
+  // `has-[:focus-visible]` and not `focus-within`: the row must light up for
+  // the keyboard, and stay dark when the input is focused by a click or
+  // programmatically - which is the same rule the input itself had.
+  <div
+    className="flex items-center px-3 rounded-t-[inherit] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-border-focus"
+    cmdk-input-wrapper=""
+  >
     <Search className="w-4 h-4 mr-2 opacity-50 shrink-0" />
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-11 w-full rounded-md py-3 text-sm",
+        "flex h-11 w-full rounded-sm py-3 text-sm",
         "placeholder:text-fg-secondary",
-        "bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-50",
+        "bg-transparent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}
@@ -146,7 +165,7 @@ const CommandShortcut = ({
   return (
     <span
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground",
+        "ml-auto text-xs tracking-widest text-fg-secondary",
         className,
       )}
       {...props}

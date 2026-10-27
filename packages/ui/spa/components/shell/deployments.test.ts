@@ -1,0 +1,438 @@
+import {
+  deploymentProgress,
+  describeDeploymentState,
+  summarizeDeployments,
+} from "./Deployments";
+import { formatRelativeTime, toDeployments } from "./shellDataMapping";
+import { ShellDeployment } from "./types";
+import { msUntilNextStale } from "../../utils/deploymentStatus";
+
+/**
+ * The deploy feed's two decisions: what the status bar says about a set of
+ * publishes, and how a `ValEnrichedDeployment` becomes a row.
+ */
+
+/**
+ * `isLive` defaults to false — Val has NOT seen the site answer with this
+ * commit — because that is the state every publish starts in, and because it
+ * outranks `state` once it is true. A fixture that is live by default would
+ * make every case below assert the live path by accident.
+ */
+const NOW = new Date("2026-08-25T12:00:00Z").getTime();
+const minutesAgo = (minutes: number): string =>
+  new Date(NOW - minutes * 60 * 1000).toISOString();
+
+const deployment = (
+  overrides: Partial<ShellDeployment> & Pick<ShellDeployment, "commitSha">,
+): ShellDeployment => ({
+  state: "success",
+  message: "A change",
+  timestamp: "just now",
+  updatedAt: minutesAgo(0),
+  isLive: false,
+  ...overrides,
+});
+
+describe("summarizeDeployments", () => {
+  test("says nothing has been published when the feed is empty", () => {
+    expect(summarizeDeployments([])).toEqual({ state: "none" });
+  });
+
+  test("a publish in flight wins over anything already finished", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "pending" }),
+        deployment({ commitSha: "b", state: "failure" }),
+      ]),
+    ).toEqual({ state: "building", count: 1 });
+  });
+
+  // A commit Val has made that no deployment has claimed yet is still on its
+  // way out, so it counts as building rather than as a state of its own.
+  test("counts commits with no deployment yet as building", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "created" }),
+        deployment({ commitSha: "b", state: "pending" }),
+      ]),
+    ).toEqual({ state: "building", count: 2 });
+  });
+
+  test("only the newest publish decides the resting state", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "new", state: "success" }),
+        deployment({ commitSha: "old", state: "failure" }),
+      ]),
+    ).toEqual({ state: "live" });
+  });
+
+  test("reports a failure that nothing newer has fixed", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "new", state: "error" }),
+        deployment({ commitSha: "old", state: "success" }),
+      ]),
+    ).toEqual({ state: "failed" });
+  });
+
+  /**
+   * The one signal Val gets for itself.
+   *
+   * The build state is relayed from the host and can be absent, stale, or about
+   * a different environment entirely — a publish whose deployment events never
+   * arrive sits at `created` forever. Val watching the site answer with the
+   * commit settles it either way, and that is what the status bar was missing:
+   * it said "Building" long after the site had gone out.
+   */
+  test("a publish the site is serving is live, whatever the host said", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "created", isLive: true }),
+      ]),
+    ).toEqual({ state: "live" });
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "pending", isLive: true }),
+      ]),
+    ).toEqual({ state: "live" });
+  });
+
+  // A commit the site answers with went out, so a failure reported against it
+  // belongs to some other build of it — a preview environment, a retried job.
+  test("a failure against a commit the site is serving is not a warning", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "failure", isLive: true }),
+      ]),
+    ).toEqual({ state: "live" });
+  });
+
+  test("one publish still in flight is not hidden by a live one", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "new", state: "created" }),
+        deployment({ commitSha: "old", state: "success", isLive: true }),
+      ]),
+    ).toEqual({ state: "building", count: 1 });
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const now = new Date("2026-08-25T12:00:00Z").getTime();
+  const ago = (seconds: number) => new Date(now - seconds * 1000).toISOString();
+
+  test.each([
+    [ago(5), "just now"],
+    [ago(44), "just now"],
+    [ago(60), "1 minute ago"],
+    [ago(120), "2 minutes ago"],
+    [ago(60 * 60), "1 hour ago"],
+    [ago(60 * 60 * 5), "5 hours ago"],
+    [ago(60 * 60 * 24), "1 day ago"],
+    [ago(60 * 60 * 24 * 9), "9 days ago"],
+  ])("%s reads as %s", (iso, expected) => {
+    expect(formatRelativeTime(iso, now)).toBe(expected);
+  });
+
+  // Clocks disagree, and a deployment stamped a second into the future should
+  // not read as "in -1 minutes".
+  test("a timestamp from the future reads as just now", () => {
+    expect(formatRelativeTime(ago(-30), now)).toBe("just now");
+  });
+
+  test("an unparseable timestamp is shown rather than guessed at", () => {
+    expect(formatRelativeTime("not a date", now)).toBe("not a date");
+  });
+});
+
+describe("toDeployments", () => {
+  const now = new Date("2026-08-25T12:00:00Z").getTime();
+  const enriched = {
+    deploymentState: "pending" as const,
+    commitMessage: "Update the hero",
+    creator: "ada",
+    commitSha: "abc1234def",
+    createdAt: "2026-08-25T11:00:00Z",
+    updatedAt: "2026-08-25T11:58:00Z",
+  };
+
+  test("names the author from the profile, not from the id", () => {
+    const [row] = toDeployments(
+      [enriched],
+      new Set(),
+      { ada: { fullName: "Ada Lovelace" } },
+      now,
+    );
+    expect(row.author).toBe("Ada Lovelace");
+    expect(row.message).toBe("Update the hero");
+    expect(row.timestamp).toBe("2 minutes ago");
+  });
+
+  test("leaves the author out when no profile has loaded for them", () => {
+    const [row] = toDeployments([enriched], new Set(), {}, now);
+    expect(row.author).toBeUndefined();
+  });
+
+  // A green build is not the same as a page that answers with the new commit,
+  // so "live" comes from what Val has observed, not from the build state.
+  test("marks a publish live only once Val has seen the commit serving", () => {
+    const built = { ...enriched, deploymentState: "success" as const };
+    expect(toDeployments([built], new Set(), {}, now)[0].isLive).toBe(false);
+    expect(
+      toDeployments([built], new Set(["abc1234def"]), {}, now)[0].isLive,
+    ).toBe(true);
+  });
+
+  /**
+   * A git message is a subject, a blank line and a body. Val's own messages are
+   * one line, so this only shows up on the deployments Val did not publish -
+   * and the rows truncate, so the whole body arrived as one long line with the
+   * subject lost at the front of it.
+   */
+  test("shows the subject line of a multi-line git message", () => {
+    const [row] = toDeployments(
+      [
+        {
+          ...enriched,
+          commitMessage:
+            "Bump the dependency\n\nThe old one pinned a transitive package we\nno longer use.",
+        },
+      ],
+      new Set(),
+      {},
+      now,
+    );
+    expect(row.message).toBe("Bump the dependency");
+  });
+
+  test("a message that is only whitespace is no message", () => {
+    // Which is what makes the row fall back to the short sha rather than
+    // rendering an empty title.
+    const [row] = toDeployments(
+      [{ ...enriched, commitMessage: "  \n\n" }],
+      new Set(),
+      {},
+      now,
+    );
+    expect(row.message).toBeNull();
+  });
+
+  test("keeps the feed short enough to read", () => {
+    const many = Array.from({ length: 25 }, (_, index) => ({
+      ...enriched,
+      commitSha: `sha-${index}`,
+    }));
+    expect(toDeployments(many, new Set(), {}, now)).toHaveLength(10);
+  });
+});
+
+/**
+ * A managed project is narrated differently, and the difference is the whole
+ * point of `studioIsDeployer`.
+ *
+ * There a publish is a job, and content records its commit at the seal --
+ * once its build is live (valbuild/home, docs/app-mode.md, "Publishing is a
+ * queued job"). So no managed commit is ever on its way out: one the site
+ * does not answer with yet is one that went live a moment ago, or one a later
+ * publish superseded. The wait is this tab's own publish, not a row.
+ */
+describe("a managed project", () => {
+  const unfinished = deployment({ commitSha: "a", state: "pending" });
+
+  test("never says a publish is building", () => {
+    expect(summarizeDeployments([unfinished], true)).toEqual({
+      state: "live",
+    });
+  });
+
+  test("and a connected one still does, from the same feed", () => {
+    // The same rows. The only thing that changed is whose story is being told,
+    // which is what makes this per source mode rather than a removal.
+    expect(summarizeDeployments([unfinished], false)).toEqual({
+      state: "building",
+      count: 1,
+    });
+  });
+
+  test("says Published on the row too", () => {
+    expect(describeDeploymentState(unfinished, true)).toBe("Published");
+    expect(deploymentProgress(unfinished, true)).toBe("settled");
+  });
+
+  test("a live publish is live either way", () => {
+    // `isLive` is Val having seen the site answer with this commit, which is
+    // the one answer Val can get for itself and outranks everything else.
+    const live = deployment({ commitSha: "a", state: "pending", isLive: true });
+    expect(summarizeDeployments([live], true)).toEqual({ state: "live" });
+    expect(describeDeploymentState(live, true)).toBe("Live");
+  });
+
+  test("a failed publish still reads as failed", () => {
+    const failed = deployment({ commitSha: "a", state: "failure" });
+    expect(summarizeDeployments([failed], true)).toEqual({ state: "failed" });
+    expect(deploymentProgress(failed, true)).toBe("failed");
+  });
+});
+
+/**
+ * The default is the CONNECTED story, and that is a decision rather than an
+ * accident of ordering.
+ *
+ * A server that reports no source mode is not evidence that a project has no
+ * repository -- `fs` mode has no project to have a mode, and neither does an
+ * older content service. Defaulting the other way would take the deploy feed
+ * away from every project running against one.
+ */
+describe("when nobody said which kind of project this is", () => {
+  test("the feed behaves exactly as it did before", () => {
+    const unfinished = deployment({ commitSha: "a", state: "pending" });
+    expect(summarizeDeployments([unfinished])).toEqual({
+      state: "building",
+      count: 1,
+    });
+    expect(describeDeploymentState(unfinished)).toBe("Building");
+    expect(deploymentProgress(unfinished)).toBe("building");
+  });
+});
+
+/**
+ * A build that has been "building" for over an hour is not building.
+ *
+ * The build state is relayed from the host, and when that channel goes quiet a
+ * publish sits at `created` or `pending` for good. The feed showed a spinner
+ * for it indefinitely — days, on a project whose deploy events stopped. Past
+ * the hour it is shown for what it is: a status nobody has reported.
+ */
+describe("a deploy that has not moved for over an hour", () => {
+  const enrichedAt = (
+    deploymentState: "created" | "pending" | "success",
+    minutes: number,
+  ) => ({
+    commitSha: "abc1234def",
+    commitMessage: "Update the hero",
+    deploymentState,
+    creator: null,
+    createdAt: minutesAgo(minutes),
+    updatedAt: minutesAgo(minutes),
+  });
+
+  test("is unknown rather than building", () => {
+    const [pending] = toDeployments(
+      [enrichedAt("pending", 61)],
+      new Set(),
+      {},
+      NOW,
+    );
+    const [queued] = toDeployments(
+      [enrichedAt("created", 61)],
+      new Set(),
+      {},
+      NOW,
+    );
+    expect(pending.state).toBe("unknown");
+    expect(queued.state).toBe("unknown");
+    expect(summarizeDeployments([pending])).toEqual({ state: "unknown" });
+    expect(deploymentProgress(pending)).toBe("unknown");
+    expect(describeDeploymentState(pending)).toBe("Status unknown");
+  });
+
+  test("is still building up to the hour", () => {
+    const [row] = toDeployments(
+      [enrichedAt("pending", 59)],
+      new Set(),
+      {},
+      NOW,
+    );
+    expect(row.state).toBe("pending");
+    expect(summarizeDeployments([row])).toEqual({
+      state: "building",
+      count: 1,
+    });
+  });
+
+  test("a live commit is live however long its build report has been stuck", () => {
+    const [row] = toDeployments(
+      [enrichedAt("pending", 600)],
+      new Set(["abc1234def"]),
+      {},
+      NOW,
+    );
+    expect(describeDeploymentState(row)).toBe("Live");
+    expect(summarizeDeployments([row])).toEqual({ state: "live" });
+  });
+
+  test("a finished build is not affected by its age", () => {
+    const [row] = toDeployments(
+      [enrichedAt("success", 600)],
+      new Set(),
+      {},
+      NOW,
+    );
+    expect(row.state).toBe("success");
+  });
+
+  test("an old unknown does not hide a publish building right now", () => {
+    const fresh = deployment({ commitSha: "new", state: "pending" });
+    const stale = deployment({ commitSha: "old", state: "unknown" });
+    expect(summarizeDeployments([fresh, stale])).toEqual({
+      state: "building",
+      count: 1,
+    });
+  });
+
+  test("a managed row is never stale: one the site does not serve was superseded", () => {
+    const stale = deployment({ commitSha: "a", state: "unknown" });
+    expect(summarizeDeployments([stale], true)).toEqual({ state: "live" });
+    expect(deploymentProgress(stale, true)).toBe("settled");
+    expect(describeDeploymentState(stale, true)).toBe("Published");
+  });
+});
+
+describe("msUntilNextStale", () => {
+  test("names the next crossing, and nothing when no build is running", () => {
+    expect(
+      msUntilNextStale(
+        [
+          { state: "pending", updatedAt: minutesAgo(50) },
+          { state: "created", updatedAt: minutesAgo(30) },
+          { state: "success", updatedAt: minutesAgo(59) },
+        ],
+        NOW,
+      ),
+    ).toBe(10 * 60 * 1000);
+    expect(
+      msUntilNextStale([{ state: "pending", updatedAt: minutesAgo(61) }], NOW),
+    ).toBeNull();
+    expect(
+      msUntilNextStale([{ state: "success", updatedAt: minutesAgo(1) }], NOW),
+    ).toBeNull();
+  });
+});
+
+/**
+ * A publish running in this tab reads as progress, whatever the host last said.
+ *
+ * The row checks `publish.kind === "running"` first and says "Publishing"; the
+ * activity list takes its icon from `deploymentProgress`, which did not — so a
+ * running publish over a stale host report was "Publishing" beside the help
+ * icon.
+ */
+describe("a publish running in this tab", () => {
+  const running = (state: ShellDeployment["state"]) =>
+    deployment({
+      commitSha: "a",
+      state,
+      publish: { kind: "running", percent: 40, step: "Building" },
+    });
+
+  test("is progress even when the host's report has gone stale", () => {
+    expect(deploymentProgress(running("unknown"))).toBe("building");
+    expect(describeDeploymentState(running("unknown"))).toBe("Publishing");
+  });
+
+  test("is progress in a managed project too", () => {
+    expect(deploymentProgress(running("unknown"), true)).toBe("building");
+    expect(deploymentProgress(running("pending"), true)).toBe("building");
+  });
+});

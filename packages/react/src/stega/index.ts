@@ -6,14 +6,26 @@ export {
   stegaClean,
   type ValEncodedString,
   type StegaOfSource,
+  type ResolvedVal,
+  type Resolvable,
+  type JsonEntryContentOf,
+  type RouteValueOf,
   type StegaOfRichTextSource,
   type File,
   type Image,
+  type Video,
   type RichText,
 } from "./stegaEncode";
 export { stegaDecodeStrings } from "./stegaDecodeStrings";
 export { attrs } from "./attrs";
 export { raw, type DecodeVal } from "./raw";
+export {
+  findStegaLeaks,
+  watchStegaLeaks,
+  stegaLeakMessage,
+  isReactDevelopmentBuild,
+  type StegaLeak,
+} from "./stegaLeaks";
 
 let isRSC = false;
 let autoTagJSXEnabled = false;

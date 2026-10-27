@@ -1,7 +1,12 @@
-import { SourcePath, Internal, ModuleFilePath } from "@valbuild/core";
+import {
+  SourcePath,
+  Internal,
+  ModuleFilePath,
+  isInlineRender,
+} from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useState, useEffect, useCallback } from "react";
-import { emptyOf } from "./fields/emptyOf";
+
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
 import {
@@ -23,6 +28,7 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { RouteForm } from "./RouteForm";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export function AddRecordPopover({
   path,
@@ -66,6 +72,7 @@ export function AddRecordPopover({
       setOpen(defaultOpen);
     }
   }, [defaultOpen]);
+  const emptyOf = useEmptyOf();
   const onSubmit = useCallback(
     (key: string) => {
       const schema = "data" in schemaAtPath ? schemaAtPath.data : null;
@@ -86,15 +93,20 @@ export function AddRecordPopover({
         ],
         "record",
       );
-      navigate(
-        Internal.joinModuleFilePathAndModulePath(
-          moduleFilePath,
-          Internal.patchPathToModulePath(newPatchPath),
-        ) as SourcePath,
-      );
+      // An inline entry is edited in place in the list, so adding one should
+      // not navigate away from it — the same rule `AddArrayButton` follows,
+      // and the one `getNavPath` encodes: an inline item is not a nav stop.
+      if (!isInlineRender(schema)) {
+        navigate(
+          Internal.joinModuleFilePathAndModulePath(
+            moduleFilePath,
+            Internal.patchPathToModulePath(newPatchPath),
+          ) as SourcePath,
+        );
+      }
       setOpen(false);
     },
-    [addPatch, navigate, schemaAtPath, path],
+    [addPatch, navigate, schemaAtPath, path, emptyOf],
   );
 
   if (
@@ -103,18 +115,18 @@ export function AddRecordPopover({
     shallowSourceAtPath.data === null
   ) {
     // An actual error message should be shown above
-    console.error("Source not found", shallowSourceAtPath, { path });
+    Internal.log.debug("Source not found", shallowSourceAtPath, { path });
     return null;
   }
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
     // An actual error message should be shown above
-    console.error("Schema not found", shallowSourceAtPath, { path });
+    Internal.log.debug("Schema not found", shallowSourceAtPath, { path });
     return null;
   }
   const schema = schemaAtPath.data;
   if (schema.type !== "record") {
     // An actual error message should be shown above
-    console.error("Schema is not a record", schemaAtPath, { path });
+    Internal.log.error("Schema is not a record", schemaAtPath, { path });
     return null;
   }
   const [moduleFilePath, modulePath] =

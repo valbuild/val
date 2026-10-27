@@ -1,0 +1,585 @@
+import {
+  MediaCollectionType,
+  ModuleFilePath,
+  SourcePath,
+} from "@valbuild/core";
+import { AvailableRoute } from "../NavMenu/NewPageForm";
+
+/**
+ * Types for the floating shell layout.
+ *
+ * These components are deliberately presentational: everything they render
+ * comes in as props so the whole layout can be exercised from Storybook
+ * without the Val providers. Wiring them to `ValProvider` & friends is a
+ * separate step.
+ */
+
+/** A page in the site map. Pages nest arbitrarily deep. */
+export type ShellPage = {
+  /** Stable id, used for selection. */
+  id: string;
+  /** Display name, e.g. "Pricing". */
+  name: string;
+  /** URL path of the page, e.g. "/blogs/why-val". */
+  urlPath: string;
+  /**
+   * Where the page's content lives, for navigation.
+   *
+   * Absent on a row that is only a path segment — `/blog` exists in the site
+   * map because `/blog/why-val` does, but has no content of its own. Those
+   * rows expand rather than open.
+   */
+  sourcePath?: string;
+  /** Number of validation errors on this page (not descendants). */
+  errorCount?: number;
+  /** Whether the page has unpublished changes. */
+  hasDraft?: boolean;
+  /**
+   * Whether Val tracks this route well enough to put it on a canvas.
+   *
+   * Only a route Val resolves — a page-router page, not an arbitrary
+   * URL — can report the fields on it, so the canvas button appears only
+   * where it would actually work.
+   */
+  isTracked?: boolean;
+  /** Child pages. */
+  children?: ShellPage[];
+};
+
+/**
+ * An external page: a URL that lives outside the site but is still linkable
+ * from content (Instagram, a customer portal, a help desk).
+ */
+export type ShellExternalPage = {
+  id: string;
+  /** Display name, e.g. "instagram.com/valbuild". */
+  name: string;
+  /** The full external URL. */
+  url: string;
+  /** Where the entry's content lives, for navigation. */
+  sourcePath?: string;
+  /**
+   * Validation errors on this ENTRY, not on the module.
+   *
+   * Every external page lives in the same module, so a module-level count
+   * would read the same on every row. Undefined while nothing has been
+   * validated yet, which is not the same as zero.
+   */
+  errorCount?: number;
+  /**
+   * What those errors say, in the order they were reported.
+   *
+   * The count answers "is something wrong here"; only the messages answer
+   * "what", and a project's own `.validate(...)` on the item schema is where
+   * the interesting ones come from - the router checks the key, and the rule
+   * an editor wrote about the entry has nowhere else to appear.
+   */
+  errorMessages?: string[];
+  /**
+   * The entry's own fields, flattened for reading.
+   *
+   * The external router's item schema is whatever the project declared - a
+   * title, an icon, a description - so the list cannot know the shape. It gets
+   * the fields already rendered as text, which is enough for the one job the
+   * dialog has: showing what is behind a URL without leaving the list.
+   *
+   * Absent means "not loaded", which is not the same as an entry with no
+   * fields: a router whose item schema is `s.string()` has exactly one.
+   */
+  fields?: ShellExternalPageField[];
+  /**
+   * Where in the project this URL is linked from.
+   *
+   * The counterpart of the URL list itself: a list of links is only actionable
+   * if you can tell which of them anything points at. Absent while the scan is
+   * still running; empty means nothing points at it.
+   */
+  usages?: ShellExternalPageUsage[];
+  /**
+   * Whether {@link usages} is all of them.
+   *
+   * A route reference scan is blind to `.jsonValues()` entry content that has
+   * not been fetched (see `ReferenceScan`), so an empty list is not proof that
+   * a URL is unused - and "Unused" is exactly the label someone deletes on.
+   * False makes the dialog say "none found yet" instead.
+   */
+  usagesComplete?: boolean;
+};
+
+/** One field of an external page's entry, as the dialog shows it. */
+export type ShellExternalPageField = {
+  /** The field's name, e.g. "title". */
+  label: string;
+  /** Its value, already rendered as text. */
+  value: string;
+  /** Where the field itself lives, so it can be opened in the editor. */
+  sourcePath?: string;
+};
+
+/** One place an external URL is referenced from. */
+export type ShellExternalPageUsage = {
+  /**
+   * Where the reference lives.
+   *
+   * Branded, for the same reason `ShellSettings.moduleFilePath` is: it is
+   * handed straight to `navigate`, which takes a `SourcePath`, so widening it
+   * to `string` would buy nothing but an assertion at the other end.
+   */
+  sourcePath: SourcePath;
+  /** What to call it, e.g. "Footer / Social links / 2". */
+  label: string;
+  /** The module it is in, e.g. "/content/footer.val.ts". */
+  moduleFilePath: string;
+};
+
+/** The project's settings module (an `s.settings()` module). */
+export type ShellLogo = {
+  url: string;
+  /**
+   * The image's own alt text, where the editor wrote one.
+   *
+   * Absent is normal, and the rail names it after the project instead — a mark
+   * at the top of the rail is the project's name in picture form, so that is
+   * what it should be announced as. Never empty: an unlabelled image in a
+   * navigation landmark is a link with no name.
+   */
+  alt?: string;
+};
+
+export type ShellSettings = {
+  /**
+   * Branded, unlike the other rows here.
+   *
+   * It comes from `resolveSettingsModule` as a `ModuleFilePath` and is handed
+   * straight back to a hook that needs one, so widening it to `string` bought
+   * nothing but an assertion at the other end.
+   */
+  moduleFilePath: ModuleFilePath;
+  /** Validation errors in the settings module (not descendants of others). */
+  errorCount?: number;
+  /** Whether settings have unpublished changes. */
+  hasDraft?: boolean;
+};
+
+/** A media gallery (an `s.imagedir()` / `s.filedir()` module). */
+export type ShellMediaGallery = {
+  id: string;
+  name: string;
+  /** Directory the gallery is constrained to, e.g. "/public/val/images". */
+  dir: string;
+  /**
+   * The gallery module itself. Selecting a gallery opens this module, which
+   * is what renders the grid of files.
+   */
+  moduleFilePath: string;
+  itemCount: number;
+  mediaType: MediaCollectionType;
+  /** A files gallery that takes only fonts (`s.fontdir()`). */
+  fonts?: boolean;
+  /**
+   * The files in the gallery.
+   *
+   * A gallery is a record keyed by file path, so its keys *are* its contents —
+   * the panel does not have to fetch anything to list them. Absent while the
+   * record is still loading, which is not the same as an empty gallery.
+   */
+  files?: ShellMediaFile[];
+};
+
+/** One file in a gallery. */
+export type ShellMediaFile = {
+  /**
+   * The file's path, which is also its key in the gallery record —
+   * `/public/val/images/logo_a1b2c.png`, or a remote ref.
+   */
+  ref: string;
+  /** Where the entry lives, for opening it in the editor. */
+  sourcePath: string;
+};
+
+/**
+ * The routes a new page can be created under.
+ *
+ * `AvailableRoute` is the classic nav menu's type and `NewPageForm` is its form:
+ * both already handle several routes at once, dynamic and catch-all segments,
+ * optional segments and the schema author's description of a key. Reusing them
+ * is the point — a second implementation of "what a route pattern means" would
+ * be a second set of rules for what a URL may look like.
+ */
+export type ShellNewPageRoutes = {
+  /** Every route in the project that accepts a new page. */
+  routes: AvailableRoute[];
+};
+
+/** A non-router val module, shown under Data. */
+export type ShellDataModule = {
+  id: string;
+  name: string;
+  /** Module file path, e.g. "/content/settings.val.ts". */
+  moduleFilePath: string;
+  errorCount?: number;
+  hasDraft?: boolean;
+};
+
+export type ShellNotificationKind =
+  | "content"
+  | "media"
+  | "publish"
+  | "validation";
+
+export type ShellNotification = {
+  id: string;
+  kind: ShellNotificationKind;
+  title: string;
+  /** Human-readable relative time, e.g. "2 minutes ago". */
+  timestamp: string;
+  unread?: boolean;
+};
+
+/** A validation error, grouped by the item it belongs to. */
+export type ShellValidationError = {
+  id: string;
+  /** The item the errors are on, e.g. "Products". */
+  title: string;
+  /** Where they are, e.g. "/content/products.val.ts". */
+  detail: string;
+  /** How many errors on that item. */
+  count: number;
+};
+
+/**
+ * One row of Recent activity.
+ *
+ * Two kinds, because "what has been happening here?" has always had two halves
+ * and the panel only ever answered one of them. An edit somebody made is
+ * something to go back to; a publish is something that happened to the site.
+ * Publishes were visible only in the status bar's deploy feed, which is a
+ * live-progress indicator that empties itself as builds land — so the moment a
+ * publish finished there was nowhere in the Studio that said it had.
+ *
+ * Both carry `title` and `timestamp` so the list can be rendered in one pass;
+ * everything that differs is behind `kind`.
+ */
+export type ShellActivityEntry = ShellChangeActivity | ShellDeployActivity;
+
+/** An unpublished edit, from the patch sets. */
+export type ShellChangeActivity = {
+  kind: "change";
+  /**
+   * A React key, not a target: two patch sets can share a module and a path, so
+   * this carries an index to keep them apart. Use `sourcePath` to go anywhere.
+   */
+  id: string;
+  /** Where the change was, e.g. `/content/home.val.ts?p="hero"."title"`. */
+  sourcePath: string;
+  title: string;
+  /** Already relative, e.g. "2 minutes ago". */
+  timestamp: string;
+  author?: string;
+};
+
+/**
+ * A publish, from the deploy feed.
+ *
+ * Not selectable — there is nothing in the Studio a commit opens — so unlike a
+ * change row this carries no `sourcePath` and the panel renders it as a line
+ * rather than a button. What it does carry is the state, because a publish that
+ * is still building and one that failed are the two things worth reading here.
+ */
+export type ShellDeployActivity = {
+  kind: "deploy";
+  /** The commit sha, prefixed: it is unique per publish. */
+  id: string;
+  /** The commit message, or the short sha when there is none. */
+  title: string;
+  /** What happened to it, e.g. "Live", "Building", "Build failed". */
+  state: string;
+  /**
+   * The state as the row's icon reads it.
+   *
+   * `state` is the sentence and this is the shape: the same three cases the
+   * deploy feed's rows use, so a publish looks the same in both places.
+   */
+  progress: DeploymentProgress;
+  /** Already relative, e.g. "2 minutes ago". */
+  timestamp: string;
+  author?: string;
+};
+
+/**
+ * How a publish is doing, reduced to the three states anything rendering one
+ * cares about. See `deploymentProgress`.
+ */
+export type DeploymentProgress =
+  | "building"
+  | "failed"
+  | "settled"
+  /**
+   * The host last said this was building, and said so over an hour ago. See
+   * `isDeploymentStatusStale`.
+   */
+  | "unknown";
+
+/**
+ * A destination: what the left rail switches between.
+ *
+ * Its own type because a project does not necessarily have all of them — a site
+ * with no `s.router` has no Pages, a project with no `s.imagedir()`/`s.filedir()`
+ * has no Media, a project with no `s.settings()` module has no Settings — and
+ * several pieces of the shell have to agree on which are on offer: the rail,
+ * the mobile switcher, the quick actions, and whichever panel a fresh session
+ * opens on.
+ *
+ * `account` is deliberately NOT one: it is per-person rather than a place in
+ * the project, and it is reached from the foot of the rail.
+ */
+export type ShellDestination = Extract<
+  ShellPanel,
+  "pages" | "media" | "settings" | "data"
+>;
+
+/** Which floating panel is currently open. At most one at a time. */
+export type ShellPanel =
+  | "pages"
+  | "media"
+  /** The project's settings: `s.settings()` content, behind the cog. */
+  | "settings"
+  | "data"
+  /** Who is signed in, the theme, auto save, the branch, the deploy feed. */
+  | "account"
+  | "utility"
+  | "ai"
+  /** On a phone this is the activity sheet: notifications, errors, history. */
+  | "notifications"
+  /**
+   * Phone only: where you are -- the site or a proposal, named in full -- and
+   * the way somewhere else. Behind the top bar's location chip.
+   */
+  | "proposals"
+  /** Phone only: what can be done with the changes. Behind the primary's caret. */
+  | "changes";
+/*
+ * There is no `"history"` panel. The list of publishes is a PAGE — see
+ * `VAL_HISTORY_ROUTE` — because every step of a restore after picking the
+ * commit is already a link, and the step you start at was the only one that
+ * could not be sent to a colleague.
+ */
+
+/** Breakpoint the shell is rendering at. */
+export type ShellBreakpoint = "mobile" | "tablet" | "desktop";
+
+/**
+ * Everything the shell needs to render.
+ *
+ * Optional fields are the ones Val cannot always answer — see
+ * `useShellData`. They are optional rather than defaulted because the shell
+ * hides the affordance when there is no data for it: a notification bell with
+ * nothing behind it is worse than no bell.
+ */
+export type ShellData = {
+  projectName: string;
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`.
+   *
+   * Already a URL, resolved where the patch ids are — a just-uploaded logo is
+   * only readable through `/api/val/files` with its patch id, and a published
+   * one is served from `/public`. See `refToUrl`; getting this wrong is how a
+   * freshly uploaded image renders as a broken one.
+   *
+   * Absent for a project that has not set one, which is what leaves the Val
+   * mark in place.
+   */
+  logo?: ShellLogo;
+  /**
+   * Where this project lives in Val Build. Absent when there is nowhere to
+   * go — see `toAdminLinks`.
+   */
+  admin?: ShellAdminLinks;
+  /**
+   * Where Val Build's web components are served from — see
+   * `toWebComponentsUrl`. Absent when the project is not connected, which
+   * leaves the top bar's plain project name in place.
+   */
+  webComponentsUrl?: string;
+  /**
+   * How an editor signs in to Val Build here: `fs` with `val login`, on a
+   * developer's own checkout; `http` through the Studio's sign-in. Handed to
+   * Val Build's web components as their `mode`. Not the stat `mode`, which a
+   * deployed memory-mode host reports as `fs` — see `useValBuildAccess`.
+   * Absent while it is not known.
+   */
+  studioMode?: "fs" | "http";
+  /** From `config.gitBranch`. Absent outside a git checkout. */
+  branch?: string;
+  /**
+   * Whether the project declares any `s.router` module.
+   *
+   * Separate from `pages` being non-empty, because a router that has no entries
+   * yet is still a project with pages — the site map is empty, not absent. The
+   * shell hides the Pages destination on this rather than on `pages.length`, so
+   * a project that has simply not made its first page keeps the way to make
+   * one.
+   */
+  hasRouters: boolean;
+  pages: ShellPage[];
+  /**
+   * Where a new page can go.
+   *
+   * Absent when the project has no route that accepts one — every router is
+   * static, so there is no key to invent — which is what hides the New page
+   * buttons rather than offering a form that can only say "no routes accept new
+   * pages". See `collectNewPageRoutes`.
+   */
+  newPage?: ShellNewPageRoutes;
+  externalPages: ShellExternalPage[];
+  /**
+   * The external router's module, when the project has one.
+   *
+   * The rows carry their own source paths, but the dialog needs the MODULE:
+   * that is where the entries' values live, and it is what says whether the
+   * project has an external router at all. Absent means no external pages
+   * button.
+   */
+  externalModuleFilePath?: ModuleFilePath;
+  /**
+   * The schemes the external router allows, where the project narrowed them.
+   *
+   * Carried on the shell's data because the Pages panel's count is computed
+   * from it: a footer badge that applies the WIDE default while the dialog
+   * behind it applies the project's own list says "nothing to look at" over a
+   * dialog full of flagged rows.
+   */
+  externalSchemes?: string[];
+  /**
+   * Whether the external record has been fetched yet.
+   *
+   * `externalPages` is empty both before the record arrives and when the
+   * project genuinely has none, and only one of those should say "no external
+   * pages yet".
+   */
+  externalPagesLoading?: boolean;
+  media: ShellMediaGallery[];
+  /**
+   * The project's settings module, when it has exactly one usable one.
+   *
+   * Absent for a project without `s.settings()` — and that is what hides the
+   * cog, the same way an absent router hides Pages. Also absent when the
+   * project has two of them or one in a subdirectory; those are module errors,
+   * and the Studio says so rather than picking one.
+   */
+  settings?: ShellSettings;
+  data: ShellDataModule[];
+  /**
+   * Val has no notification feed. Left optional so the design can keep the
+   * surface while the bell stays hidden until something populates it.
+   */
+  notifications?: ShellNotification[];
+  /**
+   * The edits and the publishes, newest first. See `toActivity`.
+   *
+   * Built from whichever half has arrived: the patch sets and the deploy feed
+   * load separately, and a list that waits for both hides the one it has.
+   */
+  activity?: ShellActivityEntry[];
+  validationErrors: ShellValidationError[];
+  /** Absent until a profile has loaded, and in modes that have none. */
+  user?: {
+    name: string;
+    email?: string;
+    /** Absent when the profile has no picture, or in modes with no profiles. */
+    avatarUrl?: string;
+  };
+  /** Changes Publish would ship. */
+  pendingChanges?: number;
+  /**
+   * Publishes and what happened to them after they left Val. Absent when the
+   * project has no deployment feed, which hides the status bar's deploy item
+   * entirely rather than showing an item that can never say anything.
+   */
+  deployments?: ShellDeployment[];
+  /**
+   * This project is MANAGED: it has no repository and no host watching one, so
+   * the Studio is what makes a publish live.
+   *
+   * Decides how the same publishes are narrated in the status bar, in the
+   * deploy list and in Recent activity -- a `building` state here would be a
+   * spinner nothing can ever end. See `summarizeDeployments`.
+   *
+   * Absent reads as connected, which is what the Studio has always shown and
+   * what a server that reports no source mode leaves it at.
+   */
+  studioIsDeployer?: boolean;
+};
+
+/**
+ * The project's pages in Val Build's admin app.
+ *
+ * Val itself edits content; everything about the project as a thing that is
+ * paid for, deployed and shared with people lives in the admin app, so these
+ * are the two links out to it that an editor has a reason to follow.
+ */
+export type ShellAdminLinks = {
+  /** The project's own page: settings, API keys, versions, AI keys. */
+  project: string;
+  /** The organisation's member list. */
+  members: string;
+  /**
+   * The project's AI keys: `/manage-ai/<org>/<project>`, which the admin app
+   * keeps for this and redirects to the project's AI tab.
+   */
+  ai: string;
+};
+
+/**
+ * One publish, tracked from the commit Val made to the site going live.
+ *
+ * Mirrors `ValEnrichedDeployment`: Val owns the commit, the host owns the
+ * deployment, and the two are joined on the commit sha.
+ */
+export type ShellDeployment = {
+  /** Commit the publish created. Identifies the deployment everywhere. */
+  commitSha: string;
+  /**
+   * `created` is a commit Val has made but no deployment has claimed yet,
+   * so it reads as queued rather than as a state of its own.
+   *
+   * `unknown` is not the host's: it is `created` or `pending` that has not
+   * moved for over an hour, which the Studio stops calling in progress. Decided
+   * once, in `toDeployments`, so every surface agrees on it.
+   */
+  state: "created" | "pending" | "success" | "failure" | "error" | "unknown";
+  /** Val's commit message. Null when only the deployment is known. */
+  message: string | null;
+  /** Who published, when known. */
+  author?: string;
+  /** Human-readable relative time, e.g. "2 minutes ago". */
+  timestamp: string;
+  /**
+   * When the publish started, relative ("12 minutes ago"): what the deploy
+   * feed's rows say, and the only thing they say about it beside its name
+   * (valbuild/home `docs/hosted-publishing.md`, step 10). Absent where only
+   * when it last changed is known; the row says that instead.
+   */
+  started?: string;
+  /**
+   * When the publish last changed, as an ISO string.
+   *
+   * `timestamp` is this same instant already formatted, and is what the rows
+   * render. The raw value is kept because the shell has to compare a publish's
+   * age against a threshold, which a phrase like "12 minutes ago" cannot
+   * answer.
+   */
+  updatedAt: string;
+  /** True once Val has seen this commit serving the live site. */
+  isLive: boolean;
+  /**
+   * How this tab's own publish of the commit went, when this tab made it: the
+   * percentage while it runs, and each step's time once it is live. Absent
+   * for a publish made anywhere else, which nothing here timed.
+   */
+  publish?: ShellDeploymentPublish;
+};
+
+export type ShellDeploymentPublish =
+  | { kind: "running"; percent: number; step: string }
+  | { kind: "done"; ms: number; steps: Array<{ label: string; ms: number }> };

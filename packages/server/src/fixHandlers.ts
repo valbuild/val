@@ -1,0 +1,934 @@
+/**
+ * The fix handlers behind `val validate --fix`, and the editor quick fixes that
+ * must agree with it.
+ *
+ * ## Why this lives in `@valbuild/server`
+ *
+ * A fix is two layers. `createFixPatch` is the second: given a validation
+ * error it produces a patch. The first is everything that has to happen before a
+ * patch can be produced — read the file, check it is actually on disk, extract
+ * metadata, pick a remote bucket, upload the bytes, download them back. That
+ * layer used to live in `packages/cli/src/runValidation.ts`, which made it
+ * reachable only from the CLI: `@valbuild/cli` exports nothing but `./cli`, and
+ * `@valbuild/language-server` cannot depend on it anyway without creating a
+ * cycle (the CLI depends on the language server).
+ *
+ * The consequence was that an editor could offer the fixes needing no
+ * precondition and had to reimplement or skip the rest. Both happened: the
+ * VS Code extension grew its own remote-upload client, and the language server
+ * declined to offer remote fixes at all.
+ *
+ * So the layer sits here, next to `createFixPatch`, and the CLI and the language
+ * server are both callers. {@link FixHandlerContext} is deliberately made of
+ * things any caller already has — a `Service`, an `IValFSHost`, a project root —
+ * rather than of CLI concepts.
+ *
+ * What stays in the CLI is the driver: the `runValidation` async generator that
+ * walks every module, decides what to report, and renders it to a terminal.
+ */
+
+import path from "path";
+import ts from "typescript";
+import nodeFs from "fs";
+import {
+  Internal,
+  type Json,
+  ModuleFilePath,
+  ModulePath,
+  SerializedFileSchema,
+  SerializedImageSchema,
+  SourcePath,
+  ValidationFix,
+} from "@valbuild/core";
+import { richTextImageSchema } from "@valbuild/shared/internal";
+import { collectionReferencePatches } from "./collectionReferences";
+import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
+import {
+  canReadVideoMetadata,
+  unreadableVideoMetadataMessage,
+} from "./extractMetadata";
+import { checkGalleryFiles } from "./galleryFiles";
+import type { Service } from "./Service";
+import type { IValFSHost } from "./ValFSHost";
+import {
+  localFilesWarning,
+  openRemoteUploadSession,
+  uploadBytesToRemote,
+} from "./remoteUpload";
+import {
+  handleVideoDownloadRemote,
+  handleVideoUploadRemote,
+} from "./videoRemote";
+import {
+  handleVideosetCheckAllFiles,
+  handleVideosetCheckRemote,
+  handleVideosetMetadata,
+  handleVideosetUploadRemote,
+} from "./videosetFixes";
+import type { Patch } from "@valbuild/core/patch";
+
+export type { IValFSHost };
+export { checkGalleryFiles };
+
+export type IValRemote = {
+  remoteHost: string;
+  getSettings(
+    projectName: string,
+    options: { pat: string },
+  ): Promise<
+    | {
+        success: true;
+        data: {
+          publicProjectId: string;
+          remoteFileBuckets: { bucket: string }[];
+          /** See `getSettings`: the host new refs name. */
+          remoteHost?: string;
+        };
+      }
+    | { success: false; message: string }
+  >;
+  uploadFile(
+    project: string,
+    bucket: string,
+    fileHash: string,
+    fileExt: string | undefined,
+    fileBuffer: Buffer,
+    options: { pat: string },
+  ): Promise<{ success: true } | { success: false; error: string }>;
+};
+
+// Types for handler system
+export type ValModule = Awaited<ReturnType<Service["get"]>>;
+
+export type ValidationError = {
+  message: string;
+  value?: unknown;
+  fixes?: ValidationFix[];
+  // True when the error is about an object/record key rather than its value.
+  keyError?: boolean;
+};
+
+export type FixHandlerContext = {
+  sourcePath: SourcePath;
+  validationError: ValidationError;
+  valModule: ValModule;
+  projectRoot: string;
+  fix: boolean;
+  service: Service;
+  valFiles: string[];
+  moduleFilePath: ModuleFilePath;
+  file: string;
+  fs: IValFSHost;
+  // Shared state
+  remoteFiles: Record<SourcePath, RemoteFileMove>;
+  publicProjectId?: string;
+  remoteFileBuckets?: string[];
+  remoteFilesCounter: number;
+  remote: IValRemote;
+  project: string | undefined;
+};
+
+/**
+ * Where a fix moved a media value's file. `refs` is for a value that names
+ * SEVERAL files — a video's poster, captions and stream — keyed by the path
+ * the value held, so the patch can rewrite each one where it is.
+ */
+export type RemoteFileMove = {
+  ref: string;
+  metadata?: Record<string, unknown>;
+  refs?: Record<string, string>;
+};
+
+export type FixHandlerResult = {
+  success: boolean;
+  errorMessage?: string;
+  shouldApplyPatch?: boolean;
+  // The handler repaired the source itself (it could not be expressed as a
+  // patch, so `shouldApplyPatch` does not apply): count it as fixed.
+  appliedFix?: boolean;
+  // The handler did nothing because `--fix` was off, but the error IS fixable:
+  // report it as such instead of as a plain validation error.
+  fixableErrorMessage?: string;
+  // The handler did nothing because `--fix` was off, and what it found is a
+  // warning rather than an error (`WARNING_FIXES` in `@valbuild/shared`): the
+  // project-relative files it is about, and what would deal with them.
+  warning?: ValidationWarning;
+  /**
+   * Patches to OTHER modules than the one the fix is about, for the caller to
+   * apply alongside the fix's own patch (and only when it applies that one).
+   *
+   * A fix normally rewrites one value. Renaming a key that other modules name
+   * cannot be one: `videos:upload-remote` renames a set entry's key to its
+   * remote ref, and every `s.video(set)` field holding the old key would name
+   * a video the set no longer has.
+   */
+  otherModulePatches?: ModulePatch[];
+  // Updated shared state
+  publicProjectId?: string;
+  remoteFileBuckets?: string[];
+  remoteFilesCounter?: number;
+  // Events to emit
+  events?: ValidationEvent[];
+};
+
+export type ValidationWarning = {
+  message: string;
+  files: string[];
+  hint?: string;
+};
+
+/** A patch, and the module it is for. */
+export type ModulePatch = { moduleFilePath: ModuleFilePath; patch: Patch };
+
+export type FixHandler = (ctx: FixHandlerContext) => Promise<FixHandlerResult>;
+
+export type ValidationEvent =
+  | { type: "file-valid"; file: string; durationMs: number }
+  | {
+      type: "file-error-count";
+      file: string;
+      errorCount: number;
+      durationMs: number;
+    }
+  | {
+      type: "validation-error";
+      sourcePath: string;
+      message: string;
+      keyError?: boolean;
+      /** See `isRepairedOnSave`: the Studio would not hold a publish for it. */
+      repairedOnSave?: boolean;
+    }
+  | {
+      type: "validation-fixable-error";
+      sourcePath: string;
+      message: string;
+      fixable: boolean;
+      keyError?: boolean;
+      /** See `isRepairedOnSave`: the Studio would not hold a publish for it. */
+      repairedOnSave?: boolean;
+    }
+  /**
+   * Reported, and not counted as an error: `val validate` exits 0 on warnings
+   * alone unless `--strict`. So a module with warnings and no errors is still
+   * `file-valid`, which means "no errors"; the CLI shows it with its warnings
+   * rather than in the list of valid modules.
+   */
+  | ({
+      type: "validation-warning";
+      sourcePath: string;
+      keyError?: boolean;
+    } & ValidationWarning)
+  | {
+      type: "unknown-fix";
+      sourcePath: string;
+      fixes: string[];
+      keyError?: boolean;
+    }
+  /**
+   * A file that default exports a Val module, but that val.modules does not
+   * register — so Val will never serve it. Files that do NOT default export a
+   * module are not reported at all, and one whose default export is not a
+   * module is a `fatal-error`; see `reportUnregistered` in the CLI.
+   */
+  | { type: "unregistered-module"; file: string }
+  | { type: "fix-applied"; file: string; sourcePath: string }
+  | { type: "fatal-error"; file: string; message: string }
+  | { type: "remote-uploading"; ref: string }
+  | { type: "remote-uploaded"; ref: string }
+  | { type: "remote-already-uploaded"; filePath: string }
+  | { type: "remote-downloading"; sourcePath: string }
+  | { type: "summary-errors"; count: number }
+  | { type: "summary-success" };
+
+// Handler functions
+export async function handleFileMetadata(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const fileSource = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fileRefProp = (fileSource.source as any)?.path;
+  if (!fileRefProp) {
+    return {
+      success: false,
+      errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
+    };
+  }
+
+  const filePath = path.join(ctx.projectRoot, fileRefProp);
+  if (!ctx.fs.fileExists(filePath)) {
+    return {
+      success: false,
+      errorMessage: `File ${filePath} does not exist`,
+    };
+  }
+
+  return { success: true, shouldApplyPatch: true };
+}
+
+/**
+ * `video:add-metadata`: the bytes must be on disk, or on Val Remote (read
+ * over HTTP, headers only — see `remoteVideoMetadata.ts`), and they must be a
+ * kind of file Val can read the size and length of here: mp4/mov boxes,
+ * WebM/Matroska headers and HLS playlists. Anything else is refused with what
+ * to do instead, unless all that is missing is the mime type, which the
+ * extension answers.
+ */
+export async function handleVideoMetadata(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const exists: FixHandlerResult = isRemoteVideoAt(ctx)
+    ? { success: true, shouldApplyPatch: true }
+    : await handleFileMetadata(ctx);
+  if (!exists.success) {
+    return exists;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return exists;
+  }
+  const video: unknown = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).source;
+  if (!isRecord(video) || typeof video.path !== "string") {
+    return exists;
+  }
+  const missing = ["width", "height", "duration"].filter(
+    (field) => video[field] === undefined,
+  );
+  if (missing.length > 0 && !canReadVideoMetadata(video.path)) {
+    return {
+      success: false,
+      errorMessage: unreadableVideoMetadataMessage(video.path, missing),
+    };
+  }
+  return exists;
+}
+
+/** Whether the video at the error's path is on Val Remote. */
+function isRemoteVideoAt(ctx: FixHandlerContext): boolean {
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return false;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  const video: unknown = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).source;
+  return (
+    isRecord(video) &&
+    typeof video.path === "string" &&
+    Internal.isRemoteMediaPath(video.path)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Shared upload core used by both the single-field (handleRemoteFileUpload)
+// and gallery (handleRemoteGalleryFileUpload) handlers. The two differ only in
+// how they derive the local file ref, metadata and serialized image/file
+// schema; everything from auth through upload is identical.
+async function uploadRemoteFileCore(
+  ctx: FixHandlerContext,
+  fileRef: string,
+  metadata: Record<string, unknown> | undefined,
+  schema: SerializedImageSchema | SerializedFileSchema,
+): Promise<FixHandlerResult> {
+  const filePath = path.join(ctx.projectRoot, fileRef);
+  if (!ctx.fs.fileExists(filePath)) {
+    return {
+      success: false,
+      errorMessage: `File ${filePath} does not exist`,
+    };
+  }
+
+  if (ctx.remoteFiles[ctx.sourcePath]) {
+    return {
+      success: true,
+      events: [{ type: "remote-already-uploaded", filePath }],
+    };
+  }
+
+  if (!ctx.fix) {
+    return localFilesWarning([fileRef]);
+  }
+
+  const opened = await openRemoteUploadSession(ctx);
+  if (!opened.success) {
+    return opened.result;
+  }
+  const { session } = opened;
+
+  const fileBuffer = ctx.fs.readBuffer(filePath);
+  if (fileBuffer === undefined) {
+    return {
+      success: false,
+      errorMessage: `Error reading file: ${filePath}`,
+    };
+  }
+
+  const relativeFilePath = path
+    .relative(ctx.projectRoot, filePath)
+    .split(path.sep)
+    .join("/");
+
+  const uploaded = await uploadBytesToRemote(
+    ctx,
+    session,
+    relativeFilePath,
+    fileBuffer,
+    metadata,
+    schema,
+  );
+  if (!uploaded.success) {
+    return { success: false, errorMessage: uploaded.error };
+  }
+  const { ref } = uploaded;
+
+  ctx.remoteFiles[ctx.sourcePath] = {
+    ref,
+    metadata,
+  };
+
+  return {
+    success: true,
+    shouldApplyPatch: true,
+    publicProjectId: session.publicProjectId,
+    remoteFileBuckets: session.remoteFileBuckets,
+    remoteFilesCounter: session.remoteFilesCounter,
+    events: [
+      { type: "remote-uploading", ref },
+      { type: "remote-uploaded", ref },
+    ],
+  };
+}
+
+export async function handleRemoteFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fileRefProp = (resolvedRemoteFileAtSourcePath.source as any)?.path;
+  if (!fileRefProp) {
+    return {
+      success: false,
+      errorMessage: `Expected file to be defined at: ${ctx.sourcePath} but no file was found`,
+    };
+  }
+
+  // A rich text image's `src` resolves to the RICH TEXT schema when the schema
+  // is serialized, as it is here: the image schema is its `img` option.
+  const resolvedSchema = resolvedRemoteFileAtSourcePath.schema;
+  const resolveRemoteFileSchema =
+    resolvedSchema?.type === "richtext"
+      ? richTextImageSchema(resolvedSchema)
+      : resolvedSchema;
+  if (!resolveRemoteFileSchema) {
+    return {
+      success: false,
+      errorMessage: `Cannot upload remote file: schema not found for ${ctx.sourcePath}`,
+    };
+  }
+
+  if (
+    resolveRemoteFileSchema.type !== "image" &&
+    resolveRemoteFileSchema.type !== "file"
+  ) {
+    return {
+      success: false,
+      errorMessage: `The schema is the remote is neither image nor file: ${ctx.sourcePath}`,
+    };
+  }
+
+  // The metadata is everything the media source carries besides its path: the
+  // schema above already established that this IS media.
+  const actualRemoteFileSource = resolvedRemoteFileAtSourcePath.source;
+  const fileSourceMetadata =
+    actualRemoteFileSource &&
+    typeof actualRemoteFileSource === "object" &&
+    "path" in actualRemoteFileSource
+      ? (() => {
+          const { path: _path, ...metadata } = actualRemoteFileSource;
+          return metadata;
+        })()
+      : undefined;
+
+  return uploadRemoteFileCore(
+    ctx,
+    fileRefProp,
+    fileSourceMetadata,
+    resolveRemoteFileSchema,
+  );
+}
+
+// Gallery (s.imagedir(dir, { ... }).remote() / s.filedir(dir, { ... }).remote()) upload.
+// Unlike a single image/file field, a gallery entry is keyed by its local file
+// path and the value is bare metadata (no FileSource), so we derive the file
+// ref from the key and synthesize the image/file schema from the record's
+// media options.
+export async function handleRemoteGalleryFileUpload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const fix = ctx.validationError.fixes?.[0];
+  const mediaType = fix === "files:upload-remote" ? "file" : "image";
+
+  // The gallery entry is keyed by its local file path; validateMediaKey carries
+  // that key as the error value.
+  const fileRef = ctx.validationError.value;
+  if (typeof fileRef !== "string") {
+    return {
+      success: false,
+      errorMessage: `Expected a local file path for gallery entry at ${ctx.sourcePath}`,
+    };
+  }
+
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return {
+      success: false,
+      errorMessage: `Could not resolve source or schema for ${ctx.sourcePath}`,
+    };
+  }
+
+  const resolved = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  );
+  const entrySource = resolved.source;
+  const metadata =
+    entrySource &&
+    typeof entrySource === "object" &&
+    !Array.isArray(entrySource)
+      ? (entrySource as Record<string, unknown>)
+      : undefined;
+
+  // The gallery item schema is an ObjectSchema, not an image/file schema, so
+  // synthesize the serialized image/file schema (matching how single fields
+  // serialize) for the remote ref's validation hash.
+  //
+  // `accept`/`dir` come from the RECORD that holds the entry, resolved
+  // from the entry's PARENT path - not from the module root, which is only the
+  // record when the gallery is the whole module. A nested gallery
+  // (s.object({ gallery: s.imagedir(...) })) would otherwise synthesize a schema
+  // with no options and bake a validation hash into the remote ref that can
+  // never validate, so a mismatch fails fast instead of uploading.
+  const [, parentModulePath] = Internal.splitModuleFilePathAndModulePath(
+    Internal.parentOfSourcePath(ctx.sourcePath),
+  );
+  const recordSchema = Internal.resolvePath(
+    parentModulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).schema;
+  if (recordSchema?.type !== "record") {
+    return {
+      success: false,
+      errorMessage: `Expected a gallery record at the parent of ${ctx.sourcePath}, got ${
+        recordSchema?.type ?? "nothing"
+      }`,
+    };
+  }
+  const schema = Internal.galleryEntryMediaSchema(mediaType, recordSchema);
+
+  const uploaded = await uploadRemoteFileCore(ctx, fileRef, metadata, schema);
+  const ref = ctx.remoteFiles[ctx.sourcePath]?.ref;
+  if (!uploaded.success || !uploaded.shouldApplyPatch || ref === undefined) {
+    return uploaded;
+  }
+  // `createFixPatch` renames the entry's key to the ref. Every field picked
+  // from the gallery that holds the old key — and every rich text image from
+  // it — would then name an image the gallery no longer has, so they are
+  // pointed at the ref in the same run, as `videos:upload-remote` does.
+  const otherModulePatches = await collectionReferencePatches(
+    ctx.service,
+    ctx.moduleFilePath,
+    { [fileRef]: ref },
+  );
+  return {
+    ...uploaded,
+    ...(otherModulePatches.length > 0 ? { otherModulePatches } : {}),
+  };
+}
+
+export async function handleRemoteFileDownload(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (ctx.fix) {
+    return {
+      success: true,
+      shouldApplyPatch: true,
+      events: [{ type: "remote-downloading", sourcePath: ctx.sourcePath }],
+    };
+  } else {
+    return {
+      success: false,
+      errorMessage: `Remote file ${ctx.sourcePath} needs to be downloaded (use --fix to download)`,
+    };
+  }
+}
+
+/**
+ * `image:check-remote` / `file:check-remote`: core's "Remote image was not
+ * checked." — emitted for EVERY remote value of an `s.image().remote()` /
+ * `s.file().remote()`, wrong or not, because core cannot read the bytes or the
+ * ref's validation hash. It is a request to look, not a finding, so there is
+ * nothing to report here: `createFixPatch` does the looking (`checkRemoteRef`)
+ * and returns an error only for a ref that is actually wrong, with a fix where
+ * the ref only needs rewriting.
+ *
+ * So these stay a hand-off. Reporting core's message here instead would put an
+ * error on every remote image in a project, which is what the language server
+ * learned to stop doing (`mediaChecks.ts`).
+ */
+export async function handleRemoteFileCheck(): Promise<FixHandlerResult> {
+  return { success: true, shouldApplyPatch: true };
+}
+
+/**
+ * `images:check-remote` / `files:check-remote`: a gallery key that is wrong as
+ * a key — a remote URL in a gallery that is not `.remote()`, a ref that does
+ * not parse, one outside the gallery's directory (`validateMediaKey` in core).
+ *
+ * Unlike the singular codes, core emits these only when something IS wrong,
+ * and its message says what. There is nothing to look up and nothing to move,
+ * so it is reported as it is, for a person: only they know whether the key or
+ * the gallery's options are the mistake. It used to share the singular codes'
+ * handler, which hands off to `createFixPatch` — and that has no branch for a
+ * gallery key, so the error vanished and the module was reported valid.
+ *
+ * The same answer as `videos:check-remote`.
+ */
+export async function handleGalleryCheckRemote(
+  ctx: Pick<FixHandlerContext, "validationError">,
+): Promise<FixHandlerResult> {
+  return { success: false, errorMessage: ctx.validationError.message };
+}
+
+export async function handleUniqueFolderCheck(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const value = ctx.validationError.value as
+    | { dir: string; type: string }
+    | undefined;
+  if (!value || typeof value.dir !== "string") {
+    return {
+      success: false,
+      errorMessage: `Unexpected value in unique folder check for ${ctx.sourcePath}`,
+    };
+  }
+  const { dir } = value;
+  const conflicts: string[] = [];
+  for (const file of ctx.valFiles) {
+    const otherModuleFilePath = `/${file}` as ModuleFilePath;
+    if (otherModuleFilePath === ctx.moduleFilePath) continue;
+    const otherModule = await ctx.service.get(
+      otherModuleFilePath,
+      "" as ModulePath,
+      { validate: false },
+    );
+    const schema = otherModule.schema as
+      | { type?: string; dir?: string; mediaType?: string }
+      | undefined;
+    if (schema?.type === "record" && schema.dir === dir && schema.mediaType) {
+      conflicts.push(otherModuleFilePath);
+    }
+  }
+  if (conflicts.length > 0) {
+    return {
+      success: false,
+      errorMessage: `Gallery directory '${dir}' in ${ctx.moduleFilePath} is also used by: ${conflicts.join(", ")}. Each gallery must use a unique directory.`,
+    };
+  }
+  return { success: true };
+}
+
+export async function handleCheckAllFiles(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const value = ctx.validationError.value as
+    | { dir: string; type: string }
+    | undefined;
+  if (!value || typeof value.dir !== "string") {
+    return {
+      success: false,
+      errorMessage: `Unexpected value in check-all-files for ${ctx.sourcePath}`,
+    };
+  }
+  const { dir } = value;
+
+  const source = ctx.valModule.source;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return {
+      success: false,
+      errorMessage: `Could not get source for ${ctx.sourcePath}`,
+    };
+  }
+  const { missingTrackedFiles, untrackedFiles } = checkGalleryFiles({
+    entryKeys: Object.keys(source as Record<string, unknown>),
+    dir,
+    projectRoot: ctx.projectRoot,
+    fs: ctx.fs,
+  });
+
+  if (missingTrackedFiles.length > 0) {
+    if (!ctx.fix) {
+      return {
+        success: false,
+        errorMessage: `Gallery in ${ctx.moduleFilePath} has tracked files that do not exist on disk: ${missingTrackedFiles.join(", ")}. Add the files or remove them from the gallery.`,
+      };
+    }
+    // fix: true — let createFixPatch remove the missing entries
+    return { success: true, shouldApplyPatch: true };
+  }
+
+  if (untrackedFiles.length > 0) {
+    return {
+      success: false,
+      errorMessage: `Gallery in ${ctx.moduleFilePath} has files not tracked: ${untrackedFiles.join(", ")}. Add these files to the gallery or remove them from the directory.`,
+    };
+  }
+
+  // All files accounted for — trigger metadata verification via createFixPatch
+  return { success: true, shouldApplyPatch: true };
+}
+
+export async function handleJsonValuesExtractEntry(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  const parts = Internal.splitModulePath(modulePath);
+  // Root-only by contract (see findNestedJsonValuesRecords): the entry is a
+  // direct child of the module's root record/router, so the path is one segment.
+  if (parts.length !== 1) {
+    return {
+      success: false,
+      errorMessage: `Cannot extract .jsonValues() entry at ${ctx.sourcePath}: expected a root record entry`,
+    };
+  }
+  const entryKey = parts[0];
+  const source = ctx.valModule.source;
+  if (source === null || typeof source !== "object" || Array.isArray(source)) {
+    return {
+      success: false,
+      errorMessage: `Could not get source for ${ctx.moduleFilePath}`,
+    };
+  }
+  const content = (source as Record<string, Json>)[entryKey];
+  if (content === undefined) {
+    return {
+      success: false,
+      errorMessage: `Could not find .jsonValues() entry '${entryKey}' in ${ctx.moduleFilePath}`,
+    };
+  }
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage: ctx.validationError.message,
+    };
+  }
+  try {
+    extractJsonValuesEntry(
+      ctx.moduleFilePath,
+      ctx.projectRoot,
+      entryKey,
+      content,
+      ctx.service.sourceFileHandler,
+    );
+  } catch (err) {
+    return {
+      success: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { success: true, appliedFix: true };
+}
+
+/**
+ * `external:upload` under `val validate --fix`: refuse, and say what to run.
+ *
+ * Every other fix in this registry rewrites something inside the repository —
+ * reversible, visible in a diff, wrong by at most one commit. This one would
+ * write entries into a live external store: not in a diff, not undone by
+ * `git revert`, and against production indistinguishable from an editor's
+ * publish. So a blanket `--fix` must never apply it.
+ *
+ * `fixableErrorMessage` rather than a plain error, because the error IS fixable
+ * — just not by this command.
+ */
+/**
+ * A view pointer that names a module its schema does not.
+ *
+ * Nothing to look up and nothing to ask: the schema names the module, so the
+ * one correct value is already known. `createFixPatch` writes it — this handler
+ * exists to send it there, and to say what `--fix` would do when it is off.
+ */
+export async function handleViewCheckModule(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage:
+        `${ctx.validationError.message}. ` +
+        "Run 'val validate --fix' to point it at the module its schema names.",
+    };
+  }
+  return { success: true, shouldApplyPatch: true };
+}
+
+/**
+ * `remote:rewrite-host`: a platform ref whose host no longer serves its
+ * project. The server's full check reports it, and so does `createFixPatch`'s
+ * `image:check-remote` branch, which is how `val validate` finds it: that
+ * branch asks the host first. Either way the patch is `createFixPatch`'s, and
+ * needs nothing but the ref -- the new host is derived from it.
+ */
+export async function handleRemoteRewriteHost(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage:
+        `${ctx.validationError.message} ` +
+        "Run 'val validate --fix' to point it at the project's own address.",
+    };
+  }
+  return { success: true, shouldApplyPatch: true };
+}
+
+export async function handleExternalUpload(): Promise<FixHandlerResult> {
+  return {
+    success: true,
+    fixableErrorMessage:
+      "This entry is written inline but its record is .external(). " +
+      "Run 'val external upload' to move it into the store — " +
+      "'val validate --fix' will not write to a live store.",
+  };
+}
+
+// Fix handler registry. `keyof:check-keys`, the gallery markers
+// (`image:check-gallery` and the rest), `router:check-route`,
+// `locale:check-locale`, `router:check-locale-param` and `record:fill-keys`
+// are resolved upfront by the shared resolveSchemaSourceFixes — they never
+// reach this registry, so they're excluded from the key set.
+export const currentFixHandlers: Record<
+  Exclude<
+    ValidationFix,
+    | "keyof:check-keys"
+    | "image:check-gallery"
+    | "file:check-gallery"
+    | "video:check-gallery"
+    | "router:check-route"
+    | "locale:check-locale"
+    | "router:check-locale-param"
+    | "record:fill-keys"
+  >,
+  FixHandler
+> = {
+  "image:check-metadata": handleFileMetadata,
+  "image:add-metadata": handleFileMetadata,
+  "file:check-metadata": handleFileMetadata,
+  "file:add-metadata": handleFileMetadata,
+  "video:add-metadata": handleVideoMetadata,
+  "image:upload-remote": handleRemoteFileUpload,
+  "file:upload-remote": handleRemoteFileUpload,
+  "images:upload-remote": handleRemoteGalleryFileUpload,
+  "files:upload-remote": handleRemoteGalleryFileUpload,
+  "image:download-remote": handleRemoteFileDownload,
+  "file:download-remote": handleRemoteFileDownload,
+  "video:upload-remote": handleVideoUploadRemote,
+  "video:download-remote": handleVideoDownloadRemote,
+  "videos:add-metadata": handleVideosetMetadata,
+  "videos:upload-remote": handleVideosetUploadRemote,
+  "videos:check-remote": handleVideosetCheckRemote,
+  "videos:check-unique-folder": handleUniqueFolderCheck,
+  "videos:check-all-files": handleVideosetCheckAllFiles,
+  "image:check-remote": handleRemoteFileCheck,
+  "images:check-remote": handleGalleryCheckRemote,
+  "file:check-remote": handleRemoteFileCheck,
+  "files:check-remote": handleGalleryCheckRemote,
+  "images:check-unique-folder": handleUniqueFolderCheck,
+  "files:check-unique-folder": handleUniqueFolderCheck,
+  "images:check-all-files": handleCheckAllFiles,
+  "files:check-all-files": handleCheckAllFiles,
+  "jsonValues:extract-entry": handleJsonValuesExtractEntry,
+  "external:upload": handleExternalUpload,
+  "view:check-module": handleViewCheckModule,
+  "remote:rewrite-host": handleRemoteRewriteHost,
+};
+const deprecatedFixHandlers: Record<string, FixHandler> = {
+  "image:replace-metadata": handleFileMetadata,
+};
+export const fixHandlers: Record<string, FixHandler> = {
+  ...deprecatedFixHandlers,
+  ...currentFixHandlers,
+};
+
+export function createDefaultValFSHost(): IValFSHost {
+  return {
+    ...ts.sys,
+    writeFile: (fileName, data, encoding) => {
+      nodeFs.mkdirSync(path.dirname(fileName), { recursive: true });
+      nodeFs.writeFileSync(
+        fileName,
+        typeof data === "string" ? data : new Uint8Array(data),
+        encoding,
+      );
+    },
+    rmFile: nodeFs.rmSync,
+    readBuffer: (fileName) => {
+      try {
+        return nodeFs.readFileSync(fileName);
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}

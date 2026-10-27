@@ -1,5 +1,5 @@
-import { Check, ChevronRight } from "lucide-react";
-import { Fragment } from "react";
+import { ChevronRight } from "lucide-react";
+import { Fragment, type ReactNode } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   Command,
@@ -11,7 +11,8 @@ import {
 } from "./designSystem/command";
 import { cn } from "./designSystem/cn";
 import { DropdownPreviewRow, DropdownPreviewImage } from "./DropdownPreviewRow";
-import { useRefPreview } from "./useRefPreview";
+import { useDescription } from "./useDescription";
+import { Description } from "../utils/describePath";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { getNavPathFromAll } from "./getNavPath";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -37,6 +38,35 @@ export type ReferencesListItem = {
   fallbackLabel: string;
 };
 
+/**
+ * The rows, grouped by the module they are in.
+ *
+ * Which is how the canvas's fields column shows a page's content, and a
+ * references list has the same shape: several fields in one or two modules. Flat,
+ * every row repeated its module path as a subtitle — the same string over and
+ * over, taking a line per row from the part that differs.
+ *
+ * Insertion order is kept: the scan produces references in tree order, which puts
+ * the module the reader is already in first more often than any sort would.
+ */
+function groupByModule(items: readonly ReferencesListItem[]): {
+  moduleFilePath: ModuleFilePath;
+  label: string;
+  items: ReferencesListItem[];
+}[] {
+  const groups = new Map<ModuleFilePath, ReferencesListItem[]>();
+  for (const item of items) {
+    const existing = groups.get(item.moduleFilePath);
+    if (existing) existing.push(item);
+    else groups.set(item.moduleFilePath, [item]);
+  }
+  return Array.from(groups.entries()).map(([moduleFilePath, groupItems]) => ({
+    moduleFilePath,
+    label: prettifyModuleFilePath(moduleFilePath),
+    items: groupItems,
+  }));
+}
+
 export interface ReferencesListProps {
   items: ReferencesListItem[];
   currentPath?: SourcePath | null;
@@ -58,16 +88,24 @@ export function ReferencesList({
         {items.length === 0 ? (
           <CommandEmpty>No references found.</CommandEmpty>
         ) : (
-          <CommandGroup>
-            {items.map((item) => (
-              <ReferenceRow
-                key={item.path}
-                item={item}
-                isCurrent={currentPath === item.path}
-                onSelect={() => onSelect(item)}
-              />
-            ))}
-          </CommandGroup>
+          groupByModule(items).map((group) => (
+            <CommandGroup
+              key={group.moduleFilePath}
+              heading={group.label}
+              // The module path in full on hover: the heading is prettified, and
+              // the path is what a developer wants.
+              title={group.moduleFilePath}
+            >
+              {group.items.map((item) => (
+                <ReferenceRow
+                  key={item.path}
+                  item={item}
+                  isCurrent={currentPath === item.path}
+                  onSelect={() => onSelect(item)}
+                />
+              ))}
+            </CommandGroup>
+          ))
         )}
       </CommandList>
     </Command>
@@ -90,9 +128,9 @@ export interface ConnectedReferencesListProps {
 }
 
 /**
- * Connected variant of {@link ReferencesList} that hydrates each row with
- * render-derived preview data (title/subtitle/image) from {@link useRefPreview}.
- * The pure component is preferred for stories and tests.
+ * Connected variant of {@link ReferencesList} that names each row with
+ * {@link useDescription} — the same name the value has everywhere else in the
+ * studio. The pure component is preferred for stories and tests.
  */
 export function ConnectedReferencesList({
   refs,
@@ -118,21 +156,27 @@ export function ConnectedReferencesList({
         {items.length === 0 ? (
           <CommandEmpty>No references found.</CommandEmpty>
         ) : (
-          <CommandGroup>
-            {items.map((item) => (
-              <ConnectedReferenceRow
-                key={item.path}
-                item={item}
-                isCurrent={currentPath === item.path}
-                onSelect={() => {
-                  const navPath =
-                    getNavPathFromAll(item.path, allSources, schemas) ??
-                    item.path;
-                  onSelect(navPath, { scrollToPath: item.path });
-                }}
-              />
-            ))}
-          </CommandGroup>
+          groupByModule(items).map((group) => (
+            <CommandGroup
+              key={group.moduleFilePath}
+              heading={group.label}
+              title={group.moduleFilePath}
+            >
+              {group.items.map((item) => (
+                <ConnectedReferenceRow
+                  key={item.path}
+                  item={item}
+                  isCurrent={currentPath === item.path}
+                  onSelect={() => {
+                    const navPath =
+                      getNavPathFromAll(item.path, allSources, schemas) ??
+                      item.path;
+                    onSelect(navPath, { scrollToPath: item.path });
+                  }}
+                />
+              ))}
+            </CommandGroup>
+          ))
         )}
       </CommandList>
     </Command>
@@ -140,8 +184,8 @@ export function ConnectedReferencesList({
 }
 
 /**
- * Row used by the pure {@link ReferencesList}. The render-derived preview image
- * (if any) is taken from the item; the label is always derived from the path.
+ * Row used by the pure {@link ReferencesList}, whose caller has already put
+ * whatever preview it has on the item. Stories and tests use this one.
  */
 function ReferenceRow({
   item,
@@ -153,16 +197,11 @@ function ReferenceRow({
   onSelect: () => void;
 }) {
   return (
-    <ReferenceRowView
-      item={item}
-      isCurrent={isCurrent}
-      onSelect={onSelect}
-      image={item.preview?.image ?? null}
-    />
+    <ReferenceRowView item={item} isCurrent={isCurrent} onSelect={onSelect} />
   );
 }
 
-/** Connected row: only the preview image is hydrated; the label is path-derived. */
+/** Connected row: the name and the image come from the value's own preview. */
 function ConnectedReferenceRow({
   item,
   isCurrent,
@@ -172,13 +211,22 @@ function ConnectedReferenceRow({
   isCurrent: boolean;
   onSelect: () => void;
 }) {
-  const preview = useRefPreview(item.path);
+  /*
+   * The whole description, not just its image.
+   *
+   * A reference row used to be titled by its PATH and to borrow only the
+   * thumbnail from the preview, so the same entry read as "Fredrik Ekholdt"
+   * in the list you picked it from and as `fredrik-ekholdt` here. The path
+   * stays — it is how two references into the same module are told apart — but
+   * under the name, not as it.
+   */
+  const description = useDescription(item.path);
   return (
     <ReferenceRowView
       item={item}
       isCurrent={isCurrent}
       onSelect={onSelect}
-      image={preview?.image ?? null}
+      description={description}
     />
   );
 }
@@ -187,42 +235,156 @@ function ReferenceRowView({
   item,
   isCurrent,
   onSelect,
-  image,
+  description,
 }: {
   item: ReferencesListItem;
   isCurrent: boolean;
   onSelect: () => void;
-  image: DropdownPreviewImage;
+  /** Absent in the pure component, which is fed by stories and tests. */
+  description?: Description;
 }) {
-  const hasPatchPath = item.patchPath.length > 0;
-  const moduleFilePathLabel = prettifyModuleFilePath(item.moduleFilePath);
+  const { name, named, pathLabel } = rowLabelsOf(item, description);
   return (
     <CommandItem
-      value={`${item.preview?.title ?? ""} ${item.fallbackLabel}`}
+      /*
+       * What the row SHOWS, so typing it finds this row. `buildBaseItem` never
+       * fills `item.preview` in for a connected row — the name comes from
+       * `description` — so filtering on the preview alone meant the visible
+       * title matched nothing. The fallback label stays beside it: a reference
+       * is also looked for by its path.
+       */
+      value={`${named ? name : ""} ${item.fallbackLabel}`}
       onSelect={onSelect}
-      className="flex items-center gap-2"
+      // The canvas's field row, in a menu: a bordered card, and the one you are
+      // already on marked by its border rather than by a tick in a gutter every
+      // other row leaves empty.
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-[0.8125rem]",
+        isCurrent
+          ? "border-border-brand-primary bg-bg-float-raised"
+          : "border-border-float",
+      )}
+      title={item.path}
     >
-      <Check
-        className={cn(
-          "h-4 w-4 shrink-0",
-          isCurrent ? "opacity-100" : "opacity-0",
-        )}
-      />
       <DropdownPreviewRow
-        title={
-          hasPatchPath ? (
-            <ReferenceLabel
-              patchPath={item.patchPath}
-              isRouter={item.isRouter ?? false}
-            />
-          ) : (
-            moduleFilePathLabel
-          )
-        }
-        subtitle={hasPatchPath ? moduleFilePathLabel : undefined}
-        image={image}
+        title={named ? name : pathLabel}
+        // The path, demoted to the second line once there is a name above it.
+        // No module path either way: the group heading above says it, once,
+        // instead of every row saying the same thing.
+        subtitle={named ? pathLabel : undefined}
+        image={description?.image ?? item.preview?.image ?? null}
+        imageSize="sm"
       />
     </CommandItem>
+  );
+}
+
+/** What a reference row says: the value's name if it has one, and its path. */
+function rowLabelsOf(
+  item: ReferencesListItem,
+  description: Description | undefined,
+): { name: string | undefined; named: boolean; pathLabel: ReactNode } {
+  const hasPatchPath = item.patchPath.length > 0;
+  const pathLabel = hasPatchPath ? (
+    <ReferenceLabel
+      patchPath={item.patchPath}
+      isRouter={item.isRouter ?? false}
+    />
+  ) : (
+    prettifyModuleFilePath(item.moduleFilePath)
+  );
+  // A name only when someone wrote one: a `describePath` fallback here would be
+  // the path a second time, on two lines. The pure component gets its preview
+  // put on the item by its caller instead.
+  const name =
+    description?.origin.title === "preview"
+      ? description.title
+      : item.preview?.title;
+  return { name, named: name !== undefined && name !== "", pathLabel };
+}
+
+/**
+ * The places a value is used, as plain links — for where the list is part of
+ * a page rather than a menu of its own.
+ *
+ * Not {@link ConnectedReferencesList}: that is a `cmdk` menu, which highlights
+ * its first row on mount and `scrollIntoView`s it — and `scrollIntoView`
+ * scrolls every scrollable ancestor, so a list sitting in a panel dragged the
+ * panel (and before that the whole page) down to itself the moment it
+ * rendered. A list this short has nothing to filter anyway.
+ */
+export function ConnectedReferenceLinks({
+  refs,
+  currentPath,
+  onSelect,
+}: Omit<ConnectedReferencesListProps, "searchPlaceholder">) {
+  const schemasRes = useSchemas();
+  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
+  const allSources = useAllSources();
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {refs.map((ref) => {
+        const item = buildBaseItem(ref);
+        const schema = schemas?.[item.moduleFilePath];
+        return (
+          <li key={ref}>
+            <ReferenceLink
+              item={{
+                ...item,
+                isRouter: schema?.type === "record" && Boolean(schema.router),
+              }}
+              isCurrent={currentPath === ref}
+              onSelect={() =>
+                onSelect(getNavPathFromAll(ref, allSources, schemas) ?? ref, {
+                  scrollToPath: ref,
+                })
+              }
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ReferenceLink({
+  item,
+  isCurrent,
+  onSelect,
+}: {
+  item: ReferencesListItem;
+  isCurrent: boolean;
+  onSelect: () => void;
+}) {
+  const description = useDescription(item.path);
+  const { name, named, pathLabel } = rowLabelsOf(item, description);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      title={item.path}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[0.8125rem] hover:bg-bg-secondary",
+        isCurrent
+          ? "border-border-brand-primary bg-bg-float-raised"
+          : "border-border-float",
+      )}
+    >
+      <DropdownPreviewRow
+        title={named ? name : pathLabel}
+        subtitle={
+          named ? (
+            pathLabel
+          ) : (
+            <span className="text-fg-secondary-alt">
+              {prettifyModuleFilePath(item.moduleFilePath)}
+            </span>
+          )
+        }
+        image={description?.image ?? item.preview?.image ?? null}
+        imageSize="sm"
+      />
+    </button>
   );
 }
 
@@ -242,7 +404,7 @@ function ReferenceLabel({
 }) {
   const [entryKey, ...fields] = patchPath;
   return (
-    <span className="whitespace-normal [overflow-wrap:anywhere]">
+    <span className="block truncate">
       {isRouter ? (
         <RouteKey route={entryKey} />
       ) : (

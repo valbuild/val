@@ -1,0 +1,708 @@
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { refToUrl } from "../MediaPicker/refToUrl";
+import { ExplorerItem, SitemapItem } from "../NavMenu/types";
+import { AvailableRoute } from "../NavMenu/NewPageForm";
+import { routePatternToString } from "../NavMenu/SitemapItem";
+import {
+  commitSubject,
+  ValEnrichedDeployment,
+} from "../../utils/mergeCommitsAndDeployments";
+import { deploymentProgress, describeDeploymentState } from "./Deployments";
+import { isDeploymentStatusStale } from "../../utils/deploymentStatus";
+import {
+  deployPercent,
+  describeDeployPhase,
+  describeDeployStep,
+} from "../../publish/deployProgress";
+import type { StudioDeployState } from "../../publish/useStudioDeploy";
+import {
+  ShellActivityEntry,
+  ShellAdminLinks,
+  ShellData,
+  ShellDataModule,
+  ShellDeployActivity,
+  ShellDeployment,
+  ShellDestination,
+  ShellLogo,
+  ShellExternalPage,
+  ShellMediaFile,
+  ShellPage,
+  ShellValidationError,
+} from "./types";
+
+/**
+ * Pure translation from what the providers produce to what the shell renders.
+ *
+ * Split from `useShellData` so it can be tested: importing the hook pulls in
+ * `ValProvider`, which pulls in the validation worker, which jest cannot load
+ * (`import.meta`). This is also the half that can be wrong in a way the types
+ * will not catch.
+ */
+
+/** The site map, as the shell's page tree. */
+export function toShellPages(
+  root: SitemapItem,
+  modulesWithDrafts: ReadonlySet<string>,
+): ShellPage[] {
+  const toPage = (item: SitemapItem): ShellPage => ({
+    // The row's id is the content it opens. That makes the id and the
+    // navigation target the same string, so the app can resolve the route it
+    // is on back to a row without a second lookup table. Folder rows have no
+    // content of their own, so they fall back to their URL — they are never
+    // selected, only expanded.
+    id: item.sourcePath ?? item.urlPath,
+    // The raw segment, which is what the site map shows elsewhere in the UI.
+    // A slug is a slug: prettifying `why-we-built-val` only obscures which
+    // URL the row is.
+    name: item.name,
+    urlPath: item.urlPath,
+    sourcePath: item.sourcePath,
+    errorCount: item.errors?.ownCount,
+    hasDraft: item.moduleFilePath
+      ? modulesWithDrafts.has(item.moduleFilePath)
+      : undefined,
+    // A row with a source path is a route Val resolves, which is exactly the
+    // condition for the canvas: it can ask the running site what is on it.
+    // A row without one is a path segment that only exists to hold children.
+    isTracked: item.sourcePath !== undefined,
+    children: item.children.map(toPage),
+  });
+  // The root is the site, and on most projects it is also the home page: an
+  // `/app/page.val.ts` puts content on `/`. When it has a source path it is
+  // therefore a row of its own, with everything else nested under it — drop it
+  // and the home page becomes the one page the navigation cannot reach. Only a
+  // project with no page at `/` has a root that is purely structural, and
+  // there its children are the top level.
+  return root.sourcePath !== undefined
+    ? [toPage(root)]
+    : root.children.map(toPage);
+}
+
+/**
+ * The external router's record keys are the URLs themselves; there is no
+ * separate label, so the host is what a person can recognise a row by.
+ *
+ * The error count is per ENTRY rather than per module, which is the only
+ * reading that means anything here: every external page lives in the same
+ * module, so a module-level count would put the same number on every row.
+ * It is what makes a `.validate(...)` an editor wrote on the item schema
+ * visible in the list - the router's own checks are about the key, and a
+ * project's own rule about the entry had nowhere to show.
+ */
+export function toExternalPages(
+  record: Record<string, SourcePath> | null | undefined,
+  errors?: Record<SourcePath, { message?: string }[]>,
+): ShellExternalPage[] {
+  if (!record) return [];
+  const byEntry = errors ? collectErrorsByEntry(errors) : undefined;
+  return Object.entries(record).map(([url, sourcePath]): ShellExternalPage => {
+    const entryErrors = byEntry?.get(sourcePath);
+    return {
+      // As with pages: the id is what the row opens.
+      id: sourcePath,
+      name: hostLabel(url),
+      url,
+      sourcePath,
+      errorCount: byEntry ? (entryErrors?.length ?? 0) : undefined,
+      errorMessages: entryErrors,
+    };
+  });
+}
+
+/**
+ * Validation errors gathered against the record entry they are inside.
+ *
+ * An error on a field of an entry is an error on that entry: a source path is
+ * `<entry path>.<field>`, so everything under an entry's path belongs to it.
+ * Built as one pass over the error map rather than a scan per row, so a
+ * project with two hundred external pages does not walk the errors two
+ * hundred times.
+ */
+function collectErrorsByEntry(
+  errors: Record<SourcePath, { message?: string }[]>,
+): Map<SourcePath, string[]> {
+  const byEntry = new Map<SourcePath, string[]>();
+  for (const sourcePathS of Object.keys(errors)) {
+    const sourcePath = sourcePathS as SourcePath;
+    const entryPath = entryPathOf(sourcePath);
+    const messages = byEntry.get(entryPath) ?? [];
+    for (const error of errors[sourcePath]) {
+      messages.push(error.message ?? "Validation error");
+    }
+    byEntry.set(entryPath, messages);
+  }
+  return byEntry;
+}
+
+/**
+ * The first module-path segment of a source path, with the module file.
+ *
+ * Taken apart with the core's own path functions rather than by cutting the
+ * string: a record key is JSON-encoded into the module path, so a URL's dots
+ * and quotes are inside a segment rather than between them, and every
+ * hand-rolled split of this has had to learn that.
+ */
+function entryPathOf(sourcePath: SourcePath): SourcePath {
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const segments = Internal.createPatchPath(modulePath);
+  if (segments.length <= 1) {
+    return sourcePath;
+  }
+  return Internal.joinModuleFilePathAndModulePath(
+    moduleFilePath,
+    Internal.patchPathToModulePath(segments.slice(0, 1)),
+  );
+}
+
+/** The explorer tree, flattened to the val files it contains. */
+export function toDataModules(
+  root: ExplorerItem,
+  modulesWithDrafts: ReadonlySet<string>,
+): ShellDataModule[] {
+  const modules: ShellDataModule[] = [];
+  const walk = (item: ExplorerItem) => {
+    if (item.isDirectory) {
+      item.children.forEach(walk);
+      return;
+    }
+    modules.push({
+      id: item.fullPath,
+      // The tree's names are file names; the explorer shows them without the
+      // val extension, and so does this row.
+      name: fileLabel(item.name),
+      moduleFilePath: item.fullPath,
+      errorCount: item.errors?.ownCount,
+      hasDraft: modulesWithDrafts.has(item.fullPath),
+    });
+  };
+  walk(root);
+  return modules;
+}
+
+/**
+ * How many validation errors are in one module.
+ *
+ * Counted from the error map's keys rather than from the navigation tree,
+ * because a destination that is NOT in that tree — settings has its own panel,
+ * so it is taken out of the module tree — has no row to read a count off.
+ */
+export function countErrorsIn(
+  errors: Record<SourcePath, unknown[]> | undefined,
+  moduleFilePath: string,
+): number | undefined {
+  if (!errors) return undefined;
+  let count = 0;
+  for (const sourcePath of Object.keys(errors)) {
+    // A source path is `<module file path>?<module path>`.
+    if (sourcePath.split("?")[0] === moduleFilePath) {
+      count += errors[sourcePath as SourcePath].length;
+    }
+  }
+  return count;
+}
+
+/** Validation errors, grouped by the module they belong to. */
+export function toValidationErrors(
+  errors: Record<SourcePath, unknown[]> | undefined,
+): ShellValidationError[] {
+  if (!errors) return [];
+  const byModule = new Map<string, number>();
+  for (const sourcePath of Object.keys(errors)) {
+    // A source path is `<module file path>?<module path>`; everything before
+    // the separator is the file the error lives in.
+    const [moduleFilePath] = sourcePath.split("?");
+    byModule.set(moduleFilePath, (byModule.get(moduleFilePath) ?? 0) + 1);
+  }
+  return Array.from(byModule.entries())
+    .map(
+      ([moduleFilePath, count]): ShellValidationError => ({
+        id: moduleFilePath,
+        title: fileLabel(moduleFilePath),
+        detail: moduleFilePath,
+        count,
+      }),
+    )
+    .sort((a, b) => b.count - a.count);
+}
+
+/** How many entries to show under Recent activity. */
+const ACTIVITY_LIMIT = 8;
+
+/**
+ * How many of those may be publishes.
+ *
+ * An afternoon of publishing produces a run of deploys — one of yours, one of a
+ * colleague's, a retried build — and a straight merge by time would fill the
+ * whole list with them and push out the edits the panel exists to get back to.
+ * The deploy feed in the status bar has them all; here they are context, so
+ * they get a minority of the rows and never the last edit's place.
+ */
+const DEPLOY_ACTIVITY_LIMIT = 3;
+
+/**
+ * Recent activity: the unpublished edits and the publishes, newest first.
+ *
+ * Patch sets are already newest first and already grouped by the thing that
+ * changed, which is exactly what this list wants. Publishes come in as the rows
+ * the deploy feed renders — same labels, same three states — because a publish
+ * that reads one way in the status bar and another here is two answers to one
+ * question.
+ *
+ * The two are then interleaved by time, which is what makes it a feed rather
+ * than two lists in one box: "I changed the hero, then it went out, then Ida
+ * changed the pricing" is the sentence someone opening this panel is trying to
+ * read.
+ */
+export function toActivity(
+  patchSets: Array<{
+    moduleFilePath: ModuleFilePath;
+    patchPath: string[];
+    lastUpdated: string;
+    lastUpdatedBy: string | null;
+  }>,
+  /**
+   * The publishes, already mapped by {@link toDeployments}.
+   *
+   * Rows rather than the raw feed, so this cannot disagree with the deploy list
+   * about what a publish is called or how it is doing.
+   */
+  deployments: ShellDeployment[],
+  /**
+   * A parameter rather than a call to `Date.now()`, so the result is a function
+   * of its inputs and can be tested — the same reason `toDeployments` takes one.
+   */
+  now: number,
+  /**
+   * Whether the Studio itself is what makes a publish live.
+   *
+   * Threaded here as well as into the deploy list, because a publish that reads
+   * "Published" in the status bar and "Building" in Recent activity is two
+   * answers to one question -- which is the reason
+   * {@link deploymentProgress} is shared in the first place.
+   */
+  studioIsDeployer = false,
+): ShellActivityEntry[] {
+  const changes = patchSets.slice(0, ACTIVITY_LIMIT).map(
+    (set, index): Dated<ShellActivityEntry> => ({
+      at: timeOf(set.lastUpdated),
+      entry: {
+        kind: "change",
+        // The index is load-bearing: two patch sets can share a module and a
+        // path, and React needs them apart. `sourcePath` is the one that means
+        // something.
+        id: `${set.moduleFilePath}?${set.patchPath.join("/")}-${index}`,
+        /**
+         * Where the change was, as a real source path.
+         *
+         * Built with `patchPathToModulePath`, which is the only thing that knows
+         * the grammar — string keys are JSON-quoted, array indices are bare — so
+         * `["items", "0", "title"]` becomes `"items".0."title"` and not something
+         * that looks close enough to work and then does not resolve.
+         */
+        sourcePath: Internal.joinModuleFilePathAndModulePath(
+          set.moduleFilePath,
+          Internal.patchPathToModulePath(set.patchPath),
+        ),
+        title: [fileLabel(set.moduleFilePath), ...set.patchPath].join(" › "),
+        // Relative, because this is a "what have I been doing" list and an ISO
+        // timestamp is not an answer to that. It was rendered raw.
+        timestamp: formatRelativeTime(set.lastUpdated, now),
+        author: set.lastUpdatedBy ?? undefined,
+      },
+    }),
+  );
+  const deploys = deployments.slice(0, DEPLOY_ACTIVITY_LIMIT).map(
+    (deployment): Dated<ShellActivityEntry> => ({
+      at: timeOf(deployment.updatedAt),
+      entry: toDeployActivity(deployment, studioIsDeployer),
+    }),
+  );
+  return (
+    [...changes, ...deploys]
+      // Newest first. A stable sort, so patch sets that share a timestamp stay
+      // in the order the store gave them — which is the order they happened in.
+      .sort((a, b) => b.at - a.at)
+      .slice(0, ACTIVITY_LIMIT)
+      .map(({ entry }) => entry)
+  );
+}
+
+/** An entry with the instant it is sorted by, which the entry itself has lost. */
+type Dated<T> = { at: number; entry: T };
+
+/**
+ * An ISO timestamp as milliseconds, for sorting only.
+ *
+ * An unreadable one sorts oldest rather than throwing the whole feed off: `NaN`
+ * makes every comparison false, which leaves the sort's output unspecified.
+ */
+function timeOf(iso: string): number {
+  const at = new Date(iso).getTime();
+  return Number.isNaN(at) ? 0 : at;
+}
+
+/** One publish, as an activity row. */
+function toDeployActivity(
+  deployment: ShellDeployment,
+  studioIsDeployer: boolean,
+): ShellDeployActivity {
+  return {
+    kind: "deploy",
+    // Prefixed, because a commit sha and a patch set id share one list now.
+    id: `deploy-${deployment.commitSha}`,
+    // The commit message when there is one. Without it there is nothing to say
+    // about the publish but which commit it was, and the short sha is what the
+    // deploy feed shows for the same publish.
+    title: deployment.message ?? deployment.commitSha.slice(0, 7),
+    state: describeDeploymentState(deployment, studioIsDeployer),
+    progress: deploymentProgress(deployment, studioIsDeployer),
+    timestamp: deployment.timestamp,
+    author: deployment.author,
+  };
+}
+
+/** How many publishes the deployment feed keeps. */
+const DEPLOYMENT_LIMIT = 10;
+
+/**
+ * Publishes, newest first, as the status bar's deploy feed.
+ *
+ * `observedCommitShas` is Val's own answer to a question the deployment API
+ * cannot answer: a build can go green before the commit is actually being
+ * served, so "live" means Val has seen the site answer with that commit.
+ */
+export function toDeployments(
+  deployments: ValEnrichedDeployment[],
+  observedCommitShas: ReadonlySet<string>,
+  profilesByAuthorId: Record<string, { fullName: string }>,
+  now: number,
+): ShellDeployment[] {
+  return deployments.slice(0, DEPLOYMENT_LIMIT).map(
+    (deployment): ShellDeployment => ({
+      commitSha: deployment.commitSha,
+      state:
+        !observedCommitShas.has(deployment.commitSha) &&
+        isDeploymentStatusStale(
+          deployment.deploymentState,
+          deployment.updatedAt,
+          now,
+        )
+          ? "unknown"
+          : deployment.deploymentState,
+      message: commitSubject(deployment.commitMessage),
+      author: deployment.creator
+        ? profilesByAuthorId[deployment.creator]?.fullName
+        : undefined,
+      timestamp: formatRelativeTime(deployment.updatedAt, now),
+      started: formatRelativeTime(deployment.createdAt, now),
+      updatedAt: deployment.updatedAt,
+      isLive: observedCommitShas.has(deployment.commitSha),
+    }),
+  );
+}
+
+/**
+ * This Studio's own publish, on the row of the commit it is publishing: the
+ * percentage while it runs, and how long each step took once it is live.
+ *
+ * Only on that row, and only while this tab remembers it -- a reload forgets
+ * the breakdown, which is fine, since the row still says Live. A publish of no
+ * commit has no row to go on, and a failed one says so in its own message.
+ */
+export function withStudioPublish(
+  deployments: ShellDeployment[],
+  state: StudioDeployState,
+): ShellDeployment[] {
+  if (state.status === "idle" || state.commit === null) return deployments;
+  if (state.status === "done" && state.result.status === "failed") {
+    return deployments;
+  }
+  const publish: ShellDeployment["publish"] =
+    state.status === "running"
+      ? {
+          kind: "running",
+          percent: deployPercent(state.phase),
+          step: describeDeployPhase(state.phase),
+        }
+      : {
+          kind: "done",
+          ms: state.ms,
+          steps: state.steps.map((step) => ({
+            label: describeDeployStep(step.kind),
+            ms: step.ms,
+          })),
+        };
+  const commit = state.commit;
+  return deployments.map((deployment) =>
+    deployment.commitSha === commit ? { ...deployment, publish } : deployment,
+  );
+}
+
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/**
+ * An ISO timestamp as the relative string the shell's lists render.
+ *
+ * `now` is a parameter rather than a call to `Date.now()` so the result is a
+ * function of its inputs and can be tested.
+ */
+export function formatRelativeTime(iso: string, now: number): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) {
+    // Better to show the raw value than to claim a time we could not read.
+    return iso;
+  }
+  const seconds = Math.round((now - then) / 1000);
+  if (seconds < 0) {
+    return "just now";
+  }
+  if (seconds < 45) {
+    return "just now";
+  }
+  if (seconds < HOUR) {
+    return plural(Math.round(seconds / MINUTE), "minute");
+  }
+  if (seconds < DAY) {
+    return plural(Math.round(seconds / HOUR), "hour");
+  }
+  return plural(Math.round(seconds / DAY), "day");
+}
+
+function plural(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * A gallery's record, as the files in it.
+ *
+ * `undefined` while the record is still loading, so the panel can tell "not
+ * fetched yet" from "no files" — one is a spinner and the other is an empty
+ * state, and showing the wrong one is how a slow load reads as an empty
+ * gallery.
+ *
+ * Sorted by file name rather than by full path: two directories deep, the paths
+ * share a prefix and the name is the part anyone is scanning for.
+ */
+export function toMediaFiles(
+  record: Record<string, SourcePath> | null | undefined,
+): ShellMediaFile[] | undefined {
+  if (!record) return undefined;
+  return Object.entries(record)
+    .map(([ref, sourcePath]): ShellMediaFile => ({ ref, sourcePath }))
+    .sort((a, b) => fileName(a.ref).localeCompare(fileName(b.ref)));
+}
+
+/** `/public/val/images/logo_a1b2c.png` -> `logo_a1b2c.png` */
+export function fileName(ref: string): string {
+  const segments = ref.split("/");
+  return segments[segments.length - 1] || ref;
+}
+
+export function countKeys(
+  record: Record<string, SourcePath> | null | undefined,
+) {
+  return record ? Object.keys(record).length : 0;
+}
+
+/** `/public/val/images` -> `images` */
+export function directoryName(dir: string): string {
+  const segments = dir.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? dir;
+}
+
+/** `/content/products.val.ts` -> `products` */
+export function fileLabel(moduleFilePath: string): string {
+  const file = moduleFilePath.split("/").pop() ?? moduleFilePath;
+  return file.replace(/\.val\.(ts|js)$/, "");
+}
+
+/** `https://instagram.com/valbuild` -> `instagram.com/valbuild` */
+export function hostLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    // Not every entry is guaranteed to parse; showing the raw key beats
+    // showing nothing.
+    return url;
+  }
+}
+
+/**
+ * The project's pages in Val Build's admin app.
+ *
+ * `config.project` is `"<org>/<project>"` — the format `val connect` insists
+ * on — so anything else has no page to open: a project that was never
+ * connected has no `project` at all, and a malformed one would only produce a
+ * link to a 404. Both return `undefined`, which is what hides the link and the
+ * settings buttons rather than offering a way out that goes nowhere.
+ *
+ * The member list is reached through `/manage-members/<org>`, which the admin
+ * app keeps for exactly this — it redirects to wherever the org's members
+ * currently live, so Val does not have to track that page moving. The
+ * project's AI keys are `/manage-ai/<org>/<project>`, for the same reason.
+ */
+export function toAdminLinks(
+  config: { project?: string; appHost?: string } | undefined,
+): ShellAdminLinks | undefined {
+  if (!config?.project || !config.appHost) {
+    return undefined;
+  }
+  const parts = config.project.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return undefined;
+  }
+  const [org, project] = parts;
+  const host = config.appHost.replace(/\/+$/, "");
+  return {
+    project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
+    members: `${host}/manage-members/${encodeURIComponent(org)}`,
+    ai: `${host}/manage-ai/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
+  };
+}
+
+/**
+ * Where the Studio loads Val Build's web components from: `/wc/v1` on the
+ * content server, which serves them beside the Studio API they call
+ * (valbuild/home, `web-components/` and `content/src/webComponents.ts`).
+ *
+ * Only for a project `toAdminLinks` has links for. The components show that
+ * project's Val Build data, so a project that is not connected has nothing
+ * for them to show — and the plain name it has today is the right thing to
+ * leave in place.
+ */
+export function toWebComponentsUrl(
+  config:
+    | { project?: string; appHost?: string; contentHost?: string }
+    | undefined,
+): string | undefined {
+  if (toAdminLinks(config) === undefined || !config?.contentHost) {
+    return undefined;
+  }
+  return `${config.contentHost.replace(/\/+$/, "")}/wc/v1`;
+}
+
+/**
+ * The destinations a project actually has something behind, in rail order.
+ *
+ * A project is not obliged to use all of Val: a marketing site is routes and
+ * images with no loose content files; a design-token project is content files
+ * and nothing else. A rail icon that opens a panel saying "nothing here" reads
+ * as a broken Val rather than as a part of Val this project does not use, so
+ * the icon goes instead of the panel being empty.
+ *
+ * Pages hangs off `hasRouters` rather than off `pages` being non-empty, because
+ * a router with no entries yet is a site map to add the first page to.
+ *
+ * Media and Data hang off their own data, which is already exactly the right
+ * question. `media` is the `s.imagedir()`/`s.filedir()` modules, and an empty
+ * gallery still lists as a gallery — so an empty `media` means no gallery
+ * module exists. Settings is always there once loaded: it holds more than the
+ * project's `s.settings()` module, and says how to add one where there is none.
+ * `data` is what is left after the routers, the galleries and settings have been
+ * taken out of the module tree, so "every module is a router, a gallery or
+ * settings" and "`data` is empty" are the same statement.
+ *
+ * Everything is on offer while the navigation is still loading: the panels have
+ * loading states of their own, and a rail that grows icons as data arrives is
+ * worse than one that starts full.
+ */
+export function availableDestinations(
+  data: Pick<ShellData, "hasRouters" | "media" | "data">,
+  isLoading: boolean,
+): ShellDestination[] {
+  // Settings is NOT offered while loading, unlike the other three: it is the
+  // only one whose icon sits on its own at the foot of the rail, so a cog that
+  // appears and then goes reads as something that broke rather than as data
+  // arriving.
+  if (isLoading) return ["pages", "media", "data"];
+  const available: ShellDestination[] = [];
+  if (data.hasRouters) available.push("pages");
+  if (data.media.length > 0) available.push("media");
+  if (data.data.length > 0) available.push("data");
+  // Always, with or without `s.settings()`: the panel has more in it than the
+  // settings module (Updates, for a project whose code the Studio builds), and
+  // without a module it says how to add one.
+  available.push("settings");
+  return available;
+}
+
+/**
+ * Where a new page can go.
+ *
+ * `NewPageForm` already knows how to build a URL from a route pattern — static
+ * segments as chips, dynamic ones as inputs, catch-alls, optional segments that
+ * mean the base route, the schema author's own description of a key — so this
+ * only has to find the routes to hand it. A route accepts children when its
+ * pattern has a dynamic segment in it, a flag set upstream by
+ * `transformSitemapNode`.
+ *
+ * `existingUrls` is every URL the tree currently has, which is what lets the
+ * form say "a page with this path already exists" — including a collision with a
+ * page under a different route, which a route's own sibling list would miss.
+ */
+export function collectNewPageRoutes(root: SitemapItem): {
+  routes: AvailableRoute[];
+  existingUrls: string[];
+} {
+  const routes = new Map<string, AvailableRoute>();
+  const existingUrls: string[] = [];
+
+  const walk = (item: SitemapItem) => {
+    if (item.sourcePath || item.children.length === 0) {
+      existingUrls.push(item.urlPath);
+    }
+    if (item.canAddChild && item.moduleFilePath && item.routePattern) {
+      const patternString = routePatternToString(item.routePattern);
+      const key = `${item.moduleFilePath}::${patternString}`;
+      if (!routes.has(key)) {
+        routes.set(key, {
+          moduleFilePath: item.moduleFilePath,
+          routePattern: item.routePattern,
+          patternString,
+          // Filled in below, once every URL is known.
+          existingKeys: [],
+          keyDescription: item.keyDescription,
+          routeParams: item.routeParams,
+        });
+      }
+    }
+    for (const child of item.children) {
+      walk(child);
+    }
+  };
+  walk(root);
+
+  return {
+    routes: Array.from(routes.values()).map(
+      (route): AvailableRoute => ({ ...route, existingKeys: existingUrls }),
+    ),
+    existingUrls,
+  };
+}
+
+/**
+ * The logo as the shell wants it: a URL and a name.
+ *
+ * `alt` falls back to the project's name, because a mark at the top of the rail
+ * IS the project's name in picture form — announcing it as "Acme" is right, and
+ * announcing it as nothing at all is a nameless image inside a navigation
+ * landmark. The image's own `alt` wins where an editor wrote one.
+ */
+export function toShellLogo(
+  logo: { path: string; alt: string | null } | null,
+  filePatchIds: ReadonlyMap<string, string>,
+  projectName: string | undefined,
+): ShellLogo | undefined {
+  if (logo === null) {
+    return undefined;
+  }
+  const alt = logo.alt ?? projectName;
+  return {
+    url: refToUrl(logo.path, filePatchIds),
+    ...(alt ? { alt } : {}),
+  };
+}

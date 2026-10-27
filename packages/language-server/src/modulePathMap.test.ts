@@ -77,7 +77,7 @@ export default c.define(
     type: 'singleImage',
     keepAspectRatio: true,
     size: 'xs',
-    image: c.image('/public/Screenshot 2023-11-30 at 20.20.11_dbcdb.png'),
+    image: { path: '/public/Screenshot 2023-11-30 at 20.20.11_dbcdb.png' },
   },
   }
 );
@@ -115,13 +115,11 @@ export default c.define('/content/aboutUs.val.ts', schema, {
   ingress:
     'Vi elsker å bytestgge digitale tjenester som betyr noe for folk, helt fra bunn av, og helt ferdig. Vi tror på iterative utviklingsprosesser, tverrfaglige team, designdrevet produktutvikling og brukersentrerte designmetoder.',
   header: 'SPESIALISTER PÅ DIGITAL PRODUKTUTVIKLING',
-  image: c.image(
-    '/public/368032148_1348297689148655_444423253678040057_n_64374.png',
-    {
-      width: 1283,
-      height: 1121,
-    }
-  ),
+  image: {
+    path: '/public/368032148_1348297689148655_444423253678040057_n_64374.png',
+    width: 1283,
+    height: 1121,
+  },
 });
 `,
     );
@@ -183,27 +181,27 @@ export default c.define('/content', schema, {
     ).toBeUndefined();
   });
 
-  test("exposes _ref and metadata ranges for c.image()", () => {
-    // A "file does not exist" error points at the ref, a bad-metadata error at
-    // the metadata object, so the two need distinct ranges.
+  test("exposes a range per property of a media object", () => {
+    // A "file does not exist" error points at the path, a bad-metadata error at
+    // the field it is about, so each needs its own range.
     const modulePathMap = mapOf(
       "./content.val.ts",
       `import { s, c } from '../val.config';
 
 export default c.define('/content', schema, {
-  image: c.image('/public/val/logo.png', { width: 1, height: 2 }),
+  image: { path: '/public/val/logo.png', width: 1, height: 2 },
 });
 `,
     );
 
-    const ref = getModulePathRange('"image"."_ref"', modulePathMap);
-    const metadata = getModulePathRange('"image"."metadata"', modulePathMap);
-    expect(ref).toBeDefined();
-    expect(metadata).toBeDefined();
-    // Both on the c.image(...) line, ref before metadata.
-    expect(ref?.start.line).toBe(3);
-    expect(metadata?.start.line).toBe(3);
-    expect(ref!.start.character).toBeLessThan(metadata!.start.character);
+    const pathRange = getModulePathRange('"image"."path"', modulePathMap);
+    const width = getModulePathRange('"image"."width"', modulePathMap);
+    expect(pathRange).toBeDefined();
+    expect(width).toBeDefined();
+    // Both on the same line, path before width.
+    expect(pathRange?.start.line).toBe(3);
+    expect(width?.start.line).toBe(3);
+    expect(pathRange!.start.character).toBeLessThan(width!.start.character);
   });
 
   describe("findModulePathAtPosition", () => {
@@ -277,10 +275,11 @@ export default c.define('/x.val.ts', schema, {
       title: 'first',
     },
   ],
-  image: c.image('/public/val/logo.png', {
+  image: {
+    path: '/public/val/logo.png',
     width: 944,
     height: 944,
-  }),
+  },
 });
 `,
     );
@@ -294,12 +293,22 @@ export default c.define('/x.val.ts', schema, {
       expect(range.end.line).toBe(5);
     });
 
-    test("a multi-line metadata argument starts where it opens", () => {
-      const range = getModulePathRange('"image"."metadata"', map)!;
+    test("a multi-line media object's own key stays on its line", () => {
+      // The `val` child is the object literal itself; the key is what a
+      // diagnostic about the field as a whole points at.
+      const range = getModulePathRange('"image"', map)!;
       expect(range).toBeDefined();
       expect(range.start.character).toBeGreaterThanOrEqual(0);
       expect(range.start.line).toBe(7);
-      expect(range.end.line).toBe(10);
+      expect(range.end.line).toBe(7);
+    });
+
+    test("a media object's nested property starts where it opens", () => {
+      const range = getModulePathRange('"image"."path"', map)!;
+      expect(range).toBeDefined();
+      expect(range.start.character).toBeGreaterThanOrEqual(0);
+      expect(range.start.line).toBe(8);
+      expect(range.end.line).toBe(8);
     });
 
     test("every range has a non-negative start character", () => {

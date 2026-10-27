@@ -1,4 +1,5 @@
-import { SourcePath } from "@valbuild/core";
+import { SourcePath, Internal } from "@valbuild/core";
+import { type JSX } from "react";
 import { Checkbox } from "../designSystem/checkbox";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -13,7 +14,6 @@ import {
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { Check } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 
 export function BooleanField({
   path,
@@ -67,13 +67,12 @@ export function BooleanField({
   const current = source === null ? "indeterminate" : source;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       <Checkbox
         disabled={readonly}
         checked={current}
         onCheckedChange={() => {
           if (readonly) return;
-          let nextValue: boolean | null = false;
+          let nextValue: boolean | null;
           // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
           if (schemaAtPath.data.opt) {
             if (current === true) {
@@ -83,7 +82,7 @@ export function BooleanField({
             } else if (current === false) {
               nextValue = true;
             } else {
-              console.warn("Unexpected value for boolean field", current);
+              Internal.log.debug("Unexpected value for boolean field", current);
               nextValue = false;
             }
           } else {
@@ -93,7 +92,7 @@ export function BooleanField({
               // Even if not optional: we accept that the current value is indeterminate
               nextValue = true;
             } else {
-              console.warn("Unexpected value for boolean field", current);
+              Internal.log.debug("Unexpected value for boolean field", current);
               nextValue = false;
             }
           }
@@ -208,7 +207,7 @@ export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
   } else if (sourceAtPath.data === false) {
     return <div className="w-4 h-4 rounded border border-border-primary" />;
   } else {
-    console.warn("Unexpected value for boolean field", sourceAtPath.data);
+    Internal.log.debug("Unexpected value for boolean field", sourceAtPath.data);
     return <div className="w-4 h-4 rounded border-bg-brand-primary" />;
   }
 }

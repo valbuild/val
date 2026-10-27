@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-tanstack-demo.cjs.js",
+  "module": "dist/valbuild-tanstack-demo.esm.js"
+}

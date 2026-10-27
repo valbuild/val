@@ -3,27 +3,41 @@ import {
   Json,
   Internal,
   RichTextSource,
-  VAL_EXTENSION,
-  FILE_REF_PROP,
   SerializedSchema,
   SerializedRecordSchema,
   SerializedObjectSchema,
-  SerializedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
+  SerializedEnumSchema,
+  SerializedKeyOfSchema,
   SerializedLiteralSchema,
   SerializedFileSchema,
   SerializedImageSchema,
-  ImageMetadata,
-  FileMetadata,
+  SerializedVideoSchema,
+  GalleryVideoSource,
+  IsVideoSource,
+  VideoCaptionSource,
+  MediaHotspot,
   RichTextOptions,
   ImageSource,
   SerializedDateSchema,
   SerializedDateTimeSchema,
+  SerializedColorSchema,
+  SerializedCodeSchema,
+  SerializedLocaleSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
+import type { ValView, ValViewSource } from "@valbuild/core";
+import { isValViewSource } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
+import type {
+  GenericSelector,
+  JsonSource,
+  SelectorOf,
+  SelectorSource,
+} from "@valbuild/core";
 
 declare const brand: unique symbol;
 
@@ -177,14 +191,62 @@ export type ValEncodedString =
     [brand]: "ValEncodedString";
   };
 
+/**
+ * An image as a consumer sees it: what was authored, plus the generated `url`.
+ *
+ * `path` stays a plain string — it is what `url` is derived from, so encoding it
+ * would corrupt every URL built from it.
+ */
 export type Image = {
+  readonly path: string;
   readonly url: ValEncodedString;
-  readonly metadata?: ImageMetadata;
+  readonly width?: number;
+  readonly height?: number;
+  readonly mimeType?: string;
+  readonly alt?: string;
+  readonly hotspot?: MediaHotspot;
 };
 
-export type File<Metadata extends FileMetadata> = {
+export type File = {
+  readonly path: string;
   readonly url: ValEncodedString;
-  readonly metadata?: Metadata;
+  readonly mimeType?: string;
+};
+
+/**
+ * A video as a consumer sees it: what was authored, plus a generated `url` on
+ * the video, on its poster and on each caption track.
+ *
+ * Only the video's own `url` carries the edit tag — a click on the player
+ * reaches the field. The poster and the captions are parts of the same field,
+ * not fields of their own, so their URLs are plain.
+ *
+ * An HLS stream (`mimeType` `application/vnd.apple.mpegurl`) plays natively in
+ * Safari and needs a library such as hls.js everywhere else; `url` is then the
+ * master playlist.
+ */
+export type Video = {
+  readonly path: string;
+  readonly url: ValEncodedString;
+  readonly mimeType: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly duration?: number;
+  readonly alt?: string;
+  readonly hotspot?: MediaHotspot;
+  readonly posterTime?: number;
+  readonly poster?: {
+    readonly path: string;
+    readonly url: string;
+    readonly width?: number;
+    readonly height?: number;
+    readonly mimeType?: string;
+  };
+  readonly startTime?: number;
+  readonly endTime?: number;
+  readonly captions?: readonly (Omit<VideoCaptionSource, "patch_id"> & {
+    readonly url: string;
+  })[];
 };
 
 export type StegaOfRichTextSource<T extends Source> = Json extends T
@@ -214,45 +276,124 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
     ? RichText<O>
-    : T extends ImageSource
-      ? Image
-      : T extends FileSource<infer M>
-        ? M extends FileMetadata
-          ? File<M>
-          : never
-        : T extends SourceObject
-          ? {
-              [key in keyof T]: StegaOfSource<T[key]>;
-            }
-          : T extends SourceArray
-            ? StegaOfSource<T[number]>[]
-            : T extends RawString
-              ? string
-              : string extends T
-                ? ValEncodedString
-                : T extends JsonPrimitive
-                  ? T
-                  : never;
+    : // Above `ImageSource`: a video is structurally an image too (a `path`
+      // and optional fields), so this arm has to be asked first. Its declared
+      // keys are what tell them apart (`IsVideoSource`): a field picked from a
+      // set has no `mimeType` of its own, so a required one cannot. Not
+      // distributive by itself, and need not be — the arm above already
+      // split a union into its members.
+      IsVideoSource<T> extends true
+      ? Video
+      : T extends ImageSource
+        ? Image
+        : T extends FileSource
+          ? File
+          : // A view is a pointer at another module: nothing of it is rendered, so
+            // there is nothing here to encode or to read. `ValView<Target>`
+            // names what is behind it and exposes no properties.
+            T extends ValViewSource<string, infer Target>
+            ? ValView<Target>
+            : T extends SourceObject
+              ? {
+                  [key in keyof T]: StegaOfSource<T[key]>;
+                }
+              : T extends SourceArray
+                ? StegaOfSource<T[number]>[]
+                : T extends RawString
+                  ? string
+                  : string extends T
+                    ? ValEncodedString
+                    : T extends JsonPrimitive
+                      ? T
+                      : never;
 
 /**
- * Resolves the matching sub-schema for a tagged union based on the discriminator key.
+ * What resolving `T` gives back — the one definition the framework readers
+ * share.
+ *
+ * Two shapes go in. A module or selector resolves as it always has. A
+ * {@link ValView}, which is what a `s.view()` field reads as, resolves to the
+ * module it points at: the page declares what it shows, and a reader follows
+ * that declaration instead of importing the target a second time.
+ *
+ * One definition rather than one per reader — `useVal`, `fetchVal`,
+ * `initValContent` and the TanStack client each had their own copy of the
+ * selector half, which is four places for the view half to be forgotten in.
+ *
+ * `Target extends Source` is checked HERE rather than on `ValView` itself:
+ * `ValView` is built from `ValViewSource`, which is a member of the `Source`
+ * union, so a constraint there is a circular type reference.
+ *
+ * The outer arms are wrapped in tuples so the conditional does not DISTRIBUTE
+ * over a union: distributing it re-entered `StegaOfSource` per member and the
+ * async readers hit "Type instantiation is excessively deep and possibly
+ * infinite" — `useVal` did not, because a `Promise<...>` around it is one more
+ * level than the checker had left.
+ */
+export type ResolvedVal<T extends SelectorSource> = [T] extends [
+  ValView<infer Target>,
+]
+  ? [Target] extends [Source]
+    ? StegaOfSource<Target>
+    : never
+  : SelectorOf<T> extends GenericSelector<infer S>
+    ? StegaOfSource<S>
+    : never;
+
+/** What a reader accepts. A view handle is a `SelectorSource`, so this is it. */
+export type Resolvable = SelectorSource;
+
+/**
+ * The source of whichever arm of `ResolvableModule` a reader was given — the
+ * module's own, or that of the module a view points at.
+ */
+type SourceOfResolvable<T> = [T] extends [ValView<infer Target>]
+  ? Target
+  : T extends GenericSelector<infer S>
+    ? S
+    : never;
+
+/**
+ * The (loosened) content type a single `.jsonValues()` entry resolves to.
+ *
+ * Here rather than in the framework packages because there were four identical
+ * copies of it — next's client and rsc readers, tanstack's client and server —
+ * and the view arm would have had to be added to each. Same reason
+ * {@link ResolvedVal} lives here.
+ */
+export type JsonEntryContentOf<T> =
+  SourceOfResolvable<T> extends Record<string, infer V>
+    ? V extends JsonSource<infer C>
+      ? C
+      : never
+    : never;
+
+/** What a route reader gives back for the entry the params matched. */
+export type RouteValueOf<T> =
+  SourceOfResolvable<T> extends SourceObject
+    ? // `.jsonValues()` router: the matched entry resolves to its json content.
+      NonNullable<SourceOfResolvable<T>>[string] extends JsonSource<infer C>
+      ? C | null
+      : StegaOfSource<NonNullable<SourceOfResolvable<T>>[string]> | null
+    : never;
+
+/**
+ * Resolves the matching variant of a discriminated union from the value's tag.
  * Returns the matching schema or null if no match is found.
  */
-function resolveTaggedUnionSchema(
+function resolveDiscriminatedUnionVariant(
   source: any,
-  schema: SerializedUnionSchema,
+  schema: SerializedDiscriminatedUnionSchema,
 ): SerializedSchema | null {
   const schemaKey = schema.key;
-  if (typeof schemaKey !== "string") {
-    return null;
-  }
-
   if (!source || typeof source !== "object" || Array.isArray(source)) {
     return null;
   }
 
   const key = source[schemaKey];
-  if (!key || typeof key !== "string") {
+  // The `typeof` check is the whole test: a falsy guard here would drop a
+  // variant tagged `s.literal("")`, whose strings would then never be encoded.
+  if (typeof key !== "string") {
     return null;
   }
 
@@ -262,14 +403,17 @@ function resolveTaggedUnionSchema(
       if (isLiteralSchema(keySchema)) {
         return keySchema.value === key;
       } else {
-        console.warn(
-          "Expected literal schema at key in union, but found: ",
+        Internal.log.warn(
+          "Expected literal schema at key in discriminated union, but found: ",
           keySchema,
           { key, schema: s },
         );
       }
     } else {
-      console.warn("Expected union containing object schema, but found: ", s);
+      Internal.log.warn(
+        "Expected discriminated union containing object schema, but found: ",
+        s,
+      );
     }
     return false;
   });
@@ -278,27 +422,23 @@ function resolveTaggedUnionSchema(
 }
 
 /**
- * Resolves the matching sub-schema for a literal union (string-based).
- * Returns the matching schema or null if no match is found.
+ * The image schema of a richtext's inline images.
+ *
+ * `img` serializes as `true` when the author did not pass a schema, so
+ * there is nothing to hand down; a bare `{type: "image"}` is enough, since all
+ * the media branch needs is to know that it is looking at media.
  */
-function resolveLiteralUnionSchema(
-  source: string,
-  schema: SerializedUnionSchema,
-): SerializedSchema | null {
-  if (typeof schema.key === "string") {
-    return null; // Not a literal union
+function inlineImageSchemaOf(
+  schema: SerializedSchema | undefined,
+): SerializedImageSchema | undefined {
+  if (schema?.type !== "richtext") {
+    return undefined;
   }
-
-  const matchingSchema = [schema.key]
-    .concat(...(schema.items as SerializedLiteralSchema[]))
-    .find((s) => {
-      if (isLiteralSchema(s)) {
-        return s.value === source;
-      }
-      return false;
-    });
-
-  return matchingSchema || null;
+  const img = schema.options?.img;
+  if (!img) {
+    return undefined;
+  }
+  return img === true ? { type: "image", opt: false } : img;
 }
 
 /**
@@ -330,6 +470,13 @@ function handleRichTextSchema(
     if (!sourceOrSelector) {
       return null;
     }
+    // An inline image's `src` is media, and media is now recognised only from
+    // the schema. Passing the richtext schema down (as every other key does)
+    // would leave it looking like a plain object, and it would lose its `url`.
+    const imgSchema =
+      sourceOrSelector.tag === "img"
+        ? inlineImageSchemaOf(recOpts.schema)
+        : undefined;
     const richtextSelector = Object.fromEntries(
       Object.entries(sourceOrSelector).map(([key, value]) => [
         key,
@@ -337,7 +484,7 @@ function handleRichTextSchema(
           ? value
           : rec(value, {
               path: recOpts.path,
-              schema: recOpts.schema,
+              schema: key === "src" && imgSchema ? imgSchema : recOpts.schema,
             }),
       ]),
     );
@@ -351,12 +498,86 @@ export function stegaEncode(
   opts: {
     getModule?: (modulePath: string) => any;
     disabled?: boolean;
+    /**
+     * Seeds the recursion for a RAW source value that is not a selector, so its
+     * strings still get edit tags.
+     *
+     * Needed for a `.jsonValues()` entry loaded by key: its content is plain
+     * JSON with no `Path`/`GetSchema` symbols, so the selector branch below
+     * cannot fire and — without this — every string hits the `!recOpts` bail in
+     * the encoder and the whole call is an identity transform.
+     *
+     * `path` is the entry's path (`Internal.createValPathOfItem(modulePath, key)`)
+     * and `schema` is the SERIALIZED item schema.
+     */
+    root?: { path: any; schema: any };
   },
 ): any {
+  const viewModules = new Map<string, unknown>();
+  /**
+   * The published entries of the galleries the module's fields pick from, for
+   * when there is no draft source to fill a gallery-backed value from — every
+   * read outside draft mode. See `Internal.media.galleriesOf`.
+   */
+  const galleries = new Map<string, unknown>();
+  const getGallery = (modulePath: string): unknown =>
+    opts.getModule?.(modulePath) ?? galleries.get(modulePath);
+  // Handed a view handle rather than a module: resolve it and encode what it
+  // points at. This is what makes `useVal(page.header)` read the header.
+  const resolved = Internal.viewHandleModule(input);
+  if (resolved !== undefined) {
+    return stegaEncode(resolved, opts);
+  }
+  // A view pointer with no module on it. The module rides on a symbol, and
+  // symbols do not survive serialization — so this is a handle that crossed the
+  // server/client boundary as a prop, or one read out of raw JSON. Resolving it
+  // would hand back the pointer itself, which looks like content and is not, so
+  // say what happened instead.
+  if (isValViewSource(input)) {
+    throw Error(
+      `Cannot resolve the view of '${input.view}': it carries no module. ` +
+        `Either it crossed a server/client boundary, which drops the module because it rides on a symbol, ` +
+        `or it points at a different module than its schema declares — which \`val validate --fix\` repairs. ` +
+        `Resolve it in the same component that read the module containing it, or read '${input.view}' directly.`,
+    );
+  }
   function rec(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any },
   ): any {
+    // A view is a pointer at another module. Weaving an edit tag into it would
+    // corrupt the path it holds, and there is nothing of the target here to
+    // encode — the target is its own module, encoded when it is read.
+    //
+    // The module it names rides along on a symbol, so `useVal(page.header)` can
+    // resolve it without a path-to-module registry the app does not have. The
+    // pointer itself is unchanged: symbols do not serialize, so this is still
+    // `{ view: "/foo.val.ts" }` to anything that looks at it as data.
+    if (recOpts?.schema && recOpts.schema.type === "view") {
+      const valModule = viewModules.get(recOpts.schema.moduleFilePath);
+      if (valModule === undefined || !isValViewSource(sourceOrSelector)) {
+        return sourceOrSelector;
+      }
+      /*
+       * The POINTER decides what may be attached, not the schema alone.
+       *
+       * The two can disagree: a `.val.ts` cannot express it (the source type is
+       * the literal path), but hand-written JSON and a patch can, which is the
+       * whole reason `view:check-module` exists as a fix. Keying only on the
+       * schema attached the schema's module to a pointer naming a different one,
+       * so `useVal(page.field)` read a module the value does not name — silently,
+       * and looking exactly like a correct read.
+       *
+       * So a mismatch gets no handle: the value stays the bare pointer, and
+       * reading it throws rather than answering with the wrong module. The
+       * Studio still renders the field and still offers the repair; nothing here
+       * refuses to encode the page over it.
+       */
+      if (sourceOrSelector.view !== recOpts.schema.moduleFilePath) {
+        return sourceOrSelector;
+      }
+      return Internal.createViewHandle(sourceOrSelector, valModule);
+    }
     if (recOpts?.schema && isKeyOfSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
@@ -369,36 +590,80 @@ export function stegaEncode(
     if (recOpts?.schema && isDateTimeSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
-    if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
-      // Handle tagged union
-      const taggedSchema = resolveTaggedUnionSchema(
+    if (recOpts?.schema && isColorSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
+    // Stega weaves invisible characters into the string. In source code they
+    // are not invisible: they are syntax errors, or silent corruption in a
+    // string literal. So a code value is handed back verbatim.
+    if (recOpts?.schema && isCodeSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
+    // A locale ends up in `<html lang>`, in `hreflang`, and in `Intl`
+    // constructors. None of those survive invisible characters: the attribute
+    // carries them into the markup, and `Intl` throws on a tag it cannot parse.
+    if (recOpts?.schema && isLocaleSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
+    // An enum value is one of a fixed set of strings, and consumer code
+    // compares against those strings. Weaving stega into it would break every
+    // such comparison, so it is handed back verbatim — as a literal is.
+    if (recOpts?.schema && isEnumSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
+    if (recOpts?.schema && isDiscriminatedUnionSchema(recOpts?.schema)) {
+      const variantSchema = resolveDiscriminatedUnionVariant(
         sourceOrSelector,
         recOpts.schema,
       );
-      if (taggedSchema) {
+      if (variantSchema) {
         return rec(sourceOrSelector, {
           path: recOpts.path,
-          schema: taggedSchema,
+          schema: variantSchema,
         });
-      }
-      // Handle literal union
-      if (typeof sourceOrSelector === "string") {
-        const literalSchema = resolveLiteralUnionSchema(
-          sourceOrSelector,
-          recOpts.schema,
-        );
-        if (literalSchema) {
-          return rec(sourceOrSelector, {
-            path: recOpts.path,
-            schema: literalSchema,
-          });
-        }
       }
       // No match found, return as is
       return sourceOrSelector;
     }
     if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
       return handleRichTextSchema(sourceOrSelector, recOpts, rec);
+    }
+    if (
+      recOpts &&
+      isVideoSchema(recOpts.schema) &&
+      sourceOrSelector &&
+      typeof sourceOrSelector === "object"
+    ) {
+      // A set-backed video gets its mimeType, size and length from the set
+      // first — `Video` promises a `mimeType`, and the field has none — and
+      // every choice it did not make itself: the set's poster, times,
+      // description, focal point and captions.
+      const src = Internal.media.fillFromGallery(
+        sourceOrSelector,
+        recOpts.schema,
+        getGallery,
+      );
+      return Internal.resolveVideo(src, (video: GalleryVideoSource) =>
+        rec(Internal.mediaUrl(video), recOpts),
+      );
+    }
+    if (
+      recOpts &&
+      (isImageSchema(recOpts.schema) || isFileSchema(recOpts.schema)) &&
+      sourceOrSelector &&
+      typeof sourceOrSelector === "object"
+    ) {
+      const src = Internal.media.fillFromGallery(
+        sourceOrSelector,
+        recOpts.schema,
+        getGallery,
+      );
+      // `url` carries the edit tag, so a click on an image reaches its field.
+      // `path` must stay raw: it is what the URL was derived from.
+      return {
+        ...src,
+        url: rec(Internal.mediaUrl(src), recOpts),
+      };
     }
 
     if (typeof sourceOrSelector === "object") {
@@ -408,55 +673,23 @@ export function stegaEncode(
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         const newSchema = Internal.getSchema(sourceOrSelector);
+        // The modules this module's views point at. Collected HERE because this
+        // is the only place with the schema INSTANCE — everything below walks
+        // the serialized schema, which carries a path and not a module. Merged
+        // rather than replaced: a handle resolved by `useVal` re-enters here as
+        // its own module, and its parent's views must stay resolvable.
+        for (const [path, valModule] of Internal.viewModulesOf(newSchema)) {
+          viewModules.set(path, valModule);
+        }
+        for (const [path, entries] of Internal.media.galleriesOf(newSchema)) {
+          galleries.set(path, entries);
+        }
         return rec(
           opts.getModule && opts.getModule(selectorPath) !== undefined
             ? opts.getModule(selectorPath)
             : Internal.getSource(sourceOrSelector),
-          opts.disabled
-            ? undefined
-            : { path: selectorPath, schema: newSchema?.["executeSerialize"]() },
+          { path: selectorPath, schema: newSchema?.["executeSerialize"]() },
         );
-      }
-
-      if (VAL_EXTENSION in sourceOrSelector) {
-        if (
-          sourceOrSelector[VAL_EXTENSION] === "file" &&
-          typeof sourceOrSelector[FILE_REF_PROP] === "string"
-        ) {
-          const source =
-            recOpts?.schema && opts.getModule
-              ? augmentWithReferencedModuleMetadata(
-                  sourceOrSelector,
-                  recOpts.schema,
-                  opts.getModule,
-                )
-              : sourceOrSelector;
-          const fileSelector = Internal.convertFileSource(source);
-          const url = fileSelector.url;
-          return {
-            ...fileSelector,
-            url: rec(url, recOpts),
-          };
-        } else if (sourceOrSelector[VAL_EXTENSION] === "remote") {
-          const source =
-            recOpts?.schema && opts.getModule
-              ? augmentWithReferencedModuleMetadata(
-                  sourceOrSelector,
-                  recOpts.schema,
-                  opts.getModule,
-                )
-              : sourceOrSelector;
-          const remoteSelector = Internal.convertFileSource(source);
-          const url = remoteSelector.url;
-          return {
-            ...remoteSelector,
-            url: rec(url, recOpts),
-          };
-        }
-        console.error(
-          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,
-        );
-        return sourceOrSelector;
       }
 
       if (Array.isArray(sourceOrSelector)) {
@@ -487,10 +720,17 @@ export function stegaEncode(
             },
           );
         }
+        // Where an object was read from, for `attrs`: an object has no text
+        // to carry its path in, and a field Val does not encode (a key, a
+        // date) is named from its object's. Not in production, where nothing
+        // else is tagged either.
+        if (recOpts?.path && !opts.disabled) {
+          Internal.setValPath(res, recOpts.path);
+        }
         return res;
       }
 
-      console.error(
+      Internal.log.error(
         `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
           sourceOrSelector,
         )})`,
@@ -500,7 +740,11 @@ export function stegaEncode(
     }
 
     if (typeof sourceOrSelector === "string") {
-      if (!recOpts) {
+      // `disabled` suppresses the steganography, NOT the schema. Media is
+      // recognised from the schema now, so dropping it here — which is what
+      // this function used to do — would strip `url` from every image on every
+      // production page, where `disabled` is the normal case.
+      if (!recOpts || opts.disabled) {
         return sourceOrSelector;
       }
       if (recOpts.schema?.raw || recOpts.schema?.type === "literal") {
@@ -523,12 +767,12 @@ export function stegaEncode(
       return sourceOrSelector;
     }
 
-    console.error(
+    Internal.log.error(
       `Unexpected type of source selector: ${typeof sourceOrSelector}`,
     );
     return sourceOrSelector;
   }
-  return rec(input);
+  return rec(input, opts.root);
 }
 
 function isRecordSchema(
@@ -555,20 +799,44 @@ function isDateTimeSchema(
   return schema?.type === "dateTime";
 }
 
+function isColorSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedColorSchema {
+  return schema?.type === "color";
+}
+
+function isLocaleSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedLocaleSchema {
+  return schema?.type === "locale";
+}
+
+function isCodeSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedCodeSchema {
+  return schema?.type === "code";
+}
+
 function unknownSchema(schema: unknown) {
-  console.debug("Found unknown schema", schema);
+  Internal.log.debug("Found unknown schema", schema);
   return schema;
 }
 
-function isUnionSchema(
+function isDiscriminatedUnionSchema(
   schema: SerializedSchema | undefined,
-): schema is SerializedUnionSchema {
-  return schema?.type === "union";
+): schema is SerializedDiscriminatedUnionSchema {
+  return schema?.type === "discriminated-union";
+}
+
+function isEnumSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedEnumSchema {
+  return schema?.type === "enum";
 }
 
 function isKeyOfSchema(
   schema: SerializedSchema | undefined,
-): schema is SerializedUnionSchema {
+): schema is SerializedKeyOfSchema {
   return schema?.type === "keyOf";
 }
 
@@ -590,56 +858,23 @@ function isFileSchema(
   return schema?.type === "file";
 }
 
+function isVideoSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedVideoSchema {
+  return schema?.type === "video";
+}
+
 function isImageSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedImageSchema {
   return schema?.type === "image";
 }
 
-function augmentWithReferencedModuleMetadata(
-  source: any,
-  schema: SerializedSchema,
-  getModule: (path: string) => any,
-): any {
-  if (
-    source.metadata ||
-    !(isFileSchema(schema) || isImageSchema(schema)) ||
-    !schema.referencedModule
-  ) {
-    return source;
-  }
-  const moduleSource = getModule(schema.referencedModule);
-  if (
-    !moduleSource ||
-    typeof moduleSource !== "object" ||
-    Array.isArray(moduleSource)
-  ) {
-    return source;
-  }
-  const ref: string = source[FILE_REF_PROP];
-  // For local files the ref is the file path directly; for remote refs we
-  // need to extract the file path from the remote URL.
-  let fileRef: string | null = ref in moduleSource ? ref : null;
-  if (!fileRef) {
-    const splitResult = Internal.remote.splitRemoteRef(ref);
-    if (
-      splitResult.status === "success" &&
-      splitResult.filePath in moduleSource
-    ) {
-      fileRef = splitResult.filePath;
-    }
-  }
-  if (!fileRef) {
-    return source;
-  }
-  return { ...source, metadata: moduleSource[fileRef] };
-}
-
 function collectReferencedModulesFromSchema(
   schema: SerializedSchema,
   acc: Set<string>,
 ): void {
-  if (isFileSchema(schema) || isImageSchema(schema)) {
+  if (isFileSchema(schema) || isImageSchema(schema) || isVideoSchema(schema)) {
     if (schema.referencedModule) {
       acc.add(schema.referencedModule);
     }
@@ -649,7 +884,7 @@ function collectReferencedModulesFromSchema(
     }
   } else if (schema.type === "array" || schema.type === "record") {
     collectReferencedModulesFromSchema(schema.item, acc);
-  } else if (schema.type === "union") {
+  } else if (schema.type === "discriminated-union") {
     for (const item of schema.items) {
       collectReferencedModulesFromSchema(item, acc);
     }
@@ -660,7 +895,48 @@ export function stegaClean(source: string) {
   return vercelStegaSplit(source).cleaned;
 }
 
+/**
+ * Answers already computed, keyed by the selector they were computed from.
+ *
+ * `getModuleIds` is not cheap: it calls `executeSerialize()`, which rebuilds the
+ * whole serialized schema tree on every call — ~31us for a 40-field schema with
+ * a nested array, against ~4us for a small one. It is called from `useValStega`
+ * on every render whose `useMemo` misses.
+ *
+ * That memo misses on every render for a VIEW, and cannot be fixed there: the
+ * handle is built by `createViewHandle` inside `stegaEncode`, so `page.authors`
+ * is a fresh object each time the page is encoded, and `[selector]` is a new
+ * dependency every render. Caching here rather than in the hooks fixes it for
+ * both copies of the hook at once, and for any other caller.
+ *
+ * Keyed on the selector, which is the module itself for the case that matters —
+ * a view resolves to it on the line below, and a module is a module-level
+ * constant, so the entry is hit for the life of the process. A fresh nested
+ * selector misses, as it did before; a `WeakMap` lets those entries go.
+ *
+ * The array is shared, so it is frozen: nothing may sort or splice it in place.
+ * Every consumer today copies first (`createSubscriberId` does `paths.slice()`),
+ * and freezing is what keeps that true.
+ */
+const moduleIdsCache = new WeakMap<object, string[]>();
+
 export function getModuleIds(input: any): string[] {
+  // A view handle names one module: the one it points at. Resolved first so a
+  // `useVal(page.header)` subscribes to the header rather than to nothing — and
+  // so the recursive call lands on the module, which is what the cache above
+  // can actually key on.
+  const resolved = Internal.viewHandleModule(input);
+  if (resolved !== undefined) {
+    return getModuleIds(resolved);
+  }
+  const cacheable = typeof input === "object" && input !== null;
+  if (cacheable) {
+    const cached = moduleIdsCache.get(input);
+    if (cached) {
+      // Frozen, so handing the same array to every caller is safe.
+      return cached;
+    }
+  }
   const modules: Set<string> = new Set();
   function rec(sourceOrSelector: any): undefined {
     if (typeof sourceOrSelector === "object") {
@@ -680,23 +956,6 @@ export function getModuleIds(input: any): string[] {
         return;
       }
 
-      if (VAL_EXTENSION in sourceOrSelector) {
-        if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
-          return;
-        }
-
-        if (
-          sourceOrSelector[VAL_EXTENSION] === "file" &&
-          typeof sourceOrSelector[FILE_REF_PROP] === "string"
-        ) {
-          return;
-        }
-        console.error(
-          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,
-        );
-        return sourceOrSelector;
-      }
-
       if (Array.isArray(sourceOrSelector)) {
         sourceOrSelector.forEach(rec);
         return;
@@ -709,7 +968,7 @@ export function getModuleIds(input: any): string[] {
         return;
       }
 
-      console.error(
+      Internal.log.error(
         `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
           sourceOrSelector,
         )})`,
@@ -729,13 +988,20 @@ export function getModuleIds(input: any): string[] {
       return;
     }
 
-    console.error(
+    Internal.log.error(
       `Unexpected type of source selector: ${typeof sourceOrSelector}`,
     );
     return;
   }
   rec(input);
-  return Array.from(modules);
+  const moduleIds = Array.from(modules);
+  // Frozen before it is shared, not after: a consumer that sorts in place would
+  // otherwise corrupt every later caller's answer, and silently.
+  Object.freeze(moduleIds);
+  if (cacheable) {
+    moduleIdsCache.set(input, moduleIds);
+  }
+  return moduleIds;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

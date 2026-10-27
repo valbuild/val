@@ -1,28 +1,60 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { Json, PatchId, ValidationErrors } from "@valbuild/core";
+import { applyPatch, JSONOps, type JSONValue } from "@valbuild/core/patch";
+import { result } from "@valbuild/core/fp";
+import type { ParentRef } from "@valbuild/shared/internal";
+
+/**
+ * The JSON patch applier, shared by every speculative validation below.
+ *
+ * Module scope because it is stateless and constructing one per call would be
+ * an allocation per AI tool call for no reason.
+ */
+const ops = new JSONOps();
+import { useValSystem } from "../stores/react/SystemContext";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
   ChatMessageAttachment,
 } from "../components/AIChat";
+import type { ChatDocument } from "../components/AIChatEditor";
+import {
+  chatDocumentToHtmlText,
+  collectImageNodesFromDoc,
+} from "../components/AIChatEditor";
 import {
   type AITool,
   SessionImageToPatchError,
+  useAIModelSelection,
+  useAvailableAIModel,
   useCurrentProfile,
+  useCurrentProposal,
   useProfilesByAuthorId,
-  useSyncEngine,
   useAIContext,
 } from "../components/ValProvider";
-import {
-  useGetDirectFileUploadSettings,
-  useValConfig,
-} from "../components/ValFieldProvider";
+import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
+import {
+  AssistantSettings,
+  assistantSettingsPromptSection,
+  NO_ASSISTANT_SETTINGS,
+  readAssistantSettings,
+  settingsModuleFilePath,
+} from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
+import { randomUUID } from "../utils/randomUUID";
+import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
   ImageMetadata,
@@ -31,11 +63,11 @@ import type {
   Source,
   SourcePath,
 } from "@valbuild/core";
-import { getSourcePathFromRoute } from "@valbuild/core";
+import { getSourcePathFromRoute, Internal } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { filterBlockingValidationErrors } from "./resolveValidationErrors";
+import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
 import { z } from "zod";
 import {
@@ -43,11 +75,30 @@ import {
   buildRemoveImageGalleryEntryPatch,
   isRemoteSchema,
   type BuildResult,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
+import {
+  buildDuplicatePatch,
+  buildEmptyAtPathPatch,
+  describeContainerAtPath,
+} from "@valbuild/shared/internal";
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
 } from "./expandSessionKeysInPatch";
+import { useProjectLocales } from "./useProjectLocales";
+import {
+  CODE_TOOLS,
+  codeToolsPromptSection,
+  isCodeTool,
+  runCodeTool,
+} from "../proposals/proposalCode";
+import {
+  proposalCodeChanged,
+  requestProposal,
+  useProposalBuild,
+} from "../proposals/useProposalBuild";
+import { createProposalsClient } from "../proposals/proposalsClient";
+import { createStudioPublishClient } from "@valbuild/shared/publish";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -134,11 +185,11 @@ const CREATE_PATCH_TOOL: AITool = {
     File field example:
     {"patch":[{"op":"replace","path":["brochure"],"value":{"key":"abc","filePath":"/public/val/files/brochure.pdf","_type":"ai_session_file","_tag":"file"}}]}
 
-    Richtext inline image example (richtext schema must have options.inline.img enabled):
+    Richtext inline image example (richtext schema must have options.img enabled):
     {"patch":[{"op":"add","path":["body","0","children","2"],"value":{"tag":"img","src":{"key":"abc","filePath":"/public/val/images/inline.png","_type":"ai_session_file","_tag":"image"}}}]}
 
     Multiple session keys can appear in a single patch.
-    For images-gallery modules (s.images()) you must use add_session_image_to_gallery instead — galleries don't fit this pattern.
+    For images-gallery modules (s.imagedir()) you must use add_session_image_to_gallery instead — galleries don't fit this pattern.
     `,
   parameters: {
     type: "object",
@@ -175,7 +226,7 @@ const HOTSPOT_DESCRIPTION =
 const ADD_SESSION_IMAGE_TO_GALLERY_TOOL: AITool = {
   name: "add_session_image_to_gallery",
   description:
-    "Use when the user wants a session-uploaded image added to an images gallery (a module defined with s.images(), where each entry's key is the file path and the value is the image's metadata).",
+    "Use when the user wants a session-uploaded image added to an images gallery (a module defined with s.imagedir(), where each entry's key is the file path and the value is the image's metadata).",
   parameters: {
     type: "object",
     properties: {
@@ -207,7 +258,7 @@ const ADD_SESSION_IMAGE_TO_GALLERY_TOOL: AITool = {
 const REMOVE_IMAGE_GALLERY_ENTRY_TOOL: AITool = {
   name: "remove_image_gallery_entry",
   description:
-    "Remove an existing image entry from an images gallery (a module defined with s.images()). " +
+    "Remove an existing image entry from an images gallery (a module defined with s.imagedir()). " +
     "The system records the deletion as a 'file' patch op with value: null and removes the corresponding gallery record entry.",
   parameters: {
     type: "object",
@@ -427,6 +478,126 @@ const AskUserQuestionArgs = z.object({
 });
 type AskUserQuestions = z.infer<typeof AskUserQuestionArgs>["questions"];
 
+const PATH_ARRAY_DESCRIPTION =
+  "JSON Pointer AS AN ARRAY (e.g. ['posts', 'blog-1'] or ['items', '0', 'title']). " +
+  "Array indices are numeric strings. Record keys that contain slashes stay as a single segment, e.g. ['/foo/bar'].";
+const DUPLICATE_SOURCE_TOOL: AITool = {
+  name: "duplicate_source",
+  description:
+    "Duplicate the value at 'source_path' to 'destination_path' within the same Val module. " +
+    "Use the op rule: if the destination's parent is an array or record, the patch uses 'add' (creating a new entry); " +
+    "if the destination's parent is an object, the patch uses 'replace'; if destination_path is empty, replaces the whole module. " +
+    "PREFER this tool over empty_at_path when there is an existing similar entry to copy — copying preserves nested structure, " +
+    "optional fields, and image references correctly, while emptying often produces nulls the model would have to fill in. " +
+    "For richtext destinations or images-gallery destinations, use create_patch or add_session_image_to_gallery instead.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      source_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module to read FROM. " + PATH_ARRAY_DESCRIPTION,
+      },
+      destination_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the SAME module to write TO. " + PATH_ARRAY_DESCRIPTION,
+      },
+    },
+    required: ["module_file_path", "source_path", "destination_path"],
+  },
+};
+const EMPTY_AT_PATH_TOOL: AITool = {
+  name: "empty_at_path",
+  description:
+    "Create an empty value (built from the schema via emptyOf) at 'destination_path' in a Val module. " +
+    "Same op rule as duplicate_source (array/record parent → 'add', object parent → 'replace', empty path → 'replace'). " +
+    "Use this ONLY when there is no good donor to duplicate from — duplicate_source is almost always better when something similar exists, " +
+    "because empty values for optional fields become null and image/file fields become null (which then need a follow-up upload). " +
+    "For richtext destinations or images-gallery destinations, use create_patch or add_session_image_to_gallery instead.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      destination_path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module to write to. " + PATH_ARRAY_DESCRIPTION,
+      },
+    },
+    required: ["module_file_path", "destination_path"],
+  },
+};
+const COUNT_ENTRIES_TOOL: AITool = {
+  name: "count_entries",
+  description:
+    "Count the entries of the value at 'path' in a Val module — record or gallery keys, object keys, array indices, or richtext top-level blocks. " +
+    "Use this before paging through a large record/array or to answer 'how many X are there?' without pulling the entire module. " +
+    "Returns { kind: 'array' | 'record' | 'object' | 'gallery' | 'richtext', count: number }. " +
+    "Fails for anything that is not a container - primitives, and image/file/union values (which are objects at runtime but hold no entries).",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module pointing at the collection to count. " +
+          "Pass [] for the module root. " +
+          PATH_ARRAY_DESCRIPTION,
+      },
+    },
+    required: ["module_file_path", "path"],
+  },
+};
+const GET_RECORD_KEYS_TOOL: AITool = {
+  name: "get_record_keys",
+  description:
+    "List the keys of the record (or object) at 'path' in a Val module, with pagination. " +
+    "Use this to enumerate entries without pulling their contents — e.g. to find which slug to operate on next. " +
+    "Returns { kind: 'record' | 'object', keys: string[], total: number }. " +
+    "Fails on arrays, primitives, richtext and galleries - use count_entries for array/richtext sizes and get_source to read a gallery.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The Val module file path, e.g. '/content/blog.val.ts'.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path within the module pointing at the record/object. " +
+          "Pass [] for the module root. " +
+          PATH_ARRAY_DESCRIPTION,
+      },
+      limit: {
+        type: "number",
+        description: "Max keys to return (default 100).",
+      },
+      offset: {
+        type: "number",
+        description: "Number of keys to skip for pagination (default 0).",
+      },
+    },
+    required: ["module_file_path", "path"],
+  },
+};
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -442,6 +613,10 @@ const ALL_TOOLS: AITool[] = [
   SET_SESSION_NAME_TOOL,
   SHOW_COMPARE_VIEW_TOOL,
   ASK_USER_QUESTION_TOOL,
+  DUPLICATE_SOURCE_TOOL,
+  EMPTY_AT_PATH_TOOL,
+  COUNT_ENTRIES_TOOL,
+  GET_RECORD_KEYS_TOOL,
 ];
 
 export type UseAIOptions = {
@@ -467,15 +642,270 @@ export function useAI(
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   } = useAIContext();
-  const syncEngine = useSyncEngine();
+  const valSystem = useValSystem();
+  /*
+   * The code tools (valbuild/home `docs/hosted-publishing.md`, step 7): the
+   * proposal this Studio is in, its build, and the two APIs they read. Refs,
+   * because the message handler below is subscribed once.
+   */
+  const currentProposal = useCurrentProposal();
+  const currentProposalRef = useRef(currentProposal);
+  currentProposalRef.current = currentProposal;
+  const proposalBuild = useProposalBuild().build;
+  const proposalBuildRef = useRef(proposalBuild);
+  proposalBuildRef.current = proposalBuild;
+  const codeClients = useMemo(
+    () => ({
+      proposals: createProposalsClient({ api: "/api/val" }),
+      publish: createStudioPublishClient({ api: "/api/val" }),
+    }),
+    [],
+  );
+  // Same answer the fields get, for the same reason: `empty_at_path` on a
+  // locale-keyed record scaffolds one entry per language, and the languages are
+  // in another module. See `ProjectLocalesProvider`.
+  const projectLocales = useProjectLocales();
+  /**
+   * What this hook reads out of the store system.
+   *
+   * Gathered into one object rather than reached for at each of ~30 call sites,
+   * because they are all the same handful of questions and the alternative is
+   * `valSystem?.system.x.y()` with a null check thirty times. Nothing here holds
+   * state — every method reads the stores when called, which is what the AI flow
+   * needs: a tool call answers about the project as it is at that moment, not as
+   * it was when the socket handler was created.
+   */
+  const valReads = useMemo(() => {
+    const system = valSystem?.system ?? null;
+    return {
+      getAllSchemasSnapshot(): Record<ModuleFilePath, SerializedSchema> {
+        return system?.schemaStore.all() ?? {};
+      },
+      getAllSourcesSnapshot(): Record<ModuleFilePath, Json> {
+        return system?.sourceStore.allSources() ?? {};
+      },
+      /**
+       * The project's own settings for the assistant.
+       *
+       * Read when the prompt is built rather than held: an editor who changes
+       * the tone of voice and sends a message expects the next message to use
+       * it, not the next time the Studio is reloaded.
+       */
+      getAssistantSettings(): AssistantSettings {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (moduleFilePath === null) {
+          return NO_ASSISTANT_SETTINGS;
+        }
+        return readAssistantSettings(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
+      },
+      getSourceSnapshot(
+        moduleFilePath: ModuleFilePath,
+      ): { status: "success"; data: Json } | { status: "not-found" } {
+        const source = system?.sourceStore.moduleSource(moduleFilePath);
+        return source === undefined
+          ? { status: "not-found" }
+          : { status: "success", data: source };
+      },
+      createPatchId(): PatchId {
+        if (system === null) {
+          throw new Error("Cannot mint a patch id: no store system is mounted");
+        }
+        return system.patchStore.mintPatchId();
+      },
+      getParentRef(): ParentRef | null {
+        return system?.patchSync.currentParentRef() ?? null;
+      },
+      /**
+       * Would the module still validate if this patch were applied?
+       *
+       * Speculative — the patch is applied to a COPY and nothing reaches the
+       * store, so a proposal that would break the module is rejected before it
+       * becomes an edit the user has to notice and discard.
+       */
+      validatePatchResult(
+        moduleFilePath: ModuleFilePath,
+        patch: Patch,
+      ):
+        | ValidationErrors
+        | {
+            status: "no-source" | "no-schema" | "patch-error";
+            message: string;
+          } {
+        if (system === null) {
+          return {
+            status: "no-source",
+            message: "No store system is mounted",
+          };
+        }
+        const currentSource = system.sourceStore.moduleSource(moduleFilePath);
+        if (currentSource === undefined) {
+          return {
+            status: "no-source",
+            message: `Content at '${moduleFilePath}' is not yet initialized`,
+          };
+        }
+        if (system.schemaStore.get(moduleFilePath) === undefined) {
+          return {
+            status: "no-schema",
+            message: `Schema not found for '${moduleFilePath}'`,
+          };
+        }
+        // File ops carry bytes, not a value the JSON patch can apply.
+        const patchableOps = patch.filter((op) => op.op !== "file");
+        const patchRes = applyPatch(
+          JSON.parse(JSON.stringify(currentSource)) as JSONValue,
+          ops,
+          patchableOps,
+        );
+        if (result.isErr(patchRes)) {
+          return { status: "patch-error", message: patchRes.error.message };
+        }
+        const validated = system.host.validateSpeculative(
+          moduleFilePath,
+          patchRes.value,
+        );
+        if (validated.status === "unknown-module") {
+          return {
+            status: "no-schema",
+            message: `No schema instance for '${moduleFilePath}'`,
+          };
+        }
+        return validated.errors;
+      },
+      getAllPatchesSnapshot(): Record<
+        PatchId,
+        {
+          moduleFilePath: ModuleFilePath;
+          createdAt: string;
+          isPending: boolean;
+          authorId: string | null;
+        }
+      > {
+        if (system === null) return {};
+        const patches: Record<
+          PatchId,
+          {
+            moduleFilePath: ModuleFilePath;
+            createdAt: string;
+            isPending: boolean;
+            authorId: string | null;
+          }
+        > = {};
+        for (const record of system.patchStore.allRecords()) {
+          patches[record.patchId] = {
+            moduleFilePath: record.moduleFilePath,
+            createdAt: record.createdAt ?? "",
+            isPending: system.patchStore.isPending(record.patchId),
+            authorId: record.authorId ?? null,
+          };
+        }
+        return patches;
+      },
+    };
+  }, [valSystem]);
+  /**
+   * An AI write, through the store.
+   *
+   * These four call sites used to call `valReads.addPatchAwaitable` directly,
+   * bypassing `useAddPatch` — which is why they were the one place the write flip
+   * left behind. With the engine's `PUT` disabled they applied locally and were
+   * never saved: an AI edit that appeared on screen and reached no server, with
+   * the tool reporting success.
+   *
+   * Same shape as `useAddPatch`'s `writePatch`: the store mints the id and issues
+   * the write, then the engine applies it locally so every un-ported component
+   * sees it. The session id is passed per patch, because the server records it per
+   * patch and `PatchSync` batches only patches that share one.
+   *
+   * The return shape keeps `patch-synced` so the four sites — which report the
+   * patch id back over the websocket — do not each need rewriting.
+   */
+  const writeAIPatch = useCallback(
+    async (
+      moduleFilePath: ModuleFilePath,
+      patch: Patch,
+      sessionId: string | null,
+      /**
+       * Use THIS id rather than minting one.
+       *
+       * The image flows mint an id up front and hand it to
+       * `aiSessionImagesToPatchFile`, which attaches the bytes to it server-side.
+       * Without passing it here the store minted a DIFFERENT id, so the patch
+       * that was created referenced a file attached to an id no patch ever had —
+       * the image resolved to nothing.
+       */
+      withPatchId?: PatchId,
+      /**
+       * The bytes this patch's `file` ops name are already attached to
+       * `withPatchId`, because the content service copied them there.
+       *
+       * True for the two image flows and nothing else. Their `file` ops carry
+       * the session KEY where every other producer puts a base64 data URL, and
+       * the store would otherwise upload that string as the file's contents —
+       * over the image the service had just written, on the same path. The image
+       * then 404'd in the Studio and a publish committed the key in place of the
+       * PNG.
+       */
+      filesAlreadyUploaded?: boolean,
+    ): Promise<
+      | { status: "patch-synced"; patchId: PatchId }
+      | { status: "patch-error"; message: string }
+    > => {
+      if (valSystem === null) {
+        return {
+          status: "patch-error",
+          message: "Cannot write: no store system is mounted.",
+        };
+      }
+      const res = await valSystem.system.patchStore.createPatch(
+        moduleFilePath,
+        patch,
+        undefined,
+        undefined,
+        undefined,
+        withPatchId,
+        sessionId ?? undefined,
+        // The store's own default, spelled out because the argument after it is
+        // not. Only `ValOpsHttp` reads it, and only for an upload — which is
+        // exactly what `filesAlreadyUploaded` suppresses — so an `s.file()`
+        // session key being described as an image costs nothing here. It would
+        // if these bytes were ever uploaded from the client.
+        "image",
+        filesAlreadyUploaded,
+      );
+      if (res.status !== "created") {
+        return { status: "patch-error", message: res.message };
+      }
+      return { status: "patch-synced", patchId: res.record.patchId };
+    },
+    [valSystem],
+  );
   const aiSearch = useAISearch();
   const aiValidation = useAIValidation();
   const { navigate, currentSourcePath } = useNavigation();
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const assistant = useAssistantAvailability();
+  /**
+   * Can the assistant be USED, as opposed to offered?
+   *
+   * `"unconfigured"` is not usable: the panel asks to turn it on first, and
+   * nothing is sent to a model until someone accepts. See
+   * `useAssistantAvailability`.
+   */
+  const isChatEnabled = assistant === "on";
+  // The editor's pick where they have made one, and the best available model
+  // until they do. `useAvailableAIModel` is the floor: it still answers when
+  // the content server reports providers but no models, which is what an older
+  // server does.
+  const { selected: selectedModel } = useAIModelSelection();
+  const defaultModel = useAvailableAIModel();
+  const chatModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -491,6 +921,20 @@ export function useAI(
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
+  // The prompt currently running on the server, so it can be cancelled. Set on
+  // a successful send and cleared by whichever of response/error/cancelled
+  // settles it.
+  const inFlightPromptIdRef = useRef<string | null>(null);
+  /**
+   * The prompts this chat started.
+   *
+   * Every session shares one socket, and the publish flow now runs its own
+   * hidden prompt over it. Without this the chat treated that prompt's stream
+   * as a turn of its own: the commit message appeared as an assistant bubble in
+   * whatever conversation was open, and cancelling it appended a "Stopped."
+   * bubble to a chat that had asked for nothing.
+   */
+  const ownedPromptIdsRef = useRef<Set<string>>(new Set());
   // Pending ask_user_question tool calls, as toolCallId -> the id of the
   // assistant message that opened the card. Needed to reject them on session
   // change, and to fail that specific turn if the result cannot be delivered.
@@ -498,6 +942,12 @@ export function useAI(
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      // Not ours: another part of the Studio is driving its own prompt on this
+      // socket. `ai_session_unhidden` carries a request id rather than a prompt
+      // id and is nobody's turn, so it is filtered the same way.
+      if ("id" in message && !ownedPromptIdsRef.current.has(message.id)) {
+        return;
+      }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
@@ -512,9 +962,30 @@ export function useAI(
           chatRef.current.startAssistantMessage(message.id);
           chatRef.current.appendAssistantChunk(message.id, message.response);
         }
-        chatRef.current.completeAssistantMessage(message.id);
+        chatRef.current.completeAssistantMessage(message.id, {
+          outputTokens: message.metadata?.outputTokens,
+        });
         activeIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
+        ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
+      } else if (message.type === "ai_usage") {
+        // A model thinking before it says anything still produces tokens, and
+        // a count is the only sign of it, so a report opens the message the
+        // way a first chunk or tool call does.
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        chatRef.current.reportOutputTokens(
+          message.id,
+          message.outputTokens,
+          !message.estimated,
+        );
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -534,7 +1005,10 @@ export function useAI(
             askQuestions = parsed.data.questions;
           }
           if (blockedReason) {
-            console.error("Cannot show ask_user_question card:", blockedReason);
+            Internal.log.error(
+              "Cannot show ask_user_question card:",
+              blockedReason,
+            );
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
@@ -566,7 +1040,7 @@ export function useAI(
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
         } else if (message.name === "get_all_schema") {
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
@@ -576,7 +1050,7 @@ export function useAI(
         } else if (message.name === "get_source") {
           const args = message.arguments as { module_file_path: string };
           const moduleFilePath = args.module_file_path as ModuleFilePath;
-          const snapshot = syncEngine.getSourceSnapshot(moduleFilePath);
+          const snapshot = valReads.getSourceSnapshot(moduleFilePath);
           if (snapshot.status === "success") {
             sendWsMessage({
               type: "ai_tool_result",
@@ -590,10 +1064,12 @@ export function useAI(
               toolCallId: message.toolCallId,
               result: {
                 success: false,
-                error:
-                  snapshot.status === "no-schemas"
-                    ? "Schemas not loaded yet. Try again shortly."
-                    : `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                // One reason now, where the engine had three snapshot statuses
+                // for it. A module the store has no source for is a module the
+                // project does not have: intake derives source from the host
+                // app's own `ValModules`, so there is no "not loaded yet" state
+                // after intake for the AI to be told to wait through.
+                error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
               },
               isError: true,
             });
@@ -655,7 +1131,7 @@ export function useAI(
             }
             const inputPatch = parseResult.data;
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -670,14 +1146,13 @@ export function useAI(
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
               return;
             }
-            const moduleSourceSnap =
-              syncEngine.getSourceSnapshot(moduleFilePath);
+            const moduleSourceSnap = valReads.getSourceSnapshot(moduleFilePath);
             const moduleSourceData =
               moduleSourceSnap.status === "success"
                 ? (moduleSourceSnap.data as Source | undefined)
                 : undefined;
-            const patchId = syncEngine.createPatchId();
-            const parentRef = syncEngine.getParentRef();
+            const patchId = valReads.createPatchId();
+            const parentRef = valReads.getParentRef();
             if (parentRef === null) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -751,12 +1226,12 @@ export function useAI(
               return;
             }
             const patch = expanded.patch;
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              console.error("Patch status not valid", validationResult);
+              Internal.log.error("Patch status not valid", validationResult);
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
@@ -769,11 +1244,11 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                console.error("Patch validation failed", blockingErrors);
+                Internal.log.error("Patch validation failed", blockingErrors);
                 sendWsMessage({
                   type: "ai_tool_result",
                   toolCallId: message.toolCallId,
@@ -787,13 +1262,14 @@ export function useAI(
                 return;
               }
             }
-            const res = await syncEngine.addPatchAwaitable(
+            const res = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
+              // The id the bytes were attached to, above.
+              patchId,
+              // ...by the content service, so the store must not upload them.
+              true,
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -849,7 +1325,7 @@ export function useAI(
             }
 
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -865,9 +1341,9 @@ export function useAI(
               return;
             }
 
-            const patchId = syncEngine.createPatchId();
+            const patchId = valReads.createPatchId();
             const isRemote = isRemoteSchema(moduleSchema);
-            const parentRef = syncEngine.getParentRef();
+            const parentRef = valReads.getParentRef();
             if (parentRef === null) {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -978,7 +1454,7 @@ export function useAI(
             }
             const patch = buildResult.patch;
 
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
@@ -995,8 +1471,8 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
@@ -1013,13 +1489,14 @@ export function useAI(
               }
             }
 
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
+              // The id the bytes were attached to, above.
+              patchId,
+              // ...by the content service, so the store must not upload them.
+              true,
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1066,7 +1543,7 @@ export function useAI(
               return;
             }
             const moduleFilePath = args.module_file_path as ModuleFilePath;
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const moduleSchema = schemas?.[moduleFilePath];
             if (!moduleSchema) {
               sendWsMessage({
@@ -1081,7 +1558,7 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
-            const sourceSnap = syncEngine.getSourceSnapshot(moduleFilePath);
+            const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
             const sourceData =
               sourceSnap.status === "success"
                 ? (sourceSnap.data as Source | undefined)
@@ -1118,7 +1595,7 @@ export function useAI(
             }
             const patch = buildResult.patch;
 
-            const validationResult = syncEngine.validatePatchResult(
+            const validationResult = valReads.validatePatchResult(
               moduleFilePath,
               patch,
             );
@@ -1135,8 +1612,8 @@ export function useAI(
             if (validationResult !== false) {
               const blockingErrors = filterBlockingValidationErrors(
                 validationResult,
-                syncEngine.getAllSchemasSnapshot(),
-                syncEngine.getAllSourcesSnapshot(),
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
                 sendWsMessage({
@@ -1153,14 +1630,10 @@ export function useAI(
               }
             }
 
-            const patchId = syncEngine.createPatchId();
-            const patchRes = await syncEngine.addPatchAwaitable(
+            const patchRes = await writeAIPatch(
               moduleFilePath,
-              moduleSchema.type,
               patch,
-              patchId,
               sessionIdRef.current,
-              Date.now(),
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1187,11 +1660,11 @@ export function useAI(
         } else if (message.name === "navigate_to") {
           const args = message.arguments as { source_path: string };
           const sourcePath = args.source_path as SourcePath;
-          const allSources = syncEngine.getAllSourcesSnapshot() as Record<
+          const allSources = valReads.getAllSourcesSnapshot() as Record<
             ModuleFilePath,
             Source
           >;
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
           if (navPath === null) {
             sendWsMessage({
@@ -1214,7 +1687,7 @@ export function useAI(
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           }
         } else if (message.name === "get_current_context") {
-          const schemas = syncEngine.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot();
           const browserPathname = window.location.pathname;
           const routeSourcePath = getSourcePathFromRoute(
             browserPathname,
@@ -1254,7 +1727,7 @@ export function useAI(
             });
             chatRef.current?.errorToolCall(message.id, message.toolCallId);
           } else {
-            const schemas = syncEngine.getAllSchemasSnapshot();
+            const schemas = valReads.getAllSchemasSnapshot();
             const found = getSourcePathFromRoute(
               pathname,
               (schemas ?? {}) as Record<ModuleFilePath, SerializedSchema>,
@@ -1272,7 +1745,7 @@ export function useAI(
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
-                  error: `No next-app-router page found for pathname "${pathname}".`,
+                  error: `No page router module found for pathname "${pathname}".`,
                 },
                 isError: true,
               });
@@ -1286,7 +1759,7 @@ export function useAI(
           };
           const limit = args.limit ?? 20;
           const offset = args.offset ?? 0;
-          const allPatches = syncEngine.getAllPatchesSnapshot() ?? {};
+          const allPatches = valReads.getAllPatchesSnapshot() ?? {};
           const patches = Object.entries(allPatches)
             .filter(([, data]) => data !== undefined)
             .map(([patchId, data]) => {
@@ -1351,6 +1824,34 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (isCodeTool(message.name)) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const toolName = message.name;
+          void runCodeTool(toolName, message.arguments, {
+            proposal: currentProposalRef.current,
+            client: codeClients.proposals,
+            siteSource: () => codeClients.publish.projectSource(),
+            build: () => {
+              const build = proposalBuildRef.current;
+              return build === null
+                ? Promise.resolve({
+                    status: "failed",
+                    message: "Only a proposal is built here.",
+                  })
+                : build();
+            },
+            offerProposal: requestProposal,
+          }).then(({ result, isError }) => {
+            if (toolName === "write_files" && !isError) proposalCodeChanged();
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (message.name === "show_compare_view") {
           navigate("/val/compare");
           sendWsMessage({
@@ -1359,8 +1860,384 @@ export function useAI(
             result: { success: true },
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (
+          message.name === "duplicate_source" ||
+          message.name === "empty_at_path"
+        ) {
+          const toolName = message.name;
+          const args = message.arguments as {
+            module_file_path?: string;
+            source_path?: unknown;
+            destination_path?: unknown;
+          };
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          (async () => {
+            if (!args.module_file_path) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: "Missing required argument: module_file_path.",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const isStringArray = (v: unknown): v is string[] =>
+              Array.isArray(v) && v.every((p) => typeof p === "string");
+            if (!isStringArray(args.destination_path)) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "destination_path must be an array of strings (path segments).",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (
+              toolName === "duplicate_source" &&
+              !isStringArray(args.source_path)
+            ) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error:
+                    "source_path must be an array of strings (path segments).",
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const moduleFilePath = args.module_file_path as ModuleFilePath;
+            const schemas = valReads.getAllSchemasSnapshot();
+            const moduleSchema = schemas?.[moduleFilePath];
+            if (!moduleSchema) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            // Both builders need the source: it is what tells them the
+            // destination key is already taken, and writing over an existing
+            // record entry destroys it.
+            const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
+            const sourceData =
+              sourceSnap.status === "success"
+                ? (sourceSnap.data as Source | undefined)
+                : undefined;
+            let buildResult: BuildResult;
+            if (toolName === "duplicate_source") {
+              buildResult = buildDuplicatePatch(
+                {
+                  sourcePath: args.source_path as string[],
+                  destinationPath: args.destination_path,
+                },
+                moduleSchema,
+                sourceData,
+              );
+            } else {
+              buildResult = buildEmptyAtPathPatch(
+                { destinationPath: args.destination_path },
+                moduleSchema,
+                sourceData,
+                { locales: projectLocales },
+              );
+            }
+            if (buildResult.kind === "wrong-tool") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: false,
+                  error: `${buildResult.reason} Retry with ${buildResult.suggestedTool}.`,
+                  suggestedTool: buildResult.suggestedTool,
+                },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (buildResult.kind === "error") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: buildResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            const patch = buildResult.patch;
+            const validationResult = valReads.validatePatchResult(
+              moduleFilePath,
+              patch,
+            );
+            if (validationResult && "status" in validationResult) {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: validationResult.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+              return;
+            }
+            if (validationResult !== false) {
+              const blockingErrors = filterBlockingValidationErrors(
+                validationResult,
+                valReads.getAllSchemasSnapshot(),
+                valReads.getAllSourcesSnapshot(),
+              );
+              if (Object.keys(blockingErrors).length > 0) {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Patch produces validation errors: ${JSON.stringify(
+                      blockingErrors,
+                    )}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+            }
+            const patchRes = await writeAIPatch(
+              moduleFilePath,
+              patch,
+              sessionIdRef.current,
+            );
+            if (patchRes.status === "patch-synced") {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: {
+                  success: true,
+                  patchId: patchRes.patchId,
+                  message:
+                    toolName === "duplicate_source"
+                      ? "Duplicated successfully."
+                      : "Empty value created successfully.",
+                },
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            } else {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result: { success: false, error: patchRes.message },
+                isError: true,
+              });
+              chatRef.current?.errorToolCall(messageId, toolCallId);
+            }
+          })();
+        } else if (message.name === "count_entries") {
+          const args = message.arguments as {
+            module_file_path?: string;
+            path?: unknown;
+          };
+          if (
+            !args.module_file_path ||
+            !Array.isArray(args.path) ||
+            !args.path.every((p) => typeof p === "string")
+          ) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  "count_entries requires module_file_path (string) and path (string[]).",
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const moduleFilePath = args.module_file_path as ModuleFilePath;
+          const schemas = valReads.getAllSchemasSnapshot();
+          const moduleSchema = schemas?.[moduleFilePath];
+          if (!moduleSchema) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
+          const sourceData =
+            sourceSnap.status === "success"
+              ? (sourceSnap.data as Source | undefined)
+              : undefined;
+          const described = describeContainerAtPath(
+            moduleSchema,
+            sourceData,
+            args.path,
+          );
+          if (described.kind === "error") {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: false, error: described.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const count = Array.isArray(described.value)
+            ? described.value.length
+            : Object.keys(described.value as Record<string, unknown>).length;
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: true,
+              kind: described.container,
+              count,
+            },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
+        } else if (message.name === "get_record_keys") {
+          const args = message.arguments as {
+            module_file_path?: string;
+            path?: unknown;
+            limit?: number;
+            offset?: number;
+          };
+          if (
+            !args.module_file_path ||
+            !Array.isArray(args.path) ||
+            !args.path.every((p) => typeof p === "string")
+          ) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  "get_record_keys requires module_file_path (string) and path (string[]).",
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const moduleFilePath = args.module_file_path as ModuleFilePath;
+          const schemas = valReads.getAllSchemasSnapshot();
+          const moduleSchema = schemas?.[moduleFilePath];
+          if (!moduleSchema) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Module not found: '${moduleFilePath}'. Use get_all_schema to see available modules.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
+          const sourceData =
+            sourceSnap.status === "success"
+              ? (sourceSnap.data as Source | undefined)
+              : undefined;
+          const described = describeContainerAtPath(
+            moduleSchema,
+            sourceData,
+            args.path,
+          );
+          if (described.kind === "error") {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: { success: false, error: described.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          // Records and objects only, as the tool description promises. A
+          // gallery's keys are file paths whose files live on disk, and richtext
+          // blocks are positional - neither is a key set to hand back.
+          if (
+            described.container !== "record" &&
+            described.container !== "object"
+          ) {
+            const advice =
+              described.container === "array"
+                ? "use count_entries to get the array length"
+                : described.container === "richtext"
+                  ? "use count_entries to get the number of blocks"
+                  : "use get_source to read the gallery's entries";
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error: `Path points to a ${described.container}. get_record_keys only works on records and objects — ${advice}.`,
+              },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+            return;
+          }
+          const allKeys = Object.keys(
+            described.value as Record<string, unknown>,
+          );
+          // Clamp: these come from the model, and Array.prototype.slice reads a
+          // negative offset from the END and a negative limit as "drop the last
+          // N" - either silently returns a window that is not the page asked
+          // for, with `total` alongside it implying it was.
+          const toIndex = (value: unknown, fallback: number) =>
+            typeof value === "number" && Number.isFinite(value)
+              ? Math.max(0, Math.floor(value))
+              : fallback;
+          const limit = toIndex(args.limit, 100);
+          const offset = toIndex(args.offset, 0);
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: true,
+              kind: described.container,
+              keys: allKeys.slice(offset, offset + limit),
+              total: allKeys.length,
+            },
+          });
+          chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
-          console.error("Received unknown tool call in useAI", message.name);
+          Internal.log.error(
+            "Received unknown tool call in useAI",
+            message.name,
+          );
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
@@ -1369,7 +2246,7 @@ export function useAI(
           });
         }
       } else if (message.type === "ai_error") {
-        console.error("Received AI error message", message);
+        Internal.log.error("Received AI error message", message);
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
           chatRef.current.startAssistantMessage(message.id);
@@ -1378,18 +2255,77 @@ export function useAI(
           message.id,
           message.message,
           message.code,
+          message.action,
+          message.details,
         );
         activeIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
+        ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
+      } else if (message.type === "ai_cancelled") {
+        // The user asked for this, so it settles rather than fails: whatever
+        // arrived before the stop stays in the transcript, and a stop before
+        // any text says so instead of leaving an empty bubble behind.
+        if (!chatRef.current) return;
+        // Text already on screen counts, even if the server sent no partial:
+        // keying only off `partialResponse` turned a streamed answer into a red
+        // error, which is the opposite of settling it.
+        const wasStreaming = activeIdRef.current === message.id;
+        if (!wasStreaming) {
+          chatRef.current.startAssistantMessage(message.id);
+          if (message.partialResponse) {
+            chatRef.current.appendAssistantChunk(
+              message.id,
+              message.partialResponse,
+            );
+          }
+        }
+        // Settled as complete, never as an error: the user asked for this, and
+        // an error status paints the turn red and offers a Retry for something
+        // that did not fail. With nothing to keep, "Stopped." is the body.
+        if (!wasStreaming && !message.partialResponse) {
+          chatRef.current.appendAssistantChunk(message.id, "Stopped.", {
+            fromModel: false,
+          });
+        }
+        chatRef.current.completeAssistantMessage(message.id, { stopped: true });
+        // A question card left pending keeps the turn open: it stays
+        // clickable, and it disables the chat's own turn timeout, so a stop
+        // would wedge the composer with no way out but a reload. The server has
+        // already abandoned these waits, so there is nothing to answer — just
+        // stop tracking them.
+        for (const [toolCallId, questionMessageId] of Array.from(
+          pendingQuestionsRef.current.entries(),
+        )) {
+          if (questionMessageId === message.id) {
+            pendingQuestionsRef.current.delete(toolCallId);
+          }
+        }
+        if (activeIdRef.current === message.id) {
+          activeIdRef.current = null;
+        }
+        // A late settle for an abandoned turn must not clear the tracking of a
+        // newer one, or its streamed text is orphaned and Stop goes inert.
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+          setIsStreaming(false);
+        }
+        ownedPromptIdsRef.current.delete(message.id);
+      } else if (message.type === "ai_session_unhidden") {
+        // Answered by whoever asked — the publish flow — and nothing for the
+        // chat to do. Named rather than left to the exhaustive check so adding
+        // a message type still fails the build here.
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
-        console.log(
+        Internal.log.debug(
           "AI agent handoff message received - agents are working",
           message,
         );
       } else {
         const _exhaustiveCheck: never = message;
-        console.error(
+        Internal.log.error(
           "Received unknown message type in useAI",
           _exhaustiveCheck,
         );
@@ -1400,7 +2336,7 @@ export function useAI(
   }, [
     subscribeToWsMessages,
     sendWsMessage,
-    syncEngine,
+    valReads,
     aiSearch,
     aiValidation,
     chatRef,
@@ -1428,7 +2364,7 @@ export function useAI(
       let sid = sessionIdRef.current;
       const wasUnborn = sid == null;
       if (sid == null) {
-        sid = crypto.randomUUID();
+        sid = randomUUID();
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
@@ -1470,23 +2406,66 @@ export function useAI(
   );
 
   const sendMessage = useCallback(
-    (text: string, attachments?: ChatMessageAttachment[]): boolean => {
+    (
+      content: string | ChatDocument,
+      attachments?: ChatMessageAttachment[],
+    ): boolean => {
+      // No reachable provider means no key is configured for any of them. Refuse
+      // here rather than send a prompt the server will refuse: this way the chat
+      // says why, instead of the turn appearing to start and then failing.
+      if (chatModel === null) {
+        // Started before it is errored: `errorAssistantMessage` retires a
+        // message that already exists, so erroring an id nothing has created is
+        // silently a no-op — which left only the composer's generic failure.
+        const noticeId = randomUUID();
+        chatRef.current?.startAssistantMessage(noticeId);
+        chatRef.current?.errorAssistantMessage(
+          noticeId,
+          "No AI key is set up for this project. Add one in admin to use the assistant.",
+          "provider_not_configured",
+        );
+        return false;
+      }
       // Lazily mint the session id on the first send so unborn sessions don't
       // appear in the URL or on the server until the user actually says something.
       let sid = sessionIdRef.current;
       const wasUnborn = sid == null;
       if (sid == null) {
-        sid = crypto.randomUUID();
+        sid = randomUUID();
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
-      let augmentedText = text;
-      if (attachments && attachments.length > 0) {
-        const lines = attachments.map(
+      const baseText =
+        typeof content === "string" ? content : chatDocumentToHtmlText(content);
+      // Pull inline image nodes out of the rich document so their keys are
+      // registered as `image_key` content blocks (the protocol the server
+      // expects), not buried in the HTML text. Drop any still-pending keys —
+      // the editor should already block Send while uploads are in flight, but
+      // this is a defence-in-depth check.
+      const inlineImages =
+        typeof content === "string" ? [] : collectImageNodesFromDoc(content);
+      const inlineImageAttachments: ChatMessageAttachment[] = inlineImages
+        .filter((n) => n.key && !n.key.startsWith("pending:"))
+        .map((n) => ({
+          key: n.key,
+          name: n.alt || "inline image",
+          mimeType: n.mimeType,
+          previewUrl: n.previewUrl,
+        }));
+      const mergedAttachments: ChatMessageAttachment[] = [];
+      const seenKeys = new Set<string>();
+      for (const a of [...(attachments ?? []), ...inlineImageAttachments]) {
+        if (seenKeys.has(a.key)) continue;
+        seenKeys.add(a.key);
+        mergedAttachments.push(a);
+      }
+      let augmentedText = baseText;
+      if (mergedAttachments.length > 0) {
+        const lines = mergedAttachments.map(
           (a) => `- ${a.name}: image_key="${a.key}"`,
         );
         augmentedText =
-          text +
+          baseText +
           "\n\n[Attached images — when calling convert_session_image_to_patch, " +
           "use the exact image_key string from this list (NOT any vision-system file id):\n" +
           lines.join("\n") +
@@ -1494,24 +2473,40 @@ export function useAI(
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
-        ...(attachments?.map((attachment) => ({
+        ...mergedAttachments.map((attachment) => ({
           type: "image_key" as const,
           key: attachment.key,
-        })) ?? []),
+        })),
       ];
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
         sessionId: sid,
-        id: crypto.randomUUID(),
+        id: randomUUID(),
+        reportUsage: true,
         agents: [
           {
             id: "default",
-            model: "openai-gpt-5.1",
+            // Picked from what the server says is reachable rather than
+            // hardcoded: with bring-your-own-key an org may have a key for one
+            // provider and not another, and asking for the wrong one is
+            // refused. Null means AI is off, which is checked before we get
+            // here.
+            model: chatModel,
             systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+
+## User message format (HTML-esque rich text)
+The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
+- Block tags: <p>, <h1>, <h2>, <h3>, <blockquote>, <ul>, <ol>, <li>.
+- Inline marks: <strong>, <em>, <del>, <code>.
+- Line break: <br/>.
+- Non-standard self-closing tags:
+  - <field path="..."/>: the user explicitly pointed at this Val source path. Treat it as if they typed and named that path; when relevant, call get_source on the corresponding module to read the current value and reference the field by its friendly name in your reply.
+  - <img key="..."/>: an inline image attached by the user. The key is the same as an image_key content block — use it with convert_session_image_to_patch / add_session_image_to_gallery as you would any other session image. Do not try to fetch the URL of an inline image.
+Plain user messages without tags should be treated as plain text.
 
 ## Understanding where user is
 If the get_current_context pathname starts with /val, the user is in the Val Studio. 
@@ -1526,8 +2521,8 @@ Always call get_all_schema first unless the question clearly does not require it
 - search_content: find content by keyword across all modules.
 - validate_content: check for errors — call this after every change.
 - create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
-- add_session_image_to_gallery: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to add it as an entry in an images gallery (s.images()) — the file_path doubles as the entry key. Needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. For plain image fields (s.image()) and inline images inside richtext, do NOT use this tool — use create_patch with a session-key value (see the create_patch description above for the sentinel format) instead.
-- remove_image_gallery_entry: remove an existing entry from an images gallery (s.images()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
+- add_session_image_to_gallery: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to add it as an entry in an images gallery (s.imagedir()) — the file_path doubles as the entry key. Needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. For plain image fields (s.image()) and inline images inside richtext, do NOT use this tool — use create_patch with a session-key value (see the create_patch description above for the sentinel format) instead.
+- remove_image_gallery_entry: remove an existing entry from an images gallery (s.imagedir()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
 - get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
 - navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.
@@ -1545,9 +2540,9 @@ Never tell the user to navigate manually — offer to navigate for them instead.
 ## Understanding content types
 - object: a group of fields
 - record: a collection of items with the same shape (e.g. blog posts, products)
-  - router: next-app-router — pages in a Next.js site, shown under "Pages" in the left menu
+  - router: next-app-router / tanstack-router — pages in this site, shown under "Pages" in the left menu
   - router: external-url-router — external links, shown under "External Sites" in the left menu
-  - mediaType: "image" or "file" — a media gallery grouped by directory
+  - mediaType: "images", "videos" or "files" — a media gallery grouped by directory
 - array: an ordered list of items
 - string / number / boolean / date: plain values
 - richtext: array of block nodes as JSON
@@ -1559,7 +2554,7 @@ Never tell the user to navigate manually — offer to navigate for them instead.
     - img: {tag:"img", src:{...}} — cannot be added via assistant (no file system access)
     - br: {tag:"br"}
   - example: [{tag:"p",children:["Hello ",{tag:"span",styles:["bold"],children:["World"]}]}]
-  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have block.ul: true, then ul is not allowed. The schema.options type is like this: style: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;}>;block: Partial<{h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;}>;inline: Partial<{a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
+  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have ul: true, then ul is not allowed. The schema.options type is like this: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
 - image / file: cannot be changed through this assistant (no file system access). If the user needs to add one, navigate to the matching media gallery.
 - union: a value that must match exactly one of several allowed shapes. Two kinds:
   - string union: key is a literal schema, all items are literals. The value is one fixed string chosen from a set (e.g. "draft", "published", "archived"). Patch by replacing the string with one of the allowed values.
@@ -1580,12 +2575,18 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Be concise and friendly.
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
-- If something goes wrong, explain what happened and what to do next.`,
-            tools: ALL_TOOLS,
+- If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
+              valReads.getAssistantSettings(),
+            )}${codeToolsPromptSection(currentProposal !== null)}`,
+            tools: [...ALL_TOOLS, ...CODE_TOOLS],
           },
         ],
       };
       const sent = sendWsMessage(message);
+      if (sent) {
+        inFlightPromptIdRef.current = message.id;
+        ownedPromptIdsRef.current.add(message.id);
+      }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
       if (sent && wasUnborn) {
@@ -1593,7 +2594,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [sendWsMessage],
+    [chatModel, chatRef, sendWsMessage],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -1614,6 +2615,47 @@ Do not describe what you will do unless you do it for clarification — just do 
     },
     [chatRef],
   );
+
+  /**
+   * Stop the prompt that is running.
+   *
+   * The server settles this with `ai_cancelled`, which is what clears the UI —
+   * doing it optimistically here would race a response already on its way.
+   * Only when there is no socket to ask do we stop locally, so a dropped
+   * connection cannot leave the chat wedged mid-turn with no way out.
+   */
+  const cancel = useCallback((): boolean => {
+    const id = inFlightPromptIdRef.current;
+    // Nothing is running as far as we know, but the composer is showing a stop
+    // button, so something is out of step. Settle locally rather than leaving
+    // the user pressing a button that does nothing.
+    if (id === null) {
+      const streamingId = activeIdRef.current;
+      if (streamingId !== null) {
+        chatRef.current?.completeAssistantMessage(streamingId, {
+          stopped: true,
+        });
+        activeIdRef.current = null;
+      }
+      setIsStreaming(false);
+      return false;
+    }
+    const sent = sendWsMessage({ type: "ai_cancel", id });
+    if (!sent) {
+      // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
+      if (activeIdRef.current !== id) {
+        chatRef.current?.startAssistantMessage(id);
+        chatRef.current?.appendAssistantChunk(id, "Stopped.", {
+          fromModel: false,
+        });
+      }
+      chatRef.current?.completeAssistantMessage(id, { stopped: true });
+      inFlightPromptIdRef.current = null;
+      activeIdRef.current = null;
+      setIsStreaming(false);
+    }
+    return true;
+  }, [sendWsMessage, chatRef]);
 
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
@@ -1718,7 +2760,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         chatRef.current?.loadMessages(messages);
         onSessionBornRef.current?.(sessionId);
       } catch (err) {
-        console.warn("Failed to load session messages, clearing:", err);
+        Internal.log.debug("Failed to load session messages, clearing:", err);
         sessionIdRef.current = null;
         setCurrentSessionId(null);
         chatRef.current?.clearMessages();
@@ -1730,23 +2772,37 @@ Do not describe what you will do unless you do it for clarification — just do 
     [chatRef, aiGetSessionMessages, rejectPendingQuestions],
   );
 
-  // On mount, populate the sessions dropdown and (if an initial session id was
-  // passed in, e.g. from ?session= in the URL) load it. Intentional: this runs
-  // only once — popstate / URL changes after mount must NOT hijack the user's
-  // open chat, so we capture initialSessionId via opts only on the first render.
+  // Once the assistant is reachable, populate the sessions dropdown and (if an
+  // initial session id was passed in, e.g. from ?session= in the URL) load it.
+  // Intentional: this runs only once — popstate / URL changes after mount must
+  // NOT hijack the user's open chat, so we capture initialSessionId via opts
+  // only on the first render.
+  //
+  // "Reachable" is the socket being up, not the component mounting. The
+  // sessions come from the same content server, behind the same project and
+  // the same credentials, so until `/ai/initialize` has said yes the request
+  // can only fail — and the on-page overlay mounts this hook on every page
+  // load, so a project with no `project` configured, or a developer who has
+  // not run `val login`, got a 500 from `/ai/sessions` on every page.
   const initialSessionIdRef = useRef(opts?.initialSessionId ?? null);
+  const hasLoadedSessionsRef = useRef(false);
   useEffect(() => {
-    if (!isChatEnabled) return;
+    if (!isChatEnabled || !isWsConnected || hasLoadedSessionsRef.current) {
+      return;
+    }
+    hasLoadedSessionsRef.current = true;
     getSessions({ limit: 1 }).catch(() => {});
     if (initialSessionIdRef.current != null) {
       loadSession(initialSessionIdRef.current);
     }
-  }, [isChatEnabled]);
+  }, [isChatEnabled, isWsConnected]);
 
   return {
     sendMessage,
     uploadAiImage,
     isStreaming,
+    /** Stop the running prompt. False when there is nothing running. */
+    cancel,
     isLoadingSession,
     isConnected: isWsConnected,
     authError: aiAuthError,

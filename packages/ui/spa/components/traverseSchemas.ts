@@ -1,21 +1,28 @@
 import {
+  Internal,
   ModuleFilePath,
-  ModuleFilePathSep,
   SerializedArraySchema,
   SerializedObjectSchema,
   SerializedRecordSchema,
   SerializedSchema,
-  SerializedUnionSchema,
+  SerializedSettingsSchema,
+  SerializedDiscriminatedUnionSchema,
   Source,
   SourcePath,
 } from "@valbuild/core";
+import { sourcePathOfChild } from "../utils/sourcePath";
 
+/**
+ * Everything the traversal hands to a visitor rather than descending into.
+ * An enum belongs here: its values are strings, so there is nothing below it.
+ */
 export type LeafSerializedSchema = Exclude<
   SerializedSchema,
   | SerializedObjectSchema
   | SerializedArraySchema
-  | SerializedUnionSchema
+  | SerializedDiscriminatedUnionSchema
   | SerializedRecordSchema
+  | SerializedSettingsSchema
 >;
 
 export type LeafVisitor = (
@@ -33,12 +40,34 @@ export function traverseSchemas(
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
     source: Source,
+    /**
+     * This is an entry of a media directory (`s.imagedir()`, `s.videodir()`
+     * and the rest): its schema names only the fields the gallery edits, and
+     * the entry holds more by design (`hotspot`, a video's `poster`,
+     * `posterTime`, `startTime`, `endTime`, `captions`). Those are not
+     * missing schemas, so they are skipped rather than reported -- reported,
+     * they were one console error per field on every walk.
+     */
+    mediaEntry = false,
   ) => {
-    if (schema === undefined) {
-      console.error(`Schema not found for ${sourcePath}`);
+    if (Internal.isJson(source)) {
+      // An un-loaded `.jsonValues()` entry is an opaque lazy marker
+      // ({ _type:"json" }). Skip it: once its content is loaded the
+      // substituted value is the real content and is traversed normally.
       return;
     }
-    if (schema.type === "object" || schema.type === "record") {
+    if (schema === undefined) {
+      Internal.log.error(`Schema not found for ${sourcePath}`);
+      return;
+    }
+    if (
+      schema.type === "object" ||
+      schema.type === "record" ||
+      // Settings holds its sections like an object holds its keys, and this
+      // walk starts from the SOURCE, so an absent section is simply not
+      // visited — which is what an absent settings key means.
+      schema.type === "settings"
+    ) {
       if (isObjectOrRecordSource(source)) {
         for (const key in source) {
           if (key === "patch_id") {
@@ -47,9 +76,17 @@ export function traverseSchemas(
           // NOTE: for object we are uncertain if we should use the source or the schema to get the keys. Currently we use the schema.items in other places, but source is more correct perhaps? Or perhaps not? We are not sure...
           const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
-            schema.type === "object" ? schema.items?.[key] : schema.item;
+            schema.type === "record" ? schema.item : schema.items?.[key];
+          if (schemaValue === undefined && mediaEntry) {
+            continue;
+          }
           if (sourceValue !== undefined) {
-            go(sourcePathConcat(sourcePath, key), schemaValue, sourceValue);
+            go(
+              sourcePathOfChild(sourcePath, key),
+              schemaValue,
+              sourceValue,
+              schema.type === "record" && schema.mediaType !== undefined,
+            );
           }
         }
       }
@@ -57,28 +94,26 @@ export function traverseSchemas(
       if (isArraySource(source)) {
         let i = 0;
         for (const sourceValue of source) {
-          go(sourcePathConcat(sourcePath, i), schema.item, sourceValue);
+          go(sourcePathOfChild(sourcePath, i), schema.item, sourceValue);
           i++;
         }
       }
-    } else if (schema.type === "union") {
-      // ignore string unions
+    } else if (schema.type === "discriminated-union") {
+      // An enum is not handled here: its values are strings, so it is a leaf.
       const schemaKey = schema.key;
-      if (typeof schemaKey === "string") {
-        if (isObjectOrRecordSource(source)) {
-          const itemKey = (source as Record<string, Source>)[schemaKey];
-          if (typeof itemKey === "string") {
-            const schemaOfItem = (schema.items as SerializedObjectSchema[])
-              .filter((item) => item.type === "object")
-              .find((item) => {
-                const itemKeySchema = item.items[schemaKey];
-                if (itemKeySchema?.type === "literal") {
-                  return itemKeySchema.value === itemKey;
-                }
-              });
-            if (schemaOfItem) {
-              go(sourcePath, schemaOfItem, source);
-            }
+      if (isObjectOrRecordSource(source)) {
+        const itemKey = (source as Record<string, Source>)[schemaKey];
+        if (typeof itemKey === "string") {
+          const schemaOfItem = (schema.items as SerializedObjectSchema[])
+            .filter((item) => item.type === "object")
+            .find((item) => {
+              const itemKeySchema = item.items[schemaKey];
+              if (itemKeySchema?.type === "literal") {
+                return itemKeySchema.value === itemKey;
+              }
+            });
+          if (schemaOfItem) {
+            go(sourcePath, schemaOfItem, source);
           }
         }
       }
@@ -94,18 +129,6 @@ export function traverseSchemas(
       sources[moduleFilePath],
     );
   }
-}
-
-export function sourcePathConcat(
-  sourcePath: SourcePath,
-  key: string | number,
-): SourcePath {
-  if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
-  }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key,
-  )}` as SourcePath;
 }
 
 function isObjectOrRecordSource(

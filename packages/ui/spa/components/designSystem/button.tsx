@@ -11,7 +11,11 @@ const disabledVariant =
 
 const buttonVariants = cva(
   cn(
-    "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    // `gap-1.5` so an icon and a label do not touch. It is on the base rather
+    // than added per call site because nothing here can want them flush, and
+    // a button with one child is unaffected — which is every button that
+    // existed before the compare dialog put an icon next to a word.
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-fg-primary text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
     disabledBase,
   ),
   {
@@ -37,7 +41,10 @@ const buttonVariants = cva(
         outline: cn(
           "cursor-pointer",
           "border border-transparent",
-          "bg-bg-background hover:bg-bg-secondary",
+          // `bg-transparent`, not `bg-bg-background`: there is no
+          // `bg-background` key in the colour map, so that class compiled to
+          // nothing and this variant has always been transparent.
+          "bg-transparent hover:bg-bg-secondary",
           disabledVariant,
         ),
         secondary: cn(
@@ -49,7 +56,8 @@ const buttonVariants = cva(
         ghost: cn(
           "cursor-pointer",
           "border border-transparent",
-          "bg-bg-background hover:bg-bg-secondary",
+          // See `outline`: `bg-bg-background` was never a real class.
+          "bg-transparent hover:bg-bg-secondary",
           disabledVariant,
           "hover:bg-bg-secondary-hover hover:text-fg-secondary",
         ),
@@ -74,6 +82,19 @@ const buttonVariants = cva(
     },
   },
 );
+
+/**
+ * Focus ring for a control that fills its container edge to edge - a full-width
+ * combobox trigger, most of the time.
+ *
+ * The default ring is a `box-shadow` spread, so it is painted 2px OUTSIDE the
+ * border box. On a `w-full` control there is nothing outside the border box: the
+ * halo lands on whatever encloses the field and gets clipped by the first
+ * ancestor with `overflow-hidden`, which is how a focused combobox ended up
+ * with an outline that looked like it belonged to something else. Inset, the
+ * ring is painted inside the control and always shows in full.
+ */
+export const insetFocusRing = "focus-visible:ring-inset";
 
 export interface ButtonProps
   extends

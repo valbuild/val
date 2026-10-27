@@ -1,10 +1,13 @@
 import {
   Internal,
+  missingDeclaredKeys,
+  resolveSettingsModule,
   type Json,
   type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
   type ValidationError,
+  type ValidationFix,
 } from "@valbuild/core";
 import {
   filterRoutesByPatterns,
@@ -99,7 +102,17 @@ export function findSimilar(
 
 type CheckResult = { error: false } | { error: true; message: string };
 
-function getKeyOfRecordAt(
+/**
+ * The record a `keyof:check-keys` error resolves against — the value and the
+ * schema at the error's `sourcePath`.
+ *
+ * Exported for the one consumer that has to know what a resolution DEPENDED
+ * on rather than what it concluded: `ValidationStore` re-reads the keys here
+ * to decide whether a change to the referenced module can have moved the
+ * answer. Keep this and {@link checkKeyIsValid} reading the same record, or the
+ * store will invalidate on one record and the resolution answer from another.
+ */
+export function getKeyOfRecordAt(
   sourcePath: SourcePath,
   snapshot: SchemaSourceSnapshot,
 ): { source: unknown; schema: SerializedSchema | undefined } {
@@ -259,15 +272,104 @@ function checkRouteIsValid(
   return { error: false };
 }
 
+/**
+ * The languages the project declares, from its settings module.
+ *
+ * Empty where there is no settings module, no `locales` section, or nothing in
+ * it — all of which mean the same thing: this project has not said it is
+ * translated.
+ */
+export function declaredLocales(snapshot: SchemaSourceSnapshot): string[] {
+  const { moduleFilePath } = resolveSettingsModule(snapshot.schemas);
+  if (moduleFilePath === null) {
+    return [];
+  }
+  const source = snapshot.sources[moduleFilePath];
+  if (typeof source !== "object" || source === null || Array.isArray(source)) {
+    return [];
+  }
+  const locales = (source as Record<string, Json>)["locales"];
+  if (
+    typeof locales !== "object" ||
+    locales === null ||
+    Array.isArray(locales)
+  ) {
+    return [];
+  }
+  const available = (locales as Record<string, Json>)["available"];
+  if (!Array.isArray(available)) {
+    return [];
+  }
+  return available.filter((tag): tag is string => typeof tag === "string");
+}
+
 export type ResolvedFix =
   | { status: "resolved" }
   | { status: "remaining"; error: ValidationError };
 
 /**
- * Resolves a single `keyof:check-keys` or `router:check-route` error against
- * the given schema/source snapshot. Returns:
+ * The fixes {@link resolveSchemaSourceFixForError} answers for.
+ *
+ * A marker error carrying one of these is NOT a message: it says "ask the whole
+ * project about this" and carries the value to ask with, because the schema
+ * that raised it can only see its own module. Left unresolved, what a user sees
+ * is the marker's own placeholder text — "should typically be processed by Val
+ * internally … version mismatch" — which is alarming and says nothing.
+ *
+ * A list rather than a check per call site: every caller that resolves some of
+ * these has to resolve all of them, and the two that leaked did so by adding a
+ * fix here and not to a condition somewhere else.
+ */
+export const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
+  "keyof:check-keys",
+  "image:check-gallery",
+  "file:check-gallery",
+  "video:check-gallery",
+  "router:check-route",
+  "locale:check-locale",
+  "router:check-locale-param",
+  "record:fill-keys",
+];
+
+/** Whether an error is a marker only the whole project can answer. */
+export function isSchemaSourceFixError(error: ValidationError): boolean {
+  return (error.fixes ?? []).some((fix) => SCHEMA_SOURCE_FIXES.includes(fix));
+}
+
+/**
+ * The record a `keyof:check-keys` error resolves against -- or a gallery
+ * marker's (`image:check-gallery` and the rest): its gallery module -- or null
+ * for any other error, including a malformed marker, which
+ * {@link resolveSchemaSourceFixForError} reports and this has nothing to say
+ * about.
+ *
+ * For a consumer that needs to know what the resolution READS, not what it
+ * concludes: `ValidationStore` keeps this per validated module, so that a change
+ * to the referenced record can invalidate the module holding the reference.
+ */
+export function keyOfRecordPath(error: ValidationError): SourcePath | null {
+  // A gallery-backed field's marker reads its gallery the same way: the
+  // record whose keys say whether the field's path is there.
+  const gallery = Internal.media.galleryMarkerOf(error);
+  if (gallery !== null) {
+    return gallery.gallery as SourcePath;
+  }
+  if (!(error.fixes ?? []).includes("keyof:check-keys")) {
+    return null;
+  }
+  const value = error.value;
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const sourcePath = (value as { sourcePath?: unknown }).sourcePath;
+  return typeof sourcePath === "string" ? (sourcePath as SourcePath) : null;
+}
+
+/**
+ * Resolves a single marker error (see {@link SCHEMA_SOURCE_FIXES}) against the
+ * given schema/source snapshot. Returns:
  *   - null if the error is not one of these fixes (caller should pass through)
- *   - { status: "resolved" } if the referenced key/route is valid (drop error)
+ *   - { status: "resolved" } if the reference is valid (drop error)
  *   - { status: "remaining"; error } if invalid (rewritten error to surface)
  */
 export function resolveSchemaSourceFixForError(
@@ -275,6 +377,43 @@ export function resolveSchemaSourceFixForError(
   snapshot: SchemaSourceSnapshot,
 ): ResolvedFix | null {
   const fixes = error.fixes ?? [];
+  const gallery = Internal.media.galleryMarkerOf(error);
+  if (gallery !== null) {
+    // The gallery as it is now -- with what a pending change, a save in a
+    // proposal or a content-only publish added -- not as the schema was built.
+    const entries = getKeyOfRecordAt(
+      gallery.gallery as SourcePath,
+      snapshot,
+    ).source;
+    const has =
+      typeof entries === "object" &&
+      entries !== null &&
+      !Array.isArray(entries) &&
+      Internal.media.galleryKeyOf(gallery.path, (key) => key in entries) !==
+        null;
+    if (has) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: { ...error, value: gallery.source, fixes: undefined },
+    };
+  }
+  if (
+    fixes.includes("image:check-gallery") ||
+    fixes.includes("file:check-gallery") ||
+    fixes.includes("video:check-gallery")
+  ) {
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `${error.message} The gallery could not be read from this error. ${TYPE_ERROR_MESSAGE}`,
+        typeError: true,
+        fixes: undefined,
+      },
+    };
+  }
   if (fixes.includes("keyof:check-keys")) {
     if (!error.value) {
       return {
@@ -331,6 +470,154 @@ export function resolveSchemaSourceFixForError(
       };
     }
     return { status: "resolved" };
+  }
+
+  if (fixes.includes("locale:check-locale")) {
+    const value = error.value;
+    if (typeof value !== "object" || value === null) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected locale validation error to have a 'value' object. Found: ${typeof value}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const { locale } = value as { locale?: unknown };
+    if (typeof locale !== "string") {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected locale validation error 'value' to have property 'locale' of type 'string'. Found: ${typeof locale}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const available = declaredLocales(snapshot);
+    if (available.length === 0) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          // The project has not said it is translated, so the value is not
+          // wrong so much as premature — and the fix is in another file.
+          message: `This project has no languages. Declare them under 'locales.available' in the settings module before using s.locale().`,
+          fixes: undefined,
+        },
+      };
+    }
+    if (available.includes(locale)) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `'${locale}' is not one of this project's languages: ${available
+          .map((each) => `'${each}'`)
+          .join(", ")}`,
+        fixes: undefined,
+      },
+    };
+  }
+
+  if (fixes.includes("router:check-locale-param")) {
+    const value = error.value;
+    const { name, segment } =
+      typeof value === "object" && value !== null
+        ? (value as { name?: unknown; segment?: unknown })
+        : {};
+    if (typeof name !== "string" || typeof segment !== "string") {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected route locale parameter validation error to have a 'value' with 'name' and 'segment'. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    // A project that declares no languages is not translated, and a
+    // `[locale]` segment there is the app's own business.
+    if (declaredLocales(snapshot).length === 0) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `This route has a '${name}' segment (${segment}), but nothing says which of the project's languages it can be, so its pages are not in any language and '/xx/…' validates. Give the parameter a locale schema: s.router(router, { ${name}: urlLocale, … }, item), where urlLocale is an s.enum(…).locales({ … }) or s.locale(). If '${name}' is not a language here, give it a schema of its own instead, e.g. { ${name}: s.enum(…) }.`,
+        fixes: undefined,
+      },
+    };
+  }
+
+  if (fixes.includes("record:fill-keys")) {
+    const value = error.value;
+    if (typeof value !== "object" || value === null) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected record key validation error to have a 'value' object. Found: ${typeof value}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const { present, declared } = value as {
+      present?: unknown;
+      declared?: unknown;
+    };
+    if (!Array.isArray(present)) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected record key validation error 'value' to have property 'present' of type 'array'. Found: ${typeof present}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const presentKeys = present.filter(
+      (key): key is string => typeof key === "string",
+    );
+    // A literal union brought its keys along; a locale record left them to be
+    // read out of the settings module, which is the whole reason this check is
+    // resolved here rather than in the schema.
+    const declaredKeys = Array.isArray(declared)
+      ? declared.filter((key): key is string => typeof key === "string")
+      : declaredLocales(snapshot);
+    if (declaredKeys.length === 0) {
+      // A locale record on a project that has declared no languages. There is
+      // nothing to require, and the locale field's own check already says the
+      // project has not declared any — saying it twice on one record would not
+      // add anything.
+      return { status: "resolved" };
+    }
+    const missing = missingDeclaredKeys(declaredKeys, presentKeys);
+    if (missing.length === 0) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `Missing ${missing.length === 1 ? "key" : "keys"}: ${missing
+          .map((each) => `'${each}'`)
+          .join(
+            ", ",
+          )}. This record's keys are declared by its schema, so every one of them is an entry — an entry nobody has written yet is null, not absent.`,
+        value: { missing, declared: declaredKeys },
+        fixes: undefined,
+      },
+    };
   }
 
   if (fixes.includes("router:check-route")) {
@@ -405,10 +692,10 @@ function asRegExpPattern(value: unknown): SerializedRegExpPattern | undefined {
 /**
  * Apply schema/source fix resolution across a map of validation errors.
  *
- * Errors with `keyof:check-keys` or `router:check-route` are resolved against
- * the in-memory schema/source snapshot — valid references drop the error,
- * invalid ones are rewritten with a "did you mean…" message and have their
- * `fixes` cleared (so downstream code reports them as plain validation errors).
+ * Errors carrying one of {@link SCHEMA_SOURCE_FIXES} are resolved against the
+ * in-memory schema/source snapshot — valid references drop the error, invalid
+ * ones are rewritten with a "did you mean…" message and have their `fixes`
+ * cleared (so downstream code reports them as plain validation errors).
  * All other errors pass through untouched.
  *
  * Source paths with no remaining errors are removed from the result.

@@ -21,7 +21,20 @@ const ScrollArea = React.forwardRef<
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
-        className="h-full w-full rounded-[inherit]"
+        className={cn(
+          "h-full w-full rounded-[inherit]",
+          // Radix gives its content wrapper an inline `display: table` so the
+          // content can be wider than the viewport - which is what makes
+          // horizontal scrolling work, and is wrong for every other scroll
+          // area. A table is sized to its max-content, so anything unbreakable
+          // inside widens the wrapper instead of being clipped: `truncate` sets
+          // `white-space: nowrap`, the wrapper grows to the full untruncated
+          // width, and the whole column is pushed off to the right. `!` because
+          // the rule has to beat Radix's inline style.
+          orientation !== "horizontal" && orientation !== "both"
+            ? "[&>div]:!block"
+            : undefined,
+        )}
         style={{ overscrollBehavior: "contain" }}
         ref={innerRef}
         id={viewportId}

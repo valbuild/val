@@ -1,5 +1,7 @@
 node_modules/
 .next
+# The e2e suite's proxy-mode dev server, which needs a distDir of its own.
+.next-http
 dist
 tsconfig.tsbuildinfo
 .envrc
@@ -8,3 +10,22 @@ tsconfig.tsbuildinfo
 # Customer debug snapshots (see debug/README.md). Contains customer content.
 /debug/*
 !/debug/README.md
+# Git worktrees checked out inside the repo (see jest.config.js)
+.claude/worktrees/
+
+# Playwright. Unanchored: a run started from a package directory writes its
+# results there, not at the root, and an anchored pattern leaves those tracked.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+# Screenshots from e2e/screens.spec.ts: artifacts of a run, not a fixture.
+screens/
+
+# Written by ValOpsFS when a test runs in fs mode with the repo root as cwd.
+# The fixture copy under packages/cli/src/__fixtures__/ is deliberate, and a
+# root-anchored pattern leaves it alone.
+/.val/
+
+# Storybook writes this on a failed start
+debug-storybook.log

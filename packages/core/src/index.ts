@@ -2,7 +2,12 @@ export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export {
   extractValModules,
+  computeValModuleShas,
+  computeSourcesSha,
+  computeSchemaSha,
   type ExtractedValModules,
+  type ValModuleShaEntry,
+  type ValModuleShas,
   type ExtractedModuleError,
 } from "./extractValModules";
 export type {
@@ -12,8 +17,45 @@ export type {
   ContentConstructor,
 } from "./initVal";
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
-export type { ImageMetadata } from "./schema/image";
+export {
+  hasRemoteFileSchema,
+  hasMediaSchema,
+} from "./schema/hasRemoteFileSchema";
+export type {
+  ImageMetadata,
+  ImageEncodeOption,
+  ImageEncodeOptions,
+} from "./schema/image";
 export type { FileMetadata } from "./schema/file";
+export type {
+  GalleryVideoOptions,
+  VideoMetadata,
+  VideoOptions,
+  VideoStreamOption,
+  VideoStreamOptions,
+} from "./schema/video";
+import { videosetEntryVideoSchema } from "./schema/videodir";
+import { galleryEntryMediaSchema } from "./schema/galleryEntryMediaSchema";
+export type {
+  VideodirEntryMetadata,
+  VideodirOptions,
+  SerializedVideodirSchema,
+  VideosetEntryMetadata,
+  VideosetOptions,
+  SerializedVideosetSchema,
+} from "./schema/videodir";
+export type {
+  ImagedirEntryMetadata,
+  ImagedirOptions,
+  SerializedImagedirSchema,
+} from "./schema/imagedir";
+export type {
+  FiledirEntryMetadata,
+  FiledirOptions,
+  SerializedFiledirSchema,
+} from "./schema/filedir";
+export type { FontdirOptions } from "./schema/fontdir";
+export type { MediaDir } from "./schema/record";
 export type {
   ValModule,
   SerializedModule,
@@ -21,11 +63,32 @@ export type {
   ReplaceRawStringWithString,
 } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
-export type { FileSource } from "./source/file";
-export type { RemoteSource, RemoteRef } from "./source/remote";
+export type { FileSource } from "./source/media";
+export type { JsonSource, JsonOf, JsonImportThunk } from "./source/json";
+export type {
+  ExternalRecordSrc,
+  ExternalRecordWritableSrc,
+  ExternalItemOf,
+  ExternalLabelOf,
+  ExternalReadonlyOf,
+} from "./source/external";
+export type { RemoteRef } from "./source/remote";
 export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
-export type { ImageSource } from "./source/image";
+export type { ImageSource } from "./source/media";
+export type {
+  MediaHotspot,
+  MediaSource,
+  GalleryImageSource,
+  GalleryFileSource,
+  GalleryVideoSource,
+  VideoDefaults,
+  IsVideoSource,
+  VideoSource,
+  VideoPosterSource,
+  VideoCaptionSource,
+  ResolvedVideo,
+} from "./source/media";
 export type {
   AllRichTextOptions,
   Bold,
@@ -63,7 +126,6 @@ export type {
   ValidationErrors,
 } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
-export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
 export {
@@ -82,6 +144,7 @@ export {
 } from "./selector";
 import {
   getSource,
+  isValModule,
   splitModulePath,
   splitModuleFilePath,
   resolvePath,
@@ -96,68 +159,257 @@ import {
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
-import { ModulePath, SourcePath, getValPath, isVal } from "./val";
-import { convertFileSource } from "./schema/file";
+import { ModulePath, SourcePath, getValPath, isVal, setValPath } from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
-import { getSHA256Hash } from "./getSha256";
+import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
 import {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
+  FONT_MIME_TYPE_EXTENSIONS,
+  isFontMimeType,
+  sniffFontMimeType,
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
-import { isFile } from "./source/file";
+import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
+import { isExternal, hasInlineExternalEntries } from "./source/external";
+import {
+  createExternalFileRef,
+  splitExternalFileRef,
+  isExternalFileRef,
+} from "./source/externalRef";
 import { createRemoteRef } from "./source/remote";
+import {
+  FILENAME_HASH_SUFFIX_LENGTH,
+  createRenamedFilename,
+  sanitizeFilenameBase,
+  stripHashSuffix,
+} from "./source/filename";
 import {
   getValidationBasis,
   getValidationHash,
 } from "./remote/validationBasis";
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
-import { convertRemoteSource } from "./schema/remote";
+import { galleriesOf } from "./source/galleries";
+import {
+  fillFromGallery,
+  GALLERY_DEFAULT_GROUPS,
+  galleryEntryOf,
+  galleryKeyOf,
+  galleryMarkerOf,
+  HLS_MIME_TYPE,
+  isHlsVideo,
+  isRemoteMediaPath,
+  mediaUrl,
+  resolveMedia,
+  resolveVideo,
+} from "./source/media";
+import {
+  colorToHex,
+  convertColor,
+  detectColorFormat,
+  formatColor,
+  parseColor,
+} from "./schema/colorFormat";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
-export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
+export {
+  type SerializedRecordSchema,
+  type MediaCollectionType,
+  RecordSchema,
+} from "./schema/record";
 export { type SerializedStringSchema, StringSchema } from "./schema/string";
 export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
+import {
+  nearestAllowedNumber,
+  isOnStep,
+  stepOrigin,
+} from "./schema/numberRules";
+export type { NumberRules } from "./schema/numberRules";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
+export { DEFAULT_FONT_ACCEPT, FONT_MIME_TYPES } from "./mimeType/font";
+export {
+  type SerializedVideoSchema,
+  VideoSchema,
+  DEFAULT_VIDEO_ACCEPT,
+  DEFAULT_VIDEO_RENDITIONS,
+  DEFAULT_VIDEO_SEGMENT_DURATION,
+} from "./schema/video";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export {
+  type SerializedSettingsSchema,
+  SettingsSchema,
+} from "./schema/settings";
+export {
+  type SettingsSource,
+  type AssistantSettingsSource,
+  type LocalesSettingsSource,
+  type AssistantAvailability,
+  type ThemeSettingsSource,
+  type StudioSettingsSource,
+  type StudioCommitMessageMode,
+  type ThemeRadius,
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_LOGO_DIRECTORY,
+  THEME_RADIUS_STEPS,
+  THEME_RADIUS_LENGTHS,
+  assistantAvailability,
+} from "./source/settings";
+export {
+  type ResolvedSettingsModule,
+  SETTINGS_MODULE_CONVENTION,
+  isRootModuleFilePath,
+  resolveSettingsModule,
+} from "./settingsModule";
+export { type Locale, localeTagError, localeOfValue } from "./locale";
+export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";
+export {
+  type DeclaredKeySet,
+  declaredKeySetOf,
+  missingDeclaredKeys,
+} from "./schema/declaredKeys";
+export { discriminatedUnionBranchOf } from "./schema/discriminatedUnionBranch";
+export {
+  type SerializedColorSchema,
+  type ColorOptions,
+  ColorSchema,
+} from "./schema/color";
+export {
+  type SerializedCodeSchema,
+  type CodeOptions,
+  type CodeLanguage,
+  CodeSchema,
+  CODE_LANGUAGES,
+} from "./schema/code";
+export {
+  type ColorFormat,
+  type ParsedColor,
+  COLOR_FORMATS,
+  DEFAULT_COLOR_FORMAT,
+} from "./schema/colorFormat";
 export {
   type SerializedDateTimeSchema,
   DateTimeSchema,
 } from "./schema/datetime";
 export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
+export { type SerializedValViewSchema, ValViewSchema } from "./schema/view";
+export { type ValViewSource, isValViewSource } from "./source/view";
+export type { ValView } from "./selector/view";
+export type { ValViewHandle, ResolvableModule } from "./source/viewHandle";
+import {
+  createViewHandle,
+  isViewHandle,
+  resolveViewedModule,
+  viewHandleModule,
+  viewModulesOf,
+} from "./source/viewHandle";
 export { type SerializedRouteSchema, RouteSchema } from "./schema/route";
 export {
   type SerializedRichTextSchema,
   RichTextSchema,
 } from "./schema/richtext";
 export {
+  type SerializedDiscriminatedUnionSchema,
+  type DiscriminatedUnionSourceOf,
+  DiscriminatedUnionSchema,
+} from "./schema/discriminatedUnion";
+export { type SerializedEnumSchema, EnumSchema } from "./schema/enum";
+export {
   type SerializedUnionSchema,
-  UnionSchema,
+  type UnionSchema,
   type SerializedStringUnionSchema,
   type SerializedObjectUnionSchema,
 } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
-export { emptyOf } from "./schema/emptyOf";
+export { emptyOf, type EmptyOfContext } from "./schema/emptyOf";
 export {
-  type ListRecordRender,
-  type ListArrayRender,
-  type ReifiedRender,
-  type CodeLanguage,
-  type CodeRender,
+  type PreviewItem,
+  type ItemPreviewInput,
+  type RecordPreview,
+  type ArrayPreview,
+  type ReifiedPreview,
+  type PreviewScope,
+  previewScope,
+} from "./preview";
+export {
+  type InlineRender,
+  type FieldRender,
+  type SliderRender,
+  type NumberRender,
+  isInlineRender,
 } from "./render";
-export type { ValRouter, RouteValidationError } from "./router";
-export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
-import { nextAppRouter, externalPageRouter } from "./router";
+export type {
+  ValRouter,
+  ExternalPageRouter,
+  RouteValidationError,
+} from "./router";
+export {
+  parseNextJsRoutePattern,
+  parseTanStackRoutePattern,
+  tanStackSegmentsOfRoutePath,
+  validateUrlAgainstPattern,
+  matchRoutePattern,
+} from "./router";
+export {
+  getSourcePathFromRoute,
+  isPageRouter,
+  routePatternOf,
+} from "./getSourcePathFromRoute";
+/**
+ * Which URL schemes an external page key may carry.
+ *
+ * Exported from the package root rather than only through `Internal` because
+ * the Studio has to apply the same rule the router does, while the key is
+ * being typed - one implementation, two callers, no second copy to drift.
+ */
+export {
+  describeSchemeRejection,
+  isCheckableScheme,
+  rejectScheme,
+  schemeOf,
+  UNSAFE_URL_SCHEMES,
+} from "./externalUrlSchemes";
+export type {
+  ExternalUrlSchemePolicy,
+  SchemeRejection,
+} from "./externalUrlSchemes";
+import { nextAppRouter, tanstackRouter, externalPageRouter } from "./router";
+import {
+  describeSchemeRejection,
+  isCheckableScheme,
+  rejectScheme,
+  schemeOf,
+  UNSAFE_URL_SCHEMES,
+} from "./externalUrlSchemes";
+
+/**
+ * This package's version, inlined at build time.
+ *
+ * A static JSON import rather than `require("../package.json")`, which is what
+ * this used to be: `require` does not exist in an ESM bundle, so anything that
+ * bundles core for a browser or an ESM server — the Studio's own Vite build, a
+ * TanStack Start app — got `null` here, silently. That is not only a display
+ * value: `Internal.remote.createRemoteRef` puts the core version in a remote
+ * file's ref, and proxy mode refuses to start without it. preconstruct inlines
+ * this at build time (it ships `@rollup/plugin-json`), and every bundler and
+ * jest resolve it in dev.
+ *
+ * A default import, not `import { version }`: preconstruct configures
+ * `@rollup/plugin-json` with `namedExports: false`, so a named import fails the
+ * BUILD (not the typecheck) with "'version' is not exported by package.json".
+ */
+import corePackageJson from "../package.json";
+import { log, isDebugEnabled, VAL_DEBUG_STORAGE_KEY } from "./log";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -170,29 +422,96 @@ export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 
 export const DEFAULT_CONTENT_HOST = "https://content.val.build";
 export const DEFAULT_APP_HOST = "https://admin.val.build";
+/**
+ * Where Val's own immutable build artifacts are served from: the content
+ * service's `/v1/static`.
+ *
+ * Only one kind of thing lives here so far: the WebAssembly the Studio loads
+ * -- the bundler it builds a site with, and the WebP encoder it uses where the
+ * canvas cannot write WebP. None of it can travel with the Studio's own bundle:
+ * `/api/val/static` is a base64 record of TEXT inside the server bundle, which
+ * both corrupts a binary and would carry it (10.9 MB of bundler) into every
+ * project that installs `@valbuild/ui`.
+ *
+ * Everything under this path is addressed by the SHA-256 of its own bytes, so
+ * an upload is idempotent, a URL is immutable, and the artifact a build asks
+ * for cannot be a different one than the build was made against.
+ *
+ * On content rather than a host of its own because a publish cannot happen
+ * without content anyway -- declare, upload, verify, promote, `/build-target`
+ * and `/project-source` all go through it -- so a separate host would add no
+ * availability and one more domain to every customer's egress allowlist.
+ *
+ * A FIXED LITERAL, and deliberately not derived from a project's configured
+ * content host (`VAL_CONTENT_URL`). Deriving it would make serving these binaries
+ * an obligation of every content service anybody points Val at, self-hosted
+ * ones included. A deployment that must fetch them from somewhere else sets
+ * one global per binary instead -- `globalThis.__VAL_ROLLDOWN_WASM_URL__` and
+ * the others listed in `packages/ui/build/staticWasm.ts`.
+ */
+export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 const Internal = {
+  /** Val's console output. See `log.ts` for which levels print, and when. */
+  log,
+  isDebugEnabled,
+  VAL_DEBUG_STORAGE_KEY,
   VERSION: {
-    core: ((): string | null => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        return require("../package.json").version;
-      } catch {
-        return null;
-      }
-    })(),
+    core: corePackageJson.version,
   },
-  convertFileSource,
-  convertRemoteSource,
+  videosetEntryVideoSchema,
+  galleryEntryMediaSchema,
+  // A view's read-path plumbing: `Internal` rather than the public surface,
+  // because an app never builds or unwraps a handle — it passes one to
+  // `useVal`.
+  createViewHandle,
+  isViewHandle,
+  resolveViewedModule,
+  viewHandleModule,
+  viewModulesOf,
+  mediaUrl,
+  resolveMedia,
+  resolveVideo,
+  isRemoteMediaPath,
+  media: {
+    fillFromGallery,
+    galleriesOf,
+    galleryEntryOf,
+    galleryKeyOf,
+    galleryMarkerOf,
+    GALLERY_DEFAULT_GROUPS,
+    isHlsVideo,
+    HLS_MIME_TYPE,
+  },
   getSchema,
   getValPath,
+  setValPath,
   getSource,
+  isValModule,
   resolvePath,
   safeResolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   nextAppRouter,
+  tanstackRouter,
   externalPageRouter,
+  describeSchemeRejection,
+  isCheckableScheme,
+  rejectScheme,
+  schemeOf,
+  UNSAFE_URL_SCHEMES,
+  number: {
+    nearestAllowedNumber,
+    isOnStep,
+    stepOrigin,
+  },
+  color: {
+    parseColor,
+    formatColor,
+    convertColor,
+    detectColorFormat,
+    colorToHex,
+  },
   remote: {
     createRemoteRef,
     getValidationBasis,
@@ -211,15 +530,31 @@ const Internal = {
     );
   },
   isVal,
-  isFile,
+  isJson,
+  getJsonImport,
+  resolveJsonValues,
+  isExternal,
+  hasInlineExternalEntries,
+  createExternalFileRef,
+  splitExternalFileRef,
+  isExternalFileRef,
   createValPathOfItem,
   getSHA256Hash,
+  /**
+   * The same hash as `getSHA256Hash`, fed a chunk at a time: what a caller
+   * hashing hundreds of megabytes uses to give the thread back between chunks.
+   */
+  createSHA256Hash: () => createHash("sha256"),
   initSchema,
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
+  FONT_MIME_TYPE_EXTENSIONS,
+  isFontMimeType,
+  sniffFontMimeType,
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (
@@ -259,27 +594,20 @@ const Internal = {
     if (!data) {
       return filename;
     }
-    const shaSuffix = sha256.slice(0, 5);
+    const shaSuffix = sha256.slice(0, FILENAME_HASH_SUFFIX_LENGTH);
     const mimeType = Internal.getMimeType(data) ?? "unknown";
     const newExt = Internal.mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
     if (filename) {
-      let cleanFilename =
+      const cleanFilename =
         filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
-      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
-      const currentShaSuffix = cleanFilename.slice(
-        maybeShaSuffixPos + 1,
-        cleanFilename.length,
+      const escapedFilename = sanitizeFilenameBase(
+        stripHashSuffix(cleanFilename, shaSuffix),
       );
-      if (currentShaSuffix === shaSuffix) {
-        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
-      }
-      const escapedFilename = encodeURIComponent(cleanFilename)
-        .replace(/%[0-9A-Fa-f]{2}/g, "")
-        .toLowerCase();
       return `${escapedFilename}_${shaSuffix}.${newExt}`;
     }
     return `${sha256}.${newExt}`;
   },
+  createRenamedFilename,
 };
 
 function tryJsonParse(str: string) {
