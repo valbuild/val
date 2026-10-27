@@ -1,12 +1,13 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
-import { proposalProject } from "@valbuild/shared/publish";
+import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
 import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import type {
   ProposalJson,
   ProposalsClient,
   ProposalStaged,
+  ProposalTypeError,
 } from "./proposalsClient";
 
 /** What a build of the proposal came to, with the proposal as content answers it. */
@@ -100,12 +101,97 @@ const BUILD_PROPOSAL_TOOL: AITool = {
   timeoutMs: 5 * 60_000,
 };
 
+const DEFAULT_SEARCH_RESULTS = 100;
+const MAX_SEARCH_RESULTS = 500;
+
+const SEARCH_CODE_TOOL: AITool = {
+  name: "search_code",
+  description:
+    "Search the project's code for text, as grep would: every line that matches, with its file and line number. " +
+    "In a proposal, the site's code with the proposal's changes. Use it to find where something is rendered or defined " +
+    "before reading whole files.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description:
+          "What to find: plain text, or a regular expression with regex: true.",
+      },
+      regex: {
+        type: "boolean",
+        description: "Read query as a JavaScript regular expression.",
+      },
+      ignore_case: { type: "boolean", description: "Match any case." },
+      prefix: {
+        type: "string",
+        description: "Only files whose path starts with this, e.g. 'src/'.",
+      },
+      max_results: {
+        type: "number",
+        description: `At most this many matching lines (default ${DEFAULT_SEARCH_RESULTS}, at most ${MAX_SEARCH_RESULTS}).`,
+      },
+    },
+    required: ["query"],
+  },
+};
+
+const TYPECHECK_TOOL: AITool = {
+  name: "typecheck",
+  description:
+    "Typecheck the proposal's code: the staged files with the site's, checked with TypeScript. " +
+    "Answers the type errors the proposal ADDS -- errors the site already has are not counted. " +
+    "Call it after write_files, before build_proposal; fix what it reports. Takes seconds to a minute.",
+  parameters: { type: "object", properties: {}, required: [] },
+  timeoutMs: 5 * 60_000,
+};
+
 export const CODE_TOOLS: AITool[] = [
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
+  SEARCH_CODE_TOOL,
   WRITE_FILES_TOOL,
+  TYPECHECK_TOOL,
   BUILD_PROPOSAL_TOOL,
 ];
+
+/**
+ * `create_patch` in the design tab: content written into the module's FILE in
+ * the proposal, and staged there with the code (valbuild/home
+ * `docs/design-tab.md`). The tab changes code, so a field the assistant adds
+ * is filled in the same change and built with it. The same arguments as the
+ * Studio's `create_patch`, so what the model knows of patches holds.
+ */
+export const DESIGN_CREATE_PATCH_TOOL: AITool = {
+  name: "create_patch",
+  description:
+    "Change content in the proposal: JSON Patch operations, written into the module's file (its .val.ts) and staged " +
+    "with the proposal's code, like write_files -- build_proposal makes the preview show it. " +
+    "Supported ops: 'replace', 'add', 'remove'. The 'path' is a JSON Pointer AS AN ARRAY (e.g. ['title'], ['items', '0', 'name']); " +
+    "a record key that is a URL ('/foo/bar') is ONE segment: ['/foo/bar']. " +
+    "Use it for content of a module the proposal changes as well as any other: a field you just added to a schema is filled here. " +
+    "Images and files cannot be uploaded here. Entries of a .jsonValues() record live in .val.json files: write those with write_files.",
+  parameters: {
+    type: "object",
+    properties: {
+      module_file_path: {
+        type: "string",
+        description: "The module's file path, e.g. '/content/home.val.ts'.",
+      },
+      patch: {
+        type: "array",
+        description: "The JSON Patch operations.",
+        items: { type: "object" },
+      },
+      message: {
+        type: "string",
+        description:
+          "What the change does, in a sentence, for the proposal's history.",
+      },
+    },
+    required: ["module_file_path", "patch"],
+  },
+};
 
 /** Where the assistant's code tools act: see {@link codeToolsPromptSection}. */
 export type CodeToolsWhere =
@@ -127,19 +213,16 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
     where.kind === "proposal"
       ? "This Studio is in a proposal: changes go into it."
       : where.kind === "design"
-        ? `This is the design tab of the proposal "${where.displayName}": code changes go into it, and the person sees its preview beside you. Content cannot be changed here: the content tools read the site's content, and the person edits content in the Studio. When a build fails, or the preview does not render, read the error, fix the files, and build again.`
+        ? `This is the design tab of the proposal "${where.displayName}": code changes go into it, and the person sees its preview beside you. Content is changed here with create_patch, which writes it into the module's file in the proposal, staged with the code. get_source and search_content read the SITE's content: read a module the proposal changed with read_file. When a build fails, or the preview does not render, read the error, fix the files, and build again.`
         : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file) and, in a proposal, change it (write_files) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
-- ${
-    where.kind === "design"
-      ? "Content is not code, and is not changed here: the person edits it in the proposal's own Studio."
-      : "Content is not code: change content with create_patch."
-  } Write a .val.ts only to change its schema, and keep the content in it.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), typecheck it (typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+- Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
+- Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After the change is complete, call build_proposal so the proposal's preview shows it, and tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call typecheck and fix the type errors it reports; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
 - ${here}`;
 }
 
@@ -156,8 +239,9 @@ export function designSystemPrompt(displayName: string): string {
 Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
 
 ## What you can do here
-- Read the project's code (list_files, read_file), change it (write_files) and build it (build_proposal), so the preview shows it.
-- Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content.
+- Find and read the project's code (search_code, list_files, read_file), change it (write_files), typecheck it (typecheck) and build it (build_proposal), so the preview shows it.
+- Change content with create_patch: it is written into the module's file in the proposal and staged with the code, so a field you add to a schema can be filled in the same change.
+- Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content: a module the proposal changed is read with read_file.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
 
 ## What the person points at
@@ -165,7 +249,7 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
 
 ## Working
-- Keep each change small enough to build and check, and build after it.
+- Keep each change small enough to check: write it, typecheck and fix what it reports, then build.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
@@ -204,19 +288,33 @@ export function isCodeTool(name: string): boolean {
 export type CodeToolDeps = {
   /** The proposal this Studio is open in; `null` on the site. */
   proposal: { name: string } | null;
-  client: Pick<ProposalsClient, "files" | "stageFiles">;
+  client: Pick<ProposalsClient, "files" | "stageFiles" | "patchFile">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
   build: () => Promise<ProposalBuildOutcome>;
+  /** Typecheck the proposal, and report it: see `typecheckProposal`. */
+  typecheck: () => Promise<CodeTypecheck>;
   /** Offer the person a proposal to make the change in. */
   offerProposal: () => void;
 };
+
+/** What the proposal's typecheck came to, for the `typecheck` tool. */
+export type CodeTypecheck =
+  | { status: "done"; errors: ProposalTypeError[] }
+  | { status: "nothing-staged" }
+  | { status: "failed"; message: string };
+
+/** Type errors handed to the model at once: the first of them are the ones to fix. */
+const MAX_TYPE_ERRORS = 50;
 
 /** A tool's answer to the model: what it did, or why not. */
 export type CodeToolAnswer = { result: unknown; isError: boolean };
 
 const MAX_LISTED = 2000;
 const MAX_READ_CHARS = 200_000;
+/** Longer than this is minified or generated: not searched. */
+const MAX_SEARCHED_CHARS = 1_000_000;
+const MAX_MATCH_LINE_CHARS = 300;
 
 export async function runCodeTool(
   name: string,
@@ -271,6 +369,73 @@ export async function runCodeTool(
         isError: false,
       };
     }
+    if (name === "create_patch") {
+      if (deps.proposal === null) {
+        deps.offerProposal();
+        return fail(
+          "Content is written into a proposal's files only in its design tab.",
+        );
+      }
+      const moduleFilePath = input["module_file_path"];
+      const patch = input["patch"];
+      if (typeof moduleFilePath !== "string") {
+        return fail("module_file_path must be a string.");
+      }
+      if (!Array.isArray(patch) || patch.length === 0) {
+        return fail("patch must be a non-empty array of operations.");
+      }
+      const message =
+        typeof input["message"] === "string" ? input["message"] : undefined;
+      const staged = await deps.client.patchFile(
+        deps.proposal.name,
+        moduleFilePath,
+        patch,
+        message,
+      );
+      return {
+        result: {
+          success: true,
+          staged: staged.staged.files,
+          buildRequired: staged.staged.buildRequired,
+          next: "Written into the module's file and staged. Call build_proposal when the change is complete, so the preview shows it.",
+        },
+        isError: false,
+      };
+    }
+    if (name === "typecheck") {
+      if (deps.proposal === null) {
+        return fail(
+          "Only a proposal's code is typechecked here: on the site, nothing is staged.",
+        );
+      }
+      const outcome = await deps.typecheck();
+      if (outcome.status === "failed") return fail(outcome.message);
+      if (outcome.status === "nothing-staged") {
+        return {
+          result: {
+            success: true,
+            newErrors: 0,
+            note: "Nothing is staged: the proposal runs the site's code, so it adds no type errors.",
+          },
+          isError: false,
+        };
+      }
+      return {
+        result: {
+          success: true,
+          newErrors: outcome.errors.length,
+          errors: outcome.errors.slice(0, MAX_TYPE_ERRORS),
+          ...(outcome.errors.length > MAX_TYPE_ERRORS
+            ? { truncated: `${outcome.errors.length - MAX_TYPE_ERRORS} more` }
+            : {}),
+          next:
+            outcome.errors.length === 0
+              ? "No new type errors. Call build_proposal when the change is complete."
+              : "Fix these in the files, then typecheck again.",
+        },
+        isError: false,
+      };
+    }
     if (name === "build_proposal") {
       if (deps.proposal === null) {
         deps.offerProposal();
@@ -313,6 +478,35 @@ export async function runCodeTool(
         isError: false,
       };
     }
+    if (name === "search_code") {
+      const query = input["query"];
+      if (typeof query !== "string" || query === "") {
+        return fail("query must be the text to find.");
+      }
+      const found = searchProject(project, {
+        query,
+        regex: input["regex"] === true,
+        ignoreCase: input["ignore_case"] === true,
+        prefix: typeof input["prefix"] === "string" ? input["prefix"] : "",
+        limit:
+          typeof input["max_results"] === "number"
+            ? input["max_results"]
+            : DEFAULT_SEARCH_RESULTS,
+      });
+      if (found.status === "invalid") return fail(found.message);
+      return {
+        result: {
+          matches: found.matches,
+          total: found.total,
+          ...(found.total > found.matches.length
+            ? {
+                truncated: `${found.total - found.matches.length} more: narrow with prefix or a longer query`,
+              }
+            : {}),
+        },
+        isError: false,
+      };
+    }
     if (name === "read_file") {
       const path = input["path"];
       if (typeof path !== "string") return fail("path must be a string.");
@@ -337,6 +531,76 @@ export async function runCodeTool(
   } catch (error) {
     return fail(messageOf(error));
   }
+}
+
+/** One line that matched, where it is. */
+export type CodeSearchMatch = { path: string; line: number; text: string };
+
+/**
+ * `search_code`: every line of the project that matches, as grep would.
+ * A scan of the files in memory, since that is where they are already
+ * (valbuild/home `docs/design-tab.md`, "Searching it is a scan in memory"):
+ * a project's own code is small. Lockfiles, and anything long enough to be
+ * minified or generated, are not searched.
+ */
+export function searchProject(
+  project: Record<string, string>,
+  query: {
+    query: string;
+    regex: boolean;
+    ignoreCase: boolean;
+    prefix: string;
+    limit: number;
+  },
+):
+  | { status: "found"; matches: CodeSearchMatch[]; total: number }
+  | { status: "invalid"; message: string } {
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(
+      query.regex ? query.query : escapeRegExp(query.query),
+      query.ignoreCase ? "i" : "",
+    );
+  } catch (error) {
+    return {
+      status: "invalid",
+      message: `query is not a regular expression: ${messageOf(error)}`,
+    };
+  }
+  const limit = Math.max(
+    1,
+    Math.min(MAX_SEARCH_RESULTS, Math.floor(query.limit)),
+  );
+  const matches: CodeSearchMatch[] = [];
+  let total = 0;
+  const paths = Object.keys(withoutLockfiles(project))
+    .filter((path) => path.startsWith(query.prefix))
+    .sort();
+  for (const path of paths) {
+    const text = project[path];
+    if (text.length > MAX_SEARCHED_CHARS) continue;
+    const lines = text.split("\n");
+    for (let index = 0; index < lines.length; index++) {
+      if (!pattern.test(lines[index])) continue;
+      total++;
+      if (matches.length < limit) {
+        const line = lines[index].trim();
+        matches.push({
+          path,
+          line: index + 1,
+          text:
+            line.length > MAX_MATCH_LINE_CHARS
+              ? `${line.slice(0, MAX_MATCH_LINE_CHARS)}…`
+              : line,
+        });
+      }
+    }
+  }
+  return { status: "found", matches, total };
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function withoutProposal(

@@ -645,22 +645,29 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toEqual([]);
   });
 
-  test("reporting a proposal's typecheck is its own server's, and nobody else's", async () => {
+  test("reporting a proposal's typecheck is its own server's and the site's -- the design tab's -- and no other proposal's", async () => {
     // valbuild/home docs/adept.md, step 7, decision 20: what blocks Publish.
+    // The same program from either address: the proposal's staged files
+    // checked against the site's (docs/design-tab.md).
     const own = ops(proposal("save-2"));
     const body = JSON.stringify({ inputs: "i", newErrors: [] });
     await own.proposalsApi(`/${NAME}/typecheck`, { method: "POST", body }, "p");
+    await ops(undefined).proposalsApi(
+      `/${NAME}/typecheck`,
+      { method: "POST", body },
+      "p",
+    );
     expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/typecheck`,
       `POST /v1/org/project/proposals/${NAME}/typecheck`,
     ]);
     sent.length = 0;
-    for (const [o, path] of [
-      [own, `/${"f".repeat(20)}/typecheck`],
-      [ops(undefined), `/${NAME}/typecheck`],
-    ] as const) {
-      const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
-      expect([path, answer.status]).toEqual([path, 403]);
-    }
+    const answer = await own.proposalsApi(
+      `/${"f".repeat(20)}/typecheck`,
+      { method: "POST", body },
+      "p",
+    );
+    expect(answer.status).toBe(403);
     expect(sent).toEqual([]);
   });
 

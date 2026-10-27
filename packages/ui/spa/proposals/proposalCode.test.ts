@@ -281,9 +281,14 @@ describe("the code tools", () => {
     over: Partial<CodeToolDeps> = {},
   ): CodeToolDeps & {
     staged: unknown[];
+    patched: unknown[];
     offered: number;
   } => {
-    const record = { staged: [] as unknown[], offered: 0 };
+    const record = {
+      staged: [] as unknown[],
+      patched: [] as unknown[],
+      offered: 0,
+    };
     return Object.assign(record, {
       proposal: { name: NAME },
       client: {
@@ -299,7 +304,20 @@ describe("the code tools", () => {
             staged: staged({ files: Object.keys(files).sort() }),
           };
         },
+        patchFile: async (
+          name: string,
+          moduleFilePath: string,
+          patch: unknown[],
+          message?: string,
+        ) => {
+          record.patched.push([name, moduleFilePath, patch, message]);
+          return {
+            commit: "c2",
+            staged: staged({ files: [moduleFilePath.slice(1)] }),
+          };
+        },
       },
+      typecheck: async () => ({ status: "nothing-staged" as const }),
       siteSource: async () => SITE,
       build: async () => ({
         status: "built" as const,
@@ -313,15 +331,132 @@ describe("the code tools", () => {
     });
   };
 
-  test("are four, and known by name", () => {
+  test("are six, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
+      "search_code",
       "write_files",
+      "typecheck",
       "build_proposal",
     ]);
     expect(isCodeTool("write_files")).toBe(true);
+    // The Studio's create_patch is a content tool; the design tab's is
+    // dispatched as code by the tab, not by name.
     expect(isCodeTool("create_patch")).toBe(false);
+  });
+
+  test("search the project as grep would: every matching line, where it is", async () => {
+    const d = deps({
+      siteSource: async () => ({
+        ...SITE,
+        "src/app.tsx": "import { Hero } from './components/Hero';\n<Hero />\n",
+        "pnpm-lock.yaml": "Hero: 1.0.0",
+      }),
+    });
+    const found = await runCodeTool("search_code", { query: "Hero" }, d);
+    expect(found).toEqual({
+      result: {
+        matches: [
+          {
+            path: "src/app.tsx",
+            line: 1,
+            text: "import { Hero } from './components/Hero';",
+          },
+          { path: "src/app.tsx", line: 2, text: "<Hero />" },
+        ],
+        total: 2,
+      },
+      isError: false,
+    });
+    // The proposal's copy, case aside, by a regular expression, narrowed.
+    const own = await runCodeTool(
+      "search_code",
+      {
+        query: "^NEW",
+        regex: true,
+        ignore_case: true,
+        prefix: "src/components/",
+      },
+      d,
+    );
+    expect(own.result).toEqual({
+      matches: [{ path: "src/components/Hero.tsx", line: 1, text: "new hero" }],
+      total: 1,
+    });
+    const capped = await runCodeTool(
+      "search_code",
+      { query: "Hero", max_results: 1 },
+      d,
+    );
+    expect(capped.result).toMatchObject({
+      total: 2,
+      truncated: expect.any(String),
+    });
+    expect(
+      (await runCodeTool("search_code", { query: "(", regex: true }, d))
+        .isError,
+    ).toBe(true);
+  });
+
+  test("create_patch writes content into the module's file in the proposal, staged with its code", async () => {
+    const d = deps();
+    const patch = [{ op: "replace", path: ["title"], value: "Worn for years" }];
+    const answer = await runCodeTool(
+      "create_patch",
+      { module_file_path: "/content/home.val.ts", patch, message: "Title" },
+      d,
+    );
+    expect(d.patched).toEqual([[NAME, "/content/home.val.ts", patch, "Title"]]);
+    expect(answer).toMatchObject({
+      result: { success: true, staged: ["content/home.val.ts"] },
+      isError: false,
+    });
+    expect(
+      (await runCodeTool("create_patch", { module_file_path: "/a.val.ts" }, d))
+        .isError,
+    ).toBe(true);
+  });
+
+  test("typecheck answers the errors the proposal adds, and what to do next", async () => {
+    const error = {
+      file: "src/components/Hero.tsx",
+      line: 3,
+      column: 7,
+      code: 2322,
+      message: "Type 'number' is not assignable to type 'string'.",
+    };
+    const failing = await runCodeTool(
+      "typecheck",
+      {},
+      deps({ typecheck: async () => ({ status: "done", errors: [error] }) }),
+    );
+    expect(failing).toEqual({
+      result: {
+        success: true,
+        newErrors: 1,
+        errors: [error],
+        next: "Fix these in the files, then typecheck again.",
+      },
+      isError: false,
+    });
+    const clean = await runCodeTool(
+      "typecheck",
+      {},
+      deps({ typecheck: async () => ({ status: "done", errors: [] }) }),
+    );
+    expect(clean.result).toMatchObject({ newErrors: 0 });
+    const broken = await runCodeTool(
+      "typecheck",
+      {},
+      deps({
+        typecheck: async () => ({ status: "failed", message: "adept is down" }),
+      }),
+    );
+    expect(broken.isError).toBe(true);
+    expect(
+      (await runCodeTool("typecheck", {}, deps({ proposal: null }))).isError,
+    ).toBe(true);
   });
 
   test("in a proposal, list and read its project, and say what is staged", async () => {

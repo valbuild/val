@@ -10,6 +10,7 @@ import {
   runProposalTypecheck,
   type ProposalTypecheckStep,
 } from "@valbuild/shared/typecheck";
+import type { CodeTypecheck } from "./proposalCode";
 import {
   createProposalsClient,
   type ProposalTypeError,
@@ -152,6 +153,27 @@ export function runTypecheck(
   })();
   running = { name, done };
   return done;
+}
+
+/**
+ * The assistant's `typecheck`: the same run the bar and Publish start (one at
+ * a time, reported to content so the proposal's Types check follows), with
+ * what it came to.
+ */
+export async function typecheckProposal(
+  name: string,
+  client: Pick<ProposalsClient, "files" | "reportTypecheck">,
+  onReported: () => void,
+): Promise<CodeTypecheck> {
+  await runTypecheck(name, client, onReported);
+  const state = snapshot();
+  if (state.status === "done" && state.name === name) {
+    return { status: "done", errors: state.errors };
+  }
+  if (state.status === "failed" && state.name === name) {
+    return { status: "failed", message: state.message };
+  }
+  return { status: "nothing-staged" };
 }
 
 export function useProposalTypecheck(options: {
