@@ -253,11 +253,11 @@ direction:
 
 - **A title** is what a thing is CALLED, where the thing is shown as a thing:
   the heading of what you opened, a card, a list row, a search hit, a reference
-  once it has been chosen. A preview belongs in all of these.
+  once it has been chosen, and the link back to the parent under the heading. A
+  preview belongs in all of these.
 - **A location** is WHERE YOU ARE, and it is made of path segments: the
-  breadcrumb under the heading, the Explorer tree, the Pages tree. A preview
-  belongs in NONE of these — not even for a module root, not even when it reads
-  better.
+  Explorer tree, the Pages tree. A preview belongs in NONE of these — not even
+  for a module root, not even when it reads better.
 
 Two reasons, and the second is the one that settles it:
 
@@ -267,11 +267,19 @@ Two reasons, and the second is the one that settles it:
 2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
    A location that moves under you is not a location.
 
+The line under the heading was a breadcrumb of path segments, and is not any
+more: it is one link back to the PARENT, named by its title — "‹ Product 1".
+The parent is where the level above is SHOWN, through `getNavPath`, so from a
+section of a page it is the page, not its `sections` field (every segment in
+between opened the page anyway). `parentDestination` and `BackLink` in
+`ModuleScope.tsx` are that rule.
+
 The one thing a location may take from the heading is a page's ROUTE, because a
 route IS the page's location. And it takes it INSTEAD of the file path, not
 beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
 and nothing else, because nobody reaches a page through the file — the Pages
-panel is a tree of routes. `scopePartsBelowPageRouter` is that rule.
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule, and it is
+why a page itself offers no way back: the file it lives in is not its parent.
 
 ### `describePath` is the one implementation
 
@@ -283,8 +291,9 @@ wrote from a key we had lying around.
 
 Anything that TITLES a path goes through it rather than deriving a name of its
 own — the heading, list rows, search hits and references disagreed with each
-other before it existed. Anything that LOCATES a path does not go near it: the
-breadcrumb and the Explorer use path segments, per the rule above.
+other before it existed — and so does the back link under the heading, which
+names its destination. Anything that LOCATES a path does not go near it: the
+Explorer and the Pages tree use path segments, per the rule above.
 `useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
 and stays the right call for a list row, which has no `self` to read.
 

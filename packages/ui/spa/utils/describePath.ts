@@ -27,7 +27,7 @@ export type DescriptionOrigin = "preview" | "fallback";
  *
  * One shape, one set of fallback rules, one place they are written down. The
  * studio shows a source path under a name in at least six places — the module
- * heading, list rows, the scope trail, search hits, reference dropdowns, the
+ * heading, list rows, the back link, search hits, reference dropdowns, the
  * references list, the sitemap — and before this each of them derived that name
  * itself. They did not agree: the same record entry was `blog1` in one place,
  * "Blog 1" in another and `/blogs/blog1` in a third.

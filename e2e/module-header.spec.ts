@@ -2,19 +2,17 @@ import { expect } from "@playwright/test";
 import { openStudio, test } from "./studio";
 
 /**
- * The module header, as a way back up.
+ * The module header, as a way back.
  *
- * The header used to render this as plain text — a line of grey crumbs that
- * said where you were and could not take you there. From a field inside a page
- * inside a router the only ways up were the browser's back button and the Pages
- * panel, so this pins the two things that changed: the trail is real links, and
- * the arrow goes up exactly one level.
+ * Under the heading is one link, `‹ <parent>` (labelled "Back to <parent>"),
+ * where the parent is wherever the level above is shown and its name is its
+ * title. It was a
+ * breadcrumb of path segments, every one of which between a page and a field
+ * of it opened the same page.
  *
- * A FIELD inside a page is the case that motivated it and the case that still
- * has a trail — see `A page names itself and nothing else` below for why the
- * page itself no longer does.
- */
-/*
+ * A FIELD inside a page is the case that motivated it — see `A page names
+ * itself and nothing else` below for why the page itself has no way back.
+ *
  * The generic page: a page with NO preview, so its heading is its route. That
  * is the case every `toHaveText("/generic")` below pins -- a page that has a
  * preview (the showcase's home, "Content as code") is titled by it instead,
@@ -27,42 +25,40 @@ const PAGE = "/val/~/src/routes/_site.generic.$.val.ts?p=%22%2Fgeneric%22";
 const ROUTE = "/generic";
 
 test.describe("the module header", () => {
-  test("names the field, and links up the scope", async ({ page }) => {
+  test("names the field, and offers one way back", async ({ page }) => {
     await openStudio(page, FIELD_IN_PAGE);
 
-    // The title leads; the scope sits under it as links.
-    const scope = page.getByRole("navigation", { name: "Scope" });
-    await expect(scope).toBeVisible();
-    const links = scope.getByRole("link");
-    await expect(links.first()).toBeVisible();
+    // The title leads; the way back sits under it, as one link.
+    const back = page.getByRole("navigation", { name: "Back" });
+    await expect(back).toBeVisible();
+    await expect(back.getByRole("link")).toHaveCount(1);
 
-    // Every segment is an anchor with a real destination, so it can be copied
-    // and middle-clicked rather than only clicked.
-    for (const link of await links.all()) {
-      const href = await link.getAttribute("href");
-      expect(href, "a scope segment with no destination").toBeTruthy();
-      expect(href).toContain("/val/~");
-    }
+    // An anchor with a real destination, so it can be copied and
+    // middle-clicked rather than only clicked.
+    const href = await back.getByRole("link").getAttribute("href");
+    expect(href, "a way back with no destination").toBeTruthy();
+    expect(href).toContain("/val/~");
   });
 
-  test("the arrow goes up one level", async ({ page }) => {
+  test("back goes to the page the field is on", async ({ page }) => {
     await openStudio(page, FIELD_IN_PAGE);
 
     /*
-     * By role, not by label: the sticky bar carries the same arrow, hidden from
-     * the accessibility tree until the header has been scrolled past — and
-     * `getByLabel` would find that copy first, since it comes first in the DOM.
+     * By role, not by label: the sticky bar carries a copy of the header,
+     * hidden from the accessibility tree until the header has been scrolled
+     * past — and `getByLabel` would find that copy first.
+     *
+     * Named by the page's title: the page has no preview, so that is its
+     * route.
      */
-    const up = page.getByRole("link", { name: /^Up one level/ });
-    await expect(up).toBeVisible();
-    const href = await up.getAttribute("href");
-    expect(href).toBeTruthy();
+    const back = page.getByRole("link", { name: `Back to ${ROUTE}` });
+    await expect(back).toBeVisible();
 
-    await up.click();
+    await back.click();
     /*
-     * Up from a field of a page is that page — one level, not back out to the
-     * router. Asked of the heading rather than the text, because the sticky bar
-     * carries a hidden copy of the same title.
+     * Back from a field of a page is that page, not the router. Asked of the
+     * heading rather than the text, because the sticky bar carries a hidden
+     * copy of the same title.
      */
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
   });
@@ -116,16 +112,12 @@ test.describe("the module header", () => {
      * A page's location is its ROUTE, and the route is already the complete
      * path — so the four segments that used to precede it
      * (`App / … / Page / Pages / …`) said where the module is STORED, which is
-     * not how anyone reaches a page: the Pages panel is a tree of routes. With
-     * the route in the heading there is nothing left for the trail to add, and
-     * an arrow up to the page list would duplicate that same panel.
+     * not how anyone reaches a page: the Pages panel is a tree of routes. So
+     * the file is not the page's parent, and "Back to Pages" would duplicate
+     * that same panel.
      */
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
-    await expect(page.getByRole("navigation", { name: "Scope" })).toHaveCount(
-      0,
-    );
-    await expect(page.getByRole("link", { name: /^Up one level/ })).toHaveCount(
-      0,
-    );
+    await expect(page.getByRole("navigation", { name: "Back" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /^Back to/ })).toHaveCount(0);
   });
 });
