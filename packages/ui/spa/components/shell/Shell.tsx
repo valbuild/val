@@ -62,6 +62,7 @@ import {
   PublishPlaceholder,
   TopBar,
   type TopBarProposals,
+  type TopBarSketchpad,
 } from "./TopBar";
 import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import {
@@ -95,6 +96,7 @@ import {
   ShellDestination,
   ShellExternalPage,
   ShellMediaGallery,
+  ShellPage,
   ShellNotification,
   ShellPanel,
   ShellValidationError,
@@ -412,6 +414,10 @@ export type ShellProps = {
    * canvas pane is.
    */
   workspaceOverride?: ReactNode;
+  /** The top bar's Sketchpad button, once there is a Sketchpad. */
+  sketchpad?: TopBarSketchpad;
+  /** "Sketch changes" in a page's menu in the Pages panel. */
+  onSketchPage?: (page: ShellPage) => void;
   /**
    * Something the studio has to tell the editor before they start, above the
    * editor column: `RemoteFilesCard`, today. In the column rather than over the
@@ -653,6 +659,8 @@ export function Shell({
   renderExternalPages,
   editorOverride,
   workspaceOverride,
+  sketchpad,
+  onSketchPage,
   notice,
   statusNotice,
   floatingNotices = NO_FLOATING_NOTICES,
@@ -1494,6 +1502,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          sketchpad={sketchpad}
           proposals={proposals}
           planStatus={
             breakpoint === "desktop" ? renderPlanStatus?.("top-bar") : undefined
@@ -1630,6 +1639,7 @@ export function Shell({
             onNewPage={onNewPage ?? (() => undefined)}
             onDuplicatePage={onDuplicatePage}
             onRenamePage={onRenamePage}
+            onSketchPage={onSketchPage}
             // Only where a route accepts one. A project of static routes has no
             // key to invent, so there is nothing for a New page button to do.
             newPage={onNewPage ? data.newPage : undefined}

@@ -11,6 +11,7 @@ import {
   LucideIcon,
   Menu,
   PanelRight,
+  PencilRuler,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -97,6 +98,14 @@ export type TopBarProposals = {
   defaultSwitcherOpen?: boolean;
   /** The Save/Publish button's caret menu, the proposal's acts with it. */
   defaultMenuOpen?: boolean;
+};
+
+export type TopBarSketchpad = {
+  /** True while the Sketchpad is what is on screen. */
+  open: boolean;
+  /** Changed since the person last had it open: by the assistant, or Kari. */
+  changed: boolean;
+  onToggle: () => void;
 };
 
 export type TopBarProps = {
@@ -236,6 +245,12 @@ export type TopBarProps = {
    * not here at all — the bottom bar carries it.
    */
   aiEnabled?: boolean;
+  /**
+   * The AI session's Sketchpad, once it has one. Absent -- the usual case --
+   * and there is no button: a Sketchpad is something the assistant or the
+   * person started, never something the bar asks anyone to start.
+   */
+  sketchpad?: TopBarSketchpad;
   /** Absent for a project without proposals: nothing here changes. */
   proposals?: TopBarProposals;
   /**
@@ -293,6 +308,7 @@ export function TopBar({
   logo,
   isLoading,
   aiEnabled = false,
+  sketchpad,
   previewHref,
   proposals,
   planStatus,
@@ -594,6 +610,27 @@ export function TopBar({
          * one screen would be two places to look for the same panel, and the
          * top right corner of a phone is the furthest point from a thumb.
          */}
+        {sketchpad && (
+          <IconButton
+            label={
+              sketchpad.open
+                ? "Close the Sketchpad"
+                : sketchpad.changed
+                  ? "Sketchpad (changed since you looked)"
+                  : "Sketchpad"
+            }
+            active={sketchpad.open}
+            onClick={sketchpad.onToggle}
+          >
+            <PencilRuler size={16} />
+            {sketchpad.changed && !sketchpad.open && (
+              <span
+                aria-hidden
+                className="absolute right-1 top-1 h-2 w-2 rounded-full bg-bg-brand-primary ring-2 ring-bg-float"
+              />
+            )}
+          </IconButton>
+        )}
         {aiEnabled && !isMobile && (
           <IconButton
             label="AI assistant"
