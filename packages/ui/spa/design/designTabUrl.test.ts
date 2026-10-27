@@ -1,4 +1,9 @@
-import { designProposalOf, designTabUrl } from "./designTabUrl";
+import {
+  designProposalOf,
+  designTabUrl,
+  previewUrl,
+  siteDesignTabUrl,
+} from "./designTabUrl";
 
 const NAME = "3f9c1e7a2b4d6c8e0a1b";
 
@@ -51,5 +56,37 @@ describe("the design tab's address", () => {
     ]) {
       expect([path, designProposalOf(path)]).toEqual([path, null]);
     }
+  });
+
+  test("beside the proposal's address, or none when this is not it", () => {
+    expect(
+      siteDesignTabUrl(`https://${NAME}--nordic.valstart.dev/val`, NAME),
+    ).toBe(`https://nordic.valstart.dev/val/design/${NAME}`);
+    expect(siteDesignTabUrl("https://nordic.valstart.dev/val", NAME)).toBe(
+      null,
+    );
+    expect(siteDesignTabUrl(`https://${NAME}--.valstart.dev`, NAME)).toBe(null);
+  });
+});
+
+describe("the page the frame shows", () => {
+  const ADDRESS = `https://${NAME}--nordic.valstart.dev`;
+  test("is a page of the proposal's address", () => {
+    expect(previewUrl(ADDRESS, "/")).toBe(`${ADDRESS}/`);
+    expect(previewUrl(`${ADDRESS}/`, "/products/a?x=1#y")).toBe(
+      `${ADDRESS}/products/a?x=1#y`,
+    );
+  });
+
+  test("and nothing else: not another host, not something that is not a path", () => {
+    for (const route of [
+      "//example.com",
+      "//[",
+      "https://example.com/",
+      "products",
+    ]) {
+      expect([route, previewUrl(ADDRESS, route)]).toEqual([route, null]);
+    }
+    expect(previewUrl("not a url", "/")).toBe(null);
   });
 });

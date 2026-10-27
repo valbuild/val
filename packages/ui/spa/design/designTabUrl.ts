@@ -10,30 +10,56 @@ const DESIGN_PREFIX = "/val/design/";
 const PROPOSAL_NAME = /^[0-9a-f]{20}$/;
 
 /**
- * The design tab of proposal `name`, opened from `here` -- the page the
- * proposal's Studio is on.
+ * The design tab of proposal `name`, at the site's address beside `here` when
+ * `here` is the proposal's ({@link siteDesignTabUrl}), else on `siteUrl`, the
+ * site as content names it.
  *
- * On the site's address beside the proposal's: `<proposal>--<project>.<host>`
+ * Beside the proposal's address is preferred: `<proposal>--<project>.<host>`
  * is the proposal's, and `<project>.<host>` the site's, which is the SAME SITE
  * to a browser on valstart.dev -- so the tab's frame of the proposal is sent
- * the editor's session. `siteUrl`, the site as content names it, may be a
- * custom domain, from which the proposal is another site and the frame is
- * signed out; it is the fallback, where the address is not a proposal's by
- * name (a local loader reached by header).
+ * the editor's session. `siteUrl` may be a custom domain, from which the
+ * proposal is another site and the frame is signed out; it is the fallback,
+ * for an address that does not name the proposal (a local loader reached by
+ * header).
  */
 export function designTabUrl(
   here: string,
   name: string,
   siteUrl: string,
 ): string {
+  return (
+    siteDesignTabUrl(here, name) ??
+    new URL(`${DESIGN_PREFIX}${name}`, siteUrl).toString()
+  );
+}
+
+/**
+ * The design tab of proposal `name` on the site's address beside `here`, when
+ * `here` is that proposal's address; `null` when it is not.
+ */
+export function siteDesignTabUrl(here: string, name: string): string | null {
   const url = new URL(here);
   const [label, ...rest] = url.hostname.split(".");
   const prefix = `${name}--`;
-  if (label.startsWith(prefix) && label.length > prefix.length) {
-    url.hostname = [label.slice(prefix.length), ...rest].join(".");
-    return new URL(`${DESIGN_PREFIX}${name}`, url.origin).toString();
+  if (!label.startsWith(prefix) || label.length === prefix.length) return null;
+  url.hostname = [label.slice(prefix.length), ...rest].join(".");
+  return new URL(`${DESIGN_PREFIX}${name}`, url.origin).toString();
+}
+
+/**
+ * The page at `route` on the proposal's `address`, for the frame -- or `null`
+ * when what was typed is not a page of it: a protocol-relative `//host`, which
+ * would leave the proposal's origin, or nothing a URL can be made of.
+ */
+export function previewUrl(address: string, route: string): string | null {
+  if (!route.startsWith("/") || route.startsWith("//")) return null;
+  try {
+    const origin = new URL(address).origin;
+    const url = new URL(route, origin);
+    return url.origin === origin ? url.toString() : null;
+  } catch {
+    return null;
   }
-  return new URL(`${DESIGN_PREFIX}${name}`, siteUrl).toString();
 }
 
 /**

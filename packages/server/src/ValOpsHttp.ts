@@ -1132,7 +1132,7 @@ export class ValOpsHttp extends ValOps {
         body: JSON.stringify({
           message:
             this.proposal === null
-              ? "The site's files are changed in a proposal: open one, and change them there."
+              ? "Only the proposal's own Studio does this: open the proposal, and do it there."
               : "Files are changed in the proposal this Studio is open in, not in another.",
         }),
       };

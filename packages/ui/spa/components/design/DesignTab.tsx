@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { AIChatSurface } from "../AIChatSurface";
@@ -15,7 +15,8 @@ import {
   useProposalBuild,
 } from "../../proposals/useProposalBuild";
 import { changedFiles, type ChangedFile } from "../../design/changedFiles";
-import { lineDiff } from "../../design/lineDiff";
+import { lineDiff, type DiffLine } from "../../design/lineDiff";
+import { previewUrl, siteDesignTabUrl } from "../../design/designTabUrl";
 import {
   DesignTabView,
   type DesignCheckItem,
@@ -54,10 +55,6 @@ export function DesignTab({ name }: { name: string }) {
     () => createProposalsClient({ api: "/api/val" }),
     [],
   );
-  const publish = useMemo(
-    () => createStudioPublishClient({ api: "/api/val" }),
-    [],
-  );
   const studioProposal = useCurrentProposal();
   const { state, build, progress } = useProposalBuild(proposals, name);
   const { askAssistant } = useAIChatActions();
@@ -70,6 +67,9 @@ export function DesignTab({ name }: { name: string }) {
     let cancelled = false;
     void (async () => {
       try {
+        // A client per read: one keeps the first answer for the site's
+        // source, a failed one included, and Try again has to ask again.
+        const publish = createStudioPublishClient({ api: "/api/val" });
         const [proposal, files, site] = await Promise.all([
           proposals.get(name),
           proposals.files(name),
@@ -94,7 +94,7 @@ export function DesignTab({ name }: { name: string }) {
     return () => {
       cancelled = true;
     };
-  }, [name, proposals, publish, state.changed, attempt]);
+  }, [name, proposals, state.changed, attempt]);
 
   const proposal = read.status === "ready" ? read.proposal : null;
   const displayName = proposal?.displayName ?? "this proposal";
@@ -104,21 +104,24 @@ export function DesignTab({ name }: { name: string }) {
 
   const checkpoints = useCheckpoints(proposal?.branch ?? null, state.changed);
 
-  // The frame shows the last build until a new one is served: reload it then.
+  // The frame shows the last build until a new one is served: reload it
+  // then. Not on the first read, which is what it mounted with.
   const [reloadKey, setReloadKey] = useState(0);
-  const builtHash = proposal?.built?.hash ?? null;
-  const lastBuilt = useRef(builtHash);
+  const builtHash =
+    proposal === null ? undefined : (proposal.built?.hash ?? null);
+  const lastBuilt = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (builtHash !== lastBuilt.current) {
-      lastBuilt.current = builtHash;
+    if (builtHash === undefined) return;
+    if (lastBuilt.current !== undefined && builtHash !== lastBuilt.current) {
       setReloadKey((key) => key + 1);
     }
+    lastBuilt.current = builtHash;
   }, [builtHash]);
 
   const [route, setRoute] = useState("/");
   const address = proposal?.address ?? null;
-  const previewSrc =
-    address !== null ? new URL(route, address).toString() : null;
+  // A route that is not a page of the proposal's address shows nothing.
+  const previewSrc = address !== null ? previewUrl(address, route) : null;
 
   const checks = designChecks(proposal, state, progress);
   const problem = designProblem({
@@ -137,18 +140,26 @@ export function DesignTab({ name }: { name: string }) {
       ),
   });
 
-  const diffOf = useCallback(
-    (path: string) =>
-      read.status === "ready"
-        ? lineDiff(read.site[path] ?? null, read.own[path] ?? null)
-        : [],
-    [read],
-  );
+  // Once per file and read: a diff is a table of up to millions of cells,
+  // and the view renders on every tick of a build.
+  const diffOf = useMemo(() => {
+    const diffs = new Map<string, DiffLine[]>();
+    return (path: string): DiffLine[] => {
+      if (read.status !== "ready") return [];
+      let diff = diffs.get(path);
+      if (diff === undefined) {
+        diff = lineDiff(read.site[path] ?? null, read.own[path] ?? null);
+        diffs.set(path, diff);
+      }
+      return diff;
+    };
+  }, [read]);
 
   const open = proposal?.status === "open";
   return (
     <DesignTabView
       proposal={{ displayName, address }}
+      previewHref={previewSrc}
       studioUrl={address !== null ? new URL("/val", address).toString() : null}
       route={route}
       onRouteChange={setRoute}
@@ -250,16 +261,30 @@ function designProblem({
   onAskAssistant: (error: string) => void;
 }): DesignProblem | null {
   if (studioProposal !== null) {
+    const onSite =
+      typeof window === "undefined"
+        ? null
+        : siteDesignTabUrl(window.location.href, studioProposal.name);
     return {
       title: "This is a proposal's address",
       message:
-        "The design tab is opened from the site, so that a build that breaks the proposal cannot take it down. Open it from the proposal's menu.",
+        "The design tab runs on the site, so that a build that breaks the proposal cannot take it down.",
+      ...(onSite !== null
+        ? {
+            action: {
+              label: "Open it on the site",
+              onClick: () => window.location.assign(onSite),
+            },
+          }
+        : {}),
     };
   }
   if (read.status === "error") {
     return {
       title: "The proposal could not be read",
-      message: read.message,
+      message:
+        "Val could not read the proposal's files or the site's. Nothing was changed. Try again, and if it keeps failing, the details below say why.",
+      details: read.message,
       action: { label: "Try again", onClick: onRetryRead },
     };
   }

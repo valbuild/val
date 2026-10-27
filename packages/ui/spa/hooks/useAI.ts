@@ -89,6 +89,7 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
+  designSystemPrompt,
   isCodeTool,
   runCodeTool,
 } from "../proposals/proposalCode";
@@ -635,6 +636,7 @@ const DESIGN_TOOLS: AITool[] = [
   COUNT_ENTRIES_TOOL,
   GET_RECORD_KEYS_TOOL,
 ];
+const DESIGN_TOOL_NAMES = new Set(DESIGN_TOOLS.map((tool) => tool.name));
 
 export type UseAIOptions = {
   /**
@@ -1066,7 +1068,27 @@ export function useAI(
             askQuestions,
           );
         }
-        if (message.name === "ask_user_question") {
+        if (
+          designRef.current !== null &&
+          !DESIGN_TOOL_NAMES.has(message.name) &&
+          !isCodeTool(message.name)
+        ) {
+          // Only the tools offered are run: a call to another -- from an
+          // older turn, or a model that reached past its list -- would change
+          // the SITE's content from a tab that says content is not changed
+          // here.
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: false,
+              error:
+                "That tool is not available in the design tab: content is edited in the proposal's own Studio. Change code with write_files.",
+            },
+            isError: true,
+          });
+          chatRef.current?.errorToolCall(message.id, message.toolCallId);
+        } else if (message.name === "ask_user_question") {
           pendingQuestionsRef.current.set(message.toolCallId, message.id);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
@@ -2524,7 +2546,12 @@ export function useAI(
             // refused. Null means AI is off, which is checked before we get
             // here.
             model: chatModel,
-            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
+            systemPrompt:
+              designRef.current !== null
+                ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
+                    valReads.getAssistantSettings(),
+                  )}`
+                : `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
@@ -2607,17 +2634,12 @@ Do not describe what you will do unless you do it for clarification — just do 
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
-              valReads.getAssistantSettings(),
-            )}${codeToolsPromptSection(
-              designRef.current !== null
-                ? {
-                    kind: "design",
-                    displayName: designRef.current.proposal.displayName,
-                  }
-                : currentProposalRef.current !== null
-                  ? { kind: "proposal" }
-                  : { kind: "site" },
-            )}`,
+                    valReads.getAssistantSettings(),
+                  )}${codeToolsPromptSection(
+                    currentProposalRef.current !== null
+                      ? { kind: "proposal" }
+                      : { kind: "site" },
+                  )}`,
             tools:
               designRef.current !== null
                 ? [...DESIGN_TOOLS, ...CODE_TOOLS]

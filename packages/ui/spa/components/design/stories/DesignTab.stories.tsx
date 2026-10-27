@@ -150,6 +150,7 @@ const BASE: DesignTabViewProps = {
     address: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev",
   },
   studioUrl: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev/val",
+  previewHref: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev/",
   route: "/",
   onRouteChange: () => {},
   onReload: () => {},

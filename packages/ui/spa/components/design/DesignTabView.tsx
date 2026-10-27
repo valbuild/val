@@ -78,6 +78,8 @@ export type DesignView = "preview" | "changes";
 
 export type DesignTabViewProps = {
   proposal: { displayName: string; address: string | null };
+  /** The page the frame shows, to open in a tab of its own; `null`: none. */
+  previewHref: string | null;
   /** The proposal's own Studio: its content, and Publish. */
   studioUrl: string | null;
   route: string;
@@ -154,6 +156,7 @@ export function DesignTabView(props: DesignTabViewProps) {
             onRouteChange={props.onRouteChange}
             onReload={props.onReload}
             address={props.proposal.address}
+            previewHref={props.previewHref}
             view={view}
             onView={setView}
             device={device}
@@ -440,6 +443,7 @@ function PreviewToolbar({
   onRouteChange,
   onReload,
   address,
+  previewHref,
   view,
   onView,
   device,
@@ -450,6 +454,7 @@ function PreviewToolbar({
   onRouteChange: (route: string) => void;
   onReload: () => void;
   address: string | null;
+  previewHref: string | null;
   view: DesignView;
   onView: (view: DesignView) => void;
   device: DesignDevice;
@@ -531,9 +536,9 @@ function PreviewToolbar({
           >
             <RotateCw size={14} />
           </button>
-          {address !== null && (
+          {previewHref !== null && (
             <a
-              href={new URL(route, address).toString()}
+              href={previewHref}
               target="_blank"
               rel="noreferrer"
               title="Open the proposal's address in a tab of its own"
@@ -632,6 +637,13 @@ function PreviewArea({
       <Empty>
         The proposal&apos;s address is being set up. The preview appears here
         when it is ready.
+      </Empty>
+    );
+  }
+  if (preview === null) {
+    return (
+      <Empty>
+        That is not a page of this proposal. Type its path, starting with /.
       </Empty>
     );
   }
