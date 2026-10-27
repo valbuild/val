@@ -1,11 +1,12 @@
 # Content analytics
 
-> **Status: in progress** (October 2026). Steps 1–4 of the
-> [build order](#7-build-order) are built, in valbuild/val #878, #881 and #887.
-> On `home`'s side the loader's route and meter, the aggregator and delivery
-> to Postgres are merged (valbuild/home#255, #256, #258, #260); the project
-> setting, billing and the dashboard are not built. Scope for the first
-> version: **TanStack Start, hosted by Val**.
+> **Status: built** (October 2026), for the first version's scope:
+> **TanStack Start, hosted by Val**. Every step of the
+> [build order](#7-build-order) is built and released, and so is the Studio
+> showing the numbers beside the content (see [Later](#later)). On `home`'s
+> side the loader's route and meter, the aggregator, delivery to Postgres, the
+> project setting, billing, the dashboard and the email notices are built
+> (`home`'s `docs/analytics.md`).
 > Next.js and self-hosted apps come later and are noted where the design has
 > to leave room for them.
 >
@@ -94,6 +95,14 @@ project's owner cannot see, and two switches raise the question of which wins.
   platform hands over (`__PLATFORM_SECRETS`), never `process.env`: a value
   baked in at build time would be a second switch, and one that stays on
   after the owner turns it off.
+- **The one exception is local development**: `VAL_ANALYTICS=true` in the
+  app's `.env.development` turns it on while `vite dev` serves the site
+  (`analyticsFromDevelopment` in `@valbuild/tanstack`), for a provider passed
+  no `analytics`. It is there so a developer sees the
+  [leak warning](#the-leak-warning) before any visitor gets what it warns
+  about, and it cannot follow the code to production: it is read only when
+  `NODE_ENV` is `development`, which only the development server sets, and
+  the platform's setting wins wherever there is one. The templates ship it.
 - The site layout's loader passes it to `<ValProvider analytics>`, beside
   `fetchValDraft()`. The provider keeps the value it mounted with, because the
   loader runs only on the server and a client navigation hands it `undefined`.
@@ -389,9 +398,10 @@ Self-hosted forwarding to Val's ingest, authenticated with the project's
   contains no `@valbuild/core`, `@valbuild/shared` or `zod`.
 - **e2e, `tanstack` project**: Playwright intercepts `/api/val/analytics` and
   checks the first beacon names the content at the top of the page as
-  rendered and viewed, and that a client navigation is a page view of its own
-  (built). Still to add: scroll a long page, and check the content scrolled
-  past is viewed and the content below the fold rendered only.
+  rendered and viewed, that a client navigation is a page view of its own,
+  and, on the showcase's long page, that content two screens down is rendered
+  only until it is scrolled to, and viewed once it has been on screen for
+  a second (all built).
 
 ## 6. The showcase
 
@@ -401,7 +411,8 @@ Per `CLAUDE.md`, a feature is not done until `examples/tanstack` shows it:
   into `process.env`, read by its own `fetchValAnalytics()` (built)
 - the dev log from section 4 printed in the terminal while it is browsed
   (built)
-- a long page whose content is partly below the fold (not built yet)
+- a long page whose content is partly below the fold: `/showcase`, which
+  shows every schema type, runs several screens down (built)
 
 The showcase list in `CLAUDE.md` names analytics.
 
@@ -420,10 +431,11 @@ The showcase list in `CLAUDE.md` names analytics.
    `fetchValAnalytics()` returning a `ValAnalytics`, the provider passing it
    on. **Built**: #887 and valbuild/home#255. See
    [The content version](#the-content-version).
-5. The showcase's long page and the scroll e2e test.
+5. The showcase's long page and the scroll e2e test. **Built**.
 6. The leak warning. **Built**, with the fragment fix in `autoTagJSX`.
 7. Release, then the template bump, so hosted sites built from
-   `template-tanstack-starter` carry it.
+   `template-tanstack-starter` carry it. **Built**: every release since
+   0.150.0, and the templates follow each.
 
 `home`'s loader side can be built in parallel against the wire format above.
 
