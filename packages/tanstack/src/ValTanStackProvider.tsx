@@ -23,7 +23,12 @@ import { useRouter, useRouterState } from "@tanstack/react-router";
 import React, { useEffect } from "react";
 import { ValScript } from "./ValScript";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
-import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
+import {
+  SET_AUTO_TAG_JSX_ENABLED,
+  isReactDevelopmentBuild,
+  stegaLeakMessage,
+  watchStegaLeaks,
+} from "@valbuild/react/stega";
 import type { ValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
@@ -470,6 +475,33 @@ export const ValTanStackProvider = (props: {
     route,
     router,
   ]);
+
+  /**
+   * The leak warning, in development, for the page a visitor gets with
+   * analytics on: every edit tag that reached it somewhere `autoTagJSX` could
+   * not take it out -- JSON-LD, the title, a `<meta>`, a share link -- named
+   * in the console. Every visitor gets those tags after hydration, so a leak
+   * not seen here ships.
+   *
+   * A visitor's page only, as the analytics script's gate has it: an
+   * editor's is rendered from a draft, and content the server read for one
+   * carries its tags in its text until the browser renders it again (see the
+   * showcase's docs route) -- which no visitor ever gets, and which the
+   * advice in the warning would not fix.
+   */
+  React.useEffect(() => {
+    if (
+      !isReactDevelopmentBuild() ||
+      !analytics ||
+      mountOverlay !== false ||
+      isValStudioPath(location.pathname)
+    ) {
+      return;
+    }
+    return watchStegaLeaks((leak) => {
+      Internal.log.warn(stegaLeakMessage(leak));
+    });
+  }, [analytics, mountOverlay]);
 
   React.useEffect(() => {
     // Activate the Suspense gate after hydration. Inside a transition so

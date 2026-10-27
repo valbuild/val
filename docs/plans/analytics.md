@@ -120,21 +120,43 @@ that runs the page, Googlebot included. The server's HTML stays clean.
 A tag is about **1.5 KB** of invisible characters per string (measured, 60
 strings, `@vercel/stega` 1.1.0), so a leak is heavy as well as wrong.
 
-In dev, with analytics on, the script scans once after load and on every route
-change:
+In development, with analytics on, `ValProvider` watches the page a VISITOR
+gets (`watchStegaLeaks` in `@valbuild/react/stega`) and scans it whenever it
+has settled after a change -- after load, after the render that adds the tags,
+after every route change. It looks at everything a tag can reach:
 
-- `document.title` and every `<meta>` `content`
-- `<script type="application/ld+json">` bodies
-- every attribute value, and text nodes not under an element that has `data-val-path`
+- `document.title`, every `<meta>` `content` and every other attribute value,
+  percent-decoded too, so `encodeURIComponent(title)` in a share link is found
+- `<script type="application/ld+json">` bodies, and every other text node
 
-For each tag it finds, it decodes the path and logs:
+Anything that went through `autoTagJSX` is clean, so a tag found anywhere is a
+leak. For each one it logs, once per path and place:
 
 ```
-[val] Content from /content/blog.val.ts?p="intro"."title" reached <script type="application/ld+json"> with its edit tag still in it.
-      Wrap the value in val.raw() where it leaves React.
+[val] Content from /content/blog.val.ts?p="intro"."title" reached <script type="application/ld+json"> with its edit tag still in it. Wrap the value in val.raw() where it leaves React.
 ```
 
-Production never runs the scan.
+Three decisions in it:
+
+- **A visitor's page only** -- the analytics script's own gate, so a browser
+  with Val enabled sees no warning; open the site in a private window. An
+  editor's page is rendered from a draft, and content the server read for one
+  carries its tags in its text until the browser renders it again (the
+  showcase's docs route says why). No visitor gets that, and `val.raw()` would
+  not fix it, so warning about it would be noise.
+- **"Development" is React's development build** (`isReactDevelopmentBuild`:
+  `react/jsx-dev-runtime` has a `jsxDEV`). `process.env.NODE_ENV` is not
+  reliable in the browser: TanStack Start's dev server hands it a `process.env`
+  without one. Production never runs the scan.
+- **It found a leak in `autoTagJSX` itself on its first run.** A fragment cannot
+  carry `data-val-path`, so `autoTagJSX` skipped fragments, and the text in
+  `<li><a>{link.title}</a><> — {link.blurb}</></li>` kept its tag on every
+  visitor's page. A fragment's text is now cleaned and its paths go to the
+  element it is in.
+
+The showcase's post page writes JSON-LD and a share link through `val.raw()`,
+and `e2e/tanstack/leakWarning.spec.ts` checks it warns about nothing there, and
+names a title, JSON-LD and a share link put on the page that each leak a tag.
 
 ---
 
@@ -360,8 +382,9 @@ Self-hosted forwarding to Val's ingest, authenticated with the project's
 - **e2e, `tanstack` project**: the HTML a visitor is sent names no content,
   and after hydration the showcase's content has `data-val-path` and clean
   text, a lazy component handed a string as a prop included.
-- **Leak warning**: a fixture page with JSON-LD, a title and a share link, each
-  leaking one tag, and the warning naming all three.
+- **Leak warning** (built): `stegaLeaks.test.ts` and `autoTagJSX.test.ts`; in
+  e2e, the showcase's post page warning about nothing, and a title, JSON-LD
+  and a share link each leaking one tag, named, all three.
 - **Bundle weight**: a test that the analytics entrypoint's import graph
   contains no `@valbuild/core`, `@valbuild/shared` or `zod`.
 - **e2e, `tanstack` project**: Playwright intercepts `/api/val/analytics` and
@@ -398,7 +421,7 @@ The showcase list in `CLAUDE.md` names analytics.
    on. **Built**: #887 and valbuild/home#255. See
    [The content version](#the-content-version).
 5. The showcase's long page and the scroll e2e test.
-6. The leak warning.
+6. The leak warning. **Built**, with the fragment fix in `autoTagJSX`.
 7. Release, then the template bump, so hosted sites built from
    `template-tanstack-starter` carry it.
 
