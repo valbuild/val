@@ -3454,6 +3454,8 @@ export const ValServer = (
                   name: z.string().nullable(),
                   createdAt: z.string(),
                   updatedAt: z.string(),
+                  // A proposal's chats say who is in each (Flow H).
+                  authorIds: z.array(z.string()).optional(),
                 }),
               ),
               nextCursor: z
@@ -3466,6 +3468,8 @@ export const ValServer = (
             });
             const params = new URLSearchParams();
             if (req.query.limit) params.set("limit", req.query.limit);
+            // In a proposal, its chats, everyone's (Flow H).
+            if (req.query.proposal) params.set("proposal", req.query.proposal);
             if (req.query.cursor_updatedAt) {
               params.set("cursor_updatedAt", req.query.cursor_updatedAt);
             }
@@ -3654,6 +3658,8 @@ export const ValServer = (
                 z.object({
                   role: z.string(),
                   content: AIMessageContent,
+                  // Who asked, on a user message (Flow H).
+                  authorId: z.string().nullable().optional(),
                 }),
               ),
               nextCursor: z

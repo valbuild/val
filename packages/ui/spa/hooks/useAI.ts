@@ -21,8 +21,11 @@ import { useValSystem } from "../stores/react/SystemContext";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
+  ChatMessage,
   ChatMessageAttachment,
 } from "../components/AIChat";
+import type { ProposalParticipant } from "../components/proposals/types";
+import { runningAsker, someoneElseAdded } from "./sharedChat";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -33,10 +36,12 @@ import {
   SessionImageToPatchError,
   useAIModelSelection,
   useAvailableAIModel,
+  useCurrentAuthorId,
   useCurrentProfile,
   useCurrentProposal,
   useProfilesByAuthorId,
   useAIContext,
+  type AIMessagesResponse,
 } from "../components/ValProvider";
 import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
@@ -958,6 +963,67 @@ export function useAI(
   // a successful send and cleared by whichever of response/error/cancelled
   // settles it.
   const inFlightPromptIdRef = useRef<string | null>(null);
+
+  /*
+   * A proposal's chats are everyone's on the project (valbuild/home
+   * `docs/proposals.md`, Flow H). Not the design tab's: it names its proposal
+   * itself and its chats are not a proposal's chats.
+   */
+  const sharedProposalName =
+    design === null ? (studioProposal?.name ?? null) : null;
+  const sharedProposalNameRef = useRef(sharedProposalName);
+  sharedProposalNameRef.current = sharedProposalName;
+  const viewerId = useCurrentAuthorId();
+  const viewerIdRef = useRef(viewerId);
+  viewerIdRef.current = viewerId;
+  /** The open chat as the server last had it: who asked what. */
+  const [serverMessages, setServerMessages] = useState<ServerMessage[]>([]);
+  const serverMessagesRef = useRef<ServerMessage[]>([]);
+  /** Who asked the question running in the open chat, when it is not you. */
+  const [turnBy, setTurnBy] = useState<ProposalParticipant | null>(null);
+  /** When the unanswered question was first seen: see `STALE_TURN_MS`. */
+  const pendingSinceRef = useRef<{ key: string; since: number } | null>(null);
+  const participantOf = useCallback(
+    (id: string): ProposalParticipant => {
+      const profile =
+        profiles[id] ?? (id === viewerId ? currentProfile : undefined);
+      return {
+        id,
+        name: profile?.fullName || "Someone on the project",
+        ...(profile?.avatar?.url ? { avatarUrl: profile.avatar.url } : {}),
+      };
+    },
+    [profiles, viewerId, currentProfile],
+  );
+  const participantOfRef = useRef(participantOf);
+  participantOfRef.current = participantOf;
+  /** Remember the open chat as the server has it, and whose turn is running. */
+  const takeServerMessages = useCallback(
+    (sessionId: string, messages: ServerMessage[]) => {
+      serverMessagesRef.current = messages;
+      setServerMessages(messages);
+      const asker = runningAsker(messages, viewerIdRef.current);
+      if (asker === null) {
+        pendingSinceRef.current = null;
+        setTurnBy(null);
+        return;
+      }
+      const key = `${sessionId}:${messages.length}`;
+      if (pendingSinceRef.current?.key !== key) {
+        pendingSinceRef.current = { key, since: Date.now() };
+      }
+      const running =
+        Date.now() - pendingSinceRef.current.since < STALE_TURN_MS;
+      setTurnBy((prev) =>
+        !running
+          ? null
+          : prev?.id === asker
+            ? prev
+            : participantOfRef.current(asker),
+      );
+    },
+    [],
+  );
   /**
    * The prompts this chat started.
    *
@@ -2430,6 +2496,10 @@ export function useAI(
       }
       const queryParams = new URLSearchParams();
       queryParams.set("sessionid", encodeURIComponent(sid));
+      // A chat that starts with an image is created by this upload.
+      if (sharedProposalNameRef.current !== null) {
+        queryParams.set("proposal", sharedProposalNameRef.current);
+      }
       queryParams.set("width", encodeURIComponent(readRes.width || 0));
       queryParams.set("height", encodeURIComponent(readRes.height || 0));
       queryParams.set(
@@ -2537,6 +2607,10 @@ export function useAI(
         sessionId: sid,
         id: randomUUID(),
         reportUsage: true,
+        // Makes a new chat the proposal's; ignored for one that exists.
+        ...(sharedProposalNameRef.current !== null
+          ? { proposal: sharedProposalNameRef.current }
+          : {}),
         agents: [
           {
             id: "default",
@@ -2779,6 +2853,9 @@ Do not describe what you will do unless you do it for clarification — just do 
     rejectPendingQuestions("User started a new session.");
     sessionIdRef.current = null;
     setCurrentSessionId(null);
+    serverMessagesRef.current = [];
+    setServerMessages([]);
+    setTurnBy(null);
     chatRef.current?.clearMessages();
     onSessionClearedRef.current?.();
   }, [chatRef, rejectPendingQuestions]);
@@ -2788,11 +2865,16 @@ Do not describe what you will do unless you do it for clarification — just do 
       limit?: number;
       cursor?: { updatedAt: string; id: string };
     }): Promise<AISession[]> => {
-      const res = await aiGetSessions(opts);
+      const res = await aiGetSessions({
+        ...opts,
+        ...(sharedProposalName !== null
+          ? { proposal: sharedProposalName }
+          : {}),
+      });
       setSessions(res.sessions);
       return res.sessions;
     },
-    [aiGetSessions],
+    [aiGetSessions, sharedProposalName],
   );
 
   const setSessionName = useCallback(
@@ -2814,15 +2896,10 @@ Do not describe what you will do unless you do it for clarification — just do 
       setIsLoadingSession(true);
       try {
         const res = await aiGetSessionMessages(sessionId);
-        const messages = res.messages
-          ?.filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m, i) => ({
-            id: `history-${sessionId}-${i}`,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            status: "complete" as const,
-          }));
-        chatRef.current?.loadMessages(messages);
+        chatRef.current?.loadMessages(
+          toChatMessages(sessionId, res.messages, participantOfRef.current),
+        );
+        takeServerMessages(sessionId, res.messages);
         onSessionBornRef.current?.(sessionId);
       } catch (err) {
         Internal.log.debug("Failed to load session messages, clearing:", err);
@@ -2834,8 +2911,87 @@ Do not describe what you will do unless you do it for clarification — just do 
         setIsLoadingSession(false);
       }
     },
-    [chatRef, aiGetSessionMessages, rejectPendingQuestions],
+    [chatRef, aiGetSessionMessages, rejectPendingQuestions, takeServerMessages],
   );
+
+  /*
+   * A proposal's chat is shared, so others may be asking in it. Until the
+   * content server relays a chat to everyone watching it, the open chat is
+   * read again every few seconds, and shown again when someone else has added
+   * to it. Never while this tab's own question runs (that one is on screen as
+   * it streams), and never just for this tab's own messages, which are on
+   * screen already with their tool activity, which a reload would drop.
+   */
+  useEffect(() => {
+    if (sharedProposalName === null || currentSessionId === null) return;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      const sid = sessionIdRef.current;
+      if (sid === null || inFlightPromptIdRef.current !== null) return;
+      let res: AIMessagesResponse;
+      try {
+        res = await aiGetSessionMessages(sid);
+      } catch (err) {
+        // A missed read: the next one tries again.
+        Internal.log.debug("Could not read the shared chat again:", err);
+        return;
+      }
+      if (
+        stopped ||
+        sessionIdRef.current !== sid ||
+        inFlightPromptIdRef.current !== null
+      ) {
+        return;
+      }
+      if (
+        someoneElseAdded(
+          serverMessagesRef.current,
+          res.messages,
+          viewerIdRef.current,
+        )
+      ) {
+        chatRef.current?.loadMessages(
+          toChatMessages(sid, res.messages, participantOfRef.current),
+        );
+      }
+      takeServerMessages(sid, res.messages);
+    }, SHARED_CHAT_POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [
+    sharedProposalName,
+    currentSessionId,
+    aiGetSessionMessages,
+    chatRef,
+    takeServerMessages,
+  ]);
+
+  /** Everyone in the open chat, and in each listed chat: Flow H's `together`. */
+  const shared = useMemo<SharedChat | null>(() => {
+    if (sharedProposalName === null || viewerId === null) return null;
+    const ids = new Set<string>([viewerId]);
+    const listed = sessions.find((s) => s.id === currentSessionId);
+    for (const id of listed?.authorIds ?? []) ids.add(id);
+    for (const m of serverMessages) if (m.authorId) ids.add(m.authorId);
+    return {
+      viewerId,
+      people: [...ids].map(participantOf),
+      turnBy,
+      sessionPeople: Object.fromEntries(
+        sessions.map((s) => [s.id, (s.authorIds ?? []).map(participantOf)]),
+      ),
+    };
+  }, [
+    sharedProposalName,
+    viewerId,
+    sessions,
+    currentSessionId,
+    serverMessages,
+    turnBy,
+    participantOf,
+  ]);
 
   // Once the assistant is reachable, populate the sessions dropdown and (if an
   // initial session id was passed in, e.g. from ?session= in the URL) load it.
@@ -2879,5 +3035,59 @@ Do not describe what you will do unless you do it for clarification — just do 
     loadSession,
     answerToolQuestions,
     cancelToolQuestion,
+    /** In a proposal: who is in the chat, and whose turn runs. See Flow H. */
+    shared,
   };
+}
+
+// ---------------------------------------------------------------------------
+// A proposal's chat, shared (valbuild/home `docs/proposals.md`, Flow H)
+// ---------------------------------------------------------------------------
+
+type ServerMessage = AIMessagesResponse["messages"][number];
+
+/** What `useAI` gives a surface about a proposal's chat. */
+export type SharedChat = {
+  viewerId: string;
+  /** The viewer, and everyone who started or asked in the open chat. */
+  people: ProposalParticipant[];
+  /** Who asked the question that is running, when it is not the viewer. */
+  turnBy: ProposalParticipant | null;
+  /** Who is in each listed chat, by session id. */
+  sessionPeople: Record<string, ProposalParticipant[]>;
+};
+
+/** How often an open shared chat is read again. */
+const SHARED_CHAT_POLL_MS = 4000;
+
+/**
+ * How long an unanswered question from someone else counts as running.
+ *
+ * The chat is read, not watched, so "running" is a guess: the last message
+ * is someone else's question with no answer yet. A question whose asker left
+ * mid-turn is never answered, and without this the chat would say they are
+ * asking forever, holding back what this person queued. The server refuses a
+ * prompt while a turn really runs (`session_busy`), so guessing short costs a
+ * refused send, never two turns at once.
+ */
+const STALE_TURN_MS = 2 * 60 * 1000;
+
+function toChatMessages(
+  sessionId: string,
+  messages: ServerMessage[],
+  participantOf: (id: string) => ProposalParticipant,
+): ChatMessage[] {
+  return messages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map(
+      (m, i): ChatMessage => ({
+        id: `history-${sessionId}-${i}`,
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.content,
+        status: "complete",
+        ...(m.role === "user" && m.authorId
+          ? { author: participantOf(m.authorId) }
+          : {}),
+      }),
+    );
 }
