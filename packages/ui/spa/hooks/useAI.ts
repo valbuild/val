@@ -96,9 +96,11 @@ import {
   codeToolsPromptSection,
   designSystemPrompt,
   pickedElementPrompt,
+  DESIGN_CREATE_PATCH_TOOL,
   isCodeTool,
   runCodeTool,
 } from "../proposals/proposalCode";
+import { typecheckProposal } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
   requestProposal,
@@ -627,12 +629,15 @@ const ALL_TOOLS: AITool[] = [
 ];
 
 /**
- * The tools the design tab gives the assistant besides the code tools: the
- * ones that READ content and talk to the person. Nothing that writes content
- * or moves the Studio: the tab is about a proposal's code, it is served by the
- * site's build, and the content tools act on the site's content.
+ * The tools the design tab gives the assistant besides the code tools: its own
+ * `create_patch`, which writes content into the proposal's FILES with the code
+ * (`DESIGN_CREATE_PATCH_TOOL`), the ones that READ content, and the ones that
+ * talk to the person. Nothing that writes the site's content or moves the
+ * Studio: the tab is served by the site's build, and the reading tools read
+ * the site's content.
  */
 const DESIGN_TOOLS: AITool[] = [
+  DESIGN_CREATE_PATCH_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
@@ -1158,7 +1163,7 @@ export function useAI(
             result: {
               success: false,
               error:
-                "That tool is not available in the design tab: content is edited in the proposal's own Studio. Change code with write_files.",
+                "That tool is not available in the design tab. Change content with create_patch, which writes it into the proposal's files, and code with write_files.",
             },
             isError: true,
           });
@@ -1237,7 +1242,10 @@ export function useAI(
             result: errors,
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
-        } else if (message.name === "create_patch") {
+        } else if (
+          message.name === "create_patch" &&
+          designRef.current === null
+        ) {
           const args = message.arguments as {
             module_file_path: string;
             patch: unknown[];
@@ -1952,7 +1960,12 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
-        } else if (isCodeTool(message.name)) {
+        } else if (
+          isCodeTool(message.name) ||
+          // The design tab's create_patch writes into the proposal's files:
+          // `DESIGN_CREATE_PATCH_TOOL`.
+          (designRef.current !== null && message.name === "create_patch")
+        ) {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
           const toolName = message.name;
@@ -1969,9 +1982,25 @@ export function useAI(
                   })
                 : build();
             },
+            typecheck: () => {
+              const proposal = currentProposalRef.current;
+              return proposal === null
+                ? Promise.resolve({ status: "nothing-staged" })
+                : typecheckProposal(
+                    proposal.name,
+                    codeClients.proposals,
+                    proposalCodeChanged,
+                  );
+            },
             offerProposal: requestProposal,
           }).then(({ result, isError }) => {
-            if (toolName === "write_files" && !isError) proposalCodeChanged();
+            if (
+              (toolName === "write_files" ||
+                toolName === "create_patch" ||
+                toolName === "format_files") &&
+              !isError
+            )
+              proposalCodeChanged();
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId,
