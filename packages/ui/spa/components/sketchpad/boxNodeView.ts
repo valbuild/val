@@ -66,7 +66,7 @@ export class BoxView implements NodeView {
     this.icon.appendChild(document.createElementNS(SVG, "path"));
     this.kind = el(
       "button",
-      "cursor-pointer rounded px-0.5 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
+      "cursor-pointer rounded px-0.5 text-[11px] font-medium text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
     );
     this.kind.type = "button";
     this.kind.title = "Change what kind of box this is";
@@ -252,7 +252,7 @@ export class BoxView implements NodeView {
     }
     const input = el(
       "input",
-      "w-28 rounded border border-border-focus bg-bg-primary px-1 text-[11px] uppercase tracking-wide text-fg-primary outline-none",
+      "w-28 rounded border border-border-focus bg-bg-primary px-1 text-[11px] text-fg-primary outline-none",
     );
     input.value = String(this.node.attrs.kind);
     input.setAttribute("aria-label", "Kind of box");

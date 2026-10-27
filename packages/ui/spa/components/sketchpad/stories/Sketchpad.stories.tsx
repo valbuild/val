@@ -7,29 +7,28 @@ import { Sketchpad, type SketchpadProps } from "../Sketchpad";
  * assistant before anyone builds it. It lives outside the chat, so both sides
  * can change it: the assistant rewrites it, the editor types in it.
  *
- * **Page** is a document: click anywhere and type, and the caret moves
+ * The page is a document: click anywhere and type, and the caret moves
  * through headings, paragraphs, box labels and columns with the arrow keys.
  * `#` makes a heading and `[kind: label]` a box, as in the text; the toolbar
  * adds boxes and columns. Drop an image or a video on a box to put it in.
  * Click a box's kind to rename it.
  *
- * **Text** is what the assistant reads and writes:
+ * The assistant reads and writes the same page as text, in one strict form
+ * (see `sketchFormat.ts`):
  *
  * ```
  * # Heading / ## Sub / ### Small     text
  * Any other line                     text (a paragraph)
  * [image: Team photo]                a box: [kind] or [kind: label]
  * row                                its children side by side
- * col 2                              its children stacked; 2 shares of a row
+ *   col 2                            its children stacked; 2 shares of a row
  * [hero: Roof](image: /roof.jpg)     a box with an image (or video) in it
+ *
  * icon stat M3 17l6-6 4 4 8-8        how every [stat] box is drawn
  * ```
  *
  * A box's kind is any word. The assistant draws each kind's icon as SVG path
  * data, so the sketch is not limited to the kinds someone gave icons to.
- *
- * **ASCII** is the page as monospace text: what the assistant is handed back
- * to see the page the way the editor does.
  */
 const meta: Meta<typeof Sketchpad> = {
   title: "Components/Sketchpad",
@@ -92,7 +91,6 @@ row
   [button: Start for free]
   [button: Book a demo]
 [image: Screenshot of the Studio editing a page]
-
 row
   col
     ### Edit in place
@@ -103,7 +101,6 @@ row
   col
     ### Type safe
     Your schema is TypeScript, checked at build time.
-
 ## What our customers say
 row
   col
@@ -267,41 +264,6 @@ ${icons("form", "button", "link", "map")}
   },
 };
 
-/**
- * A sketch never fails to parse: a line it does not understand is reported,
- * with the way to fix it, and the rest of the page still renders. Click an
- * error to go to its line.
- */
-export const WithErrors: Story = {
-  args: {
-    title: "/pricing",
-    value: `# Pricing
-Simple plans for every team.
-  This line is indented under text
-row 2
-  col
-    ## Free
-    [button: Start
-  col 0
-    ## Team
-    [button: Talk to sales]
-`,
-  },
-};
-
-/**
- * The same page as monospace text, as wide as the pane allows: what the
- * assistant gets back to see the page as the editor sees it.
- */
-export const AsciiView: Story = {
-  args: { value: LANDING, title: "/", defaultView: "ascii" },
-};
-
-/** The sketch as the assistant reads it, line numbers and all. */
-export const TextView: Story = {
-  args: { value: LANDING, title: "/", defaultView: "text" },
-};
-
 /** On a phone: the toolbar wraps and the page takes the width. */
 export const Phone: Story = {
   args: { value: ARTICLE, title: "/blog/cms-in-git" },
@@ -318,12 +280,15 @@ export const Phone: Story = {
 // calls. Each step is the whole sketch: the assistant rewrites it, it does
 // not patch it.
 const ASSISTANT_STEPS = [
-  `# Our people`,
   `# Our people
-We are 40 designers and developers in Oslo.`,
+`,
   `# Our people
 We are 40 designers and developers in Oslo.
-[image: The whole team on the roof]`,
+`,
+  `# Our people
+We are 40 designers and developers in Oslo.
+[image: The whole team on the roof]
+`,
   `# Our people
 We are 40 designers and developers in Oslo.
 [image: The whole team on the roof]
@@ -331,7 +296,8 @@ row
   col
     ## Design
   col
-    ## Development`,
+    ## Development
+`,
   `# Our people
 We are 40 designers and developers in Oslo.
 [image: The whole team on the roof]
@@ -344,7 +310,8 @@ row
     [list: Developers, with portraits]
 ## Join us
 We are hiring.
-[button: See open positions]`,
+[button: See open positions]
+`,
   `# Our people
 We are 40 designers and developers in Oslo.
 [image: The whole team on the roof]
@@ -359,7 +326,8 @@ row
 We are hiring.
 [button: See open positions]
 
-${icons("image", "list", "button")}`,
+${icons("image", "list", "button")}
+`,
 ];
 
 function AssistantEditing(props: SketchpadProps) {

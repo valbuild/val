@@ -16,9 +16,15 @@
  *
  * It is a scratch pad, not a layout language: it says WHAT is on a page and
  * roughly WHERE, so an assistant and a person can agree on a page's content
- * before anyone worries about how it looks. That is why it is plain text an
- * assistant can rewrite in one go, and why it never fails to parse: a line it
- * does not understand is reported and the rest of the page still renders.
+ * before anyone worries about how it looks. The person never sees this text,
+ * only the page it describes; the assistant never sees the page, only this.
+ * So the two have to be the same thing, and the format is STRICT: there is
+ * exactly one way to write what is on the screen. `checkSketch` (in
+ * `sketchpadDoc.ts`) is that rule, and an assistant's write that breaks it
+ * is refused with the line to fix.
+ *
+ * Parsing is still forgiving, so a sketch that breaks the rule shows what it
+ * can rather than nothing; that is for reading, never for accepting.
  *
  * A placeholder's kind is any word, and nothing here knows what one means. The
  * assistant that writes the sketch also draws each kind's icon, as path data
@@ -90,6 +96,7 @@ const PATH_DATA = /^[Mm][MmLlHhVvCcSsQqTtAaZz\d\s.,-]*$/;
 const HEADING = /^(#{1,3})\s+(.*)$/;
 
 type Open = {
+  type: "page" | "row" | "col";
   /** The indent of the row or col line itself; -1 for the page. */
   indent: number;
   children: SketchNode[];
@@ -102,7 +109,9 @@ export function parseSketch(source: string): ParsedSketch {
   const errors: SketchError[] = [];
   const icons: Record<string, string> = {};
   // The containers that are open at the current line, innermost last.
-  const stack: Open[] = [{ indent: -1, children: blocks, lastIndent: null }];
+  const stack: Open[] = [
+    { type: "page", indent: -1, children: blocks, lastIndent: null },
+  ];
 
   source.split(/\r?\n/).forEach((raw, index) => {
     const line = index + 1;
@@ -146,9 +155,20 @@ export function parseSketch(source: string): ParsedSketch {
     } else {
       parent.lastIndent = indent;
     }
+    if (node.type === "col" && parent.type !== "row") {
+      errors.push({
+        line,
+        message: "A col only goes directly inside a row.",
+      });
+    }
     parent.children.push(node);
     if (node.type === "row" || node.type === "col") {
-      stack.push({ indent, children: node.children, lastIndent: null });
+      stack.push({
+        type: node.type,
+        indent,
+        children: node.children,
+        lastIndent: null,
+      });
     }
   });
 
@@ -186,6 +206,13 @@ function parseContent(
     if (placeholder) {
       const kind = placeholder[1].trim();
       const label = placeholder[2]?.trim();
+      if (/\s/.test(kind)) {
+        // An icon line names a kind by one word, so a kind has to be one.
+        errors.push({
+          line,
+          message: `A box's kind is one word: "[${kind.replace(/\s+/g, "-")}${label ? `: ${label}` : ""}]".`,
+        });
+      }
       const mediaType = placeholder[3];
       return {
         type: "placeholder",
@@ -267,152 +294,4 @@ export function replaceLine(
   const indent = current.slice(0, current.length - current.trimStart().length);
   lines[line - 1] = indent + content;
   return lines.join("\n");
-}
-
-/**
- * The sketch drawn as monospace text, `width` characters wide: what an
- * assistant can be handed back to see the page the way a person sees the
- * wireframe. Columns are separated by a gutter of spaces and placeholders
- * are boxes; no line of the result is longer than `width`.
- */
-export function renderSketchAscii(blocks: SketchNode[], width = 72): string {
-  return renderStack(blocks, Math.max(width, MIN_WIDTH))
-    .map((l) => l.trimEnd())
-    .join("\n");
-}
-
-const MIN_WIDTH = 8;
-const GUTTER = "   ";
-const TALL_KINDS = new Set([
-  "image",
-  "video",
-  "map",
-  "chart",
-  "table",
-  "embed",
-]);
-
-function renderStack(blocks: SketchNode[], width: number): string[] {
-  const lines: string[] = [];
-  blocks.forEach((block, index) => {
-    if (index > 0) {
-      lines.push(pad("", width));
-    }
-    lines.push(...renderNode(block, width));
-  });
-  return lines;
-}
-
-function renderNode(node: SketchNode, width: number): string[] {
-  switch (node.type) {
-    case "col":
-      return renderStack(node.children, width);
-    case "row":
-      return renderRow(node, width);
-    case "text":
-      return renderText(node, width);
-    case "placeholder":
-      return renderPlaceholder(node, width);
-  }
-}
-
-function renderRow(row: SketchRow, width: number): string[] {
-  if (row.children.length === 0) {
-    return [];
-  }
-  const widths = shareWidth(
-    row.children.map((child) => (child.type === "col" ? child.weight : 1)),
-    width - GUTTER.length * (row.children.length - 1),
-  );
-  const columns = row.children.map((child, i) => renderNode(child, widths[i]));
-  const height = Math.max(...columns.map((c) => c.length));
-  const lines: string[] = [];
-  for (let y = 0; y < height; y++) {
-    lines.push(columns.map((c, i) => c[y] ?? pad("", widths[i])).join(GUTTER));
-  }
-  return lines;
-}
-
-/** Splits `total` by `weights`, giving every column at least 1. */
-function shareWidth(weights: number[], total: number): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  const widths = weights.map((w) => Math.max(1, Math.floor((total * w) / sum)));
-  const rest = total - widths.reduce((a, b) => a + b, 0);
-  if (rest > 0) {
-    widths[widths.length - 1] += rest;
-  }
-  return widths;
-}
-
-function renderText(text: SketchText, width: number): string[] {
-  const body = text.level === 1 ? text.text.toUpperCase() : text.text;
-  const lines = wrap(body, width).map((l) => pad(l, width));
-  if (text.level === 1 || text.level === 2) {
-    const longest = Math.max(...lines.map((l) => l.trimEnd().length));
-    lines.push(pad((text.level === 1 ? "=" : "-").repeat(longest), width));
-  }
-  return lines;
-}
-
-function renderPlaceholder(
-  placeholder: SketchPlaceholder,
-  width: number,
-): string[] {
-  const inner = Math.max(width - 2, 1);
-  const content = [
-    `[${placeholder.kind}]`,
-    ...(placeholder.label ? wrap(placeholder.label, inner) : []),
-    ...(placeholder.media ? [`(${placeholder.media.type} added)`] : []),
-  ];
-  const height = Math.max(
-    content.length,
-    placeholder.media || TALL_KINDS.has(placeholder.kind.toLowerCase()) ? 5 : 1,
-  );
-  const top = Math.floor((height - content.length) / 2);
-  const lines = ["+" + "-".repeat(inner) + "+"];
-  for (let y = 0; y < height; y++) {
-    lines.push("|" + center(content[y - top] ?? "", inner) + "|");
-  }
-  lines.push("+" + "-".repeat(inner) + "+");
-  return lines.map((l) => pad(l, width));
-}
-
-function wrap(text: string, width: number): string[] {
-  const lines: string[] = [];
-  let current = "";
-  for (const word of text.split(/\s+/).filter(Boolean)) {
-    let rest = word;
-    while (rest.length > width) {
-      if (current) {
-        lines.push(current);
-        current = "";
-      }
-      lines.push(rest.slice(0, width));
-      rest = rest.slice(width);
-    }
-    if (current === "") {
-      current = rest;
-    } else if (current.length + 1 + rest.length <= width) {
-      current += " " + rest;
-    } else {
-      lines.push(current);
-      current = rest;
-    }
-  }
-  if (current) {
-    lines.push(current);
-  }
-  return lines.length > 0 ? lines : [""];
-}
-
-function pad(text: string, width: number): string {
-  return text.length >= width
-    ? text.slice(0, width)
-    : text + " ".repeat(width - text.length);
-}
-
-function center(text: string, width: number): string {
-  const clipped = text.slice(0, width);
-  const left = Math.floor((width - clipped.length) / 2);
-  return pad(" ".repeat(left) + clipped, width);
 }

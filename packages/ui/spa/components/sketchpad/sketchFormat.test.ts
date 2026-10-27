@@ -2,7 +2,6 @@ import {
   formatPlaceholder,
   formatText,
   parseSketch,
-  renderSketchAscii,
   replaceLine,
 } from "./sketchFormat";
 
@@ -78,6 +77,13 @@ describe("parseSketch", () => {
     expect(parseSketch("\\row").blocks).toEqual([
       { type: "text", line: 1, level: 0, text: "row" },
     ]);
+  });
+
+  test("a col outside a row is reported", () => {
+    expect(parseSketch("col\n  Alone").errors.map((e) => e.line)).toEqual([1]);
+    expect(
+      parseSketch("row\n  col\n    col").errors.map((e) => e.line),
+    ).toEqual([3]);
   });
 
   test("dedenting closes containers", () => {
@@ -167,29 +173,5 @@ describe("writing back", () => {
     expect(replaceLine("row\n  col\n    Old", 3, "New")).toBe(
       "row\n  col\n    New",
     );
-  });
-});
-
-describe("renderSketchAscii", () => {
-  test("puts columns side by side within the width", () => {
-    const { blocks } = parseSketch(
-      "## Team\nrow\n  col\n    Left side\n  col\n    [image: Photo]",
-    );
-    const ascii = renderSketchAscii(blocks, 40);
-    for (const line of ascii.split("\n")) {
-      expect(line.length).toBeLessThanOrEqual(40);
-    }
-    expect(ascii).toMatchInlineSnapshot(`
-     "Team
-     ----
-
-     Left side            +-----------------+
-                          |                 |
-                          |     [image]     |
-                          |      Photo      |
-                          |                 |
-                          |                 |
-                          +-----------------+"
-    `);
   });
 });

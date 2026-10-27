@@ -405,6 +405,14 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
+   * Something to show in place of the whole page workspace -- the editor
+   * column and the canvas both -- under the same chrome: the Sketchpad's
+   * panes, which need the width the column is not allowed to take. It is
+   * inset to clear the top bar, the rail and the status bar, the way the
+   * canvas pane is.
+   */
+  workspaceOverride?: ReactNode;
+  /**
    * Something the studio has to tell the editor before they start, above the
    * editor column: `RemoteFilesCard`, today. In the column rather than over the
    * chrome, so it never covers the top bar or Publish.
@@ -644,6 +652,7 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
+  workspaceOverride,
   notice,
   statusNotice,
   floatingNotices = NO_FLOATING_NOTICES,
@@ -1396,38 +1405,52 @@ export function Shell({
         // tokens out of these custom properties. See `ValThemeProvider`.
         style={{ height: "100svh", ...themeStyle }}
       >
-        <PageWorkspace
-          breakpoint={breakpoint}
-          page={canCanvas ? canvasPage : undefined}
-          renderCanvas={canCanvas ? renderCanvas : undefined}
-          canvasPaths={canCanvas ? canvasPaths : undefined}
-          onSelectCanvasPath={onSelectCanvasPath}
-          selectedCanvasPath={selectedCanvasPath}
-          canvasRoute={canCanvas ? canvasRoute : undefined}
-          onCanvasRouteChange={onCanvasRouteChange}
-          canvasRoutes={canvasRoutes}
-          initialTransform={initialCanvasTransform}
-          onTransformChange={setCanvasTransform}
-          isCanvasOpen={isCanvasOpen && canCanvas}
-          onCloseCanvas={closeCanvas}
-          view={canvasView}
-          onViewChange={setCanvasView}
-          pane={workspacePane}
-          onPaneChange={setWorkspacePane}
-          isDevMode={isDevMode}
-          onAttachToChat={aiEnabled ? attachToChat : undefined}
-          skipTransition={skipTransition}
-        >
-          {/*
-           * The editor column, built once and then either rendered on its own
-           * or handed to `renderHistory` as the left half. Built once because
-           * the alternative - the same tree written twice, in two branches -
-           * is the shape where the two quietly stop matching.
-           */}
-          {renderHistory
-            ? renderHistory(editorColumn, breakpoint)
-            : editorColumn}
-        </PageWorkspace>
+        {workspaceOverride !== undefined ? (
+          <div
+            className={
+              breakpoint === "mobile"
+                ? "absolute inset-0 px-3 pt-[4.5rem] pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+                : breakpoint === "desktop"
+                  ? "absolute inset-0 pt-20 pb-14 pr-3 pl-[5.5rem]"
+                  : "absolute inset-0 pt-20 pb-14 px-3"
+            }
+          >
+            {workspaceOverride}
+          </div>
+        ) : (
+          <PageWorkspace
+            breakpoint={breakpoint}
+            page={canCanvas ? canvasPage : undefined}
+            renderCanvas={canCanvas ? renderCanvas : undefined}
+            canvasPaths={canCanvas ? canvasPaths : undefined}
+            onSelectCanvasPath={onSelectCanvasPath}
+            selectedCanvasPath={selectedCanvasPath}
+            canvasRoute={canCanvas ? canvasRoute : undefined}
+            onCanvasRouteChange={onCanvasRouteChange}
+            canvasRoutes={canvasRoutes}
+            initialTransform={initialCanvasTransform}
+            onTransformChange={setCanvasTransform}
+            isCanvasOpen={isCanvasOpen && canCanvas}
+            onCloseCanvas={closeCanvas}
+            view={canvasView}
+            onViewChange={setCanvasView}
+            pane={workspacePane}
+            onPaneChange={setWorkspacePane}
+            isDevMode={isDevMode}
+            onAttachToChat={aiEnabled ? attachToChat : undefined}
+            skipTransition={skipTransition}
+          >
+            {/*
+             * The editor column, built once and then either rendered on its own
+             * or handed to `renderHistory` as the left half. Built once because
+             * the alternative - the same tree written twice, in two branches -
+             * is the shape where the two quietly stop matching.
+             */}
+            {renderHistory
+              ? renderHistory(editorColumn, breakpoint)
+              : editorColumn}
+          </PageWorkspace>
+        )}
 
         {breakpoint === "desktop" && (
           <LeftRail
