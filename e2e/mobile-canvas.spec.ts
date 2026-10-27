@@ -15,14 +15,15 @@ import { openStudio, test } from "./studio";
  * The layout measurements are here for the same reason — "how much space"
  * questions look fine in a picture and are wrong by 80px in the DOM.
  */
-const HOME = "/val/~/app/page.val.ts?p=%22%2F%22";
+const HOME = "/val/~/src/routes/_site.index.val.ts?p=%22%2F%22";
 /**
  * A field on the home page, named in full.
  *
- * In full because the page has three whose path ends in `."text"` — the hero's
- * link text and the video's caption are the others.
+ * In full because the page has more than one rich text, and the blocks below
+ * the hero have fields named `text` too: the hero's lead is the one rendered
+ * near the top, where a tap on a phone lands.
  */
-const TEXT_FIELD = '/app/page.val.ts?p="/"."text"';
+const TEXT_FIELD = '/src/routes/_site.index.val.ts?p="/"."hero"."lead"';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
@@ -264,7 +265,7 @@ test.describe("the preview modes on a phone", () => {
       .poll(() => decodeURIComponent(page.url()), {
         message: "picking on the page did not open the field it belongs to",
       })
-      .toContain('."text"');
+      .toContain('."hero"."lead"');
     // ...and the phone is looking at the fields, not still at the page.
     await expect(mode(page, "On page")).toHaveAttribute(
       "aria-selected",

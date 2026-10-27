@@ -612,9 +612,12 @@ Two things follow, and they are the ones that get forgotten:
   ADDING IT THERE — a module (or a field in one), registered in
   `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
   that exists only in `packages/core` is a feature nobody can look at.
-  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
-  suite and the language server drive, and it is allowed to hold things the
-  showcase does not.
+  `examples/next` is the FIXTURE app for the language server and for the e2e
+  specs that keep `@valbuild/next` covered (`smoke`, `insecure-context`, the
+  canvas suite), and it is allowed to hold things the showcase does not. The
+  rest of the e2e suite drives `examples/tanstack`, whose e2e fixtures live in
+  `examples/tanstack/content/` (and a few `src/routes/_site.*` fixture pages),
+  registered only when `VAL_E2E_FIXTURES=true`.
 - **The TanStack checks are CI jobs** (`build-tanstack`, and the `tanstack`
   project in the blocking `smoke` job), and still yours to run before pushing
   a change the Studio loads through: `pnpm exec playwright test --project=tanstack`
@@ -942,8 +945,9 @@ no amount of clicking in the normal dev loop reaches that UI.
 
 What DOES exercise it is the `chromium-http` Playwright project, which starts
 `e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
-history endpoints — alongside a second `examples/next` in proxy mode. Ports and
-secrets live in `e2e/http/config.ts`.
+history endpoints — alongside a second `examples/tanstack` in proxy mode, with
+the e2e fixtures (`examples/tanstack/content/`) switched on. Ports and secrets
+live in `e2e/http/config.ts`.
 
 **Do not add a second history implementation to `ValOpsFS`.** The mock content
 host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`

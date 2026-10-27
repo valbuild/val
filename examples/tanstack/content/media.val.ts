@@ -1,0 +1,17 @@
+import { c, s } from "../val.config";
+
+export default c.define(
+  "/content/media.val.ts",
+  s.imagedir("/public/val/images", {
+    accept: "image/*",
+    alt: s.string().minLength(4),
+  }),
+  {
+    "/public/val/images/logo.png": {
+      width: 800,
+      height: 600,
+      mimeType: "image/png",
+      alt: "An example image",
+    },
+  },
+);

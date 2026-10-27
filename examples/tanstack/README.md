@@ -9,8 +9,16 @@ builds and really validates.
 TanStack Start is Val's primary release target, so this is where a new schema
 feature is shown first. Adding one includes adding it here: a module or a field,
 registered in `val.modules.ts`, rendered by a route, and passing `val validate`.
-`examples/next` is the fixture app for the e2e suite and the language server,
-and carries awkward shapes this one deliberately does not.
+`examples/next` is the fixture app for the language server, and carries awkward
+shapes this one deliberately does not.
+
+The one exception is the e2e suite's fixtures: `content/` (not `src/content/`),
+the same `/content/*.val.ts` modules the Next example has, and the fixture pages
+ported from its `app/` (`src/routes/_site.blogs.$blog.*`, `_site.support.$slug.*`,
+`_site.notes.$note.*`, `_site.generic.$.*`), which the Playwright specs edit and
+open. Their modules are registered only when `VAL_E2E_FIXTURES=true`, which the
+suite's servers set, so a plain `pnpm dev` is the showcase and nothing else: the
+routes exist, but their content is not in the Studio. See `val.modules.ts`.
 
 ## Running it
 
@@ -23,10 +31,10 @@ pnpm run dev:example-tanstack     # from the repo root
 
 Then open http://localhost:3458, and http://localhost:3458/val for the Studio.
 
-(3458 rather than something rounder because `e2e/http/config.ts` runs the
-proxy-mode copy of the Next example on 3457, and the e2e suite starts this app
-alongside it. `e2e/tanstack/config.ts` is where the port is written down for
-the tests.)
+(3458 rather than something rounder because the e2e suite runs the Next
+example on 3456 and a proxy-mode copy of this app on 3459 (`e2e/http/config.ts`),
+and starts them alongside this one. `e2e/tanstack/config.ts` is where the port
+is written down for the tests.)
 Nothing is editable until Val is enabled for your browser:
 
 ```

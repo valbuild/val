@@ -10,7 +10,7 @@ import { clearPatchChain, openStudio } from "./studio";
  * reads as a stale value, so an editor fixes it — and the real value lands
  * underneath the fix.
  */
-const HOME = "/val/~/app/page.val.ts?p=%22%2F%22";
+const HOME = "/val/~/src/routes/_site.index.val.ts?p=%22%2F%22";
 
 /**
  * Whether this element has focus.

@@ -95,12 +95,20 @@ export const createValClient = (
         },
       } satisfies ClientFetchErrors;
     }
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (anyReq?.headers) {
+      for (const [name, value] of Object.entries(anyReq.headers)) {
+        if (typeof value === "string") {
+          headers[name] = value;
+        }
+      }
+    }
     try {
       const res = await send(`${host}${fullPath}`, {
         method: method as string,
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body:
           anyReq.body !== undefined ? JSON.stringify(anyReq.body) : undefined,
       }).then(async (res) => {

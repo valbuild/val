@@ -96,9 +96,13 @@ test.describe("the Studio, through its own UI", () => {
     // routers: a different read, and one that has its own panel.
     await openNavPanel(page, "Data");
     const dataPanel = navPanel(page, "Data");
-    await expect(
-      dataPanel.getByRole("button", { name: "authors", exact: true }),
-    ).toBeVisible();
+    // By its module path: the showcase has an `authors` module of its own
+    // (`/src/content/authors.val.ts`), so the name alone is two rows.
+    const authors = dataPanel.getByTitle("/content/authors.val.ts", {
+      exact: true,
+    });
+    await expect(authors).toBeVisible();
+    await expect(authors).toHaveText("authors");
     await expect(
       dataPanel.getByRole("button", { name: "handbook", exact: true }),
     ).toBeVisible();
@@ -301,7 +305,7 @@ test.describe("the Studio, through its own UI", () => {
         };
       };
       const seen = bag.__VAL_STORES__.system.sourceStore.peekBase(
-        '/app/generic/[[...path]]/page.val.ts?p="/generic"."title"',
+        '/src/routes/_site.generic.$.val.ts?p="/generic"."title"',
       );
       return typeof seen.data === "string" ? seen.data : null;
     });
@@ -525,9 +529,9 @@ test.describe("reordering an array by dragging", () => {
  */
 test.describe("a field inside a jsonValues entry", () => {
   const ROUTE =
-    "/val/~/app/support/[slug]/page.val.ts?p=%22/support/getting-started%22";
+    "/val/~/src/routes/_site.support.$slug.val.ts?p=%22/support/getting-started%22";
   const TITLE =
-    '/app/support/[slug]/page.val.ts?p="/support/getting-started"."title"';
+    '/src/routes/_site.support.$slug.val.ts?p="/support/getting-started"."title"';
 
   test("applies the edit, and does not discard the patch", async ({
     page,
@@ -652,8 +656,11 @@ test.describe("recently changed", () => {
       "the empty search did not offer what had just changed",
     ).toBeVisible({ timeout: 30000 });
 
-    // The row reads as a trail from the file to the field inside it.
-    const row = studio.getByRole("button", { name: /page › .*title/ }).first();
+    // The row reads as a trail from the file to the field inside it. The file
+    // is the route module, `_site.blogs.$blog.val.ts`, so that is its label.
+    const row = studio
+      .getByRole("button", { name: /_site\.blogs\.\$blog › .*title/ })
+      .first();
     await expect(row).toBeVisible();
     await row.click();
 
@@ -682,13 +689,13 @@ test.describe("recently changed", () => {
  * Creating a page, which needs to say which route.
  *
  * A project can have several routers that accept one — `/blogs/[blog]`,
- * `/generic/[[...path]]`, `/support/[slug]` — so a New page button that does not
+ * `/generic/[[..._splat]]`, `/support/[slug]` — so a New page button that does not
  * ask cannot know where the page goes. It also used to not ask because it did
  * nothing at all: `onNewPage` was never passed, exactly like the media upload.
  *
  * The form itself is the classic nav menu's, reused rather than rebuilt: it
  * already knows that a literal segment is a chip, a `[param]` is an input, and
- * a `[[...path]]` may be left blank to mean the base route.
+ * a `[[..._splat]]` may be left blank to mean the base route.
  */
 test.describe("creating a page", () => {
   test("asks which route, and opens the page it made", async ({ page }) => {
@@ -725,8 +732,11 @@ test.describe("creating a page", () => {
     const studio = await openNavPanel(page, "Pages");
     await studio.getByRole("button", { name: "New page" }).first().click();
 
-    // A path that exists in the example app's blog router.
-    const input = studio.locator("form input").first();
+    // A path that exists in the example app's blog router -- chosen, rather
+    // than assumed to be the first route offered: the showcase's routes are
+    // in the list too.
+    await studio.getByLabel("Route").selectOption({ label: "/blogs/[blog]" });
+    const input = studio.locator('form input[placeholder="blog"]');
     await input.fill("blog1");
     await expect(
       studio.getByText(/already exists/i),
@@ -749,7 +759,7 @@ test.describe("creating a page", () => {
  * cursor in it, patch and all. So the assertion is a keystroke and the chain
  * length, not a class name.
  *
- * Fixture: `examples/next/content/access.val.ts`.
+ * Fixture: `examples/tanstack/content/access.val.ts`.
  */
 test.describe("hidden and readonly", () => {
   const MODULE = "/content/access.val.ts";

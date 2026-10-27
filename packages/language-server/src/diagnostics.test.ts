@@ -56,8 +56,8 @@ describe("diagnostics over LSP", () => {
   });
 
   test("reports a fixable validation error as a warning", async () => {
-    // Known bad image metadata in the example app. Val's own CLI prints fixable
-    // errors with a warning glyph, so an editor shows them as warnings.
+    // Known bad image metadata in the example app. A one-click fix should not
+    // shout as loudly as a type error (`severityFor`).
     const file = path.join(EXAMPLE_APP, "content", "media.val.ts");
     const uri = `file://${file}`;
     session.openDocument(uri, fs.readFileSync(file, "utf8"));

@@ -2,6 +2,15 @@ import { expect } from "@playwright/test";
 import { openStudio, patchThroughStore, test } from "./studio";
 import { expectInsecure, makeInsecure } from "./insecureContext";
 import { renderedText, watchForProblems } from "./pageProblems";
+import { NEXT_APP_URL } from "./apps";
+
+/*
+ * Against `examples/next`, on purpose: the rest of the fs-mode suite drives
+ * TanStack, and this is one of the specs that keep `@valbuild/next` covered.
+ * The blocking `smoke` CI job runs it, together with `tanstack/`, to gate
+ * "the Studio does not come up at all" on both frameworks. See `apps.ts`.
+ */
+test.use({ baseURL: NEXT_APP_URL });
 
 /**
  * The Studio, opened somewhere that is not a secure context — on Next.

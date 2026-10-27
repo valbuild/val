@@ -24,8 +24,22 @@ were looking at.
 `.remote()` already on them (`initSchema`). The FACTORIES change, not the
 schemas: what comes out serializes byte-identically to a hand-written
 `.remote()`, so the Studio, the MCP tools, validation and publishing need to know
-nothing about the setting. A local path in such a project is the ordinary
-`image:upload-remote` error, and `val validate --fix` is the ordinary fix.
+nothing about the setting. A local path in such a project is
+`image:upload-remote`, and `val validate --fix` is the ordinary fix.
+
+That one is a WARNING, not an error (`WARNING_FIXES` in
+`shared/src/internal/validation/validationWarnings.ts`): `val validate` prints
+it and passes, `val publish` publishes, and the language server shows a
+warning. Nothing is broken -- the site serves the file from `public/` until it
+is uploaded -- and every project made from a template starts this way, hosted
+ones included, which have no CLI to upload with. `--strict` on either command
+makes it fail. A local file that does not exist is still an error, and so is
+`--fix` that cannot upload (not logged in, no project): it was asked to.
+
+The Studio's `/val/validate` reports the same files under "Check everything"
+as errors with a **Fix** that uploads them -- images, files and videos, a
+video with its poster, captions and stream -- which is how a hosted project,
+with no CLI, gets them to remote storage. See `docs/plans/studio-validate.md`, step 4.
 
 The Val app REQUIRES it: with `VAL_ENV=app` the server refuses to start without
 it (`APP_MODE_REQUIRES_REMOTE_FILES` in `valServerConfig.ts`), and `val publish`

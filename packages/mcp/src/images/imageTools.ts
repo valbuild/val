@@ -483,27 +483,14 @@ function resolveTarget(
 }
 
 /**
- * The image schema a gallery ENTRY is validated as.
- *
- * A gallery's item schema is an object (width/height/mimeType/alt), but the
- * remote ref's validation hash is computed over a `SerializedImageSchema` — so
- * one has to be synthesized, carrying the `accept` and `directory` of the record
- * that holds the entry. This is `handleRemoteGalleryFileUpload`'s synthesis, and
- * it has to stay identical to it: the CLI's `--fix` writes refs this way and the
- * check that validates them reads them the same way, so a third shape here would
- * bake a hash that can never match.
+ * The image schema a gallery ENTRY is validated as: `galleryEntryMediaSchema`
+ * in core, the one synthesis the CLI's `--fix` and the Studio's Validate page
+ * hash with too, so a ref made here validates there.
  */
 function galleryEntryImageSchema(
   gallery: SerializedRecordSchema,
 ): SerializedImageSchema {
-  return {
-    type: "image",
-    opt: false,
-    options: {
-      ...(gallery.accept ? { accept: gallery.accept } : {}),
-      ...(gallery.dir ? { dir: gallery.dir } : {}),
-    },
-  };
+  return Internal.galleryEntryMediaSchema("image", gallery);
 }
 
 /**

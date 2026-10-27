@@ -87,13 +87,19 @@ export type BuilderLoader = () => Promise<StudioBuilder>;
 /**
  * The package, loaded into whatever realm calls this.
  *
- * A bare dynamic import of the package root, and deliberately nothing else: the
- * specifier has to stay a literal so a bundler can see it, and so
+ * A dynamic import of the package root, then of its bundler (which the root
+ * loads lazily, so Node can hand it the native one instead). The specifier has
+ * to stay a literal so a bundler can see it, and so
  * `noNodeFromBrowser.test.ts`'s static walk can too. It is the ONLY import of
  * the package in the Studio (`onlyBuilderRoot.test.ts`); the worker reaches the
  * package through this function rather than importing it itself.
  */
-export const importBuilderModule = () => import("@valbuild/tanstack-build");
+export const importBuilderModule = () =>
+  import("@valbuild/tanstack-build").then(async (builder) => {
+    // The package loads rolldown on first use; the preload wants it compiled.
+    await builder.loadRolldown();
+    return builder;
+  });
 
 /**
  * The real loader: the builder in a worker.

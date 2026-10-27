@@ -5,6 +5,7 @@ import {
   openNavPanel,
   openStudio,
 } from "./studio";
+import { TANSTACK_APP_URL } from "./apps";
 
 /**
  * A page that exists only in an uncommitted patch.
@@ -69,7 +70,7 @@ async function enablePreview(page: Page): Promise<void> {
   const enabling = await page.context().newPage();
   await enabling.goto(
     "/api/val/enable?redirect_to=" +
-      encodeURIComponent("http://localhost:3456/blogs/blog1"),
+      encodeURIComponent(`${TANSTACK_APP_URL}/blogs/blog1`),
   );
   await expect
     .poll(
@@ -156,7 +157,7 @@ test.describe("a route that has not been committed", () => {
   /**
    * The case that pins the 404 rather than the stall.
    *
-   * `/generic/[[...path]]` reads ONLY its own module — the one with the patch —
+   * `/generic/[[..._splat]]` reads ONLY its own module — the one with the patch —
    * so the store has everything it needs on the first render and nothing forces
    * it to suspend. That is what exposes the `draftMode === null` race: the
    * render goes straight through while draft mode is still unknown, the content
@@ -195,8 +196,8 @@ test.describe("a route that has not been committed", () => {
     await createPage(
       page,
       studio,
-      "/generic/[[...path]]",
-      "path",
+      "/generic/[[..._splat]]",
+      "_splat",
       "uncommitted",
     );
     await setTitle(studio, "Uncommitted single module");

@@ -751,10 +751,13 @@ describe("moving a set's video to Val Remote", () => {
     });
   });
 
-  test("without --fix nothing goes up", async () => {
-    setup();
+  test("without --fix nothing goes up: a warning names the entry's files", async () => {
+    const { videosVal } = setup();
+    const stored = new Map<string, Buffer>();
     const res = await handleVideosetUploadRemote({
-      ...baseContext(root),
+      ...baseContext(root, undefined, stored),
+      valModule: contentOf(SET_PATH, videosVal),
+      sourcePath: entryPathOf(STREAM_KEY),
       fix: false,
       validationError: {
         message: "upload it",
@@ -763,9 +766,12 @@ describe("moving a set's video to Val Remote", () => {
       },
     });
     expect(res).toEqual({
-      success: false,
-      errorMessage: expect.stringContaining("use --fix to upload"),
+      success: true,
+      warning: expect.objectContaining({
+        files: expect.arrayContaining([STREAM_KEY]),
+      }),
     });
+    expect(stored.size).toBe(0);
   });
 
   test("a missing segment stops the upload before anything goes up", async () => {

@@ -4,16 +4,25 @@ import { openStudio, test } from "./studio";
 /**
  * The module header, as a way back.
  *
- * Under the heading is one link, "Back to <parent>", where the parent is
- * wherever the level above is shown and its name is its title. It was a
+ * Under the heading is one link, `‹ <parent>` (labelled "Back to <parent>"),
+ * where the parent is wherever the level above is shown and its name is its
+ * title. It was a
  * breadcrumb of path segments, every one of which between a page and a field
  * of it opened the same page.
  *
  * A FIELD inside a page is the case that motivated it — see `A page names
  * itself and nothing else` below for why the page itself has no way back.
+ *
+ * The generic page: a page with NO preview, so its heading is its route. That
+ * is the case every `toHaveText("/generic")` below pins -- a page that has a
+ * preview (the showcase's home, "Content as code") is titled by it instead,
+ * which is a different rule. `sections` is a field inside it, as `hero` was
+ * on the Next example's home page this spec used to drive.
  */
-const FIELD_IN_PAGE = "/val/~/app/page.val.ts?p=%22%2F%22.hero";
-const PAGE = "/val/~/app/page.val.ts?p=%22%2F%22";
+const FIELD_IN_PAGE =
+  "/val/~/src/routes/_site.generic.$.val.ts?p=%22%2Fgeneric%22.sections";
+const PAGE = "/val/~/src/routes/_site.generic.$.val.ts?p=%22%2Fgeneric%22";
+const ROUTE = "/generic";
 
 test.describe("the module header", () => {
   test("names the field, and offers one way back", async ({ page }) => {
@@ -42,7 +51,7 @@ test.describe("the module header", () => {
      * Named by the page's title: the page has no preview, so that is its
      * route.
      */
-    const back = page.getByRole("link", { name: "Back to /" });
+    const back = page.getByRole("link", { name: `Back to ${ROUTE}` });
     await expect(back).toBeVisible();
 
     await back.click();
@@ -51,7 +60,7 @@ test.describe("the module header", () => {
      * heading rather than the text, because the sticky bar carries a hidden
      * copy of the same title.
      */
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
   });
 
   /**
@@ -83,14 +92,14 @@ test.describe("the module header", () => {
     };
 
     await openStudio(page, PAGE);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
     const alone = await headingBox();
 
     await openStudio(page, `${PAGE}&canvas=1`);
     await expect(
       page.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
     const besideTheCanvas = await headingBox();
 
     expect(besideTheCanvas.height).toBeLessThan(alone.height);
@@ -107,7 +116,7 @@ test.describe("the module header", () => {
      * the file is not the page's parent, and "Back to Pages" would duplicate
      * that same panel.
      */
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
     await expect(page.getByRole("navigation", { name: "Back" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /^Back to/ })).toHaveCount(0);
   });
