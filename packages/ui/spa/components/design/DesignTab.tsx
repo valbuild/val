@@ -24,6 +24,7 @@ import {
 import { changedFiles, type ChangedFile } from "../../design/changedFiles";
 import { lineDiff, type DiffLine } from "../../design/lineDiff";
 import { previewUrl, siteDesignTabUrl } from "../../design/designTabUrl";
+import { modifierLabel, type PickModifier } from "../../design/elementPicker";
 import {
   DesignTabView,
   type DesignCheckItem,
@@ -44,6 +45,13 @@ import {
  * assistant breaks there takes away the preview and nothing else -- and with
  * step 1 a build that does not render is never served at all.
  */
+
+/** Held to pick on the page: Option on a Mac, Alt elsewhere. */
+const PICK_MODIFIER: PickModifier = "alt";
+
+function isMac(): boolean {
+  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+}
 
 /** What is read about the proposal, and what went wrong reading it. */
 type Read =
@@ -213,6 +221,7 @@ export function DesignTab({ name }: { name: string }) {
                       ? "off"
                       : "waiting",
                 onTurnOn: () => setEnableKey((key) => key + 1),
+                modifier: modifierLabel(PICK_MODIFIER, isMac()),
               }
         }
         onPublish={open ? () => publish.setOpen(true) : null}
