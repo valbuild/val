@@ -50,7 +50,6 @@ export { ValApp } from "./ValApp";
 export { ValModulesClient, useRegisterValModules } from "./ValModulesClient";
 export {
   unstable_renderValComponent,
-  unstable_getValComponents,
   type ValComponentPreviewOptions,
 } from "./ValComponentPreview";
 export {

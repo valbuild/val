@@ -494,9 +494,7 @@ export class ValOpsFS extends ValOps {
                   this.getPatchesDir().slice(this.rootDir.length + 1),
                 ) ||
                 filename.endsWith(".val.ts") ||
-                filename.endsWith(".val.tsx") ||
                 filename.endsWith(".val.js") ||
-                filename.endsWith(".val.jsx") ||
                 // A `.jsonValues()` entry file. Its content is invisible to every
                 // sha (see JsonEntryFilesFingerprint), so without this a
                 // hand-edited entry never reaches an open Studio.

@@ -132,7 +132,7 @@ export async function validateOnce({
     ),
   );
 
-  const valFiles: string[] = await glob("**/*.val.{js,jsx,ts,tsx}", {
+  const valFiles: string[] = await glob("**/*.val.{js,ts}", {
     ignore: ["node_modules/**"],
     cwd: projectRoot,
   });

@@ -56,12 +56,7 @@ export type {
 } from "./schema/filedir";
 export type { FontdirOptions } from "./schema/fontdir";
 export type { MediaDir } from "./schema/record";
-export type {
-  ValModule,
-  SerializedModule,
-  InferValModuleType,
-  ReplaceRawStringWithString,
-} from "./module";
+export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";
 export type { JsonSource, JsonOf, JsonImportThunk } from "./source/json";
@@ -128,15 +123,6 @@ export type {
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
-export {
-  component,
-  getComponent,
-  isComponentModule,
-  getValFileLocation,
-  GetComponent,
-  type ValComponentRenderer,
-  type ValFileLocation,
-} from "./component";
 export {
   type SelectorSource,
   type SelectorOf,
@@ -331,7 +317,6 @@ export {
 } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
-export { emptyOf, type EmptyOfContext } from "./schema/emptyOf";
 export {
   type PreviewItem,
   type ItemPreviewInput,
@@ -347,6 +332,12 @@ export {
   type SliderRender,
   type NumberRender,
   isInlineRender,
+  type ComponentRender,
+  type SerializedComponentRender,
+  type ValComponent,
+  type ValComponentImport,
+  getComponentRender,
+  loadComponent,
 } from "./render";
 export type {
   ValRouter,

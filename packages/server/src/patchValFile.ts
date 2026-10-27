@@ -30,7 +30,11 @@ export const patchValFile = async (
   // console.time("patchValFile" + timeId);
   const filePath = sourceFileHandler.resolveSourceModulePath(
     getSyntheticContainingPath(rootDir),
-    `.${id.replace(/\.val\.(tsx|ts|jsx|js)$/, ".val")}`,
+    `.${id
+      .replace(".val.ts", ".val")
+      .replace(".val.js", ".val")
+      .replace(".val.jsx", ".val")
+      .replace(".val.tsx", ".val")}`,
   );
 
   const sourceFile = sourceFileHandler.getSourceFile(filePath);

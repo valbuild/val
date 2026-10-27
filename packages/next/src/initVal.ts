@@ -1,65 +1,16 @@
 import {
   initVal as createValSystem,
   type ValConfig,
-  type ContentConstructor,
   type InitVal,
-  type ReplaceRawStringWithString,
-  type Schema,
-  type SelectorOfSchema,
-  type SelectorSource,
   type ValConstructor,
-  type ValModule,
   Internal,
   ValRouter,
   ExternalPageRouter,
 } from "@valbuild/core";
-import type { ReactNode } from "react";
-import type { inferSchema } from "./ValTypes";
 import { raw } from "@valbuild/react/stega";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
 import { attrs } from "@valbuild/react/stega";
-
-/**
- * `c` with a React-aware `c.component`.
- *
- * Core declares `c.component` without knowing what a React component is, so
- * the props it accepts are unchecked there. Narrowing it here ties the props of
- * the component to the schema of the module - i.e. exactly the type the app
- * gets back from `fetchVal` / `useVal` for that module.
- */
-type NextContentConstructor = Omit<ContentConstructor, "component"> & {
-  /**
-   * EXPERIMENTAL: like `c.define`, but the module also carries the component
-   * that renders it, so the Val UI can preview the component while an editor
-   * edits its content.
-   *
-   * The last argument is default content: a fixture the preview falls back to
-   * when the section is not used anywhere yet, and a good place for
-   * deliberately unrepresentative values (very long names, empty lists) that
-   * make layout problems easy to spot. It is an extra - the preview shows the
-   * component with the content of every real usage too.
-   *
-   * It is optional. Omitted, the emptiest value the schema accepts is used.
-   *
-   * @example
-   * // app/sections/hero.val.tsx
-   * const schema = s.object({ title: s.string() });
-   *
-   * export default c.component(
-   *   "/app/sections/hero.val.tsx",
-   *   ({ title }) => <h1>{title}</h1>,
-   *   schema,
-   *   { title: "Example title" },
-   * );
-   */
-  component: <T extends Schema<SelectorSource>>(
-    id: string,
-    component: (props: inferSchema<T>) => ReactNode,
-    schema: T,
-    source?: ReplaceRawStringWithString<SelectorOfSchema<T>>,
-  ) => ValModule<SelectorOfSchema<T>>;
-};
 
 const nextAppRouter: ValRouter = Internal.nextAppRouter;
 const externalPageRouter: ExternalPageRouter = Internal.externalPageRouter;
@@ -91,18 +42,7 @@ async function isValEnabled(): Promise<boolean> {
 
 export const initVal = (
   config?: ValConfig,
-): Omit<InitVal, "c"> & {
-  /**
-   * The content constructor: `c.define` for a module, `c.json` and
-   * `c.external` for entries that live outside it.
-   *
-   * @example
-   * const schema = s.object({ title: s.string() });
-   * export default c.define("/content/page.val.ts", schema, {
-   *   title: "Hello",
-   * });
-   */
-  c: NextContentConstructor;
+): InitVal & {
   /**
    * Returns true if the Val Enable cookie is set. Must be called in a
    * Server Component, Server Action, or Route Handler — it reads from

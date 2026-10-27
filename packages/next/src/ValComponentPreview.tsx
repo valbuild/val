@@ -1,39 +1,38 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import {
-  getComponent,
-  getValFileLocation,
+  getComponentRender,
   Internal,
-  type ModuleFilePath,
+  loadComponent,
   type SelectorSource,
+  type Source,
   type SourcePath,
-  type ValFileLocation,
   type ValModule,
   type ValModules,
 } from "@valbuild/core";
+import { stegaEncode } from "@valbuild/react/stega";
 
 export type ValComponentPreviewOptions = {
   /** The app's `val.modules` registry (the default export of val.modules.ts). */
   valModules: ValModules;
   /**
-   * Module file path of the component module to render, e.g.
-   * `/app/sections/hero.val.tsx`.
-   */
-  componentPath: string;
-  /**
-   * Source path to take the props from. Defaults to `componentPath`, i.e. the
-   * component module's own example content.
+   * Source path of the value to render, e.g.
+   * `/content/pages.val.ts?p="landing"."sections".0`.
    *
-   * Point it at a usage elsewhere in content - e.g.
-   * `/content/pages.val.ts?p="/about"."sections".0` - to see the component
-   * with the content it actually renders on the site.
+   * The schema at this path says which component renders it: an object with
+   * `.render({ as: "component", component })`, or a discriminated union whose
+   * variant at this path is one.
    */
-  sourcePath?: string | null;
+  sourcePath: string;
   /**
-   * Props to render with, overriding `sourcePath`. For trying out values
-   * without changing any content.
+   * Render the `example` of the render instead of the content at `sourcePath`.
+   */
+  example?: boolean;
+  /**
+   * Props to render with, overriding both the content and the example. For
+   * trying out values without changing any content.
    *
-   * NOTE: these are used as-is, so anything the normal read path converts
-   * (image and file sources gain a `url`) has to already be in that shape.
+   * Converted the way content is (an image source gains its `url`), so they
+   * are written as SOURCE, the same shape as in a `.val.ts`.
    */
   props?: unknown;
   /**
@@ -46,12 +45,12 @@ export type ValComponentPreviewOptions = {
 };
 
 /**
- * EXPERIMENTAL: renders the component of a `c.component` module, with content
- * from anywhere in the project as its props.
+ * EXPERIMENTAL: renders the value at a source path with the component its
+ * schema declares - `s.object(...).render({ as: "component", component })`.
  *
  * Meant to be called from a Server Component behind a route that the Val UI
- * loads in an iframe, so an editor can see the section they are editing - and
- * see it with the content of every place it is used.
+ * loads in an iframe, so an editor sees the section they are editing, rendered
+ * by the app itself: its own React, CSS, fonts and providers.
  *
  * This is a plain async function rather than a component because React 18
  * types do not allow async components in JSX. Call it and return the result:
@@ -59,67 +58,85 @@ export type ValComponentPreviewOptions = {
  * @example
  * // app/val-preview/page.tsx
  * export default async function ValPreviewPage({ searchParams }) {
- *   const { c, p } = searchParams;
+ *   const { p, example } = await searchParams;
  *   return unstable_renderValComponent({
  *     valModules,
- *     componentPath: c,
  *     sourcePath: p,
+ *     example: example === "1",
  *     fetchVal,
  *   });
  * }
  */
 export async function unstable_renderValComponent({
   valModules,
-  componentPath,
   sourcePath,
+  example,
   props,
   fetchVal,
 }: ValComponentPreviewOptions): Promise<ReactElement> {
-  const modulesByPath = await loadModulesByPath(valModules);
-  const componentModule = modulesByPath.get(componentPath);
-  if (!componentModule) {
-    const known = [...modulesByPath.keys()].filter((path) =>
-      getComponent(modulesByPath.get(path)),
-    );
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
+  const valModule = await findModule(valModules, moduleFilePath);
+  if (!valModule) {
     return (
       <PreviewMessage>
-        {`No module '${componentPath}' in val.modules.${
-          known.length > 0 ? ` Component modules: ${known.join(", ")}.` : ""
-        }`}
+        {`No module '${moduleFilePath}' in val.modules.`}
       </PreviewMessage>
     );
   }
-  const component = getComponent(componentModule);
-  if (typeof component !== "function") {
+  const moduleSchema = Internal.getSchema(valModule);
+  if (!moduleSchema) {
+    return (
+      <PreviewMessage>{`'${moduleFilePath}' has no schema.`}</PreviewMessage>
+    );
+  }
+
+  // The schema is resolved through the CONTENT rather than the module's own
+  // source: a section added in the Studio is in the former and not the latter,
+  // and only the content says which variant of a union a section is.
+  const moduleValue = await fetchVal(valModule);
+  let schema = moduleSchema;
+  let value: unknown = moduleValue;
+  if (modulePath) {
+    try {
+      const resolved = Internal.resolvePath(
+        modulePath,
+        // `fetchVal` is typed per module by the app; what it returns is the
+        // module's source with media resolved, which is what this walks.
+        moduleValue as Source,
+        moduleSchema,
+      );
+      schema = resolved.schema;
+      value = resolved.source;
+    } catch (err) {
+      return (
+        <PreviewMessage>
+          {`${sourcePath}: ${err instanceof Error ? err.message : String(err)}`}
+        </PreviewMessage>
+      );
+    }
+  }
+
+  const render = getComponentRender(schema, value);
+  if (!render) {
     return (
       <PreviewMessage>
-        {`'${componentPath}' is not a component module: define it with c.component to preview it.`}
+        {`${sourcePath} has no component: give its schema .render({ as: "component", component }) to preview it.`}
       </PreviewMessage>
     );
   }
 
-  let value: unknown;
-  if (props !== undefined) {
-    value = props;
-  } else {
-    const path = sourcePath || componentPath;
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(path as SourcePath);
-    const sourceModule = modulesByPath.get(moduleFilePath);
-    if (!sourceModule) {
-      return (
-        <PreviewMessage>
-          {`No module '${moduleFilePath}' in val.modules (needed for source path '${path}').`}
-        </PreviewMessage>
-      );
+  if (props !== undefined || example) {
+    const source = props !== undefined ? props : render.example;
+    if (source === undefined) {
+      return <PreviewMessage>{`${sourcePath} has no example.`}</PreviewMessage>;
     }
-    const moduleValue = await fetchVal(sourceModule);
-    const parts = modulePath ? Internal.splitModulePath(modulePath) : [];
-    const resolved = resolveIn(moduleValue, parts);
-    if ("error" in resolved) {
-      return <PreviewMessage>{`${path}: ${resolved.error}`}</PreviewMessage>;
-    }
-    value = resolved.value;
+    // Neither is content, so no edit tags: a click in the preview must not
+    // lead to a field the value is not in.
+    value = stegaEncode(source, {
+      disabled: true,
+      root: { path: sourcePath, schema: schema["executeSerialize"]() },
+    });
   }
 
   if (!isRecord(value)) {
@@ -131,76 +148,31 @@ export async function unstable_renderValComponent({
       </PreviewMessage>
     );
   }
-  // The lookup above is by path, which erases the type relation between the
-  // module and its component that c.component establishes at definition time.
-  // These casts are what restores it - they are the reason this helper lives in
-  // the library instead of in every app that wants a preview.
-  const Component = component as ComponentType<Record<string, unknown>>;
+  // Core cannot express a React component's type, and the lookup above is by
+  // path, which erases the relation between the schema and its component that
+  // `.render(...)` was given. This cast is what restores it - and the reason
+  // this helper lives in the library instead of in every app with a preview.
+  const Component = (await loadComponent(render)) as ComponentType<
+    Record<string, unknown>
+  >;
   return <Component {...value} />;
 }
 
-async function loadModulesByPath(
+async function findModule(
   valModules: ValModules,
-): Promise<Map<string, ValModule<SelectorSource>>> {
-  const modulesByPath = new Map<string, ValModule<SelectorSource>>();
+  moduleFilePath: string,
+): Promise<ValModule<SelectorSource> | null> {
   for (const { def } of valModules.modules) {
     const valModule = (await def())?.default;
-    const modulePath = valModule && Internal.getValPath(valModule);
-    if (valModule && modulePath) {
-      modulesByPath.set(modulePath, valModule);
+    if (valModule && Internal.getValPath(valModule) === moduleFilePath) {
+      return valModule;
     }
   }
-  return modulesByPath;
-}
-
-function resolveIn(
-  value: unknown,
-  parts: string[],
-): { value: unknown } | { error: string } {
-  let current = value;
-  for (const part of parts) {
-    if (!isRecord(current)) {
-      return {
-        error: `cannot read '${part}' of ${
-          current === null ? "null" : typeof current
-        }`,
-      };
-    }
-    current = current[part];
-    if (current === undefined) {
-      return { error: `no value at '${part}'` };
-    }
-  }
-  return { value: current };
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-/**
- * Every `c.component` module in the registry, with the file that defines it.
- *
- * The rewrite of a component happens outside of Val: this is what tells the
- * outside which file to change.
- */
-export async function unstable_getValComponents(
-  valModules: ValModules,
-): Promise<ValFileLocation[]> {
-  const components: ValFileLocation[] = [];
-  for (const { def } of valModules.modules) {
-    const valModule = (await def())?.default;
-    const modulePath = valModule && Internal.getValPath(valModule);
-    if (modulePath && getComponent(valModule)) {
-      components.push(
-        getValFileLocation(
-          modulePath as string as ModuleFilePath,
-          valModules.config,
-        ),
-      );
-    }
-  }
-  return components;
 }
 
 function PreviewMessage({ children }: { children: ReactNode }) {

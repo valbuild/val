@@ -1,6 +1,212 @@
+import {
+  SerializedSchema,
+  Internal,
+  DEFAULT_COLOR_FORMAT,
+  declaredKeySetOf,
+} from "@valbuild/core";
+import { JSONValue } from "@valbuild/core/patch";
+
 /**
- * Lives in @valbuild/core, so that `c.component` can fill in the default
- * content of a component module. Re-exported here so existing imports keep
- * working.
+ * Local `yyyy-MM-dd`, which is the one thing this module used `date-fns` for.
+ *
+ * Inlined rather than carried along: `@valbuild/shared` depends on nothing but
+ * `@valbuild/core` and zod, and a whole date library is not worth adding to
+ * that for a single format string. Deliberately the *local* date, not
+ * `toISOString().slice(0, 10)` — the latter is UTC, so anyone west of
+ * Greenwich would get yesterday's date as their "today" default.
  */
-export { emptyOf, type EmptyOfContext } from "@valbuild/core";
+function formatLocalDate(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function clampDateString(
+  value: string,
+  options: { from?: string; to?: string } | undefined,
+): string {
+  if (options?.to && value > options.to) return options.to;
+  if (options?.from && value < options.from) return options.from;
+  return value;
+}
+
+function clampDateTimeString(
+  value: string,
+  options: { from?: string; to?: string } | undefined,
+): string {
+  if (!options) return value;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) return value;
+  // Stored datetime values are always UTC ISO strings, so normalize the
+  // clamped bound (which may carry a timezone offset) via toISOString().
+  if (options.to) {
+    const toMs = Date.parse(options.to);
+    if (!Number.isNaN(toMs) && ms > toMs) return new Date(toMs).toISOString();
+  }
+  if (options.from) {
+    const fromMs = Date.parse(options.from);
+    if (!Number.isNaN(fromMs) && ms < fromMs)
+      return new Date(fromMs).toISOString();
+  }
+  return value;
+}
+
+/**
+ * What `emptyOf` cannot read off a serialized schema.
+ *
+ * The project's languages, and which one is being worked in. Neither is in the
+ * schema: a locale-keyed record has one entry per language and the languages
+ * are declared in the settings module, and "which language am I writing" is a
+ * fact about the editor, not about the content. Optional throughout: a caller
+ * that has no context gets an empty record and an unset locale, which
+ * validation then reports, rather than wrong ones.
+ */
+export type EmptyOfContext = {
+  /** `locales.available` from the settings module. */
+  locales?: string[];
+  /**
+   * The one language being worked in, where the editor has narrowed to one.
+   *
+   * A new `s.locale()` field is created already set to it. Someone filtered to
+   * Norwegian is writing Norwegian, and a new item that defaulted to unset
+   * would fail validation and vanish from the list they are looking at, in
+   * that order.
+   */
+  selectedLocale?: string;
+};
+
+/**
+ * The empty value for a schema — the thing a "create this" affordance writes.
+ *
+ * Returns `JSONValue`, the MUTABLE shape, rather than `Json`. Every value here
+ * is built fresh on the way out — `Object.fromEntries`, a new array, a
+ * primitive — and none of it aliases anything a caller could then mutate out
+ * from under someone. Saying `Json` instead made the type readonly, which is
+ * a claim about sharing that is not true of anything this returns, and left
+ * every caller asserting `as JSONValue` at the point of writing a patch. A
+ * `JSONValue` is still assignable to `Json`, so a reader of the value loses
+ * nothing.
+ */
+export function emptyOf(
+  schema: SerializedSchema,
+  context?: EmptyOfContext,
+): JSONValue {
+  if (schema.type === "object") {
+    return Object.fromEntries(
+      Object.keys(schema.items).map((key) => [
+        key,
+        emptyOf(schema.items[key], context),
+      ]),
+    );
+  } else if (schema.type === "array") {
+    return [];
+  } else if (schema.type === "record") {
+    return emptyRecord(schema, context);
+  } else if (schema.type === "settings") {
+    // Not an object of empty sections: every settings key is optional, and
+    // absent IS the empty value. Filling the sections in would write a shape
+    // the project never asked for.
+    return {};
+  } else if (schema.opt) {
+    return null;
+  } else if (schema.type === "richtext") {
+    return [];
+  } else if (schema.type === "string") {
+    return "";
+  } else if (schema.type === "boolean") {
+    return false;
+  } else if (schema.type === "number") {
+    // 0, unless the schema rules it out: an `s.int().min(1)` starts at 1
+    // rather than as an error. `null` means the schema allows nothing at all,
+    // which validation will say; 0 is as good a start as any for that.
+    return Internal.number.nearestAllowedNumber(0, schema.options ?? {}) ?? 0;
+  } else if (schema.type === "keyOf") {
+    if (schema.values === "string") {
+      return ""; // TODO: figure out this: user code might very well fail in this case
+    } else {
+      return schema.values[0];
+    }
+  } else if (schema.type === "route") {
+    return ""; // Empty string as default route value
+  } else if (schema.type === "locale") {
+    // Which languages exist is in the settings module, which `emptyOf` has no
+    // access to — it works from a serialized schema alone. So a caller that
+    // has narrowed to one language says so and gets it; a caller that has not
+    // gets the empty string, which is not a language and which validation
+    // reports. Guessing `locales[0]` instead would file content under a
+    // language nobody chose, which is the thing this whole feature exists to
+    // make visible.
+    return context?.selectedLocale ?? "";
+  } else if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
+    return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
+  } else if (schema.type === "literal") {
+    return schema.value;
+  } else if (schema.type === "discriminated-union") {
+    // The first variant is what a new value starts as. `s.discriminatedUnion`
+    // requires one, so an empty `items` means a serialized schema that was not
+    // built by it — say so rather than returning `undefined`, which is not
+    // JSON and would be written into a patch as a missing key.
+    if (schema.items.length === 0) {
+      throw Error(
+        "Cannot create an empty value for a discriminated union with no variants",
+      );
+    }
+    return emptyOf(schema.items[0], context);
+  } else if (schema.type === "enum") {
+    if (schema.values.length === 0) {
+      throw Error("Cannot create an empty value for an enum with no values");
+    }
+    return schema.values[0];
+  } else if (schema.type === "date") {
+    return clampDateString(formatLocalDate(new Date()), schema.options);
+  } else if (schema.type === "dateTime") {
+    return clampDateTimeString(new Date().toISOString(), schema.options);
+  } else if (schema.type === "color") {
+    // Mid grey: visible against both a light and a dark canvas
+    return Internal.color.formatColor(
+      { r: 128, g: 128, b: 128, a: 1 },
+      schema.options?.format ?? DEFAULT_COLOR_FORMAT,
+    );
+  } else if (schema.type === "code") {
+    return ""; // An empty editor: no language has a sensible starting snippet
+  } else if (schema.type === "view") {
+    // The pointer IS the empty value: a view has exactly one valid source, and
+    // the schema knows it. A new page with a view field gets the same pointer
+    // every other page's has.
+    return { view: schema.moduleFilePath };
+  }
+  const _exhaustiveCheck: never = schema;
+  throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
+}
+
+/**
+ * An empty record — with every key its schema declares already in it.
+ *
+ * An open record (`s.record(s.string(), item)`) starts empty, because there is
+ * no key anyone could mean. A record whose key schema enumerates its keys is
+ * the opposite: the keys are part of the schema, so an empty one is already
+ * missing them, and handing back `{}` would create content that fails
+ * validation the moment it is written.
+ *
+ * The entries are `null` rather than `emptyOf(item)`. A null entry reads as "not
+ * filled in yet", which is what a language nobody has translated into IS —
+ * whereas an entry of empty strings claims someone wrote it and left it blank,
+ * and would count as translated in every list and filter downstream.
+ */
+function emptyRecord(
+  schema: SerializedSchema & { type: "record" },
+  context: EmptyOfContext | undefined,
+): JSONValue {
+  const declared = declaredKeySetOf(schema.key);
+  if (declared === null) {
+    return {};
+  }
+  const keys =
+    declared.kind === "literals" ? declared.keys : (context?.locales ?? []);
+  return Object.fromEntries(keys.map((key) => [key, null]));
+}

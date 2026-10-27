@@ -76,6 +76,33 @@ value that breaks a RULE is a validation error like any other, with a "Round
 to" next to it. Both offer a value from `Internal.number.nearestAllowedNumber`,
 the validator's own arithmetic, so the button never leads back to the error.
 
+## A component is a render (EXPERIMENTAL)
+
+```ts
+const hero = s.object({ type: s.literal("hero"), title: s.string() }).render({
+  as: "component",
+  component: () => import("../components/HeroSection"),
+  example: { type: "hero", title: "A very long title" },
+});
+```
+
+The component that renders an object on the site, so the Studio can show it,
+rendered by the app in an iframe, next to the object's fields. It is the one
+render that holds a CLOSURE, so it is plumbed like a preview, not like the
+other renders: the serialized schema carries only `{ as: "component", example?:
+true }`, and the host app, which has the schema instance, renders the
+component (`getComponentRender` in `core/src/render.ts`,
+`unstable_renderValComponent` in `@valbuild/next`). A discriminated union
+answers for the variant its value takes, so a list of sections needs nothing
+on the list itself.
+
+`component` is a lazy `import()` and never the component. Val evaluates
+`.val.ts` files outside of the app — `val validate` and the language server in
+`node:vm`, the Studio in a rolldown Worker — and a component pulls in CSS,
+images, `next/*` and `server-only`, none of which those can load. A thunk is
+never called there, so the component's file is never loaded, and
+`no-illegal-imports` (which checks only static imports) has nothing to say.
+
 ## Where they meet: a list row, and the render wins
 
 A list row is the one place both have a claim, because a row is where a value

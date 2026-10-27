@@ -1,5 +1,4 @@
 import { define } from "./module";
-import { component } from "./component";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { json } from "./source/json";
@@ -23,22 +22,6 @@ export type ContentConstructor = {
    * });
    */
   define: typeof define;
-  /**
-   * EXPERIMENTAL: like `define`, but the module also carries the component that
-   * renders it, so the Val UI can show a live preview while editing.
-   *
-   * @example
-   * const schema = s.object({ title: s.string() });
-   * export default c.component(
-   *   "/app/sections/hero.val.tsx",
-   *   ({ title }: { title: string }) => title,
-   *   schema,
-   *   { title: "Example title" },
-   * );
-   *
-   * @see {@link component}
-   */
-  component: typeof component;
   /**
    * Put one entry of a `.jsonValues()` record in its own `*.val.json` file,
    * loaded lazily.
@@ -241,7 +224,6 @@ InitVal => {
     },
     c: {
       define,
-      component,
       json,
       external,
     },

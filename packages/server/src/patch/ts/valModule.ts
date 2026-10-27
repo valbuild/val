@@ -43,19 +43,6 @@ function validateArguments(
   ]);
 }
 
-/**
- * The shapes of module definitions we know how to locate the schema and the
- * source in. Both are positional, so all we need is the name of the call and
- * where the schema and the source sit in the argument list:
- *
- *   c.define(id, schema, source)
- *   c.component(id, component, schema, source)
- */
-const MODULE_DEFINITIONS = [
-  { name: "define", arity: 3, schemaIndex: 1, sourceIndex: 2 },
-  { name: "component", arity: 4, schemaIndex: 2, sourceIndex: 3 },
-] as const;
-
 function analyzeDefaultExport(
   node: ts.ExportAssignment,
 ): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
@@ -69,45 +56,39 @@ function analyzeDefaultExport(
     );
   }
 
-  const definition = MODULE_DEFINITIONS.find((candidate) =>
-    isPath(cDefine.expression, ["c", candidate.name]),
-  );
-  if (!definition) {
+  if (!isPath(cDefine.expression, ["c", "define"])) {
     return result.err(
       new ValSyntaxError(
-        `Expected default expression to be calling ${MODULE_DEFINITIONS.map(
-          (candidate) => `c.${candidate.name}`,
-        ).join(" or ")}`,
+        "Expected default expression to be calling c.define",
         cDefine.expression,
       ),
     );
   }
 
   return pipe(
-    validateArguments(
-      cDefine,
-      Array.from({ length: definition.arity }, (_, index) =>
-        index === 0
-          ? (id: ts.Node) => {
-              // TODO: validate ID value here?
-              if (!ts.isStringLiteralLike(id)) {
-                return result.err(
-                  new ValSyntaxError(
-                    `Expected first argument to c.${definition.name} to be a string literal`,
-                    id,
-                  ),
-                );
-              }
-              return result.voidOk;
-            }
-          : () => result.voidOk,
-      ),
-    ),
+    validateArguments(cDefine, [
+      (id: ts.Node) => {
+        // TODO: validate ID value here?
+        if (!ts.isStringLiteralLike(id)) {
+          return result.err(
+            new ValSyntaxError(
+              "Expected first argument to c.define to be a string literal",
+              id,
+            ),
+          );
+        }
+        return result.voidOk;
+      },
+      () => {
+        return result.voidOk;
+      },
+      () => {
+        return result.voidOk;
+      },
+    ]),
     result.map(() => {
-      return {
-        schema: cDefine.arguments[definition.schemaIndex],
-        source: cDefine.arguments[definition.sourceIndex],
-      };
+      const [, schema, source] = cDefine.arguments;
+      return { schema, source };
     }),
   );
 }

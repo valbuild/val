@@ -3,23 +3,24 @@ import valModules from "../../val.modules";
 import { fetchVal } from "../../val/rsc";
 
 /**
- * EXPERIMENTAL: renders a single `c.component` module.
+ * EXPERIMENTAL: renders the value at one source path with the component its
+ * schema declares (`.render({ as: "component", component })`).
  *
  * The Val UI loads this route in an iframe so that a component renders with the
  * app's own React, CSS and providers, and so that server components work.
  *
- * - `c` component module path, e.g. `/app/sections/hero.val.tsx`
- * - `p` source path to take props from (defaults to `c`'s example content)
- * - `props` explicit props as JSON, overriding `p`
+ * - `p` the source path to render, e.g. `/content/pages.val.ts?p="landing"."sections".0`
+ * - `example=1` render the render's `example` instead of the content at `p`
+ * - `props` explicit props as JSON (written as source), overriding both
  */
 export default async function ValPreviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string; p?: string; props?: string }>;
+  searchParams: Promise<{ p?: string; example?: string; props?: string }>;
 }) {
-  const { c, p, props } = await searchParams;
-  if (!c) {
-    return <div>Missing ?c=&lt;component module path&gt;</div>;
+  const { p, example, props } = await searchParams;
+  if (!p) {
+    return <div>Missing ?p=&lt;source path&gt;</div>;
   }
   let parsedProps: unknown = undefined;
   if (props !== undefined) {
@@ -38,8 +39,8 @@ export default async function ValPreviewPage({
       <ValPreviewRefresh />
       {await unstable_renderValComponent({
         valModules,
-        componentPath: c,
         sourcePath: p,
+        example: example === "1",
         props: parsedProps,
         fetchVal,
       })}

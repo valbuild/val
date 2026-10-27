@@ -1,20 +1,22 @@
 import {
-  getValFileLocation,
-  Internal,
-  isComponentModule,
-  type ModuleFilePath,
+  type SerializedComponentRender,
+  type SerializedDiscriminatedUnionSchema,
+  type SerializedSchema,
   type SourcePath,
-  type ValFileLocation,
 } from "@valbuild/core";
 import { RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useValModules } from "../hooks/useValModules";
-import { useAllSources, useSchemas } from "./ValFieldProvider";
-import { findSchemaUsages, type SchemaUsage } from "./findSchemaUsages";
+import {
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSourceAtPath,
+} from "./ValFieldProvider";
+import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { cn } from "./designSystem/cn";
 
 /**
- * Route in the host app that renders a single component module.
+ * Route in the host app that renders the value at one source path with its
+ * component.
  *
  * TODO: make configurable (val.config) - hard-coded while we figure out what
  * the right setup story is.
@@ -43,142 +45,100 @@ export const VAL_COMPONENT_PREVIEW_RELOAD_EVENT =
  */
 const REFRESH_DEBOUNCE_MS = 800;
 
-/**
- * Every module defined with `c.component`, by module file path.
- *
- * Read from the app's own `val.modules` registry (which the host app puts on
- * `window.__VAL_MODULES__`), so the fact that a module is a component module
- * never has to travel through the schema serialization.
- */
-export function useComponentModules(): ReadonlyMap<string, ValFileLocation> {
-  const valModules = useValModules();
-  const [components, setComponents] = useState<Map<string, ValFileLocation>>(
-    () => new Map(),
-  );
-  useEffect(() => {
-    if (!valModules) {
-      return;
-    }
-    let cancelled = false;
-    Promise.all(
-      valModules.modules.map(async ({ def }) => {
-        try {
-          const valModule = (await def())?.default;
-          if (!valModule || !isComponentModule(valModule)) {
-            return null;
-          }
-          const modulePath = Internal.getValPath(valModule);
-          if (!modulePath) {
-            return null;
-          }
-          return getValFileLocation(
-            modulePath as string as ModuleFilePath,
-            valModules.config,
-          );
-        } catch (err) {
-          Internal.log.error(
-            "Could not load module while looking for components",
-            err,
-          );
-          return null;
-        }
-      }),
-    ).then((maybeComponents) => {
-      if (cancelled) {
-        return;
-      }
-      setComponents(
-        new Map(
-          maybeComponents
-            .filter(
-              (component): component is ValFileLocation => component !== null,
-            )
-            .map((component) => [component.modulePath, component]),
-        ),
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [valModules]);
-  return components;
-}
-
-/**
- * Every place in content where this component's schema is used.
- *
- * @see findSchemaUsages for how "the same schema" is decided (structurally, so
- * a usage is a candidate rather than a proof - which is why a usage can name
- * more than one component).
- */
-function useUsagesOf(componentPath: ModuleFilePath | null): {
-  usages: SchemaUsage[];
-  truncated: boolean;
-} {
-  const componentModules = useComponentModules();
-  const schemasRes = useSchemas();
-  const sources = useAllSources();
-  return useMemo(() => {
-    if (!componentPath || schemasRes.status !== "success") {
-      return { usages: [], truncated: false };
-    }
-    const { usages, truncated } = findSchemaUsages(schemasRes.data, sources, [
-      ...componentModules.keys(),
-    ] as ModuleFilePath[]);
-    return {
-      usages: usages.filter((usage) =>
-        usage.componentPaths.includes(componentPath),
-      ),
-      truncated,
-    };
-  }, [componentPath, componentModules, schemasRes, sources]);
-}
-
 type PreviewSource =
-  /** The component module's own default content (the fixture). */
-  | { type: "default" }
-  /** A real place in content where the section is used. */
-  | { type: "usage"; usage: SchemaUsage }
+  /** The content being edited, at this path. */
+  | { type: "content" }
+  /** The `example` of the render: a fixture that is not on the site. */
+  | { type: "example" }
   /** Values typed in by hand, written nowhere. */
   | { type: "values" };
 
 /**
- * EXPERIMENTAL: a live preview of a `c.component` module.
+ * EXPERIMENTAL: a live preview of the value at `path`, rendered with the
+ * component its schema declares - `s.object(...).render({ as: "component" })`,
+ * or the variant of a discriminated union the value takes.
  *
- * Renders nothing unless the module at `path` was defined with `c.component`.
+ * Renders nothing when there is no such component.
  *
  * The component itself is rendered by the host app (in an iframe), not here:
- * that way it gets the app's own React, CSS, fonts and providers, and server
- * components work. Val UI only decides which content to render it with.
+ * the serialized schema only says THAT there is one, and that way it gets the
+ * app's own React, CSS, fonts and providers, and server components work. Val
+ * UI only decides which content to render it with.
  */
 export function ComponentPreview({ path }: { path: SourcePath }) {
-  const [moduleFilePath] = useMemo(
-    () => Internal.splitModuleFilePathAndModulePath(path),
-    [path],
-  );
-  const componentModules = useComponentModules();
-  const component = componentModules.get(moduleFilePath);
-  const componentPath = component
-    ? (component.modulePath as ModuleFilePath)
-    : null;
-  const { usages, truncated } = useUsagesOf(componentPath);
-  const sources = useAllSources();
-  const source = sources[moduleFilePath as ModuleFilePath];
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status !== "success") {
+    return null;
+  }
+  const schema = schemaAtPath.data;
+  if (schema.type === "discriminated-union") {
+    return <UnionComponentPreview path={path} schema={schema} />;
+  }
+  const render = componentRenderOf(schema);
+  if (!render) {
+    return null;
+  }
+  return <ComponentPreviewFrame path={path} render={render} />;
+}
 
-  // Real usages lead: the default content is a fixture, so it is only what we
-  // fall back to when the section is not used anywhere yet.
-  const [previewSource, setPreviewSource] = useState<PreviewSource | null>(
-    null,
+/**
+ * A union has no render of its own: the variant the value takes does, and
+ * which one that is can change while the editor is looking at it.
+ */
+function UnionComponentPreview({
+  path,
+  schema,
+}: {
+  path: SourcePath;
+  schema: SerializedDiscriminatedUnionSchema;
+}) {
+  const tagRes = useShallowSourceAtPath(
+    sourcePathOfItem(path, schema.key),
+    "literal",
   );
-  // Reset when navigating to another component
+  const tag = "data" in tagRes ? tagRes.data : undefined;
+  const variant = schema.items.find((item) => {
+    const tagSchema = item.items[schema.key];
+    return tagSchema?.type === "literal" && tagSchema.value === tag;
+  });
+  const render = variant ? componentRenderOf(variant) : null;
+  if (!render) {
+    return null;
+  }
+  // Keyed by the tag: another variant is another component, and its picker
+  // state (an example it may not have) must not carry over.
+  return (
+    <ComponentPreviewFrame key={String(tag)} path={path} render={render} />
+  );
+}
+
+function componentRenderOf(
+  schema: SerializedSchema,
+): SerializedComponentRender | null {
+  if (schema.type !== "object") {
+    return null;
+  }
+  return schema.render?.as === "component" ? schema.render : null;
+}
+
+function ComponentPreviewFrame({
+  path,
+  render,
+}: {
+  path: SourcePath;
+  render: SerializedComponentRender;
+}) {
+  const sourceAtPath = useSourceAtPath(path);
+  const source =
+    sourceAtPath.status === "success" ? sourceAtPath.data : undefined;
+
+  const [previewSource, setPreviewSource] = useState<PreviewSource>({
+    type: "content",
+  });
+  // Reset when navigating to another value
   useEffect(() => {
-    setPreviewSource(null);
-  }, [moduleFilePath]);
-  const selected: PreviewSource =
-    previewSource ??
-    (usages.length > 0
-      ? { type: "usage", usage: usages[0] }
-      : { type: "default" });
+    setPreviewSource({ type: "content" });
+  }, [path]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isFirstSourceRef = useRef(true);
@@ -192,9 +152,6 @@ export function ComponentPreview({ path }: { path: SourcePath }) {
 
   // Content changed in Val: ask the preview to re-render with the new content.
   useEffect(() => {
-    if (!component) {
-      return;
-    }
     if (isFirstSourceRef.current) {
       // The iframe is loading the current content anyway
       isFirstSourceRef.current = false;
@@ -209,7 +166,7 @@ export function ComponentPreview({ path }: { path: SourcePath }) {
     return () => {
       clearTimeout(timeout);
     };
-  }, [source, component]);
+  }, [source]);
 
   // Component code changed outside of Val: reload from scratch.
   useEffect(() => {
@@ -219,21 +176,17 @@ export function ComponentPreview({ path }: { path: SourcePath }) {
     };
   }, [reload]);
 
-  if (!component || !componentPath) {
-    return null;
-  }
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2 justify-between items-center text-xs text-fg-tertiary">
-        <span
-          className="font-mono truncate"
-          title="The file that defines this component"
-        >
-          {component.repoFilePath}
-        </span>
+      <div className="flex gap-2 justify-between items-center">
+        <PreviewSourcePicker
+          hasExample={render.example === true}
+          selected={previewSource}
+          onSelect={setPreviewSource}
+        />
         <button
           type="button"
-          className="flex gap-1 items-center shrink-0 hover:text-fg-primary"
+          className="flex gap-1 items-center text-xs shrink-0 text-fg-tertiary hover:text-fg-primary"
           onClick={reload}
           title="Reload the preview (after the component code changed)"
         >
@@ -241,23 +194,16 @@ export function ComponentPreview({ path }: { path: SourcePath }) {
           Reload
         </button>
       </div>
-      <PreviewSourcePicker
-        usages={usages}
-        truncated={truncated}
-        selected={selected}
-        onSelect={setPreviewSource}
-      />
-      {selected.type === "values" ? (
-        <ValuesPreview componentPath={componentPath} initialValue={source} />
+      {previewSource.type === "values" ? (
+        <ValuesPreview path={path} initialValue={source} />
       ) : (
         <iframe
           key={reloadKey}
           ref={iframeRef}
-          title={`Preview of ${componentPath}`}
+          title={`Preview of ${path}`}
           src={previewUrl({
-            componentPath,
-            sourcePath:
-              selected.type === "usage" ? selected.usage.sourcePath : null,
+            path,
+            example: previewSource.type === "example",
           })}
           className="w-full h-[420px] rounded-lg border border-border-primary bg-bg-primary"
         />
@@ -267,50 +213,32 @@ export function ComponentPreview({ path }: { path: SourcePath }) {
 }
 
 function PreviewSourcePicker({
-  usages,
-  truncated,
+  hasExample,
   selected,
   onSelect,
 }: {
-  usages: SchemaUsage[];
-  truncated: boolean;
+  hasExample: boolean;
   selected: PreviewSource;
   onSelect: (source: PreviewSource) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-1 items-center text-xs">
-      {usages.length === 0 && (
-        <span className="text-fg-tertiary">Not used in content yet</span>
-      )}
-      {usages.map((usage) => (
-        <PickerButton
-          key={usage.sourcePath}
-          selected={
-            selected.type === "usage" &&
-            selected.usage.sourcePath === usage.sourcePath
-          }
-          onClick={() => onSelect({ type: "usage", usage })}
-          title={
-            usage.componentPaths.length > 1
-              ? `${usage.sourcePath}\nAlso matches: ${usage.componentPaths.join(", ")}`
-              : usage.sourcePath
-          }
-        >
-          {usageLabel(usage)}
-          {usage.componentPaths.length > 1 && (
-            <span className="ml-1 text-fg-tertiary">
-              +{usage.componentPaths.length - 1}
-            </span>
-          )}
-        </PickerButton>
-      ))}
       <PickerButton
-        selected={selected.type === "default"}
-        onClick={() => onSelect({ type: "default" })}
-        title="The default content of the component module - a fixture, not necessarily content that exists on the site"
+        selected={selected.type === "content"}
+        onClick={() => onSelect({ type: "content" })}
+        title="The content you are editing"
       >
-        Default content
+        Content
       </PickerButton>
+      {hasExample && (
+        <PickerButton
+          selected={selected.type === "example"}
+          onClick={() => onSelect({ type: "example" })}
+          title="The example the schema declares - a fixture, not content that exists on the site"
+        >
+          Example
+        </PickerButton>
+      )}
       <PickerButton
         selected={selected.type === "values"}
         onClick={() => onSelect({ type: "values" })}
@@ -318,11 +246,6 @@ function PreviewSourcePicker({
       >
         Values&hellip;
       </PickerButton>
-      {truncated && (
-        <span className="text-fg-tertiary">
-          (more usages exist than are listed)
-        </span>
-      )}
     </div>
   );
 }
@@ -361,10 +284,10 @@ function PickerButton({
  * server components working.
  */
 function ValuesPreview({
-  componentPath,
+  path,
   initialValue,
 }: {
-  componentPath: ModuleFilePath;
+  path: SourcePath;
   initialValue: unknown;
 }) {
   const [text, setText] = useState(() =>
@@ -395,8 +318,8 @@ function ValuesPreview({
         <div className="text-xs text-fg-error-primary">{parseError}</div>
       ) : (
         <iframe
-          title={`Preview of ${componentPath} with typed values`}
-          src={previewUrl({ componentPath, props: committed })}
+          title={`Preview of ${path} with typed values`}
+          src={previewUrl({ path, props: committed })}
           className="w-full h-[420px] rounded-lg border border-border-primary bg-bg-primary"
         />
       )}
@@ -405,38 +328,20 @@ function ValuesPreview({
 }
 
 function previewUrl({
-  componentPath,
-  sourcePath,
+  path,
+  example,
   props,
 }: {
-  componentPath: ModuleFilePath;
-  sourcePath?: SourcePath | null;
+  path: SourcePath;
+  example?: boolean;
   props?: string;
 }): string {
-  const params = new URLSearchParams({ c: componentPath });
-  if (sourcePath) {
-    params.set("p", sourcePath);
+  const params = new URLSearchParams({ p: path });
+  if (example) {
+    params.set("example", "1");
   }
   if (props !== undefined) {
     params.set("props", props);
   }
   return `${VAL_PREVIEW_ROUTE}?${params.toString()}`;
-}
-
-/**
- * A short label for a usage: the module file name plus the path within it.
- */
-function usageLabel(usage: SchemaUsage): string {
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-    usage.sourcePath,
-  );
-  const fileName =
-    usage.moduleFilePath
-      .split("/")
-      .pop()
-      ?.replace(/\.val\.\w+$/, "") ?? usage.moduleFilePath;
-  if (!modulePath) {
-    return fileName;
-  }
-  return `${fileName}: ${Internal.splitModulePath(modulePath).join(".")}`;
 }
