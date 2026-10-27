@@ -11,8 +11,7 @@ import {
 
 /**
  * Who may add whom: valbuild/home `docs/proposals.md`, Flow H. Owners and
- * developers choose a project's members, only owners invite to the
- * organization, and everyone else asks the owners from the same row.
+ * developers add and invite, and editors ask the owners from the same row.
  */
 
 const KARI = { id: "p-kari", name: "Kari Andersen" };
@@ -24,7 +23,7 @@ const email: InviteCandidate = { kind: "email", email: "nina@example.com" };
 
 test.each<[InviteRole, string, string, string]>([
   ["owner", "add", "add", "invite"],
-  ["developer", "add", "add", "ask"],
+  ["developer", "add", "add", "invite"],
   ["editor", "add", "ask", "ask"],
 ])(
   "%s: on the project %s, in the org %s, an address %s",

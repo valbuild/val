@@ -29,9 +29,10 @@ export type InviteRowState =
   | { state: "failed"; error: string };
 
 /**
- * Who may add whom. The rules are the project's, unchanged: owners and
- * developers choose a project's members, and only owners invite to the
- * organization. Anyone else asks the owners, from the same row.
+ * Who may add whom. Owners and developers choose a project's members and
+ * invite new people to the organization from a proposal (Flow H made the
+ * second theirs too: before it, only owners invited). Editors ask the owners,
+ * from the same row.
  */
 export type InviteRole = "owner" | "developer" | "editor";
 
@@ -47,7 +48,7 @@ export function inviteActionFor(
     case "org":
       return role === "editor" ? "ask" : "add";
     case "email":
-      return role === "owner" ? "invite" : "ask";
+      return role === "editor" ? "ask" : "invite";
   }
 }
 

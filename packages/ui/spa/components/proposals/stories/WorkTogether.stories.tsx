@@ -177,10 +177,7 @@ export const InviteAsEditor: Story = {
   render: () => <InviteMenuDemo role="editor" initialQuery="k" />,
 };
 
-/**
- * A developer can add people from the organization, but only owners invite
- * to it: an address is asked for.
- */
+/** A developer invites an address too: an invitation, and a seat. */
 export const InviteByEmailAsDeveloper: Story = {
   render: () => (
     <InviteMenuDemo role="developer" initialQuery="nina@example.com" />
