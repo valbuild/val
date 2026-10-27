@@ -1,6 +1,7 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject } from "@valbuild/shared/publish";
+import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import type {
   ProposalJson,
@@ -159,10 +160,40 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
 
+## What the person points at
+- <picked .../> at the end of a message is the element the person picked on the page in the preview, and "this" or "here" in the message means it. It names the element's tag, its classes, a selector from the page's body, and the text in it; \`path\`, when present, is the Val source path of the content it shows (a module file path, and the field in it). Find the code that renders it: follow \`path\` from the module to the component that shows that field, or search the components for the classes and the text, and change that.
+- <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
+
 ## Working
 - Keep each change small enough to build and check, and build after it.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
+}
+
+/**
+ * The element picked in the design tab's preview, as the assistant is told
+ * it: one line after the person's message, which the design prompt explains
+ * ("What the person points at"). Attribute values are escaped, so text on the
+ * customer's page cannot close the tag and pass for the person's words.
+ */
+export function pickedElementPrompt(picked: PickedElement): string {
+  const attribute = (name: string, value: string) =>
+    ` ${name}="${escapePickedText(value)}"`;
+  return `<picked${attribute("tag", picked.tag)}${
+    picked.classes.length > 0
+      ? attribute("classes", picked.classes.join(" "))
+      : ""
+  }${attribute("selector", picked.selector)}${
+    picked.valPath !== undefined ? attribute("path", picked.valPath) : ""
+  }${attribute("text", picked.text)}/>`;
+}
+
+function escapePickedText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 const CODE_TOOL_NAMES = new Set(CODE_TOOLS.map((tool) => tool.name));

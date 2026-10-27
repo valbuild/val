@@ -16,6 +16,7 @@
  */
 export * from "../internal/sessionStorage";
 export * from "../internal/valCanvasProtocol";
+export * from "../internal/elementPicker";
 export * from "../internal/parseRoutePattern";
 export * from "../internal/getNextAppRouterSourceFolder";
 export * from "../internal/getSitemapTree";

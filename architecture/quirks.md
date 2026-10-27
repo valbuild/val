@@ -1367,6 +1367,33 @@ already scoped — `useVal` subscribes to exactly `getModuleIds(selector)`.
 
 ## TanStack Start
 
+**Under `vite dev`, Val's edit tags reach only the components whose modules
+ran after `@valbuild/tanstack/autotag`.** `autoTagJSX` works by replacing
+`jsx`, `jsxs`, `jsxDEV` and `createElement` on React's own export objects.
+A production bundle reads those exports when it calls them, so the order
+modules run in does not matter there. `vite dev` serves React pre-bundled as
+CommonJS and gives each importing module its OWN copy of what it imports --
+a named import is read once, a namespace import (`import * as React`, which
+is how `@tanstack/react-router` imports it) is a spread of the exports --
+taken when that module first runs. So a component whose module ran before
+the wrapping keeps React's unwrapped functions: in development its content is
+not click-to-edit, its text keeps its edit tag, and the leak warning names it
+as though the app had leaked it. `@valbuild/tanstack` wraps them when it is
+imported, which is too late for the router, which it imports itself. That is
+what `@valbuild/tanstack/autotag` is for: an entry that does nothing but the
+wrapping, imported first in `src/router.tsx`, before the router or any route
+has run. It cost an afternoon to find because the showcase happened to be
+clean -- in the templates, 22 of the home page's texts were flagged in
+development and none in a production build.
+
+**`createElement` takes its children as arguments, not in `props`.** The
+wrapper `jsx` gets reads `props.children`, so `createElement` needs its own
+(`WrapCreateElement`): TanStack Router's `<Link>` renders its `<a>` with
+`React.createElement(host, linkProps, children)`, and before it the link got
+its `data-val-path` (from the template's own component, which spread its
+props onto `<Link>`) while its text kept the edit tag -- on every visitor's
+page, with analytics on.
+
 **A `*.val.ts` under `src/routes` is read as a route unless you say otherwise.**
 TanStack Router's generator scans every file in the routes folder and warns, on
 every run, that `posts.$postId.val.ts` exports no `Route` — while quietly

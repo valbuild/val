@@ -1,13 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { AIChat, type ChatMessage } from "../../AIChat";
-import { changedFiles } from "../../../design/changedFiles";
-import { lineDiff } from "../../../design/lineDiff";
+import { useState } from "react";
+import type { PickedElement } from "@valbuild/shared/internal";
 import { DesignSiteMock } from "./DesignSiteMock";
-import {
-  DesignTabView,
-  type DesignCheckpoint,
-  type DesignTabViewProps,
-} from "../DesignTabView";
+import { PickerLayer } from "../PickerLayer";
+import { DesignTabView, type DesignTabViewProps } from "../DesignTabView";
+import { BASE, MESSAGES, NOT_RENDERED, chat } from "./designStoryFixtures";
 
 /**
  * The design tab (valbuild/home `docs/design-tab.md`): a proposal's code,
@@ -25,6 +22,12 @@ import {
  * - **Nothing changed yet** -- a proposal that runs the site's code.
  * - **Safari** -- the bundler cannot run in a tab that frames the site, so
  *   the build waits for a builder window opened from a tap.
+ * - **Picking** -- live: hold ⌥ (Alt) and click ANYTHING on the page, or
+ *   press Select first. What is under the pointer is outlined and named; what
+ *   is picked is outlined, shown above the assistant, and sent with the next
+ *   message. The same picker the proposal's page runs (`startElementPicking`).
+ * - **Picking, no answer** -- the page never answered the canvas, so nothing
+ *   on it can be picked; the hint offers to turn preview mode on.
  */
 const meta: Meta<typeof DesignTabView> = {
   title: "Design/DesignTab",
@@ -33,140 +36,6 @@ const meta: Meta<typeof DesignTabView> = {
 };
 export default meta;
 type Story = StoryObj<typeof DesignTabView>;
-
-const SITE: Record<string, string> = {
-  "src/routes/_site.index.tsx": [
-    'import { Hero } from "../components/sections/Hero";',
-    'import { Quote } from "../components/sections/Quote";',
-    'import { ProductGrid } from "../components/sections/ProductGrid";',
-    "",
-    "function Home() {",
-    "  const page = useValRoute(homeVal);",
-    "  return (",
-    "    <>",
-    "      <Hero {...page.hero} />",
-    "      <Quote {...page.quote} />",
-    "      <ProductGrid {...page.products} />",
-    "    </>",
-    "  );",
-    "}",
-    "",
-  ].join("\n"),
-  "src/components/sections/Quote.tsx":
-    "export function Quote() {\n  return null;\n}\n",
-  "src/routes/_site.index.val.ts": "export default c.define(/* … */);\n",
-};
-
-const PROPOSAL: Record<string, string | null> = {
-  "src/routes/_site.index.tsx": SITE["src/routes/_site.index.tsx"]
-    .replace(
-      'import { Quote } from "../components/sections/Quote";',
-      'import { Testimonials } from "../components/sections/Testimonials";',
-    )
-    .replace(
-      "      <Quote {...page.quote} />",
-      "      <Testimonials items={page.testimonials} />",
-    ),
-  "src/components/sections/Quote.tsx": null,
-  "src/components/sections/Testimonials.tsx": [
-    "export function Testimonials({ items }: { items: Testimonial[] }) {",
-    "  return (",
-    '    <section className="bg-subtle px-8 py-12">',
-    '      <h2 className="mb-6 text-2xl font-bold">Worn for years, not weeks</h2>',
-    "      {items.map((item) => <Card key={item.name} {...item} />)}",
-    "    </section>",
-    "  );",
-    "}",
-    "",
-  ].join("\n"),
-  "src/routes/_site.index.val.ts":
-    "export default c.define(/* …, testimonials */);\n",
-};
-
-const FILES = changedFiles(SITE, PROPOSAL, [
-  "src/routes/_site.index.tsx",
-  "src/components/sections/Quote.tsx",
-  "src/components/sections/Testimonials.tsx",
-]);
-
-const CHECKPOINTS: DesignCheckpoint[] = [
-  {
-    id: "c5",
-    message: "Testimonials as cards, three across",
-    ago: "2 minutes ago",
-    current: true,
-  },
-  { id: "c4", message: "Testimonials on the front page", ago: "6 minutes ago" },
-  {
-    id: "c3",
-    message: "Testimonials schema: quote, name, place",
-    ago: "8 minutes ago",
-  },
-  {
-    id: "c2",
-    message: "Remove the unused Quote section",
-    ago: "9 minutes ago",
-  },
-];
-
-const MESSAGES: ChatMessage[] = [
-  {
-    id: "u1",
-    role: "user",
-    content:
-      "Replace the quote on the front page with a section of customer testimonials. Three of them, as cards.",
-    status: "complete",
-  },
-  {
-    id: "a1",
-    role: "assistant",
-    content:
-      "Done, and it is in the preview. I added a **Testimonials** section with its own schema (quote, name, place), put it on the front page where the quote was, and removed the Quote section, which nothing else used.\n\n" +
-      "Nothing on the site has changed: it changes when the proposal is published.",
-    status: "complete",
-    toolActivities: [
-      { toolCallId: "t1", name: "list_files", status: "complete" },
-      { toolCallId: "t2", name: "read_file", status: "complete" },
-      { toolCallId: "t3", name: "write_files", status: "complete" },
-      { toolCallId: "t4", name: "build_proposal", status: "complete" },
-    ],
-  },
-];
-
-const chat = (messages: ChatMessage[]) => (
-  <AIChat
-    className="h-full"
-    initialMessages={messages}
-    isConnected
-    authError={false}
-    mode="http"
-    onSendMessage={() => true}
-  />
-);
-
-const BASE: DesignTabViewProps = {
-  proposal: {
-    displayName: "Front page testimonials",
-    address: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev",
-  },
-  studioUrl: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev/val",
-  previewHref: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev/",
-  route: "/",
-  onRouteChange: () => {},
-  onReload: () => {},
-  files: FILES,
-  diffOf: (path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null),
-  checkpoints: CHECKPOINTS,
-  checks: [
-    { label: "Types", check: { state: "passed" } },
-    { label: "Build", check: { state: "passed", detail: "renders" } },
-  ],
-  build: { required: false, building: false, progress: null, onBuild: null },
-  builder: { kind: "in-tab" },
-  problem: null,
-  preview: <DesignSiteMock testimonials="cards" />,
-  chat: chat(MESSAGES),
-};
 
 export const Working: Story = { args: BASE };
 
@@ -200,9 +69,6 @@ export const Building: Story = {
     ]),
   },
 };
-
-const NOT_RENDERED =
-  "The build does not render, so the proposal's address still serves its last build. The page answered 200, but its render failed: TypeError: Cannot read properties of undefined (reading 'map')";
 
 export const BuildNotServed: Story = {
   name: "Build not served",
@@ -286,5 +152,87 @@ export const SafariNoBuilderWindow: Story = {
       onBuild: () => {},
     },
     preview: <DesignSiteMock testimonials="none" />,
+  },
+};
+
+function LivePicking({
+  initialPicked = null,
+  initialSelect = false,
+  ...props
+}: DesignTabViewProps & {
+  initialPicked?: PickedElement | null;
+  initialSelect?: boolean;
+}) {
+  const [active, setActive] = useState(initialSelect);
+  const [picked, setPicked] = useState<PickedElement | null>(initialPicked);
+  return (
+    <DesignTabView
+      {...props}
+      picking={{
+        active,
+        onToggle: () => setActive((on) => !on),
+        status: "live",
+        onTurnOn: () => {},
+        modifier: "⌥",
+      }}
+      picked={picked}
+      onClearPicked={() => setPicked(null)}
+      preview={
+        <PickerLayer
+          modifier="alt"
+          active={active}
+          keepPicked={picked !== null}
+          onStop={() => setActive(false)}
+          onPick={(element) => {
+            setActive(false);
+            setPicked(element);
+          }}
+        >
+          <DesignSiteMock testimonials="cards" />
+        </PickerLayer>
+      }
+    />
+  );
+}
+
+export const Picking: Story = {
+  name: "Picking: hold ⌥ and click anything",
+  render: (args) => <LivePicking {...args} />,
+  args: BASE,
+};
+
+export const Picked: Story = {
+  name: "Picking: a heading picked",
+  render: (args) => (
+    <LivePicking
+      {...args}
+      initialPicked={{
+        tag: "h2",
+        text: "Worn for years, not weeks",
+        classes: ["mb-6", "text-2xl", "font-bold", "tracking-tight"],
+        selector: "div > section:nth-of-type(2) > h2",
+      }}
+    />
+  ),
+  args: BASE,
+};
+
+export const PickingWithSelect: Story = {
+  name: "Picking: Select on, no key needed",
+  render: (args) => <LivePicking {...args} initialSelect />,
+  args: BASE,
+};
+
+export const PickingNoAnswer: Story = {
+  name: "Picking: the page did not answer",
+  args: {
+    ...BASE,
+    picking: {
+      active: false,
+      onToggle: () => {},
+      status: "off",
+      onTurnOn: () => {},
+      modifier: "⌥",
+    },
   },
 };
