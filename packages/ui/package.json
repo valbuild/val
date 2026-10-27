@@ -110,6 +110,7 @@
     "lucide-react": "^1.35.0",
     "mediabunny": "1.61.0",
     "postcss": "^8.5.26",
+    "prettier": "~3.8.5",
     "prop-types": "^15.8.1",
     "prosemirror-changeset": "^2.4.2",
     "prosemirror-commands": "^1.7.2",

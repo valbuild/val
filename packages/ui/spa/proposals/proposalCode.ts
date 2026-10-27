@@ -3,6 +3,7 @@ import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
 import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
+import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -149,8 +150,9 @@ const TYPECHECK_TOOL: AITool = {
 const FORMAT_FILES_TOOL: AITool = {
   name: "format_files",
   description:
-    "Format the proposal's files the way the project formats them (its own formatter, e.g. prettier with its config), " +
-    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files, before typecheck.",
+    "Format the proposal's files the way the project formats them -- Prettier, with the project's config -- " +
+    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files, before typecheck. " +
+    "A config it cannot read (JavaScript or YAML, plugins) is reported, not guessed at.",
   parameters: {
     type: "object",
     properties: {
@@ -313,15 +315,18 @@ export function isCodeTool(name: string): boolean {
 export type CodeToolDeps = {
   /** The proposal this Studio is open in; `null` on the site. */
   proposal: { name: string } | null;
-  client: Pick<
-    ProposalsClient,
-    "files" | "stageFiles" | "patchFile" | "formatFiles"
-  >;
+  client: Pick<ProposalsClient, "files" | "stageFiles" | "patchFile">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
   build: () => Promise<ProposalBuildOutcome>;
   /** Typecheck the proposal, and report it: see `typecheckProposal`. */
   typecheck: () => Promise<CodeTypecheck>;
+  /** Format one file as the project does; `formatWithProjectPrettier` unless a test says otherwise. */
+  formatCode?: (
+    text: string,
+    path: string,
+    project: Record<string, string>,
+  ) => Promise<FormatOutcome>;
   /** Offer the person a proposal to make the change in. */
   offerProposal: () => void;
 };
@@ -430,42 +435,6 @@ export async function runCodeTool(
         isError: false,
       };
     }
-    if (name === "format_files") {
-      if (deps.proposal === null) {
-        return fail(
-          "Only a proposal's files are formatted here: the site's code is changed by merging a proposal.",
-        );
-      }
-      const paths = input["paths"];
-      if (
-        paths !== undefined &&
-        (!Array.isArray(paths) || !paths.every((p) => typeof p === "string"))
-      ) {
-        return fail("paths must be a list of file paths.");
-      }
-      const write = input["write"] !== false;
-      const formatted = await deps.client.formatFiles(deps.proposal.name, {
-        ...(paths !== undefined ? { paths } : {}),
-        write,
-      });
-      const changed = formatted.files.filter((f) => f.status === "changed");
-      const failed = formatted.files.filter((f) => f.status === "failed");
-      return {
-        result: {
-          success: true,
-          files: formatted.files,
-          next:
-            failed.length > 0
-              ? "Some files could not be formatted: that is usually a syntax error. Fix them, then format again."
-              : changed.length === 0
-                ? "Everything is formatted already."
-                : write
-                  ? "The changed files are staged, formatted."
-                  : "Call format_files again with write: true to stage these formatted.",
-        },
-        isError: false,
-      };
-    }
     if (name === "typecheck") {
       if (deps.proposal === null) {
         return fail(
@@ -538,6 +507,66 @@ export async function runCodeTool(
               }
             : {}),
           ...(staged !== null ? { staged: staged.files } : {}),
+        },
+        isError: false,
+      };
+    }
+    if (name === "format_files") {
+      if (deps.proposal === null) {
+        return fail(
+          "Only a proposal's files are formatted here: the site's code is changed by merging a proposal.",
+        );
+      }
+      const asked = input["paths"];
+      if (
+        asked !== undefined &&
+        (!Array.isArray(asked) || !asked.every((p) => typeof p === "string"))
+      ) {
+        return fail("paths must be a list of file paths.");
+      }
+      const paths = (asked ?? staged?.files ?? []).map((path) =>
+        path.replace(/^\/+/, ""),
+      );
+      const formatCode = deps.formatCode ?? formatWithProjectPrettier;
+      const files: Array<{ path: string; status: string; message?: string }> =
+        [];
+      const changed: Record<string, string> = {};
+      for (const path of paths) {
+        const text = project[path];
+        if (text === undefined) {
+          files.push({ path, status: "missing" });
+          continue;
+        }
+        const outcome = await formatCode(text, path, project);
+        if (outcome.status !== "formatted") {
+          files.push({
+            path,
+            status: outcome.status,
+            message: outcome.message,
+          });
+        } else if (outcome.text === text) {
+          files.push({ path, status: "unchanged" });
+        } else {
+          changed[path] = outcome.text;
+          files.push({ path, status: "changed" });
+        }
+      }
+      const write = input["write"] !== false;
+      if (write && Object.keys(changed).length > 0) {
+        await deps.client.stageFiles(deps.proposal.name, changed, "Format");
+      }
+      const failed = files.some((f) => f.status === "failed");
+      return {
+        result: {
+          success: true,
+          files,
+          next: failed
+            ? "Some files could not be formatted: that is usually a syntax error. Fix them, then format again."
+            : Object.keys(changed).length === 0
+              ? "Everything is formatted already."
+              : write
+                ? "The changed files are staged, formatted."
+                : "Call format_files again with write: true to stage these formatted.",
         },
         isError: false,
       };

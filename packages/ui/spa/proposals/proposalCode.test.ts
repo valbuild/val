@@ -318,19 +318,14 @@ describe("the code tools", () => {
             staged: staged({ files: [moduleFilePath.slice(1)] }),
           };
         },
-        formatFiles: async (
-          name: string,
-          request: { paths?: string[]; write?: boolean },
-        ) => {
-          record.formatted.push([name, request]);
-          return {
-            files: [
-              { path: "src/components/Hero.tsx", status: "changed" as const },
-              { path: "src/app.tsx", status: "unchanged" as const },
-            ],
-            staged: null,
-          };
-        },
+      },
+      // Stands in for prettier: collapses runs of spaces.
+      formatCode: async (text: string, path: string) => {
+        record.formatted.push(path);
+        return {
+          status: "formatted" as const,
+          text: text.replace(/ {2,}/g, " "),
+        };
       },
       typecheck: async () => ({ status: "nothing-staged" as const }),
       siteSource: async () => SITE,
@@ -434,30 +429,72 @@ describe("the code tools", () => {
     ).toBe(true);
   });
 
-  test("format_files formats the proposal's files as the project does, and stages them by default", async () => {
-    const d = deps();
+  test("format_files formats what the proposal stages as the project does, and stages what changed", async () => {
+    const d = deps({
+      client: {
+        files: async () => ({
+          files: {
+            "src/components/Hero.tsx": "const  hero =  1;",
+            "src/tidy.ts": "ok",
+          },
+          staged: staged({ files: ["src/components/Hero.tsx", "src/tidy.ts"] }),
+        }),
+        stageFiles: async (name, files, message) => {
+          d.staged.push([name, files, message]);
+          return { commit: "c3", staged: staged() };
+        },
+        patchFile: async () => ({ commit: "c4", staged: staged() }),
+      },
+    });
     const answer = await runCodeTool("format_files", {}, d);
-    expect(d.formatted).toEqual([[NAME, { write: true }]]);
-    expect(answer).toMatchObject({
+    expect(d.formatted).toEqual(["src/components/Hero.tsx", "src/tidy.ts"]);
+    expect(answer).toEqual({
       result: {
         success: true,
         files: [
           { path: "src/components/Hero.tsx", status: "changed" },
-          { path: "src/app.tsx", status: "unchanged" },
+          { path: "src/tidy.ts", status: "unchanged" },
         ],
         next: "The changed files are staged, formatted.",
       },
       isError: false,
     });
-    await runCodeTool(
+    expect(d.staged).toEqual([
+      [NAME, { "src/components/Hero.tsx": "const hero = 1;" }, "Format"],
+    ]);
+  });
+
+  test("format_files without write only reports, and says what it cannot format", async () => {
+    const d = deps({
+      formatCode: async (_text, path) =>
+        path === "src/components/Hero.tsx"
+          ? { status: "formatted", text: "changed" }
+          : {
+              status: "unsupported",
+              message: "Prettier does not format it here.",
+            },
+    });
+    const answer = await runCodeTool(
       "format_files",
-      { paths: ["src/app.tsx"], write: false },
+      {
+        paths: ["src/components/Hero.tsx", "src/app.tsx", "src/nope.ts"],
+        write: false,
+      },
       d,
     );
-    expect(d.formatted[1]).toEqual([
-      NAME,
-      { paths: ["src/app.tsx"], write: false },
-    ]);
+    expect(answer.result).toMatchObject({
+      files: [
+        { path: "src/components/Hero.tsx", status: "changed" },
+        {
+          path: "src/app.tsx",
+          status: "unsupported",
+          message: "Prettier does not format it here.",
+        },
+        { path: "src/nope.ts", status: "missing" },
+      ],
+      next: "Call format_files again with write: true to stage these formatted.",
+    });
+    expect(d.staged).toEqual([]);
     expect(
       (await runCodeTool("format_files", { paths: "src/app.tsx" }, d)).isError,
     ).toBe(true);
