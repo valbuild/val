@@ -11,7 +11,13 @@ import { useWriteSettingsSection } from "./useWriteSettingsSection";
  * object element which does not exist" for a key that is absent. So the
  * section-creating write has to leave a `logo: null` for it to replace.
  */
-export const THEME_FIELDS = ["accent", "radius", "mode", "logo"] as const;
+export const THEME_FIELDS = [
+  "accent",
+  "proposal",
+  "radius",
+  "mode",
+  "logo",
+] as const;
 
 export type ThemeField = (typeof THEME_FIELDS)[number];
 

@@ -224,14 +224,16 @@ export function ValThemeProvider({
    * `architecture/stores.md` on why reference stability is load-bearing here.
    */
   const accent = settingsTheme.accent;
+  const proposal = settingsTheme.proposal;
   const radius = settingsTheme.radius;
   const themeStyle = useMemo<CSSProperties>(
     () =>
       themeCustomProperties({
         accent,
+        proposal,
         radius: radius === null ? null : THEME_RADIUS_LENGTHS[radius],
       }),
-    [accent, radius],
+    [accent, proposal, radius],
   );
   const value = useMemo<ValThemeContextValue>(
     () => ({

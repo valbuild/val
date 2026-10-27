@@ -51,7 +51,6 @@ const meta: Meta<typeof UpgradeProposalNotice> = {
   args: {
     upgrade: minor,
     siteName: "quiet-harbor-24",
-    onPublish: () => {},
     checksHref: "#val-build",
   },
 };
@@ -60,6 +59,14 @@ type Story = StoryObj<typeof UpgradeProposalNotice>;
 
 /** Checked in Val Build: look around, then publish to update the site. */
 export const Ready: Story = {};
+
+/** Someone edited content at its address: it holds those too, and says so. */
+export const WithContentChanges: Story = { args: { contentChanges: 2 } };
+
+/** Val Build found nothing to upgrade. */
+export const NothingToUpgrade: Story = {
+  args: { upgrade: { ...minor, state: "nothing", changes: [] } },
+};
 
 /** Security fixes, said as such, with how many. */
 export const SecurityFixes: Story = {

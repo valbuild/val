@@ -424,6 +424,11 @@ export function settings(): SettingsSchema<SettingsSource> {
         .describe(
           "The one colour the Studio's chrome is built from. Unset means Val's green. Any hex: the whole brand ramp is generated from it, keeping the lightness of each step, so contrast holds.",
         ),
+      proposal: color({ format: "hex" })
+        .nullable()
+        .describe(
+          "The colour the Studio wears in a proposal, so nobody mistakes one for the site. Unset means Val's violet. Pick one that stands apart from the accent.",
+        ),
       radius: enumSchema("square", "tight", "default", "soft")
         .nullable()
         .describe(

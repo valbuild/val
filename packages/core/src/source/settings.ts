@@ -103,6 +103,17 @@ export type ThemeSettingsSource = {
    */
   accent?: string | null;
   /**
+   * The colour that says "you are in a proposal", as a hex string.
+   *
+   * Unset means Val's violet. A proposal is a PLACE rather than a brand or a
+   * status -- the top bar, the switcher and Save wear it so nobody edits a
+   * proposal thinking it is the site -- so it has to stand apart from the
+   * accent, and a project whose accent is violet needs a way to move it.
+   * Generated the way the accent's ramp is, keeping the lightness of each step,
+   * so its text stays legible whatever the hue.
+   */
+  proposal?: string | null;
+  /**
    * How round the Studio's corners are.
    *
    * Named steps rather than a length, for two reasons: a number input invites

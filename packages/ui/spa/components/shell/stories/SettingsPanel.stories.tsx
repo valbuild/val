@@ -97,6 +97,7 @@ const UNSET: AssistantSettingsValue = {
 
 const UNSET_THEME: ThemeSettingsValue = {
   accent: null,
+  proposal: null,
   radius: null,
   mode: null,
 };
@@ -133,6 +134,7 @@ function SettingsPanelHarness({
    */
   const themeStyle = themeCustomProperties({
     accent: theme.accent,
+    proposal: null,
     radius: theme.radius === null ? null : THEME_RADIUS_LENGTHS[theme.radius],
   });
   const assistantTab = {
@@ -412,7 +414,12 @@ export const Appearance: Story = {
 export const AppearanceThemed: Story = {
   args: {
     appearance: true,
-    initialTheme: { accent: "#7c3aed", radius: "tight", mode: "light" },
+    initialTheme: {
+      accent: "#7c3aed",
+      proposal: null,
+      radius: "tight",
+      mode: "light",
+    },
   },
 };
 
@@ -427,7 +434,12 @@ export const AppearanceThemed: Story = {
 export const AppearanceInvalidAccent: Story = {
   args: {
     appearance: true,
-    initialTheme: { accent: "cornflower", radius: null, mode: null },
+    initialTheme: {
+      accent: "cornflower",
+      proposal: null,
+      radius: null,
+      mode: null,
+    },
     themeErrors: { accent: "Invalid color: 'cornflower'" },
   },
 };
@@ -441,7 +453,12 @@ export const AppearanceInvalidAccent: Story = {
 export const AppearanceReadonly: Story = {
   args: {
     appearance: true,
-    initialTheme: { accent: "#ea580c", radius: "soft", mode: "dark" },
+    initialTheme: {
+      accent: "#ea580c",
+      proposal: null,
+      radius: "soft",
+      mode: "dark",
+    },
     readonly: true,
   },
 };
@@ -500,6 +517,11 @@ export const AppearanceWithLogo: Story = {
   args: {
     appearance: true,
     logoSlot: "field",
-    initialTheme: { accent: "#ea580c", radius: "tight", mode: null },
+    initialTheme: {
+      accent: "#ea580c",
+      proposal: null,
+      radius: "tight",
+      mode: null,
+    },
   },
 };

@@ -18,6 +18,9 @@ export default c.define("/settings.val.ts", s.settings(), {
   },
   theme: {
     accent: "#3b82f6",
+    // What the Studio wears in a proposal. Proposals need Val Build, so in
+    // local development this only shows in Settings → Studio.
+    proposal: "#ea580c",
     radius: "soft",
     mode: "dark",
   },

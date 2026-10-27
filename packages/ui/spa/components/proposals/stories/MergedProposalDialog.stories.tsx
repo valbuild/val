@@ -1,33 +1,30 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { MergedProposalNotice } from "../MergedProposalNotice";
+import { MergedProposalDialog } from "../MergedProposalDialog";
 
 /**
- * Above the editor at a merged proposal's address. A merged proposal is
- * finished (`docs/proposals.md` in valbuild/home), so the Studio there says so
- * before anyone types, and says where to go instead.
+ * At a merged proposal's address. A merged proposal is finished
+ * (`docs/proposals.md` in valbuild/home): there is nothing more to do in it,
+ * so the Studio there says so in a dialog that does not close onto it, and
+ * offers only the ways out.
  */
-const meta: Meta<typeof MergedProposalNotice> = {
+const meta: Meta<typeof MergedProposalDialog> = {
   title: "Proposals/Merged",
-  component: MergedProposalNotice,
-  decorators: [
-    (Story) => (
-      <div className="max-w-2xl p-6">
-        <Story />
-      </div>
-    ),
-  ],
+  component: MergedProposalDialog,
+  parameters: { layout: "fullscreen", backgrounds: { disable: true } },
   args: {
+    open: true,
     displayName: "Spring campaign",
     continuedIn: null,
     onOpenContinuation: () => {},
     onNewProposal: () => {},
+    onShowAllProposals: () => {},
     onGoToSite: () => {},
   },
 };
 export default meta;
-type Story = StoryObj<typeof MergedProposalNotice>;
+type Story = StoryObj<typeof MergedProposalDialog>;
 
-/** Nothing was written during the merge: a new proposal is the way on. */
+/** Nothing was written during the merge: back to the site is the way on. */
 export const Finished: Story = {};
 
 /** Changes written during the merge went to a new proposal: carry on there. */
