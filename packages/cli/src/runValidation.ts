@@ -276,6 +276,15 @@ export async function* runValidation({
                 yield { type: "fix-applied", file, sourcePath };
               }
 
+              if (result.warning !== undefined) {
+                yield {
+                  type: "validation-warning",
+                  sourcePath,
+                  ...result.warning,
+                  ...(v.keyError ? { keyError: true } : {}),
+                };
+              }
+
               if (result.fixableErrorMessage !== undefined) {
                 fileErrors += 1;
                 yield {

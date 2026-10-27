@@ -60,6 +60,14 @@ async function loadBuilder(): Promise<
       import("@valbuild/tanstack-build"),
       import("@valbuild/tanstack-build/node"),
     ]);
+    /*
+     * Native rolldown rather than its WebAssembly build, whose glue the site's
+     * lockfile picks and can break (`rolldown.ts` in tanstack-build). Asked
+     * for, because the project's own tanstack-build may predate the choice.
+     */
+    if ("useRolldown" in build && "nativeRolldown" in node) {
+      build.useRolldown(node.nativeRolldown);
+    }
     return { status: "ok", build, node };
   } catch (e) {
     return {
@@ -70,6 +78,49 @@ async function loadBuilder(): Promise<
         "Install them in the project:\n\n" +
         "    npm install --save-dev @valbuild/tanstack-build rolldown @tanstack/router-generator @tanstack/router-plugin\n\n" +
         "or publish a build made elsewhere with --artifacts <dir>.",
+    };
+  }
+}
+
+/**
+ * Whether `val publish` could build here: the builder loaded as a publish
+ * loads it, and its bundler made to parse and bundle a module. Nothing is
+ * read from the project and nothing is asked of content.
+ *
+ * What Val Build runs on an upgrade's install before a connected project
+ * may publish it, since the project's CI is what builds a connected publish:
+ * an upgrade that resolved a bundler which cannot load would otherwise land
+ * on the branch and fail every build after it (architecture/quirks.md,
+ * 2026-10-26).
+ */
+export async function checkBuildTools(): Promise<
+  { status: "ok" } | { status: "error"; message: string }
+> {
+  const loaded = await loadBuilder();
+  if (loaded.status === "error") return loaded;
+  try {
+    // A builder older than `loadRolldown` loaded its bundler on import.
+    if (!("loadRolldown" in loaded.build)) return { status: "ok" };
+    const { build, parseAstAsync } = await loaded.build.loadRolldown();
+    await parseAstAsync("export const checked = true;");
+    const ENTRY = "\0val-check-build-tools";
+    await build({
+      input: ENTRY,
+      cwd: "/",
+      write: false,
+      plugins: [
+        {
+          name: "val-check-build-tools",
+          resolveId: (id) => (id === ENTRY ? id : null),
+          load: (id) => (id === ENTRY ? "export default 1;" : null),
+        },
+      ],
+    });
+    return { status: "ok" };
+  } catch (e) {
+    return {
+      status: "error",
+      message: `rolldown loaded, and could not build: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
 }

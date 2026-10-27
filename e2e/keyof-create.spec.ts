@@ -19,7 +19,7 @@ import { openStudio, test } from "./studio";
  * search matches nothing, which is precisely when the create option is needed,
  * and a hidden element is still clickable in jsdom.
  */
-const BLOG_MODULE = "/app/blogs/[blog]/page.val.ts";
+const BLOG_MODULE = "/src/routes/_site.blogs.$blog.val.ts";
 const AUTHORS_MODULE = "/content/authors.val.ts";
 const PAGE = `/val/~${BLOG_MODULE}?p=%22%2Fblogs%2Fblog1%22`;
 

@@ -1,5 +1,10 @@
-import { Internal, isPageRouter, SourcePath } from "@valbuild/core";
-import { useSchemaAtPath } from "./ValFieldProvider";
+import {
+  Internal,
+  isPageRouter,
+  ModuleFilePath,
+  SourcePath,
+} from "@valbuild/core";
+import { useGetNavPath, useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
@@ -36,11 +41,16 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
-import { ScopeTrail, scopePartsBelowPageRouter } from "./ModuleScope";
+import {
+  BackLink,
+  parentDestination,
+  scopePartsBelowPageRouter,
+} from "./ModuleScope";
 import { useHeadingTools } from "./shell/headingTools";
 import { PathHeading } from "./PathHeading";
 import { useEditorDensity } from "./EditorDensity";
 import { useDescription } from "./useDescription";
+import { ContentViewsSummary } from "../analytics/ContentViewsSummary";
 
 export function Module({
   path,
@@ -71,6 +81,7 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
+  const getNavPath = useGetNavPath();
   const description = useDescription(path);
   /** How much room the heading may spend. See {@link EditorDensity}. */
   const density = useEditorDensity();
@@ -132,6 +143,8 @@ export function Module({
     ownModuleFilePath,
     isInsidePageRouter,
   );
+  /* See `BackLink`: the line under the heading is the way back, by name. */
+  const backTo = parentDestination(init, path, getNavPath);
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   const keyErrors = validationErrors.filter((error) => !!error.keyError);
   const nonKeyErrors = validationErrors.filter((error) => !error.keyError);
@@ -250,13 +263,10 @@ export function Module({
             title={titleNode}
             density={density}
             tools={tools}
-            scope={
-              init.length > 0 ? (
-                <ScopeTrail parts={init} portalContainer={portalContainer} />
-              ) : undefined
-            }
+            scope={backTo !== null ? <ParentLink to={backTo} /> : undefined}
             below={
               <>
+                <ContentViewsSummary path={path} />
                 {keyErrors.length > 0 && (
                   <FieldValidationError validationErrors={keyErrors} />
                 )}
@@ -306,6 +316,14 @@ export function Module({
       </div>
     </div>
   );
+}
+
+/** {@link BackLink}, named the way every reference to `to` is named. */
+function ParentLink({ to }: { to: SourcePath | ModuleFilePath }) {
+  // A module file path is a source path with no module path; `getNavPath`
+  // answers with one whenever the parent is a module root.
+  const description = useDescription(to as unknown as SourcePath);
+  return <BackLink to={to} name={description.title} />;
 }
 
 function Home() {

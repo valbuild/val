@@ -158,8 +158,8 @@ jobs:
       # 12 tests, smoke has 2). That makes the shard count a balance question,
       # not just a division: at 4 shards chromium splits 26/22/34/12, so 37% of
       # the suite sits on the critical path and two runners idle. 6 splits it
-      # 18/14/17/20/15/12, which is 22%. chromium-http splits 28/16 at two
-      # shards and 15/16/13 at three.
+      # 18/14/17/20/15/12, which is 22%. chromium-http splits 40/40 at two
+      # shards and 33/25/22 at three. tanstack-http is one file, so one shard.
       #
       # Re-measure with `--list` after adding or splitting a spec file:
       #   pnpm exec playwright test --project=chromium --shard=1/6 --list | tail -1
@@ -174,9 +174,18 @@ jobs:
           - { project: chromium-http, shard: 1, shards: 3 }
           - { project: chromium-http, shard: 2, shards: 3 }
           - { project: chromium-http, shard: 3, shards: 3 }
+          # `examples/tanstack` in proxy mode: the builder tab. Its own mock
+          # and its own app, so it never starts `next dev`.
+          - { project: tanstack-http, shard: 1, shards: 1 }
           # Safari's engine, on the specs that publish. Its own browser, so
           # the install below reads `browser` (chromium when unset).
           - { project: webkit-http, shard: 1, shards: 1, browser: webkit }
+          - {
+              project: webkit-tanstack-http,
+              shard: 1,
+              shards: 1,
+              browser: webkit,
+            }
     steps:
       - uses: actions/checkout@v3
         with:

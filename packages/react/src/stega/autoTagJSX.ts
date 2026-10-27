@@ -12,7 +12,63 @@ const isIntrinsicElement = (type: any) => {
   return typeof type === "string";
 };
 
-const addValPathIfFound = (type: any, props: any) => {
+const FRAGMENT = Symbol.for("react.fragment");
+
+/**
+ * The paths a fragment's text named, by the fragment element. A fragment has
+ * no DOM element to carry `data-val-path`, so its text is cleaned and its
+ * paths go to the element it is a child of: `<li>{a} <>— {b}</></li>` tags
+ * the `<li>` with both. Without this its text kept its edit tag, on the page.
+ */
+const fragmentPaths = new WeakMap<object, string[]>();
+
+/** The paths of the fragments among `children`, when it holds any. */
+function pathsOfFragmentChildren(children: unknown): string[] {
+  const found: string[] = [];
+  // `.flat`: a list of keyed fragments from `.map()` is an array among them.
+  for (const child of [children].flat(Infinity)) {
+    if (typeof child === "object" && child !== null) {
+      const paths = fragmentPaths.get(child);
+      if (paths) {
+        found.push(...paths);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Takes the edit tags out of a fragment's text, and returns the paths they
+ * named -- its own and its fragment children's -- for its parent to carry.
+ */
+function cleanFragment(props: any): string[] {
+  if (!props || typeof props !== "object") {
+    return [];
+  }
+  const paths = pathsOfFragmentChildren(props.children);
+  const clean = (value: unknown): unknown => {
+    if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
+      const found = stegaDecodeStrings(value);
+      if (found) {
+        paths.push(...found);
+        return vercelStegaSplit(value).cleaned;
+      }
+    }
+    return value;
+  };
+  if (Array.isArray(props.children)) {
+    if (!Object.isFrozen(props.children)) {
+      props.children.forEach((child: unknown, index: number) => {
+        props.children[index] = clean(child);
+      });
+    }
+  } else if (!Object.isFrozen(props)) {
+    props.children = clean(props.children);
+  }
+  return paths;
+}
+
+const addValPathIfFound = (type: any, props: any): string[] | undefined => {
   // TODO: increases performance. Unsure about the implications right now - seems to work. Remember to look at RSC and client (and pages/?).
   if (!IS_AUTO_TAG_JSX_ENABLED()) {
     return;
@@ -20,9 +76,9 @@ const addValPathIfFound = (type: any, props: any) => {
 
   const valSources = new Set<string>();
 
-  // skip auto-tagging fragments since we can't add attributes to them
-  if (type === Symbol.for("react.fragment")) {
-    return;
+  // A fragment cannot carry attributes: what it held goes to its parent.
+  if (type === FRAGMENT) {
+    return cleanFragment(props);
   }
   function updateValSources(
     key: string | number,
@@ -81,6 +137,11 @@ const addValPathIfFound = (type: any, props: any) => {
     }
   }
   if (props && typeof props === "object") {
+    if (isIntrinsicElement(type)) {
+      for (const path of pathsOfFragmentChildren(props.children)) {
+        valSources.add(path);
+      }
+    }
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
         updateValSources(key, value, props, props);
@@ -121,8 +182,17 @@ function WrapJsx<T>(jsx: T): T {
   if (typeof jsx !== "function") return jsx;
 
   return function (type: any, props: any, ...rest: any[]) {
-    addValPathIfFound(type, props);
-    return jsx.call(jsx, type, props, ...rest);
+    const fragmentPathsFound = addValPathIfFound(type, props);
+    const element = jsx.call(jsx, type, props, ...rest);
+    if (
+      fragmentPathsFound &&
+      fragmentPathsFound.length > 0 &&
+      typeof element === "object" &&
+      element !== null
+    ) {
+      fragmentPaths.set(element, fragmentPathsFound);
+    }
+    return element;
   } as any as T;
 }
 

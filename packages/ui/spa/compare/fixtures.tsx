@@ -163,7 +163,7 @@ function item(
 }
 
 const landingPane: ComparePane = {
-  description: unnamed("/"),
+  description: unnamed("/", "/"),
   path: "/app/page.val.ts",
   change: "changed",
   groups: [

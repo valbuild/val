@@ -80,6 +80,52 @@ describe("adeptSources", () => {
     });
   });
 
+  test("a compiler is fetched once, however many checks ask for it", async () => {
+    const { sent, fetch } = answering(
+      200,
+      JSON.stringify({ version: "6.0.3", files: { "lib.d.ts": "" } }),
+    );
+    // A new `adeptSources` for each check, as the workers make them.
+    const [first, second] = await Promise.all([
+      adeptSources({ base: "/once", fetch }).compiler("6.0.3"),
+      adeptSources({ base: "/once", fetch }).compiler("6.0.3"),
+    ]);
+    const third = await adeptSources({ base: "/once", fetch }).compiler(
+      "6.0.3",
+    );
+    expect(sent.map((s) => s.url)).toEqual(["/once/compiler/6.0.3"]);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    // Another version is another compiler.
+    await adeptSources({ base: "/once", fetch }).compiler("5.9.3");
+    expect(sent.map((s) => s.url)).toEqual([
+      "/once/compiler/6.0.3",
+      "/once/compiler/5.9.3",
+    ]);
+  });
+
+  test("a compiler that could not be fetched is asked for again", async () => {
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return calls === 1
+        ? new Response("<html>Bad gateway</html>", { status: 502 })
+        : new Response(
+            JSON.stringify({ version: "6.0.3", files: { "lib.d.ts": "" } }),
+            { status: 200 },
+          );
+    };
+    const failure = await adeptSources({ base: "/again", fetch })
+      .compiler("6.0.3")
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SourceError);
+    const compiler = await adeptSources({ base: "/again", fetch }).compiler(
+      "6.0.3",
+    );
+    expect(compiler.version).toBe("6.0.3");
+    expect(calls).toBe(2);
+  });
+
   test("a deployment with nothing to ask is not worth asking again", async () => {
     const { fetch } = answering(
       501,

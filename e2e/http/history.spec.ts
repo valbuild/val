@@ -32,7 +32,7 @@ test.beforeEach(async () => {
 
 const MODULE = "/content/authors.val.ts";
 /** The module's path in the repository, which is how history names files. */
-const MODULE_GIT_PATH = "examples/next/content/authors.val.ts";
+const MODULE_GIT_PATH = "examples/tanstack/content/authors.val.ts";
 /** What the module ships with, before any test touches it. */
 const ORIGINAL_TEDDY = "Theodor René Carlsen";
 const ORIGINAL_FREEKH = "Fredrik Ekholdt";

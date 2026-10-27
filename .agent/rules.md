@@ -253,11 +253,11 @@ direction:
 
 - **A title** is what a thing is CALLED, where the thing is shown as a thing:
   the heading of what you opened, a card, a list row, a search hit, a reference
-  once it has been chosen. A preview belongs in all of these.
+  once it has been chosen, and the link back to the parent under the heading. A
+  preview belongs in all of these.
 - **A location** is WHERE YOU ARE, and it is made of path segments: the
-  breadcrumb under the heading, the Explorer tree, the Pages tree. A preview
-  belongs in NONE of these — not even for a module root, not even when it reads
-  better.
+  Explorer tree, the Pages tree. A preview belongs in NONE of these — not even
+  for a module root, not even when it reads better.
 
 Two reasons, and the second is the one that settles it:
 
@@ -267,11 +267,19 @@ Two reasons, and the second is the one that settles it:
 2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
    A location that moves under you is not a location.
 
+The line under the heading was a breadcrumb of path segments, and is not any
+more: it is one link back to the PARENT, named by its title — "‹ Product 1".
+The parent is where the level above is SHOWN, through `getNavPath`, so from a
+section of a page it is the page, not its `sections` field (every segment in
+between opened the page anyway). `parentDestination` and `BackLink` in
+`ModuleScope.tsx` are that rule.
+
 The one thing a location may take from the heading is a page's ROUTE, because a
 route IS the page's location. And it takes it INSTEAD of the file path, not
 beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
 and nothing else, because nobody reaches a page through the file — the Pages
-panel is a tree of routes. `scopePartsBelowPageRouter` is that rule.
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule, and it is
+why a page itself offers no way back: the file it lives in is not its parent.
 
 ### `describePath` is the one implementation
 
@@ -283,8 +291,9 @@ wrote from a key we had lying around.
 
 Anything that TITLES a path goes through it rather than deriving a name of its
 own — the heading, list rows, search hits and references disagreed with each
-other before it existed. Anything that LOCATES a path does not go near it: the
-breadcrumb and the Explorer use path segments, per the rule above.
+other before it existed — and so does the back link under the heading, which
+names its destination. Anything that LOCATES a path does not go near it: the
+Explorer and the Pages tree use path segments, per the rule above.
 `useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
 and stays the right call for a list row, which has no `self` to read.
 
@@ -603,9 +612,12 @@ Two things follow, and they are the ones that get forgotten:
   ADDING IT THERE — a module (or a field in one), registered in
   `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
   that exists only in `packages/core` is a feature nobody can look at.
-  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
-  suite and the language server drive, and it is allowed to hold things the
-  showcase does not.
+  `examples/next` is the FIXTURE app for the language server and for the e2e
+  specs that keep `@valbuild/next` covered (`smoke`, `insecure-context`, the
+  canvas suite), and it is allowed to hold things the showcase does not. The
+  rest of the e2e suite drives `examples/tanstack`, whose e2e fixtures live in
+  `examples/tanstack/content/` (and a few `src/routes/_site.*` fixture pages),
+  registered only when `VAL_E2E_FIXTURES=true`.
 - **The TanStack checks are CI jobs** (`build-tanstack`, and the `tanstack`
   project in the blocking `smoke` job), and still yours to run before pushing
   a change the Studio loads through: `pnpm exec playwright test --project=tanstack`
@@ -631,7 +643,9 @@ partly overrides, and an image gallery entry with a default focal point; and `s.
 content analytics, switched on by `VAL_ANALYTICS=true` in its `.env.development`
 (on a hosted site it is a project setting, so there is no `val.config.ts`
 option) and read in `_site.tsx`'s loader, so its content is tagged for every
-visitor after hydration (`e2e/tanstack/analytics.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
+visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
+page writing JSON-LD and a share link through `val.raw()`, which the dev-only
+leak warning checks (`e2e/tanstack/leakWarning.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
@@ -857,7 +871,8 @@ cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
 
 Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
-which selects only `chromium` and `chromium-http` and does not block. They are
+which selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit
+projects, and does not block. They are
 the gate for "the Studio does not come up at all", on both frameworks and in an
 insecure context, which is the one class of failure that reaches every user at
 once, so run them before pushing anything the Studio loads through:
@@ -869,11 +884,12 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
 ```
 
 `webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
-in WebKit — Safari's engine, and every iOS browser's. It is declared only when
-asked for by name (`--project=webkit-http`), because a bare `playwright test`
-runs every project and WebKit is not installed in most places this runs: it
-needs `pnpm exec playwright install --with-deps webkit`. CI runs it as one
-entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`
+runs the builder-tab spec (`tanstack-http/publishHandoff`) there. Each is
+declared only when asked for by name (`--project=webkit-http`), because a bare
+`playwright test` runs every project and WebKit is not installed in most places
+this runs: it needs `pnpm exec playwright install --with-deps webkit`. CI runs
+each as one entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
 entry's `browser` (chromium when unset).
 
 Notes:
@@ -931,8 +947,9 @@ no amount of clicking in the normal dev loop reaches that UI.
 
 What DOES exercise it is the `chromium-http` Playwright project, which starts
 `e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
-history endpoints — alongside a second `examples/next` in proxy mode. Ports and
-secrets live in `e2e/http/config.ts`.
+history endpoints — alongside a second `examples/tanstack` in proxy mode, with
+the e2e fixtures (`examples/tanstack/content/`) switched on. Ports and secrets
+live in `e2e/http/config.ts`.
 
 **Do not add a second history implementation to `ValOpsFS`.** The mock content
 host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`

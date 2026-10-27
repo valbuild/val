@@ -18,7 +18,7 @@ import {
  * built, and each only showed in a browser.
  */
 
-const BLOG = "/app/blogs/[blog]/page.val.ts";
+const BLOG = "/src/routes/_site.blogs.$blog.val.ts";
 
 test.beforeEach(async ({ request }) => {
   await clearPatchChain(request);

@@ -103,6 +103,21 @@ async function getJson(
   return parsed;
 }
 
+/** `fetch` as the caller's global has it, when no other is given. */
+const defaultFetch: typeof fetch = (...args) => fetch(...args);
+
+/**
+ * Compilers already fetched, by the `fetch` that fetched them and their URL.
+ * A worker that checks a proposal and then the site asks for the same 13 MB
+ * twice, with a new `adeptSources` for each check, and a version's compiler
+ * is the same every time. A fetch that failed is not kept, so asking again
+ * asks again.
+ */
+const compilers = new WeakMap<
+  typeof fetch,
+  Map<string, Promise<CompilerBundle>>
+>();
+
 export function adeptSources(options: {
   base: string;
   fetch?: typeof fetch;
@@ -111,7 +126,7 @@ export function adeptSources(options: {
   /** Whether cookies go too: `same-origin` (the default) for the Studio's own server. */
   credentials?: RequestInit["credentials"];
 }): TypecheckSources {
-  const fetchImpl = options.fetch ?? ((...args) => fetch(...args));
+  const fetchImpl = options.fetch ?? defaultFetch;
   const init: RequestInit = {
     credentials: options.credentials ?? "same-origin",
     ...(options.headers ? { headers: options.headers } : {}),
@@ -122,6 +137,25 @@ export function adeptSources(options: {
     } catch (error) {
       throw sourceErrorOf(error, what);
     }
+  };
+  const fetchCompiler = async (
+    url: string,
+    version: string,
+  ): Promise<CompilerBundle> => {
+    const what = `TypeScript ${version}`;
+    const answer = await get(url, what);
+    if (!isRecord(answer) || !isTextFiles(answer["files"])) {
+      throw new SourceError(
+        `${what}: adept answered without the compiler's files.`,
+        "unexpected-answer",
+        false,
+      );
+    }
+    return {
+      version:
+        typeof answer["version"] === "string" ? answer["version"] : version,
+      files: answer["files"],
+    };
   };
   return {
     async types(pkg: PackageRef): Promise<TypesBundle> {
@@ -148,21 +182,19 @@ export function adeptSources(options: {
           : [],
       };
     },
-    async compiler(version: string): Promise<CompilerBundle> {
-      const what = `TypeScript ${version}`;
-      const answer = await get(`${options.base}/compiler/${version}`, what);
-      if (!isRecord(answer) || !isTextFiles(answer["files"])) {
-        throw new SourceError(
-          `${what}: adept answered without the compiler's files.`,
-          "unexpected-answer",
-          false,
-        );
-      }
-      return {
-        version:
-          typeof answer["version"] === "string" ? answer["version"] : version,
-        files: answer["files"],
-      };
+    compiler(version: string): Promise<CompilerBundle> {
+      const url = `${options.base}/compiler/${version}`;
+      const kept =
+        compilers.get(fetchImpl) ?? new Map<string, Promise<CompilerBundle>>();
+      compilers.set(fetchImpl, kept);
+      const held = kept.get(url);
+      if (held !== undefined) return held;
+      const fetching = fetchCompiler(url, version);
+      kept.set(url, fetching);
+      fetching.catch(() => {
+        if (kept.get(url) === fetching) kept.delete(url);
+      });
+      return fetching;
     },
   };
 }

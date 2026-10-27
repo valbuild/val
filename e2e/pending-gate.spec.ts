@@ -10,7 +10,7 @@ import { clearPatchChain, openStudio } from "./studio";
  * reads as a stale value, so an editor fixes it — and the real value lands
  * underneath the fix.
  */
-const HOME = "/val/~/app/page.val.ts?p=%22%2F%22";
+const HOME = "/val/~/src/routes/_site.index.val.ts?p=%22%2F%22";
 
 /**
  * Whether this element has focus.
@@ -154,9 +154,9 @@ test.describe("the pending-changes gate", () => {
     const note = page.getByText("Loading unpublished changes…");
     await expect(note).toBeVisible({ timeout: 15000 });
 
-    // The header's scope trail is inside the held editor, and it is a link to
+    // The header's way back is inside the held editor, and it is a link to
     // somewhere — `inert` on the subtree made it unreachable.
-    const up = page.getByRole("link", { name: /^Up one level/ });
+    const up = page.getByRole("link", { name: /^Back to/ });
     await expect(
       up,
       "the way out of the editor was held along with the fields",

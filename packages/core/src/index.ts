@@ -35,6 +35,7 @@ export type {
   VideoStreamOptions,
 } from "./schema/video";
 import { videosetEntryVideoSchema } from "./schema/videodir";
+import { galleryEntryMediaSchema } from "./schema/galleryEntryMediaSchema";
 export type {
   VideodirEntryMetadata,
   VideodirOptions,
@@ -444,6 +445,7 @@ const Internal = {
     core: corePackageJson.version,
   },
   videosetEntryVideoSchema,
+  galleryEntryMediaSchema,
   // A view's read-path plumbing: `Internal` rather than the public surface,
   // because an app never builds or unwraps a handle — it passes one to
   // `useVal`.
