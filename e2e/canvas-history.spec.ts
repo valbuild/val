@@ -14,7 +14,7 @@ import { openStudio, test } from "./studio";
  * no restore is a back button that changes the URL and nothing else, which is
  * worse than one that does nothing at all.
  */
-const HOME = "/val/~/app/page.val.ts?p=%22%2F%22";
+const HOME = "/val/~/src/routes/_site.index.val.ts?p=%22%2F%22";
 
 test.describe("the canvas and the back button", () => {
   test("closing the canvas can be undone by going back", async ({ page }) => {

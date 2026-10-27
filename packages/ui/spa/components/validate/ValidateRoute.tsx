@@ -372,7 +372,9 @@ export function ValidateRoute() {
         }),
       }))}
       fullCheck={fullCheck}
-      onCheckEverything={() => void checkEverything()}
+      onCheckEverything={
+        schemaData === undefined ? null : () => void checkEverything()
+      }
       onStop={() => validateSession.requestStop()}
       onFixEverything={() => void fixAll(fixableIn())}
       onFixGroup={(groupId) => void fixAll(fixableIn(groupId))}

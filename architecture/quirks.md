@@ -1454,3 +1454,16 @@ links packages as source. The server's request handlers use `Uint8Array` and
 global `Buffer` in what the browser entry reaches, `@valbuild/core` and
 `@valbuild/shared` included. Seeing it takes the packed packages in an app of
 its own; the workspace hides it.
+
+**In this repository, the first page with the overlay on reloads the Studio.**
+`ValTanStackProvider` imports `@valbuild/shared/internal` lazily, the first
+time a page renders with the overlay. The workspace links `@valbuild/*` as
+source, which Vite does not pre-bundle, so it meets that entrypoint's
+dependencies (zod, zod-validation-error, flexsearch) only then, re-optimizes,
+and reloads every page it serves, the Studio's included. In an e2e run that
+reload landed mid-edit in the first canvas test on a fresh checkout, and the
+row being typed in was gone. `examples/tanstack/vite.config.ts` lists them in
+`optimizeDeps.include`. A dependency added to that entrypoint brings the reload
+back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
+see it. An app that installs Val from npm is not affected:
+`@valbuild/tanstack` is pre-bundled there, with what it imports lazily.

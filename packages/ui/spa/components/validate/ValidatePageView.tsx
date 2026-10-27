@@ -28,7 +28,12 @@ import { Spinner } from "../designSystem/spinner";
 export type ValidatePageViewProps = {
   groups: ValidateGroup[];
   fullCheck: FullCheckState;
-  onCheckEverything: () => void;
+  /**
+   * Null until the Studio has the project's schemas: the check walks every
+   * module they name, so a press before then would check nothing. The button
+   * is disabled rather than quietly doing nothing.
+   */
+  onCheckEverything: (() => void) | null;
   onStop: () => void;
   onFixEverything: () => void;
   onFixGroup: (groupId: string) => void;
@@ -169,7 +174,8 @@ export function ValidatePageView({
                   fullCheck.status === "not-run" ? "default" : "secondary"
                 }
                 size="sm"
-                onClick={onCheckEverything}
+                disabled={onCheckEverything === null}
+                onClick={onCheckEverything ?? undefined}
               >
                 {fullCheck.status === "not-run"
                   ? "Check everything"
@@ -667,7 +673,7 @@ function CheckFailed({
   message: string;
   details?: string;
   action: FailureAction;
-  onTryAgain: () => void;
+  onTryAgain: (() => void) | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -685,7 +691,12 @@ function CheckFailed({
           </span>
         </div>
         {action === "try-again" && (
-          <Button size="xs" onClick={onTryAgain} className="shrink-0">
+          <Button
+            size="xs"
+            disabled={onTryAgain === null}
+            onClick={onTryAgain ?? undefined}
+            className="shrink-0"
+          >
             Try again
           </Button>
         )}

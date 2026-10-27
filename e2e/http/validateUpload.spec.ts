@@ -21,7 +21,7 @@ import {
  * The local entry is seeded as a draft: a patch adding a key under the remote
  * gallery's directory, with its bytes stored as a LOCAL file. That is the same
  * state as a template's committed image -- a local key in a `.remote()`
- * gallery -- without a fixture file in `examples/next/public`, which the
+ * gallery -- without a fixture file in the example's `public/`, which the
  * gallery would then list as untracked everywhere else.
  */
 

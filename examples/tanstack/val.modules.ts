@@ -78,12 +78,23 @@ export default modules(config, [
         { def: () => import("./content/encodedFields.val") },
         { def: () => import("./content/access.val") },
         { def: () => import("./content/lists.val") },
+        { def: () => import("./content/featuredContent.val") },
+        // Pages that are not in this app, keyed by their whole URL: what the
+        // generic page's `url` points at.
+        { def: () => import("./content/external.val") },
+        // The fixture PAGES: routes of this app, ported from the Next
+        // example's `app/` so the canvas and page specs have them.
+        { def: () => import("./src/routes/_site.blogs.$blog.val") },
+        { def: () => import("./src/routes/_site.support.$slug.val") },
+        { def: () => import("./src/routes/_site.notes.$note.val") },
+        { def: () => import("./src/routes/_site.generic.$.val") },
       ]
     : []),
   ...(e2eRemoteMedia
     ? [
         { def: () => import("./content/remoteImages.val") },
         { def: () => import("./content/remoteFields.val") },
+        { def: () => import("./content/remoteVideos.val") },
       ]
     : []),
 ]);

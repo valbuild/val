@@ -12,11 +12,13 @@ registered in `val.modules.ts`, rendered by a route, and passing `val validate`.
 `examples/next` is the fixture app for the language server, and carries awkward
 shapes this one deliberately does not.
 
-The one exception is `content/` (not `src/content/`): the e2e suite's fixtures,
-the same `/content/*.val.ts` modules the Next example has, which the Playwright
-specs edit. They are registered only when `VAL_E2E_FIXTURES=true`, which the
-suite's servers set, so a plain `pnpm dev` is the showcase and nothing else. See
-`val.modules.ts`.
+The one exception is the e2e suite's fixtures: `content/` (not `src/content/`),
+the same `/content/*.val.ts` modules the Next example has, and the fixture pages
+ported from its `app/` (`src/routes/_site.blogs.$blog.*`, `_site.support.$slug.*`,
+`_site.notes.$note.*`, `_site.generic.$.*`), which the Playwright specs edit and
+open. Their modules are registered only when `VAL_E2E_FIXTURES=true`, which the
+suite's servers set, so a plain `pnpm dev` is the showcase and nothing else: the
+routes exist, but their content is not in the Studio. See `val.modules.ts`.
 
 ## Running it
 

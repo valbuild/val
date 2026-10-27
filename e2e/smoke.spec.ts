@@ -1,6 +1,15 @@
 import { expect, type Page } from "@playwright/test";
 import { test } from "./studio";
 import { renderedText, watchForProblems } from "./pageProblems";
+import { NEXT_APP_URL } from "./apps";
+
+/*
+ * Against `examples/next`, on purpose: the rest of the fs-mode suite drives
+ * TanStack, and this is one of the specs that keep `@valbuild/next` covered.
+ * The blocking `smoke` CI job runs it, together with `tanstack/`, to gate
+ * "the Studio does not come up at all" on both frameworks. See `apps.ts`.
+ */
+test.use({ baseURL: NEXT_APP_URL });
 
 /**
  * The fast smoke test: does the Studio come up, and does it render?
