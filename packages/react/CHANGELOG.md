@@ -1,5 +1,11 @@
 # @valbuild/react
 
+## 0.150.7
+
+### Patch Changes
+
+- [#965](https://github.com/valbuild/val/pull/965) [`2d5ad2e`](https://github.com/valbuild/val/commit/2d5ad2e90f2a2bdd6ad8af98b21e19bc0bf6dbcc) Thanks [@freekh](https://github.com/freekh)! - In development, a component that passes its children on to a link or another element -- `<TextLink>{label} →</TextLink>` -- no longer leaves the edit tag in the text. React's development build freezes those children, and Val tagged the element without cleaning its text, so the leak warning named it. Production was not affected.
+
 ## 0.150.6
 
 ### Patch Changes
