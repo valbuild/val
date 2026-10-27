@@ -51,6 +51,13 @@ export type SketchpadEditorProps = {
    * here, with the document -- not the text -- as what is synced.
    */
   plugins?: Plugin[];
+  /**
+   * Where the toolbar is: above the page, or under it -- on a phone, where
+   * the thumb is and where the keyboard pushes it up to.
+   */
+  toolbar?: "top" | "bottom";
+  /** Tap-sized controls, for a touch screen. */
+  touch?: boolean;
 };
 
 /**
@@ -64,6 +71,8 @@ export function SketchpadEditor({
   readOnly = false,
   attach,
   plugins = [],
+  toolbar = "top",
+  touch = false,
 }: SketchpadEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -174,13 +183,27 @@ export function SketchpadEditor({
   const view = viewRef.current;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {view && !readOnly && <Toolbar view={view} />}
-      <div className="min-h-0 flex-1 overflow-auto bg-bg-tertiary p-3 sm:p-4">
+      {view && !readOnly && toolbar === "top" && (
+        <Toolbar view={view} position="top" touch={touch} />
+      )}
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-auto bg-bg-tertiary",
+          touch ? "p-2" : "p-3 sm:p-4",
+        )}
+      >
         <div
           ref={mountRef}
-          className="mx-auto max-w-3xl rounded-md border border-border-primary bg-bg-primary p-4 shadow-sm sm:p-6"
+          className={cn(
+            "mx-auto max-w-3xl rounded-md border border-border-primary bg-bg-primary shadow-sm",
+            // Text the phone does not zoom into on focus: under 16px it does.
+            touch ? "p-4 text-base" : "p-4 sm:p-6",
+          )}
         />
       </div>
+      {view && !readOnly && toolbar === "bottom" && (
+        <Toolbar view={view} position="bottom" touch={touch} />
+      )}
     </div>
   );
 }
@@ -423,7 +446,15 @@ const resizeColumn =
     return true;
   };
 
-function Toolbar({ view }: { view: EditorView }) {
+function Toolbar({
+  view,
+  position,
+  touch,
+}: {
+  view: EditorView;
+  position: "top" | "bottom";
+  touch: boolean;
+}) {
   const state = view.state;
   const { $from } = state.selection;
   const block = $from.parent;
@@ -498,13 +529,18 @@ function Toolbar({ view }: { view: EditorView }) {
     <div
       role="toolbar"
       aria-label="Sketchpad"
-      className="flex flex-wrap items-center gap-1 border-b border-border-primary bg-bg-primary px-2 py-1"
+      className={cn(
+        "flex items-center gap-1 border-border-primary bg-bg-primary px-2 py-1",
+        position === "top" ? "flex-wrap border-b" : "border-t",
+        // One row that scrolls sideways, rather than two that eat the page.
+        touch && "flex-nowrap overflow-x-auto scrollbar-none",
+      )}
     >
       {groups.map((group, i) => (
         <div
           key={i}
           className={cn(
-            "flex items-center gap-0.5",
+            "flex shrink-0 items-center gap-0.5",
             i > 0 && "border-l border-border-primary pl-1",
           )}
         >
@@ -518,11 +554,14 @@ function Toolbar({ view }: { view: EditorView }) {
                 aria-label={item.label}
                 aria-pressed={item.active}
                 disabled={!enabled}
-                // Keep the caret in the page while the button is pressed.
+                // Keep the caret in the page (and a phone's keyboard up)
+                // while the button is pressed.
                 onMouseDown={(e) => e.preventDefault()}
+                onPointerDown={(e) => e.preventDefault()}
                 onClick={() => run(item.command)}
                 className={cn(
-                  "flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary disabled:pointer-events-none disabled:opacity-40",
+                  "flex shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary disabled:pointer-events-none disabled:opacity-40",
+                  touch ? "h-10 w-10" : "h-8 w-8",
                   item.active && "bg-bg-secondary text-fg-primary",
                 )}
               >

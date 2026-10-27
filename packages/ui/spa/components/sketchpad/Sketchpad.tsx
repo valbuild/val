@@ -1,7 +1,18 @@
-import { Archive, ChevronDown, FileText, Sparkles, X } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  FileText,
+  Maximize2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import type { Plugin } from "prosemirror-state";
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
+import {
+  useLockBodyScroll,
+  useVisualViewport,
+} from "../shell/useVisualViewport";
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { SketchpadEditor } from "./SketchpadEditor";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
@@ -60,6 +71,16 @@ export type SketchpadProps = {
    * what tells the person their changes are not news to it yet.
    */
   assistantStatus?: SketchpadAssistantStatus;
+  /**
+   * The page as the site serves it, for full screen. Given, the header has a
+   * full-screen button: on a phone, the sketch and its page take the whole
+   * screen, the Studio's bars and all, with a switch between them, the tools
+   * by the thumb and "Send to AI" under them. Where there is room for the
+   * two side by side, leave it out.
+   */
+  fullscreenPreview?: ReactNode;
+  /** Opens in full screen. */
+  defaultFullscreen?: boolean;
 };
 
 /**
@@ -104,8 +125,31 @@ export function Sketchpad({
   page,
   onPageChange,
   pageOptions,
+  fullscreenPreview,
+  defaultFullscreen = false,
 }: SketchpadProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [fullscreen, setFullscreen] = useState(
+    defaultFullscreen && fullscreenPreview !== undefined,
+  );
+  const [shown, setShown] = useState<"sketch" | "page">("sketch");
+  // Pinned to what is visible, so the tools and "Send to AI" sit on top of
+  // a phone's keyboard rather than under it -- as the overlay's full-screen
+  // sheets do. See `useVisualViewport`.
+  const viewport = useVisualViewport(fullscreen);
+  useLockBodyScroll(fullscreen);
+  useEffect(() => {
+    if (!fullscreen) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreen]);
 
   const attach = async (file: File): Promise<SketchMedia | null> => {
     const type = file.type.startsWith("video/")
@@ -137,75 +181,209 @@ export function Sketchpad({
     }
   };
 
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border-primary bg-bg-primary text-fg-primary">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-3 py-2">
-        {/* On a phone the title has a line of its own, or it is a few letters. */}
-        <div className="min-w-0 flex-1 basis-full sm:basis-0">
-          {sketchpads ? (
-            <SketchpadListPopover
-              {...sketchpads}
-              trigger={
-                <button
-                  type="button"
-                  title="Sketchpads in this project"
-                  className="-ml-1 flex max-w-full cursor-pointer items-center gap-1 rounded px-1 text-sm font-medium hover:bg-bg-secondary"
-                >
-                  <span className="truncate">
-                    <TitleText title={title} />
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
-                </button>
-              }
+  const titleBlock = (
+    <>
+      {sketchpads ? (
+        <SketchpadListPopover
+          {...sketchpads}
+          trigger={
+            <button
+              type="button"
+              title="Sketchpads in this project"
+              className="-ml-1 flex max-w-full cursor-pointer items-center gap-1 rounded px-1 text-sm font-medium hover:bg-bg-secondary"
+            >
+              <span className="truncate">
+                <TitleText title={title} />
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
+            </button>
+          }
+        />
+      ) : (
+        <div className="truncate text-sm font-medium">
+          <TitleText title={title} />
+        </div>
+      )}
+      {(page !== undefined || status) && (
+        <div className="flex min-w-0 items-center gap-2 text-xs text-fg-secondary">
+          {page !== undefined && (
+            <PageChip
+              page={page}
+              onChange={readOnly ? undefined : onPageChange}
+              options={pageOptions}
             />
-          ) : (
-            <div className="truncate text-sm font-medium">
-              <TitleText title={title} />
-            </div>
           )}
-          {(page !== undefined || status) && (
-            <div className="flex min-w-0 items-center gap-2 text-xs text-fg-secondary">
-              {page !== undefined && (
-                <PageChip
-                  page={page}
-                  onChange={readOnly ? undefined : onPageChange}
-                  options={pageOptions}
-                />
-              )}
-              {status && <span className="truncate">{status}</span>}
+          {status && <span className="truncate">{status}</span>}
+        </div>
+      )}
+    </>
+  );
+  const archiveButton = onArchive && (
+    <button
+      type="button"
+      onClick={onArchive}
+      title="Archive this sketchpad. It can be reopened from the list of sketchpads."
+      aria-label="Archive this sketchpad"
+      className={cn(
+        "flex shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+        fullscreen ? "h-10 w-10" : "h-7 w-7",
+      )}
+    >
+      <Archive className="h-4 w-4" />
+    </button>
+  );
+
+  return (
+    <div
+      role={fullscreen ? "dialog" : undefined}
+      aria-label={fullscreen ? "Sketchpad, full screen" : undefined}
+      aria-modal={fullscreen ? true : undefined}
+      style={
+        fullscreen
+          ? { top: viewport.offsetTop, height: viewport.height }
+          : undefined
+      }
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden bg-bg-primary text-fg-primary",
+        fullscreen
+          ? "fixed inset-x-0 z-overlay"
+          : "h-full rounded-lg border border-border-primary",
+      )}
+    >
+      {fullscreen ? (
+        <div className="shrink-0 border-b border-border-primary">
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={() => setFullscreen(false)}
+              className="h-10 shrink-0 cursor-pointer rounded-md border border-border-primary px-3 text-sm font-medium text-fg-primary hover:bg-bg-secondary"
+            >
+              Done
+            </button>
+            <div className="min-w-0 flex-1">{titleBlock}</div>
+            {archiveButton}
+          </div>
+          <div className="px-2 pb-2">
+            <Segmented
+              label="Show"
+              options={[
+                { value: "sketch", label: "Sketch" },
+                { value: "page", label: "Page" },
+              ]}
+              value={shown}
+              onChange={setShown}
+            />
+          </div>
+          {notice && (
+            <div className="px-2 pb-2">
+              <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
             </div>
           )}
         </div>
-        {people && people.length > 0 && <People people={people} />}
-        {onAskAssistant && (
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-3 py-2">
+          {/* On a phone the title has a line of its own, or it is a few letters. */}
+          <div className="min-w-0 flex-1 basis-full sm:basis-0">
+            {titleBlock}
+          </div>
+          {people && people.length > 0 && <People people={people} />}
+          {onAskAssistant && (
+            <AskAssistant
+              status={assistantStatus ?? "changed"}
+              onAsk={onAskAssistant}
+            />
+          )}
+          {fullscreenPreview !== undefined && (
+            <button
+              type="button"
+              onClick={() => {
+                setShown("sketch");
+                setFullscreen(true);
+              }}
+              title="Full screen: the sketch and its page, with nothing else"
+              className="flex h-7 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border-primary px-2 text-xs font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
+            >
+              <Maximize2 className="h-3.5 w-3.5" /> Full screen
+            </button>
+          )}
+          {archiveButton}
+          {notice && (
+            <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
+          )}
+        </div>
+      )}
+
+      {/* The same editor in both, so the caret and undo survive the switch. */}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          fullscreen && shown === "page" && "hidden",
+        )}
+      >
+        <SketchpadEditor
+          value={value}
+          onChange={onChange}
+          readOnly={readOnly}
+          attach={attach}
+          plugins={plugins}
+          toolbar={fullscreen ? "bottom" : "top"}
+          touch={fullscreen}
+        />
+      </div>
+      {fullscreen && shown === "page" && (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {fullscreenPreview}
+        </div>
+      )}
+      {/*
+       * Under the tools, where the thumb is -- and out of the way while the
+       * keyboard is up, when what is being done is typing.
+       */}
+      {fullscreen && onAskAssistant && !viewport.isKeyboardOpen && (
+        <div className="shrink-0 border-t border-border-primary px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <AskAssistant
             status={assistantStatus ?? "changed"}
             onAsk={onAskAssistant}
+            size="bar"
           />
-        )}
-        {onArchive && (
-          <button
-            type="button"
-            onClick={onArchive}
-            title="Archive this sketchpad. It can be reopened from the list of sketchpads."
-            aria-label="Archive this sketchpad"
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-          >
-            <Archive className="h-4 w-4" />
-          </button>
-        )}
-        {notice && (
-          <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
-        )}
-      </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-      <SketchpadEditor
-        value={value}
-        onChange={onChange}
-        readOnly={readOnly}
-        attach={attach}
-        plugins={plugins}
-      />
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex rounded-lg border border-border-primary bg-bg-secondary p-0.5"
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "h-9 flex-1 cursor-pointer rounded-md text-sm font-medium text-fg-secondary",
+            value === option.value && "bg-bg-primary text-fg-primary shadow-sm",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -301,9 +479,12 @@ function TitleText({ title }: { title?: string }) {
 function AskAssistant({
   status,
   onAsk,
+  size = "inline",
 }: {
   status: SketchpadAssistantStatus;
   onAsk: () => void;
+  /** `bar`: the width of the screen, under a phone's thumb. */
+  size?: "inline" | "bar";
 }) {
   const hint =
     status === "read"
@@ -318,16 +499,25 @@ function AskAssistant({
       disabled={status === "reading"}
       title={hint}
       className={cn(
-        "relative inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium disabled:cursor-default disabled:opacity-60",
+        "relative inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-medium disabled:cursor-default disabled:opacity-60",
+        size === "bar"
+          ? "h-12 w-full justify-center text-base"
+          : "h-7 px-2 text-xs",
         status === "changed"
           ? "border-border-brand-primary bg-bg-brand-primary text-fg-brand-primary hover:bg-bg-brand-primary-hover"
           : "border-border-primary bg-bg-primary text-fg-secondary hover:bg-bg-secondary",
       )}
     >
       <Sparkles
-        className={cn("h-3.5 w-3.5", status === "reading" && "animate-pulse")}
+        className={cn(
+          size === "bar" ? "h-5 w-5" : "h-3.5 w-3.5",
+          status === "reading" && "animate-pulse",
+        )}
       />
       {status === "reading" ? "AI is reading…" : "Send to AI"}
+      {size === "bar" && status === "read" && (
+        <span className="text-sm font-normal opacity-80">· read</span>
+      )}
       <span className="sr-only">. {hint}.</span>
     </button>
   );

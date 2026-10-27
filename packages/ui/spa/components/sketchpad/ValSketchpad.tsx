@@ -5,6 +5,7 @@ import type { SketchpadClient } from "./sketchpadClient";
 import type { SketchpadListItem } from "./SketchpadList";
 import { useSketchpadsSnapshot, type SketchpadsState } from "./SketchpadsState";
 import { SketchpadWorkspace } from "./SketchpadWorkspace";
+import { useShellBreakpoint } from "../shell/useShellBreakpoint";
 
 /** How long typing pauses before it is saved. */
 const SAVE_AFTER_MS = 700;
@@ -235,6 +236,9 @@ function OpenSketchpad({
 }) {
   // What is on screen: the server's text until someone types here.
   const [text, setText] = useState(sketchpad.text);
+  // A phone has no room for the page beside the sketch, so it offers the
+  // whole screen to the two of them instead.
+  const breakpoint = useShellBreakpoint();
   const [notice, setNotice] = useState<SaveNotice | null>(null);
   const [saving, setSaving] = useState(false);
   // The version the text on screen was typed on, and whether it has been
@@ -368,6 +372,11 @@ function OpenSketchpad({
         assistantStatus={status}
         onArchive={onArchive}
         sketchpads={list}
+        fullscreenPreview={
+          breakpoint === "mobile" ? (
+            <PagePreview page={sketchpad.page} />
+          ) : undefined
+        }
       />
     </div>
   );
