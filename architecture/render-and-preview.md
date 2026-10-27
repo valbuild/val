@@ -92,10 +92,28 @@ render that holds a CLOSURE, so it is plumbed like a preview, not like the
 other renders: the serialized schema carries only a marker
 (`{ as: "component", example?: true, maxWidth?, aspectRatio? }`), and the host
 app, which has the schema instance, renders the component
-(`getComponentRender` in `core/src/render.ts`,
-`unstable_renderValComponent` in `@valbuild/next`). A discriminated union
+(`getComponentRender` in `core/src/render.ts`). A discriminated union
 answers for the variant its value takes, so a list of sections needs nothing
 on the list itself.
+
+The app renders it on a route of its own that the Studio loads in a frame,
+`/val-preview?p=<source path>` (hard-coded in `ComponentPreview.tsx` for
+now). Finding the component and its props is shared,
+`resolveValComponentPreview` in `@valbuild/react/internal`, and each binding
+renders it its own way:
+
+- **Next**: `unstable_renderValComponent` in a Server Component, which reads
+  with the app's `fetchVal`; a refresh is `router.refresh()`.
+- **TanStack**: the loader reads the module through a server function
+  (`unstable_fetchValPreviewSource` from `@valbuild/tanstack/server`), and
+  `Unstable_ValComponentPreview` finds and renders the component in the
+  browser; a refresh is `router.invalidate()`. The route is `ssr: false` and
+  outside `_site`: under the site's `ValProvider` the frame would be taken for
+  the Studio's canvas (any frame inside the Studio is, see
+  `isValCanvasFrame`), and the edit tags are only switched on in the browser.
+
+Both wrap it in `ValPreviewBridge` (the shared `ValPreviewBridgeCore`, in its
+own `"use client"` file so a Server Component can import the resolver).
 
 `maxWidth` and `aspectRatio` are plain numbers, so unlike the component they
 travel whole, and the Studio lays the frame out with them. `maxWidth` caps the

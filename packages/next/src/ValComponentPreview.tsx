@@ -1,15 +1,10 @@
-import type { ComponentType, ReactElement, ReactNode } from "react";
+import type { ReactElement } from "react";
+import type { SelectorSource, ValModule, ValModules } from "@valbuild/core";
 import {
-  getComponentRender,
-  Internal,
-  loadComponent,
-  type SelectorSource,
-  type Source,
-  type SourcePath,
-  type ValModule,
-  type ValModules,
-} from "@valbuild/core";
-import { stegaEncode } from "@valbuild/react/stega";
+  findValModule,
+  resolveValComponentPreview,
+  ValPreviewMessage,
+} from "@valbuild/react/internal";
 
 export type ValComponentPreviewOptions = {
   /** The app's `val.modules` registry (the default export of val.modules.ts). */
@@ -74,117 +69,24 @@ export async function unstable_renderValComponent({
   props,
   fetchVal,
 }: ValComponentPreviewOptions): Promise<ReactElement> {
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
-  const valModule = await findModule(valModules, moduleFilePath);
+  const valModule = await findValModule(valModules, sourcePath);
   if (!valModule) {
     return (
-      <PreviewMessage>
-        {`No module '${moduleFilePath}' in val.modules.`}
-      </PreviewMessage>
+      <ValPreviewMessage>
+        {`No module for '${sourcePath}' in val.modules.`}
+      </ValPreviewMessage>
     );
   }
-  const moduleSchema = Internal.getSchema(valModule);
-  if (!moduleSchema) {
-    return (
-      <PreviewMessage>{`'${moduleFilePath}' has no schema.`}</PreviewMessage>
-    );
+  const resolution = await resolveValComponentPreview({
+    valModule,
+    sourcePath,
+    moduleValue: await fetchVal(valModule),
+    example,
+    props,
+  });
+  if (resolution.status === "error") {
+    return <ValPreviewMessage>{resolution.message}</ValPreviewMessage>;
   }
-
-  // The schema is resolved through the CONTENT rather than the module's own
-  // source: a section added in the Studio is in the former and not the latter,
-  // and only the content says which variant of a union a section is.
-  const moduleValue = await fetchVal(valModule);
-  let schema = moduleSchema;
-  let value: unknown = moduleValue;
-  if (modulePath) {
-    try {
-      const resolved = Internal.resolvePath(
-        modulePath,
-        // `fetchVal` is typed per module by the app; what it returns is the
-        // module's source with media resolved, which is what this walks.
-        moduleValue as Source,
-        moduleSchema,
-      );
-      schema = resolved.schema;
-      value = resolved.source;
-    } catch (err) {
-      return (
-        <PreviewMessage>
-          {`${sourcePath}: ${err instanceof Error ? err.message : String(err)}`}
-        </PreviewMessage>
-      );
-    }
-  }
-
-  const render = getComponentRender(schema, value);
-  if (!render) {
-    return (
-      <PreviewMessage>
-        {`${sourcePath} has no component: give its schema .render({ as: "component", component }) to preview it.`}
-      </PreviewMessage>
-    );
-  }
-
-  if (props !== undefined || example) {
-    const source = props !== undefined ? props : render.example;
-    if (source === undefined) {
-      return <PreviewMessage>{`${sourcePath} has no example.`}</PreviewMessage>;
-    }
-    // Neither is content, so no edit tags: a click in the preview must not
-    // lead to a field the value is not in.
-    value = stegaEncode(source, {
-      disabled: true,
-      root: { path: sourcePath, schema: schema["executeSerialize"]() },
-    });
-  }
-
-  if (!isRecord(value)) {
-    return (
-      <PreviewMessage>
-        {`Expected an object to spread as props, got ${
-          value === null ? "null" : typeof value
-        }.`}
-      </PreviewMessage>
-    );
-  }
-  // Core cannot express a React component's type, and the lookup above is by
-  // path, which erases the relation between the schema and its component that
-  // `.render(...)` was given. This cast is what restores it - and the reason
-  // this helper lives in the library instead of in every app with a preview.
-  const Component = (await loadComponent(render)) as ComponentType<
-    Record<string, unknown>
-  >;
-  return <Component {...value} />;
-}
-
-async function findModule(
-  valModules: ValModules,
-  moduleFilePath: string,
-): Promise<ValModule<SelectorSource> | null> {
-  for (const { def } of valModules.modules) {
-    const valModule = (await def())?.default;
-    if (valModule && Internal.getValPath(valModule) === moduleFilePath) {
-      return valModule;
-    }
-  }
-  return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function PreviewMessage({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        fontFamily: "ui-monospace, monospace",
-        fontSize: "13px",
-        padding: "1rem",
-      }}
-    >
-      {children}
-    </div>
-  );
+  const { Component } = resolution;
+  return <Component {...resolution.props} />;
 }

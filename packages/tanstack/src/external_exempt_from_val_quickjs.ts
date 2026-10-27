@@ -44,6 +44,10 @@ export {
 
 // TanStack specific
 export { ValProvider } from "./ValProvider";
+// EXPERIMENTAL: component previews (`.render({ as: "component" })`)
+export { ValPreviewBridge } from "./ValPreviewBridge";
+export { Unstable_ValComponentPreview } from "./ValComponentPreview";
+export type { ValPreviewSource } from "./server/fetchValPreviewSource";
 export type { ValDraft } from "./ValDraft";
 export type { ValAnalytics } from "./ValAnalytics";
 export { ValImage, type ValImageProps } from "./ValImage";

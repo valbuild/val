@@ -51,6 +51,7 @@ this package mounts at `/val`.
 - [Reading content](#reading-content)
 - [Routes](#routes)
 - [Preview and draft mode](#preview-and-draft-mode)
+- [Component previews (experimental)](#component-previews-experimental)
 - [Images](#images)
 - [Coding agents (MCP)](#coding-agents-mcp)
 - [Differences from `@valbuild/next`](#differences-from-valbuildnext)
@@ -380,6 +381,61 @@ draft renders instead of 404ing. Visitors without the Val Enable cookie pay
 nothing for it. It needs React 19 and a `<Suspense>` boundary (see above). With
 `draft` given, the server already has that page's content, so its first render
 does not 404 either.
+
+## Component previews (experimental)
+
+An object schema can name the component that renders it, so Val Studio shows
+the section, rendered by your app, next to its fields — and a click on its
+content opens that field:
+
+```ts
+const hero = s.object({ type: s.literal("hero"), title: s.string() }).render({
+  as: "component",
+  component: () => import("../components/HeroSection"),
+  example: { type: "hero", title: "A very long title, to test the layout" },
+  maxWidth: 960, // the widest it is shown, and what its media queries see
+  defaultView: "split", // or "preview" / "content"
+});
+```
+
+`component` is a lazy `import()`: Val evaluates `.val.ts` files outside your
+app, where a component's CSS and framework code cannot be loaded, and never
+calls it there.
+
+The Studio loads `/val-preview?p=<source path>` in a frame, so add that route,
+outside the layout that holds `ValProvider`:
+
+```tsx
+// src/val/server.ts
+export const fetchValPreviewSource = (sourcePath: string) =>
+  unstable_fetchValPreviewSource({ valModules, fetchVal, sourcePath });
+
+// src/routes/val-preview.tsx
+const getPreviewSource = createServerFn()
+  .validator((sourcePath: string) => sourcePath)
+  .handler(({ data }) => fetchValPreviewSource(data));
+
+export const Route = createFileRoute("/val-preview")({
+  ssr: false,
+  validateSearch: (search: Record<string, unknown>) => ({
+    p: String(search.p ?? ""),
+    example: search.example === undefined ? undefined : String(search.example),
+  }),
+  loaderDeps: ({ search }) => ({ p: search.p }),
+  loader: ({ deps }) => getPreviewSource({ data: deps.p }),
+  component: () => (
+    <ValPreviewBridge>
+      <Unstable_ValComponentPreview
+        valModules={valModules}
+        source={Route.useLoaderData()}
+        example={Route.useSearch().example === "1"}
+      />
+    </ValPreviewBridge>
+  ),
+});
+```
+
+`examples/tanstack/src/routes/val-preview.tsx` is a working copy.
 
 ## Content analytics
 
