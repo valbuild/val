@@ -198,6 +198,13 @@ export type AIChatHandle = {
   clearMessages: () => void;
   /** Bulk-load historical messages (e.g. when restoring a session) */
   loadMessages: (messages: ChatMessage[]) => void;
+  /**
+   * Sends `text` as the person's own message, the way a suggestion chip
+   * does: shown in the chat, then sent. Ignored while a turn is running.
+   * What the Sketchpad's "Send to AI" goes through, so the message it sends
+   * is on screen like anything typed.
+   */
+  sendUserMessage: (text: string) => void;
 };
 
 export type AIChatProps = {
@@ -820,7 +827,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   // ---- Imperative handle for WebSocket layer ----
 
+  // `handleSend` is declared below the handle, which reaches it through this.
+  const handleSendRef = useRef<((suggestion?: string) => void) | null>(null);
   useImperativeHandle(ref, () => ({
+    sendUserMessage(text: string) {
+      handleSendRef.current?.(text);
+    },
     startAssistantMessage(id: string) {
       const now = Date.now();
       setCurrentMessage({
@@ -1140,6 +1152,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setAwaitingSince,
     ],
   );
+  handleSendRef.current = handleSend;
 
   const handleRetry = useCallback(
     (errorMsgId: string) => {

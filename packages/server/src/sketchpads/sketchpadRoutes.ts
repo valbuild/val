@@ -166,11 +166,14 @@ type Failed = { status: 500; json: { message: string } };
 
 /** A 400 for a text the server will not keep, saying which lines and why. */
 function refuseText(text: string): Refused | null {
-  if (text.length > SKETCHPAD_MAX_TEXT_LENGTH) {
+  // Bytes, not characters, as the content service counts them: a page in
+  // Norwegian is longer in UTF-8 than it looks.
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > SKETCHPAD_MAX_TEXT_LENGTH) {
     return {
       status: 400,
       json: {
-        message: `A sketchpad holds at most ${SKETCHPAD_MAX_TEXT_LENGTH / 1024} KiB of text; this is ${Math.ceil(text.length / 1024)} KiB.`,
+        message: `A sketchpad holds at most ${SKETCHPAD_MAX_TEXT_LENGTH / 1024} KiB of text; this is ${Math.ceil(bytes / 1024)} KiB.`,
       },
     };
   }

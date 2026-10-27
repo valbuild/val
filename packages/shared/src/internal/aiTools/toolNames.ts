@@ -17,5 +17,9 @@ export const toolNames = [
   "empty_at_path",
   "count_entries",
   "get_record_keys",
+  "list_sketchpads",
+  "create_sketchpad",
+  "read_sketchpad",
+  "write_sketchpad",
 ] as const;
 export type ToolName = (typeof toolNames)[number];

@@ -14,6 +14,7 @@ import {
   Navigation,
   Paperclip,
   Pencil,
+  PencilRuler,
   Search,
   Sparkles,
   ShieldCheck,
@@ -145,6 +146,22 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
     get_record_keys: {
       label: "Listing keys",
       icon: <List className="h-3 w-3" />,
+    },
+    list_sketchpads: {
+      label: "Listing sketchpads",
+      icon: <PencilRuler className="h-3 w-3" />,
+    },
+    create_sketchpad: {
+      label: "Sketching the page",
+      icon: <PencilRuler className="h-3 w-3" />,
+    },
+    read_sketchpad: {
+      label: "Reading the sketchpad",
+      icon: <PencilRuler className="h-3 w-3" />,
+    },
+    write_sketchpad: {
+      label: "Changing the sketchpad",
+      icon: <PencilRuler className="h-3 w-3" />,
     },
   };
 

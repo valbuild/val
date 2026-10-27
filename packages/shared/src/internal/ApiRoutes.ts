@@ -355,7 +355,7 @@ export const SketchpadSummary = Sketchpad.omit({ text: true });
 export type SketchpadSummaryT = z.infer<typeof SketchpadSummary>;
 /** A line of a sketch the server would not take, and why. */
 const SketchErrorZ = z.object({ line: z.number(), message: z.string() });
-/** The most text a sketchpad holds: a page, not a site. */
+/** The most text a sketchpad holds, in UTF-8 bytes: a page, not a site. */
 export const SKETCHPAD_MAX_TEXT_LENGTH = 256 * 1024;
 
 export const Api = {
