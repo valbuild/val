@@ -85,6 +85,7 @@ import { ReviewLoader, ReviewSurface } from "../../review/ReviewSurface";
 import { useDiscardAll } from "../useDiscardAll";
 import { historyEnabledFor } from "./historyEnabled";
 import { CommitList } from "../../history/CommitList";
+import { useStudioSketchpads } from "../sketchpad/useStudioSketchpads";
 import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
 import { useValConfig } from "../ValFieldProvider";
@@ -120,6 +121,7 @@ import {
   useChangesWithoutModuleNotice,
   useGlobalTransientErrors,
   useAddModuleFilePatch,
+  useCurrentProfileId,
 } from "../ValProvider";
 import {
   useFilePatchIds,
@@ -553,6 +555,16 @@ function ValShellBody({
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  /*
+   * The project's sketchpads: the top bar's button, "Sketch changes" on a
+   * page, the workspace while one is open, and the state the assistant's
+   * tools share with them. See `sketchpad/useStudioSketchpads.tsx`.
+   */
+  const sketchpads = useStudioSketchpads({
+    openAssistant: isAIChatEnabled ? openAIPanel : null,
+    pages: data.pages,
+    currentProfileId: useCurrentProfileId(),
+  });
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
     own: deployState,
@@ -1411,10 +1423,13 @@ function ValShellBody({
       )
     : undefined;
 
-  return (
+  return sketchpads.wrap(
     <ContentAnalyticsProvider>
       <LocaleFilterProvider locale={locale}>
         <Shell
+          sketchpad={sketchpads.sketchpad}
+          onSketchPage={sketchpads.onSketchPage}
+          workspaceOverride={sketchpads.workspaceOverride}
           renderHistory={renderHistory}
           data={data}
           theme={resolvedTheme}
@@ -1616,7 +1631,7 @@ function ValShellBody({
           </div>
         )}
       </LocaleFilterProvider>
-    </ContentAnalyticsProvider>
+    </ContentAnalyticsProvider>,
   );
 }
 

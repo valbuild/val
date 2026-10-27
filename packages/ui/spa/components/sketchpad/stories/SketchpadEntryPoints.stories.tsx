@@ -21,7 +21,7 @@ import { PreviewMock, SKETCH, sketchingSteps } from "./sketchpadFixtures";
  *    asks with, so there is no new kind of chat message.
  * 2. **A page's menu** in the Pages panel has "Sketch changes", for whoever
  *    wants to start there. Hover a page's row and open its ⋯ menu.
- * 3. **The top bar** has a Sketchpad button only once the chat has a
+ * 3. **The top bar** has a Sketchpad button only once the project has a
  *    Sketchpad, with a dot when it changed since you last had it open. A bar
  *    that offered it before then would be asking people to start one.
  *
@@ -282,7 +282,7 @@ export const FromAPagesMenu: Story = {
 };
 
 /**
- * 3. The top bar's Sketchpad button: there because this chat has one, with
+ * 3. The top bar's Sketchpad button: there because the project has one, with
  * a dot because it changed since it was last open. Press it to open the
  * Sketchpad, and again to go back to the page.
  */

@@ -222,7 +222,7 @@ export async function runSketchpadTool(
       if (res.status !== "ok") {
         return failed(res);
       }
-      state?.put(res.sketchpad);
+      state?.markAssistantRead(res.sketchpad);
       state?.open(res.sketchpad.id);
       return {
         isError: false,
@@ -246,7 +246,7 @@ export async function runSketchpadTool(
       if (res.status !== "ok") {
         return failed(res);
       }
-      state?.put(res.sketchpad);
+      state?.markAssistantRead(res.sketchpad);
       return { isError: false, result: forModel(res.sketchpad) };
     }
     case "write_sketchpad": {
@@ -261,7 +261,7 @@ export async function runSketchpadTool(
         }
         return failed(res);
       }
-      state?.put(res.sketchpad);
+      state?.markAssistantRead(res.sketchpad);
       // Shown, unless the person has another one open: switching that away
       // under them would be worse than a dot on the top bar.
       if (

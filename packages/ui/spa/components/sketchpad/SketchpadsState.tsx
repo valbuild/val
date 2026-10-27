@@ -11,6 +11,11 @@ export type SketchpadsSnapshot = {
   openId: string | null;
   /** The newest version this tab has seen of each sketchpad it has read. */
   byId: Readonly<Record<string, SketchpadT>>;
+  /**
+   * The version of each sketchpad the assistant last read or wrote in this
+   * tab -- what "Send to AI" compares with to say there is news for it.
+   */
+  assistantRead: Readonly<Record<string, number>>;
 };
 
 /**
@@ -26,7 +31,11 @@ export type SketchpadsSnapshot = {
  * without a second request.
  */
 export class SketchpadsState {
-  private snapshot: SketchpadsSnapshot = { openId: null, byId: {} };
+  private snapshot: SketchpadsSnapshot = {
+    openId: null,
+    byId: {},
+    assistantRead: {},
+  };
   private readonly listeners = new Set<() => void>();
   private assistant: ((message: string) => boolean) | null = null;
 
@@ -65,6 +74,21 @@ export class SketchpadsState {
     this.set({
       ...this.snapshot,
       byId: { ...this.snapshot.byId, [sketchpad.id]: sketchpad },
+    });
+  }
+
+  /** The assistant has seen `sketchpad` as it is: it read or wrote it. */
+  markAssistantRead(sketchpad: SketchpadT) {
+    this.put(sketchpad);
+    if (this.snapshot.assistantRead[sketchpad.id] === sketchpad.version) {
+      return;
+    }
+    this.set({
+      ...this.snapshot,
+      assistantRead: {
+        ...this.snapshot.assistantRead,
+        [sketchpad.id]: sketchpad.version,
+      },
     });
   }
 
@@ -111,7 +135,7 @@ export function useSketchpadsState(): SketchpadsState | null {
   return useContext(SketchpadsContext);
 }
 
-const EMPTY: SketchpadsSnapshot = { openId: null, byId: {} };
+const EMPTY: SketchpadsSnapshot = { openId: null, byId: {}, assistantRead: {} };
 const noSubscription = () => () => undefined;
 
 export function useSketchpadsSnapshot(
