@@ -21,7 +21,7 @@ import type { ProposalParticipant, ProposalParticipantReason } from "../types";
  * project can read and continue them, one question at a time. Chats on the
  * site stay personal, and "Work together" there takes the chat into a
  * proposal. Inviting says what a new seat costs, and anyone who cannot add
- * someone asks the owners and developers from the same row.
+ * someone asks the owners and the project's developers from the same row.
  *
  * Presentational only: nothing here is wired to the content server yet.
  */
@@ -48,7 +48,7 @@ const INGRID: ProposalParticipant = { id: "p-ingrid", name: "Ingrid Lie" };
 const VIEWER = FREDRIK.id;
 const PROPOSAL = "Spring campaign";
 const ORG = "blank";
-/** The organization's owners and developers: who an editor asks. */
+/** The organization's owners and this project's developers: who an editor asks. */
 const APPROVERS = [
   "Theodor Carlsen",
   "Mari Holm",
@@ -176,7 +176,7 @@ export const InviteByEmailAsOwner: Story = {
 
 /**
  * An editor cannot add someone to the project, so Karl's row asks the
- * owners and developers instead, names them, and still shows the price: they
+ * owners and the project's developers instead, names them, and still shows the price: they
  * decide on it, and the editor should know what they are asking for.
  */
 export const InviteAsEditor: Story = {

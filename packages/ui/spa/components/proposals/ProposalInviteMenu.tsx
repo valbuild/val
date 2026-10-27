@@ -29,8 +29,8 @@ export type InviteRowState =
   | { state: "failed"; error: string };
 
 /**
- * Who may add whom. Developers have the owners' rights except billing and
- * deleting a project or the organization (valbuild/home `docs/proposals.md`,
+ * Who may add whom. In a project they are on, developers have the owners'
+ * rights except billing and deleting (valbuild/home `docs/proposals.md`,
  * Flow H), so the two add and invite alike. Editors ask them, from the same
  * row.
  */
@@ -101,7 +101,7 @@ export function ProposalInviteMenu({
   role: InviteRole;
   /**
    * Who can add people to the project, by name: the organization's owners
-   * and developers. Who an "ask" goes to.
+   * and this project's developers. Who an "ask" goes to.
    */
   approvers: string[];
   /**
@@ -388,7 +388,7 @@ function RowButton({
  * developers, and the row is one line of help, not a member list.
  */
 function listNames(names: string[]): string {
-  if (names.length === 0) return "The organization's owners and developers";
+  if (names.length === 0) return "The owners and this project's developers";
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
   const others = names.length - 2;
