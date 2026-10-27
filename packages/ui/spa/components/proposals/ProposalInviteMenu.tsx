@@ -29,10 +29,9 @@ export type InviteRowState =
   | { state: "failed"; error: string };
 
 /**
- * Who may add whom. In a project they are on, developers have the owners'
- * rights except billing and deleting (valbuild/home `docs/proposals.md`,
- * Flow H), so the two add and invite alike. Editors ask them, from the same
- * row.
+ * Who may add whom. A developer is the project's admin (valbuild/home
+ * `docs/proposals.md`, Flow H), so owners and developers add and invite
+ * alike. Editors ask them, from the same row.
  */
 export type InviteRole = "owner" | "developer" | "editor";
 
