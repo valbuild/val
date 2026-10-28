@@ -13,6 +13,7 @@ The design tab no longer makes you wait.
 - **Each step of a build is timed**, and the Build check lists where the time went.
 - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
 - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+- **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
 - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
 
 The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
