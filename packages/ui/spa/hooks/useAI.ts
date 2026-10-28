@@ -105,8 +105,11 @@ import {
   designSystemPrompt,
   pickedElementPrompt,
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_READ_PAGE_TOOL,
   isCodeTool,
   runCodeTool,
+  runReadPage,
+  type ReadPageDeps,
 } from "../proposals/proposalCode";
 import { typecheckProposal } from "../proposals/useProposalTypecheck";
 import {
@@ -620,6 +623,7 @@ const ALL_TOOLS: AITool[] = [
  */
 const DESIGN_TOOLS: AITool[] = [
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_READ_PAGE_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
@@ -646,6 +650,10 @@ export type UseAIOptions = {
      */
     pointedAt?: PickedElement | null;
     onPointedAtSent?: () => void;
+    /** Reads the page the preview shows: `read_page`. */
+    readPage?: ReadPageDeps["readPage"];
+    /** Switches the preview's width: `read_page`'s `device`. */
+    setDevice?: ReadPageDeps["setDevice"];
   };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
@@ -2009,6 +2017,25 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (designRef.current !== null && message.name === "read_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const design = designRef.current;
+          void runReadPage(message.arguments, {
+            readPage: design.readPage ?? null,
+            pointedAt: design.pointedAt ?? null,
+            ...(design.setDevice !== undefined
+              ? { setDevice: design.setDevice }
+              : {}),
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (
           isCodeTool(message.name) ||
           // The design tab's create_patch writes into the proposal's files:

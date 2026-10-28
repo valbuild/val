@@ -1,7 +1,7 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
-import type { PickedElement } from "@valbuild/shared/internal";
+import type { PageSnapshot, PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import type {
@@ -235,6 +235,111 @@ export const CODE_TOOLS: AITool[] = [
   WAIT_TOOL,
 ];
 
+/** The preview's widths, as the design tab names them. */
+export type DesignDevice = "desktop" | "tablet" | "mobile";
+const DEVICES: readonly DesignDevice[] = ["desktop", "tablet", "mobile"];
+
+/**
+ * `read_page` in the design tab: what the preview shows, read by the page
+ * itself through the canvas bridge (`readPageSnapshot`), so the assistant can
+ * check its change the way the person would look at it.
+ */
+export const DESIGN_READ_PAGE_TOOL: AITool = {
+  name: "read_page",
+  description:
+    "Read the page the preview shows, to check a change: its headings, text, links, buttons, images (with alt text) and inputs in order, " +
+    "each with its box (x, y, width, height in CSS pixels) and a selector. " +
+    "With selector -- one from this answer, or from what the person picked -- that element in detail: its computed styles " +
+    "(font, size, weight, colour, background, spacing, layout), how many lines its text wraps to, and its children. " +
+    "picked: true reads the element the person picked. device switches the preview's width first (desktop, tablet 820px, mobile 390px), " +
+    "which the person sees. Reads the build the preview shows: build first, and wait for it, to read a change.",
+  parameters: {
+    type: "object",
+    properties: {
+      selector: {
+        type: "string",
+        description:
+          "An element to read in detail, as this tool or <picked/> writes selectors.",
+      },
+      picked: {
+        type: "boolean",
+        description: "Read the element the person picked in the preview.",
+      },
+      device: {
+        type: "string",
+        enum: [...DEVICES],
+        description: "Switch the preview to this width before reading.",
+      },
+      max_items: {
+        type: "number",
+        description: "How many items of the outline at most (default 300).",
+      },
+    },
+    required: [],
+  },
+};
+
+/** What `read_page` needs of the design tab. */
+export type ReadPageDeps = {
+  /** Reads the page in front; `null` while no page is there to read. */
+  readPage:
+    | ((options: {
+        selector?: string;
+        maxItems?: number;
+      }) => Promise<PageSnapshot>)
+    | null;
+  /** What the person picked, if anything. */
+  pointedAt: PickedElement | null;
+  /** Switch the preview's width, and wait for the page to take it. */
+  setDevice?: (device: DesignDevice) => Promise<void>;
+};
+
+export async function runReadPage(
+  args: unknown,
+  deps: ReadPageDeps,
+): Promise<CodeToolAnswer> {
+  const fail = (error: string): CodeToolAnswer => ({
+    result: { success: false, error },
+    isError: true,
+  });
+  const input = isRecord(args) ? args : {};
+  if (deps.readPage === null) {
+    return fail(
+      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and read it again.",
+    );
+  }
+  let selector =
+    typeof input["selector"] === "string" ? input["selector"] : undefined;
+  if (input["picked"] === true) {
+    if (deps.pointedAt === null) {
+      return fail(
+        "Nothing is picked in the preview. Read the whole page, or ask the person to pick the element.",
+      );
+    }
+    selector = deps.pointedAt.selector;
+  }
+  if (input["device"] !== undefined) {
+    const device = DEVICES.find((known) => known === input["device"]);
+    if (device === undefined) {
+      return fail(`device must be one of ${DEVICES.join(", ")}.`);
+    }
+    await deps.setDevice?.(device);
+  }
+  const maxItems =
+    typeof input["max_items"] === "number" && input["max_items"] > 0
+      ? Math.min(input["max_items"], 1000)
+      : undefined;
+  try {
+    const snapshot = await deps.readPage({
+      ...(selector !== undefined ? { selector } : {}),
+      ...(maxItems !== undefined ? { maxItems } : {}),
+    });
+    return { result: { success: true, ...snapshot }, isError: false };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
 /**
  * `create_patch` in the design tab: content written into the module's FILE in
  * the proposal, and staged there with the code (valbuild/home
@@ -333,6 +438,7 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - Keep each change small enough to check: write it, format it, typecheck and fix what it reports, then build.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
+- Check a change with read_page once its build is served: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
 

@@ -166,6 +166,9 @@ export type DesignTabViewProps = {
   chat: ReactNode;
   initialView?: DesignView;
   initialDevice?: DesignDevice;
+  /** The preview's width, when the tab holds it: `read_page` switches it. */
+  device?: DesignDevice;
+  onDevice?: (device: DesignDevice) => void;
 };
 
 const VIEWS: DesignView[] = ["preview", "changes"];
@@ -178,9 +181,11 @@ const DEVICE_WIDTHS: Record<DesignDevice, number | null> = {
 
 export function DesignTabView(props: DesignTabViewProps) {
   const [view, setView] = useState<DesignView>(props.initialView ?? "preview");
-  const [device, setDevice] = useState<DesignDevice>(
+  const [ownDevice, setOwnDevice] = useState<DesignDevice>(
     props.initialDevice ?? "desktop",
   );
+  const device = props.device ?? ownDevice;
+  const setDevice = props.onDevice ?? setOwnDevice;
   const [selected, setSelected] = useState<string | null>(null);
   const files = props.files ?? [];
   const shownFile =

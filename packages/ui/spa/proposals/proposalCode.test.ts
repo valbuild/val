@@ -4,6 +4,7 @@ import {
   isCodeTool,
   proposalProject,
   runCodeTool,
+  runReadPage,
   type BuildReport,
   type CodeToolDeps,
   type ProposalBuildControl,
@@ -957,5 +958,76 @@ describe("buildProposal, serving the build", () => {
         "The proposal's files changed while it was being built. Build it again.",
     });
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("read_page", () => {
+  const snapshot = {
+    url: "https://p1--site.valstart.dev/",
+    title: "Home",
+    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
+    outline: [],
+  };
+
+  test("says there is nothing to read before a page is showing", async () => {
+    const answer = await runReadPage({}, { readPage: null, pointedAt: null });
+    expect(answer.isError).toBe(true);
+  });
+
+  test("reads the picked element by its selector", async () => {
+    const asked: unknown[] = [];
+    const answer = await runReadPage(
+      { picked: true },
+      {
+        readPage: async (options) => {
+          asked.push(options);
+          return snapshot;
+        },
+        pointedAt: {
+          tag: "h2",
+          text: "Contact",
+          classes: [],
+          selector: "section#contact > h2",
+        },
+      },
+    );
+    expect(asked).toEqual([{ selector: "section#contact > h2" }]);
+    expect(answer).toEqual({
+      result: { success: true, ...snapshot },
+      isError: false,
+    });
+  });
+
+  test("switches the width first when asked, and refuses one it does not know", async () => {
+    const order: string[] = [];
+    const deps = {
+      readPage: async () => {
+        order.push("read");
+        return snapshot;
+      },
+      pointedAt: null,
+      setDevice: async (device: string) => {
+        order.push(device);
+      },
+    };
+    await runReadPage({ device: "mobile" }, deps);
+    expect(order).toEqual(["mobile", "read"]);
+    expect((await runReadPage({ device: "watch" }, deps)).isError).toBe(true);
+  });
+
+  test("a page that does not answer is an error the model can read", async () => {
+    const answer = await runReadPage(
+      {},
+      {
+        readPage: async () => {
+          throw new Error("The page did not answer.");
+        },
+        pointedAt: null,
+      },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
   });
 });

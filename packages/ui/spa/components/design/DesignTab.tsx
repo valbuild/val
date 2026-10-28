@@ -32,6 +32,7 @@ import {
 } from "@valbuild/shared/internal";
 import {
   DesignTabView,
+  type DesignDevice,
   type DesignCheckItem,
   type DesignCheckpoint,
   type DesignProblem,
@@ -50,6 +51,9 @@ import {
  * assistant breaks there takes away the preview and nothing else -- and with
  * step 1 a build that does not render is never served at all.
  */
+
+/** How long the page is given to reflow after the preview's width changes. */
+const DEVICE_SETTLE_MS = 600;
 
 /** Held to pick on the page: Option on a Mac, Alt elsewhere. */
 const PICK_MODIFIER: PickModifier = "alt";
@@ -200,6 +204,12 @@ export function DesignTab({ name }: { name: string }) {
     (reader: PageReader | null) => setPageReaderState(() => reader),
     [],
   );
+  const [device, setDevice] = useState<DesignDevice>("desktop");
+  /** `read_page`'s `device`: the width, and a moment for the page to reflow. */
+  const showDevice = useCallback(async (next: DesignDevice) => {
+    setDevice(next);
+    await new Promise((resolve) => setTimeout(resolve, DEVICE_SETTLE_MS));
+  }, []);
   const [enableKey, setEnableKey] = useState(0);
   const addressOrigin = useMemo(() => {
     try {
@@ -245,6 +255,8 @@ export function DesignTab({ name }: { name: string }) {
         onClearPicked={() => setPicked(null)}
         onPublish={open ? () => publish.setOpen(true) : null}
         onReload={() => setReloadKey((key) => key + 1)}
+        device={device}
+        onDevice={setDevice}
         files={read.status === "ready" ? read.files : null}
         diffOf={diffOf}
         checkpoints={checkpoints}
@@ -301,6 +313,8 @@ export function DesignTab({ name }: { name: string }) {
               proposal: { name, displayName },
               pointedAt: picked,
               onPointedAtSent: () => setPicked(null),
+              readPage: pageReader,
+              setDevice: showDevice,
             }}
           />
         }
