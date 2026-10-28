@@ -725,6 +725,9 @@ importers:
       flexsearch:
         specifier: ^0.8.212
         version: 0.8.212
+      modern-screenshot:
+        specifier: ^4.7.0
+        version: 4.7.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -836,6 +839,9 @@ importers:
 
   packages/ui:
     devDependencies:
+      '@babel/parser':
+        specifier: ^7.29.8
+        version: 7.29.8
       '@codemirror/lang-angular':
         specifier: ^0.1.4
         version: 0.1.4
@@ -1055,6 +1061,9 @@ importers:
       '@valbuild/core':
         specifier: workspace:*
         version: link:../core
+      '@valbuild/eslint-plugin':
+        specifier: workspace:*
+        version: link:../eslint-plugin
       '@valbuild/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1094,6 +1103,9 @@ importers:
       eslint-plugin-react-refresh:
         specifier: ^0.5.5
         version: 0.5.5(eslint@10.9.1(jiti@1.21.7))
+      esquery:
+        specifier: ^1.7.0
+        version: 1.7.0
       fast-json-patch:
         specifier: ^3.1.1
         version: 3.1.1
@@ -1109,6 +1121,9 @@ importers:
       mediabunny:
         specifier: 1.61.0
         version: 1.61.0
+      pathe:
+        specifier: ^2.0.3
+        version: 2.0.3
       postcss:
         specifier: ^8.5.26
         version: 8.5.26
@@ -8026,6 +8041,9 @@ packages:
   minipass@7.1.3:
     resolution: {integrity: sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==}
     engines: {node: '>=16 || 14 >=14.17'}
+
+  modern-screenshot@4.7.0:
+    resolution: {integrity: sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg==}
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
@@ -15685,7 +15703,7 @@ snapshots:
       eslint: 10.9.1(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1)(eslint@10.9.1(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@10.9.1(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@10.9.1(jiti@2.7.0))
       eslint-plugin-react-hooks: 7.1.1(eslint@10.9.1(jiti@2.7.0))
@@ -15722,7 +15740,7 @@ snapshots:
       tinyglobby: 0.2.17
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1)(eslint@10.9.1(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -15737,7 +15755,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1)(eslint@10.9.1(jiti@2.7.0)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -17584,6 +17602,8 @@ snapshots:
   minipass@7.1.2: {}
 
   minipass@7.1.3: {}
+
+  modern-screenshot@4.7.0: {}
 
   ms@2.1.3: {}
 

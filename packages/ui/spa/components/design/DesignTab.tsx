@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { AIChatSurface } from "../AIChatSurface";
-import type { PageReader } from "../shell/canvas/CanvasFrame";
+import type { PageCamera, PageReader } from "../shell/canvas/CanvasFrame";
 import { DesignPreviewFrames } from "./DesignPreviewFrames";
 import { useQuickPreview } from "./useQuickPreview";
 import type { CanvasPreviewStatus } from "../shell/canvas/CanvasPreviewNotice";
@@ -222,6 +222,12 @@ export function DesignTab({ name }: { name: string }) {
     (reader: PageReader | null) => setPageReaderState(() => reader),
     [],
   );
+  /** Pictures the page in front: the assistant's `screenshot_page`. */
+  const [pageCamera, setPageCameraState] = useState<PageCamera | null>(null);
+  const setPageCamera = useCallback(
+    (camera: PageCamera | null) => setPageCameraState(() => camera),
+    [],
+  );
   const [device, setDevice] = useState<DesignDevice>("desktop");
   /** `read_page`'s `device`: the width, and a moment for the page to reflow. */
   const showDevice = useCallback(async (next: DesignDevice) => {
@@ -334,6 +340,7 @@ export function DesignTab({ name }: { name: string }) {
               enableKey={enableKey}
               onStatusChange={setFrameStatus}
               onPageReader={setPageReader}
+              onPageCamera={setPageCamera}
               onSwappingChange={setSwapping}
               quickPreviewId={quick.shownId}
               onQuickPreviewStorer={quick.setStorer}
@@ -349,6 +356,7 @@ export function DesignTab({ name }: { name: string }) {
               pointedAt: picked,
               onPointedAtSent: () => setPicked(null),
               readPage: pageReader,
+              screenshotPage: pageCamera,
               setDevice: showDevice,
               quickPreview: open ? quick.run : null,
             }}

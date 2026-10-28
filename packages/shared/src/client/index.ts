@@ -18,6 +18,7 @@ export * from "../internal/sessionStorage";
 export * from "../internal/valCanvasProtocol";
 export * from "../internal/elementPicker";
 export * from "../internal/pageInspection";
+export * from "../internal/pageScreenshot";
 export * from "../internal/quickPreview";
 export * from "../internal/parseRoutePattern";
 export * from "../internal/getNextAppRouterSourceFolder";

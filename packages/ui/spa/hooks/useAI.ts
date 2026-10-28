@@ -115,12 +115,15 @@ import {
   DESIGN_CREATE_PATCH_TOOL,
   DESIGN_QUICK_PREVIEW_TOOL,
   DESIGN_READ_PAGE_TOOL,
+  DESIGN_SCREENSHOT_TOOL,
   isCodeTool,
   runCodeTool,
   runQuickPreviewTool,
   runReadPage,
+  runScreenshotPage,
   type QuickPreviewResult,
   type ReadPageDeps,
+  type ScreenshotPageDeps,
 } from "../proposals/proposalCode";
 import { typecheckProposal } from "../proposals/useProposalTypecheck";
 import {
@@ -635,6 +638,7 @@ const ALL_TOOLS: AITool[] = [
 const DESIGN_TOOLS: AITool[] = [
   DESIGN_CREATE_PATCH_TOOL,
   DESIGN_READ_PAGE_TOOL,
+  DESIGN_SCREENSHOT_TOOL,
   DESIGN_QUICK_PREVIEW_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -664,6 +668,8 @@ export type UseAIOptions = {
     onPointedAtSent?: () => void;
     /** Reads the page the preview shows: `read_page`. */
     readPage?: ReadPageDeps["readPage"];
+    /** Pictures the page the preview shows: `screenshot_page`. */
+    screenshotPage?: ScreenshotPageDeps["screenshotPage"];
     /** Switches the preview's width: `read_page`'s `device`. */
     setDevice?: ReadPageDeps["setDevice"];
     /** Shows the proposal's change in seconds: `quick_preview`. */
@@ -741,6 +747,13 @@ export function useAI(
    * is asked for: it means this one.
    */
   const lastPointedAtRef = useRef<PickedElement | null>(null);
+  /**
+   * `uploadAiImage`, for the message handler above where it is declared:
+   * `screenshot_page` uploads its picture as an image of the chat.
+   */
+  const uploadAiImageRef = useRef<
+    ((file: File) => Promise<{ key: string }>) | null
+  >(null);
   /** The picked element, taken for a message that waits in the queue. */
   const captureSendContext = useCallback((): SendContext => {
     const pointedAt = designRef.current?.pointedAt ?? null;
@@ -2160,6 +2173,37 @@ export function useAI(
               chatRef.current?.completeToolCall(messageId, toolCallId);
             },
           );
+        } else if (
+          designRef.current !== null &&
+          message.name === "screenshot_page"
+        ) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const design = designRef.current;
+          void runScreenshotPage(message.arguments, {
+            screenshotPage: design.screenshotPage ?? null,
+            ...(design.setDevice !== undefined
+              ? { setDevice: design.setDevice }
+              : {}),
+            uploadImage: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (upload === null) {
+                return Promise.reject(
+                  new Error("The chat cannot take images yet."),
+                );
+              }
+              return upload(file);
+            },
+          }).then(({ result, isError, images }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+              ...(images !== undefined ? { images } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (designRef.current !== null && message.name === "read_page") {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
@@ -2209,7 +2253,8 @@ export function useAI(
             if (
               (toolName === "write_files" ||
                 toolName === "create_patch" ||
-                toolName === "format_files") &&
+                toolName === "format_files" ||
+                toolName === "lint") &&
               !isError
             )
               proposalCodeChanged();
@@ -2779,6 +2824,7 @@ export function useAI(
     },
     [getDirectFileUploadSettings],
   );
+  uploadAiImageRef.current = uploadAiImage;
 
   const sendMessage = useCallback(
     (

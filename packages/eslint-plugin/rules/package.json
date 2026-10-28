@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-eslint-plugin-rules.cjs.js",
+  "module": "dist/valbuild-eslint-plugin-rules.esm.js"
+}

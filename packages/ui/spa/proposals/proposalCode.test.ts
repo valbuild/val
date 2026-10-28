@@ -410,13 +410,14 @@ describe("the code tools", () => {
     });
   };
 
-  test("are ten, and known by name", () => {
+  test("are eleven, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
       "write_files",
       "format_files",
+      "lint",
       "typecheck",
       "build_proposal",
       "build_status",
@@ -534,6 +535,128 @@ describe("the code tools", () => {
     expect(d.staged).toEqual([
       [NAME, { "src/components/Hero.tsx": "const hero = 1;" }, "Format"],
     ]);
+  });
+
+  describe("lint, with Val's own rules", () => {
+    const MODULES = `export default modules(config, [
+  { def: () => import("./src/content/home.val") },
+]);`;
+    const lintDeps = (files: Record<string, string>, stagedFiles: string[]) => {
+      const d = deps({
+        siteSource: async () => ({}),
+        client: {
+          files: async () => ({
+            files,
+            staged: staged({ files: stagedFiles }),
+          }),
+          stageFiles: async (name, written, message) => {
+            d.staged.push([name, written, message]);
+            return { commit: "c5", staged: staged() };
+          },
+          patchFile: async () => ({ commit: "c6", staged: staged() }),
+        },
+      });
+      return d;
+    };
+
+    test("reports what the rules find in the staged files, and that a module path can be fixed", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": MODULES,
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+import { Hero } from "../components/Hero";
+const content = "Hello";
+export default c.define("/src/content/start.val.ts", s.string(), content);`,
+          "src/components/Hero.tsx": "export const Hero = () => null;",
+        },
+        ["src/content/home.val.ts", "src/components/Hero.tsx"],
+      );
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.isError).toBe(false);
+      expect(answer.result).toMatchObject({
+        success: true,
+        linted: 2,
+        next: "Fix these: the fixable ones with lint and fix: true, the rest in the files. Then lint again.",
+      });
+      const problems = (
+        answer.result as {
+          problems: { rule: string; path: string; fixable: boolean }[];
+        }
+      ).problems;
+      expect(
+        problems.map(({ path, rule, fixable }) => [path, rule, fixable]),
+      ).toEqual([
+        ["src/content/home.val.ts", "no-illegal-imports", false],
+        ["src/content/home.val.ts", "no-illegal-module-paths", true],
+        ["src/content/home.val.ts", "no-define-with-variable", false],
+      ]);
+      expect(d.staged).toEqual([]);
+    });
+
+    test("with fix, stages what the rules can fix", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": MODULES,
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/start.val.ts", s.string(), "Hello");`,
+        },
+        ["src/content/home.val.ts"],
+      );
+      const answer = await runCodeTool("lint", { fix: true }, d);
+      expect(answer.result).toMatchObject({
+        success: true,
+        problems: [],
+        fixedAndStaged: ["src/content/home.val.ts"],
+        next: "No problems.",
+      });
+      expect(d.staged).toEqual([
+        [
+          NAME,
+          {
+            "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
+          },
+          "Lint fixes",
+        ],
+      ]);
+    });
+
+    test("a module val.modules.ts no longer registers is found, though its file did not change", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": "export default modules(config, []);",
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
+        },
+        ["val.modules.ts"],
+      );
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.result).toMatchObject({
+        linted: 2,
+        problems: [
+          {
+            path: "src/content/home.val.ts",
+            line: 2,
+            rule: "module-in-val-modules",
+          },
+        ],
+      });
+    });
+
+    test("a file that does not parse says so, rather than passing", async () => {
+      const d = lintDeps({ "src/broken.ts": "export const = ;" }, [
+        "src/broken.ts",
+      ]);
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.result).toMatchObject({
+        problems: [{ path: "src/broken.ts", rule: null }],
+      });
+    });
+
+    test("is refused on the site", async () => {
+      const answer = await runCodeTool("lint", {}, deps({ proposal: null }));
+      expect(answer.isError).toBe(true);
+    });
   });
 
   test("format_files without write only reports, and says what it cannot format", async () => {
