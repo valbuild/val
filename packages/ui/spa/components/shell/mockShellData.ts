@@ -446,6 +446,9 @@ const IMAGE_NAMES: string[] = [
   "icons/close_3c4d5.svg",
 ];
 
+const REMOTE_ILLUSTRATION =
+  "https://remote.val.build/file/p/storybook/b/r2/v/0.150.3/h/50d3/f/561cff11fe18/p/public/val/illustrations/generated-hero_9c8d7.png";
+
 /**
  * Galleries, keyed by their module. The label is the last segment of the
  * directory the gallery is constrained to, which is what `directoryName`
@@ -470,13 +473,24 @@ export const mockMedia: ShellMediaGallery[] = [
     name: "illustrations",
     dir: "/public/val/illustrations",
     moduleFilePath: "/content/illustrations.val.ts",
-    itemCount: 3,
+    itemCount: 4,
     mediaType: "images",
-    files: galleryFiles(
-      "/content/illustrations.val.ts",
-      "/public/val/illustrations",
-      ["empty-state_a1b2c.svg", "onboarding_d3e4f.svg", "error_5a6b7.svg"],
-    ),
+    files: [
+      ...galleryFiles(
+        "/content/illustrations.val.ts",
+        "/public/val/illustrations",
+        ["empty-state_a1b2c.svg", "onboarding_d3e4f.svg", "error_5a6b7.svg"],
+      ),
+      /*
+       * A remote file: its ref is a URL, and the directory it was uploaded
+       * into is the part after the hashes. It belongs in the same list as the
+       * local ones, under no heading.
+       */
+      {
+        ref: REMOTE_ILLUSTRATION,
+        sourcePath: `/content/illustrations.val.ts?p=${JSON.stringify(REMOTE_ILLUSTRATION)}`,
+      },
+    ],
   },
   {
     id: "/content/people.val.ts",
