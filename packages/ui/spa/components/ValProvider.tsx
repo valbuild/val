@@ -3567,6 +3567,15 @@ export type ShallowSource = EnsureAllTypes<{
   richtext: unknown[];
 }>;
 
+/**
+ * The signed-in person's profile id, or null where nobody is: local dev
+ * without `val login`, the demo. What a write's `updatedBy` is compared with
+ * to tell one's own changes from somebody else's.
+ */
+export function useCurrentProfileId(): string | null {
+  return useContext(ValContext).profileId;
+}
+
 export function useCurrentProfile() {
   const { profileId, profiles, mode } = useContext(ValContext);
   if (profileId) {

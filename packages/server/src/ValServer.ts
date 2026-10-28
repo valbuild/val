@@ -91,6 +91,7 @@ import {
   getErrorMessageFromUnknownJson,
   newestCommitSha,
 } from "@valbuild/shared/internal";
+import { createSketchpadRoutes } from "./sketchpads/sketchpadRoutes";
 
 export type ValServerOptions = {
   route: string;
@@ -818,6 +819,11 @@ export const ValServer = (
   };
 
   return {
+    ...createSketchpadRoutes({
+      store: () => serverOps.sketchpads,
+      getAuth,
+      profileOf,
+    }),
     "/draft/enable": {
       GET: async (req) => {
         const cookies = req.cookies;

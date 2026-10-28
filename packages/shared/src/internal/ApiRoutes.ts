@@ -348,6 +348,38 @@ export const AnalyticsBeacon = z
   );
 export type AnalyticsBeacon = z.infer<typeof AnalyticsBeacon>;
 
+/**
+ * A Sketchpad, as the server keeps it: a rough page written in the strict
+ * format of `sketchpad/sketchFormat.ts`, owned by the project and nothing
+ * else. Not by an AI session -- the assistant that made it remembers its id,
+ * and any chat can read it again -- and not by a page: `page` is a label for
+ * which page it is about, and can be changed or cleared.
+ *
+ * `version` goes up by one on every change, and a change names the version
+ * it was made against, so two writers cannot overwrite each other unseen.
+ */
+export const Sketchpad = z.object({
+  id: z.string(),
+  page: z.string().nullable(),
+  /** Its first heading, for a list to name it by. */
+  title: z.string().nullable(),
+  text: z.string(),
+  version: z.number().int(),
+  archived: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** Profile ids; null where nobody was signed in (local dev, the demo). */
+  createdBy: z.string().nullable(),
+  updatedBy: z.string().nullable(),
+});
+export type SketchpadT = z.infer<typeof Sketchpad>;
+export const SketchpadSummary = Sketchpad.omit({ text: true });
+export type SketchpadSummaryT = z.infer<typeof SketchpadSummary>;
+/** A line of a sketch the server would not take, and why. */
+const SketchErrorZ = z.object({ line: z.number(), message: z.string() });
+/** The most text a sketchpad holds, in UTF-8 bytes: a page, not a site. */
+export const SKETCHPAD_MAX_TEXT_LENGTH = 256 * 1024;
+
 export const Api = {
   "/draft/enable": {
     GET: {
@@ -1145,6 +1177,110 @@ export const Api = {
         cookies: { val_session: z.string().optional() },
       },
       res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
+  /**
+   * The project's sketchpads: list them, or make one. See `Sketchpad`.
+   * Making one answers with its id, which is what an assistant keeps to
+   * read and change it later.
+   */
+  "/sketchpads": {
+    GET: {
+      req: {
+        query: {
+          /** `exclude` (the default), `include`, or `only`. */
+          archived: onlyOneStringQueryParam.optional(),
+          /** Only those about this page. */
+          page: onlyOneStringQueryParam.optional(),
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({ sketchpads: z.array(SketchpadSummary) }),
+        }),
+      ]),
+    },
+    POST: {
+      req: {
+        body: z.object({
+          text: z.string(),
+          page: z.string().nullable(),
+        }),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+            /** Lines of the text that are not in the sketch format. */
+            errors: z.array(SketchErrorZ).optional(),
+          }),
+        }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({
+          status: z.literal(201),
+          json: z.object({ sketchpad: Sketchpad }),
+        }),
+      ]),
+    },
+  },
+  /** One sketchpad: read it, or change its text, its page or whether it is archived. */
+  "/sketchpad": {
+    GET: {
+      req: {
+        query: { id: onlyOneStringQueryParam },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({ sketchpad: Sketchpad }),
+        }),
+      ]),
+    },
+    PATCH: {
+      req: {
+        body: z.object({
+          id: z.string(),
+          /** The version this change was made against. */
+          baseVersion: z.number().int(),
+          text: z.string().optional(),
+          page: z.string().nullable().optional(),
+          archived: z.boolean().optional(),
+        }),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+            errors: z.array(SketchErrorZ).optional(),
+          }),
+        }),
+        /** Changed since `baseVersion`: here is how it is now. */
+        z.object({
+          status: z.literal(409),
+          json: z.object({ message: z.string(), sketchpad: Sketchpad }),
+        }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({ sketchpad: Sketchpad }),
+        }),
+      ]),
     },
   },
   "/upload/patches": {

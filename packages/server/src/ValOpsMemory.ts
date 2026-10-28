@@ -30,6 +30,10 @@ import type {
   StoredModuleVersion,
 } from "./history/types";
 import { result } from "@valbuild/core/fp";
+import {
+  createMemorySketchpadStore,
+  type SketchpadStore,
+} from "./sketchpads/SketchpadStore";
 
 /**
  * One stored patch. Everything the ordered chain needs and nothing else.
@@ -274,6 +278,8 @@ export class ValOpsMemory extends ValOps {
    */
   override readonly patchesAreLocal = true;
   override readonly kind = "memory";
+  /** For as long as the tab is open, like everything else in the demo. */
+  override readonly sketchpads: SketchpadStore = createMemorySketchpadStore();
   /**
    * Required, unless the host explicitly takes the boundary itself.
    *

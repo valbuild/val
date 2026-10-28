@@ -73,6 +73,8 @@ import { writePatchLogFile } from "./patchLog";
 import { uploadRemoteFile } from "./uploadRemoteFile";
 import { Buffer } from "buffer";
 import { getFileExt } from "./getFileExt";
+import { createFsSketchpadStore } from "./sketchpads/fsSketchpadStore";
+import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 
 /** Serializes a schema, or gives up quietly — serialization errors are reported elsewhere. */
 function serializeSchemaSafely(
@@ -106,7 +108,11 @@ export class ValOpsFS extends ValOps {
     super(valModules, options);
     this.host = new FSOpsHost();
     this.jsonEntryFilesFingerprint = new JsonEntryFilesFingerprint(rootDir);
+    this.sketchpads = createFsSketchpadStore(rootDir);
   }
+
+  /** In `.val/sketchpads`. See `sketchpads/fsSketchpadStore.ts`. */
+  override readonly sketchpads: SketchpadStore;
 
   /**
    * Change detection for `.jsonValues()` entry files, which no sha can see (their

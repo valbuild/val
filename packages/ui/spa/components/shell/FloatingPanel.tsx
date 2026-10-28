@@ -73,6 +73,13 @@ export type FloatingPanelProps = {
    * composer scroll up out of sight.
    */
   fill?: boolean;
+  /**
+   * A column of the screen rather than something over it: the shell has
+   * moved its work area out from under the panel, so there is nothing
+   * behind it to click away to, and no scrim. Desktop only; elsewhere the
+   * panel floats.
+   */
+  docked?: boolean;
   children: ReactNode;
 };
 
@@ -99,6 +106,7 @@ export function FloatingPanel({
   footer,
   hidden = false,
   fill = false,
+  docked = false,
   children,
 }: FloatingPanelProps) {
   const isMobile = breakpoint === "mobile" && !hidden;
@@ -123,7 +131,7 @@ export function FloatingPanel({
       {/* Scrim: dark and dismissive on mobile where the sheet dominates the
           screen, invisible but still click-to-close on larger screens where
           the editor stays visible behind the panel. */}
-      {!hidden && (
+      {!hidden && !(docked && !isMobile) && (
         <div
           onClick={onClose}
           aria-hidden

@@ -75,6 +75,7 @@ import {
   isSchemaSourceFixError,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
+import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -2960,6 +2961,12 @@ export abstract class ValOps {
    * narrow on it with type-only imports.
    */
   abstract readonly kind: "fs" | "http" | "memory";
+
+  /**
+   * The project's sketchpads, kept wherever this mode keeps things: see
+   * `sketchpads/SketchpadStore.ts`. Not patches, and never published.
+   */
+  abstract readonly sketchpads: SketchpadStore;
 
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {

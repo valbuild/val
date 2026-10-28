@@ -279,6 +279,13 @@ export type AIChatHandle = {
   /** Bulk-load historical messages (e.g. when restoring a session) */
   loadMessages: (messages: ChatMessage[]) => void;
   /**
+   * Sends `text` as the person's own message, the way a suggestion chip
+   * does: shown in the chat, then sent. Ignored while a turn is running.
+   * What the Sketchpad's "Send to AI" goes through, so the message it sends
+   * is on screen like anything typed.
+   */
+  sendUserMessage: (text: string) => void;
+  /**
    * Add a finished message to the end of the transcript: someone else's
    * question in a shared chat, as it is asked (see `AIChatTogether`).
    */
@@ -927,7 +934,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   // ---- Imperative handle for WebSocket layer ----
 
+  // `handleSend` is declared below the handle, which reaches it through this.
+  const handleSendRef = useRef<((suggestion?: string) => void) | null>(null);
   useImperativeHandle(ref, () => ({
+    sendUserMessage(text: string) {
+      handleSendRef.current?.(text);
+    },
     startAssistantMessage(id: string) {
       const now = Date.now();
       setCurrentMessage({
@@ -1321,6 +1333,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       onCaptureSendContext,
     ],
   );
+  handleSendRef.current = handleSend;
 
   /**
    * Send the next queued message once the turn before has ended. Never

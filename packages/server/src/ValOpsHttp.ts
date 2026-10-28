@@ -70,6 +70,8 @@ import {
   getErrorMessageFromUnknownJson,
   newestCommitSha,
 } from "@valbuild/shared/internal";
+import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
+import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 
 const textEncoder = new TextEncoder();
 
@@ -436,6 +438,8 @@ export class ValOpsHttp extends ValOps {
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
   override readonly kind = "http";
+  /** The content service's. See `sketchpads/httpSketchpadStore.ts`. */
+  override readonly sketchpads: SketchpadStore;
   /** See {@link ValOps.requiresAuth}. */
   override readonly requiresAuth = true;
   /**
@@ -606,6 +610,10 @@ export class ValOpsHttp extends ValOps {
         ? { "x-val-pat": auth.pat }
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
+    this.sketchpads = createHttpSketchpadStore({
+      url: `${contentUrl}/v1/${project}/sketchpads`,
+      headers: this.authHeaders,
+    });
     this.proposal = options?.proposal ?? null;
     this.contentVersion =
       this.proposal === null ? (options?.contentVersion ?? null) : null;

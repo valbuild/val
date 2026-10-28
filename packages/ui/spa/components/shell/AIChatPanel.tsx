@@ -12,6 +12,8 @@ export type AIChatPanelProps = {
    * only thing that can answer the model's tool calls.
    */
   hidden: boolean;
+  /** Beside the work area rather than over it. See `FloatingPanel`. */
+  docked?: boolean;
   onClose: () => void;
   /**
    * The assistant itself.
@@ -29,19 +31,25 @@ export type AIChatPanelProps = {
   children: ReactNode;
 };
 
+/** The assistant panel's width, which a docked panel takes from the work area. */
+export const AI_PANEL_WIDTH = 420;
+
 /**
- * The assistant panel: a floating surface holding the chat.
+ * The assistant panel: a surface holding the chat, floating over the work
+ * area, or docked beside it on a desktop (see `ShellProps`'s `workspaceOverride`
+ * and the shell's own `chatDocked`).
  */
 export function AIChatPanel({
   breakpoint,
   hidden,
+  docked,
   onClose,
   children,
 }: AIChatPanelProps) {
   return (
     <FloatingPanel
       side="right"
-      width={420}
+      width={AI_PANEL_WIDTH}
       title="AI assistant"
       mobileVariant="bottom-sheet"
       // The chat is a transcript above a pinned composer, so the sheet has to
@@ -49,6 +57,7 @@ export function AIChatPanel({
       fill
       breakpoint={breakpoint}
       hidden={hidden}
+      docked={docked}
       onClose={onClose}
     >
       {/* `h-full` and no scrolling of its own: the chat is a column with its

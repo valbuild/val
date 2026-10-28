@@ -41,6 +41,7 @@ export * from "./quickPreview";
 // @valbuild/ui's spa/**.
 export * from "./emptyOf";
 export * from "./aiTools/toolNames";
+export * from "./sketchpad/sketchFormat";
 export * from "./aiTools/aiImageToolPatches";
 export * from "./aiTools/aiSourceToolPatches";
 export * from "./validation/partitionValidationErrors";
