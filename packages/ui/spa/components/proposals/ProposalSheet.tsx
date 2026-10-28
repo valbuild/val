@@ -4,6 +4,7 @@ import {
   Globe,
   Link2,
   List,
+  Paintbrush,
   Pencil,
   Plus,
   X,
@@ -96,6 +97,16 @@ export function ProposalSheet({
                 onClick={choose(proposals.onCompare)}
               >
                 Compare with the site
+              </SheetRow>
+            )}
+            {/* The switcher's menu has it above a phone: the same act. */}
+            {proposals.onOpenDesign !== undefined && (
+              <SheetRow
+                icon={<Paintbrush size={16} />}
+                detail="Change its code with the assistant"
+                onClick={choose(proposals.onOpenDesign)}
+              >
+                Open design tab
               </SheetRow>
             )}
             {/* An upgrade is named after its kind, by Val Build. */}

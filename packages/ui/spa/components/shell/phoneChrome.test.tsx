@@ -216,6 +216,34 @@ describe("the proposal sheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  test("opens the design tab, as the switcher's menu does above a phone", () => {
+    const onOpenDesign = jest.fn();
+    const onClose = jest.fn();
+    render(
+      <ProposalSheet
+        breakpoint="mobile"
+        proposals={{ ...proposalsAt(inSpring()), onOpenDesign }}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Open design tab/ }));
+    expect(onOpenDesign).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("offers no design tab where the site's address is not known", () => {
+    render(
+      <ProposalSheet
+        breakpoint="mobile"
+        proposals={proposalsAt(inSpring())}
+        onClose={() => undefined}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Open design tab/ }),
+    ).toBeNull();
+  });
+
   test("switches to the site and the other proposals, not to itself", () => {
     const proposals = proposalsAt(inSpring());
     render(
