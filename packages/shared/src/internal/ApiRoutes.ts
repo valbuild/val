@@ -127,6 +127,28 @@ export type PlanRefusalErrorT = z.infer<typeof PlanRefusalError>;
 export const VAL_STUDIO_HEADER = "x-val-studio";
 
 /**
+ * On a user message in an AI chat: the tools called in the turn it asked for,
+ * as the content server keeps them (valbuild/home `docs/proposals.md`,
+ * Flow H) - what each tool row shows, never what the tool read or wrote.
+ *
+ * A chat with a summary this cannot read loads without its tool rows rather
+ * than not at all, hence the `catch`.
+ */
+export const AIToolCallSummaries = z
+  .array(
+    z.object({
+      toolCallId: z.string(),
+      name: z.string(),
+      isError: z.boolean(),
+      /** `ask_user_question`: what was asked, and what was answered. */
+      questions: z.array(z.unknown()).optional(),
+      answers: z.array(z.unknown()).optional(),
+    }),
+  )
+  .optional()
+  .catch(undefined);
+
+/**
  * What Val Build answered, mapped onto the statuses this server speaks: a
  * `code` in the JSON is what the web components act on, so it is passed
  * through untouched.
@@ -2539,6 +2561,7 @@ export const Api = {
               z.object({
                 /** Who asked, on a user message in a proposal's chat. */
                 authorId: z.string().nullable().optional(),
+                toolCalls: AIToolCallSummaries,
                 role: z.string(),
                 content: z.union([
                   z.string(),

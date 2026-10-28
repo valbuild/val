@@ -2,3 +2,4 @@ server/.tmp
 device-lab-shots/
 storybook-static/
 server/static-wasm.json
+static/
