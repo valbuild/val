@@ -285,6 +285,11 @@ export type AIChatProps = {
   models?: AIModelInfo[];
   selectedModel?: AIModel | null;
   onSelectModel?: (model: AIModel) => void;
+  /**
+   * The open chat has started, so `selectedModel` is the model it keeps: shown,
+   * not offered. A new chat is where another model is picked.
+   */
+  modelLocked?: boolean;
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
     content: string | ChatDocument,
@@ -656,6 +661,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     models,
     selectedModel,
     onSelectModel,
+    modelLocked,
     onSendMessage,
     onUploadFile,
     onNewSession,
@@ -1697,7 +1703,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   "text-fg-primary text-base",
                 )}
               />
-              <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+              <div className="flex items-center gap-1 border-t border-border-primary px-2 py-1.5">
                 {onUploadFile && (
                   <Button
                     variant="ghost"
@@ -1728,6 +1734,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     // Someone else's turn has its asker's model; the next
                     // message, waiting for it or not, is this person's.
                     disabled={ownTurnRunning}
+                    locked={modelLocked}
                     portalContainer={portalContainer}
                   />
                 )}

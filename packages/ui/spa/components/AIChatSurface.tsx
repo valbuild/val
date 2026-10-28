@@ -107,6 +107,7 @@ function ConnectedChat({
     cancelToolQuestion,
     cancel,
     shared,
+    sessionModel,
   } = useAI(chatRef, {
     ...(design ? { design } : {}),
     initialSessionId: initialSessionIdRef.current,
@@ -172,8 +173,9 @@ function ConnectedChat({
       onSendMessage={sendMessage}
       onCancel={cancel}
       models={aiModels.models}
-      selectedModel={aiModels.selected}
+      selectedModel={sessionModel ?? aiModels.selected}
       onSelectModel={aiModels.select}
+      modelLocked={sessionModel !== null}
       onUploadFile={uploadAiImage}
       onNewSession={newSession}
       isConnected={isConnected}
