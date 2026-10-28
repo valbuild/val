@@ -5,7 +5,11 @@ import {
 } from "@valbuild/shared/publish";
 import type { QuickPreviewStorer } from "../shell/canvas/CanvasFrame";
 import type { ProposalsClient } from "../../proposals/proposalsClient";
-import { loadBuilder, routeTreeGenerator } from "../../publish/loadBuilder";
+import {
+  holdingBuilder,
+  loadBuilder,
+  routeTreeGenerator,
+} from "../../publish/loadBuilder";
 import { canBuildHere } from "../../publish/handoff";
 import { quickPreviewInTab } from "../../proposals/buildInTab";
 import { randomUUID } from "../../utils/randomUUID";
@@ -84,15 +88,17 @@ export function useQuickPreview(
       };
       // Safari, an iPhone: bundled in a builder tab, as a build is there.
       const built = canBuildHere()
-        ? await buildQuickPreview({
-            name,
-            proposals,
-            siteSource: () => publish.projectSource(),
-            siteTarget: () => publish.buildTarget(),
-            loadBuilder,
-            ...(generateRouteTree !== null ? { generateRouteTree } : {}),
-            onStep,
-          })
+        ? await holdingBuilder(() =>
+            buildQuickPreview({
+              name,
+              proposals,
+              siteSource: () => publish.projectSource(),
+              siteTarget: () => publish.buildTarget(),
+              loadBuilder,
+              ...(generateRouteTree !== null ? { generateRouteTree } : {}),
+              onStep,
+            }),
+          )
         : await quickPreviewInTab(name, {
             onTab: (inTab) => {
               setInTab(inTab);
@@ -158,6 +164,11 @@ export function useQuickPreview(
     return work;
   }, [name, proposals]);
 
+  /** Forget a failure: a build has shown what the quick preview could not. */
+  const dismiss = useCallback(() => {
+    setState((now) => (now.status === "failed" ? { status: "idle" } : now));
+  }, []);
+
   return useMemo(
     () => ({
       state,
@@ -166,8 +177,9 @@ export function useQuickPreview(
       run,
       setStorer,
       onFront,
+      dismiss,
       blocked: inTab?.blocked === true,
     }),
-    [state, last, shownId, run, setStorer, onFront, inTab],
+    [state, last, shownId, run, setStorer, onFront, dismiss, inTab],
   );
 }

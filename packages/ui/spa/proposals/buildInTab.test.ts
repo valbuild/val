@@ -2,6 +2,7 @@ import { joinHandoff, storedHandoffIntent } from "../publish/handoff";
 import type { ProposalJson } from "./proposalsClient";
 import {
   buildInTab,
+  openBuilder,
   QUICK_PREVIEW_TAB_GONE_MESSAGE,
   quickPreviewInTab,
   NOT_STORED_BUILD_MESSAGE,
@@ -286,4 +287,46 @@ describe("a quick preview bundled in a builder tab", () => {
     });
     tab.close();
   });
+});
+
+test("a build stopped because it stalled says so, rather than reading as cancelled", async () => {
+  const controller = new AbortController();
+  const building = buildInTab(
+    NAME,
+    { get: async () => proposal(null, true) },
+    {
+      open: () => ({}),
+      storage: memoryStorage(),
+      onTab: () => {},
+      signal: controller.signal,
+      ...manualTime(),
+    },
+  );
+  controller.abort(new Error("The build made no progress while building."));
+  expect(await building).toEqual({
+    status: "failed",
+    message: "The build made no progress while building.",
+  });
+});
+
+test("a quick preview's tab let open late is not given up on for the wait", async () => {
+  const time = manualTime();
+  let settled = false;
+  const states: Array<{ blocked: boolean; step: string | null } | null> = [];
+  const bundling = quickPreviewInTab(NAME, {
+    open: () => null,
+    storage: memoryStorage(),
+    onTab: (inTab) => states.push(inTab),
+    ...time,
+  }).then((outcome) => {
+    settled = true;
+    return outcome;
+  });
+  await time.advance(30_000);
+  // The tap: the tab opens now, and has not said anything yet.
+  expect(openBuilder(() => ({}))).toBe(true);
+  await time.advance(2_000);
+  expect(settled).toBe(false);
+  await time.advance(30_000);
+  expect(await bundling).toMatchObject({ status: "failed" });
 });

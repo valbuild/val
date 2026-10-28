@@ -110,11 +110,17 @@ export function DesignPreviewFrames({
   /** Where the page in front is: what the next build opens at. */
   const location = useRef<PageLocation | null>(null);
 
-  // The page menu: the page in front goes there, as it always did.
+  // The page menu: the page in front goes there, as it always did -- still
+  // a quick preview when it is one, which the worker serves to the page
+  // only when it is opened as one.
   useEffect(() => {
     location.current = null;
     setIncoming(null);
-    setLive((frame) => (frame.url === src ? frame : { ...frame, url: src }));
+    setLive((frame) => {
+      const url =
+        frame.quick === null ? src : withQuickPreviewParam(src, frame.quick);
+      return frame.url === url ? frame : { ...frame, url };
+    });
   }, [src]);
 
   const reloadKeyNow = useRef(reloadKey);

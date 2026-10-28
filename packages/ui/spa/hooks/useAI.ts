@@ -701,6 +701,12 @@ export function useAI(
     design?.proposal.name,
   ).build;
   const proposalBuildRef = useRef(proposalBuild);
+  /**
+   * The element the last message carried. The pick is cleared once it is
+   * sent, and the turn that message starts is when `read_page`'s `picked`
+   * is asked for: it means this one.
+   */
+  const lastPointedAtRef = useRef<PickedElement | null>(null);
   /** The picked element, taken for a message that waits in the queue. */
   const captureSendContext = useCallback((): SendContext => {
     const pointedAt = designRef.current?.pointedAt ?? null;
@@ -2046,7 +2052,8 @@ export function useAI(
           const design = designRef.current;
           void runReadPage(message.arguments, {
             readPage: design.readPage ?? null,
-            pointedAt: design.pointedAt ?? null,
+            // Picked now, or carried by the message this turn answers.
+            pointedAt: design.pointedAt ?? lastPointedAtRef.current,
             ...(design.setDevice !== undefined
               ? { setDevice: design.setDevice }
               : {}),
@@ -2737,6 +2744,7 @@ export function useAI(
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
       }
+      lastPointedAtRef.current = pointedAt;
       // Taken with the message when it was written, when it carries one.
       if (context === undefined && pointedAt !== null) {
         designRef.current?.onPointedAtSent?.();

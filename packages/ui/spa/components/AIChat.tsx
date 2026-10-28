@@ -1292,15 +1292,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       // the queue is paused: then what is written now is what the person
       // wants sent, and it goes straight away.
       if (busy || (queue.length > 0 && !queuePaused)) {
-        setQueue((prev) => [
-          ...prev,
-          {
-            ...message,
-            ...(onCaptureSendContext
-              ? { context: onCaptureSendContext() }
-              : {}),
-          },
-        ]);
+        // Taken here, at the press, not in the updater: taking it clears
+        // the pick, which is another component's state.
+        const queued: QueuedMessage = onCaptureSendContext
+          ? { ...message, context: onCaptureSendContext() }
+          : message;
+        setQueue((prev) => [...prev, queued]);
         requestAnimationFrame(() => editorRef.current?.focus());
         return;
       }

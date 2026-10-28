@@ -301,3 +301,27 @@ export async function quickPreviewSiteOrigin(
     return null;
   }
 }
+
+/** The site's origin, as this page's server named it: asked once per page. */
+let siteOriginOnce: Promise<string | null> | null = null;
+
+/**
+ * Whether `origin` may ask this page for what only the design tab should
+ * have -- what is on it (`readPage`), or code to run (`quickPreview`): this
+ * page's own origin (the Studio's canvas), or the site's, where the design
+ * tab is ({@link quickPreviewSiteOrigin}). Asked of the server once, and
+ * again only while it has not said.
+ */
+export async function isDesignTabOrigin(
+  origin: string,
+  options: { api: string; own: string; fetchImpl?: typeof fetch },
+): Promise<boolean> {
+  if (origin === options.own) return true;
+  siteOriginOnce ??= quickPreviewSiteOrigin(
+    options.api,
+    options.fetchImpl,
+  ).catch(() => null);
+  const site = await siteOriginOnce;
+  if (site === null) siteOriginOnce = null;
+  return site !== null && site === origin;
+}

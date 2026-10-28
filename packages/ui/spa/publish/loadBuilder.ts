@@ -150,7 +150,26 @@ const importBuilder: BuilderLoader = () =>
  * one.
  */
 export function stopBuilderWork(reason: Error): boolean {
+  // Not while something else is using it: a cancelled build must not take a
+  // quick preview's bundle with it. The build's own calls then run out.
+  if (holds > 0) return false;
   return stopWorker?.(reason) ?? false;
+}
+
+/** Work under way in the builder that a cancelled build must not stop. */
+let holds = 0;
+
+/**
+ * Keep the builder from being stopped by {@link stopBuilderWork} while
+ * `work` runs: a quick preview's bundle. Answers what `work` does.
+ */
+export async function holdingBuilder<T>(work: () => Promise<T>): Promise<T> {
+  holds++;
+  try {
+    return await work();
+  } finally {
+    holds--;
+  }
 }
 
 let loader: BuilderLoader = importBuilder;

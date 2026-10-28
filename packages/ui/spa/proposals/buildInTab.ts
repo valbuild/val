@@ -13,6 +13,13 @@ import type { ProposalsClient } from "./proposalsClient";
 let handoff: SiteHandoff | null = null;
 /** That tab has not been let open: see `openBuilder`. */
 let blocked = false;
+/**
+ * A quick preview's builder tab, apart from a build's: the two can be under
+ * way at once (the assistant's `build_proposal` and `quick_preview`), and
+ * each has its own tab to open from a tap.
+ */
+let quickHandoff: SiteHandoff | null = null;
+let quickBlocked = false;
 
 /** How long a tab may say nothing before the page asks content how it ended. */
 export const TAB_SILENT_MS = 15_000;
@@ -89,12 +96,19 @@ export function buildInTab(
       deps.signal?.removeEventListener("abort", onAbort);
       resolve(outcome);
     };
-    const onAbort = () =>
-      finish({
-        status: "failed",
-        message: BUILD_CANCELLED_MESSAGE,
-        cancelled: true,
-      });
+    // A watchdog's stop carries why (the step that stalled); a cancel does not.
+    const onAbort = () => {
+      const reason: unknown = deps.signal?.reason;
+      finish(
+        reason instanceof Error && reason.name !== "AbortError"
+          ? { status: "failed", message: reason.message }
+          : {
+              status: "failed",
+              message: BUILD_CANCELLED_MESSAGE,
+              cancelled: true,
+            },
+      );
+    };
     const builtNow = async (): Promise<ProposalBuildOutcome | null> => {
       try {
         const proposal = await proposals.get(name);
@@ -166,11 +180,21 @@ async function outcomeOf(
 export function openBuilder(
   open: (url: string, target: string) => unknown = openBuilderWindow,
 ): boolean {
-  const tab = handoff;
+  // A build's tab first, then a quick preview's: one tap opens one tab.
+  if (handoff !== null && blocked) {
+    const opened = open(handoff.url, `val-publish-${handoff.id}`) !== null;
+    if (opened) blocked = false;
+    return opened;
+  }
+  if (quickHandoff !== null && quickBlocked) {
+    const opened =
+      open(quickHandoff.url, `val-publish-${quickHandoff.id}`) !== null;
+    if (opened) quickBlocked = false;
+    return opened;
+  }
+  const tab = handoff ?? quickHandoff;
   if (tab === null) return false;
-  const opened = open(tab.url, `val-publish-${tab.id}`) !== null;
-  if (opened) blocked = false;
-  return opened;
+  return open(tab.url, `val-publish-${tab.id}`) !== null;
 }
 
 /** How long a quick preview's builder tab may say nothing before it is given up on. */
@@ -213,9 +237,9 @@ export function quickPreviewInTab(
       resolve({ status: "failed", message: NOT_STORED_BUILD_MESSAGE });
       return;
     }
-    handoff = tab;
-    blocked = !tab.opened;
-    deps.onTab({ blocked, step: null });
+    quickHandoff = tab;
+    quickBlocked = !tab.opened;
+    deps.onTab({ blocked: quickBlocked, step: null });
     const openedAt = now();
     let lastHeard = openedAt;
     let ended = false;
@@ -225,22 +249,30 @@ export function quickPreviewInTab(
       stop();
       off();
       tab.close();
-      if (handoff === tab) handoff = null;
+      if (quickHandoff === tab) {
+        quickHandoff = null;
+        quickBlocked = false;
+      }
       deps.onTab(null);
       resolve(outcome);
     };
     const off = tab.onMessage((message) => {
       lastHeard = now();
       if (message.type === "phase") {
-        blocked = false;
+        quickBlocked = false;
         deps.onTab({ blocked: false, step: message.label });
       } else if (message.type === "quick-preview-built") {
         finish(message.outcome);
       }
     });
     const stopTicking = every(() => {
-      if (ended || blocked) return;
-      // A tab never let open waits for the tap; one that went quiet is gone.
+      if (ended) return;
+      // A tab never let open waits for the tap, and its quiet counts from
+      // when it was let open; one that went quiet after that is gone.
+      if (quickBlocked) {
+        lastHeard = now();
+        return;
+      }
       if (now() - lastHeard > QUICK_PREVIEW_TAB_SILENT_MS) {
         finish({ status: "failed", message: QUICK_PREVIEW_TAB_GONE_MESSAGE });
       }

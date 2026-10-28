@@ -138,6 +138,11 @@ export function DesignTab({ name }: { name: string }) {
   const quick = useQuickPreview(name, proposals);
   /** The page in front is a quick preview rather than a served build. */
   const [quickShown, setQuickShown] = useState(false);
+  // A build served shows everything a failed quick preview could not.
+  const dismissQuick = quick.dismiss;
+  useEffect(() => {
+    dismissQuick();
+  }, [builtHash, dismissQuick]);
   const quickOnFront = quick.onFront;
   const onFront = useCallback(
     (front: { quick: string | null }) => {
@@ -155,7 +160,6 @@ export function DesignTab({ name }: { name: string }) {
   const checks = designChecks(proposal, state, progress);
   const problem = designProblem({
     quickError: quick.state.status === "failed" ? quick.state.message : null,
-    onQuickPreview: () => void quick.run(),
     studioProposal,
     read,
     proposal,
@@ -423,7 +427,6 @@ function designChecks(
 /** What went wrong, if anything, and what the person can do about it. */
 function designProblem({
   quickError,
-  onQuickPreview,
   studioProposal,
   read,
   proposal,
@@ -440,7 +443,6 @@ function designProblem({
   onBuild: (() => unknown) | null;
   onAskAssistant: (error: string) => void;
   quickError: string | null;
-  onQuickPreview: () => void;
 }): DesignProblem | null {
   if (studioProposal !== null) {
     const onSite =
@@ -478,12 +480,18 @@ function designProblem({
     };
   }
   if (quickError !== null && buildError === null) {
+    // Build, not Try again: most of what stops a quick preview -- a
+    // dependency changed, a page with nothing to show it in, a browser that
+    // cannot bundle -- a build gets past, and the same quick preview again
+    // would only fail again.
     return {
       title: "The quick preview could not be shown",
       message:
-        "The preview still shows what it showed before. Try again, or build the proposal, which shows everything.",
+        "The preview still shows what it showed before. Build the proposal to see the change, server and all.",
       details: quickError,
-      action: { label: "Try again", onClick: onQuickPreview },
+      ...(onBuild !== null
+        ? { action: { label: "Build", onClick: () => void onBuild() } }
+        : {}),
     };
   }
   if (buildError !== null) {

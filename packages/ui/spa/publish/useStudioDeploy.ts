@@ -264,10 +264,22 @@ export function useStudioDeploy(options?: {
                 }
                 const stop = () => resolve(stoppedResult);
                 signal.addEventListener("abort", stop, { once: true });
-                void deploying.then((done) => {
-                  signal.removeEventListener("abort", stop);
-                  resolve(done);
-                });
+                deploying.then(
+                  (done) => {
+                    signal.removeEventListener("abort", stop);
+                    resolve(done);
+                  },
+                  (error: unknown) => {
+                    // Said, rather than left to hang until the watchdog.
+                    signal.removeEventListener("abort", stop);
+                    resolve({
+                      status: "failed",
+                      message:
+                        error instanceof Error ? error.message : String(error),
+                      problems: [],
+                    });
+                  },
+                );
               });
         if (
           result.status === "failed" &&

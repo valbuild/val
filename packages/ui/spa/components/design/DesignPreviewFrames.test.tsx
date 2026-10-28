@@ -101,3 +101,36 @@ test("only the page in front picks and reports its status", () => {
   expect(behind?.onPickElement).toBeUndefined();
   expect(behind?.onPageReader).toBeUndefined();
 });
+
+test("a quick preview stays one when the page menu goes to another page", () => {
+  const statuses: string[] = [];
+  const base = {
+    address: ADDRESS,
+    buildKey: "b1",
+    reloadKey: 0,
+    origin: ADDRESS,
+    elementPicking: null,
+    onPickElement: () => {},
+    onElementPickingStopped: () => {},
+    enableKey: 0,
+    onStatusChange: (status: string) => statuses.push(status),
+  };
+  const view = render(
+    <DesignPreviewFrames {...base} src={`${ADDRESS}/`} quickPreviewId={null} />,
+  );
+  view.rerender(
+    <DesignPreviewFrames {...base} src={`${ADDRESS}/`} quickPreviewId="q1" />,
+  );
+  act(() =>
+    mockFrames.get(`${ADDRESS}/?val_quick=q1`)?.onStatusChange?.("live"),
+  );
+  act(() => jest.advanceTimersByTime(600));
+  view.rerender(
+    <DesignPreviewFrames
+      {...base}
+      src={`${ADDRESS}/about`}
+      quickPreviewId="q1"
+    />,
+  );
+  expect(mockFrames.has(`${ADDRESS}/about?val_quick=q1`)).toBe(true);
+});
