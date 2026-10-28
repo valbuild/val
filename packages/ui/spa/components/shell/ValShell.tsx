@@ -1574,7 +1574,13 @@ function ValShellBody({
           })}
           historyActive={navigation.isHistoryView}
           onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
-          onOpenValidate={() => navigation.navigate(VAL_ERRORS_ROUTE)}
+          // In the demo the page has only the Studio's own errors to show (its
+          // server has no full check), so the button is there while it has some.
+          onOpenValidate={
+            demo === null || validateCount > 0 || navigation.isErrorsView
+              ? () => navigation.navigate(VAL_ERRORS_ROUTE)
+              : undefined
+          }
           {...(upgrade !== null ? { upgrade } : {})}
           versions={versions}
           validateActive={navigation.isErrorsView}

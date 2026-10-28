@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
 import { fn } from "storybook/test";
+import { DEMO_FULL_CHECK_OFF } from "../../demo/ValDemoContext";
 import {
   ValidatePageView,
   type FullCheckState,
@@ -201,6 +202,17 @@ type Story = StoryObj<typeof ValidatePageView>;
  */
 export const OnArrival: Story = {
   args: { groups: OWN_CHECK, fullCheck: { status: "not-run" } },
+};
+
+/**
+ * In the demo, whose server runs in the tab without the project's files: the
+ * Studio's own errors, and why there is no "Check everything".
+ */
+export const InTheDemo: Story = {
+  args: {
+    groups: OWN_CHECK,
+    fullCheck: { status: "unavailable", reason: DEMO_FULL_CHECK_OFF },
+  },
 };
 
 /** "Check everything" going through the project one file at a time. */
