@@ -983,7 +983,7 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
-  // Read by the gallery tool when it runs, through a ref so a bucket being
+  // Read by the image tools when they run, through a ref so a bucket being
   // picked does not re-subscribe the tool handler.
   const remoteUpload = useRemoteUploadSettings();
   const remoteUploadRef = useRef(remoteUpload);

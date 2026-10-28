@@ -96,7 +96,7 @@ export function useRemoteHost(): string {
  */
 export type RemoteUploadReadiness =
   | { status: "ready"; settings: RemoteUploadSettings }
-  | { status: "unavailable"; message: string; retry: boolean };
+  | { status: "unavailable"; message: string };
 
 export function useRemoteUploadSettings(): RemoteUploadReadiness {
   const remoteFiles = useContext(ValRemoteContext)?.remoteFiles ?? null;
@@ -118,21 +118,18 @@ export function useRemoteUploadSettings(): RemoteUploadReadiness {
     return {
       status: "unavailable",
       message: "Remote files are not available here.",
-      retry: false,
     };
   }
   if (remoteFiles.status === "inactive") {
     return {
       status: "unavailable",
       message: remoteFiles.message,
-      retry: false,
     };
   }
   if (remoteFiles.status !== "ready" || bucket === null) {
     return {
       status: "unavailable",
       message: "Uploads are still being prepared.",
-      retry: true,
     };
   }
   return {
