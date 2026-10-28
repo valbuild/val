@@ -12,6 +12,7 @@ import {
   useServerSourceAtPath,
 } from "../components/ValFieldProvider";
 import type { SourceOverride } from "../components/ValFieldProvider";
+import { CompareMediaEntry, useMediaEntryKind } from "./CompareMediaEntry";
 
 /**
  * One path's value, on one side of the comparison.
@@ -54,7 +55,7 @@ export function CompareValue({
   if (side === "before") {
     return <BeforeValue path={path} />;
   }
-  return <Value path={path} />;
+  return <Value path={path} side="after" />;
 }
 
 function BeforeValue({ path }: { path: SourcePath }) {
@@ -88,14 +89,18 @@ function BeforeValue({ path }: { path: SourcePath }) {
   if (override === null) return null;
   return (
     <FieldSourceOverrideContext.Provider value={override}>
-      <Value path={path} />
+      <Value path={path} side="before" />
     </FieldSourceOverrideContext.Provider>
   );
 }
 
-function Value({ path }: { path: SourcePath }) {
+function Value({ path, side }: { path: SourcePath; side: "before" | "after" }) {
   const schemaAtPath = useSchemaAtPath(path);
+  const mediaType = useMediaEntryKind(path);
   if (schemaAtPath.status !== "success") return null;
+  if (mediaType !== null) {
+    return <CompareMediaEntry path={path} side={side} mediaType={mediaType} />;
+  }
   return (
     <AnyField
       path={path}
