@@ -105,10 +105,13 @@ import {
   designSystemPrompt,
   pickedElementPrompt,
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_QUICK_PREVIEW_TOOL,
   DESIGN_READ_PAGE_TOOL,
   isCodeTool,
   runCodeTool,
+  runQuickPreviewTool,
   runReadPage,
+  type QuickPreviewResult,
   type ReadPageDeps,
 } from "../proposals/proposalCode";
 import { typecheckProposal } from "../proposals/useProposalTypecheck";
@@ -624,6 +627,7 @@ const ALL_TOOLS: AITool[] = [
 const DESIGN_TOOLS: AITool[] = [
   DESIGN_CREATE_PATCH_TOOL,
   DESIGN_READ_PAGE_TOOL,
+  DESIGN_QUICK_PREVIEW_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
@@ -654,6 +658,8 @@ export type UseAIOptions = {
     readPage?: ReadPageDeps["readPage"];
     /** Switches the preview's width: `read_page`'s `device`. */
     setDevice?: ReadPageDeps["setDevice"];
+    /** Shows the proposal's change in seconds: `quick_preview`. */
+    quickPreview?: (() => Promise<QuickPreviewResult>) | null;
   };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
@@ -2017,6 +2023,23 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (
+          designRef.current !== null &&
+          message.name === "quick_preview"
+        ) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runQuickPreviewTool(designRef.current.quickPreview ?? null).then(
+            ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            },
+          );
         } else if (designRef.current !== null && message.name === "read_page") {
           const toolCallId = message.toolCallId;
           const messageId = message.id;

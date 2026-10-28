@@ -235,6 +235,64 @@ export const CODE_TOOLS: AITool[] = [
   WAIT_TOOL,
 ];
 
+/** One step of a quick preview, and how long it took. */
+export type QuickPreviewTiming = { step: string; ms: number };
+
+/** What a quick preview came to: see `useQuickPreview`. */
+export type QuickPreviewResult =
+  | { status: "shown"; ms: number; timings: QuickPreviewTiming[] }
+  | { status: "failed"; message: string; timings: QuickPreviewTiming[] };
+
+/**
+ * `quick_preview` in the design tab: the proposal's client code built in the
+ * tab and shown in the preview in seconds, with the server's half still the
+ * last build's (`quickPreview.ts` in `@valbuild/shared`).
+ */
+export const DESIGN_QUICK_PREVIEW_TOOL: AITool = {
+  name: "quick_preview",
+  description:
+    "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled here and the page in the preview runs it. " +
+    "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
+    "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
+    "Answers once the page shows it, with what each step took.",
+  parameters: { type: "object", properties: {}, required: [] },
+  timeoutMs: 3 * 60_000,
+};
+
+export async function runQuickPreviewTool(
+  quickPreview: (() => Promise<QuickPreviewResult>) | null,
+): Promise<CodeToolAnswer> {
+  if (quickPreview === null) {
+    return {
+      result: {
+        success: false,
+        error: "Only an open proposal can be previewed.",
+      },
+      isError: true,
+    };
+  }
+  const result = await quickPreview();
+  const steps = result.timings.map((t) => ({
+    step: t.step,
+    seconds: Math.round(t.ms / 100) / 10,
+  }));
+  if (result.status === "failed") {
+    return {
+      result: { success: false, error: result.message, steps },
+      isError: true,
+    };
+  }
+  return {
+    result: {
+      success: true,
+      seconds: Math.round(result.ms / 100) / 10,
+      steps,
+      next: "The preview shows it. Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
+    },
+    isError: false,
+  };
+}
+
 /** The preview's widths, as the design tab names them. */
 export type DesignDevice = "desktop" | "tablet" | "mobile";
 const DEVICES: readonly DesignDevice[] = ["desktop", "tablet", "mobile"];
@@ -438,7 +496,8 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - Keep each change small enough to check: write it, format it, typecheck and fix what it reports, then build.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
-- Check a change with read_page once its build is served: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
+- To see a change to components, layout or styles quickly, call quick_preview after typecheck: the preview shows it in seconds. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
+- Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
 

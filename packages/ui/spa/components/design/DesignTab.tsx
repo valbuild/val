@@ -4,6 +4,7 @@ import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { AIChatSurface } from "../AIChatSurface";
 import type { PageReader } from "../shell/canvas/CanvasFrame";
 import { DesignPreviewFrames } from "./DesignPreviewFrames";
+import { useQuickPreview } from "./useQuickPreview";
 import type { CanvasPreviewStatus } from "../shell/canvas/CanvasPreviewNotice";
 import { PublishProposalDialog } from "../proposals/PublishProposalDialog";
 import { useValPortal } from "../ValPortalProvider";
@@ -134,6 +135,17 @@ export function DesignTab({ name }: { name: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const builtHash = proposal?.built?.hash ?? null;
   const [swapping, setSwapping] = useState(false);
+  const quick = useQuickPreview(name, proposals);
+  /** The page in front is a quick preview rather than a served build. */
+  const [quickShown, setQuickShown] = useState(false);
+  const quickOnFront = quick.onFront;
+  const onFront = useCallback(
+    (front: { quick: string | null }) => {
+      setQuickShown(front.quick !== null);
+      quickOnFront(front);
+    },
+    [quickOnFront],
+  );
 
   const [route, setRoute] = useState("/");
   const address = proposal?.address ?? null;
@@ -142,6 +154,8 @@ export function DesignTab({ name }: { name: string }) {
 
   const checks = designChecks(proposal, state, progress);
   const problem = designProblem({
+    quickError: quick.state.status === "failed" ? quick.state.message : null,
+    onQuickPreview: () => void quick.run(),
     studioProposal,
     read,
     proposal,
@@ -257,6 +271,16 @@ export function DesignTab({ name }: { name: string }) {
         onReload={() => setReloadKey((key) => key + 1)}
         device={device}
         onDevice={setDevice}
+        quickPreview={
+          open
+            ? {
+                running:
+                  quick.state.status === "running" ? quick.state.step : null,
+                onRun: () => void quick.run(),
+                shown: quickShown,
+              }
+            : null
+        }
         files={read.status === "ready" ? read.files : null}
         diffOf={diffOf}
         checkpoints={checkpoints}
@@ -303,6 +327,9 @@ export function DesignTab({ name }: { name: string }) {
               onStatusChange={setFrameStatus}
               onPageReader={setPageReader}
               onSwappingChange={setSwapping}
+              quickPreviewId={quick.shownId}
+              onQuickPreviewStorer={quick.setStorer}
+              onFront={onFront}
             />
           ) : null
         }
@@ -315,6 +342,7 @@ export function DesignTab({ name }: { name: string }) {
               onPointedAtSent: () => setPicked(null),
               readPage: pageReader,
               setDevice: showDevice,
+              quickPreview: open ? quick.run : null,
             }}
           />
         }
@@ -390,6 +418,8 @@ function designChecks(
 
 /** What went wrong, if anything, and what the person can do about it. */
 function designProblem({
+  quickError,
+  onQuickPreview,
   studioProposal,
   read,
   proposal,
@@ -405,6 +435,8 @@ function designProblem({
   onRetryRead: () => void;
   onBuild: (() => unknown) | null;
   onAskAssistant: (error: string) => void;
+  quickError: string | null;
+  onQuickPreview: () => void;
 }): DesignProblem | null {
   if (studioProposal !== null) {
     const onSite =
@@ -439,6 +471,15 @@ function designProblem({
       title: `This proposal is ${proposal.status === "needs-resolution" ? "waiting on a conflict" : proposal.status}`,
       message:
         "Only an open proposal's code is changed here. Its own Studio says what happened to it.",
+    };
+  }
+  if (quickError !== null && buildError === null) {
+    return {
+      title: "The quick preview could not be shown",
+      message:
+        "The preview still shows what it showed before. Try again, or build the proposal, which shows everything.",
+      details: quickError,
+      action: { label: "Try again", onClick: onQuickPreview },
     };
   }
   if (buildError !== null) {

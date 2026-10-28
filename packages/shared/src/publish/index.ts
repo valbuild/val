@@ -84,3 +84,8 @@ export {
   type ProposalBuildStep,
 } from "./buildProposal";
 export { proposalProject } from "./proposalProject";
+export {
+  buildQuickPreview,
+  clientFilesOf,
+  type QuickPreviewOutcome,
+} from "./buildQuickPreview";

@@ -12,6 +12,7 @@
  */
 
 import { VAL_CANVAS_PARAM } from "./valCanvasProtocol";
+import { QUICK_PREVIEW_PARAM } from "./quickPreview";
 
 /** Where the page is: what a new build is opened at. */
 export type PageLocation = {
@@ -119,6 +120,8 @@ export function pageLocationOf(win: Window): PageLocation {
   const url = new URL(win.location.href);
   // The canvas's own parameter is not part of where the page is.
   url.searchParams.delete(VAL_CANVAS_PARAM);
+  // Nor is which quick preview it shows: the next build is not that one.
+  url.searchParams.delete(QUICK_PREVIEW_PARAM);
   return {
     path: `${url.pathname}${url.search}${url.hash}`,
     scrollX: Math.round(win.scrollX),

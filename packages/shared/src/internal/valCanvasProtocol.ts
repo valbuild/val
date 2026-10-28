@@ -23,6 +23,7 @@
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
 import type { PageLocation, PageSnapshot } from "./pageInspection";
+import type { QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -206,6 +207,16 @@ export type ValCanvasPageMessage =
       requestId: string;
       snapshot: PageSnapshot | null;
       error?: string;
+    }
+  | {
+      /**
+       * A quick preview's files are stored in the page's worker, and a page
+       * opened with its id is served them (`quickPreview.ts`) -- or why not.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreviewStored";
+      id: string;
+      error?: string;
     };
 
 /** What the studio tells the page. */
@@ -336,6 +347,17 @@ export type ValCanvasStudioMessage =
       requestId: string;
       selector?: string;
       maxItems?: number;
+    }
+  | {
+      /**
+       * Store a quick preview's files in this origin's worker
+       * (`storeQuickPreview`): the tab cannot, being another origin.
+       * Answered with `quickPreviewStored`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreview";
+      id: string;
+      files: QuickPreviewFiles;
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -357,7 +379,26 @@ export function isValCanvasPageMessage(
       isPickedElement((data as { element?: unknown }).element)) ||
     (message.type === "location" && isPageLocation(data)) ||
     (message.type === "pageRead" &&
-      typeof (data as { requestId?: unknown }).requestId === "string")
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "quickPreviewStored" &&
+      typeof (data as { id?: unknown }).id === "string")
+  );
+}
+
+/**
+ * The files of a quick preview: paths under `/_app/` with no way out of it,
+ * each a string body and a type.
+ */
+function isQuickPreviewFiles(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).every(
+    ([path, file]: [string, unknown]) =>
+      /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/.test(path) &&
+      !path.includes("..") &&
+      typeof file === "object" &&
+      file !== null &&
+      typeof (file as Record<string, unknown>).body === "string" &&
+      typeof (file as Record<string, unknown>).contentType === "string",
   );
 }
 
@@ -444,6 +485,14 @@ export function isValCanvasStudioMessage(
       Number.isFinite(scroll.x) &&
       typeof scroll.y === "number" &&
       Number.isFinite(scroll.y)
+    );
+  }
+  if (message.type === "quickPreview") {
+    const preview = data as Record<string, unknown>;
+    return (
+      typeof preview.id === "string" &&
+      /^[A-Za-z0-9_-]{1,64}$/.test(preview.id) &&
+      isQuickPreviewFiles(preview.files)
     );
   }
   if (message.type === "readPage") {

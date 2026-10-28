@@ -600,4 +600,21 @@ describe("ValRouter", () => {
     expect(serverRes.status).toBe(404);
     expect("json" in serverRes && serverRes.json).toBeTruthy();
   });
+
+  test("serves the design tab's quick preview worker, allowed the whole origin", async () => {
+    const serverRes = await onRoute(
+      fakeRequest({
+        method: "GET",
+        url: new URL("http://localhost:3000/api/val/quick-preview-sw.js"),
+      }),
+    );
+    expect(serverRes.status).toBe(200);
+    expect("headers" in serverRes && serverRes.headers).toMatchObject({
+      "Service-Worker-Allowed": "/",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+    expect("body" in serverRes && serverRes.body).toContain(
+      'self.addEventListener("fetch"',
+    );
+  });
 });

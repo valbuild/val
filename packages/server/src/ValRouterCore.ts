@@ -2,6 +2,8 @@ import { Internal } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
+  QUICK_PREVIEW_SERVICE_WORKER_PATH,
+  QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
   ValServerGenericResult,
 } from "@valbuild/shared/internal";
 import type { ValServer } from "./ValServer";
@@ -63,6 +65,24 @@ export function createValRequestHandler<Res>(
     }
 
     const path = url.pathname.slice(route.length);
+    if (path === QUICK_PREVIEW_SERVICE_WORKER_PATH) {
+      /*
+       * The design tab's quick preview worker (`quickPreview.ts` in
+       * `@valbuild/shared`). `Service-Worker-Allowed: /` lets a script at
+       * this path control the whole origin, which it needs: it serves the
+       * page's `/_app/` files. It serves them only to a page opened as a
+       * quick preview, and the bridge stores them only for the site.
+       */
+      return convert({
+        status: 200,
+        headers: {
+          "Content-Type": "text/javascript; charset=utf-8",
+          "Service-Worker-Allowed": "/",
+          "Cache-Control": "no-cache",
+        },
+        body: QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
+      });
+    }
     const groupQueryParams = (arr: [string, string][]) => {
       const map: Record<string, string[]> = {};
       for (const [key, value] of arr) {

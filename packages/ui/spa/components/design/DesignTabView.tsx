@@ -18,6 +18,7 @@ import {
   Tablet,
   Upload,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
@@ -157,6 +158,17 @@ export type DesignTabViewProps = {
     /** A new build is served, and loading behind the page in front. */
     swapping?: boolean;
   };
+  /**
+   * The quick preview: the proposal's client code shown in seconds, built in
+   * this tab (`useQuickPreview`). `null`: not offered.
+   */
+  quickPreview?: {
+    /** The step it is on while it runs; `null` when it is not running. */
+    running: string | null;
+    onRun: () => void;
+    /** The page in front is a quick preview, not a served build. */
+    shown: boolean;
+  } | null;
   builder: DesignBuilder;
   onOpenBuilder?: () => void;
   problem: DesignProblem | null;
@@ -227,6 +239,8 @@ export function DesignTabView(props: DesignTabViewProps) {
               startedAt={props.build.startedAt}
               onCancel={props.build.onCancel}
               swapping={props.build.swapping === true}
+              quick={props.quickPreview ?? null}
+              onBuild={props.build.onBuild}
               device={device}
               preview={props.preview}
               picking={props.picking}
@@ -262,6 +276,7 @@ function DesignTopBar({
   checks,
   builder,
   build,
+  quickPreview,
   onPublish,
   checkpoints,
 }: DesignTabViewProps & {
@@ -304,6 +319,25 @@ function DesignTopBar({
             <ExternalLink size={12} />
           </a>
         )}
+        {quickPreview !== undefined &&
+          quickPreview !== null &&
+          build.required &&
+          !build.building && (
+            <button
+              type="button"
+              onClick={quickPreview.onRun}
+              disabled={quickPreview.running !== null}
+              title="See the change in seconds: the proposal's client code, built in this tab. What runs on the server stays the last build's."
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-fg-secondary hover:bg-bg-secondary disabled:text-fg-disabled"
+            >
+              {quickPreview.running !== null ? (
+                <Spinner size={14} />
+              ) : (
+                <Zap size={14} />
+              )}
+              Quick preview
+            </button>
+          )}
         {build.building ? (
           <button
             type="button"
@@ -920,6 +954,8 @@ function PreviewArea({
   startedAt,
   onCancel,
   swapping,
+  quick,
+  onBuild,
   device,
   preview,
   picking,
@@ -930,6 +966,8 @@ function PreviewArea({
   startedAt: number | null;
   onCancel: () => void;
   swapping: boolean;
+  quick: NonNullable<DesignTabViewProps["quickPreview"]> | null;
+  onBuild: (() => void) | null;
   device: DesignDevice;
   preview: ReactNode;
   picking: DesignPicking | null;
@@ -977,6 +1015,34 @@ function PreviewArea({
               Cancel
             </button>
           </span>
+        </div>
+      )}
+      {quick !== null && quick.running !== null && (
+        <div
+          role="status"
+          className="flex items-center gap-3 border-b border-border-primary bg-bg-primary px-4 py-2 text-xs text-fg-secondary"
+        >
+          <Spinner size={12} />
+          <span>Quick preview: {quick.running.toLowerCase()}…</span>
+        </div>
+      )}
+      {quick !== null && quick.shown && quick.running === null && (
+        <div className="flex items-center gap-3 border-b border-border-primary bg-bg-secondary px-4 py-2 text-xs text-fg-secondary">
+          <Zap size={12} className="shrink-0 text-fg-proposal" />
+          <span className="min-w-0">
+            Quick preview: the page runs this proposal&apos;s code, built in
+            this tab. What runs on the server (loaders, server functions, the
+            first render) is still the last build&apos;s.
+          </span>
+          {onBuild !== null && !building && (
+            <button
+              type="button"
+              onClick={onBuild}
+              className="ml-auto shrink-0 rounded px-1.5 py-0.5 font-medium text-fg-primary hover:bg-bg-primary"
+            >
+              Build to check all of it
+            </button>
+          )}
         </div>
       )}
       {!building && swapping && (

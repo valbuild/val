@@ -4,9 +4,12 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasStudioMessage,
+  QUICK_PREVIEW_SERVICE_WORKER_PATH,
+  quickPreviewSiteOrigin,
   readPageSnapshot,
   restoreScroll,
   startElementPicking,
+  storeQuickPreview,
   watchPageLocation,
   VAL_CANVAS_MESSAGE,
   type ElementPicking,
@@ -364,6 +367,35 @@ export function ValCanvasBridge({
           };
         }
         post(reply);
+        return;
+      }
+      if (message.type === "quickPreview") {
+        // Code that will run on this address: only from the frame's parent,
+        // and only when that is the site's design tab. See `quickPreview.ts`.
+        if (event.source !== window.parent) return;
+        const { id, files } = message;
+        const origin = event.origin;
+        void (async () => {
+          try {
+            const site = await quickPreviewSiteOrigin("/api/val");
+            if (site === null || site !== origin) {
+              throw new Error(
+                "Only the site's design tab can show a quick preview of this proposal.",
+              );
+            }
+            await storeQuickPreview(id, files, {
+              swUrl: `/api/val${QUICK_PREVIEW_SERVICE_WORKER_PATH}`,
+            });
+            post({ val: VAL_CANVAS_MESSAGE, type: "quickPreviewStored", id });
+          } catch (error) {
+            post({
+              val: VAL_CANVAS_MESSAGE,
+              type: "quickPreviewStored",
+              id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        })();
         return;
       }
       if (message.type === "theme") {

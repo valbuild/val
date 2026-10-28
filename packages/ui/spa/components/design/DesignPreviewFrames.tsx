@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PageLocation, PickedElement } from "@valbuild/shared/internal";
+import {
+  withQuickPreviewParam,
+  type PageLocation,
+  type PickedElement,
+} from "@valbuild/shared/internal";
 import {
   CanvasFrame,
   type CanvasFrameProps,
@@ -38,6 +42,8 @@ type Frame = {
    * happened before it existed.
    */
   reloadBase: number;
+  /** The quick preview it shows, or `null` for the served build. */
+  quick: string | null;
 };
 
 export type DesignPreviewFramesProps = {
@@ -61,6 +67,16 @@ export type DesignPreviewFramesProps = {
   onPageReader?: (reader: PageReader | null) => void;
   /** A new build is loading behind the page in front. */
   onSwappingChange?: (swapping: boolean) => void;
+  /**
+   * A quick preview to show (`quickPreview.ts`): a new id is loaded behind,
+   * as a new build is, opened with `val_quick`. Its files must already be
+   * stored, through `onQuickPreviewStorer`.
+   */
+  quickPreviewId?: string | null;
+  /** Stores a quick preview's files in the page in front. */
+  onQuickPreviewStorer?: CanvasFrameProps["onQuickPreviewStorer"];
+  /** What the page in front shows, each time another comes to the front. */
+  onFront?: (front: { quick: string | null }) => void;
 };
 
 export function DesignPreviewFrames({
@@ -76,6 +92,9 @@ export function DesignPreviewFrames({
   onStatusChange,
   onPageReader,
   onSwappingChange,
+  quickPreviewId = null,
+  onQuickPreviewStorer,
+  onFront,
 }: DesignPreviewFramesProps) {
   const nextId = useRef(1);
   const [live, setLive] = useState<Frame>({
@@ -83,6 +102,7 @@ export function DesignPreviewFrames({
     url: src,
     scrollTo: null,
     reloadBase: reloadKey,
+    quick: null,
   });
   const [incoming, setIncoming] = useState<Frame | null>(null);
   /** The frame faded out of, kept under the new one until the fade is done. */
@@ -100,20 +120,41 @@ export function DesignPreviewFrames({
   const reloadKeyNow = useRef(reloadKey);
   reloadKeyNow.current = reloadKey;
 
+  /** A frame for what is to come to the front: where the page in front is. */
+  const behind = useCallback(
+    (quick: string | null): Frame => {
+      const at = location.current;
+      const url = (at !== null ? previewUrl(address, at.path) : null) ?? src;
+      return {
+        id: nextId.current++,
+        url: quick === null ? url : withQuickPreviewParam(url, quick),
+        scrollTo: at !== null ? { x: at.scrollX, y: at.scrollY } : null,
+        reloadBase: reloadKeyNow.current,
+        quick,
+      };
+    },
+    [address, src],
+  );
+
   // A new build: loaded behind, where the page in front is.
   const lastBuild = useRef(buildKey);
   useEffect(() => {
     if (buildKey === lastBuild.current) return;
     lastBuild.current = buildKey;
-    const at = location.current;
-    const url = (at !== null ? previewUrl(address, at.path) : null) ?? src;
-    setIncoming({
-      id: nextId.current++,
-      url,
-      scrollTo: at !== null ? { x: at.scrollX, y: at.scrollY } : null,
-      reloadBase: reloadKeyNow.current,
-    });
-  }, [buildKey, address, src]);
+    setIncoming(behind(null));
+  }, [buildKey, behind]);
+
+  // A quick preview: the same, opened as one.
+  const lastQuick = useRef(quickPreviewId);
+  useEffect(() => {
+    if (quickPreviewId === lastQuick.current) return;
+    lastQuick.current = quickPreviewId;
+    if (quickPreviewId !== null) setIncoming(behind(quickPreviewId));
+  }, [quickPreviewId, behind]);
+
+  useEffect(() => {
+    onFront?.({ quick: live.quick });
+  }, [live.id, live.quick, onFront]);
 
   useEffect(() => {
     onSwappingChange?.(incoming !== null);
@@ -188,6 +229,9 @@ export function DesignPreviewFrames({
               onStatusChange,
               onLocation: onLiveLocation,
               ...(onPageReader !== undefined ? { onPageReader } : {}),
+              ...(onQuickPreviewStorer !== undefined
+                ? { onQuickPreviewStorer }
+                : {}),
             }
           : role === "incoming"
             ? { onStatusChange: onIncomingStatus }

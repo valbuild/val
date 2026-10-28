@@ -5,6 +5,7 @@ import {
   isValCanvasPageMessage,
   type PageLocation,
   type PageSnapshot,
+  type QuickPreviewFiles,
   type PickedElement,
   type PickModifier,
   VAL_CANVAS_MESSAGE,
@@ -146,7 +147,21 @@ export type CanvasFrameProps = {
    * goes: the assistant's `read_page`.
    */
   onPageReader?: (reader: PageReader | null) => void;
+  /**
+   * Handed the way to store a quick preview's files in the page's worker
+   * (`quickPreview`), and `null` when the frame goes.
+   */
+  onQuickPreviewStorer?: (store: QuickPreviewStorer | null) => void;
 };
+
+/** Store a quick preview's files at the page's origin: see `quickPreview.ts`. */
+export type QuickPreviewStorer = (
+  id: string,
+  files: QuickPreviewFiles,
+) => Promise<void>;
+
+/** How long a page is given to store a quick preview. */
+export const QUICK_PREVIEW_STORE_TIMEOUT_MS = 45_000;
 
 /** Read what is on the page: see `readPageSnapshot`. */
 export type PageReader = (options: {
@@ -197,6 +212,7 @@ export function CanvasFrame({
   onLocation,
   scrollTo = null,
   onPageReader,
+  onQuickPreviewStorer,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<FrameState>({ status: "waiting" });
@@ -305,6 +321,11 @@ export function CanvasFrame({
           scrollX: message.scrollX,
           scrollY: message.scrollY,
         });
+      } else if (message.type === "quickPreviewStored") {
+        const storing = storings.current.get(message.id);
+        if (storing === undefined) return;
+        storings.current.delete(message.id);
+        storing(message.error);
       } else if (message.type === "pageRead") {
         const reading = readings.current.get(message.requestId);
         if (reading === undefined) return;
@@ -372,6 +393,34 @@ export function CanvasFrame({
     onPageReader(readPage);
     return () => onPageReader(null);
   }, [onPageReader, readPage]);
+
+  /** Quick previews the page has not said it stored, by id. */
+  const storings = useRef(new Map<string, (error?: string) => void>());
+  const storeQuickPreview = useCallback<QuickPreviewStorer>(
+    (id, files) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          storings.current.delete(id);
+          reject(
+            new Error(
+              "The page did not take the quick preview. Its Val packages may be older than the Studio's: build the proposal instead.",
+            ),
+          );
+        }, QUICK_PREVIEW_STORE_TIMEOUT_MS);
+        storings.current.set(id, (error) => {
+          clearTimeout(timer);
+          if (error === undefined) resolve();
+          else reject(new Error(error));
+        });
+        send({ val: VAL_CANVAS_MESSAGE, type: "quickPreview", id, files });
+      }),
+    [send],
+  );
+  useEffect(() => {
+    if (onQuickPreviewStorer === undefined) return;
+    onQuickPreviewStorer(storeQuickPreview);
+    return () => onQuickPreviewStorer(null);
+  }, [onQuickPreviewStorer, storeQuickPreview]);
 
   /*
    * The frame's first document, scrolled to where it is told to be -- once:
