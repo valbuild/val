@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 import { Sketchpad, type SketchpadProps } from "../Sketchpad";
 
 /**
@@ -35,6 +36,9 @@ const meta: Meta<typeof Sketchpad> = {
   component: Sketchpad,
   parameters: { layout: "fullscreen" },
   tags: ["autodocs"],
+  // A story saves nothing, so an object URL is upload enough. The Studio has
+  // no uploader yet, and a box there takes a link: see "Links, not files".
+  args: { onAttachMedia: async (file: File) => URL.createObjectURL(file) },
   decorators: [
     (Story) => (
       <div className="h-[720px] bg-bg-primary p-4">
@@ -210,6 +214,43 @@ row
 
 ${icons("image", "video", "button")}
 `,
+  },
+};
+
+/**
+ * Links, not files: the Sketchpad as the Studio has it. Nothing stores a
+ * file there yet, and an object URL would be a dead link for everyone the
+ * sketch is shared with, so a box takes a link -- typed, or an image dragged
+ * in from a web page -- and a dropped file is turned away with what to do
+ * instead.
+ */
+export const LinksNotFiles: Story = {
+  args: {
+    title: "/launch",
+    onAttachMedia: undefined,
+    value: `# The new Studio
+[image: Drop a screenshot here]
+
+${icons("image")}
+`,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Add a link to an image or video",
+      }),
+    );
+    const link = await canvas.findByRole("textbox", {
+      name: "Link to an image or video",
+    });
+    await userEvent.type(
+      link,
+      "/storybook-media/intro-poster_a627f.webp{Enter}",
+    );
+    await expect(
+      await canvas.findByRole("img", { name: "Drop a screenshot here" }),
+    ).toBeInTheDocument();
   },
 };
 

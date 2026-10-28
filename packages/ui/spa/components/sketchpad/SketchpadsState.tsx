@@ -1,4 +1,5 @@
 import type { SketchpadT } from "@valbuild/shared/internal";
+import type { SaverProblem } from "./sketchpadSaver";
 import {
   createContext,
   useContext,
@@ -16,6 +17,17 @@ export type SketchpadsSnapshot = {
    * tab -- what "Send to AI" compares with to say there is news for it.
    */
   assistantRead: Readonly<Record<string, number>>;
+  /**
+   * Typing that did not reach the server after its sketchpad was closed: the
+   * save on the way out was refused, or failed. Shown when it is opened
+   * again, with what was typed one press away.
+   */
+  problems: Readonly<Record<string, SaverProblem>>;
+  /**
+   * Whether this Studio's server has sketchpads: a list came back. Until it
+   * does, nothing offers them, the assistant included.
+   */
+  available: boolean;
 };
 
 /**
@@ -35,6 +47,8 @@ export class SketchpadsState {
     openId: null,
     byId: {},
     assistantRead: {},
+    problems: {},
+    available: false,
   };
   private readonly listeners = new Set<() => void>();
   private assistant: ((message: string) => boolean) | null = null;
@@ -51,6 +65,12 @@ export class SketchpadsState {
   private set(next: SketchpadsSnapshot) {
     this.snapshot = next;
     this.listeners.forEach((listener) => listener());
+  }
+
+  setAvailable(available: boolean) {
+    if (this.snapshot.available !== available) {
+      this.set({ ...this.snapshot, available });
+    }
   }
 
   open(id: string) {
@@ -74,6 +94,17 @@ export class SketchpadsState {
     this.set({
       ...this.snapshot,
       byId: { ...this.snapshot.byId, [sketchpad.id]: sketchpad },
+    });
+  }
+
+  setProblem(id: string, problem: SaverProblem | null) {
+    const { [id]: current, ...rest } = this.snapshot.problems;
+    if (problem === null && current === undefined) {
+      return;
+    }
+    this.set({
+      ...this.snapshot,
+      problems: problem === null ? rest : { ...rest, [id]: problem },
     });
   }
 
@@ -135,7 +166,13 @@ export function useSketchpadsState(): SketchpadsState | null {
   return useContext(SketchpadsContext);
 }
 
-const EMPTY: SketchpadsSnapshot = { openId: null, byId: {}, assistantRead: {} };
+const EMPTY: SketchpadsSnapshot = {
+  openId: null,
+  byId: {},
+  assistantRead: {},
+  problems: {},
+  available: false,
+};
 const noSubscription = () => () => undefined;
 
 export function useSketchpadsSnapshot(

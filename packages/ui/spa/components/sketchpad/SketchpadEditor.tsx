@@ -42,8 +42,14 @@ export type SketchpadEditorProps = {
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;
-  /** Stores a file put in a box; null when it could not (and said why). */
-  attach: (file: File) => Promise<SketchMedia | null>;
+  /**
+   * Stores a file put in a box; null when it could not (and said why). Null
+   * where nothing can store one: a box then takes a link, and a file dropped
+   * on it is `onFileRefused`.
+   */
+  attach: ((file: File) => Promise<SketchMedia | null>) | null;
+  /** A file was dropped where there is nowhere to store it. */
+  onFileRefused?: (file: File) => void;
   /**
    * More ProseMirror plugins. This is where working together plugs in: a
    * proposal's Sketchpad is shared the way its chats are (Flow H), so the
@@ -70,6 +76,7 @@ export function SketchpadEditor({
   onChange,
   readOnly = false,
   attach,
+  onFileRefused,
   plugins = [],
   toolbar = "top",
   touch = false,
@@ -81,8 +88,8 @@ export function SketchpadEditor({
   // The text this editor last wrote. A `value` equal to it is its own echo,
   // and re-reading it would move the caret for nothing.
   const lastWritten = useRef<string | null>(null);
-  const latest = useRef({ onChange, attach, readOnly });
-  latest.current = { onChange, attach, readOnly };
+  const latest = useRef({ onChange, attach, onFileRefused, readOnly });
+  latest.current = { onChange, attach, onFileRefused, readOnly };
   const [, setRevision] = useState(0);
 
   useLayoutEffect(() => {
@@ -119,7 +126,10 @@ export function SketchpadEditor({
             getPos,
             {
               getIcons: () => iconsRef.current,
-              attach: (file) => latest.current.attach(file),
+              canUpload: () => latest.current.attach !== null,
+              attach: (file) =>
+                latest.current.attach?.(file) ?? Promise.resolve(null),
+              refuseFile: (file) => latest.current.onFileRefused?.(file),
             },
             boxViews.current,
           ),

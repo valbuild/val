@@ -183,7 +183,9 @@ function toNodes(block: SketchNode, inRow: boolean): PMNode[] {
  * to (`sketchpadDoc.test.ts` pins the two together). Two spaces per level; the icons
  * last, after a blank line, and no blank line anywhere else; a final newline.
  * An empty paragraph or heading -- the place someone is about to type -- is
- * not on the page, so it is not in the text.
+ * not on the page, so it is not in the text; nor is one of only spaces, which
+ * is as empty once written. A row that writes nothing gets an empty col, as
+ * `formatSketch` gives it, since a bare `row` is not a sketch.
  */
 export function sketchFromDoc(
   doc: PMNode,
@@ -193,14 +195,16 @@ export function sketchFromDoc(
   const walk = (node: PMNode, depth: number) => {
     const indent = "  ".repeat(depth);
     const text = node.textContent;
+    // What `formatSketchText` will make of it: nothing, if it is all spaces.
+    const written = text.replace(/\s+/g, " ").trim() !== "";
     switch (node.type) {
       case nodes.paragraph:
-        if (text) {
+        if (written) {
           lines.push(indent + formatSketchText(0, text));
         }
         return;
       case nodes.heading:
-        if (text) {
+        if (written) {
           lines.push(
             indent + formatSketchText(levelOf(node.attrs.level), text),
           );
@@ -216,10 +220,15 @@ export function sketchFromDoc(
             }),
         );
         return;
-      case nodes.row:
+      case nodes.row: {
         lines.push(indent + "row");
+        const before = lines.length;
         node.forEach((child) => walk(child, depth + 1));
+        if (lines.length === before) {
+          lines.push(indent + "  col");
+        }
         return;
+      }
       case nodes.col:
         lines.push(
           indent +

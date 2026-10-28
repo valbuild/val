@@ -4,7 +4,7 @@ import {
   parseSketch,
   type SketchNode,
 } from "@valbuild/shared/internal";
-import { docFromSketch, sketchFromDoc } from "./sketchpadDoc";
+import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
 
 /** A sketch's blocks without their line numbers, which a rewrite moves. */
 function shape(source: string): unknown {
@@ -65,6 +65,38 @@ describe("the Sketchpad document", () => {
     const { doc, icons } = docFromSketch("");
     expect(doc.childCount).toBe(1);
     expect(sketchFromDoc(doc, icons)).toBe("");
+  });
+});
+
+describe("what someone types is always a sketch the server takes", () => {
+  const { nodes } = sketchSchema;
+  const p = (text: string) =>
+    nodes.paragraph.create(null, text ? sketchSchema.text(text) : null);
+  test.each([
+    [
+      "a paragraph of spaces",
+      [nodes.heading.create({ level: 1 }, sketchSchema.text("Hi")), p("   ")],
+      "# Hi\n",
+    ],
+    [
+      "a heading of one space",
+      [nodes.heading.create({ level: 2 }, sketchSchema.text(" "))],
+      "",
+    ],
+    [
+      "a row of empty paragraphs",
+      [nodes.row.create(null, [p(""), p(" ")])],
+      "row\n  col\n",
+    ],
+    [
+      "a row of empty cols",
+      [nodes.row.create(null, [nodes.col.create(null, p(" "))])],
+      "row\n  col\n",
+    ],
+  ])("%s", (_, content, expected) => {
+    const written = sketchFromDoc(nodes.doc.create(null, content), {});
+    expect(written).toBe(expected);
+    expect(checkSketch(written)).toEqual([]);
   });
 });
 

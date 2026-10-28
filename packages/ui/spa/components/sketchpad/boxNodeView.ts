@@ -6,8 +6,12 @@ import type { SketchMedia } from "@valbuild/shared/internal";
 export type BoxViewOptions = {
   /** The icons are the sketch's, and change when the assistant draws one. */
   getIcons: () => Record<string, string>;
+  /** Whether a file can be stored here. Where not, a box takes a link. */
+  canUpload: () => boolean;
   /** Stores a file and resolves to its URL, or to null when it could not. */
   attach: (file: File) => Promise<SketchMedia | null>;
+  /** A file dropped where it cannot be stored: say so. */
+  refuseFile: (file: File) => void;
 };
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -99,7 +103,7 @@ export class BoxView implements NodeView {
     });
 
     this.dom.addEventListener("dragover", (event) => {
-      if (this.view.editable && hasFiles(event)) {
+      if (this.view.editable && (hasFiles(event) || hasLink(event))) {
         event.preventDefault();
         event.stopPropagation();
         this.dom.dataset.dropping = "true";
@@ -109,16 +113,27 @@ export class BoxView implements NodeView {
       delete this.dom.dataset.dropping;
     });
     this.dom.addEventListener("drop", (event) => {
-      if (!this.view.editable || !hasFiles(event)) {
+      if (!this.view.editable || !(hasFiles(event) || hasLink(event))) {
         return;
       }
       // Ours, not ProseMirror's: it would insert the file's name as text.
       event.preventDefault();
       event.stopPropagation();
       delete this.dom.dataset.dropping;
+      // An image dragged from a web page is its link, which lasts: taken as
+      // it is, wherever a file could not be stored.
+      const link = mediaLink(linkOf(event));
+      if (link) {
+        this.setAttrs({ mediaType: link.type, mediaSrc: link.src });
+        return;
+      }
       const file = event.dataTransfer?.files[0];
       if (file) {
-        this.attach(file);
+        if (this.options.canUpload()) {
+          this.attach(file);
+        } else {
+          this.options.refuseFile(file);
+        }
       }
     });
 
@@ -161,11 +176,18 @@ export class BoxView implements NodeView {
 
     this.actions.replaceChildren();
     if (this.view.editable && !inline) {
+      const upload = this.options.canUpload();
       this.actions.append(
         this.action(
-          media ? "Replace image or video" : "Add image or video",
+          upload
+            ? media
+              ? "Replace image or video"
+              : "Add image or video"
+            : media
+              ? "Change the link to the image or video"
+              : "Add a link to an image or video",
           IMAGE_PLUS,
-          () => this.fileInput.click(),
+          () => (upload ? this.fileInput.click() : this.editLink()),
         ),
       );
       if (media) {
@@ -211,7 +233,9 @@ export class BoxView implements NodeView {
     return (
       target instanceof Node &&
       !this.contentDOM.contains(target) &&
-      (this.header.contains(target) || this.actions.contains(target))
+      (this.header.contains(target) ||
+        this.actions.contains(target) ||
+        this.media.contains(target))
     );
   }
 
@@ -245,6 +269,71 @@ export class BoxView implements NodeView {
         this.setAttrs({ mediaType: media.type, mediaSrc: media.src });
       }
     });
+  }
+
+  /** A field for the link, in place of the media, until Enter or Escape. */
+  private editLink() {
+    if (!this.view.editable) {
+      return;
+    }
+    const field = el("div", "flex flex-col gap-1");
+    const input = el(
+      "input",
+      "w-full rounded border border-border-primary bg-bg-primary px-2 py-1 text-sm text-fg-primary outline-none focus:border-border-focus aria-[invalid=true]:border-border-error",
+    );
+    input.type = "url";
+    input.placeholder = "https://… an image or a video";
+    input.value = mediaOf(this.node)?.src ?? "";
+    input.setAttribute("aria-label", "Link to an image or video");
+    const hint = el("p", "text-xs text-fg-secondary");
+    hint.id = `sketch-link-${Math.random().toString(36).slice(2)}`;
+    hint.textContent =
+      "A link that starts with https://, or a path on the site such as /images/hero.jpg. Enter to add it, Escape to leave it.";
+    input.setAttribute("aria-describedby", hint.id);
+    field.append(input, hint);
+
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) {
+        return;
+      }
+      const value = input.value.trim();
+      if (save && value !== "") {
+        const link = mediaLink(value);
+        if (!link) {
+          input.setAttribute("aria-invalid", "true");
+          hint.textContent =
+            "That is not a link this box can show. It takes a link that starts with https://, or a path on the site that starts with /.";
+          hint.className = "text-xs text-fg-error-primary";
+          input.focus();
+          return;
+        }
+        done = true;
+        field.remove();
+        this.setAttrs({ mediaType: link.type, mediaSrc: link.src });
+        this.view.focus();
+        return;
+      }
+      done = true;
+      field.remove();
+      this.render();
+      this.view.focus();
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("input", () => {
+      input.removeAttribute("aria-invalid");
+    });
+    this.media.replaceChildren(field);
+    input.focus();
+    input.select();
   }
 
   private editKind() {
@@ -319,6 +408,52 @@ const TRASH =
 
 function hasFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+function hasLink(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes("text/uri-list");
+}
+
+/** The first link in a drop: a uri-list is one per line, `#` lines comments. */
+function linkOf(event: DragEvent): string {
+  const list = event.dataTransfer?.getData("text/uri-list") ?? "";
+  return (
+    list
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line !== "" && !line.startsWith("#")) ?? ""
+  );
+}
+
+/** A path on the site, or an http(s) address: what every reader can load. */
+function isLasting(src: string): boolean {
+  if (src.startsWith("/")) {
+    return !src.startsWith("//");
+  }
+  try {
+    const { protocol } = new URL(src);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+const VIDEO_EXTENSION = /\.(mp4|webm|mov|m4v|ogv|m3u8)(?:[?#]|$)/i;
+
+/**
+ * The media a link names, if a box can show it: a web address, or a path on
+ * the site. Nothing that lives only in this tab -- `blob:`, `data:` -- since
+ * the sketch is saved and read elsewhere, where those are dead.
+ */
+export function mediaLink(value: string): SketchMedia | null {
+  const src = value.trim();
+  if (src === "") {
+    return null;
+  }
+  if (!isLasting(src)) {
+    return null;
+  }
+  return { type: VIDEO_EXTENSION.test(src) ? "video" : "image", src };
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(

@@ -564,6 +564,7 @@ function ValShellBody({
     openAssistant: isAIChatEnabled ? openAIPanel : null,
     pages: data.pages,
     currentProfileId: useCurrentProfileId(),
+    location: navigation.currentSourcePath,
   });
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({

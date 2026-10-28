@@ -44,9 +44,12 @@ export type SketchpadProps = {
   readOnly?: boolean;
   /**
    * Stores a file put in a box and resolves to the URL the sketch will name
-   * it by. That URL is what the assistant reads, so in the Studio it is where
-   * the upload landed. Defaults to an object URL, which lives as long as the
-   * tab does.
+   * it by. That URL is what the assistant and everyone else read, so it has
+   * to last: where the upload landed.
+   *
+   * Without it a box takes a LINK and no file. An object URL is not a
+   * fallback: it would be saved, and be a dead link after a reload, in
+   * another tab, and for everyone the sketch is shared with.
    */
   onAttachMedia?: (file: File) => Promise<string>;
   /** The proposal's people (Flow H), when the Sketchpad is in one. */
@@ -103,10 +106,6 @@ type Notice = {
   retry?: () => void;
 };
 
-async function objectUrlOf(file: File): Promise<string> {
-  return URL.createObjectURL(file);
-}
-
 /**
  * Sketchpad: a page's content and rough layout, worked out with the
  * assistant before anyone builds it.
@@ -159,7 +158,10 @@ export function Sketchpad({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [fullscreen]);
 
-  const attach = async (file: File): Promise<SketchMedia | null> => {
+  const upload = async (
+    store: (file: File) => Promise<string>,
+    file: File,
+  ): Promise<SketchMedia | null> => {
     const type = file.type.startsWith("video/")
       ? "video"
       : file.type.startsWith("image/")
@@ -173,7 +175,7 @@ export function Sketchpad({
     }
     setNotice(null);
     try {
-      const src = await (onAttachMedia ?? objectUrlOf)(file);
+      const src = await store(file);
       return { type, src };
     } catch (error) {
       return new Promise((resolve) =>
@@ -182,12 +184,20 @@ export function Sketchpad({
           details: error instanceof Error ? error.message : undefined,
           retry: () => {
             setNotice(null);
-            attach(file).then(resolve);
+            upload(store, file).then(resolve);
           },
         }),
       );
     }
   };
+
+  const attach = onAttachMedia
+    ? (file: File) => upload(onAttachMedia, file)
+    : null;
+  const refuseFile = (file: File) =>
+    setNotice({
+      message: `"${file.name}" cannot be stored in a sketchpad yet, so it is not added. Drag the image in from a web page, or add a link to it with the image button on the box.`,
+    });
 
   const titleBlock = (
     <>
@@ -310,6 +320,7 @@ export function Sketchpad({
           onChange={onChange}
           readOnly={readOnly}
           attach={attach}
+          onFileRefused={refuseFile}
           plugins={plugins}
           toolbar={fullscreen ? "bottom" : "top"}
           touch={fullscreen}

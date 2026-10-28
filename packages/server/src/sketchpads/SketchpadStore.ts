@@ -51,6 +51,15 @@ export type SketchpadUpdate =
   | { status: "conflict"; sketchpad: SketchpadT };
 
 /**
+ * Whether `id` is in the shape a sketchpad's id has. Every store checks it
+ * before the id goes anywhere it could mean something else: a file name in
+ * fs mode, a URL path in http mode, where `..` is not an id but a way out.
+ */
+export function isSketchpadId(id: string): boolean {
+  return /^[0-9a-f-]{36}$/.test(id);
+}
+
+/**
  * A random id in the shape of a UUID. `getRandomValues` rather than
  * `randomUUID`, which a browser only has in a secure context -- and the demo
  * runs this server in the visitor's tab.

@@ -322,6 +322,17 @@ describe("the http store", () => {
     ).toEqual({ status: "conflict", sketchpad });
   });
 
+  test("an id that is not one never becomes a path", async () => {
+    answer(200, { sketchpad });
+    // "..": `encodeURIComponent` leaves it be, and fetch would resolve it
+    // to the project's own address, with the app's key on it.
+    expect(await store.get("..")).toBeNull();
+    expect(await store.update("..", { baseVersion: 1, by: null })).toEqual({
+      status: "not-found",
+    });
+    expect(calls).toEqual([]);
+  });
+
   test("a 404 is not found, and a list carries the filter", async () => {
     answer(404, { message: "no" });
     expect(await store.get(sketchpad.id)).toBeNull();

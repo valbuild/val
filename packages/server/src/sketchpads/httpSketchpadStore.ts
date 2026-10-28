@@ -4,7 +4,11 @@ import {
   type SketchpadT,
 } from "@valbuild/shared/internal";
 import { z } from "zod";
-import type { SketchpadStore, SketchpadUpdate } from "./SketchpadStore";
+import {
+  isSketchpadId,
+  type SketchpadStore,
+  type SketchpadUpdate,
+} from "./SketchpadStore";
 
 /**
  * Sketchpads in `http` mode: the content service keeps them, per project, at
@@ -54,6 +58,9 @@ export function createHttpSketchpadStore(options: {
         .parse(await res.json()).sketchpads;
     },
     async get(id) {
+      if (!isSketchpadId(id)) {
+        return null;
+      }
       const res = await request(`/${encodeURIComponent(id)}`, {
         method: "GET",
       });
@@ -79,6 +86,9 @@ export function createHttpSketchpadStore(options: {
         .sketchpad;
     },
     async update(id, change): Promise<SketchpadUpdate> {
+      if (!isSketchpadId(id)) {
+        return { status: "not-found" };
+      }
       const { by, ...body } = change;
       const res = await request(`/${encodeURIComponent(id)}`, {
         method: "PATCH",

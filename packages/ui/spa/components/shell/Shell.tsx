@@ -1371,13 +1371,17 @@ export function Shell({
     );
 
   /*
-   * The assistant beside the work area rather than over it, where there is
-   * room for both: a desktop. On a tablet the editor left beside it would be
-   * a few words wide, so the panel floats there, and on a phone it is a
-   * sheet.
+   * The assistant beside a sketchpad rather than over it, where there is
+   * room for both: a desktop. The two are worked on together, so neither may
+   * cover the other. Anywhere else it floats as it always has, and a click
+   * outside it dismisses it. On a tablet the work area left beside it would
+   * be a few words wide, so it floats there too, and on a phone it is a sheet.
    */
   const chatDocked =
-    aiEnabled && openPanel === "ai" && breakpoint === "desktop";
+    aiEnabled &&
+    openPanel === "ai" &&
+    breakpoint === "desktop" &&
+    workspaceOverride !== undefined;
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (

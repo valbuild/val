@@ -6,14 +6,11 @@ import type { SketchpadListItem } from "./SketchpadList";
 import { useSketchpadsSnapshot, type SketchpadsState } from "./SketchpadsState";
 import { SketchpadWorkspace } from "./SketchpadWorkspace";
 import { useShellBreakpoint } from "../shell/useShellBreakpoint";
-
-/** How long typing pauses before it is saved. */
-const SAVE_AFTER_MS = 700;
-
-type SaveNotice =
-  | { kind: "failed"; message: string }
-  /** Somebody else's change won; `mine` is what this tab had. */
-  | { kind: "conflict"; mine: string };
+import {
+  SketchpadSaver,
+  type SaverProblem,
+  type SaverStatus,
+} from "./sketchpadSaver";
 
 /**
  * The Sketchpad as the Studio's shell shows it: the open sketchpad from the
@@ -53,9 +50,13 @@ export function ValSketchpad({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [archivedId, setArchivedId] = useState<string | null>(null);
 
-  // Fetched when it is opened, unless this tab already has it.
+  // Fetched every time it is opened: what this tab has may be from before
+  // someone else's change. What it has is shown meanwhile, and the newer
+  // version takes its place unless something typed here is waiting.
+  const hasKnown = useRef(false);
+  hasKnown.current = known !== undefined;
   useEffect(() => {
-    if (id === null || known) {
+    if (id === null) {
       return;
     }
     let cancelled = false;
@@ -66,14 +67,14 @@ export function ValSketchpad({
       }
       if (res.status === "ok") {
         state.put(res.sketchpad);
-      } else {
+      } else if (!hasKnown.current) {
         setLoadError(res.message);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [id, known, client, state]);
+  }, [id, client, state]);
 
   useEffect(() => {
     if (known) {
@@ -133,6 +134,40 @@ export function ValSketchpad({
 
   const archived = archivedId !== null ? snapshot.byId[archivedId] : undefined;
 
+  // Typing that did not get through after its sketchpad was closed, and is
+  // not on screen to be offered back: the open one shows its own.
+  const elsewhere = Object.entries(snapshot.problems).find(
+    ([problemId]) =>
+      problemId !== id || snapshot.byId[problemId]?.archived === true,
+  );
+  const keepMine = async (problemId: string, problem: SaverProblem) => {
+    if (problem.kind !== "archived") {
+      // Opened, it offers what was typed back itself.
+      state.open(problemId);
+      return;
+    }
+    state.setProblem(problemId, null);
+    const res = await client.update({
+      id: problemId,
+      baseVersion: problem.sketchpad.version,
+      text: problem.mine,
+      archived: false,
+    });
+    if (res.status === "ok") {
+      state.put(res.sketchpad);
+      state.open(problemId);
+      sketchpads.refresh();
+    } else {
+      state.setProblem(problemId, {
+        kind: "failed",
+        mine: problem.mine,
+        message: res.message,
+        retryable: true,
+      });
+      setLoadError(res.message);
+    }
+  };
+
   return (
     <SketchpadWorkspace
       preview={<PagePreview page={known?.page ?? null} />}
@@ -143,7 +178,30 @@ export function ValSketchpad({
         onReopen: (reopenId) => void reopen(reopenId),
       }}
       notice={
-        archived ? (
+        elsewhere ? (
+          <div
+            role="alert"
+            className="flex shrink-0 items-center gap-3 rounded-lg bg-bg-warning-secondary px-3 py-1.5 text-xs text-fg-warning-secondary"
+          >
+            <span>
+              Your last edit to “
+              {snapshot.byId[elsewhere[0]]?.title ?? "a sketchpad"}” was not
+              saved
+              {elsewhere[1].kind === "archived"
+                ? ": someone archived it meanwhile."
+                : "."}
+            </span>
+            <button
+              type="button"
+              onClick={() => void keepMine(elsewhere[0], elsewhere[1])}
+              className="cursor-pointer font-medium underline"
+            >
+              {elsewhere[1].kind === "archived"
+                ? "Reopen it and keep my edit"
+                : "Open it"}
+            </button>
+          </div>
+        ) : archived ? (
           <div
             role="status"
             className="flex shrink-0 items-center gap-3 rounded-lg border border-border-primary bg-bg-primary px-3 py-1.5 text-xs text-fg-secondary"
@@ -199,6 +257,7 @@ export function ValSketchpad({
             pageOptions={pageOptions}
             currentProfileId={currentProfileId}
             assistantRead={snapshot.assistantRead[known.id]}
+            problem={snapshot.problems[known.id]}
             list={{
               sketchpads: sketchpads.items,
               currentId: id,
@@ -225,6 +284,7 @@ function OpenSketchpad({
   currentProfileId,
   list,
   assistantRead,
+  problem: problemOnOpen,
 }: {
   sketchpad: SketchpadT;
   client: SketchpadClient;
@@ -239,123 +299,150 @@ function OpenSketchpad({
   list: Parameters<typeof Sketchpad>[0]["sketchpads"];
   /** The version the assistant last read or wrote, if any. */
   assistantRead: number | undefined;
+  /** What did not reach the server when it was last closed. */
+  problem: SaverProblem | undefined;
 }) {
   // What is on screen: the server's text until someone types here.
   const [text, setText] = useState(sketchpad.text);
   // A phone has no room for the page beside the sketch, so it offers the
   // whole screen to the two of them instead.
   const breakpoint = useShellBreakpoint();
-  const [notice, setNotice] = useState<SaveNotice | null>(null);
-  const [saving, setSaving] = useState(false);
-  // The version the text on screen was typed on, and whether it has been
-  // typed in since.
-  const base = useRef(sketchpad);
-  const dirty = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // For the save on the way out, which runs after the last render.
-  const textRef = useRef(text);
-  textRef.current = text;
-
-  // A newer version from elsewhere (the assistant's write, a refetch) is
-  // taken as it is, unless something typed here is waiting to be saved.
-  useEffect(() => {
-    if (sketchpad.version > base.current.version && !dirty.current) {
-      base.current = sketchpad;
-      setText(sketchpad.text);
-    }
-  }, [sketchpad]);
-
-  const save = useCallback(
-    async (next: string) => {
-      setSaving(true);
-      const res = await client.update({
-        id: base.current.id,
-        baseVersion: base.current.version,
-        text: next,
-      });
-      setSaving(false);
-      if (res.status === "ok") {
-        base.current = res.sketchpad;
-        dirty.current = false;
-        setNotice(null);
-        state.put(res.sketchpad);
-        onSaved();
-      } else if (res.status === "conflict") {
-        base.current = res.sketchpad;
-        dirty.current = false;
-        state.put(res.sketchpad);
-        setText(res.sketchpad.text);
-        setNotice({ kind: "conflict", mine: next });
-      } else {
-        setNotice({ kind: "failed", message: res.message });
-      }
-    },
-    [client, state, onSaved],
+  const [problem, setProblem] = useState<SaverProblem | null>(
+    problemOnOpen ?? null,
   );
+  const [status, setStatus] = useState<SaverStatus>({
+    saving: false,
+    unsaved: false,
+  });
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+
+  const [saver] = useState(
+    () =>
+      new SketchpadSaver(sketchpad, client, {
+        onReplace: () => undefined,
+        onSaved: () => undefined,
+        onProblem: () => undefined,
+        onStatus: () => undefined,
+      }),
+  );
+
+  // While it is on screen the saver's news is shown here; once it is closed
+  // a save on the way out may still be answered, and its news is kept for
+  // the next time it is opened. See `SketchpadsState.problems`.
+  useEffect(() => {
+    state.setProblem(sketchpad.id, null);
+    saver.setEvents({
+      onReplace: (next) => {
+        state.put(next);
+        setText(next.text);
+      },
+      onSaved: (saved) => {
+        state.put(saved);
+        setProblem(null);
+        onSavedRef.current();
+      },
+      onProblem: setProblem,
+      onStatus: setStatus,
+    });
+    return () => {
+      saver.setEvents({
+        onReplace: (next) => state.put(next),
+        onSaved: (saved) => state.put(saved),
+        onProblem: (closed) => state.setProblem(sketchpad.id, closed),
+        onStatus: () => undefined,
+      });
+      // Saved on the way out too, so closing it never drops the last edit.
+      void saver.flush();
+    };
+  }, [saver, state, sketchpad.id]);
+
+  // A newer version from elsewhere: the assistant's write, a refetch.
+  useEffect(() => {
+    saver.remote(sketchpad);
+  }, [saver, sketchpad]);
+
+  // Leaving the Studio with typing not saved yet asks first.
+  useEffect(() => {
+    if (!status.unsaved) {
+      return;
+    }
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      void saver.flush();
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [saver, status.unsaved]);
 
   const onChange = (next: string) => {
     setText(next);
-    dirty.current = true;
-    if (timer.current) {
-      clearTimeout(timer.current);
-    }
-    timer.current = setTimeout(() => void save(next), SAVE_AFTER_MS);
+    saver.edit(next);
   };
 
-  // Saved on the way out too, so closing it never drops the last edit.
-  const saveRef = useRef(save);
-  saveRef.current = save;
-  useEffect(
-    () => () => {
-      if (timer.current && dirty.current) {
-        clearTimeout(timer.current);
-        void saveRef.current(textRef.current);
-      }
-    },
-    [],
-  );
+  const putBack = (mine: string) => {
+    setProblem(null);
+    setText(mine);
+    saver.retry(mine);
+  };
 
   const changedBySomeoneElse =
     sketchpad.updatedBy !== null && sketchpad.updatedBy !== currentProfileId;
-  const status: SketchpadAssistantStatus =
-    assistantRead === sketchpad.version && !dirty.current ? "read" : "changed";
+  const assistantStatus: SketchpadAssistantStatus =
+    assistantRead === sketchpad.version && !status.unsaved ? "read" : "changed";
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      {notice && (
+      {problem && (
         <div
           role="alert"
           className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-bg-warning-secondary px-3 py-1.5 text-xs text-fg-warning-secondary"
         >
-          {notice.kind === "conflict" ? (
+          {problem.kind === "conflict" ? (
             <>
               <span>
-                It changed while you were typing (version {sketchpad.version}).
-                This is the newest; your last edit is kept.
+                It was changed elsewhere while you were typing (version{" "}
+                {problem.sketchpad.version}). This is the newest; your last edit
+                is kept.
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setNotice(null);
-                  setText(notice.mine);
-                  dirty.current = true;
-                  void save(notice.mine);
-                }}
+                onClick={() => putBack(problem.mine)}
                 className="cursor-pointer font-medium underline"
               >
                 Put mine back
               </button>
             </>
-          ) : (
+          ) : problem.kind === "archived" ? (
             <>
-              <span>Not saved: {notice.message}</span>
+              <span>
+                Someone archived this sketchpad while you were typing, so your
+                last edit was not saved.
+              </span>
               <button
                 type="button"
-                onClick={() => void save(text)}
+                onClick={() => {
+                  setProblem(null);
+                  setText(problem.mine);
+                  void saver.reopenWith(problem.mine);
+                }}
                 className="cursor-pointer font-medium underline"
               >
-                Try again
+                Reopen it and keep my edit
               </button>
+            </>
+          ) : (
+            <>
+              <span>Not saved: {problem.message}</span>
+              {problem.retryable && (
+                <button
+                  type="button"
+                  onClick={() => putBack(problem.mine)}
+                  className="cursor-pointer font-medium underline"
+                >
+                  Try again
+                </button>
+              )}
             </>
           )}
         </div>
@@ -368,15 +455,17 @@ function OpenSketchpad({
         onPageChange={onPageChange}
         pageOptions={pageOptions}
         status={
-          saving
+          status.saving
             ? "Saving…"
-            : changedBySomeoneElse
-              ? `Changed ${relative(sketchpad.updatedAt)}`
-              : `Saved ${relative(sketchpad.updatedAt)}`
+            : status.unsaved
+              ? "Not saved yet"
+              : changedBySomeoneElse
+                ? `Changed ${relative(sketchpad.updatedAt)}`
+                : `Saved ${relative(sketchpad.updatedAt)}`
         }
         onAskAssistant={onSendToAssistant}
         onOpenChat={onOpenAssistant}
-        assistantStatus={status}
+        assistantStatus={assistantStatus}
         onArchive={onArchive}
         sketchpads={list}
         fullscreenPreview={

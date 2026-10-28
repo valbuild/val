@@ -595,6 +595,20 @@ const GET_RECORD_KEYS_TOOL: AITool = {
     required: ["module_file_path", "path"],
   },
 };
+/**
+ * What the system prompt says about sketchpads, when they are offered: see
+ * `sketchpadsOn` where the prompt is sent.
+ */
+const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad: see "Sketchpads" below.
+
+## Sketchpads
+A sketchpad is a rough page -- headings, text, boxes, columns -- that you and the person work out before anything is built. It is kept on the server for the project, not in this chat: it outlives the conversation, and anyone on the project can open it.
+- When a request changes how a page is laid out (new sections, moving things, a new page), offer to sketch it first with ask_user_question: options "Sketch it first" and "Just do it". Do not insist; "Just do it" is a full answer.
+- create_sketchpad returns an id. Remember it, and use it for the rest of the conversation instead of making another.
+- The person can change the sketchpad at any time. Before you change it or build from it, read_sketchpad, and write with the version you read.
+- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content.
+`;
+
 const ALL_TOOLS: AITool[] = [
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -614,7 +628,6 @@ const ALL_TOOLS: AITool[] = [
   EMPTY_AT_PATH_TOOL,
   COUNT_ENTRIES_TOOL,
   GET_RECORD_KEYS_TOOL,
-  ...SKETCHPAD_TOOLS,
 ];
 
 /**
@@ -2752,6 +2765,11 @@ export function useAI(
           key: attachment.key,
         })),
       ];
+      // Only where the Studio can show one, and its server has them: the
+      // Studio's shell, once a list came back. Anywhere else the assistant
+      // would offer something that fails, or that nobody can open.
+      const sketchpadsOn =
+        sketchpadsStateRef.current?.getSnapshot().available === true;
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
@@ -2812,15 +2830,7 @@ Always call get_all_schema first unless the question clearly does not require it
 - set_session_name: give the current chat session a short, descriptive name once the topic is clear. Call this at least once per session, early in the conversation. Max 5 words, plain language (e.g. 'Update homepage hero text'). If there is a title or a topic use it directly.
 - get_source_path_from_route: given a URL path like '/blogs/blog-1', find which Next.js page module it belongs to and return the source path. Use this when the user mentions a specific page URL or route.
 - ask_user_question: ask the user 1-4 structured clarification questions at once, rendered together in one card. Each question is single-select by default; set multiSelect: true on a question to let the user pick multiple options (e.g. "Which sections should I update?"). You may set defaults (option indices to pre-select) to bias toward the most likely answer. Use ONLY when the user's request is ambiguous and a small set of concrete options would resolve it (e.g. "Which page should I update — Home, About, or Contact?"). When several clarifications are needed, group them into a SINGLE call rather than asking sequentially. Do NOT use for open-ended questions or yes/no checks — just ask in plain text instead. Never call this more than once in a row; if the user answered with custom "Other" text, proceed with that — do not re-ask. If the tool result is an error (user cancelled), drop the structured-question approach and ask once in plain text instead.
-- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad: see "Sketchpads" below.
-
-## Sketchpads
-A sketchpad is a rough page -- headings, text, boxes, columns -- that you and the person work out before anything is built. It is kept on the server for the project, not in this chat: it outlives the conversation, and anyone on the project can open it.
-- When a request changes how a page is laid out (new sections, moving things, a new page), offer to sketch it first with ask_user_question: options "Sketch it first" and "Just do it". Do not insist; "Just do it" is a full answer.
-- create_sketchpad returns an id. Remember it, and use it for the rest of the conversation instead of making another.
-- The person can change the sketchpad at any time. Before you change it or build from it, read_sketchpad, and write with the version you read.
-- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content.
-
+${sketchpadsOn ? SKETCHPADS_PROMPT_SECTION : ""}
 ## navigate_to: how to build a source path
 A source path is a module file path optionally followed by ?p= and a dot-separated field path. String keys are JSON-quoted, array indices are plain numbers.
 Example: /content/authors.val.ts?p="jane" navigates to the "jane" entry in the authors module.
@@ -2876,7 +2886,11 @@ Do not describe what you will do unless you do it for clarification — just do 
             tools:
               designRef.current !== null
                 ? [...DESIGN_TOOLS, ...CODE_TOOLS]
-                : [...ALL_TOOLS, ...CODE_TOOLS],
+                : [
+                    ...ALL_TOOLS,
+                    ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                    ...CODE_TOOLS,
+                  ],
           },
         ],
       };

@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "../designSystem/sonner";
 import { useClient } from "../ValProvider";
 import type { TopBarSketchpad } from "../shell/TopBar";
 import type { ShellPage } from "../shell/types";
@@ -33,28 +34,34 @@ export function useStudioSketchpads(options: {
   openAssistant: (() => void) | null;
   pages: ShellPage[];
   currentProfileId: string | null;
+  /**
+   * Where the Studio is. Going somewhere else -- a page, the Explorer, a
+   * search hit, the assistant's navigate_to -- closes the sketchpad, which
+   * otherwise covers where it went.
+   */
+  location: string;
 }): {
   wrap: (children: ReactNode) => ReactNode;
   sketchpad: TopBarSketchpad | undefined;
   onSketchPage: ((page: ShellPage) => void) | undefined;
   workspaceOverride: ReactNode | undefined;
 } {
-  const { openAssistant, pages, currentProfileId } = options;
+  const { openAssistant, pages, currentProfileId, location } = options;
   const valClient = useClient();
   const client = useMemo(() => createSketchpadClient(valClient), [valClient]);
   const [state] = useState(() => new SketchpadsState());
   const snapshot = useSketchpadsSnapshot(state);
+  const available = snapshot.available;
   const [summaries, setSummaries] = useState<SketchpadSummaryT[] | null>(null);
-  const [available, setAvailable] = useState(false);
   const lastOpened = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await client.list({ archived: "include" });
     if (res.status === "ok") {
       setSummaries(res.sketchpads);
-      setAvailable(true);
+      state.setAvailable(true);
     }
-  }, [client]);
+  }, [client, state]);
 
   // On load, when this tab learns of a sketchpad the list lacks (the
   // assistant made one), and on coming back to the tab -- someone else may
@@ -75,6 +82,14 @@ export function useStudioSketchpads(options: {
       lastOpened.current = snapshot.openId;
     }
   }, [snapshot.openId]);
+
+  const lastLocation = useRef(location);
+  useEffect(() => {
+    if (lastLocation.current !== location) {
+      lastLocation.current = location;
+      state.close();
+    }
+  }, [location, state]);
 
   // The list's rows, with anything this tab knows newer than the list.
   const items: SketchpadListItem[] = useMemo(
@@ -112,7 +127,20 @@ export function useStudioSketchpads(options: {
       state.put(res.sketchpad);
       open(res.sketchpad.id);
       void refresh();
+      return;
     }
+    toast.error("Could not make a sketchpad", {
+      id: `sketchpad-create:${page.urlPath}`,
+      description: res.message,
+      ...(res.status === "failed"
+        ? {
+            action: {
+              label: "Try again",
+              onClick: () => void onSketchPage(page),
+            },
+          }
+        : {}),
+    });
   };
 
   const sendToAssistant = (sketchpad: SketchpadT) => {

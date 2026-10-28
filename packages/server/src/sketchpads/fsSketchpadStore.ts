@@ -5,13 +5,12 @@ import path from "path";
 import {
   applySketchpadChange,
   byUpdatedAt,
+  isSketchpadId,
   matchesFilter,
   newSketchpad,
   summaryOf,
   type SketchpadStore,
 } from "./SketchpadStore";
-
-const ID = /^[0-9a-f-]{36}$/;
 
 /**
  * Sketchpads in `fs` mode: one JSON file each, in `.val/sketchpads/` beside
@@ -34,7 +33,7 @@ export function createFsSketchpadStore(
   const queues = new Map<string, Promise<unknown>>();
 
   const read = async (id: string): Promise<SketchpadT | null> => {
-    if (!ID.test(id)) {
+    if (!isSketchpadId(id)) {
       return null;
     }
     let raw: string;
