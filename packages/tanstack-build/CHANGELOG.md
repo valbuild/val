@@ -1,5 +1,11 @@
 # @valbuild/tanstack-build
 
+## 0.150.12
+
+### Patch Changes
+
+- [#980](https://github.com/valbuild/val/pull/980) [`46f07c7`](https://github.com/valbuild/val/commit/46f07c77f71b0d3b1f3964d648ff31eaf8e5eec3) Thanks [@freekh](https://github.com/freekh)! - Building a site in Safari (and every browser on an iPhone) no longer fails with "Cannot access '…' before initialization". The browser build loaded rolldown's bundler and its parser at the same time, and Safari could hand back the bundler before it had finished loading; they now load one after the other.
+
 ## 0.150.9
 
 ### Patch Changes
