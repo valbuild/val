@@ -9,7 +9,13 @@ import { createValRequestHandler } from "./ValRouterCore";
 type Versions = {
   versions?: {
     core?: string;
+    /**
+     * The framework binding's version, whichever binding it is: the field is
+     * named for the first one, and admin.val.build reads it by that name.
+     */
     next?: string;
+    /** Which binding `next` is the version of. */
+    framework?: "next" | "tanstack";
   };
 };
 import type { ValPatchStore } from "./ValOpsMemory";
@@ -257,6 +263,14 @@ export async function createValServer(
       formatter,
       commitPrepared,
       publishOverride,
+      ...(opts.versions?.framework && opts.versions.next
+        ? {
+            framework: {
+              name: opts.versions.framework,
+              version: opts.versions.next,
+            },
+          }
+        : {}),
       ...valServerConfig,
     },
     callbacks,

@@ -662,6 +662,7 @@ export function initValRsc(
       versions: {
         next: nextVersion,
         core: coreVersion,
+        framework: "next",
       },
       ...config,
     },

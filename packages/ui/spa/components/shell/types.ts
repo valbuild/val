@@ -583,3 +583,29 @@ export type ShellDeployment = {
 export type ShellDeploymentPublish =
   | { kind: "running"; percent: number; step: string }
   | { kind: "done"; ms: number; steps: Array<{ label: string; ms: number }> };
+
+/**
+ * The versions of Val's packages, for the list at the foot of the account
+ * panel: what someone reporting a bug is asked for first.
+ */
+export type ShellVersions = {
+  /** What this tab loaded, known without asking anyone. */
+  studio: { ui: string; core: string };
+  /**
+   * Asks the server what it runs. Called when the account panel opens, and
+   * again on Try again.
+   */
+  loadServer: () => Promise<ShellServerVersions>;
+};
+
+export type ShellServerVersions =
+  | {
+      status: "success";
+      /** Null where no binding said: the demo. */
+      framework: { name: "next" | "tanstack"; version: string } | null;
+      core: string;
+      server: string;
+    }
+  /** A server older than the Studio, which has no `/versions` to ask. */
+  | { status: "unsupported" }
+  | { status: "error"; message: string };
