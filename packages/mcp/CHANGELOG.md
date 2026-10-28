@@ -1,5 +1,13 @@
 # @valbuild/mcp
 
+## 0.150.12
+
+### Patch Changes
+
+- Updated dependencies [[`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/server@0.150.12
+  - @valbuild/shared@0.150.12
+
 ## 0.150.11
 
 ### Patch Changes
