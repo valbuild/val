@@ -111,6 +111,7 @@ import { typecheckProposal } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
   requestProposal,
+  proposalBuildControl,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
@@ -2014,15 +2015,7 @@ export function useAI(
             proposal: currentProposalRef.current,
             client: codeClients.proposals,
             siteSource: () => codeClients.publish.projectSource(),
-            build: () => {
-              const build = proposalBuildRef.current;
-              return build === null
-                ? Promise.resolve({
-                    status: "failed",
-                    message: "Only a proposal is built here.",
-                  })
-                : build();
-            },
+            build: proposalBuildControl(proposalBuildRef.current),
             typecheck: () => {
               const proposal = currentProposalRef.current;
               return proposal === null

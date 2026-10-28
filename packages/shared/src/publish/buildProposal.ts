@@ -51,7 +51,64 @@ export type ProposalBuildOutcome<P> =
   | { status: "built"; hash: string | null; proposal: P }
   | { status: "nothing-staged" }
   | { status: "already-built"; hash: string | null }
-  | { status: "failed"; message: string };
+  | {
+      status: "failed";
+      message: string;
+      /**
+       * Stopped by whoever started it (`signal`), not by anything wrong with
+       * the build: nothing to fix, and nothing to show as an error.
+       */
+      cancelled?: true;
+    };
+
+/** What a cancelled build answers. */
+export const BUILD_CANCELLED_MESSAGE = "The build was cancelled.";
+
+/**
+ * Why a build stopped early, as its outcome: `signal.reason` when it was
+ * stopped with an `Error` of its own -- a watchdog saying where it stalled --
+ * and otherwise a cancel.
+ */
+function abortedOutcome(signal: AbortSignal | undefined): {
+  status: "failed";
+  message: string;
+  cancelled?: true;
+} {
+  const reason: unknown = signal?.reason;
+  return reason instanceof Error && reason.name !== "AbortError"
+    ? { status: "failed", message: reason.message }
+    : { status: "failed", message: BUILD_CANCELLED_MESSAGE, cancelled: true };
+}
+
+const ABORTED = Symbol("aborted");
+
+/**
+ * `work`, or `ABORTED` as soon as `signal` is: a request that never answers
+ * is not waited for once the build is stopped. The work itself is not
+ * stopped by this -- the caller's `signal` does that where it can -- only no
+ * longer waited for.
+ */
+function orAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T | typeof ABORTED> {
+  if (signal === undefined) return work;
+  if (signal.aborted) return Promise.resolve(ABORTED);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(ABORTED);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
 
 /**
  * Where a build of the proposal is, around the deploy: the deploy's own steps
@@ -149,6 +206,7 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
   deploy: (
     files: Record<string, string | null>,
     target: BuildTargetResponse | undefined,
+    signal: AbortSignal | undefined,
   ) => Promise<StudioDeployResult>;
   /**
    * Whether this document can build at all (`canBuildHere`): Safari cannot,
@@ -156,6 +214,14 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
    */
   canBuildHere: () => boolean;
   onStep?: (step: ProposalBuildStep) => void;
+  /**
+   * Stops the build: Cancel, or a watchdog that saw it stall. Answered at
+   * once, whatever the build was waiting on, and nothing after it is done --
+   * a build stopped while it uploads is never served. Aborted with an `Error`
+   * of its own, the build fails with that error's message; otherwise it is
+   * `cancelled`.
+   */
+  signal?: AbortSignal;
   /** For tests: the clock, and waiting on it. */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -172,20 +238,23 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
         "This browser cannot build in this tab. Open the proposal in Chrome, Edge or Firefox and build it there",
     };
   }
+  const signal = deps.signal;
   step({ kind: "reading" });
   let read;
   try {
-    read = await deps.client.files(deps.name);
+    read = await orAborted(deps.client.files(deps.name), signal);
   } catch (error) {
     return { status: "failed", message: messageOf(error) };
   }
+  if (read === ABORTED || signal?.aborted) return abortedOutcome(signal);
   const { files, staged } = read;
   if (staged.inputs === null) return { status: "nothing-staged" };
   if (!staged.buildRequired) return { status: "already-built", hash: null };
   const inputs = staged.inputs;
   let target: BuildTargetResponse | undefined;
   try {
-    const asked = await deps.client.buildTarget(deps.name);
+    const asked = await orAborted(deps.client.buildTarget(deps.name), signal);
+    if (asked === ABORTED) return abortedOutcome(signal);
     target = asked.layer === "own" ? asked.target : undefined;
   } catch (error) {
     // A content service from before proposals had targets of their own:
@@ -196,8 +265,14 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
       return { status: "failed", message: messageOf(error) };
     }
   }
+  if (signal?.aborted) return abortedOutcome(signal);
   step({ kind: "deploying" });
-  const built = await deps.deploy(withoutLockfiles(files), target);
+  const built = await orAborted(
+    deps.deploy(withoutLockfiles(files), target, signal),
+    signal,
+  );
+  // Never served once stopped, whatever the deploy got as far as.
+  if (built === ABORTED || signal?.aborted) return abortedOutcome(signal);
   if (built.status !== "uploaded") {
     return {
       status: "failed",
@@ -232,7 +307,9 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
     proposal,
   });
   try {
-    return builtOf(await serve());
+    const served = await orAborted(serve(), signal);
+    if (served === ABORTED) return abortedOutcome(signal);
+    return builtOf(served);
   } catch (error) {
     if (!gatewayGaveUp(error)) {
       return { status: "failed", message: messageOf(error) };
@@ -240,13 +317,18 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
     const since = now();
     step({ kind: "waiting", since });
     while (now() - since < SERVE_WAIT_MS) {
-      await sleep(SERVE_POLL_MS);
-      const served = await servedNow();
+      if ((await orAborted(sleep(SERVE_POLL_MS), signal)) === ABORTED) {
+        return abortedOutcome(signal);
+      }
+      const served = await orAborted(servedNow(), signal);
+      if (served === ABORTED) return abortedOutcome(signal);
       if (served !== null) return builtOf(served);
     }
     // Content never said: ask once more, and take its answer.
     try {
-      return builtOf(await serve());
+      const again = await orAborted(serve(), signal);
+      if (again === ABORTED) return abortedOutcome(signal);
+      return builtOf(again);
     } catch (again) {
       return { status: "failed", message: messageOf(again) };
     }

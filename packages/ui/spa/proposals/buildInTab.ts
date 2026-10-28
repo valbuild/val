@@ -4,6 +4,7 @@ import {
   type HandedProposalBuild,
   type SiteHandoff,
 } from "../publish/handoff";
+import { BUILD_CANCELLED_MESSAGE } from "@valbuild/shared/publish";
 import type { ProposalBuildOutcome } from "./proposalCode";
 import type { ProposalsClient } from "./proposalsClient";
 
@@ -47,6 +48,8 @@ export function buildInTab(
     ) => void;
     now?: () => number;
     every?: (tick: () => void, ms: number) => () => void;
+    /** Cancel: the tab is closed, which stops the build in it. */
+    signal?: AbortSignal;
   },
 ): Promise<ProposalBuildOutcome> {
   const now = deps.now ?? Date.now;
@@ -82,8 +85,15 @@ export function buildInTab(
       tab.close();
       if (handoff === tab) handoff = null;
       deps.onTab(null);
+      deps.signal?.removeEventListener("abort", onAbort);
       resolve(outcome);
     };
+    const onAbort = () =>
+      finish({
+        status: "failed",
+        message: BUILD_CANCELLED_MESSAGE,
+        cancelled: true,
+      });
     const builtNow = async (): Promise<ProposalBuildOutcome | null> => {
       try {
         const proposal = await proposals.get(name);
@@ -122,6 +132,9 @@ export function buildInTab(
           finish({ status: "failed", message: TAB_GONE_MESSAGE });
       });
     }, 5_000);
+    // Last, once everything `finish` stops exists.
+    if (deps.signal?.aborted) onAbort();
+    else deps.signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

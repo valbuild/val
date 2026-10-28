@@ -4,7 +4,13 @@ import type { PickedElement } from "@valbuild/shared/internal";
 import { DesignSiteMock } from "./DesignSiteMock";
 import { PickerLayer } from "../PickerLayer";
 import { DesignTabView, type DesignTabViewProps } from "../DesignTabView";
-import { BASE, MESSAGES, NOT_RENDERED, chat } from "./designStoryFixtures";
+import {
+  BASE,
+  BUILD_TIMINGS,
+  MESSAGES,
+  NOT_RENDERED,
+  chat,
+} from "./designStoryFixtures";
 
 /**
  * The design tab (valbuild/home `docs/design-tab.md`): a proposal's code,
@@ -44,13 +50,19 @@ export const Building: Story = {
     ...BASE,
     checks: [
       { label: "Types", check: { state: "passed" } },
-      { label: "Build", check: { state: "running", percent: 62 } },
+      {
+        label: "Build",
+        check: { state: "running", percent: 62 },
+        timings: BUILD_TIMINGS.slice(0, 3),
+      },
     ],
     build: {
       required: true,
       building: true,
-      progress: { label: "Building the project", percent: 62 },
+      progress: { label: "Building", percent: 62 },
+      startedAt: Date.now() - 23_000,
       onBuild: () => {},
+      onCancel: () => {},
     },
     preview: <DesignSiteMock testimonials="quote" />,
     chat: chat([
@@ -82,7 +94,9 @@ export const BuildNotServed: Story = {
       required: true,
       building: false,
       progress: null,
+      startedAt: null,
       onBuild: () => {},
+      onCancel: () => {},
     },
     problem: {
       title: "The build was not served",
@@ -90,7 +104,7 @@ export const BuildNotServed: Story = {
         "The preview still shows the last build that worked. Ask the assistant to fix what the build says below, or build again.",
       details: NOT_RENDERED,
       onAskAssistant: () => {},
-      action: { label: "Build again", onClick: () => {} },
+      action: { label: "Try again", onClick: () => {} },
     },
     chat: chat([
       ...MESSAGES,
@@ -149,7 +163,9 @@ export const SafariNoBuilderWindow: Story = {
       required: true,
       building: true,
       progress: { label: "Waiting for the builder tab", percent: null },
+      startedAt: Date.now() - 4_000,
       onBuild: () => {},
+      onCancel: () => {},
     },
     preview: <DesignSiteMock testimonials="none" />,
   },

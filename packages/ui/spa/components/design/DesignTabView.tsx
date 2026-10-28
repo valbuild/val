@@ -59,7 +59,12 @@ export type DesignCheck =
   | { state: "passed"; detail?: string }
   | { state: "failed"; message: string };
 
-export type DesignCheckItem = { label: string; check: DesignCheck };
+export type DesignCheckItem = {
+  label: string;
+  check: DesignCheck;
+  /** What the check's last run took, step by step: a build's. */
+  timings?: { step: string; ms: number }[];
+};
 
 export type DesignBuilder =
   /** Chrome and Firefox: the bundler runs in this tab. */
@@ -143,8 +148,12 @@ export type DesignTabViewProps = {
     required: boolean;
     building: boolean;
     progress: { label: string; percent: number | null } | null;
+    /** `Date.now()` when the running build started; `null` when none runs. */
+    startedAt: number | null;
     /** `null`: nothing to build here. */
     onBuild: (() => void) | null;
+    /** Stop the running build. */
+    onCancel: () => void;
   };
   builder: DesignBuilder;
   onOpenBuilder?: () => void;
@@ -208,6 +217,8 @@ export function DesignTabView(props: DesignTabViewProps) {
               address={props.proposal.address}
               building={props.build.building}
               progress={props.build.progress}
+              startedAt={props.build.startedAt}
+              onCancel={props.build.onCancel}
               device={device}
               preview={props.preview}
               picking={props.picking}
@@ -285,16 +296,28 @@ function DesignTopBar({
             <ExternalLink size={12} />
           </a>
         )}
-        {build.onBuild !== null && (build.required || build.building) && (
+        {build.building ? (
           <button
             type="button"
-            onClick={build.onBuild}
-            disabled={build.building}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-primary px-3 text-xs font-medium text-fg-primary hover:bg-bg-secondary disabled:text-fg-disabled"
+            onClick={build.onCancel}
+            title="Stop this build. The preview keeps the last one that worked."
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-primary px-3 text-xs font-medium text-fg-primary hover:bg-bg-secondary"
           >
-            {build.building ? <Spinner size={14} /> : <Hammer size={14} />}
-            {build.building ? "Building…" : "Build"}
+            <Spinner size={14} />
+            Cancel build
           </button>
+        ) : (
+          build.onBuild !== null &&
+          build.required && (
+            <button
+              type="button"
+              onClick={build.onBuild}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-primary px-3 text-xs font-medium text-fg-primary hover:bg-bg-secondary"
+            >
+              <Hammer size={14} />
+              Build
+            </button>
+          )
         )}
         {onPublish !== null && (
           <button
@@ -386,10 +409,58 @@ function ChecksList({ checks }: { checks: DesignCheckItem[] }) {
             ) : item.check.detail !== undefined ? (
               <span className="text-fg-tertiary"> · {item.check.detail}</span>
             ) : null}
+            {item.timings !== undefined && item.timings.length > 0 && (
+              <Timings timings={item.timings} />
+            )}
           </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+/** How long each step took, longest marked: where a slow build's time went. */
+function Timings({ timings }: { timings: { step: string; ms: number }[] }) {
+  const longest = Math.max(...timings.map((t) => t.ms));
+  return (
+    <table className="mt-1 w-full text-[11px] text-fg-tertiary">
+      <tbody>
+        {timings.map((timing, index) => (
+          <tr
+            key={`${timing.step}-${index}`}
+            className={cn(timing.ms === longest && "text-fg-secondary")}
+          >
+            <td className="pr-2">{timing.step}</td>
+            <td className="text-right tabular-nums">
+              {formatSeconds(timing.ms)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** `0.4s`, `12s`, `1:05`. */
+function formatSeconds(ms: number): string {
+  const seconds = ms / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** Time since `since`, ticking every second. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <span className="tabular-nums text-fg-tertiary">
+      {formatSeconds(Math.max(0, now - since))}
+    </span>
   );
 }
 
@@ -838,6 +909,8 @@ function PreviewArea({
   address,
   building,
   progress,
+  startedAt,
+  onCancel,
   device,
   preview,
   picking,
@@ -845,6 +918,8 @@ function PreviewArea({
   address: string | null;
   building: boolean;
   progress: { label: string; percent: number | null } | null;
+  startedAt: number | null;
+  onCancel: () => void;
   device: DesignDevice;
   preview: ReactNode;
   picking: DesignPicking | null;
@@ -874,14 +949,24 @@ function PreviewArea({
             {progress?.label ?? "Building"}. Until it is done, this is the last
             build.
           </span>
-          {progress?.percent !== null && progress?.percent !== undefined && (
-            <div className="ml-auto h-1 w-40 overflow-hidden rounded-full bg-bg-secondary">
-              <div
-                className="h-full bg-bg-proposal"
-                style={{ width: `${progress.percent}%` }}
-              />
-            </div>
-          )}
+          {startedAt !== null && <Elapsed since={startedAt} />}
+          <span className="ml-auto flex items-center gap-3">
+            {progress?.percent !== null && progress?.percent !== undefined && (
+              <span className="h-1 w-40 overflow-hidden rounded-full bg-bg-secondary">
+                <span
+                  className="block h-full bg-bg-proposal"
+                  style={{ width: `${progress.percent}%` }}
+                />
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded px-1.5 py-0.5 font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
+            >
+              Cancel
+            </button>
+          </span>
         </div>
       )}
       <div className="flex min-h-0 flex-1 justify-center overflow-hidden p-4">

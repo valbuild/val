@@ -101,6 +101,9 @@ export const importBuilderModule = () =>
     return builder;
   });
 
+/** Stops the loaded worker mid-call; see {@link stopBuilderWork}. */
+let stopWorker: ((reason: Error) => boolean) | null = null;
+
 /**
  * The real loader: the builder in a worker.
  *
@@ -131,9 +134,24 @@ const importBuilder: BuilderLoader = () =>
           // A worker that died is a load to forget, so a retry starts anew.
           onBroken: () => {
             pending = null;
+            stopWorker = null;
+          },
+          onStoppable: (stop) => {
+            stopWorker = stop;
           },
         }),
       );
+
+/**
+ * Stop what the builder is doing, for a cancelled build: the worker is
+ * terminated if it is in the middle of a call, and the load forgotten so the
+ * next build starts a new one. A builder between calls -- or on the page,
+ * where there is nothing to terminate -- is left as it is. Whether it stopped
+ * one.
+ */
+export function stopBuilderWork(reason: Error): boolean {
+  return stopWorker?.(reason) ?? false;
+}
 
 let loader: BuilderLoader = importBuilder;
 

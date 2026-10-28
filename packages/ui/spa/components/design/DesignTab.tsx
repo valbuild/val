@@ -75,7 +75,7 @@ export function DesignTab({ name }: { name: string }) {
     [],
   );
   const studioProposal = useCurrentProposal();
-  const { state, build, progress } = useProposalBuild(proposals, name);
+  const { state, build, progress, cancel } = useProposalBuild(proposals, name);
   const { askAssistant } = useAIChatActions();
   const portalContainer = useValPortal();
 
@@ -253,7 +253,9 @@ export function DesignTab({ name }: { name: string }) {
           required: proposal?.staged?.buildRequired ?? false,
           building: state.building,
           progress,
+          startedAt: state.startedAt,
           onBuild: open && build !== null ? () => void build() : null,
+          onCancel: () => void cancel(),
         }}
         builder={
           canBuildHere()
@@ -342,6 +344,7 @@ function designChecks(
             },
     });
   }
+  const last = state.last;
   checks.push({
     label: "Build",
     check: state.building
@@ -351,8 +354,23 @@ function designChecks(
         : staged === null || staged.inputs === null
           ? { state: "idle", detail: "the site's code" }
           : staged.buildRequired
-            ? { state: "idle", detail: "needed" }
-            : { state: "passed", detail: "renders" },
+            ? {
+                state: "idle",
+                detail: last?.status === "cancelled" ? "cancelled" : "needed",
+              }
+            : {
+                state: "passed",
+                detail:
+                  last?.status === "built"
+                    ? `renders · built in ${Math.round(last.ms / 1000)}s`
+                    : "renders",
+              },
+    // The steps of the build running, else of the last one: where the time went.
+    ...(state.building
+      ? { timings: state.timings }
+      : last !== null && last.timings.length > 0
+        ? { timings: last.timings }
+        : {}),
   });
   return checks;
 }
@@ -418,7 +436,7 @@ function designProblem({
       details: buildError,
       onAskAssistant: () => onAskAssistant(buildError),
       ...(onBuild !== null
-        ? { action: { label: "Build again", onClick: () => void onBuild() } }
+        ? { action: { label: "Try again", onClick: () => void onBuild() } }
         : {}),
     };
   }

@@ -25,6 +25,7 @@ import { Internal } from "@valbuild/core";
 import { useCallback, useRef, useState } from "react";
 import type { BuildTarget } from "@valbuild/tanstack-build";
 import {
+  DEPLOY_STOPPED_MESSAGE,
   createStudioPublishClient,
   type PreparedJob,
   STUDIO_OUT_OF_DATE,
@@ -37,7 +38,11 @@ import {
   runStudioDeploy,
 } from "@valbuild/shared/publish";
 import { fetchLiveStylesheet, fetchPublicFile } from "./fetchPublicFile";
-import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
+import {
+  loadBuilder,
+  routeTreeGenerator,
+  stopBuilderWork,
+} from "./loadBuilder";
 
 /** How long one step of a publish took. */
 export type DeployStep = { kind: DeployPhase["kind"]; ms: number };
@@ -97,6 +102,14 @@ export interface UseStudioDeploy {
       until?: "confirmed";
       /** The publish job it is for. See `job` on `runStudioDeploy`. */
       job?: string;
+      /**
+       * Stops it: a cancelled proposal build. Answered at once with a failure,
+       * its requests aborted and a builder mid-call stopped, so the next build
+       * can start straight away. See `signal` on `runStudioDeploy`.
+       */
+      signal?: AbortSignal;
+      /** Each phase as it is entered, and each file as it is uploaded. */
+      onPhase?: (phase: DeployPhase) => void;
     } | null,
   ) => Promise<StudioDeployOutcome>;
 }
@@ -105,6 +118,8 @@ export interface UseStudioDeploy {
 export type StudioDeployOutcome = {
   result: StudioDeployResult;
   failedAt: DeployPhase["kind"] | null;
+  /** Each step it took, and how long: what a slow build is measured by. */
+  steps?: DeployStep[];
 };
 
 /**
@@ -164,6 +179,7 @@ export function useStudioDeploy(options?: {
        * reports once per file, and the time is the step's, not the file's.
        */
       const enter = (phase: DeployPhase) => {
+        details?.onPhase?.(phase);
         const now = Date.now();
         if (phase.kind !== current.phase.kind) {
           steps.push({ kind: current.phase.kind, ms: now - current.at });
@@ -193,12 +209,26 @@ export function useStudioDeploy(options?: {
        * publish with a generator and half without.
        */
       const generateRouteTree = routeTreeGenerator();
+      const signal = details?.signal;
+      const onAbort = () => {
+        stopBuilderWork(new Error(DEPLOY_STOPPED_MESSAGE));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
       try {
         const loaded = await loadedLayer();
-        const result = await runStudioDeploy({
+        const deploying = runStudioDeploy({
           loadedLayer: loaded,
           liveLayer: () => readLiveLayer(),
-          client: createStudioPublishClient({ api }),
+          client: createStudioPublishClient({
+            api,
+            ...(signal !== undefined
+              ? {
+                  // Every request of the deploy, so one that never answers
+                  // is given up on the moment the build is stopped.
+                  fetchImpl: (input, init) => fetch(input, { ...init, signal }),
+                }
+              : {}),
+          }),
           commit,
           committedFiles: committedFiles ?? null,
           committedBinaryFiles: details?.binaryFiles ?? null,
@@ -211,7 +241,34 @@ export function useStudioDeploy(options?: {
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: enter,
+          ...(signal !== undefined ? { signal } : {}),
         });
+        /*
+         * Not waited for once stopped: whatever it was waiting on that the
+         * signal cannot reach, the next build must not be refused as "already
+         * being built" behind it. What it does after this is stopped at its
+         * next step by the same signal.
+         */
+        const result =
+          signal === undefined
+            ? await deploying
+            : await new Promise<StudioDeployResult>((resolve) => {
+                const stoppedResult: StudioDeployResult = {
+                  status: "failed",
+                  message: DEPLOY_STOPPED_MESSAGE,
+                  problems: [],
+                };
+                if (signal.aborted) {
+                  resolve(stoppedResult);
+                  return;
+                }
+                const stop = () => resolve(stoppedResult);
+                signal.addEventListener("abort", stop, { once: true });
+                void deploying.then((done) => {
+                  signal.removeEventListener("abort", stop);
+                  resolve(done);
+                });
+              });
         if (
           result.status === "failed" &&
           result.problems.some((problem) => problem.code === STUDIO_OUT_OF_DATE)
@@ -242,8 +299,9 @@ export function useStudioDeploy(options?: {
           failedAt,
           finishedAt: now,
         });
-        return { result, failedAt };
+        return { result, failedAt, steps };
       } finally {
+        signal?.removeEventListener("abort", onAbort);
         running.current = false;
       }
     },

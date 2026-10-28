@@ -4,7 +4,10 @@ import {
   isCodeTool,
   proposalProject,
   runCodeTool,
+  type BuildReport,
   type CodeToolDeps,
+  type ProposalBuildControl,
+  type ProposalBuildOutcome,
 } from "./proposalCode";
 import {
   ProposalsApiError,
@@ -21,6 +24,18 @@ const staged = (over: Partial<ProposalStaged> = {}): ProposalStaged => ({
   buildRequired: true,
   ...over,
 });
+/** A build the tools reach, answering `start` and reporting `report`. */
+const control = (
+  start: () => Promise<ProposalBuildOutcome>,
+  over: Partial<ProposalBuildControl> = {},
+): ProposalBuildControl => ({
+  start,
+  running: () => null,
+  report: (): BuildReport => ({ status: "idle", last: null }),
+  cancel: () => false,
+  ...over,
+});
+
 /** For a build whose serving answers: nothing reads the proposal back. */
 const notRead = async (): Promise<ProposalJson> => {
   throw new Error("the proposal is not read back in this test");
@@ -106,6 +121,59 @@ describe("buildProposal", () => {
     expect(deployed).toEqual([OWN]);
     expect(served).toEqual([[NAME, { publishId: "p-1", inputs: INPUTS }]]);
     expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+  });
+
+  test("a cancel ends it at once, and a build stopped mid-deploy is never served", async () => {
+    const controller = new AbortController();
+    const serveBuild = jest.fn();
+    let deploySignal: AbortSignal | undefined;
+    const building = buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild,
+      },
+      // A deploy that never answers: an upload that hangs.
+      deploy: (_files, _target, signal) => {
+        deploySignal = signal;
+        return new Promise(() => {});
+      },
+      canBuildHere: () => true,
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    expect(await building).toEqual({
+      status: "failed",
+      message: "The build was cancelled.",
+      cancelled: true,
+    });
+    // The deploy was handed the signal, to stop what it was doing.
+    expect(deploySignal?.aborted).toBe(true);
+    expect(serveBuild).not.toHaveBeenCalled();
+  });
+
+  test("stopped with an error of its own -- a stall -- it fails with that error", async () => {
+    const controller = new AbortController();
+    const building = buildProposal({
+      name: NAME,
+      client: {
+        files: () => new Promise(() => {}),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild: notRead,
+      },
+      deploy: async () => ({ status: "uploaded", publishId: "p-1" }),
+      canBuildHere: () => true,
+      signal: controller.signal,
+    });
+    controller.abort(new Error("Stalled while reading the proposal."));
+    expect(await building).toEqual({
+      status: "failed",
+      message: "Stalled while reading the proposal.",
+    });
   });
 
   test("builds nothing when nothing is staged, or its build is already of them", async () => {
@@ -329,11 +397,11 @@ describe("the code tools", () => {
       },
       typecheck: async () => ({ status: "nothing-staged" as const }),
       siteSource: async () => SITE,
-      build: async () => ({
+      build: control(async () => ({
         status: "built" as const,
         hash: "b1",
         proposal: proposal("b1"),
-      }),
+      })),
       offerProposal: () => {
         record.offered++;
       },
@@ -341,7 +409,7 @@ describe("the code tools", () => {
     });
   };
 
-  test("are seven, and known by name", () => {
+  test("are ten, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
@@ -350,6 +418,9 @@ describe("the code tools", () => {
       "format_files",
       "typecheck",
       "build_proposal",
+      "build_status",
+      "cancel_build",
+      "wait",
     ]);
     expect(isCodeTool("write_files")).toBe(true);
     // The Studio's create_patch is a content tool; the design tab's is
@@ -627,15 +698,131 @@ describe("the code tools", () => {
       "build_proposal",
       {},
       deps({
-        build: async () => ({
+        build: control(async () => ({
           status: "failed",
           message: "Could not build: x",
-        }),
+        })),
       }),
     );
     expect(failed).toEqual({
       result: { success: false, error: "Could not build: x" },
       isError: true,
+    });
+  });
+
+  test("build_proposal answers with each step's time once the build ends", async () => {
+    const last = {
+      status: "built" as const,
+      seconds: 31.5,
+      steps: [
+        { step: "Building", seconds: 12.1 },
+        { step: "Serving the build at the proposal's address", seconds: 19.4 },
+      ],
+      ended_seconds_ago: 0,
+    };
+    const answer = await runCodeTool(
+      "build_proposal",
+      {},
+      deps({
+        build: control(
+          async () => ({
+            status: "built",
+            hash: "b1",
+            proposal: proposal("b1"),
+          }),
+          { report: () => ({ status: "idle", last }) },
+        ),
+      }),
+    );
+    expect(answer.result).toEqual({
+      success: true,
+      status: "built",
+      hash: "b1",
+      seconds: 31.5,
+      steps: last.steps,
+    });
+  });
+
+  test("build_proposal does not hold the turn past wait_seconds: the build goes on", async () => {
+    const building: BuildReport = {
+      status: "building",
+      step: "Uploading",
+      elapsed_seconds: 30,
+      steps: [{ step: "Building", seconds: 20 }],
+    };
+    const waited: number[] = [];
+    const answer = await runCodeTool(
+      "build_proposal",
+      { wait_seconds: 30 },
+      deps({
+        build: control(() => new Promise<ProposalBuildOutcome>(() => {}), {
+          report: () => building,
+        }),
+        sleep: async (ms) => {
+          waited.push(ms);
+        },
+      }),
+    );
+    expect(waited).toEqual([30_000]);
+    expect(answer.isError).toBe(false);
+    expect(answer.result).toMatchObject({
+      success: true,
+      status: "building",
+      step: "Uploading",
+    });
+  });
+
+  test("wait ends when the running build does, and answers its status", async () => {
+    let report: BuildReport = {
+      status: "building",
+      step: "Building",
+      elapsed_seconds: 1,
+      steps: [],
+    };
+    let finish: (outcome: ProposalBuildOutcome) => void = () => {};
+    const running = new Promise<ProposalBuildOutcome>((resolve) => {
+      finish = resolve;
+    });
+    const waiting = runCodeTool(
+      "wait",
+      { seconds: 120 },
+      deps({
+        build: control(() => running, {
+          running: () => running,
+          report: () => report,
+        }),
+        // Never ends on its own: only the build can end the wait.
+        sleep: () => new Promise<void>(() => {}),
+      }),
+    );
+    report = { status: "idle", last: null };
+    finish({ status: "built", hash: "b2", proposal: proposal("b2") });
+    const answer = await waiting;
+    expect(answer.result).toMatchObject({
+      build: { status: "idle" },
+    });
+  });
+
+  test("wait refuses a duration it cannot wait", async () => {
+    const answer = await runCodeTool("wait", { seconds: "soon" }, deps());
+    expect(answer.isError).toBe(true);
+  });
+
+  test("cancel_build stops the running build, and says when there was none", async () => {
+    let cancels = 0;
+    const d = deps({
+      build: control(async () => ({ status: "nothing-staged" }), {
+        cancel: () => {
+          cancels++;
+          return cancels === 1;
+        },
+      }),
+    });
+    expect((await runCodeTool("cancel_build", {}, d)).result).toMatchObject({
+      cancelled: true,
+    });
+    expect((await runCodeTool("cancel_build", {}, d)).result).toMatchObject({
+      cancelled: false,
     });
   });
 });
