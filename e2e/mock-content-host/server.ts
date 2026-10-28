@@ -1094,7 +1094,10 @@ const getPatchFileMetadata: Handler = (req, res, url) => {
     return;
   }
   const file = state.patchFiles.get(patchId)?.get(filePath);
-  if (!file) {
+  // Matched on `remote` as well as the path, because home matches on
+  // `is_remote`: a file attached as remote is not found by a local lookup.
+  // Ignoring it here once hid a broken AI gallery add (see aiChat.spec.ts).
+  if (!file || file.remote !== (url.searchParams.get("remote") === "true")) {
     json(res, 404, { message: `No file ${filePath} in patch ${patchId}` });
     return;
   }
@@ -1133,7 +1136,8 @@ const getFiles: Handler = async (req, res) => {
       const file = state.patchFiles
         .get(requested.patchId)
         ?.get(requested.filePath);
-      if (!file) {
+      // Matched on `remote` too, as home does. See getPatchFileMetadata.
+      if (!file || file.remote !== (requested.remote === true)) {
         errors.push({
           filePath: requested.filePath,
           location: "patch" as const,

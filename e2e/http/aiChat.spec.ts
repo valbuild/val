@@ -41,6 +41,7 @@ import {
 
 const MEDIA_FIELDS = "/content/mediaFields.val.ts";
 const GALLERY = "/content/media.val.ts";
+const REMOTE_GALLERY = "/content/remoteImages.val.ts";
 const TAGS = "/content/tags.val.ts";
 const IMAGE = "e2e/fixtures/blue-8x8.png";
 
@@ -534,6 +535,77 @@ test.describe("ai chat tools", () => {
 
     // The existing entry is untouched: a gallery add is an add, not a replace.
     expect(gallery["/public/val/images/logo.png"]).toBeTruthy();
+
+    // And the editor can see it, which is what was wrong once: the entry was
+    // written and the bytes attached, and the tile was still broken. Through
+    // the URL the gallery itself builds, not one put together here.
+    await page.goto(`/val/~${GALLERY}`);
+    const tile = page
+      .locator("#val-shadow-root")
+      .locator('img[src*="ai-added"]');
+    await expect(tile).toHaveCount(1, { timeout: 30_000 });
+    await expect(tile).toHaveAttribute("src", /patch_id=/);
+    await expect
+      .poll(() => tile.evaluate((i) => (i as HTMLImageElement).naturalWidth), {
+        timeout: 20_000,
+        message: "the AI-added tile did not decode",
+      })
+      .toBe(8);
+    const served = await page.request.get((await tile.getAttribute("src"))!);
+    expect(served.status()).toBe(200);
+    expect(await served.body()).toEqual(await readFile(IMAGE));
+  });
+
+  /**
+   * The same, into a REMOTE gallery — which is every gallery in the Val app,
+   * where `files: { remote: true }` is required.
+   *
+   * KNOWN BROKEN, and marked so: `test.fail()` flips this to a failure the day
+   * it starts passing, so whoever fixes it removes the mark. The model names a
+   * repo path (`/public/...`), the bytes are attached to the patch as REMOTE,
+   * and the entry is keyed by that repo path rather than a remote ref. The
+   * Studio sees a `/public` path, asks for the file with `remote=false`, and the
+   * content service — which matches on `is_remote` — has no such file. The tile
+   * 404s. The mock only caught this once it matched on `remote` too.
+   */
+  test("add_session_image_to_gallery into a remote gallery shows the image", async ({
+    page,
+  }) => {
+    test.fail();
+    await openChatStudio(page);
+    await attachImage(page);
+    await mock.aiScript({
+      steps: [
+        {
+          type: "tool",
+          name: "add_session_image_to_gallery",
+          arguments: {
+            image_key: "{{imageKey:0}}",
+            module_file_path: REMOTE_GALLERY,
+            file_path: "/public/remote-images/ai-added.png",
+            alt: "A blue square",
+          },
+        },
+      ],
+      response: "It is in the gallery now.",
+    });
+
+    await send(page, "Add this to the remote gallery");
+
+    const [call] = await toolCalls(1);
+    okResult(call);
+
+    await page.goto(`/val/~${REMOTE_GALLERY}`);
+    const tile = page
+      .locator("#val-shadow-root")
+      .locator('img[src*="ai-added"]');
+    await expect(tile).toHaveCount(1, { timeout: 30_000 });
+    await expect
+      .poll(() => tile.evaluate((i) => (i as HTMLImageElement).naturalWidth), {
+        timeout: 20_000,
+        message: "the AI-added remote tile did not decode",
+      })
+      .toBe(8);
   });
 
   /**
