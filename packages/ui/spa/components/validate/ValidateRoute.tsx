@@ -33,6 +33,7 @@ import {
 import { useUploadLocalMedia } from "./useUploadLocalMedia";
 import { isStudioUploadFix } from "../../utils/uploadLocalMedia";
 import { Spinner } from "../designSystem/spinner";
+import { DEMO_FULL_CHECK_OFF, useValDemo } from "../../demo/ValDemoContext";
 
 /**
  * `/val/validate`, connected: the Studio's own errors, "Check everything"
@@ -49,6 +50,7 @@ export function ValidateRoute() {
   const { deletePatches } = useDeletePatches();
   const session = useValidateSession();
   const uploadLocalMedia = useUploadLocalMedia();
+  const demo = useValDemo();
 
   /*
    * Which of the Studio's own errors this page lists: the ones it was opened
@@ -358,7 +360,12 @@ export function ValidateRoute() {
       .map((row) => row.id);
 
   const now = useNow(session.run.status === "done");
-  const fullCheck = fullCheckStateOf(session.run, now);
+  // The demo's server has no full check (it answers 501), so the page offers
+  // only what the Studio itself knows rather than a button that always fails.
+  const fullCheck: FullCheckState =
+    demo !== null
+      ? { status: "unavailable", reason: DEMO_FULL_CHECK_OFF }
+      : fullCheckStateOf(session.run, now);
 
   return (
     <ValidatePageView
