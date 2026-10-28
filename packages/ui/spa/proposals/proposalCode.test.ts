@@ -5,6 +5,7 @@ import {
   proposalProject,
   runCodeTool,
   runReadPage,
+  runScreenshotPage,
   type BuildReport,
   type CodeToolDeps,
   type ProposalBuildControl,
@@ -1152,5 +1153,97 @@ describe("read_page", () => {
       result: { success: false, error: "The page did not answer." },
       isError: true,
     });
+  });
+});
+
+describe("screenshot_page", () => {
+  // A JPEG's first bytes, as the page's canvas would encode them.
+  const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
+  const shot = {
+    dataUrl: JPEG,
+    width: 1280,
+    height: 800,
+    fullPage: false,
+    clipped: true,
+  };
+
+  test("uploads the page's picture and hands its key over with the answer", async () => {
+    const uploaded: File[] = [];
+    const devices: string[] = [];
+    const asked: unknown[] = [];
+    const answer = await runScreenshotPage(
+      { full_page: true, device: "mobile" },
+      {
+        screenshotPage: async (options) => {
+          asked.push(options);
+          return { ...shot, fullPage: true };
+        },
+        setDevice: async (device) => {
+          devices.push(device);
+        },
+        uploadImage: async (file) => {
+          uploaded.push(file);
+          return { key: "p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg" };
+        },
+      },
+    );
+    expect(devices).toEqual(["mobile"]);
+    expect(asked).toEqual([{ fullPage: true }]);
+    expect(answer).toEqual({
+      result: {
+        success: true,
+        width: 1280,
+        height: 800,
+        full_page: true,
+        note: "The page goes on below the picture.",
+        image: "attached",
+      },
+      isError: false,
+      images: ["p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg"],
+    });
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0].type).toBe("image/jpeg");
+    // The bytes of the data URL, decoded: a JPEG starts FF D8 FF.
+    const bytes = new Uint8Array(await uploaded[0].arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  });
+
+  test("says there is nothing to picture before a page is showing", async () => {
+    const answer = await runScreenshotPage(
+      {},
+      {
+        screenshotPage: null,
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer).not.toHaveProperty("images");
+  });
+
+  test("says why when the page could not be pictured, and attaches nothing", async () => {
+    const answer = await runScreenshotPage(
+      {},
+      {
+        screenshotPage: async () => {
+          throw new Error("The page did not answer.");
+        },
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
+  });
+
+  test("refuses a width it does not know", async () => {
+    const answer = await runScreenshotPage(
+      { device: "watch" },
+      {
+        screenshotPage: async () => shot,
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer.isError).toBe(true);
   });
 });

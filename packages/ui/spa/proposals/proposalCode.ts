@@ -502,9 +502,11 @@ export async function runScreenshotPage(
     const shot = await deps.screenshotPage({
       fullPage: input["full_page"] === true,
     });
-    const blob = await (await fetch(shot.dataUrl)).blob();
+    // Decoded here rather than fetched: a page's policy may refuse `data:`.
+    const base64 = shot.dataUrl.slice(shot.dataUrl.indexOf(",") + 1);
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
     const { key } = await deps.uploadImage(
-      new File([blob], "page.jpg", { type: "image/jpeg" }),
+      new File([bytes], "page.jpg", { type: "image/jpeg" }),
     );
     return {
       result: {
