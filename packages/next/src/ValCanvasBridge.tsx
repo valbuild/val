@@ -5,13 +5,21 @@ import { Internal } from "@valbuild/core";
 import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  isDesignTabOrigin,
   isValCanvasStudioMessage,
+  QUICK_PREVIEW_SERVICE_WORKER_PATH,
+  quickPreviewSiteOrigin,
+  readPageSnapshot,
+  restoreScroll,
   startElementPicking,
+  storeQuickPreview,
+  watchPageLocation,
   VAL_CANVAS_MESSAGE,
   type ElementPicking,
   type PickModifier,
   ValCanvasElement,
   ValCanvasPageMessage,
+  type ValCanvasStudioMessage,
 } from "@valbuild/shared/client";
 
 /**
@@ -97,6 +105,9 @@ export function ValCanvasBridge({
   const elementPickingActive = React.useRef(false);
   elementPickingActive.current = elementPicking?.active === true;
   const elementPicker = React.useRef<ElementPicking | null>(null);
+  /** A scroll back to where the last build was, still trying. */
+  const stopRestoring = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => stopRestoring.current?.(), []);
 
   const post = React.useCallback((message: ValCanvasPageMessage) => {
     // `*` as the target origin: the studio and the page share an origin today,
@@ -325,6 +336,60 @@ export function ValCanvasBridge({
         });
         return;
       }
+      if (message.type === "scrollTo") {
+        // Where the build before this one was: the design tab swaps a new
+        // build in at the same place.
+        stopRestoring.current?.();
+        stopRestoring.current = restoreScroll(window, message.x, message.y);
+        return;
+      }
+      if (message.type === "readPage") {
+        // The assistant's `read_page`: what is on the page, read here because
+        // the tab is another origin and cannot. The page's words, unpublished
+        // ones included, so only for the frame's parent, and only when that
+        // is the site's design tab or the Studio here -- and answered to it
+        // alone, not to `*`.
+        if (event.source !== window.parent) return;
+        const asker = event.origin;
+        void isDesignTabOrigin(asker, {
+          api: "/api/val",
+          own: window.location.origin,
+        }).then((trusted) => {
+          if (trusted) window.parent.postMessage(readPageReply(message), asker);
+        });
+        return;
+      }
+      if (message.type === "quickPreview") {
+        // Code that will run on this address: only from the frame's parent,
+        // and only when that is the site's design tab. See `quickPreview.ts`.
+        if (event.source !== window.parent) return;
+        const { id, files } = message;
+        const origin = event.origin;
+        void (async () => {
+          try {
+            // The site's design tab alone: not even the Studio here, which
+            // never sends one.
+            const site = await quickPreviewSiteOrigin("/api/val");
+            if (site === null || site !== origin) {
+              throw new Error(
+                "Only the site's design tab can show a quick preview of this proposal.",
+              );
+            }
+            await storeQuickPreview(id, files, {
+              swUrl: `/api/val${QUICK_PREVIEW_SERVICE_WORKER_PATH}`,
+            });
+            post({ val: VAL_CANVAS_MESSAGE, type: "quickPreviewStored", id });
+          } catch (error) {
+            post({
+              val: VAL_CANVAS_MESSAGE,
+              type: "quickPreviewStored",
+              id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        })();
+        return;
+      }
       if (message.type === "theme") {
         setSelectionColors({
           selection: message.selection,
@@ -373,7 +438,16 @@ export function ValCanvasBridge({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [scan]);
+  }, [scan, post]);
+
+  // Where the page is, as it moves: the design tab opens a new build there.
+  React.useEffect(
+    () =>
+      watchPageLocation(window, (location) =>
+        post({ val: VAL_CANVAS_MESSAGE, type: "location", ...location }),
+      ),
+    [post],
+  );
 
   /**
    * Picking.
@@ -717,4 +791,33 @@ function findByPath(path: string): Element | null {
     }
   }
   return null;
+}
+
+/** What `readPage` answers: the page read, or why it could not be. */
+function readPageReply(
+  message: Extract<ValCanvasStudioMessage, { type: "readPage" }>,
+): ValCanvasPageMessage {
+  try {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageRead",
+      requestId: message.requestId,
+      snapshot: readPageSnapshot(document, {
+        ...(message.selector !== undefined
+          ? { selector: message.selector }
+          : {}),
+        ...(message.maxItems !== undefined
+          ? { maxItems: message.maxItems }
+          : {}),
+      }),
+    };
+  } catch (error) {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageRead",
+      requestId: message.requestId,
+      snapshot: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

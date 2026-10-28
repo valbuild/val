@@ -1,7 +1,7 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
-import type { PickedElement } from "@valbuild/shared/internal";
+import type { PageSnapshot, PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import type {
@@ -92,13 +92,63 @@ const WRITE_FILES_TOOL: AITool = {
   },
 };
 
+/** How long `build_proposal` and `wait` wait at most: well inside their timeout. */
+const MAX_WAIT_SECONDS = 240;
+const DEFAULT_BUILD_WAIT_SECONDS = 90;
+
 const BUILD_PROPOSAL_TOOL: AITool = {
   name: "build_proposal",
   description:
     "Build the proposal's code, so its preview shows the files staged with write_files. " +
-    "Takes from a few seconds to a minute. Nothing is published: the site is unchanged until the proposal is merged.",
+    "Nothing is published: the site is unchanged until the proposal is merged. " +
+    "Answers when the build ends, or after wait_seconds with status 'building' if it is still going: " +
+    "then call wait to wait for it, build_status to see where it is, or cancel_build to stop it. " +
+    "A build already running is joined, not started again.",
+  parameters: {
+    type: "object",
+    properties: {
+      wait_seconds: {
+        type: "number",
+        description: `How long to wait for the build before answering (default ${DEFAULT_BUILD_WAIT_SECONDS}, at most ${MAX_WAIT_SECONDS}). The build goes on either way.`,
+      },
+    },
+    required: [],
+  },
+  timeoutMs: 5 * 60_000,
+};
+
+const BUILD_STATUS_TOOL: AITool = {
+  name: "build_status",
+  description:
+    "Where the proposal's build is: running (its step, how long it has run, and each step so far with its time), " +
+    "or how the last one ended (built, failed with its error, or cancelled) with what each step took, " +
+    "and whether the staged files still need a build. Answers at once.",
   parameters: { type: "object", properties: {}, required: [] },
-  // A build is seconds to a minute; the server's default wait is 30 s.
+};
+
+const CANCEL_BUILD_TOOL: AITool = {
+  name: "cancel_build",
+  description:
+    "Stop the proposal's running build. The preview keeps the last build that worked, and build_proposal starts a new one. " +
+    "Use it when a build is stuck, or to build again after changing files while one runs.",
+  parameters: { type: "object", properties: {}, required: [] },
+};
+
+const WAIT_TOOL: AITool = {
+  name: "wait",
+  description:
+    "Wait, then answer the build's status (as build_status). Ends early when a running build ends. " +
+    `Use it to wait for a build instead of asking again and again. At most ${MAX_WAIT_SECONDS} seconds at a time.`,
+  parameters: {
+    type: "object",
+    properties: {
+      seconds: {
+        type: "number",
+        description: `How long to wait, 1 to ${MAX_WAIT_SECONDS}.`,
+      },
+    },
+    required: ["seconds"],
+  },
   timeoutMs: 5 * 60_000,
 };
 
@@ -180,7 +230,173 @@ export const CODE_TOOLS: AITool[] = [
   FORMAT_FILES_TOOL,
   TYPECHECK_TOOL,
   BUILD_PROPOSAL_TOOL,
+  BUILD_STATUS_TOOL,
+  CANCEL_BUILD_TOOL,
+  WAIT_TOOL,
 ];
+
+/** One step of a quick preview, and how long it took. */
+export type QuickPreviewTiming = { step: string; ms: number };
+
+/** What a quick preview came to: see `useQuickPreview`. */
+export type QuickPreviewResult =
+  | { status: "shown"; ms: number; timings: QuickPreviewTiming[] }
+  | { status: "failed"; message: string; timings: QuickPreviewTiming[] };
+
+/**
+ * `quick_preview` in the design tab: the proposal's client code built in the
+ * tab and shown in the preview in seconds, with the server's half still the
+ * last build's (`quickPreview.ts` in `@valbuild/shared`).
+ */
+export const DESIGN_QUICK_PREVIEW_TOOL: AITool = {
+  name: "quick_preview",
+  description:
+    "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled here and the page in the preview runs it. " +
+    "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
+    "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
+    "Answers once the page shows it, with what each step took.",
+  parameters: { type: "object", properties: {}, required: [] },
+  timeoutMs: 3 * 60_000,
+};
+
+export async function runQuickPreviewTool(
+  quickPreview: (() => Promise<QuickPreviewResult>) | null,
+): Promise<CodeToolAnswer> {
+  if (quickPreview === null) {
+    return {
+      result: {
+        success: false,
+        error: "Only an open proposal can be previewed.",
+      },
+      isError: true,
+    };
+  }
+  const result = await quickPreview();
+  const steps = result.timings.map((t) => ({
+    step: t.step,
+    seconds: Math.round(t.ms / 100) / 10,
+  }));
+  if (result.status === "failed") {
+    return {
+      result: { success: false, error: result.message, steps },
+      isError: true,
+    };
+  }
+  return {
+    result: {
+      success: true,
+      seconds: Math.round(result.ms / 100) / 10,
+      steps,
+      next: "The preview shows it. Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
+    },
+    isError: false,
+  };
+}
+
+/** The preview's widths, as the design tab names them. */
+export type DesignDevice = "desktop" | "tablet" | "mobile";
+const DEVICES: readonly DesignDevice[] = ["desktop", "tablet", "mobile"];
+
+/**
+ * `read_page` in the design tab: what the preview shows, read by the page
+ * itself through the canvas bridge (`readPageSnapshot`), so the assistant can
+ * check its change the way the person would look at it.
+ */
+export const DESIGN_READ_PAGE_TOOL: AITool = {
+  name: "read_page",
+  description:
+    "Read the page the preview shows, to check a change: its headings, text, links, buttons, images (with alt text) and inputs in order, " +
+    "each with its box (x, y, width, height in CSS pixels) and a selector. " +
+    "With selector -- one from this answer, or from what the person picked -- that element in detail: its computed styles " +
+    "(font, size, weight, colour, background, spacing, layout), how many lines its text wraps to, and its children. " +
+    "picked: true reads the element the person picked. device switches the preview's width first (desktop, tablet 820px, mobile 390px), " +
+    "which the person sees. Reads the build the preview shows: build first, and wait for it, to read a change.",
+  parameters: {
+    type: "object",
+    properties: {
+      selector: {
+        type: "string",
+        description:
+          "An element to read in detail, as this tool or <picked/> writes selectors.",
+      },
+      picked: {
+        type: "boolean",
+        description: "Read the element the person picked in the preview.",
+      },
+      device: {
+        type: "string",
+        enum: [...DEVICES],
+        description: "Switch the preview to this width before reading.",
+      },
+      max_items: {
+        type: "number",
+        description: "How many items of the outline at most (default 300).",
+      },
+    },
+    required: [],
+  },
+};
+
+/** What `read_page` needs of the design tab. */
+export type ReadPageDeps = {
+  /** Reads the page in front; `null` while no page is there to read. */
+  readPage:
+    | ((options: {
+        selector?: string;
+        maxItems?: number;
+      }) => Promise<PageSnapshot>)
+    | null;
+  /** What the person picked, if anything. */
+  pointedAt: PickedElement | null;
+  /** Switch the preview's width, and wait for the page to take it. */
+  setDevice?: (device: DesignDevice) => Promise<void>;
+};
+
+export async function runReadPage(
+  args: unknown,
+  deps: ReadPageDeps,
+): Promise<CodeToolAnswer> {
+  const fail = (error: string): CodeToolAnswer => ({
+    result: { success: false, error },
+    isError: true,
+  });
+  const input = isRecord(args) ? args : {};
+  if (deps.readPage === null) {
+    return fail(
+      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and read it again.",
+    );
+  }
+  let selector =
+    typeof input["selector"] === "string" ? input["selector"] : undefined;
+  if (input["picked"] === true) {
+    if (deps.pointedAt === null) {
+      return fail(
+        "Nothing is picked in the preview. Read the whole page, or ask the person to pick the element.",
+      );
+    }
+    selector = deps.pointedAt.selector;
+  }
+  if (input["device"] !== undefined) {
+    const device = DEVICES.find((known) => known === input["device"]);
+    if (device === undefined) {
+      return fail(`device must be one of ${DEVICES.join(", ")}.`);
+    }
+    await deps.setDevice?.(device);
+  }
+  const maxItems =
+    typeof input["max_items"] === "number" && input["max_items"] > 0
+      ? Math.min(input["max_items"], 1000)
+      : undefined;
+  try {
+    const snapshot = await deps.readPage({
+      ...(selector !== undefined ? { selector } : {}),
+      ...(maxItems !== undefined ? { maxItems } : {}),
+    });
+    return { result: { success: true, ...snapshot }, isError: false };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+}
 
 /**
  * `create_patch` in the design tab: content written into the module's FILE in
@@ -250,6 +466,7 @@ Besides content, you can read the project's code (list_files, read_file, search_
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
 - After changing code, call format_files so the files are formatted as the project's are, then typecheck and fix the type errors it reports; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
 - ${here}`;
 }
 
@@ -278,6 +495,9 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 ## Working
 - Keep each change small enough to check: write it, format it, typecheck and fix what it reports, then build.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
+- A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
+- To see a change to components, layout or styles quickly, call quick_preview after typecheck: the preview shows it in seconds. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
+- Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
 
@@ -318,7 +538,10 @@ export type CodeToolDeps = {
   client: Pick<ProposalsClient, "files" | "stageFiles" | "patchFile">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
-  build: () => Promise<ProposalBuildOutcome>;
+  /** The proposal's build: start or join it, see where it is, stop it. */
+  build: ProposalBuildControl;
+  /** For tests: waiting. */
+  sleep?: (ms: number) => Promise<void>;
   /** Typecheck the proposal, and report it: see `typecheckProposal`. */
   typecheck: () => Promise<CodeTypecheck>;
   /** Format one file as the project does; `formatWithProjectPrettier` unless a test says otherwise. */
@@ -330,6 +553,48 @@ export type CodeToolDeps = {
   /** Offer the person a proposal to make the change in. */
   offerProposal: () => void;
 };
+
+/**
+ * The proposal's build, as the assistant's tools reach it: `useProposalBuild`'s
+ * store, which the Build button and its Cancel share.
+ */
+export type ProposalBuildControl = {
+  /** Start a build, or join the one running. */
+  start: () => Promise<ProposalBuildOutcome>;
+  /** The running build, to wait for; `null` when none runs. */
+  running: () => Promise<ProposalBuildOutcome> | null;
+  /** Where it is now: see {@link BuildReport}. */
+  report: () => BuildReport;
+  /** Stop the running build; whether there was one. */
+  cancel: () => boolean;
+};
+
+/** A build's steps, as the model reads them: seconds, to one decimal. */
+export type BuildStepTimes = Array<{ step: string; seconds: number }>;
+
+/** Where the proposal's build is, for `build_status` and `wait`. */
+export type BuildReport =
+  | {
+      status: "building";
+      step: string | null;
+      elapsed_seconds: number;
+      steps: BuildStepTimes;
+    }
+  | {
+      status: "idle";
+      last: {
+        status:
+          | "built"
+          | "already-built"
+          | "nothing-staged"
+          | "failed"
+          | "cancelled";
+        error?: string;
+        seconds: number;
+        steps: BuildStepTimes;
+        ended_seconds_ago: number;
+      } | null;
+    };
 
 /** What the proposal's typecheck came to, for the `typecheck` tool. */
 export type CodeTypecheck =
@@ -469,6 +734,27 @@ export async function runCodeTool(
         isError: false,
       };
     }
+    /** `work`, or `null` once `seconds` have passed without it. */
+    const within = async <T>(
+      work: Promise<T>,
+      seconds: number,
+    ): Promise<T | null> => {
+      let clear = () => {};
+      const timeout =
+        deps.sleep !== undefined
+          ? deps.sleep(seconds * 1000).then(() => null)
+          : new Promise<null>((resolve) => {
+              // Cleared when the work wins: a wait left behind would hold
+              // the page for minutes after it is answered.
+              const timer = setTimeout(() => resolve(null), seconds * 1000);
+              clear = () => clearTimeout(timer);
+            });
+      try {
+        return await Promise.race([work, timeout]);
+      } finally {
+        clear();
+      }
+    };
     if (name === "build_proposal") {
       if (deps.proposal === null) {
         deps.offerProposal();
@@ -476,10 +762,52 @@ export async function runCodeTool(
           "Only a proposal is built here, and this Studio is on the site. The person has been offered to open one.",
         );
       }
-      const outcome = await deps.build();
-      if (outcome.status === "failed") return fail(outcome.message);
+      const seconds = waitSeconds(
+        input["wait_seconds"],
+        DEFAULT_BUILD_WAIT_SECONDS,
+      );
+      const outcome = await within(deps.build.start(), seconds);
+      if (outcome === null) {
+        return {
+          result: {
+            success: true,
+            ...deps.build.report(),
+            next: "Still building. Call wait to wait for it, build_status to see where it is, or cancel_build if it is stuck.",
+          },
+          isError: false,
+        };
+      }
+      return buildAnswer(outcome, deps.build.report());
+    }
+    if (name === "build_status") {
+      return { result: deps.build.report(), isError: false };
+    }
+    if (name === "cancel_build") {
+      const cancelled = deps.build.cancel();
       return {
-        result: { success: true, ...withoutProposal(outcome) },
+        result: cancelled
+          ? {
+              cancelled: true,
+              next: "The build was stopped. Call build_proposal to build again.",
+            }
+          : { cancelled: false, reason: "No build was running." },
+        isError: false,
+      };
+    }
+    if (name === "wait") {
+      const seconds = waitSeconds(input["seconds"], null);
+      if (seconds === null) {
+        return fail(`seconds must be a number from 1 to ${MAX_WAIT_SECONDS}.`);
+      }
+      const started = Date.now();
+      const running = deps.build.running();
+      // Nothing to end it early: the whole wait.
+      await within(running ?? new Promise<never>(() => {}), seconds);
+      return {
+        result: {
+          waited_seconds: Math.round((Date.now() - started) / 100) / 10,
+          build: deps.build.report(),
+        },
         isError: false,
       };
     }
@@ -701,6 +1029,42 @@ function withoutProposal(
 ) {
   if (outcome.status !== "built") return outcome;
   return { status: outcome.status, hash: outcome.hash };
+}
+
+/** How a build ended, as `build_proposal` answers it: with what each step took. */
+function buildAnswer(
+  outcome: ProposalBuildOutcome,
+  report: BuildReport,
+): CodeToolAnswer {
+  const last = report.status === "idle" ? report.last : null;
+  const timing =
+    last !== null ? { seconds: last.seconds, steps: last.steps } : {};
+  if (outcome.status === "failed") {
+    return {
+      result: {
+        success: false,
+        error: outcome.message,
+        ...(outcome.cancelled ? { cancelled: true } : {}),
+        ...timing,
+      },
+      isError: true,
+    };
+  }
+  return {
+    result: { success: true, ...withoutProposal(outcome), ...timing },
+    isError: false,
+  };
+}
+
+/** A tool's seconds argument, within bounds; `fallback` when it gave none. */
+function waitSeconds<F extends number | null>(
+  value: unknown,
+  fallback: F,
+): number | F {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.min(value, MAX_WAIT_SECONDS);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

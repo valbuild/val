@@ -23,6 +23,7 @@ import type {
   AskUserQuestionAnswer,
   ChatMessage,
   ChatMessageAttachment,
+  SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
 import type { ToolActivity } from "../components/AIChatToolActivities";
@@ -111,13 +112,20 @@ import {
   designSystemPrompt,
   pickedElementPrompt,
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_QUICK_PREVIEW_TOOL,
+  DESIGN_READ_PAGE_TOOL,
   isCodeTool,
   runCodeTool,
+  runQuickPreviewTool,
+  runReadPage,
+  type QuickPreviewResult,
+  type ReadPageDeps,
 } from "../proposals/proposalCode";
 import { typecheckProposal } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
   requestProposal,
+  proposalBuildControl,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
@@ -625,6 +633,8 @@ const ALL_TOOLS: AITool[] = [
  */
 const DESIGN_TOOLS: AITool[] = [
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_READ_PAGE_TOOL,
+  DESIGN_QUICK_PREVIEW_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
@@ -651,6 +661,12 @@ export type UseAIOptions = {
      */
     pointedAt?: PickedElement | null;
     onPointedAtSent?: () => void;
+    /** Reads the page the preview shows: `read_page`. */
+    readPage?: ReadPageDeps["readPage"];
+    /** Switches the preview's width: `read_page`'s `device`. */
+    setDevice?: ReadPageDeps["setDevice"];
+    /** Shows the proposal's change in seconds: `quick_preview`. */
+    quickPreview?: (() => Promise<QuickPreviewResult>) | null;
   };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
@@ -718,6 +734,18 @@ export function useAI(
     design?.proposal.name,
   ).build;
   const proposalBuildRef = useRef(proposalBuild);
+  /**
+   * The element the last message carried. The pick is cleared once it is
+   * sent, and the turn that message starts is when `read_page`'s `picked`
+   * is asked for: it means this one.
+   */
+  const lastPointedAtRef = useRef<PickedElement | null>(null);
+  /** The picked element, taken for a message that waits in the queue. */
+  const captureSendContext = useCallback((): SendContext => {
+    const pointedAt = designRef.current?.pointedAt ?? null;
+    if (pointedAt !== null) designRef.current?.onPointedAtSent?.();
+    return { pointedAt };
+  }, []);
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
     () => ({
@@ -2082,6 +2110,43 @@ export function useAI(
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
         } else if (
+          designRef.current !== null &&
+          message.name === "quick_preview"
+        ) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runQuickPreviewTool(designRef.current.quickPreview ?? null).then(
+            ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            },
+          );
+        } else if (designRef.current !== null && message.name === "read_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const design = designRef.current;
+          void runReadPage(message.arguments, {
+            readPage: design.readPage ?? null,
+            // Picked now, or carried by the message this turn answers.
+            pointedAt: design.pointedAt ?? lastPointedAtRef.current,
+            ...(design.setDevice !== undefined
+              ? { setDevice: design.setDevice }
+              : {}),
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (
           isCodeTool(message.name) ||
           // The design tab's create_patch writes into the proposal's files:
           // `DESIGN_CREATE_PATCH_TOOL`.
@@ -2094,15 +2159,7 @@ export function useAI(
             proposal: currentProposalRef.current,
             client: codeClients.proposals,
             siteSource: () => codeClients.publish.projectSource(),
-            build: () => {
-              const build = proposalBuildRef.current;
-              return build === null
-                ? Promise.resolve({
-                    status: "failed",
-                    message: "Only a proposal is built here.",
-                  })
-                : build();
-            },
+            build: proposalBuildControl(proposalBuildRef.current),
             typecheck: () => {
               const proposal = currentProposalRef.current;
               return proposal === null
@@ -2693,6 +2750,11 @@ export function useAI(
     (
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
+      /**
+       * Taken when the message was written, for one that waited in the
+       * queue: its picked element, rather than whatever is picked now.
+       */
+      context?: SendContext,
     ): boolean => {
       // No reachable provider means no key is configured for any of them. Refuse
       // here rather than send a prompt the server will refuse: this way the chat
@@ -2755,9 +2817,16 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt = designRef.current?.pointedAt ?? null;
+      const pointedAt =
+        context !== undefined
+          ? context.pointedAt
+          : (designRef.current?.pointedAt ?? null);
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
+      }
+      lastPointedAtRef.current = pointedAt;
+      // Taken with the message when it was written, when it carries one.
+      if (context === undefined && pointedAt !== null) {
         designRef.current?.onPointedAtSent?.();
       }
       const contentBlocks: AIMessageContentBlock[] = [
@@ -3217,6 +3286,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    captureSendContext,
     uploadAiImage,
     isStreaming,
     /** Stop the running prompt. False when there is nothing running. */

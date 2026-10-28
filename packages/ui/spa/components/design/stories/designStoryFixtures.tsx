@@ -116,6 +116,18 @@ export const chat = (messages: ChatMessage[]) => (
   />
 );
 
+/** A build of a small site, as `useProposalBuild` times it. */
+export const BUILD_TIMINGS = [
+  { step: "Reading the proposal", ms: 420 },
+  { step: "Loading the builder", ms: 1_850 },
+  { step: "Reading the site", ms: 960 },
+  { step: "Building", ms: 14_300 },
+  { step: "Preparing the upload", ms: 610 },
+  { step: "Uploading", ms: 5_200 },
+  { step: "Checking the upload", ms: 740 },
+  { step: "Serving the build at the proposal's address", ms: 17_100 },
+];
+
 export const BASE: DesignTabViewProps = {
   proposal: {
     displayName: "Front page testimonials",
@@ -140,9 +152,20 @@ export const BASE: DesignTabViewProps = {
   checkpoints: CHECKPOINTS,
   checks: [
     { label: "Types", check: { state: "passed" } },
-    { label: "Build", check: { state: "passed", detail: "renders" } },
+    {
+      label: "Build",
+      check: { state: "passed", detail: "renders · built in 41s" },
+      timings: BUILD_TIMINGS,
+    },
   ],
-  build: { required: false, building: false, progress: null, onBuild: null },
+  build: {
+    required: false,
+    building: false,
+    progress: null,
+    startedAt: null,
+    onBuild: null,
+    onCancel: () => {},
+  },
   builder: { kind: "in-tab" },
   problem: null,
   preview: <DesignSiteMock testimonials="cards" />,

@@ -93,6 +93,7 @@ function ConnectedChat({
   const initialSessionIdRef = useRef(sessionParam);
   const {
     sendMessage,
+    captureSendContext,
     uploadAiImage,
     isConnected,
     authError,
@@ -170,6 +171,7 @@ function ConnectedChat({
       className={className}
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
+      onCaptureSendContext={captureSendContext}
       onCancel={cancel}
       models={aiModels.models}
       selectedModel={aiModels.selected}
