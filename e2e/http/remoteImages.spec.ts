@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 import { mock, openHttpStudio, publishAll, sessionCookie } from "./httpMode";
 import {
   attachImage,
@@ -48,6 +48,19 @@ type WayIn = {
   module: string;
   /** The directory under `/public` its ref names. */
   dir: string;
+  /**
+   * How its bytes reach the content service: uploaded from the browser, or
+   * MOVED from the image attached in the chat -- a pointer at the object the
+   * session file already is, which nothing should turn into a download and an
+   * upload again.
+   */
+  arrives: "upload" | "session-file";
+  /**
+   * For an image moved from the chat: whether the Studio downloads it while
+   * adding it. Only to hash it, and only when the content service did not say
+   * what the hash is.
+   */
+  downloads?: boolean;
   /** Put {@link IMAGE} there, starting from a fresh page. */
   add(page: Page): Promise<void>;
 };
@@ -88,6 +101,7 @@ const WAYS_IN: WayIn[] = [
     name: "the gallery's Upload button",
     module: GALLERY,
     dir: "/public/remote-images/",
+    arrives: "upload",
     async add(page) {
       await openHttpStudio(page, `/val/~${GALLERY}`);
       await uploadWhenReady(page.locator("#val-shadow-root"), IMAGE);
@@ -97,6 +111,8 @@ const WAYS_IN: WayIn[] = [
     name: "the assistant, into the gallery",
     module: GALLERY,
     dir: "/public/remote-images/",
+    arrives: "session-file",
+    downloads: false,
     async add(page) {
       await assistantAdds(page, "add_session_image_to_gallery", {
         image_key: "{{imageKey:0}}",
@@ -107,9 +123,29 @@ const WAYS_IN: WayIn[] = [
     },
   },
   {
+    // A content service from before `from-session-file` handed back the
+    // hash: the Studio reads the bytes back to hash them, and still uploads
+    // nothing.
+    name: "the assistant, into the gallery, with no hash from the service",
+    module: GALLERY,
+    dir: "/public/remote-images/",
+    arrives: "session-file",
+    downloads: true,
+    async add(page) {
+      await mock.aiSessionSha256(false);
+      await assistantAdds(page, "add_session_image_to_gallery", {
+        image_key: "{{imageKey:0}}",
+        module_file_path: GALLERY,
+        file_path: "/public/remote-images/ai-unhashed.png",
+        alt: "A blue square",
+      });
+    },
+  },
+  {
     name: "the image field's picker",
     module: FIELDS,
     dir: "/public/val/",
+    arrives: "upload",
     async add(page) {
       await openHttpStudio(page, `/val/~${FIELDS}?p=%22image%22`);
       const picker = page
@@ -125,6 +161,8 @@ const WAYS_IN: WayIn[] = [
     name: "the assistant, into an image field",
     module: FIELDS,
     dir: "/public/val/",
+    arrives: "session-file",
+    downloads: false,
     async add(page) {
       await assistantAdds(page, "create_patch", {
         module_file_path: FIELDS,
@@ -142,6 +180,8 @@ const WAYS_IN: WayIn[] = [
     name: "the assistant, into rich text",
     module: FIELDS,
     dir: "/public/val/",
+    arrives: "session-file",
+    downloads: false,
     async add(page) {
       await assistantAdds(page, "create_patch", {
         module_file_path: FIELDS,
@@ -201,22 +241,36 @@ for (const way of WAYS_IN) {
   test(`added by ${way.name}: stored remote, shown, and still shown once published`, async ({
     page,
   }) => {
+    // Every request for file bytes while the image is being added: nothing
+    // on screen shows one yet, so any is the Studio reading it back.
+    const reads: string[] = [];
+    const onRequest = (request: Request) => {
+      if (request.url().includes("/api/val/files/")) reads.push(request.url());
+    };
+    page.on("request", onRequest);
     await way.add(page);
+    page.off("request", onRequest);
+    if (way.downloads !== undefined) {
+      expect(
+        reads.length > 0,
+        way.downloads
+          ? "the image was not read back to hash it"
+          : `the image was downloaded, though the service sent its hash: ${reads.join(", ")}`,
+      ).toBe(way.downloads);
+    }
 
-    // 1. Its bytes reached the content service as a remote file. (On the wire
-    //    a remote file is filed by its `/public` path; the ref travels beside
-    //    it.) Only remote files are counted: the assistant's image also arrives
-    //    as a local file of the same patch, which it is read back from.
+    // 1. Its bytes reached the content service once, as a remote file, the
+    //    way this way in sends them. (On the wire a remote file is filed by its
+    //    `/public` path; the ref travels beside it.)
     await expect
-      .poll(
-        async () =>
-          (await mock.state()).patchFiles.filter((file) => file.remote).length,
-        { timeout: 30_000, message: "no remote file reached the service" },
-      )
+      .poll(async () => (await mock.state()).patchFiles.length, {
+        timeout: 30_000,
+        message: "no file reached the service",
+      })
       .toBe(1);
-    const [{ filePath }] = (await mock.state()).patchFiles.filter(
-      (file) => file.remote,
-    );
+    const [file] = (await mock.state()).patchFiles;
+    expect(file).toMatchObject({ remote: true, source: way.arrives });
+    const { filePath } = file;
     expect(filePath.startsWith(way.dir), filePath).toBe(true);
     const filename = filePath.slice(filePath.lastIndexOf("/") + 1);
 

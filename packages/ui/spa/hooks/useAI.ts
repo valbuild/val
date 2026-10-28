@@ -85,10 +85,7 @@ import {
   useRemoteUploadSettings,
   type RemoteUploadReadiness,
 } from "../components/ValRemoteProvider";
-import {
-  readBackSessionImage,
-  type ReadBackSessionImage,
-} from "../utils/sessionImageToRemote";
+import { nameSessionImageRemote } from "../utils/sessionImageToRemote";
 import { galleryEntrySchemaOf } from "../utils/uploadLocalMedia";
 import { z } from "zod";
 import {
@@ -105,7 +102,7 @@ import {
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
-  type SessionKeyReadBack,
+  type SessionKeyRemoteNamer,
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
@@ -664,32 +661,27 @@ export type UseAIOptions = {
 };
 
 /**
- * How the assistant's tools read a session image back off its patch: as it
- * is for a local file, under its remote ref for a remote one -- which needs
- * the project's remote settings, so a remote image fails here, saying why,
- * until they have loaded.
+ * How the assistant's tools name a session image in remote storage. Needs the
+ * project's remote settings, so a remote image fails here, saying why, until
+ * they have loaded.
  */
-function readBackWith(remoteUpload: RemoteUploadReadiness): SessionKeyReadBack {
-  return async ({ localPath, patchId, remoteSchema, metadata }) => {
-    if (remoteSchema === null) {
-      return readBackSessionImage({
-        localPath,
-        patchId,
-        metadata,
-        remote: null,
-      });
-    }
+function nameRemoteWith(
+  remoteUpload: RemoteUploadReadiness,
+): SessionKeyRemoteNamer {
+  return async ({ localPath, patchId, remoteSchema, metadata, sha256 }) => {
     if (remoteUpload.status !== "ready") {
       return {
         status: "error",
         message: `Remote files are not ready: ${remoteUpload.message}`,
       };
     }
-    return readBackSessionImage({
+    return nameSessionImageRemote({
       localPath,
       patchId,
+      schema: remoteSchema,
       metadata,
-      remote: { schema: remoteSchema, settings: remoteUpload.settings },
+      sha256,
+      remote: remoteUpload.settings,
     });
   };
 }
@@ -1401,7 +1393,7 @@ export function useAI(
                 patchId,
                 parentRef,
                 transfer: aiSessionImagesToPatchFile,
-                readBack: readBackWith(remoteUploadRef.current),
+                nameRemote: nameRemoteWith(remoteUploadRef.current),
               });
             } catch (err) {
               const availableKeys =
@@ -1494,9 +1486,8 @@ export function useAI(
               sessionIdRef.current,
               // The id the bytes were attached to, above.
               patchId,
-              // ...by the content service, so the store must not upload them
-              // -- unless they were read back, to go to remote storage.
-              expanded.filesAlreadyUploaded,
+              // ...by the content service, so the store must not upload them.
+              true,
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -1588,6 +1579,7 @@ export function useAI(
             let sessionRes: {
               filePath: string;
               metadata: ImageMetadata;
+              sha256?: string;
             };
             try {
               const batchRes = await aiSessionImagesToPatchFile({
@@ -1597,10 +1589,7 @@ export function useAI(
                   {
                     filePath: args.file_path,
                     key: args.image_key,
-                    // Local even for a remote gallery: the service cannot name
-                    // the ref a remote entry is keyed by. See
-                    // `sessionImageAsRemote`, below.
-                    isRemote: false,
+                    isRemote,
                   },
                 ],
               });
@@ -1649,11 +1638,10 @@ export function useAI(
               metadata.hotspot = args.hotspot as { x: number; y: number };
             }
 
-            // Where the entry is keyed, and what its `file` op carries: the
-            // path and the session key, which the service has already made
-            // into bytes on the patch -- or, in a remote gallery, the ref and
-            // the bytes themselves, to go up as any remote upload does.
-            let entry = { filePath: args.file_path, imageKey: args.image_key };
+            // Where the entry is keyed: the path the model named, or in a
+            // remote gallery the ref its bytes hash to. The bytes are on the
+            // patch either way, under the path.
+            let entryKey = args.file_path;
             if (isRemote) {
               if (moduleSchema.type !== "record") {
                 sendWsMessage({
@@ -1668,35 +1656,31 @@ export function useAI(
                 chatRef.current?.errorToolCall(messageId, toolCallId);
                 return;
               }
-              const asRemote: ReadBackSessionImage = await readBackWith(
-                remoteUploadRef.current,
-              )({
+              const named = await nameRemoteWith(remoteUploadRef.current)({
                 localPath: args.file_path,
                 patchId,
                 remoteSchema: galleryEntrySchemaOf(moduleSchema),
                 metadata,
+                sha256: sessionRes.sha256,
               });
-              if (asRemote.status === "error") {
+              if (named.status === "error") {
                 sendWsMessage({
                   type: "ai_tool_result",
                   toolCallId,
                   result: {
                     success: false,
-                    error: `Could not add the image to a remote gallery: ${asRemote.message}`,
+                    error: `Could not add the image to a remote gallery: ${named.message}`,
                   },
                   isError: true,
                 });
                 chatRef.current?.errorToolCall(messageId, toolCallId);
                 return;
               }
-              entry = {
-                filePath: asRemote.file.filePath,
-                imageKey: asRemote.file.dataUrl,
-              };
+              entryKey = named.ref;
             }
 
             const buildResult: BuildResult = buildImageGalleryPatch(
-              { ...entry, metadata },
+              { filePath: entryKey, imageKey: args.image_key, metadata },
               moduleSchema,
             );
 
@@ -1767,9 +1751,8 @@ export function useAI(
               sessionIdRef.current,
               // The id the bytes were attached to, above.
               patchId,
-              // ...by the content service, so the store must not upload them
-              // -- except a remote gallery's, which the `file` op carries.
-              !isRemote,
+              // ...by the content service, so the store must not upload them.
+              true,
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1779,7 +1762,7 @@ export function useAI(
                   success: true,
                   patchId: patchRes.patchId,
                   // The entry's key, which is a ref in a remote gallery.
-                  filePath: entry.filePath,
+                  filePath: entryKey,
                   message: "Image converted to patch successfully.",
                 },
               });

@@ -175,6 +175,12 @@ type MockPatchFile = {
   type: "file" | "image";
   metadata: unknown;
   remote: boolean;
+  /**
+   * How the bytes got here: uploaded by the browser, or moved from an image
+   * attached in the AI chat (`from-session-file`), which is a pointer in
+   * production and must stay one -- a test tells the two apart by this.
+   */
+  source: "upload" | "session-file";
 };
 
 type MockPatch = {
@@ -452,6 +458,12 @@ type State = {
    */
   aiOffline: boolean;
   /**
+   * Whether `from-session-file` hands back each image's SHA-256, as home does
+   * since it started to. Off is a content service that predates it, which the
+   * Studio still has to name remote files against.
+   */
+  aiSessionSha256: boolean;
+  /**
    * Whether this project publishes as JOBS (`project.publishJobs` on the
    * overlay). OFF by default: a connected project that commits is what every
    * other spec here was written against. See the publish jobs region.
@@ -483,6 +495,7 @@ function emptyState(): State {
     aiPrompts: [],
     aiToolCalls: [],
     aiOffline: false,
+    aiSessionSha256: true,
     publishJobsEnabled: false,
     publishTokens: new Set(),
     publishRequests: new Map(),
@@ -1057,6 +1070,7 @@ const savePatchFile: Handler = async (req, res, url) => {
     type: body.type,
     metadata: body.metadata,
     remote: body.remote === true,
+    source: "upload",
   });
   json(res, 200, { patchId, filePath: body.filePath });
 };
@@ -1956,7 +1970,8 @@ const aiSessionFileToPatchFile: Handler = async (req, res, url) => {
     json(res, 400, { message: "Invalid from-session-file body" });
     return;
   }
-  const resolved: { filePath: string; metadata: unknown }[] = [];
+  const resolved: { filePath: string; metadata: unknown; sha256?: string }[] =
+    [];
   for (const requested of body.files) {
     const image = state.aiImages.get(requested.key);
     if (!image) {
@@ -1984,6 +1999,7 @@ const aiSessionFileToPatchFile: Handler = async (req, res, url) => {
         mimeType: image.mimeType,
       },
       remote: requested.isRemote === true,
+      source: "session-file",
     });
     resolved.push({
       filePath: requested.filePath,
@@ -1992,6 +2008,11 @@ const aiSessionFileToPatchFile: Handler = async (req, res, url) => {
         height: image.height,
         mimeType: image.mimeType,
       },
+      // What a remote file's ref names, so the Studio need not download the
+      // image to hash it.
+      ...(state.aiSessionSha256
+        ? { sha256: createHash("sha256").update(image.data).digest("hex") }
+        : {}),
     });
   }
   json(res, 200, { patchId, files: resolved });
@@ -2614,6 +2635,7 @@ const controlPlane: Handler = async (req, res, url) => {
           type: file.type,
           remote: file.remote,
           bytes: file.bytes.byteLength,
+          source: file.source,
         })),
       ),
       commits: state.commits,
@@ -2674,6 +2696,12 @@ const controlPlane: Handler = async (req, res, url) => {
     }
     state.aiScripts.push(body);
     json(res, 200, { queued: state.aiScripts.length });
+    return;
+  }
+  if (action === "ai-session-sha256" && req.method === "POST") {
+    const body = await readJsonBody<{ enabled?: boolean }>(req);
+    state.aiSessionSha256 = body?.enabled !== false;
+    json(res, 200, { enabled: state.aiSessionSha256 });
     return;
   }
   if (action === "ai-offline" && req.method === "POST") {

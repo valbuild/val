@@ -11,7 +11,7 @@ import {
   isSessionKey,
   planSessionKeyExpansion,
   type SessionKey,
-  type SessionKeyReadBack,
+  type SessionKeyRemoteNamer,
   type SessionKeyTransfer,
 } from "./expandSessionKeysInPatch";
 import type { PatchId } from "@valbuild/core";
@@ -332,10 +332,23 @@ describe("expandSessionKeysInPatch", () => {
 
 describe("expandSessionKeysInPatch, into remote storage", () => {
   const metadata = { width: 8, height: 8, mimeType: "image/png" };
-  const transfer: SessionKeyTransfer = async (transferArgs) => ({
-    patchId: transferArgs.patchId,
-    files: transferArgs.files.map((f) => ({ filePath: f.filePath, metadata })),
-  });
+  const SHA = "a".repeat(64);
+  /** A content service that hands back the hash -- or, `withSha` false, one that predates it. */
+  function recordingTransfer(withSha = true) {
+    const calls: Parameters<SessionKeyTransfer>[0][] = [];
+    const transfer: SessionKeyTransfer = async (transferArgs) => {
+      calls.push(transferArgs);
+      return {
+        patchId: transferArgs.patchId,
+        files: transferArgs.files.map((f) => ({
+          filePath: f.filePath,
+          metadata,
+          ...(withSha ? { sha256: SHA } : {}),
+        })),
+      };
+    };
+    return { calls, transfer };
+  }
   function sessionKey(name: string): SessionKey {
     return {
       key: `session-key-${name}`,
@@ -344,32 +357,27 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       _tag: "image",
     };
   }
-  /** Reads back every site, naming a remote one as a fake ref. */
-  function recordingReadBack() {
-    const calls: Parameters<SessionKeyReadBack>[0][] = [];
-    const readBack: SessionKeyReadBack = async (args) => {
+  /** Names a remote file as a fake ref, recording what it was asked. */
+  function recordingNamer() {
+    const calls: Parameters<SessionKeyRemoteNamer>[0][] = [];
+    const nameRemote: SessionKeyRemoteNamer = async (args) => {
       calls.push(args);
       return {
         status: "ok",
-        file: {
-          filePath: args.remoteSchema
-            ? `https://remote.val.build/file/p/x${args.localPath}`
-            : args.localPath,
-          dataUrl: `data:image/png;base64,${args.localPath}`,
-        },
+        ref: `https://remote.val.build/file/p/x${args.localPath}`,
       };
     };
-    return { calls, readBack };
+    return { calls, nameRemote };
   }
 
-  test("a remote image field is stored under its ref, with its bytes, and attached as local first", async () => {
+  test("a remote image field is moved as remote and stored under its ref, named from the service's hash", async () => {
     const { schema, source } = serialize(
       c.define("/content/page.val.ts", s.object({ hero: s.image().remote() }), {
         hero: null as unknown as never,
       }),
     );
-    const transferCalls: Parameters<SessionKeyTransfer>[0][] = [];
-    const { calls, readBack } = recordingReadBack();
+    const { calls: transfers, transfer } = recordingTransfer();
+    const { calls: names, nameRemote } = recordingNamer();
     const result = await expandSessionKeysInPatch({
       patch: Patch.parse([
         { op: "replace", path: ["hero"], value: sessionKey("hero") },
@@ -378,28 +386,27 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       moduleSource: source,
       patchId: "patch-r" as PatchId,
       parentRef: { type: "head", headBaseSha: "test-sha" },
-      transfer: async (args) => {
-        transferCalls.push(args);
-        return transfer(args);
-      },
-      readBack,
+      transfer,
+      nameRemote,
     });
 
-    // The service cannot name a remote file, so the bytes go on as local.
-    expect(transferCalls[0].files).toEqual([
+    // Attached as remote, under its `/public` path: the bytes move, as is.
+    expect(transfers[0].files).toEqual([
       {
         filePath: "/public/val/images/hero.png",
         key: "session-key-hero",
-        isRemote: false,
+        isRemote: true,
       },
     ]);
-    // ...and are read back, hashed against the field's own schema.
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
+    // ...and named from the hash the service returned, against the field's
+    // own schema.
+    expect(names).toHaveLength(1);
+    expect(names[0]).toMatchObject({
       localPath: "/public/val/images/hero.png",
       patchId: "patch-r",
       remoteSchema: { type: "image", remote: true },
       metadata,
+      sha256: SHA,
     });
     if (result.kind !== "ok") {
       throw new Error(`Expected ok result, got ${result.kind}`);
@@ -415,16 +422,37 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
         op: "file",
         path: ["hero"],
         filePath: ref,
-        value: "data:image/png;base64,/public/val/images/hero.png",
+        // The session key: the bytes are already on the patch.
+        value: "session-key-hero",
         remote: true,
         metadata,
       },
     ]);
-    // The bytes are in the patch, so the store has to upload them.
-    expect(result.filesAlreadyUploaded).toBe(false);
   });
 
-  test("a remote inline image in rich text is hashed against the rich text's img schema", async () => {
+  test("against a service that sends no hash, the namer is asked without one", async () => {
+    const { schema, source } = serialize(
+      c.define("/content/page.val.ts", s.object({ hero: s.image().remote() }), {
+        hero: null as unknown as never,
+      }),
+    );
+    const { calls: names, nameRemote } = recordingNamer();
+    const result = await expandSessionKeysInPatch({
+      patch: Patch.parse([
+        { op: "replace", path: ["hero"], value: sessionKey("hero") },
+      ]),
+      moduleSchema: schema,
+      moduleSource: source,
+      patchId: "patch-o" as PatchId,
+      parentRef: { type: "head", headBaseSha: "test-sha" },
+      transfer: recordingTransfer(false).transfer,
+      nameRemote,
+    });
+    expect(result.kind).toBe("ok");
+    expect(names[0].sha256).toBeUndefined();
+  });
+
+  test("a remote inline image in rich text is named against the rich text's img schema", async () => {
     const { schema, source } = serialize(
       c.define(
         "/content/article.val.ts",
@@ -432,7 +460,7 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
         { body: [] },
       ),
     );
-    const { calls, readBack } = recordingReadBack();
+    const { calls: names, nameRemote } = recordingNamer();
     const result = await expandSessionKeysInPatch({
       patch: Patch.parse([
         {
@@ -445,10 +473,10 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       moduleSource: source,
       patchId: "patch-rt" as PatchId,
       parentRef: { type: "head", headBaseSha: "test-sha" },
-      transfer,
-      readBack,
+      transfer: recordingTransfer().transfer,
+      nameRemote,
     });
-    expect(calls[0].remoteSchema).toMatchObject({
+    expect(names[0].remoteSchema).toMatchObject({
       type: "image",
       remote: true,
     });
@@ -464,14 +492,12 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       op: "file",
       nestedFilePath: ["src"],
       filePath: ref,
+      value: "session-key-inline",
       remote: true,
     });
-    expect(result.filesAlreadyUploaded).toBe(false);
   });
 
-  test("beside a remote image, a local one is read back too, under its own path", async () => {
-    // The store uploads a patch's files or none of them, so a session key
-    // left in the local site's `file` op would be uploaded AS its bytes.
+  test("beside a remote image, a local one is left as it is", async () => {
     const { schema, source } = serialize(
       c.define(
         "/content/page.val.ts",
@@ -479,7 +505,8 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
         { hero: null as unknown as never, logo: null as unknown as never },
       ),
     );
-    const { calls, readBack } = recordingReadBack();
+    const { calls: transfers, transfer } = recordingTransfer();
+    const { calls: names, nameRemote } = recordingNamer();
     const result = await expandSessionKeysInPatch({
       patch: Patch.parse([
         { op: "replace", path: ["hero"], value: sessionKey("hero") },
@@ -490,11 +517,11 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       patchId: "patch-m" as PatchId,
       parentRef: { type: "head", headBaseSha: "test-sha" },
       transfer,
-      readBack,
+      nameRemote,
     });
-    expect(calls.map((call) => call.remoteSchema === null)).toEqual([
-      false,
-      true,
+    expect(transfers[0].files.map((f) => f.isRemote)).toEqual([true, false]);
+    expect(names.map((n) => n.localPath)).toEqual([
+      "/public/val/images/hero.png",
     ]);
     if (result.kind !== "ok") {
       throw new Error(`Expected ok result, got ${result.kind}`);
@@ -503,40 +530,13 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       op: "file",
       path: ["logo"],
       filePath: "/public/val/images/logo.png",
-      value: "data:image/png;base64,/public/val/images/logo.png",
+      value: "session-key-logo",
       remote: false,
       metadata,
     });
-    expect(result.filesAlreadyUploaded).toBe(false);
   });
 
-  test("a local image alone is not read back: its bytes are already on the patch", async () => {
-    const { schema, source } = serialize(
-      c.define("/content/page.val.ts", s.object({ logo: s.image() }), {
-        logo: null as unknown as never,
-      }),
-    );
-    const { calls, readBack } = recordingReadBack();
-    const result = await expandSessionKeysInPatch({
-      patch: Patch.parse([
-        { op: "replace", path: ["logo"], value: sessionKey("logo") },
-      ]),
-      moduleSchema: schema,
-      moduleSource: source,
-      patchId: "patch-l" as PatchId,
-      parentRef: { type: "head", headBaseSha: "test-sha" },
-      transfer,
-      readBack,
-    });
-    expect(calls).toHaveLength(0);
-    if (result.kind !== "ok") {
-      throw new Error(`Expected ok result, got ${result.kind}`);
-    }
-    expect(result.patch[1]).toMatchObject({ value: "session-key-logo" });
-    expect(result.filesAlreadyUploaded).toBe(true);
-  });
-
-  test("a remote image with nothing to read it back is refused, not written as local", async () => {
+  test("a remote image with nothing to name it is refused, not stored under a repo path", async () => {
     const { schema, source } = serialize(
       c.define("/content/page.val.ts", s.object({ hero: s.image().remote() }), {
         hero: null as unknown as never,
@@ -550,7 +550,7 @@ describe("expandSessionKeysInPatch, into remote storage", () => {
       moduleSource: source,
       patchId: "patch-n" as PatchId,
       parentRef: { type: "head", headBaseSha: "test-sha" },
-      transfer,
+      transfer: recordingTransfer().transfer,
     });
     expect(result.kind).toBe("error");
   });

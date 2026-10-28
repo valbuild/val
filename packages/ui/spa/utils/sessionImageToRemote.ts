@@ -1,5 +1,4 @@
 import {
-  Internal,
   type PatchId,
   type SerializedFileSchema,
   type SerializedImageSchema,
@@ -7,68 +6,49 @@ import {
 import { fetchMediaBytes } from "./fetchMediaBytes";
 import { remoteRefOf, type RemoteUploadSettings } from "./uploadLocalMedia";
 
-export type ReadBackSessionImage =
-  | { status: "ok"; file: { filePath: string; dataUrl: string } }
-  | { status: "error"; message: string };
-
 /**
- * An image the assistant was given, read back so it can go to REMOTE storage.
+ * The remote ref an image the assistant was given is stored under.
  *
- * The content service attaches a session image to a patch at the path it is
- * given, and that is all it does: it does not hash the bytes, so it cannot
- * name the remote ref a remote schema stores. Asked to attach it as remote
- * under a `/public` path anyway, it did -- and the value named a path the
- * Studio reads as LOCAL, looked up a local file that was never there, and
- * showed a broken image; published, the bytes went to remote storage and the
- * content still named the repository.
+ * The content service attaches a session image to a patch by pointing the
+ * patch's file at the object the image already is: nothing is copied, and a
+ * remote one is filed under its `/public` path, as every remote upload is.
+ * What it is stored UNDER, in the content, is a ref -- and a ref names the
+ * SHA-256 of the bytes. Stored under the `/public` path instead, the Studio
+ * read it as a local file, asked for one that was never there, and showed a
+ * broken image.
  *
- * So the bytes are attached as a local file first (`localPath`, in `patchId`),
- * read back from where a draft is served, and handed on with the path they
- * are stored under: with a `remote` target, the ref they hash to -- by
- * `remoteRefOf`, the rule every other Studio upload to remote storage uses --
- * and without one, `localPath` itself. The caller writes them in a `file` op
- * as a data URL, so they go up the way a picked file does.
+ * The service hands the hash back with the transfer (`sha256`). One that
+ * predates that does not, and then the bytes are read back from where the
+ * draft is served, to hash them -- a download, and only that: the bytes are
+ * already on the patch, so nothing goes up again. The ref itself is made by
+ * `remoteRefOf`, the rule every other Studio upload to remote storage uses.
  */
-export async function readBackSessionImage(args: {
+export async function nameSessionImageRemote(args: {
   /** Where the session image was attached: `/public/val/images/a.png`. */
   localPath: string;
   patchId: PatchId;
+  schema: SerializedImageSchema | SerializedFileSchema;
   /** As it will be stored; its width, height and mime type are hashed. */
   metadata: { mimeType?: string } & Record<string, unknown>;
-  /** Where it goes: remote storage, named for `schema`, or `null` to stay. */
-  remote: {
-    schema: SerializedImageSchema | SerializedFileSchema;
-    settings: RemoteUploadSettings;
-  } | null;
-}): Promise<ReadBackSessionImage> {
-  const { localPath, patchId, metadata, remote } = args;
-  const filename = localPath.slice(localPath.lastIndexOf("/") + 1);
-  const fetched = await fetchMediaBytes(
-    Internal.mediaUrl({ path: localPath, patch_id: patchId }),
-    filename,
-    metadata.mimeType,
-  );
-  if (fetched.status === "error") {
-    return { status: "error", message: fetched.message };
+  /** What the content service said the bytes hash to, where it said. */
+  sha256: string | undefined;
+  remote: RemoteUploadSettings;
+}): Promise<
+  { status: "ok"; ref: string } | { status: "error"; message: string }
+> {
+  const { localPath, patchId, schema, metadata, remote } = args;
+  let sha256 = args.sha256;
+  if (sha256 === undefined) {
+    const filename = localPath.slice(localPath.lastIndexOf("/") + 1);
+    const fetched = await fetchMediaBytes(
+      `/api/val/files${localPath}?patch_id=${encodeURIComponent(patchId)}&remote=true`,
+      filename,
+      metadata.mimeType,
+    );
+    if (fetched.status === "error") {
+      return { status: "error", message: fetched.message };
+    }
+    sha256 = fetched.bytes.sha256;
   }
-  if (remote === null) {
-    return {
-      status: "ok",
-      file: { filePath: localPath, dataUrl: fetched.bytes.dataUrl },
-    };
-  }
-  const made = remoteRefOf({
-    localPath,
-    schema: remote.schema,
-    metadata,
-    sha256: fetched.bytes.sha256,
-    remote: remote.settings,
-  });
-  if (made.status === "error") {
-    return made;
-  }
-  return {
-    status: "ok",
-    file: { filePath: made.ref, dataUrl: fetched.bytes.dataUrl },
-  };
+  return remoteRefOf({ localPath, schema, metadata, sha256, remote });
 }
