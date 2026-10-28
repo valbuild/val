@@ -53,6 +53,7 @@ import {
 } from "../components/ValProvider";
 import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
+  AIModel,
   AISession,
   AIServerMessage,
   AIMessageContentBlock,
@@ -1005,12 +1006,45 @@ export function useAI(
   // server does.
   const { selected: selectedModel } = useAIModelSelection();
   const defaultModel = useAvailableAIModel();
-  const chatModel = selectedModel ?? defaultModel;
+  const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  /**
+   * The model the open chat is held to, once it has started.
+   *
+   * A chat keeps the model it began with: changing it halfway through hands the
+   * rest of the conversation to a model that did not write the first half, and
+   * the picker is shared by every surface (the design tab, the panel, the
+   * on-page window), so a pick made for a new chat in one of them would
+   * otherwise move a chat already running in another. Kept here because the
+   * content server does not say which model a chat used: a chat loaded from the
+   * list is held to the model it continues on.
+   *
+   * A ref beside the state because `sendMessage` locks on the first send and
+   * must read the lock in the same call, before a render has happened.
+   */
+  const [sessionModel, setSessionModel] = useState<AIModel | null>(null);
+  const sessionModelRef = useRef<AIModel | null>(null);
+  const lockModel = useCallback((model: AIModel | null) => {
+    sessionModelRef.current = model;
+    setSessionModel(model);
+  }, []);
+  const chatModel = sessionModel ?? pickedModel;
+  // A chat that exists is held, however it came to exist: a first message, an
+  // image attached before one, or a chat loaded from the list or the URL —
+  // which may happen before the models are known, hence the wait for one.
+  useEffect(() => {
+    if (currentSessionId === null) {
+      if (sessionModelRef.current !== null) lockModel(null);
+      return;
+    }
+    if (sessionModelRef.current === null && pickedModel !== null) {
+      lockModel(pickedModel);
+    }
+  }, [currentSessionId, pickedModel, lockModel]);
   // Keep callbacks in a ref so we don't have to thread them through every useCallback dep array.
   const onSessionBornRef = useRef(opts?.onSessionBorn);
   const onSessionClearedRef = useRef(opts?.onSessionCleared);
@@ -2781,6 +2815,8 @@ export function useAI(
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
+      const model = sessionModelRef.current ?? chatModel;
+      if (sessionModelRef.current === null) lockModel(model);
       const baseText =
         typeof content === "string" ? content : chatDocumentToHtmlText(content);
       // Pull inline image nodes out of the rich document so their keys are
@@ -2854,7 +2890,7 @@ export function useAI(
             // provider and not another, and asking for the wrong one is
             // refused. Null means AI is off, which is checked before we get
             // here.
-            model: chatModel,
+            model,
             systemPrompt:
               designRef.current !== null
                 ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
@@ -2968,7 +3004,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [chatModel, chatRef, sendWsMessage],
+    [chatModel, chatRef, sendWsMessage, lockModel],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -3088,12 +3124,13 @@ Do not describe what you will do unless you do it for clarification — just do 
     rejectPendingQuestions("User started a new session.");
     sessionIdRef.current = null;
     setCurrentSessionId(null);
+    lockModel(null);
     serverMessagesRef.current = [];
     setServerMessages([]);
     setTurnBy(null);
     chatRef.current?.clearMessages();
     onSessionClearedRef.current?.();
-  }, [chatRef, rejectPendingQuestions]);
+  }, [chatRef, rejectPendingQuestions, lockModel]);
 
   const getSessions = useCallback(
     async (opts?: {
@@ -3125,6 +3162,10 @@ Do not describe what you will do unless you do it for clarification — just do 
   const loadSession = useCallback(
     async (sessionId: string): Promise<void> => {
       rejectPendingQuestions("User switched to a different session.");
+      // Not the chat it is leaving's model: the effect above holds this one
+      // to the model it continues on. The same chat opened again keeps its
+      // own, since the effect would not run again to put it back.
+      if (sessionIdRef.current !== sessionId) lockModel(null);
       sessionIdRef.current = sessionId;
       setCurrentSessionId(sessionId);
       chatRef.current?.clearMessages();
@@ -3146,7 +3187,13 @@ Do not describe what you will do unless you do it for clarification — just do 
         setIsLoadingSession(false);
       }
     },
-    [chatRef, aiGetSessionMessages, rejectPendingQuestions, takeServerMessages],
+    [
+      chatRef,
+      aiGetSessionMessages,
+      rejectPendingQuestions,
+      takeServerMessages,
+      lockModel,
+    ],
   );
 
   /*
@@ -3304,6 +3351,12 @@ Do not describe what you will do unless you do it for clarification — just do 
     cancelToolQuestion,
     /** In a proposal: who is in the chat, and whose turn runs. See Flow H. */
     shared,
+    /**
+     * The model the open chat is held to, or null before it has started. Show
+     * it instead of the picker's selection while it is set, and do not offer
+     * to change it: see `sessionModel`.
+     */
+    sessionModel,
   };
 }
 
