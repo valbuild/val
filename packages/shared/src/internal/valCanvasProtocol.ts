@@ -21,6 +21,7 @@
  */
 
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { PickedElement, PickModifier } from "./elementPicker";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -168,6 +169,25 @@ export type ValCanvasPageMessage =
        * from outside, so the page says so and the canvas can show it is working.
        */
       pending: boolean;
+    }
+  | {
+      /**
+       * Something on the page was picked while `pickElements` was on: ANY
+       * element, described (`describeElement`), since the element itself
+       * cannot leave the page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "elementPicked";
+      element: PickedElement;
+    }
+  | {
+      /**
+       * Esc on the page while Select was on. The key went to the page, which
+       * has the focus once it has been clicked, so the studio hears it only
+       * from here.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "elementPickingStopped";
     };
 
 /** What the studio tells the page. */
@@ -260,6 +280,25 @@ export type ValCanvasStudioMessage =
        * on a link should follow the link.
        */
       picking: boolean;
+    }
+  | {
+      /**
+       * Picking ANY element, as the design tab does (`elementPicker.ts`),
+       * rather than the fields Val tagged, as `setPicking` does.
+       *
+       * While `enabled`, holding `modifier` outlines what is under the
+       * pointer and a click picks it; `active` picks without the modifier (the
+       * tab's Select). Sent whole every time, so a page that missed one
+       * message is put right by the next. A bridge that predates it ignores
+       * it, and the tab then simply never hears of a pick.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pickElements";
+      enabled: boolean;
+      active: boolean;
+      modifier: PickModifier;
+      /** Whether the studio still holds the last pick: false takes its outline down. */
+      keepPicked: boolean;
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -275,9 +314,27 @@ export function isValCanvasPageMessage(
     message.type === "clicked" ||
     message.type === "pinch" ||
     message.type === "zoom" ||
-    message.type === "refreshing"
+    message.type === "refreshing" ||
+    message.type === "elementPickingStopped" ||
+    (message.type === "elementPicked" &&
+      isPickedElement((data as { element?: unknown }).element))
   );
 }
+
+function isPickedElement(value: unknown): value is PickedElement {
+  if (typeof value !== "object" || value === null) return false;
+  const element = value as Record<string, unknown>;
+  return (
+    typeof element.tag === "string" &&
+    typeof element.text === "string" &&
+    typeof element.selector === "string" &&
+    Array.isArray(element.classes) &&
+    element.classes.every((item) => typeof item === "string") &&
+    (element.valPath === undefined || typeof element.valPath === "string")
+  );
+}
+
+const PICK_MODIFIERS: readonly unknown[] = ["alt", "meta", "shift", "ctrl"];
 
 /**
  * Whether a value is a colour a `theme` message may carry.
@@ -319,6 +376,15 @@ export function isValCanvasStudioMessage(
     return (
       isCanvasSelectionColor(message.selection) &&
       isCanvasSelectionColor(message.selectionSoft)
+    );
+  }
+  if (message.type === "pickElements") {
+    const pick = data as Record<string, unknown>;
+    return (
+      typeof pick.enabled === "boolean" &&
+      typeof pick.active === "boolean" &&
+      typeof pick.keepPicked === "boolean" &&
+      PICK_MODIFIERS.includes(pick.modifier)
     );
   }
   return (

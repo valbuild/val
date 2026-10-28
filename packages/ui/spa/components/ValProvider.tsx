@@ -177,7 +177,12 @@ export type AIContentBlock =
 export type AIMessageContent = string | AIContentBlock[];
 
 export type AIMessagesResponse = {
-  messages: { role: string; content: AIMessageContent }[];
+  messages: {
+    role: string;
+    content: AIMessageContent;
+    /** Who asked, on a user message in a proposal's chat. */
+    authorId?: string | null;
+  }[];
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
@@ -345,6 +350,8 @@ type ValContextValue = {
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
+    /** In a proposal: its chats, everyone's, instead of your own. */
+    proposal?: string;
   }) => Promise<AISessionsResponse>;
   aiGetSessionMessages: (
     sessionId: string,
@@ -499,10 +506,12 @@ export function ValProvider({
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
+      proposal?: string;
     }): Promise<AISessionsResponse> => {
       const res = await client("/ai/sessions", "GET", {
         query: {
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          proposal: opts?.proposal,
           cursor_updatedAt: opts?.cursor?.updatedAt,
           cursor_id: opts?.cursor?.id,
         },

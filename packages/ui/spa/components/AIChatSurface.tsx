@@ -13,6 +13,7 @@ import { useSessionParam } from "./ValRouter";
 import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
 import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { AiSetup } from "./shell/AiSetup";
+import { ShareChatLink } from "./proposals/ShareChatLink";
 
 /**
  * The assistant, wired.
@@ -105,6 +106,7 @@ function ConnectedChat({
     answerToolQuestions,
     cancelToolQuestion,
     cancel,
+    shared,
   } = useAI(chatRef, {
     ...(design ? { design } : {}),
     initialSessionId: initialSessionIdRef.current,
@@ -190,6 +192,23 @@ function ConnectedChat({
       isLoadingSession={isLoadingSession}
       onAnswerToolQuestions={answerToolQuestions}
       onCancelToolQuestion={cancelToolQuestion}
+      // In a proposal its chats are everyone's on the project (valbuild/home
+      // `docs/proposals.md`, Flow H): names on messages, whose question runs,
+      // and who is in each chat.
+      together={
+        shared
+          ? {
+              viewerId: shared.viewerId,
+              people: shared.people,
+              turnBy: shared.turnBy,
+              header: <ShareChatLink people={shared.people} />,
+              sessionList: {
+                title: "Chats in this proposal",
+                people: shared.sessionPeople,
+              },
+            }
+          : undefined
+      }
       emptyStateOverride={
         // Connected and still no model means no key reaches one: offer to add
         // it here rather than let the first message fail with "no key". Not

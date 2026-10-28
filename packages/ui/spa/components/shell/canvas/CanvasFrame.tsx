@@ -3,6 +3,8 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
+  type PickedElement,
+  type PickModifier,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
   ValCanvasStudioMessage,
@@ -41,10 +43,32 @@ type FrameState =
 export const ANSWER_TIMEOUT_MS = 8000;
 
 export type CanvasFrameProps = {
-  /** The page's own URL, e.g. `/blogs/blog1`. */
+  /** The page's own URL, e.g. `/blogs/blog1`; absolute when `origin` is another. */
   url: string;
-  width: number;
-  height: number;
+  width: number | string;
+  height: number | string;
+  /**
+   * The origin the page is served from, when it is not the Studio's: the
+   * design tab frames a proposal's address from the site's
+   * (valbuild/home `docs/design-tab.md`). Messages are sent to it, and preview
+   * mode is turned on there.
+   */
+  origin?: string;
+  /**
+   * Whether this Studio's edits are relayed into the page. Off when the page is
+   * not this Studio's content: a proposal's page reads its own drafts, and the
+   * site's would be the wrong ones. The page is still told when there is
+   * nothing to wait for (`sourcesSynced`).
+   */
+  relaySources?: boolean;
+  /**
+   * Load the page through `/api/val/enable` every time, so it is in preview
+   * mode from its first document. The design tab's frame: the proposal's
+   * address is another origin, which the Studio's own enable never reached,
+   * and without the cookie it sets the page mounts no bridge -- nothing on it
+   * can be picked, and the tab learns that only from a timeout.
+   */
+  throughEnable?: boolean;
   /** Bumped to reload. */
   reloadKey: number;
   /** Whether a click on the page picks the element under it. */
@@ -63,6 +87,19 @@ export type CanvasFrameProps = {
   onElements?: (elements: ValCanvasElement[]) => void;
   /** Something on the page was picked. */
   onPick?: (paths: SourcePath[]) => void;
+  /**
+   * Picking ANY element, the design tab's way (`pickElements` in
+   * `valCanvasProtocol`): `null` off, absent never sent. `isPicking` is the
+   * other kind, of the fields Val tagged.
+   */
+  elementPicking?: {
+    active: boolean;
+    modifier: PickModifier;
+    keepPicked: boolean;
+  } | null;
+  onPickElement?: (element: PickedElement) => void;
+  /** Esc on the page while `elementPicking.active`. */
+  onElementPickingStopped?: () => void;
   /**
    * A two-finger gesture on the page.
    *
@@ -116,12 +153,18 @@ export function CanvasFrame({
   url,
   width,
   height,
+  origin = typeof window === "undefined" ? "" : window.origin,
+  relaySources = true,
+  throughEnable = false,
   reloadKey,
   isPicking,
   selectionColors,
   highlightedPath,
   onElements,
   onPick,
+  elementPicking,
+  onPickElement,
+  onElementPickingStopped,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -174,11 +217,14 @@ export function CanvasFrame({
   const frameSrc = useMemo(() => withValCanvasParam(url), [url]);
 
   /** Send one message into the frame. */
-  const send = useCallback((message: ValCanvasStudioMessage) => {
-    // Same origin as the studio — the page is served by the same app — so the
-    // target origin can be named rather than left as `*`.
-    frameRef.current?.contentWindow?.postMessage(message, window.origin);
-  }, []);
+  const send = useCallback(
+    (message: ValCanvasStudioMessage) => {
+      // The page's origin -- the Studio's own unless told otherwise -- named
+      // rather than left as `*`.
+      frameRef.current?.contentWindow?.postMessage(message, origin);
+    },
+    [origin],
+  );
 
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
@@ -201,6 +247,9 @@ export function CanvasFrame({
       // Only this frame, and only messages shaped like the protocol: a window
       // hears from anything holding a handle on it.
       if (event.source !== frameRef.current?.contentWindow) return;
+      // A frame of another origin is held to it; the Studio's own pages are
+      // already the only thing `source` can be.
+      if (origin !== window.origin && event.origin !== origin) return;
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
@@ -219,6 +268,10 @@ export function CanvasFrame({
         });
       } else if (message.type === "zoom") {
         onZoom?.(message.factor, message.center);
+      } else if (message.type === "elementPicked") {
+        onPickElement?.(message.element);
+      } else if (message.type === "elementPickingStopped") {
+        onElementPickingStopped?.();
       } else {
         pickedHere.current = message.paths[0] ?? null;
         onPick?.(message.paths);
@@ -226,13 +279,49 @@ export function CanvasFrame({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [onElements, onPick, onPinch, onZoom, onRefreshingChange]);
+  }, [
+    onElements,
+    onPick,
+    onPickElement,
+    onElementPickingStopped,
+    onPinch,
+    onZoom,
+    onRefreshingChange,
+    origin,
+  ]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.
   useEffect(() => {
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
+
+  // Whole, every time, and again for every new document: a reload starts the
+  // page's picker afresh.
+  const pickActive = elementPicking?.active === true;
+  const pickModifier = elementPicking?.modifier ?? "alt";
+  const keepPicked = elementPicking?.keepPicked !== false;
+  const pickEnabled =
+    elementPicking === undefined ? undefined : elementPicking !== null;
+  useEffect(() => {
+    if (pickEnabled === undefined) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "pickElements",
+      enabled: pickEnabled,
+      active: pickActive,
+      modifier: pickModifier,
+      keepPicked,
+    });
+  }, [
+    send,
+    pickEnabled,
+    pickActive,
+    pickModifier,
+    keepPicked,
+    state.status,
+    documentEpoch,
+  ]);
 
   /**
    * The outline colours, pushed for a stronger reason than picking is.
@@ -305,14 +394,10 @@ export function CanvasFrame({
      * for as long as the tab was open.
      */
     setState({ status: "waiting" });
-    const redirectTo = new URL(frameSrc, window.location.origin).toString();
-    const enableUrl = `/api/val/enable?redirect_to=${encodeURIComponent(
-      redirectTo,
-    )}`;
     if (frameRef.current) {
-      frameRef.current.src = enableUrl;
+      frameRef.current.src = enableUrlOf(frameSrc, origin);
     }
-  }, [frameSrc]);
+  }, [frameSrc, origin]);
 
   /**
    * Relay every edit into the frame.
@@ -337,7 +422,7 @@ export function CanvasFrame({
     },
     [send],
   );
-  useValSourceUpdates(isLive, sendSourceUpdate);
+  useValSourceUpdates(isLive && relaySources, sendSourceUpdate);
 
   /**
    * And catch the page up the moment it is listening.
@@ -355,7 +440,7 @@ export function CanvasFrame({
   const sendPendingSources = useValPendingSourceSnapshot();
   useEffect(() => {
     if (!isLive) return;
-    sendPendingSources(sendSourceUpdate);
+    if (relaySources) sendPendingSources(sendSourceUpdate);
     /**
      * And say that was all of it.
      *
@@ -368,7 +453,14 @@ export function CanvasFrame({
      * draft, and renders committed source for it immediately.
      */
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
-  }, [isLive, documentEpoch, sendPendingSources, sendSourceUpdate, send]);
+  }, [
+    isLive,
+    relaySources,
+    documentEpoch,
+    sendPendingSources,
+    sendSourceUpdate,
+    send,
+  ]);
 
   /**
    * Turn preview mode on when asked from outside.
@@ -436,7 +528,7 @@ export function CanvasFrame({
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
         key={`${frameSrc}-${reloadKey}`}
-        src={frameSrc}
+        src={throughEnable ? enableUrlOf(frameSrc, origin) : frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
@@ -453,4 +545,12 @@ export function CanvasFrame({
        */}
     </div>
   );
+}
+
+/** The page, through `/api/val/enable` at its own origin: the cookie it sets is the page's. */
+function enableUrlOf(frameSrc: string, origin: string): string {
+  const redirectTo = new URL(frameSrc, origin).toString();
+  return `${origin === window.origin ? "" : origin}/api/val/enable?redirect_to=${encodeURIComponent(
+    redirectTo,
+  )}`;
 }

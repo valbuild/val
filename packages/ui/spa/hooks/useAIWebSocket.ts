@@ -191,6 +191,8 @@ export const AIErrorCode = z.enum([
   "byok_invalid_key",
   "provider_not_configured",
   "model_refusal",
+  // Someone else's question is running in this chat (a proposal's, shared).
+  "session_busy",
 ]);
 export type AIErrorCode = z.infer<typeof AIErrorCode>;
 
@@ -333,6 +335,12 @@ export const AIPromptMessage = z.object({
   hidden: z.boolean().optional(),
   /** Ask for `ai_usage` messages while the turn runs. */
   reportUsage: z.boolean().optional(),
+  /**
+   * The proposal the Studio is in, by name. A chat created with one belongs to
+   * it, and everyone on the project can read and continue it (valbuild/home
+   * `docs/proposals.md`, Flow H). Honoured only when the session is created.
+   */
+  proposal: z.string().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -411,6 +419,8 @@ export type AISession = {
   name: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who is in a proposal's chat, starter first. Absent on your own chats. */
+  authorIds?: string[];
 };
 
 const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;

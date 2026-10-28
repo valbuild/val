@@ -2459,6 +2459,12 @@ export const Api = {
           limit: onlyOneStringQueryParam.optional(),
           cursor_updatedAt: onlyOneStringQueryParam.optional(),
           cursor_id: onlyOneStringQueryParam.optional(),
+          /**
+           * The proposal the Studio is in, by name: lists that proposal's
+           * chats, everyone's, instead of your own (valbuild/home
+           * `docs/proposals.md`, Flow H).
+           */
+          proposal: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -2473,6 +2479,8 @@ export const Api = {
                 name: z.string().nullable(),
                 createdAt: z.string(),
                 updatedAt: z.string(),
+                /** Who is in a proposal's chat, starter first. */
+                authorIds: z.array(z.string()).optional(),
               }),
             ),
             nextCursor: z
@@ -2529,6 +2537,8 @@ export const Api = {
           json: z.object({
             messages: z.array(
               z.object({
+                /** Who asked, on a user message in a proposal's chat. */
+                authorId: z.string().nullable().optional(),
                 role: z.string(),
                 content: z.union([
                   z.string(),

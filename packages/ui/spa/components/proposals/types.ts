@@ -19,6 +19,19 @@ export type ProposalPerson = {
   avatarUrl?: string;
 };
 
+/**
+ * Someone working on a proposal, or writing in one of its chats.
+ * valbuild/home `docs/proposals.md`, Flow H. The id is a profile id: two
+ * people can share a name, and "You" is decided by it.
+ */
+export type ProposalParticipant = ProposalPerson & { id: string };
+
+/** Why someone is on a proposal's list of people (`val_proposal_people`). */
+export type ProposalParticipantReason =
+  | { kind: "owner" }
+  | { kind: "invited"; by: string }
+  | { kind: "worked" };
+
 export type ProposalSummary = {
   /** Its name: the hash of what it was made from. The address is made of it. */
   name: string;
