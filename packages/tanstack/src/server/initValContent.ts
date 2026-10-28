@@ -393,13 +393,19 @@ export const initFetchValDraft =
     snapshot?: Snapshot,
     /** What the server's draft starts from; see `ValDraft.base`. */
     base?: Snapshot,
+    /** Whether this serves a proposal's address; see `ValDraft.atProposal`. */
+    atProposal: boolean = false,
   ) =>
   async (): Promise<ValDraft | null> => {
+    const proposal: Pick<ValDraft, "atProposal"> = atProposal
+      ? { atProposal: true }
+      : {};
     // At a proposal's address the page needs the snapshot whatever draft mode
-    // says, so a reviewer who is not editing sees the proposal too.
+    // says, so a reviewer who is not editing sees the proposal too. So does a
+    // content version, which is the live site's content.
     const onlySnapshot: ValDraft | null =
       snapshot !== undefined
-        ? { sources: {}, snapshot, draftMode: false }
+        ? { sources: {}, snapshot, draftMode: false, ...proposal }
         : null;
     try {
       if (!(await isEnabled())) {
@@ -436,6 +442,7 @@ export const initFetchValDraft =
         sources,
         ...(snapshot !== undefined ? { snapshot } : {}),
         ...(base !== undefined ? { base } : {}),
+        ...proposal,
       };
     } catch (err) {
       // Published content, as before this existed: a draft page that renders
@@ -1185,6 +1192,7 @@ export function initValContent(
       draftSourcesScope,
       snapshot,
       base,
+      opts?.http?.proposal !== undefined,
     ),
   };
 }
