@@ -1,5 +1,29 @@
 # @valbuild/tanstack
 
+## 0.150.11
+
+### Patch Changes
+
+- [#974](https://github.com/valbuild/val/pull/974) [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78) Thanks [@freekh](https://github.com/freekh)! - The design tab no longer makes you wait.
+
+  - **Quick preview.** A change to components, layout or styles is shown in seconds, without a build: the proposal's browser code is bundled in the tab and the page in the preview runs it. What runs on the server (loaders, server functions, the page's first render) stays the last build's, and the tab says so, with a button to build. The assistant has it too (`quick_preview`).
+  - **Cancel and Try again.** A build can be cancelled from the tab, and a build that stops making progress for three minutes is stopped, saying at which step, so it never spins until a reload. The assistant waits for a build with `wait` instead of holding its turn, and has `build_status` and `cancel_build`.
+  - **Each step of a build is timed**, and the Build check lists where the time went.
+  - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
+  - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+  - **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
+  - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
+
+  The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/ui@0.150.11
+  - @valbuild/shared@0.150.11
+  - @valbuild/server@0.150.11
+  - @valbuild/react@0.150.11
+  - @valbuild/language-server@0.150.11
+  - @valbuild/mcp@0.150.11
+
 ## 0.150.10
 
 ### Patch Changes
