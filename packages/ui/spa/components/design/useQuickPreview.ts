@@ -6,6 +6,8 @@ import {
 import type { QuickPreviewStorer } from "../shell/canvas/CanvasFrame";
 import type { ProposalsClient } from "../../proposals/proposalsClient";
 import { loadBuilder, routeTreeGenerator } from "../../publish/loadBuilder";
+import { canBuildHere } from "../../publish/handoff";
+import { quickPreviewInTab } from "../../proposals/buildInTab";
 import { randomUUID } from "../../utils/randomUUID";
 import type {
   QuickPreviewResult,
@@ -34,6 +36,11 @@ export function useQuickPreview(
   const [state, setState] = useState<QuickPreviewState>({ status: "idle" });
   const [shownId, setShownId] = useState<string | null>(null);
   const [last, setLast] = useState<QuickPreviewResult | null>(null);
+  /** Bundled in a builder tab: `blocked` while the browser has not let it open. */
+  const [inTab, setInTab] = useState<{
+    blocked: boolean;
+    step: string | null;
+  } | null>(null);
   const storer = useRef<QuickPreviewStorer | null>(null);
   const setStorer = useCallback((store: QuickPreviewStorer | null) => {
     storer.current = store;
@@ -67,22 +74,32 @@ export function useQuickPreview(
       const publish = createStudioPublishClient({ api: "/api/val" });
       const generateRouteTree = routeTreeGenerator();
       let first = true;
-      const built = await buildQuickPreview({
-        name,
-        proposals,
-        siteSource: () => publish.projectSource(),
-        siteTarget: () => publish.buildTarget(),
-        loadBuilder,
-        ...(generateRouteTree !== null ? { generateRouteTree } : {}),
-        onStep: (label) => {
-          // The first step is the one already running.
-          if (first) {
-            first = false;
-            return;
-          }
-          step(label);
-        },
-      });
+      const onStep = (label: string) => {
+        // The first step is the one already running.
+        if (first) {
+          first = false;
+          if (label === stepNow.label) return;
+        }
+        if (label !== stepNow.label) step(label);
+      };
+      // Safari, an iPhone: bundled in a builder tab, as a build is there.
+      const built = canBuildHere()
+        ? await buildQuickPreview({
+            name,
+            proposals,
+            siteSource: () => publish.projectSource(),
+            siteTarget: () => publish.buildTarget(),
+            loadBuilder,
+            ...(generateRouteTree !== null ? { generateRouteTree } : {}),
+            onStep,
+          })
+        : await quickPreviewInTab(name, {
+            onTab: (inTab) => {
+              setInTab(inTab);
+              if (inTab?.step) onStep(inTab.step);
+              else if (inTab?.blocked) onStep("Waiting for the builder tab");
+            },
+          });
       if (built.status === "failed") {
         return { status: "failed", message: built.message, timings: end() };
       }
@@ -142,7 +159,15 @@ export function useQuickPreview(
   }, [name, proposals]);
 
   return useMemo(
-    () => ({ state, last, shownId, run, setStorer, onFront }),
-    [state, last, shownId, run, setStorer, onFront],
+    () => ({
+      state,
+      last,
+      shownId,
+      run,
+      setStorer,
+      onFront,
+      blocked: inTab?.blocked === true,
+    }),
+    [state, last, shownId, run, setStorer, onFront, inTab],
   );
 }

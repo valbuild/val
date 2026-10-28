@@ -23,7 +23,7 @@
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
 import type { PageLocation, PageSnapshot } from "./pageInspection";
-import type { QuickPreviewFiles } from "./quickPreview";
+import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -382,23 +382,6 @@ export function isValCanvasPageMessage(
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string")
-  );
-}
-
-/**
- * The files of a quick preview: paths under `/_app/` with no way out of it,
- * each a string body and a type.
- */
-function isQuickPreviewFiles(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) return false;
-  return Object.entries(value).every(
-    ([path, file]: [string, unknown]) =>
-      /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/.test(path) &&
-      !path.includes("..") &&
-      typeof file === "object" &&
-      file !== null &&
-      typeof (file as Record<string, unknown>).body === "string" &&
-      typeof (file as Record<string, unknown>).contentType === "string",
   );
 }
 

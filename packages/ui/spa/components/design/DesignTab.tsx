@@ -297,7 +297,11 @@ export function DesignTab({ name }: { name: string }) {
         builder={
           canBuildHere()
             ? { kind: "in-tab" }
-            : { kind: "window", blocked: state.inTab?.blocked ?? false }
+            : {
+                kind: "window",
+                // A build's builder tab, or a quick preview's.
+                blocked: (state.inTab?.blocked ?? false) || quick.blocked,
+              }
         }
         onOpenBuilder={openBuilder}
         problem={problem}

@@ -50,6 +50,25 @@ export type QuickPreviewFiles = Record<
 >;
 
 /**
+ * The files of a quick preview: paths under `/_app/` with no way out of it,
+ * each a string body and a type.
+ */
+export function isQuickPreviewFiles(
+  value: unknown,
+): value is QuickPreviewFiles {
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).every(
+    ([path, file]: [string, unknown]) =>
+      /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/.test(path) &&
+      !path.includes("..") &&
+      typeof file === "object" &&
+      file !== null &&
+      typeof (file as Record<string, unknown>).body === "string" &&
+      typeof (file as Record<string, unknown>).contentType === "string",
+  );
+}
+
+/**
  * The worker, as the source it is served as: plain, and small, because it is
  * served as a file of its own (`demoServiceWorker.ts` is the same).
  */

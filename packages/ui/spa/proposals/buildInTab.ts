@@ -2,6 +2,7 @@ import {
   openBuilderWindow,
   openHandoff,
   type HandedProposalBuild,
+  type HandedQuickPreview,
   type SiteHandoff,
 } from "../publish/handoff";
 import { BUILD_CANCELLED_MESSAGE } from "@valbuild/shared/publish";
@@ -170,4 +171,99 @@ export function openBuilder(
   const opened = open(tab.url, `val-publish-${tab.id}`) !== null;
   if (opened) blocked = false;
   return opened;
+}
+
+/** How long a quick preview's builder tab may say nothing before it is given up on. */
+export const QUICK_PREVIEW_TAB_SILENT_MS = 20_000;
+export const QUICK_PREVIEW_TAB_GONE_MESSAGE =
+  "The tab preparing the quick preview stopped before it finished. Press Quick preview to try again.";
+
+/**
+ * Bundle a quick preview in a builder tab (`HandoffQuickPreviewTab`), for a
+ * design tab that cannot build itself: Safari, an iPhone. The same hand-off
+ * as {@link buildInTab}, and the same blocked tab -- {@link openBuilder}
+ * opens it from a tap -- and the files come back over it.
+ */
+export function quickPreviewInTab(
+  name: string,
+  deps: {
+    open?: (url: string, target: string) => unknown;
+    storage?: Storage | null;
+    /** The tab's state: see `buildInTab`'s `onTab`. */
+    onTab: (inTab: { blocked: boolean; step: string | null } | null) => void;
+    now?: () => number;
+    every?: (tick: () => void, ms: number) => () => void;
+  },
+): Promise<HandedQuickPreview> {
+  const now = deps.now ?? Date.now;
+  const every =
+    deps.every ??
+    ((tick, ms) => {
+      const timer = setInterval(tick, ms);
+      return () => clearInterval(timer);
+    });
+  return new Promise((resolve) => {
+    const tab = openHandoff({
+      intent: { kind: "quick-preview", name },
+      ...(deps.open ? { open: deps.open } : {}),
+      ...(deps.storage !== undefined ? { storage: deps.storage } : {}),
+    });
+    if (!tab.stored) {
+      tab.close();
+      resolve({ status: "failed", message: NOT_STORED_BUILD_MESSAGE });
+      return;
+    }
+    handoff = tab;
+    blocked = !tab.opened;
+    deps.onTab({ blocked, step: null });
+    const openedAt = now();
+    let lastHeard = openedAt;
+    let ended = false;
+    const finish = (outcome: HandedQuickPreview) => {
+      if (ended) return;
+      ended = true;
+      stop();
+      off();
+      tab.close();
+      if (handoff === tab) handoff = null;
+      deps.onTab(null);
+      resolve(outcome);
+    };
+    const off = tab.onMessage((message) => {
+      lastHeard = now();
+      if (message.type === "phase") {
+        blocked = false;
+        deps.onTab({ blocked: false, step: message.label });
+      } else if (message.type === "quick-preview-built") {
+        finish(message.outcome);
+      }
+    });
+    const stopTicking = every(() => {
+      if (ended || blocked) return;
+      // A tab never let open waits for the tap; one that went quiet is gone.
+      if (now() - lastHeard > QUICK_PREVIEW_TAB_SILENT_MS) {
+        finish({ status: "failed", message: QUICK_PREVIEW_TAB_GONE_MESSAGE });
+      }
+    }, 2_000);
+    /*
+     * On an iPhone the builder tab takes the screen and this page is paused
+     * until it is back: the tab's last word is waiting in this page's queue
+     * then, behind the timer. Back on screen, it is given time to arrive
+     * before the quiet counts.
+     */
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        lastHeard = now();
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
+    const stop = () => {
+      stopTicking();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisible);
+      }
+    };
+  });
 }
