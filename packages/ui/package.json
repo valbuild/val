@@ -184,6 +184,8 @@
   "files": [
     "CHANGELOG.md",
     "dist",
-    "server"
+    "server",
+    "!server/.tmp",
+    "static"
   ]
 }
