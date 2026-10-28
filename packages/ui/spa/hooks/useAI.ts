@@ -81,10 +81,13 @@ import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
-import { useRemoteUploadSettings } from "../components/ValRemoteProvider";
 import {
-  sessionImageAsRemote,
-  type SessionImageAsRemote,
+  useRemoteUploadSettings,
+  type RemoteUploadReadiness,
+} from "../components/ValRemoteProvider";
+import {
+  readBackSessionImage,
+  type ReadBackSessionImage,
 } from "../utils/sessionImageToRemote";
 import { galleryEntrySchemaOf } from "../utils/uploadLocalMedia";
 import { z } from "zod";
@@ -102,6 +105,7 @@ import {
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
+  type SessionKeyReadBack,
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
@@ -658,6 +662,37 @@ export type UseAIOptions = {
   /** Called when the session returns to the unborn state (newSession, or loadSession failure). */
   onSessionCleared?: () => void;
 };
+
+/**
+ * How the assistant's tools read a session image back off its patch: as it
+ * is for a local file, under its remote ref for a remote one -- which needs
+ * the project's remote settings, so a remote image fails here, saying why,
+ * until they have loaded.
+ */
+function readBackWith(remoteUpload: RemoteUploadReadiness): SessionKeyReadBack {
+  return async ({ localPath, patchId, remoteSchema, metadata }) => {
+    if (remoteSchema === null) {
+      return readBackSessionImage({
+        localPath,
+        patchId,
+        metadata,
+        remote: null,
+      });
+    }
+    if (remoteUpload.status !== "ready") {
+      return {
+        status: "error",
+        message: `Remote files are not ready: ${remoteUpload.message}`,
+      };
+    }
+    return readBackSessionImage({
+      localPath,
+      patchId,
+      metadata,
+      remote: { schema: remoteSchema, settings: remoteUpload.settings },
+    });
+  };
+}
 
 export function useAI(
   chatRef: React.RefObject<AIChatHandle | null>,
@@ -1366,6 +1401,7 @@ export function useAI(
                 patchId,
                 parentRef,
                 transfer: aiSessionImagesToPatchFile,
+                readBack: readBackWith(remoteUploadRef.current),
               });
             } catch (err) {
               const availableKeys =
@@ -1458,8 +1494,9 @@ export function useAI(
               sessionIdRef.current,
               // The id the bytes were attached to, above.
               patchId,
-              // ...by the content service, so the store must not upload them.
-              true,
+              // ...by the content service, so the store must not upload them
+              // -- unless they were read back, to go to remote storage.
+              expanded.filesAlreadyUploaded,
             );
             if (res.status === "patch-synced") {
               sendWsMessage({
@@ -1631,20 +1668,14 @@ export function useAI(
                 chatRef.current?.errorToolCall(messageId, toolCallId);
                 return;
               }
-              const remote = remoteUploadRef.current;
-              const asRemote: SessionImageAsRemote =
-                remote.status === "ready"
-                  ? await sessionImageAsRemote({
-                      localPath: args.file_path,
-                      patchId,
-                      schema: galleryEntrySchemaOf(moduleSchema),
-                      metadata,
-                      remote: remote.settings,
-                    })
-                  : {
-                      status: "error",
-                      message: `Remote files are not ready: ${remote.message}`,
-                    };
+              const asRemote: ReadBackSessionImage = await readBackWith(
+                remoteUploadRef.current,
+              )({
+                localPath: args.file_path,
+                patchId,
+                remoteSchema: galleryEntrySchemaOf(moduleSchema),
+                metadata,
+              });
               if (asRemote.status === "error") {
                 sendWsMessage({
                   type: "ai_tool_result",
@@ -1658,7 +1689,10 @@ export function useAI(
                 chatRef.current?.errorToolCall(messageId, toolCallId);
                 return;
               }
-              entry = { filePath: asRemote.ref, imageKey: asRemote.dataUrl };
+              entry = {
+                filePath: asRemote.file.filePath,
+                imageKey: asRemote.file.dataUrl,
+              };
             }
 
             const buildResult: BuildResult = buildImageGalleryPatch(

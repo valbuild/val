@@ -2,6 +2,8 @@ import {
   VAL_EXTENSION,
   type ImageMetadata,
   type PatchId,
+  type SerializedFileSchema,
+  type SerializedImageSchema,
   type SerializedSchema,
   type Source,
 } from "@valbuild/core";
@@ -12,6 +14,7 @@ import {
   getInlineImgInfo,
   isRemoteSchema,
   resolveSerializedSchemaAtPath,
+  richTextImageSchema,
 } from "@valbuild/shared/internal";
 
 /**
@@ -53,7 +56,23 @@ export type PendingTransfer = {
   readonly siteId: number;
   readonly key: string;
   readonly filePath: string;
+  /** Where the file ends up: in remote storage, under a ref, or at `filePath`. */
   readonly isRemote: boolean;
+  /**
+   * The schema a remote file's ref is hashed against: the field's own, or a
+   * rich text's `img`. Present exactly when `isRemote` is.
+   */
+  readonly remoteSchema?: SerializedImageSchema | SerializedFileSchema;
+};
+
+/**
+ * The bytes of one site, read back, and the path they are stored under: the
+ * session key's own `filePath` for a local file, the remote ref for a remote
+ * one. Replaces the session key in the `file` op, so the store uploads them.
+ */
+export type ReadBackFile = {
+  readonly filePath: string;
+  readonly dataUrl: string;
 };
 
 export type PlanResult =
@@ -62,6 +81,7 @@ export type PlanResult =
       transfers: PendingTransfer[];
       apply: (
         metadataBySiteId: Record<number, ImageMetadata | undefined>,
+        readBackBySiteId?: Record<number, ReadBackFile | undefined>,
       ) => ApplyResult;
     }
   | { kind: "wrong-tool"; suggestedTool: ToolName; reason: string }
@@ -77,6 +97,7 @@ type LeafSite = {
   opPath: string[];
   subtype: "image" | "file";
   remote: boolean;
+  remoteSchema: SerializedImageSchema | SerializedFileSchema | null;
   sessionKey: SessionKey;
 };
 
@@ -88,6 +109,7 @@ type InlineImgSite = {
   // This is also the `nestedFilePath` used in the appended `file` op.
   valuePath: string[];
   remote: boolean;
+  remoteSchema: SerializedImageSchema | null;
   sessionKey: SessionKey;
 };
 
@@ -277,7 +299,9 @@ export function planSessionKeyExpansion(args: {
       continue;
     }
 
-    if (resolved.kind === "leaf") {
+    // A value written AT a rich text (the whole of it) holds its inline images
+    // the same as one written below it, so it takes the rich text branch.
+    if (resolved.kind === "leaf" && resolved.schema.type !== "richtext") {
       const leafSchema = resolved.schema;
       const valueIsSessionKey = isSessionKey(op.value);
 
@@ -290,12 +314,14 @@ export function planSessionKeyExpansion(args: {
               message: `Patch op #${opIndex}: SessionKey _tag is '${sk[SESSION_SUBTYPE_TAG]}' but the schema is '${leafSchema.type}'.`,
             };
           }
+          const remote = isRemoteSchema(leafSchema);
           sites.push({
             kind: "leaf",
             opIndex,
             opPath,
             subtype: leafSchema.type,
-            remote: isRemoteSchema(leafSchema),
+            remote,
+            remoteSchema: remote ? leafSchema : null,
             sessionKey: sk,
           });
           continue;
@@ -321,8 +347,14 @@ export function planSessionKeyExpansion(args: {
       continue;
     }
 
-    // resolved.kind === "richtext"
+    // A rich text: walked into, or written whole.
     const inlineImg = getInlineImgInfo(resolved.schema);
+    const inlineRemote =
+      inlineImg.kind === "allowed" ? inlineImg.remote : false;
+    const inlineImgSchema =
+      inlineRemote && resolved.schema.type === "richtext"
+        ? richTextImageSchema(resolved.schema)
+        : null;
     let foundSiteCount = 0;
     let forbiddenAt: string[] | null = null;
     walkRichtextValueForSessionKeys(
@@ -333,7 +365,8 @@ export function planSessionKeyExpansion(args: {
           opIndex,
           opPath,
           valuePath,
-          remote: inlineImg.kind === "allowed" ? inlineImg.remote : false,
+          remote: inlineRemote,
+          remoteSchema: inlineImgSchema,
           sessionKey: sk,
         });
         foundSiteCount += 1;
@@ -356,15 +389,25 @@ export function planSessionKeyExpansion(args: {
     }
   }
 
+  for (const site of sites) {
+    if (site.remote && site.remoteSchema === null) {
+      return {
+        kind: "error",
+        message: `Patch op #${site.opIndex}: the image is remote, but its schema could not be found to name it by.`,
+      };
+    }
+  }
   const transfers: PendingTransfer[] = sites.map((s, siteId) => ({
     siteId,
     key: s.sessionKey.key,
     filePath: s.sessionKey.filePath,
     isRemote: s.remote,
+    ...(s.remoteSchema !== null ? { remoteSchema: s.remoteSchema } : {}),
   }));
 
   const apply = (
     metadataBySiteId: Record<number, ImageMetadata | undefined>,
+    readBackBySiteId: Record<number, ReadBackFile | undefined> = {},
   ): ApplyResult => {
     if (sites.length === 0) {
       return { kind: "ok", patch };
@@ -375,8 +418,13 @@ export function planSessionKeyExpansion(args: {
     for (let siteId = 0; siteId < sites.length; siteId++) {
       const site = sites[siteId];
       const metadata = mergeMetadata(metadataBySiteId[siteId], site.sessionKey);
+      // Read back: stored under the path it says, carrying its bytes. Not:
+      // the session key, whose bytes the service already put on the patch.
+      const readBack = readBackBySiteId[siteId];
+      const filePath = readBack?.filePath ?? site.sessionKey.filePath;
+      const fileValue = readBack?.dataUrl ?? site.sessionKey.key;
       const refValue = buildFileRefValue(
-        site.sessionKey.filePath,
+        filePath,
         metadata as unknown as Record<string, unknown>,
       );
 
@@ -386,8 +434,8 @@ export function planSessionKeyExpansion(args: {
         fileOps.push({
           op: "file",
           path: site.opPath,
-          filePath: site.sessionKey.filePath,
-          value: site.sessionKey.key,
+          filePath,
+          value: fileValue,
           remote: site.remote,
           metadata,
         });
@@ -408,8 +456,8 @@ export function planSessionKeyExpansion(args: {
           op: "file",
           path: site.opPath,
           nestedFilePath: site.valuePath,
-          filePath: site.sessionKey.filePath,
-          value: site.sessionKey.key,
+          filePath,
+          value: fileValue,
           remote: site.remote,
           metadata,
         });
@@ -440,7 +488,15 @@ export type SessionKeyTransfer = (args: {
 }>;
 
 export type ExpandResult =
-  | { kind: "ok"; patch: Patch }
+  | {
+      kind: "ok";
+      patch: Patch;
+      /**
+       * Whether every `file` op's bytes are already on the patch, so the store
+       * must not upload them: true unless the files were read back.
+       */
+      filesAlreadyUploaded: boolean;
+    }
   | { kind: "wrong-tool"; suggestedTool: ToolName; reason: string }
   | { kind: "error"; message: string };
 
@@ -450,9 +506,17 @@ export type ExpandResult =
  * returned unchanged. Errors from `transfer` (including
  * SessionImageToPatchError) propagate to the caller.
  *
- * All transfers are batched into a single call. Duplicate `(filePath, key,
- * isRemote)` triples in the patch are deduped on the wire and the upstream
- * metadata is fanned back out to every site that referenced them.
+ * All transfers are batched into a single call. Duplicate `(filePath, key)`
+ * pairs in the patch are deduped on the wire and the upstream metadata is
+ * fanned back out to every site that referenced them.
+ *
+ * A session image is always attached to the patch as a LOCAL file. The
+ * service cannot name a remote file: a remote ref hashes the bytes, which it
+ * does not read. So when any site is remote, every site is read back
+ * (`readBack`) -- a remote one under its ref -- and the bytes go up with the
+ * patch, as a picked file's do. All of them, not only the remote ones, because
+ * the store uploads a patch's files or none of them; a local file uploaded
+ * again is the bytes the service already holds, on the same path.
  */
 export async function expandSessionKeysInPatch(args: {
   patch: Patch;
@@ -461,6 +525,8 @@ export async function expandSessionKeysInPatch(args: {
   patchId: PatchId;
   parentRef: ParentRef;
   transfer: SessionKeyTransfer;
+  /** Required when a site is remote. See `sessionImageReadBack`. */
+  readBack?: SessionKeyReadBack;
 }): Promise<ExpandResult> {
   const plan = planSessionKeyExpansion({
     patch: args.patch,
@@ -476,7 +542,7 @@ export async function expandSessionKeysInPatch(args: {
       filePath: string;
       key: string;
       isRemote: boolean;
-    }): FileKey => `${t.isRemote ? "1" : "0"} ${t.filePath} ${t.key}`;
+    }): FileKey => `${t.filePath} ${t.key}`;
     const dedupedFiles: {
       filePath: string;
       key: string;
@@ -490,7 +556,8 @@ export async function expandSessionKeysInPatch(args: {
       dedupedFiles.push({
         filePath: t.filePath,
         key: t.key,
-        isRemote: t.isRemote,
+        // Local whatever the site is: see above.
+        isRemote: false,
       });
     }
     const res = await args.transfer({
@@ -516,9 +583,54 @@ export async function expandSessionKeysInPatch(args: {
     }
   }
 
-  const applied = plan.apply(metadataBySiteId);
+  const readBackBySiteId: Record<number, ReadBackFile | undefined> = {};
+  const readsBack = plan.transfers.some((t) => t.isRemote);
+  if (readsBack) {
+    if (!args.readBack) {
+      return {
+        kind: "error",
+        message:
+          "This patch puts an image in remote storage, which this Studio cannot do from the assistant.",
+      };
+    }
+    for (const t of plan.transfers) {
+      const read = await args.readBack({
+        localPath: t.filePath,
+        patchId: args.patchId,
+        remoteSchema: t.remoteSchema ?? null,
+        metadata: metadataBySiteId[t.siteId] ?? {},
+      });
+      if (read.status === "error") {
+        return {
+          kind: "error",
+          message: `Could not read back ${t.filePath}: ${read.message}`,
+        };
+      }
+      readBackBySiteId[t.siteId] = read.file;
+    }
+  }
+
+  const applied = plan.apply(metadataBySiteId, readBackBySiteId);
   if (applied.kind === "error") {
     return { kind: "error", message: applied.message };
   }
-  return { kind: "ok", patch: applied.patch };
+  return {
+    kind: "ok",
+    patch: applied.patch,
+    filesAlreadyUploaded: !readsBack,
+  };
 }
+
+/**
+ * Read a session image back off the patch it was attached to, as a local
+ * file. With a `remoteSchema`, `filePath` is the remote ref the bytes hash to;
+ * without one, it is `localPath`.
+ */
+export type SessionKeyReadBack = (args: {
+  localPath: string;
+  patchId: PatchId;
+  remoteSchema: SerializedImageSchema | SerializedFileSchema | null;
+  metadata: ImageMetadata;
+}) => Promise<
+  { status: "ok"; file: ReadBackFile } | { status: "error"; message: string }
+>;
