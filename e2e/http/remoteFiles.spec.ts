@@ -95,7 +95,9 @@ test.describe("remote files", () => {
     expect(uploaded.bytes).toBeGreaterThan(0);
 
     // And the editor can see it. Unpublished, so it can only come from the patch.
-    const tile = studio.locator('img[src*="blue-8x8_"]');
+    // The TILE's picture: the upload is opened once it is in, so the panel
+    // beside the grid shows the same file a second time.
+    const tile = studio.locator('button[aria-pressed] img[src*="blue-8x8_"]');
     await expect(tile).toHaveCount(1);
     await expect(tile).toHaveAttribute("src", /patch_id=/);
     await expect
@@ -161,7 +163,10 @@ test.describe("remote files", () => {
     const studio = page.locator("#val-shadow-root");
     await uploadWhenReady(studio, OTHER_IMAGE);
 
-    const tile = studio.locator('img[src*="green-8x8_"]');
+    const tileButton = studio.locator("button[aria-pressed]", {
+      has: page.locator('img[src*="green-8x8_"]'),
+    });
+    const tile = tileButton.locator('img[src*="green-8x8_"]');
     await expect(tile).toHaveCount(1);
     await expect
       .poll(() => tile.evaluate((i) => (i as HTMLImageElement).naturalWidth), {
@@ -169,10 +174,11 @@ test.describe("remote files", () => {
       })
       .toBe(8);
 
-    // Delete lives in the file's properties dialog, behind a click on the tile —
-    // and it stays disabled until the reference scan has finished, because
-    // deleting a file something still points at is the mistake it guards.
-    await tile.click();
+    // Delete lives in the file's properties panel, which an upload opens by
+    // itself -- clicking the tile now would close it again. Delete stays
+    // disabled until the reference scan has finished, because deleting a file
+    // something still points at is the mistake it guards.
+    await expect(tileButton).toHaveAttribute("aria-pressed", "true");
     const remove = studio.getByRole("button", { name: "Delete", exact: true });
     await expect(remove).toBeEnabled({ timeout: 30_000 });
     await remove.click();

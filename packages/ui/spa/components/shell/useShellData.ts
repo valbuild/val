@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { ModuleFilePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { localeOfModuleRoot, localeScopeAt } from "@valbuild/shared/internal";
 import { useNavMenuData } from "../NavMenu/useNavMenuData";
 import {
   useCommittedPatches,
@@ -15,7 +16,13 @@ import {
   useValMode,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
+import {
+  useAllSources,
+  useFilePatchIds,
+  useSchemas,
+  useValConfig,
+} from "../ValFieldProvider";
+import { useProjectLocales } from "../../hooks/useProjectLocales";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
 import { useValBuildAccess } from "./useValBuildAccess";
@@ -145,6 +152,44 @@ export function useShellData(): ShellDataState {
    */
   const proposalBranch = useCurrentProposal()?.branch ?? null;
 
+  /*
+   * Which language each page and each module is in, so the shell can list only
+   * the ones the picked language shows. The same `localeAt` question the server
+   * asks — a route whose URL names its language answers from the key, content
+   * with a locale field from that field. A project that declares no languages
+   * reads nothing for it.
+   */
+  const projectLocales = useProjectLocales();
+  const schemas = useSchemas();
+  const allSources = useAllSources();
+  const locales = useMemo(() => {
+    if (projectLocales.length === 0 || schemas.status !== "success") {
+      return null;
+    }
+    const schemaData = schemas.data;
+    const schemaByPath = new Map(Object.entries(schemaData));
+    const sourceByPath = new Map(Object.entries(allSources));
+    return {
+      ofPage: (sourcePath: SourcePath): string | null => {
+        const [moduleFilePath] =
+          Internal.splitModuleFilePathAndModulePath(sourcePath);
+        const schema = schemaData[moduleFilePath];
+        const source = allSources[moduleFilePath];
+        if (schema === undefined || source === undefined) return null;
+        return (
+          localeScopeAt(sourcePath, schema, source, projectLocales)?.locale ??
+          null
+        );
+      },
+      ofModule: (moduleFilePath: string): string | null => {
+        const schema = schemaByPath.get(moduleFilePath);
+        const source = sourceByPath.get(moduleFilePath);
+        if (schema === undefined || source === undefined) return null;
+        return localeOfModuleRoot(schema, source, projectLocales);
+      },
+    };
+  }, [projectLocales, schemas, allSources]);
+
   return useMemo((): ShellDataState => {
     if (navMenu.status === "loading") {
       return { status: "loading" };
@@ -176,7 +221,7 @@ export function useShellData(): ShellDataState {
         branch: proposalBranch ?? config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
-          ? toShellPages(navData.sitemap, modulesWithDrafts)
+          ? toShellPages(navData.sitemap, modulesWithDrafts, locales?.ofPage)
           : [],
         // Absent rather than empty when nothing accepts a page, so the shell
         // hides the New page buttons instead of opening a form that can only
@@ -209,7 +254,11 @@ export function useShellData(): ShellDataState {
             }
           : undefined,
         data: navData?.explorer
-          ? toDataModules(navData.explorer, modulesWithDrafts)
+          ? toDataModules(
+              navData.explorer,
+              modulesWithDrafts,
+              locales?.ofModule,
+            )
           : [],
         validationErrors: toValidationErrors(validationErrors),
         /*
@@ -262,5 +311,6 @@ export function useShellData(): ShellDataState {
     valBuild.studioMode,
     mode,
     proposalBranch,
+    locales,
   ]);
 }
