@@ -35,6 +35,12 @@ export type MediaItem = {
   errors?: string[];
   /** Problems with the description in particular. */
   descriptionErrors?: string[];
+  /**
+   * Added since the last publish, and not yet live. Listed first, newest
+   * first, with a "New" badge, so an upload lands where its tile was while it
+   * went up instead of jumping to the end. See `newFirst`.
+   */
+  isNew?: boolean;
 };
 
 /** A file on its way in: shown as a tile of its own until it is an entry. */

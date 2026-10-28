@@ -458,6 +458,41 @@ export const Images: Story = {
   ),
 };
 
+/**
+ * Two images uploaded since the last publish. They are last in the record --
+ * an upload is an `add` at the end -- and are listed first, newest first,
+ * with a "New" badge; the newest is open, as it is right after an upload.
+ */
+export const ImagesWithNewUploads: Story = {
+  render: () => {
+    const withNew = images.map((item, i) =>
+      i >= images.length - 2 ? { ...item, isNew: true } : item,
+    );
+    return (
+      <Stateful
+        kind="images"
+        items={withNew}
+        initiallySelected={withNew[withNew.length - 1].ref}
+        {...handlers}
+      />
+    );
+  },
+};
+
+/** The same, as a list. */
+export const ImagesWithNewUploadsList: Story = {
+  render: () => (
+    <Stateful
+      kind="images"
+      defaultView="list"
+      items={images.map((item, i) =>
+        i >= images.length - 2 ? { ...item, isNew: true } : item,
+      )}
+      {...handlers}
+    />
+  ),
+};
+
 /** And for a file set: the type, and Open. */
 export const Files: Story = {
   render: () => (

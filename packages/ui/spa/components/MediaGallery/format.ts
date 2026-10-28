@@ -28,3 +28,17 @@ export function factsOf(item: MediaItem): string {
     .filter(Boolean)
     .join(" · ");
 }
+
+/**
+ * The new entries first, newest first, then the rest as they were.
+ *
+ * `items` arrive in the record's order, and an upload is an `add` at the end
+ * of the record, so the newest of the new ones is the LAST of them. Showing
+ * them in that order put a fresh upload at the bottom of a long grid, right
+ * after its uploading tile had been shown at the top.
+ */
+export function newFirst(items: MediaItem[]): MediaItem[] {
+  const fresh = items.filter((item) => item.isNew);
+  if (fresh.length === 0) return items;
+  return [...fresh.reverse(), ...items.filter((item) => !item.isNew)];
+}

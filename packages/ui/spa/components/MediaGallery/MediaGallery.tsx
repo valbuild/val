@@ -5,8 +5,8 @@ import { Input } from "../designSystem/input";
 import { MediaThumbnail } from "../MediaThumbnail";
 import { MediaInspector } from "./MediaInspector";
 import { useFillScrollContainer } from "./useFillScrollContainer";
-import { MediaTile, UploadTile } from "./MediaTile";
-import { factsOf } from "./format";
+import { MediaTile, NewBadge, UploadTile } from "./MediaTile";
+import { factsOf, newFirst } from "./format";
 import type { MediaGalleryProps, MediaItem, MediaKind } from "./types";
 import { Spinner } from "../designSystem/spinner";
 
@@ -58,13 +58,15 @@ export function MediaGallery({
   const noun = NOUN[kind];
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q
-      ? items.filter(
-          (item) =>
-            item.name.toLowerCase().includes(q) ||
-            (item.description ?? "").toLowerCase().includes(q),
-        )
-      : items;
+    return newFirst(
+      q
+        ? items.filter(
+            (item) =>
+              item.name.toLowerCase().includes(q) ||
+              (item.description ?? "").toLowerCase().includes(q),
+          )
+        : items,
+    );
   }, [items, query]);
   /**
    * The open entry, held on to while its ref names nothing.
@@ -305,8 +307,11 @@ function ListView({
                 ) : null}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-fg-primary">
-                  {item.name}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-sm text-fg-primary">
+                    {item.name}
+                  </span>
+                  {item.isNew && <NewBadge />}
                 </span>
                 <span
                   className={cn(

@@ -15,6 +15,7 @@ import {
   useAddPatch,
   useFilePatchIds,
   useSchemaAtPath,
+  useServerSourceAtPath,
   useSourceAtPath,
   useValConfig,
 } from "../ValFieldProvider";
@@ -36,6 +37,7 @@ import { MediaGallery } from "../MediaGallery/MediaGallery";
 import type { MediaItem, MediaKind, MediaUpload } from "../MediaGallery/types";
 import { useNavigation } from "../ValRouter";
 import { GalleryEntryInspector } from "./GalleryEntryInspector";
+import { galleryNewEntries } from "./galleryNewEntries";
 import { filesOfChoices, toPosterUpload } from "./VideoChoices";
 import { captureFrame, defaultPosterTime } from "../../utils/video/readVideo";
 import { useRenameMediaFile } from "../useRenameMediaFile";
@@ -145,6 +147,56 @@ export function ModuleGallery({
     source.status === "success"
       ? (source.data as Record<string, Record<string, unknown>> | null)
       : null;
+
+  /*
+   * What is live, to tell the uploads in this publish from the rest: they are
+   * listed first, newest first, and marked "New". See `galleryNewEntries`.
+   */
+  const publishedSource = useServerSourceAtPath(path);
+  const newRefs = React.useMemo(
+    () =>
+      galleryNewEntries({
+        current: rawSource ? Object.keys(rawSource) : [],
+        published:
+          publishedSource.status !== "success"
+            ? null
+            : new Set(
+                typeof publishedSource.data === "object" &&
+                  publishedSource.data !== null &&
+                  !Array.isArray(publishedSource.data)
+                  ? Object.keys(publishedSource.data)
+                  : [],
+              ),
+        patches: allModulePatches.map((pending) => pending.patch),
+        patchPath,
+      }),
+    [rawSource, publishedSource, allModulePatches, patchPath],
+  );
+
+  /*
+   * Open what was just uploaded, so it is plain where it went and its
+   * description is one click from being written. Not once this gallery is
+   * gone: an upload outlives a navigation away, and taking the editor back to
+   * a gallery they left is worse than not selecting anything.
+   */
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const selectUploaded = React.useCallback(
+    (ref: string) => {
+      if (!mounted.current) return;
+      const target = Internal.createValPathOfItem(
+        moduleFilePath as string as SourcePath,
+        ref,
+      );
+      if (target) navigation.navigate(target);
+    },
+    [moduleFilePath, navigation],
+  );
 
   const schema =
     schemaAtPath.status === "success" && schemaAtPath.data.type === "record"
@@ -312,6 +364,7 @@ export function ModuleGallery({
           ...(isHls ? { isHls } : {}),
           ...(errors.length > 0 ? { errors } : {}),
           ...(descriptionErrors.length > 0 ? { descriptionErrors } : {}),
+          ...(newRefs.has(ref) ? { isNew: true } : {}),
         };
       })
     : [];
@@ -479,7 +532,8 @@ export function ModuleGallery({
    * set entry instead of a field.
    */
   const uploadVideo = React.useCallback(
-    async (file: File) => {
+    /** Resolves to the new entry's key, or null when nothing was added. */
+    async (file: File): Promise<string | null> => {
       const objectUrl = URL.createObjectURL(file);
       try {
         const prepared = await prepareVideoUpload(
@@ -490,7 +544,7 @@ export function ModuleGallery({
         );
         if (prepared.status === "error") {
           setUploadError(prepared.message);
-          return;
+          return null;
         }
         if (prepared.notice) {
           setUploadNotice(prepared.notice);
@@ -501,7 +555,7 @@ export function ModuleGallery({
         const poster = await captureFrame(objectUrl, posterTime)
           .then(toPosterUpload)
           .catch(() => null);
-        const { patch } = createVideosetEntryPatch(
+        const { patch, entry } = createVideosetEntryPatch(
           {
             setPatchPath: patchPath,
             dir: directory,
@@ -515,17 +569,23 @@ export function ModuleGallery({
           Internal.getSHA256Hash,
         );
         setVideoPhase(null);
+        let failed = false;
         await addAndUploadPatchWithFileOps(
           patch,
           "file",
-          (msg) => setUploadError(msg),
+          (msg) => {
+            failed = true;
+            setUploadError(msg);
+          },
           handleProgress,
         );
+        return failed ? null : entry.key;
       } catch (err) {
         Internal.log.error("video upload failed", err);
         setUploadError(
           `Could not upload the video: ${err instanceof Error ? err.message : String(err)}`,
         );
+        return null;
       } finally {
         URL.revokeObjectURL(objectUrl);
         setVideoPhase(null);
@@ -663,10 +723,14 @@ export function ModuleGallery({
         if (!file) return;
         setUploadNotice(null);
         setUploading(true);
-        uploadVideo(file).finally(() => {
-          setUploading(false);
-          setProgressPercentage(null);
-        });
+        uploadVideo(file)
+          .then((ref) => {
+            if (ref !== null) selectUploaded(ref);
+          })
+          .finally(() => {
+            setUploading(false);
+            setProgressPercentage(null);
+          });
         return;
       }
       if (imageMode) {
@@ -714,12 +778,17 @@ export function ModuleGallery({
               },
             ];
             setUploading(true);
+            let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
               "image",
-              (msg) => setUploadError(msg),
+              (msg) => {
+                failed = true;
+                setUploadError(msg);
+              },
               handleProgress,
             );
+            if (!failed) selectUploaded(ref);
           })
           .catch(() =>
             setUploadError("Could not upload image. Please try again."),
@@ -770,12 +839,17 @@ export function ModuleGallery({
               },
             ];
             setUploading(true);
+            let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
               "file",
-              (msg) => setUploadError(msg),
+              (msg) => {
+                failed = true;
+                setUploadError(msg);
+              },
               handleProgress,
             );
+            if (!failed) selectUploaded(ref);
           })
           .catch(() =>
             setUploadError("Could not upload file. Please try again."),
@@ -801,6 +875,7 @@ export function ModuleGallery({
       remoteFiles,
       encode,
       remoteSettingsPending,
+      selectUploaded,
     ],
   );
 
@@ -832,10 +907,12 @@ export function ModuleGallery({
       setUploadNotice(null);
       setUploading(true);
       (async () => {
+        /* The last one that went up is the one opened, once they all have. */
+        let lastUploaded: string | null = null;
         for (const file of droppedFiles) {
           setUploadingName(file.name);
           if (videoMode) {
-            await uploadVideo(file);
+            lastUploaded = (await uploadVideo(file)) ?? lastUploaded;
           } else if (imageMode) {
             const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
@@ -878,12 +955,17 @@ export function ModuleGallery({
                 remote: isRemote,
               },
             ];
+            let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
               "image",
-              (msg) => setUploadError(msg),
+              (msg) => {
+                failed = true;
+                setUploadError(msg);
+              },
               handleProgress,
             );
+            if (!failed) lastUploaded = ref;
           } else {
             const res = await readFileFromFile(file).catch(() => null);
             if (!res || !res.mimeType) continue;
@@ -917,14 +999,20 @@ export function ModuleGallery({
                 remote: isRemote,
               },
             ];
+            let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
               "file",
-              (msg) => setUploadError(msg),
+              (msg) => {
+                failed = true;
+                setUploadError(msg);
+              },
               handleProgress,
             );
+            if (!failed) lastUploaded = ref;
           }
         }
+        if (lastUploaded !== null) selectUploaded(lastUploaded);
       })().finally(() => {
         setUploading(false);
         setProgressPercentage(null);
@@ -944,6 +1032,7 @@ export function ModuleGallery({
       computeRef,
       handleProgress,
       encode,
+      selectUploaded,
       // Derived from `remoteFiles`, which is NOT otherwise a dependency here.
       // On loading -> inactive neither `remoteData` nor the bucket changes
       // (both stay null), so without this the flag stays stale at `true` and a
