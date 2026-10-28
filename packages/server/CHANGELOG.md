@@ -1,5 +1,17 @@
 # @valbuild/server
 
+## 0.150.10
+
+### Patch Changes
+
+- [#970](https://github.com/valbuild/val/pull/970) [`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94) Thanks [@freekh](https://github.com/freekh)! - A proposal's shared AI chat now shows other people's turns live: their question appears as they send it, each tool the turn runs shows as a step, and the answer streams in as it is written, instead of turning up a few seconds later. Who is asking is what the content server says rather than a guess. Against a content server that does not relay chats yet, the Studio falls back to reading the chat again every few seconds, as before.
+
+  An answer's tool steps are now also shown when a chat is opened again or the page is reloaded, for every chat on a content server that keeps them.
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/ui@0.150.10
+  - @valbuild/shared@0.150.10
+
 ## 0.150.9
 
 ### Patch Changes
