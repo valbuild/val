@@ -23,6 +23,7 @@
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
 import type { PageLocation, PageSnapshot } from "./pageInspection";
+import type { PageScreenshot } from "./pageScreenshot";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
@@ -210,6 +211,17 @@ export type ValCanvasPageMessage =
     }
   | {
       /**
+       * What `screenshotPage` asked for: the page as a JPEG data URL, or why
+       * it could not be taken (`pageScreenshot.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageScreenshot";
+      requestId: string;
+      screenshot: PageScreenshot | null;
+      error?: string;
+    }
+  | {
+      /**
        * A quick preview's files are stored in the page's worker, and a page
        * opened with its id is served them (`quickPreview.ts`) -- or why not.
        */
@@ -350,6 +362,17 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
+       * Take a picture of the page (`screenshotPage`): the assistant's
+       * `screenshot_page`. Answered with `pageScreenshot` and the same
+       * `requestId`; a bridge that predates it never answers.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "screenshotPage";
+      requestId: string;
+      fullPage?: boolean;
+    }
+  | {
+      /**
        * Store a quick preview's files in this origin's worker
        * (`storeQuickPreview`): the tab cannot, being another origin.
        * Answered with `quickPreviewStored`.
@@ -379,6 +402,8 @@ export function isValCanvasPageMessage(
       isPickedElement((data as { element?: unknown }).element)) ||
     (message.type === "location" && isPageLocation(data)) ||
     (message.type === "pageRead" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "pageScreenshot" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string")
@@ -476,6 +501,13 @@ export function isValCanvasStudioMessage(
       typeof preview.id === "string" &&
       /^[A-Za-z0-9_-]{1,64}$/.test(preview.id) &&
       isQuickPreviewFiles(preview.files)
+    );
+  }
+  if (message.type === "screenshotPage") {
+    const asked = data as Record<string, unknown>;
+    return (
+      typeof asked.requestId === "string" &&
+      (asked.fullPage === undefined || typeof asked.fullPage === "boolean")
     );
   }
   if (message.type === "readPage") {

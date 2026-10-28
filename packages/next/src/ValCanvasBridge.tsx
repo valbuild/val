@@ -10,6 +10,7 @@ import {
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   quickPreviewSiteOrigin,
   readPageSnapshot,
+  screenshotPage,
   restoreScroll,
   startElementPicking,
   storeQuickPreview,
@@ -356,6 +357,22 @@ export function ValCanvasBridge({
           own: window.location.origin,
         }).then((trusted) => {
           if (trusted) window.parent.postMessage(readPageReply(message), asker);
+        });
+        return;
+      }
+      if (message.type === "screenshotPage") {
+        // The assistant's `screenshot_page`: a picture of the page, drawn
+        // here because the tab is another origin and cannot. As `readPage`:
+        // only for the frame's parent, when that is the design tab or the
+        // Studio here, and answered to it alone.
+        if (event.source !== window.parent) return;
+        const asker = event.origin;
+        void isDesignTabOrigin(asker, {
+          api: "/api/val",
+          own: window.location.origin,
+        }).then(async (trusted) => {
+          if (!trusted) return;
+          window.parent.postMessage(await screenshotReply(message), asker);
         });
         return;
       }
@@ -791,6 +808,34 @@ function findByPath(path: string): Element | null {
     }
   }
   return null;
+}
+
+/** What `screenshotPage` answers: the picture, or why it could not be taken. */
+async function screenshotReply(
+  message: Extract<ValCanvasStudioMessage, { type: "screenshotPage" }>,
+): Promise<ValCanvasPageMessage> {
+  try {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageScreenshot",
+      requestId: message.requestId,
+      screenshot: await screenshotPage(window, {
+        ...(message.fullPage !== undefined
+          ? { fullPage: message.fullPage }
+          : {}),
+        // The picker's highlight is the Studio's, not the page's.
+        exclude: (element) => element.hasAttribute("data-val-picker"),
+      }),
+    };
+  } catch (error) {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageScreenshot",
+      requestId: message.requestId,
+      screenshot: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /** What `readPage` answers: the page read, or why it could not be. */

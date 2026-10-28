@@ -1,16 +1,10 @@
 // @ts-check
-import path from "path";
-import fs from "fs";
 
 /**
- * @type {Record<string, string>}
+ * @param {import("../projectHost").ValProjectHost} host
+ * @returns {import('eslint').Rule.RuleModule}
  */
-const PACKAGE_JSON_DIRS_CACHE = {}; // we cache to avoid having to do as many fs operations. however, it will fail if the user moves package.json / root directories. For now, we accept that bug since performance is considered more important. Maybe there is a way to know when that happens so we avoid those bugs.
-
-/**
- * @type {import('eslint').Rule.RuleModule}
- */
-export default {
+export default (host) => ({
   meta: {
     type: "problem",
     docs: {
@@ -48,22 +42,7 @@ export default {
               filename?.endsWith(".val.js") ||
               filename?.endsWith(".val.jsx")
             ) {
-              let packageJsonDir =
-                PACKAGE_JSON_DIRS_CACHE[path.dirname(filename)];
-              if (!packageJsonDir) {
-                const runtimeRoot = path.resolve(context.cwd);
-                packageJsonDir = path.resolve(path.dirname(filename));
-                while (
-                  !fs.existsSync(path.join(packageJsonDir, "package.json")) &&
-                  packageJsonDir !== runtimeRoot
-                ) {
-                  packageJsonDir = path.dirname(packageJsonDir);
-                }
-                PACKAGE_JSON_DIRS_CACHE[path.dirname(filename)] =
-                  packageJsonDir;
-              }
-              const relativePath = path.relative(packageJsonDir, filename);
-              expectedValue = `/${relativePath}`;
+              expectedValue = host.modulePathOf(filename, context.cwd);
             }
           }
         } else {
@@ -109,4 +88,4 @@ export default {
       },
     };
   },
-};
+});

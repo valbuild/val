@@ -5,6 +5,7 @@ import {
   proposalProject,
   runCodeTool,
   runReadPage,
+  runScreenshotPage,
   type BuildReport,
   type CodeToolDeps,
   type ProposalBuildControl,
@@ -410,13 +411,14 @@ describe("the code tools", () => {
     });
   };
 
-  test("are ten, and known by name", () => {
+  test("are eleven, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
       "write_files",
       "format_files",
+      "lint",
       "typecheck",
       "build_proposal",
       "build_status",
@@ -534,6 +536,128 @@ describe("the code tools", () => {
     expect(d.staged).toEqual([
       [NAME, { "src/components/Hero.tsx": "const hero = 1;" }, "Format"],
     ]);
+  });
+
+  describe("lint, with Val's own rules", () => {
+    const MODULES = `export default modules(config, [
+  { def: () => import("./src/content/home.val") },
+]);`;
+    const lintDeps = (files: Record<string, string>, stagedFiles: string[]) => {
+      const d = deps({
+        siteSource: async () => ({}),
+        client: {
+          files: async () => ({
+            files,
+            staged: staged({ files: stagedFiles }),
+          }),
+          stageFiles: async (name, written, message) => {
+            d.staged.push([name, written, message]);
+            return { commit: "c5", staged: staged() };
+          },
+          patchFile: async () => ({ commit: "c6", staged: staged() }),
+        },
+      });
+      return d;
+    };
+
+    test("reports what the rules find in the staged files, and that a module path can be fixed", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": MODULES,
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+import { Hero } from "../components/Hero";
+const content = "Hello";
+export default c.define("/src/content/start.val.ts", s.string(), content);`,
+          "src/components/Hero.tsx": "export const Hero = () => null;",
+        },
+        ["src/content/home.val.ts", "src/components/Hero.tsx"],
+      );
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.isError).toBe(false);
+      expect(answer.result).toMatchObject({
+        success: true,
+        linted: 2,
+        next: "Fix these: the fixable ones with lint and fix: true, the rest in the files. Then lint again.",
+      });
+      const problems = (
+        answer.result as {
+          problems: { rule: string; path: string; fixable: boolean }[];
+        }
+      ).problems;
+      expect(
+        problems.map(({ path, rule, fixable }) => [path, rule, fixable]),
+      ).toEqual([
+        ["src/content/home.val.ts", "no-illegal-imports", false],
+        ["src/content/home.val.ts", "no-illegal-module-paths", true],
+        ["src/content/home.val.ts", "no-define-with-variable", false],
+      ]);
+      expect(d.staged).toEqual([]);
+    });
+
+    test("with fix, stages what the rules can fix", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": MODULES,
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/start.val.ts", s.string(), "Hello");`,
+        },
+        ["src/content/home.val.ts"],
+      );
+      const answer = await runCodeTool("lint", { fix: true }, d);
+      expect(answer.result).toMatchObject({
+        success: true,
+        problems: [],
+        fixedAndStaged: ["src/content/home.val.ts"],
+        next: "No problems.",
+      });
+      expect(d.staged).toEqual([
+        [
+          NAME,
+          {
+            "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
+          },
+          "Lint fixes",
+        ],
+      ]);
+    });
+
+    test("a module val.modules.ts no longer registers is found, though its file did not change", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": "export default modules(config, []);",
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
+        },
+        ["val.modules.ts"],
+      );
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.result).toMatchObject({
+        linted: 2,
+        problems: [
+          {
+            path: "src/content/home.val.ts",
+            line: 2,
+            rule: "module-in-val-modules",
+          },
+        ],
+      });
+    });
+
+    test("a file that does not parse says so, rather than passing", async () => {
+      const d = lintDeps({ "src/broken.ts": "export const = ;" }, [
+        "src/broken.ts",
+      ]);
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.result).toMatchObject({
+        problems: [{ path: "src/broken.ts", rule: null }],
+      });
+    });
+
+    test("is refused on the site", async () => {
+      const answer = await runCodeTool("lint", {}, deps({ proposal: null }));
+      expect(answer.isError).toBe(true);
+    });
   });
 
   test("format_files without write only reports, and says what it cannot format", async () => {
@@ -1029,5 +1153,97 @@ describe("read_page", () => {
       result: { success: false, error: "The page did not answer." },
       isError: true,
     });
+  });
+});
+
+describe("screenshot_page", () => {
+  // A JPEG's first bytes, as the page's canvas would encode them.
+  const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
+  const shot = {
+    dataUrl: JPEG,
+    width: 1280,
+    height: 800,
+    fullPage: false,
+    clipped: true,
+  };
+
+  test("uploads the page's picture and hands its key over with the answer", async () => {
+    const uploaded: File[] = [];
+    const devices: string[] = [];
+    const asked: unknown[] = [];
+    const answer = await runScreenshotPage(
+      { full_page: true, device: "mobile" },
+      {
+        screenshotPage: async (options) => {
+          asked.push(options);
+          return { ...shot, fullPage: true };
+        },
+        setDevice: async (device) => {
+          devices.push(device);
+        },
+        uploadImage: async (file) => {
+          uploaded.push(file);
+          return { key: "p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg" };
+        },
+      },
+    );
+    expect(devices).toEqual(["mobile"]);
+    expect(asked).toEqual([{ fullPage: true }]);
+    expect(answer).toEqual({
+      result: {
+        success: true,
+        width: 1280,
+        height: 800,
+        full_page: true,
+        note: "The page goes on below the picture.",
+        image: "attached",
+      },
+      isError: false,
+      images: ["p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg"],
+    });
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0].type).toBe("image/jpeg");
+    // The bytes of the data URL, decoded: a JPEG starts FF D8 FF.
+    const bytes = new Uint8Array(await uploaded[0].arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  });
+
+  test("says there is nothing to picture before a page is showing", async () => {
+    const answer = await runScreenshotPage(
+      {},
+      {
+        screenshotPage: null,
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer).not.toHaveProperty("images");
+  });
+
+  test("says why when the page could not be pictured, and attaches nothing", async () => {
+    const answer = await runScreenshotPage(
+      {},
+      {
+        screenshotPage: async () => {
+          throw new Error("The page did not answer.");
+        },
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
+  });
+
+  test("refuses a width it does not know", async () => {
+    const answer = await runScreenshotPage(
+      { device: "watch" },
+      {
+        screenshotPage: async () => shot,
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer.isError).toBe(true);
   });
 });

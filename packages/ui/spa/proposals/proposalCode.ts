@@ -1,9 +1,14 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
-import type { PageSnapshot, PickedElement } from "@valbuild/shared/internal";
+import type {
+  PageScreenshot,
+  PageSnapshot,
+  PickedElement,
+} from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
+import { lintWithValRules, pathsToLint } from "./lintCode";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -222,12 +227,38 @@ const FORMAT_FILES_TOOL: AITool = {
   },
 };
 
+const LINT_TOOL: AITool = {
+  name: "lint",
+  description:
+    "Check the proposal's files with Val's lint rules -- the ones a developer's editor runs: a c.define path that is not the file's own, " +
+    "a module missing from val.modules.ts, c.define content that is a variable (it validates, then fails at publish), " +
+    "an import a .val file may not make. When one fires, something is wrong: fix it. " +
+    "With no paths, every staged code file (and every .val file, when val.modules.ts is staged). Call it after format_files, with typecheck.",
+  parameters: {
+    type: "object",
+    properties: {
+      paths: {
+        type: "array",
+        items: { type: "string" },
+        description: "Only these files, e.g. ['src/content/home.val.ts'].",
+      },
+      fix: {
+        type: "boolean",
+        description:
+          "Stage the fixes the rules can make themselves (default false): a c.define path, for one.",
+      },
+    },
+    required: [],
+  },
+};
+
 export const CODE_TOOLS: AITool[] = [
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
   SEARCH_CODE_TOOL,
   WRITE_FILES_TOOL,
   FORMAT_FILES_TOOL,
+  LINT_TOOL,
   TYPECHECK_TOOL,
   BUILD_PROPOSAL_TOOL,
   BUILD_STATUS_TOOL,
@@ -287,7 +318,7 @@ export async function runQuickPreviewTool(
       success: true,
       seconds: Math.round(result.ms / 100) / 10,
       steps,
-      next: "The preview shows it. Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
+      next: "The preview shows it. Check it with read_page or screenshot_page; build_proposal before you say it is done, so the server's half is checked too.",
     },
     isError: false,
   };
@@ -399,6 +430,104 @@ export async function runReadPage(
 }
 
 /**
+ * `screenshot_page` in the design tab: a picture of what the preview shows,
+ * drawn by the page itself (`screenshotPage`), uploaded as an image of the
+ * chat and handed to the model with the answer. `read_page` gives the words
+ * and boxes; this is for what they cannot say -- a colour, an overlap, a
+ * button that wrapped.
+ */
+export const DESIGN_SCREENSHOT_TOOL: AITool = {
+  name: "screenshot_page",
+  description:
+    "See the page the preview shows: a picture of it, as the person sees it, attached to the answer. " +
+    "What is on screen, or full_page: true for the whole page from the top (cut off below 4000px). " +
+    "device switches the preview's width first (desktop, tablet 820px, mobile 390px), which the person sees. " +
+    "It is drawn from the page's HTML and CSS, so images from other sites, videos, canvases and embeds may come out blank: " +
+    "that is the picture, not the page. Use read_page for exact text, sizes and styles. Reads the build the preview shows.",
+  parameters: {
+    type: "object",
+    properties: {
+      full_page: {
+        type: "boolean",
+        description: "The whole page from the top, not only what is on screen.",
+      },
+      device: {
+        type: "string",
+        enum: [...DEVICES],
+        description: "Switch the preview to this width first.",
+      },
+    },
+    required: [],
+  },
+  timeoutMs: 2 * 60_000,
+};
+
+/** What `screenshot_page` needs of the design tab and the chat. */
+export type ScreenshotPageDeps = {
+  /** Pictures the page in front; `null` while no page is there. */
+  screenshotPage:
+    | ((options: { fullPage?: boolean }) => Promise<PageScreenshot>)
+    | null;
+  /** Switch the preview's width, and wait for the page to take it. */
+  setDevice?: (device: DesignDevice) => Promise<void>;
+  /** Upload the picture as an image of the chat: its key. */
+  uploadImage: (file: File) => Promise<{ key: string }>;
+};
+
+/** A tool's answer with images for the model: their keys, as uploaded. */
+export type CodeToolAnswerWithImages = CodeToolAnswer & { images?: string[] };
+
+export async function runScreenshotPage(
+  args: unknown,
+  deps: ScreenshotPageDeps,
+): Promise<CodeToolAnswerWithImages> {
+  const fail = (error: string): CodeToolAnswer => ({
+    result: { success: false, error },
+    isError: true,
+  });
+  const input = isRecord(args) ? args : {};
+  if (deps.screenshotPage === null) {
+    return fail(
+      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and try again.",
+    );
+  }
+  if (input["device"] !== undefined) {
+    const device = DEVICES.find((known) => known === input["device"]);
+    if (device === undefined) {
+      return fail(`device must be one of ${DEVICES.join(", ")}.`);
+    }
+    await deps.setDevice?.(device);
+  }
+  try {
+    const shot = await deps.screenshotPage({
+      fullPage: input["full_page"] === true,
+    });
+    // Decoded here rather than fetched: a page's policy may refuse `data:`.
+    const base64 = shot.dataUrl.slice(shot.dataUrl.indexOf(",") + 1);
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const { key } = await deps.uploadImage(
+      new File([bytes], "page.jpg", { type: "image/jpeg" }),
+    );
+    return {
+      result: {
+        success: true,
+        width: shot.width,
+        height: shot.height,
+        full_page: shot.fullPage,
+        ...(shot.clipped
+          ? { note: "The page goes on below the picture." }
+          : {}),
+        image: "attached",
+      },
+      isError: false,
+      images: [key],
+    };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * `create_patch` in the design tab: content written into the module's FILE in
  * the proposal, and staged there with the code (valbuild/home
  * `docs/design-tab.md`). The tab changes code, so a field the assistant adds
@@ -461,11 +590,11 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), format it (format_files), typecheck it (typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then typecheck and fix the type errors it reports; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are, then lint and typecheck, and fix what they report; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
 - ${here}`;
 }
@@ -483,7 +612,7 @@ export function designSystemPrompt(displayName: string): string {
 Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
 
 ## What you can do here
-- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files), typecheck it (typecheck) and build it (build_proposal), so the preview shows it.
+- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal), so the preview shows it.
 - Change content with create_patch: it is written into the module's file in the proposal and staged with the code, so a field you add to a schema can be filled in the same change.
 - Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content: a module the proposal changed is read with read_file.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
@@ -493,11 +622,12 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
 
 ## Working
-- Keep each change small enough to check: write it, format it, typecheck and fix what it reports, then build.
+- Keep each change small enough to check: write it, format it, lint and typecheck it and fix what they report, then build.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
 - To see a change to components, layout or styles quickly, call quick_preview after typecheck: the preview shows it in seconds. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
 - Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
+- When how it LOOKS is the question -- a colour, spacing, an overlap, a layout on a phone -- look at it with screenshot_page: you get a picture of the preview. read_page is for the exact text and sizes.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
 
@@ -550,6 +680,8 @@ export type CodeToolDeps = {
     path: string,
     project: Record<string, string>,
   ) => Promise<FormatOutcome>;
+  /** Lint files of the project with Val's rules; `lintWithValRules` unless a test says otherwise. */
+  lintCode?: typeof lintWithValRules;
   /** Offer the person a proposal to make the change in. */
   offerProposal: () => void;
 };
@@ -601,6 +733,9 @@ export type CodeTypecheck =
   | { status: "done"; errors: ProposalTypeError[] }
   | { status: "nothing-staged" }
   | { status: "failed"; message: string };
+
+/** Lint problems handed to the model at once. */
+const MAX_LINT_PROBLEMS = 50;
 
 /** Type errors handed to the model at once: the first of them are the ones to fix. */
 const MAX_TYPE_ERRORS = 50;
@@ -895,6 +1030,50 @@ export async function runCodeTool(
               : write
                 ? "The changed files are staged, formatted."
                 : "Call format_files again with write: true to stage these formatted.",
+        },
+        isError: false,
+      };
+    }
+    if (name === "lint") {
+      if (deps.proposal === null) {
+        return fail(
+          "Only a proposal's files are linted here: the site's code is changed by merging a proposal.",
+        );
+      }
+      const asked = input["paths"];
+      if (
+        asked !== undefined &&
+        (!Array.isArray(asked) || !asked.every((p) => typeof p === "string"))
+      ) {
+        return fail("paths must be a list of file paths.");
+      }
+      const paths =
+        asked !== undefined
+          ? asked.map((path) => path.replace(/^\/+/, ""))
+          : pathsToLint(project, staged?.files ?? []);
+      const fix = input["fix"] === true;
+      const lintCode = deps.lintCode ?? lintWithValRules;
+      const { messages, fixed } = await lintCode(project, paths, { fix });
+      if (Object.keys(fixed).length > 0) {
+        await deps.client.stageFiles(deps.proposal.name, fixed, "Lint fixes");
+      }
+      return {
+        result: {
+          success: true,
+          linted: paths.length,
+          problems: messages.slice(0, MAX_LINT_PROBLEMS),
+          ...(messages.length > MAX_LINT_PROBLEMS
+            ? { truncated: `${messages.length - MAX_LINT_PROBLEMS} more` }
+            : {}),
+          ...(Object.keys(fixed).length > 0
+            ? { fixedAndStaged: Object.keys(fixed) }
+            : {}),
+          next:
+            messages.length === 0
+              ? "No problems."
+              : messages.some((m) => m.fixable) && !fix
+                ? "Fix these: the fixable ones with lint and fix: true, the rest in the files. Then lint again."
+                : "Fix these in the files, then lint again.",
         },
         isError: false,
       };

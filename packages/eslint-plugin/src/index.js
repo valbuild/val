@@ -6,24 +6,13 @@
  * @typedef {import('eslint').Linter } RuleModule
  */
 
-import noIllegalModulePaths from "./rules/noIllegalModulePaths";
-import noIllegalImports from "./rules/noIllegalImports";
-import exportContentMustBeValid from "./rules/exportContentMustBeValid";
-import noDefineWithVariable from "./rules/noDefineWithVariable";
-import defaultExportValModule from "./rules/defaultExportValModule";
-import moduleInValModules from "./rules/moduleInValModules";
+import { createRules } from "./rules";
+import { nodeHost } from "./nodeHost";
 
 /**
  * @type {Plugin["rules"]}
  */
-export const rules = {
-  "no-illegal-module-paths": noIllegalModulePaths,
-  "no-illegal-imports": noIllegalImports,
-  "export-content-must-be-valid": exportContentMustBeValid,
-  "no-define-with-variable": noDefineWithVariable,
-  "default-export-val-module": defaultExportValModule,
-  "module-in-val-modules": moduleInValModules,
-};
+export const rules = createRules(nodeHost);
 
 /**
  * @type {Plugin["processors"]}

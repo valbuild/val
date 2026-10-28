@@ -7,6 +7,7 @@ import {
 import {
   CanvasFrame,
   type CanvasFrameProps,
+  type PageCamera,
   type PageReader,
 } from "../shell/canvas/CanvasFrame";
 import type { CanvasPreviewStatus } from "../shell/canvas/CanvasPreviewNotice";
@@ -65,6 +66,8 @@ export type DesignPreviewFramesProps = {
   onStatusChange: (status: CanvasPreviewStatus) => void;
   /** Reads the page in front: the assistant's `read_page`. */
   onPageReader?: (reader: PageReader | null) => void;
+  /** Pictures the page in front: the assistant's `screenshot_page`. */
+  onPageCamera?: (camera: PageCamera | null) => void;
   /** A new build is loading behind the page in front. */
   onSwappingChange?: (swapping: boolean) => void;
   /**
@@ -91,6 +94,7 @@ export function DesignPreviewFrames({
   enableKey,
   onStatusChange,
   onPageReader,
+  onPageCamera,
   onSwappingChange,
   quickPreviewId = null,
   onQuickPreviewStorer,
@@ -237,6 +241,7 @@ export function DesignPreviewFrames({
               onStatusChange,
               onLocation: onLiveLocation,
               ...(onPageReader !== undefined ? { onPageReader } : {}),
+              ...(onPageCamera !== undefined ? { onPageCamera } : {}),
               ...(onQuickPreviewStorer !== undefined
                 ? { onQuickPreviewStorer }
                 : {}),

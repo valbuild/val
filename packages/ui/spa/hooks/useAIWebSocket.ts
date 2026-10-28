@@ -409,6 +409,12 @@ export const AIToolResultMessage = z.object({
   toolCallId: z.string(),
   result: z.unknown(),
   isError: z.boolean().optional(),
+  /**
+   * Images the model is shown with the result, by their key as uploaded to
+   * the chat (`/ai/images`): `screenshot_page`'s picture. A server that
+   * predates them drops them and hands over the result alone.
+   */
+  images: z.array(z.string()).max(4).optional(),
 });
 export type AIToolResultMessage = z.infer<typeof AIToolResultMessage>;
 
