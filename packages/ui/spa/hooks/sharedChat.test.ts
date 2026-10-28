@@ -3,6 +3,7 @@ import {
   applyWatchedEvent,
   runningAsker,
   someoneElseAdded,
+  storedToolActivities,
   watchedQuestionText,
   type WatchedChat,
 } from "./sharedChat";
@@ -76,6 +77,9 @@ describe("applyWatchedEvent", () => {
         appendAssistantChunk: record("chunk"),
         completeAssistantMessage: record("complete"),
         errorAssistantMessage: record("error"),
+        addToolCall: record("tool"),
+        completeToolCall: record("toolDone"),
+        errorToolCall: record("toolFailed"),
       },
       activeId: { current: null },
       started: new Set(),
@@ -129,6 +133,33 @@ describe("applyWatchedEvent", () => {
     expect(turnBy).toEqual([KARI_P, null]);
     // The question was seen asked, so the chat is not shown again.
     expect(ended).toEqual([false]);
+  });
+
+  test("each tool the turn runs is a row, and says how it went", () => {
+    const { calls, send } = watching();
+    const tool = (
+      status: "pending" | "complete" | "error",
+      toolCallId: string,
+    ) =>
+      send({
+        type: "ai_tool_activity",
+        id: "q1",
+        toolCallId,
+        name: "create_patch",
+        status,
+      });
+    tool("pending", "t1");
+    tool("complete", "t1");
+    tool("pending", "t2");
+    tool("error", "t2");
+    expect(calls).toEqual([
+      // A tool can come before any text: the answer opens with it.
+      ["start", "q1"],
+      ["tool", "q1", "t1", "create_patch"],
+      ["toolDone", "q1", "t1"],
+      ["tool", "q1", "t2", "create_patch"],
+      ["toolFailed", "q1", "t2"],
+    ]);
   });
 
   test("an answer that did not stream is shown whole", () => {
@@ -233,6 +264,13 @@ describe("the relay, as the content server sends it", () => {
       },
       { type: "ai_streaming", id: "q1", chunk: "Hel" },
       {
+        type: "ai_tool_activity",
+        id: "q1",
+        toolCallId: "t1",
+        name: "create_patch",
+        status: "pending",
+      },
+      {
         type: "ai_response",
         id: "q1",
         sessionId: "chat-1",
@@ -252,5 +290,72 @@ describe("the relay, as the content server sends it", () => {
         runningAuthorId: null,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("storedToolActivities", () => {
+  const question = {
+    question: "Which headline?",
+    options: [{ label: "Short" }, { label: "Long" }],
+  };
+  test("a kept tool call is the row the answer showed", () => {
+    expect(
+      storedToolActivities([
+        { toolCallId: "t1", name: "get_source", isError: false },
+        { toolCallId: "t2", name: "create_patch", isError: true },
+      ]),
+    ).toEqual([
+      { toolCallId: "t1", name: "get_source", status: "complete" },
+      { toolCallId: "t2", name: "create_patch", status: "error" },
+    ]);
+  });
+  test("an answered question shows what was asked and answered", () => {
+    const answers = [
+      { question: "Which headline?", selectedOptions: [0], customAnswer: null },
+    ];
+    expect(
+      storedToolActivities([
+        {
+          toolCallId: "t1",
+          name: "ask_user_question",
+          isError: false,
+          questions: [question],
+          answers,
+        },
+      ]),
+    ).toEqual([
+      {
+        toolCallId: "t1",
+        name: "ask_user_question",
+        status: "complete",
+        questions: [question],
+        answers,
+      },
+    ]);
+  });
+  test("a question nobody answered can no longer be answered", () => {
+    const [declined] = storedToolActivities([
+      {
+        toolCallId: "t1",
+        name: "ask_user_question",
+        isError: true,
+        questions: [question],
+      },
+    ]);
+    expect(declined).toMatchObject({ status: "error", cancelled: true });
+  });
+  test("a question that cannot be drawn is a plain row", () => {
+    expect(
+      storedToolActivities([
+        {
+          toolCallId: "t1",
+          name: "ask_user_question",
+          isError: false,
+          questions: [{ nonsense: true }],
+        },
+      ]),
+    ).toEqual([
+      { toolCallId: "t1", name: "ask_user_question", status: "complete" },
+    ]);
   });
 });

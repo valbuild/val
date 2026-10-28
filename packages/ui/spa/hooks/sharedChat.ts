@@ -1,7 +1,9 @@
 import type { AIChatHandle } from "../components/AIChat";
+import type { ToolActivity } from "../components/AIChatToolActivities";
 import type { ProposalParticipant } from "../components/proposals/types";
 import type { AIMessagesResponse } from "../components/ValProvider";
 import type { AIMessageContentBlock, AIWatchedMessage } from "./useAIWebSocket";
+import { AskUserQuestionArgs, AskUserQuestionResult } from "./askUserQuestion";
 
 /**
  * Reading a proposal's chat that others write in too (valbuild/home
@@ -55,6 +57,9 @@ export type WatchedChat = {
     | "appendAssistantChunk"
     | "completeAssistantMessage"
     | "errorAssistantMessage"
+    | "addToolCall"
+    | "completeToolCall"
+    | "errorToolCall"
   > | null;
   /** The watched turn whose answer is on screen as it streams. */
   activeId: { current: string | null };
@@ -117,6 +122,17 @@ export function applyWatchedEvent(
       );
     }
     chat?.completeAssistantMessage(event.id, { stopped: true });
+  } else if (event.type === "ai_tool_activity") {
+    // A row that shows the tool ran, never a card to answer: a question the
+    // AI asks is the asker's to answer, so it is a plain row here too.
+    if (event.status === "pending") {
+      openAnswer(event.id);
+      chat?.addToolCall(event.id, event.toolCallId, event.name);
+    } else if (event.status === "complete") {
+      chat?.completeToolCall(event.id, event.toolCallId);
+    } else {
+      chat?.errorToolCall(event.id, event.toolCallId);
+    }
   } else if (event.type === "ai_error") {
     openAnswer(event.id);
     chat?.errorAssistantMessage(event.id, event.message, event.code);
@@ -146,4 +162,35 @@ export function watchedQuestionText(
           .join("\n\n");
   const attached = text.indexOf("\n\n[Attached images");
   return attached === -1 ? text : text.slice(0, attached);
+}
+
+/**
+ * A turn's tool calls as the content server kept them, as the rows the answer
+ * showed: how each went, and for a question what was asked and answered. A
+ * question whose card cannot be drawn from what was kept is a plain row.
+ */
+export function storedToolActivities(
+  calls: NonNullable<ServerMessage["toolCalls"]>,
+): ToolActivity[] {
+  return calls.map((call): ToolActivity => {
+    const activity: ToolActivity = {
+      toolCallId: call.toolCallId,
+      name: call.name,
+      status: call.isError ? "error" : "complete",
+    };
+    if (call.name !== "ask_user_question") return activity;
+    const asked = AskUserQuestionArgs.safeParse({ questions: call.questions });
+    if (!asked.success) return activity;
+    const answered = AskUserQuestionResult.safeParse({
+      answers: call.answers,
+    });
+    return {
+      ...activity,
+      questions: asked.data.questions,
+      ...(answered.success
+        ? { answers: answered.data.answers }
+        : // Declined, or the turn ended first: settled, and not answerable.
+          { cancelled: true }),
+    };
+  });
 }

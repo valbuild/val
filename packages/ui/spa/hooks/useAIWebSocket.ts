@@ -315,6 +315,18 @@ export const AITurnStartedEvent = z.object({
   message: z.union([z.string(), z.array(AIMessageContentBlock)]),
 });
 
+/**
+ * A tool ran in a watched turn, and how it went: the row the asker sees,
+ * without the request to run it, which is theirs alone.
+ */
+export const AIToolActivityEvent = z.object({
+  type: z.literal("ai_tool_activity"),
+  id: z.string(),
+  toolCallId: z.string(),
+  name: z.string(),
+  status: z.enum(["pending", "complete", "error"]),
+});
+
 /** That question's turn is over, however it ended. */
 export const AITurnEndedEvent = z.object({
   type: z.literal("ai_turn_ended"),
@@ -332,6 +344,7 @@ export const AIWatchedMessage = z.object({
   sessionId: z.string(),
   event: z.discriminatedUnion("type", [
     AITurnStartedEvent,
+    AIToolActivityEvent,
     AIStreamingMessage,
     AIResponseMessage,
     AICancelledMessage,

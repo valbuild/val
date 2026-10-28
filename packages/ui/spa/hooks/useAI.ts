@@ -25,11 +25,14 @@ import type {
   ChatMessageAttachment,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
+import type { ToolActivity } from "../components/AIChatToolActivities";
 import {
   applyWatchedEvent,
   runningAsker,
   someoneElseAdded,
+  storedToolActivities,
 } from "./sharedChat";
+import { AskUserQuestionArgs } from "./askUserQuestion";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -462,33 +465,6 @@ const ASK_USER_QUESTION_TOOL: AITool = {
   // 30s timeout so the call doesn't get aborted while the user is deciding.
   timeoutMs: null,
 };
-// ask_user_question is the one tool whose arguments drive an interactive
-// render rather than a lookup, so a malformed payload is not recoverable the
-// way a bad argument to a read tool is: with no questions there is no card to
-// submit, and since the tool intentionally sends no immediate result the turn
-// would sit on a spinner forever.
-//
-// Only the fields the card cannot render without are strict. The cosmetic ones
-// use .catch so a wrong type drops just that field rather than rejecting an
-// otherwise perfectly answerable question.
-const AskUserQuestionArgs = z.object({
-  questions: z
-    .array(
-      z.object({
-        question: z.string(),
-        header: z.string().optional().catch(undefined),
-        options: z.array(
-          z.object({
-            label: z.string(),
-            description: z.string().optional().catch(undefined),
-          }),
-        ),
-        multiSelect: z.boolean().optional().catch(undefined),
-        defaults: z.array(z.number()).optional().catch(undefined),
-      }),
-    )
-    .min(1),
-});
 type AskUserQuestions = z.infer<typeof AskUserQuestionArgs>["questions"];
 
 const PATH_ARRAY_DESCRIPTION =
@@ -3218,17 +3194,32 @@ function toChatMessages(
   messages: ServerMessage[],
   participantOf: (id: string) => ProposalParticipant,
 ): ChatMessage[] {
-  return messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map(
-      (m, i): ChatMessage => ({
-        id: `history-${sessionId}-${i}`,
-        role: m.role === "user" ? "user" : "assistant",
+  const chat: ChatMessage[] = [];
+  /** The tools the last question's turn called: they go on its answer. */
+  let toolActivities: ToolActivity[] = [];
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    // Numbered among the messages shown, as they always were.
+    const id = `history-${sessionId}-${chat.length}`;
+    if (m.role === "user") {
+      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
+      chat.push({
+        id,
+        role: "user",
         content: m.content,
         status: "complete",
-        ...(m.role === "user" && m.authorId
-          ? { author: participantOf(m.authorId) }
-          : {}),
-      }),
-    );
+        ...(m.authorId ? { author: participantOf(m.authorId) } : {}),
+      });
+      continue;
+    }
+    chat.push({
+      id,
+      role: "assistant",
+      content: m.content,
+      status: "complete",
+      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+    });
+    toolActivities = [];
+  }
+  return chat;
 }
