@@ -1113,6 +1113,7 @@ export function initValContent(
         // `next` is the field name in the wire contract; see initValServer.
         next: tanstackVersion,
         core: coreVersion,
+        framework: "tanstack",
       },
       ...config,
       // Present only when the host supplied them: `sourceFiles` is what

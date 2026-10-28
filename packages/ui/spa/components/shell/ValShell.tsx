@@ -30,6 +30,7 @@ import {
   ShellValidationError,
 } from "./types";
 import { useShellData } from "./useShellData";
+import { useShellVersions } from "./useShellVersions";
 import { ValSettingsSections } from "./ValSettingsSections";
 import { SiteUpdateSection } from "./SiteUpdateSection";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
@@ -227,6 +228,7 @@ function ValShellBody({
    * tab is.
    */
   const demo = useValDemo();
+  const versions = useShellVersions();
   /*
    * The demo script (`ValDemoOptions.tours`): tours the card lists, for the
    * visitor to pick from. Where there is one, nothing opens by itself -- the
@@ -1574,6 +1576,7 @@ function ValShellBody({
           onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
           onOpenValidate={() => navigation.navigate(VAL_ERRORS_ROUTE)}
           {...(upgrade !== null ? { upgrade } : {})}
+          versions={versions}
           validateActive={navigation.isErrorsView}
           validateCount={validateCount}
           onMentionField={(sourcePath) =>

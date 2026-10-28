@@ -85,6 +85,7 @@ import {
   type ValBuildCredential,
 } from "./adminProxy";
 import type { RemoteFileAuth } from "./valServerConfig";
+import { VERSION as SERVER_VERSION } from "./version";
 import {
   getErrorMessageFromUnknownJson,
   newestCommitSha,
@@ -101,6 +102,12 @@ export type ValServerOptions = {
   apiKey?: string;
   project?: string;
   config: ValConfig;
+  /**
+   * The framework binding this server runs under, and its version: shown in
+   * the Studio's version list (`/versions`) and nowhere else. Absent where no
+   * binding said -- the demo, a test -- and the list then names no framework.
+   */
+  framework?: { name: "next" | "tanstack"; version: string };
   /**
    * Called after a save has applied its patches, with the files it produced.
    *
@@ -1236,6 +1243,38 @@ export const ValServer = (
             ...(settingsRes.data.remoteHost !== undefined
               ? { remoteHost: settingsRes.data.remoteHost }
               : {}),
+          },
+        };
+      },
+    },
+
+    /*
+     * The versions of Val's packages on the server, for the list at the foot
+     * of the Studio's account panel. Behind the same sign-in as everything
+     * else: a version is a small thing to give away, but it says which
+     * advisories a site is open to.
+     */
+    "/versions": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: { message: auth.error },
+          };
+        }
+        if (isHttpOps(serverOps) && !("id" in auth)) {
+          return {
+            status: 401,
+            json: { message: "Unauthorized" },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            framework: options.framework ?? null,
+            core: Internal.VERSION.core,
+            server: SERVER_VERSION,
           },
         };
       },
