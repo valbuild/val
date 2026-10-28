@@ -23,6 +23,7 @@ import type {
   AskUserQuestionAnswer,
   ChatMessage,
   ChatMessageAttachment,
+  SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
 import type { ToolActivity } from "../components/AIChatToolActivities";
@@ -686,6 +687,12 @@ export function useAI(
     design?.proposal.name,
   ).build;
   const proposalBuildRef = useRef(proposalBuild);
+  /** The picked element, taken for a message that waits in the queue. */
+  const captureSendContext = useCallback((): SendContext => {
+    const pointedAt = designRef.current?.pointedAt ?? null;
+    if (pointedAt !== null) designRef.current?.onPointedAtSent?.();
+    return { pointedAt };
+  }, []);
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
     () => ({
@@ -2606,6 +2613,11 @@ export function useAI(
     (
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
+      /**
+       * Taken when the message was written, for one that waited in the
+       * queue: its picked element, rather than whatever is picked now.
+       */
+      context?: SendContext,
     ): boolean => {
       // No reachable provider means no key is configured for any of them. Refuse
       // here rather than send a prompt the server will refuse: this way the chat
@@ -2668,9 +2680,15 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt = designRef.current?.pointedAt ?? null;
+      const pointedAt =
+        context !== undefined
+          ? context.pointedAt
+          : (designRef.current?.pointedAt ?? null);
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
+      }
+      // Taken with the message when it was written, when it carries one.
+      if (context === undefined && pointedAt !== null) {
         designRef.current?.onPointedAtSent?.();
       }
       const contentBlocks: AIMessageContentBlock[] = [
@@ -3130,6 +3148,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    captureSendContext,
     uploadAiImage,
     isStreaming,
     /** Stop the running prompt. False when there is nothing running. */

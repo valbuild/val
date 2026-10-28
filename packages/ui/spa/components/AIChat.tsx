@@ -28,6 +28,7 @@ import {
   Paperclip,
   X,
   AlertTriangle,
+  ArrowUp,
   Clock,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
@@ -37,7 +38,7 @@ import { randomUUID } from "../utils/randomUUID";
 import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
 import { useValPortal } from "./ValPortalProvider";
-import { urlOf } from "@valbuild/shared/internal";
+import { urlOf, type PickedElement } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 import { AIChatEditor } from "./AIChatEditor";
 import { AIChatModelPicker } from "./AIChatModelPicker";
@@ -193,12 +194,26 @@ type AttachedFile = {
  * "Don't send" can put everything back; a retry has none to put back.
  */
 type QueuedMessage = {
+  /** Stable across edits of the queue, for its rows' keys. */
+  id: string;
   outgoing: string | ChatDocument;
   displayText: string;
   doc?: ChatDocument;
   attachments?: ChatMessageAttachment[];
   files: (AttachedFile & { key: string })[];
+  /**
+   * What was taken with it when it was written (`onCaptureSendContext`): the
+   * element picked then, not whatever is picked when it is sent.
+   */
+  context?: SendContext;
 };
+
+/**
+ * What a message carries besides its text, taken when it is written: the
+ * design tab's picked element. `pointedAt: null` sends none, even if
+ * something is picked by the time it goes.
+ */
+export type SendContext = { pointedAt: PickedElement | null };
 
 type CurrentMessage = {
   message: ChatMessage;
@@ -289,7 +304,14 @@ export type AIChatProps = {
   onSendMessage?: (
     content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
+    context?: SendContext,
   ) => boolean;
+  /**
+   * Take what goes with a message that is QUEUED rather than sent -- the
+   * design tab's picked element -- so it goes with that message when it is
+   * sent, not with whichever message is sent next.
+   */
+  onCaptureSendContext?: () => SendContext;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
@@ -657,6 +679,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     selectedModel,
     onSelectModel,
     onSendMessage,
+    onCaptureSendContext,
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
@@ -1072,8 +1095,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const showAuthors = (together?.people.length ?? 0) > 1;
   /** This tab's own turn is the one running. */
   const ownTurnRunning = isStreaming && !othersTurn;
-  const [queued, setQueued] = useState<QueuedMessage | null>(null);
-  const composerDisabled = authError || !isConnected || ownTurnRunning;
+  /**
+   * What was written while a turn ran: sent one per turn, in order, once the
+   * turn before has ended. Writing is never blocked by a turn.
+   */
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
+  /**
+   * The queue waits for the person: they pressed Stop, or the turn before
+   * failed. Sending the next one into whatever went wrong would only repeat
+   * it, so they choose (`Send next`, `Clear`).
+   */
+  const [queueStopped, setQueueStopped] = useState(false);
+  const composerDisabled = authError || !isConnected;
 
   const focusComposer = useCallback(() => {
     editorRef.current?.focus();
@@ -1160,7 +1193,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCompletedMessages((prev) => [...prev, userMsg]);
 
       const sent = onSendMessage
-        ? onSendMessage(message.outgoing, attachments)
+        ? message.context !== undefined
+          ? onSendMessage(message.outgoing, attachments, message.context)
+          : onSendMessage(message.outgoing, attachments)
         : true;
       if (!sent) {
         setCompletedMessages((prev) =>
@@ -1180,10 +1215,20 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     [viewer, onSendMessage, setAwaitingSince, armForSend],
   );
 
+  /**
+   * A turn is running, or a sent message has had no reply yet: what is
+   * written now waits in the queue.
+   */
+  const busy = isStreaming || othersTurn || awaitingSince !== null;
+
+  /** The turn before ended in an error: the queue waits for the person. */
+  const lastMessage = messages[messages.length - 1];
+  const lastFailed =
+    lastMessage !== undefined && lastMessage.status === "error" && !busy;
+  const queuePaused = queueStopped || lastFailed;
+
   const handleSend = useCallback(
     (suggestion?: string) => {
-      if (ownTurnRunning || queued !== null) return;
-
       let outgoing: string | ChatDocument;
       let displayText: string;
       let outgoingDoc: ChatDocument | undefined;
@@ -1226,6 +1271,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       }
 
       const message: QueuedMessage = {
+        id: randomUUID(),
         outgoing,
         displayText,
         doc: outgoingDoc,
@@ -1242,39 +1288,102 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             : undefined,
         files: doneFiles,
       };
-      if (othersTurn) {
-        setQueued(message);
+      // Behind what is already waiting, in the order it was written -- unless
+      // the queue is paused: then what is written now is what the person
+      // wants sent, and it goes straight away.
+      if (busy || (queue.length > 0 && !queuePaused)) {
+        setQueue((prev) => [
+          ...prev,
+          {
+            ...message,
+            ...(onCaptureSendContext
+              ? { context: onCaptureSendContext() }
+              : {}),
+          },
+        ]);
+        requestAnimationFrame(() => editorRef.current?.focus());
         return;
       }
       deliver(message);
 
       requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [ownTurnRunning, queued, othersTurn, attachedFiles, editorRef, deliver],
+    [
+      busy,
+      queue.length,
+      queuePaused,
+      attachedFiles,
+      editorRef,
+      deliver,
+      onCaptureSendContext,
+    ],
   );
 
   /**
-   * Send what was written during someone else's turn, once it has ended.
-   * Never merged into the running turn: it was written before its answer
-   * was read.
+   * Send the next queued message once the turn before has ended. Never
+   * merged into the running turn: it was written before its answer was read.
    */
   useEffect(() => {
-    if (queued === null || isStreaming || othersTurn || !isConnected) return;
-    setQueued(null);
-    deliver(queued);
-  }, [queued, isStreaming, othersTurn, isConnected, deliver]);
+    if (queue.length === 0 || busy || queuePaused || !isConnected) return;
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    deliver(next);
+  }, [queue, busy, queuePaused, isConnected, deliver]);
 
-  /** "Don't send": the message goes back into the composer, files and all. */
-  const unqueue = useCallback(() => {
-    if (queued === null) return;
-    setQueued(null);
-    editorRef.current?.setDocument(
-      queued.doc ?? [{ tag: "p", children: [queued.displayText] }],
-    );
-    setIsEditorEmpty(false);
-    setAttachedFiles((prev) => [...queued.files, ...prev]);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [queued, editorRef]);
+  /** Send the next queued message now: after a Stop or a failed turn. */
+  const sendNext = useCallback(() => {
+    if (queue.length === 0 || busy) return;
+    setQueueStopped(false);
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    deliver(next);
+  }, [queue, busy, deliver]);
+
+  const clearQueue = useCallback(() => {
+    setQueue([]);
+    setQueueStopped(false);
+  }, []);
+
+  const stopTurn = useCallback(() => {
+    // What was queued behind the turn waits: Stop is "not like that", and
+    // the next message was written before the person saw why.
+    if (queue.length > 0) setQueueStopped(true);
+    onCancel?.();
+  }, [queue.length, onCancel]);
+
+  const removeQueued = useCallback((id: string) => {
+    setQueue((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  const moveQueuedUp = useCallback((id: string) => {
+    setQueue((prev) => {
+      const index = prev.findIndex((m) => m.id === id);
+      if (index <= 0) return prev;
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }, []);
+
+  /**
+   * "Edit": the message comes out of the queue and back into the composer,
+   * files and all. Only into an empty composer, so nothing being written is
+   * overwritten.
+   */
+  const editQueued = useCallback(
+    (id: string) => {
+      const message = queue.find((m) => m.id === id);
+      if (message === undefined || !isEditorEmpty) return;
+      setQueue((prev) => prev.filter((m) => m.id !== id));
+      editorRef.current?.setDocument(
+        message.doc ?? [{ tag: "p", children: [message.displayText] }],
+      );
+      setIsEditorEmpty(false);
+      setAttachedFiles((prev) => [...message.files, ...prev]);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [queue, isEditorEmpty, editorRef],
+  );
 
   const handleRetry = useCallback(
     (errorMsgId: string) => {
@@ -1287,16 +1396,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
        * someone else's running turn, like anything else they send.
        */
       const askAgain = (source: ChatMessage, removeId: string) => {
-        if (queued !== null) return;
         setCompletedMessages((prev) => prev.filter((m) => m.id !== removeId));
         const message: QueuedMessage = {
+          id: randomUUID(),
           outgoing: source.userDoc ?? getTextContent(source.content),
           displayText: getTextContent(source.content),
           doc: source.userDoc,
           attachments: source.attachments,
           files: [],
         };
-        if (othersTurn) setQueued(message);
+        if (othersTurn) setQueue((prev) => [...prev, message]);
         else deliver(message);
       };
 
@@ -1357,15 +1466,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
       if (sent) setAwaitingSince(Date.now());
     },
-    [
-      messages,
-      onSendMessage,
-      setAwaitingSince,
-      queued,
-      othersTurn,
-      deliver,
-      viewerId,
-    ],
+    [messages, onSendMessage, setAwaitingSince, othersTurn, deliver, viewerId],
   );
 
   // ---- Render ----
@@ -1613,10 +1714,24 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               </div>
             )}
             {othersTurn && turnBy && (
-              <OthersTurnStrip
-                turnBy={turnBy}
-                queued={queued?.displayText ?? null}
-                onUnqueue={unqueue}
+              <OthersTurnStrip turnBy={turnBy} queued={queue.length} />
+            )}
+            {queue.length > 0 && (
+              <QueuedMessages
+                queue={queue}
+                paused={
+                  queuePaused
+                    ? lastFailed
+                      ? "The last answer failed, so these wait for you."
+                      : "Stopped, so these wait for you."
+                    : null
+                }
+                canEdit={isEditorEmpty}
+                onEdit={editQueued}
+                onRemove={removeQueued}
+                onMoveUp={moveQueuedUp}
+                onSendNext={busy ? null : sendNext}
+                onClear={clearQueue}
               />
             )}
             {/* Attached file previews */}
@@ -1702,12 +1817,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    disabled={
-                      !isConnected ||
-                      ownTurnRunning ||
-                      queued !== null ||
-                      authError
-                    }
+                    disabled={!isConnected || authError}
                     onClick={() => fileInputRef.current?.click()}
                     aria-label="Attach files"
                   >
@@ -1731,48 +1841,49 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     portalContainer={portalContainer}
                   />
                 )}
-                {ownTurnRunning && onCancel ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={onCancel}
-                    aria-label="Stop generating"
-                    title="Stop generating"
-                    className="ml-auto"
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" />
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={
-                      !isConnected ||
-                      ownTurnRunning ||
-                      queued !== null ||
-                      isUploading ||
-                      hasPendingInlineImage ||
-                      authError ||
-                      isEditorEmpty
-                    }
-                    onClick={() => handleSend()}
-                    aria-label={
-                      othersTurn
-                        ? "Send when the answer is done"
-                        : "Send message"
-                    }
-                    title={
-                      othersTurn ? "Send when the answer is done" : undefined
-                    }
-                    className="ml-auto"
-                  >
-                    {othersTurn ? (
-                      <Clock className="h-4 w-4" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
+                <span className="ml-auto flex items-center gap-1">
+                  {(!ownTurnRunning || !isEditorEmpty) && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={
+                        !isConnected ||
+                        isUploading ||
+                        hasPendingInlineImage ||
+                        authError ||
+                        isEditorEmpty
+                      }
+                      onClick={() => handleSend()}
+                      aria-label={
+                        busy || queue.length > 0
+                          ? "Send when the answer is done"
+                          : "Send message"
+                      }
+                      title={
+                        busy || queue.length > 0
+                          ? "Send when the answer is done"
+                          : undefined
+                      }
+                    >
+                      {busy || queue.length > 0 ? (
+                        <Clock className="h-4 w-4" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
+                  {ownTurnRunning && onCancel && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={stopTurn}
+                      aria-label="Stop generating"
+                      title="Stop generating"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                    </Button>
+                  )}
+                </span>
               </div>
             </div>
           </>
@@ -1789,11 +1900,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 function OthersTurnStrip({
   turnBy,
   queued,
-  onUnqueue,
 }: {
   turnBy: ProposalParticipant;
-  queued: string | null;
-  onUnqueue: () => void;
+  /** How many of this person's messages wait for it. */
+  queued: number;
 }) {
   return (
     <div
@@ -1804,25 +1914,135 @@ function OthersTurnStrip({
       <span className="min-w-0 flex-1">
         <span className="font-medium text-fg-primary">{turnBy.name}</span> is
         asking.{" "}
-        {queued === null ? (
-          "Yours is sent when the answer is done."
-        ) : (
-          <>
-            Then yours: <span className="italic">“{truncate(queued, 60)}”</span>
-          </>
-        )}
+        {queued === 0
+          ? "Yours is sent when the answer is done."
+          : queued === 1
+            ? "Then yours."
+            : `Then yours, ${queued} of them, in order.`}
       </span>
-      {queued !== null && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onUnqueue}
-          className="h-6 shrink-0 px-2 text-xs"
-        >
-          Don’t send
-        </Button>
-      )}
     </div>
+  );
+}
+
+/**
+ * What was written while a turn ran, waiting to be sent one per turn. Each
+ * can be taken back to edit, moved up or dropped; a paused queue says why and
+ * offers to go on.
+ */
+function QueuedMessages({
+  queue,
+  paused,
+  canEdit,
+  onEdit,
+  onRemove,
+  onMoveUp,
+  onSendNext,
+  onClear,
+}: {
+  queue: QueuedMessage[];
+  /** Why it is waiting for the person; `null` while it goes on by itself. */
+  paused: string | null;
+  /** Edit puts a message back into the composer: only into an empty one. */
+  canEdit: boolean;
+  onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  /** `null` while a turn runs: the next is sent when it ends. */
+  onSendNext: (() => void) | null;
+  onClear: () => void;
+}) {
+  return (
+    <section
+      aria-label="Queued messages"
+      className="mb-2 rounded-md border border-border-primary bg-bg-secondary text-xs touch:text-sm"
+    >
+      <div className="flex items-center gap-2 px-2 pt-1.5 text-fg-secondary">
+        <Clock className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 flex-1">
+          {paused ??
+            (queue.length === 1
+              ? "Sent when the answer is done."
+              : `${queue.length} queued, sent one at a time.`)}
+        </span>
+        {paused !== null && onSendNext !== null && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onSendNext}
+            className="h-6 shrink-0 px-2 text-xs"
+          >
+            Send next
+          </Button>
+        )}
+        {queue.length > 1 || paused !== null ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            className="h-6 shrink-0 px-2 text-xs"
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+      <ol className="flex flex-col py-1">
+        {queue.map((message, index) => (
+          <li
+            key={message.id}
+            className="group flex items-center gap-1.5 px-2 py-0.5"
+          >
+            <span className="w-3 shrink-0 text-right tabular-nums text-fg-tertiary">
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-fg-primary">
+              {truncate(message.displayText, 120)}
+            </span>
+            {message.context?.pointedAt && (
+              <span
+                className="shrink-0 rounded bg-bg-primary px-1 font-mono text-[10px] text-fg-tertiary"
+                title="The element picked when this was written goes with it"
+              >
+                &lt;{message.context.pointedAt.tag}&gt;
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => onEdit(message.id)}
+              disabled={!canEdit}
+              aria-label="Take back to edit"
+              title={
+                canEdit
+                  ? "Take it back to edit"
+                  : "Send or clear what you are writing first"
+              }
+              className="shrink-0 rounded px-1 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary disabled:text-fg-disabled"
+            >
+              Edit
+            </button>
+            {index > 0 && (
+              <button
+                type="button"
+                onClick={() => onMoveUp(message.id)}
+                aria-label="Move up"
+                title="Move up"
+                className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary"
+              >
+                <ArrowUp className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(message.id)}
+              aria-label="Remove from the queue"
+              title="Remove from the queue"
+              className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
