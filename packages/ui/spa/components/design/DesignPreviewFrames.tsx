@@ -208,6 +208,8 @@ export function DesignPreviewFrames({
         pointerEvents: role === "live" ? "auto" : "none",
       }}
       aria-hidden={role === "live" ? undefined : true}
+      // Which page is in front, for tests and for anyone reading the DOM.
+      data-design-frame={role === "live" ? "front" : role}
     >
       <CanvasFrame
         url={frame.url}
