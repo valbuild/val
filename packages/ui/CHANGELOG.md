@@ -1,5 +1,24 @@
 # @valbuild/ui
 
+## 0.150.13
+
+### Patch Changes
+
+- [#982](https://github.com/valbuild/val/pull/982) [`295a925`](https://github.com/valbuild/val/commit/295a92513fe0356fafc78978bd0a6d32866f1dbe) Thanks [@freekh](https://github.com/freekh)! - The compare dialog -- "Review changes" on the review page, and "Compare with the site" in a proposal -- can be scrolled again. Every modal dialog in the Studio cancelled the mouse wheel over its own content, because its scroll lock could not tell from outside the Studio's shadow root that the wheel was inside the dialog.
+
+  Dialogs that did not set their own background are no longer see-through: the compare dialog showed its text straight over the blurred Studio behind it.
+
+  An image added to or removed from a gallery is shown in the compare dialog as the image, with its file name, size and alt text, instead of as its width, height and mime type.
+
+- [#985](https://github.com/valbuild/val/pull/985) [`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1) Thanks [@freekh](https://github.com/freekh)! - The design tab's assistant can check its work two more ways.
+
+  - **`lint`** runs Val's own eslint rules -- the ones `@valbuild/eslint-plugin` runs in an editor -- over the proposal's files: a `c.define` path that is not the file's own, a module missing from `val.modules.ts`, `c.define` content that is a variable (which validates, then fails at publish), an import a `.val` file may not make. With `fix: true` it stages the fixes the rules can make themselves.
+  - **`screenshot_page`** shows the assistant a picture of the page in the preview, at desktop, tablet or phone width, on screen or the whole page. The page draws itself, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for it. The picture is drawn from the page's HTML and CSS: images from other sites, videos, canvases and embeds may come out blank.
+
+  `@valbuild/eslint-plugin` has a new entry, `@valbuild/eslint-plugin/rules`, with the same rules over a project that is not on a disk (`createRules(host)`). The plugin itself behaves as before.
+
+- [#983](https://github.com/valbuild/val/pull/983) [`0e490a9`](https://github.com/valbuild/val/commit/0e490a9b6e44b1e3d70e914d2b16009335124c4b) Thanks [@freekh](https://github.com/freekh)! - The Media panel no longer shows a remote image's whole URL as a folder heading, or an "In this folder" heading above the rest of the gallery. A remote file is listed with the other files in the folder it was uploaded into, and only a real subfolder of a gallery gets a heading of its own.
+
 ## 0.150.12
 
 ### Patch Changes
