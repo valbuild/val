@@ -114,6 +114,13 @@ function held(
   }
 }
 
+/** How far a touch may move and still be a tap, not a scroll. */
+const TAP_SLOP_PX = 10;
+/** How long a touch may be held and still be a tap. */
+const TAP_MS = 600;
+/** How long after a tap its click may still arrive. */
+const TAP_CLICK_MS = 800;
+
 export type ElementPickerOptions = {
   modifier: PickModifier;
   /** On without the modifier: a Select button, or a touch screen. */
@@ -144,12 +151,47 @@ export function attachElementPicker(
     last = { x: event.clientX, y: event.clientY };
     options.onHover(picking(event) ? target(event) : null);
   };
+  /*
+   * A tap. iOS Safari dispatches no click for a tap on an element nothing on
+   * the way to it listens to -- a listener on the body does not count -- so
+   * a tap is taken from the pointer events: a touch that went up where it
+   * came down, soon, picks. One that moved is a scroll, which the browser
+   * reports as `pointercancel` or as distance, and picks nothing.
+   */
+  let down: { x: number; y: number; at: number } | null = null;
+  /** When a tap last picked: the click a browser may still send is the same tap. */
+  let tappedAt = -Infinity;
+  const onPointerDown = (event: PointerEvent) => {
+    down =
+      event.pointerType !== "mouse" && options.active()
+        ? { x: event.clientX, y: event.clientY, at: Date.now() }
+        : null;
+  };
+  const onPointerCancel = () => {
+    down = null;
+  };
+  const onPointerUp = (event: PointerEvent) => {
+    const start = down;
+    down = null;
+    if (start === null || !options.active()) return;
+    const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+    if (moved > TAP_SLOP_PX || Date.now() - start.at > TAP_MS) return;
+    const element = target(event);
+    if (element === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    tappedAt = Date.now();
+    options.onHover(element);
+    options.onPick(element);
+  };
   const onClick = (event: MouseEvent) => {
     if (!picking(event)) return;
     const element = target(event);
     if (element === null) return;
     event.preventDefault();
     event.stopPropagation();
+    // Already picked by the tap this click comes from.
+    if (Date.now() - tappedAt < TAP_CLICK_MS) return;
     options.onPick(element);
   };
   // Pressing the modifier with the pointer still: outline what is under it
@@ -170,12 +212,18 @@ export function attachElementPicker(
 
   root.addEventListener("mousemove", onMove, true);
   root.addEventListener("click", onClick, true);
+  root.addEventListener("pointerdown", onPointerDown, true);
+  root.addEventListener("pointerup", onPointerUp, true);
+  root.addEventListener("pointercancel", onPointerCancel, true);
   root.addEventListener("mouseleave", onLeave);
   win?.addEventListener("keydown", onKey, true);
   win?.addEventListener("keyup", onKey, true);
   return () => {
     root.removeEventListener("mousemove", onMove, true);
     root.removeEventListener("click", onClick, true);
+    root.removeEventListener("pointerdown", onPointerDown, true);
+    root.removeEventListener("pointerup", onPointerUp, true);
+    root.removeEventListener("pointercancel", onPointerCancel, true);
     root.removeEventListener("mouseleave", onLeave);
     win?.removeEventListener("keydown", onKey, true);
     win?.removeEventListener("keyup", onKey, true);

@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { AIChatSurface } from "../AIChatSurface";
-import { CanvasFrame } from "../shell/canvas/CanvasFrame";
+import type { PageReader } from "../shell/canvas/CanvasFrame";
+import { DesignPreviewFrames } from "./DesignPreviewFrames";
+import { useQuickPreview } from "./useQuickPreview";
 import type { CanvasPreviewStatus } from "../shell/canvas/CanvasPreviewNotice";
 import { PublishProposalDialog } from "../proposals/PublishProposalDialog";
 import { useValPortal } from "../ValPortalProvider";
@@ -31,6 +33,7 @@ import {
 } from "@valbuild/shared/internal";
 import {
   DesignTabView,
+  type DesignDevice,
   type DesignCheckItem,
   type DesignCheckpoint,
   type DesignProblem,
@@ -49,6 +52,9 @@ import {
  * assistant breaks there takes away the preview and nothing else -- and with
  * step 1 a build that does not render is never served at all.
  */
+
+/** How long the page is given to reflow after the preview's width changes. */
+const DEVICE_SETTLE_MS = 600;
 
 /** Held to pick on the page: Option on a Mac, Alt elsewhere. */
 const PICK_MODIFIER: PickModifier = "alt";
@@ -75,7 +81,7 @@ export function DesignTab({ name }: { name: string }) {
     [],
   );
   const studioProposal = useCurrentProposal();
-  const { state, build, progress } = useProposalBuild(proposals, name);
+  const { state, build, progress, cancel } = useProposalBuild(proposals, name);
   const { askAssistant } = useAIChatActions();
   const portalContainer = useValPortal();
 
@@ -124,19 +130,27 @@ export function DesignTab({ name }: { name: string }) {
 
   const checkpoints = useCheckpoints(proposal?.branch ?? null, state.changed);
 
-  // The frame shows the last build until a new one is served: reload it
-  // then. Not on the first read, which is what it mounted with.
+  // The frame shows the last build until a new one is served, which is then
+  // swapped in behind it (`DesignPreviewFrames`). Reload is the person's.
   const [reloadKey, setReloadKey] = useState(0);
-  const builtHash =
-    proposal === null ? undefined : (proposal.built?.hash ?? null);
-  const lastBuilt = useRef<string | null | undefined>(undefined);
+  const builtHash = proposal?.built?.hash ?? null;
+  const [swapping, setSwapping] = useState(false);
+  const quick = useQuickPreview(name, proposals);
+  /** The page in front is a quick preview rather than a served build. */
+  const [quickShown, setQuickShown] = useState(false);
+  // A build served shows everything a failed quick preview could not.
+  const dismissQuick = quick.dismiss;
   useEffect(() => {
-    if (builtHash === undefined) return;
-    if (lastBuilt.current !== undefined && builtHash !== lastBuilt.current) {
-      setReloadKey((key) => key + 1);
-    }
-    lastBuilt.current = builtHash;
-  }, [builtHash]);
+    dismissQuick();
+  }, [builtHash, dismissQuick]);
+  const quickOnFront = quick.onFront;
+  const onFront = useCallback(
+    (front: { quick: string | null }) => {
+      setQuickShown(front.quick !== null);
+      quickOnFront(front);
+    },
+    [quickOnFront],
+  );
 
   const [route, setRoute] = useState("/");
   const address = proposal?.address ?? null;
@@ -145,6 +159,7 @@ export function DesignTab({ name }: { name: string }) {
 
   const checks = designChecks(proposal, state, progress);
   const problem = designProblem({
+    quickError: quick.state.status === "failed" ? quick.state.message : null,
     studioProposal,
     read,
     proposal,
@@ -200,6 +215,19 @@ export function DesignTab({ name }: { name: string }) {
   }, [picking]);
   const [frameStatus, setFrameStatus] =
     useState<CanvasPreviewStatus>("connecting");
+  /** Reads the page in front: the assistant's `read_page`. */
+  const [pageReader, setPageReaderState] = useState<PageReader | null>(null);
+  // A function in state is set with an updater, or React calls it.
+  const setPageReader = useCallback(
+    (reader: PageReader | null) => setPageReaderState(() => reader),
+    [],
+  );
+  const [device, setDevice] = useState<DesignDevice>("desktop");
+  /** `read_page`'s `device`: the width, and a moment for the page to reflow. */
+  const showDevice = useCallback(async (next: DesignDevice) => {
+    setDevice(next);
+    await new Promise((resolve) => setTimeout(resolve, DEVICE_SETTLE_MS));
+  }, []);
   const [enableKey, setEnableKey] = useState(0);
   const addressOrigin = useMemo(() => {
     try {
@@ -245,6 +273,18 @@ export function DesignTab({ name }: { name: string }) {
         onClearPicked={() => setPicked(null)}
         onPublish={open ? () => publish.setOpen(true) : null}
         onReload={() => setReloadKey((key) => key + 1)}
+        device={device}
+        onDevice={setDevice}
+        quickPreview={
+          open
+            ? {
+                running:
+                  quick.state.status === "running" ? quick.state.step : null,
+                onRun: () => void quick.run(),
+                shown: quickShown,
+              }
+            : null
+        }
         files={read.status === "ready" ? read.files : null}
         diffOf={diffOf}
         checkpoints={checkpoints}
@@ -253,12 +293,19 @@ export function DesignTab({ name }: { name: string }) {
           required: proposal?.staged?.buildRequired ?? false,
           building: state.building,
           progress,
+          startedAt: state.startedAt,
+          swapping,
           onBuild: open && build !== null ? () => void build() : null,
+          onCancel: () => void cancel(),
         }}
         builder={
           canBuildHere()
             ? { kind: "in-tab" }
-            : { kind: "window", blocked: state.inTab?.blocked ?? false }
+            : {
+                kind: "window",
+                // A build's builder tab, or a quick preview's.
+                blocked: (state.inTab?.blocked ?? false) || quick.blocked,
+              }
         }
         onOpenBuilder={openBuilder}
         problem={problem}
@@ -267,17 +314,13 @@ export function DesignTab({ name }: { name: string }) {
             // The Studio's canvas frame, at the proposal's origin: the page
             // picks any element itself and reports it described. The site's
             // edits are not relayed -- the page is the proposal's, and reads
-            // its own.
-            <CanvasFrame
-              url={previewSrc}
-              origin={addressOrigin}
-              relaySources={false}
-              throughEnable
-              width="100%"
-              height="100%"
+            // its own. A new build is swapped in behind it.
+            <DesignPreviewFrames
+              address={address ?? addressOrigin}
+              src={previewSrc}
+              buildKey={builtHash}
               reloadKey={reloadKey}
-              isPicking={false}
-              highlightedPath={null}
+              origin={addressOrigin}
               elementPicking={{
                 active: picking,
                 modifier: PICK_MODIFIER,
@@ -290,6 +333,11 @@ export function DesignTab({ name }: { name: string }) {
               onElementPickingStopped={() => setPicking(false)}
               enableKey={enableKey}
               onStatusChange={setFrameStatus}
+              onPageReader={setPageReader}
+              onSwappingChange={setSwapping}
+              quickPreviewId={quick.shownId}
+              onQuickPreviewStorer={quick.setStorer}
+              onFront={onFront}
             />
           ) : null
         }
@@ -300,6 +348,9 @@ export function DesignTab({ name }: { name: string }) {
               proposal: { name, displayName },
               pointedAt: picked,
               onPointedAtSent: () => setPicked(null),
+              readPage: pageReader,
+              setDevice: showDevice,
+              quickPreview: open ? quick.run : null,
             }}
           />
         }
@@ -342,6 +393,7 @@ function designChecks(
             },
     });
   }
+  const last = state.last;
   checks.push({
     label: "Build",
     check: state.building
@@ -351,14 +403,30 @@ function designChecks(
         : staged === null || staged.inputs === null
           ? { state: "idle", detail: "the site's code" }
           : staged.buildRequired
-            ? { state: "idle", detail: "needed" }
-            : { state: "passed", detail: "renders" },
+            ? {
+                state: "idle",
+                detail: last?.status === "cancelled" ? "cancelled" : "needed",
+              }
+            : {
+                state: "passed",
+                detail:
+                  last?.status === "built"
+                    ? `renders · built in ${Math.round(last.ms / 1000)}s`
+                    : "renders",
+              },
+    // The steps of the build running, else of the last one: where the time went.
+    ...(state.building
+      ? { timings: state.timings }
+      : last !== null && last.timings.length > 0
+        ? { timings: last.timings }
+        : {}),
   });
   return checks;
 }
 
 /** What went wrong, if anything, and what the person can do about it. */
 function designProblem({
+  quickError,
   studioProposal,
   read,
   proposal,
@@ -374,6 +442,7 @@ function designProblem({
   onRetryRead: () => void;
   onBuild: (() => unknown) | null;
   onAskAssistant: (error: string) => void;
+  quickError: string | null;
 }): DesignProblem | null {
   if (studioProposal !== null) {
     const onSite =
@@ -410,6 +479,21 @@ function designProblem({
         "Only an open proposal's code is changed here. Its own Studio says what happened to it.",
     };
   }
+  if (quickError !== null && buildError === null) {
+    // Build, not Try again: most of what stops a quick preview -- a
+    // dependency changed, a page with nothing to show it in, a browser that
+    // cannot bundle -- a build gets past, and the same quick preview again
+    // would only fail again.
+    return {
+      title: "The quick preview could not be shown",
+      message:
+        "The preview still shows what it showed before. Build the proposal to see the change, server and all.",
+      details: quickError,
+      ...(onBuild !== null
+        ? { action: { label: "Build", onClick: () => void onBuild() } }
+        : {}),
+    };
+  }
   if (buildError !== null) {
     return {
       title: "The build was not served",
@@ -418,7 +502,7 @@ function designProblem({
       details: buildError,
       onAskAssistant: () => onAskAssistant(buildError),
       ...(onBuild !== null
-        ? { action: { label: "Build again", onClick: () => void onBuild() } }
+        ? { action: { label: "Try again", onClick: () => void onBuild() } }
         : {}),
     };
   }
