@@ -1,5 +1,25 @@
 # @valbuild/shared
 
+## 0.150.16
+
+### Patch Changes
+
+- [#940](https://github.com/valbuild/val/pull/940) [`3ac24d4`](https://github.com/valbuild/val/commit/3ac24d46691c646dd5d2789cf2e1d6e2734195d3) Thanks [@freekh](https://github.com/freekh)! - Picking a language in the Studio now scopes the whole Studio to it.
+
+  - The Pages tree, the Data list, lists inside a field and search show only content in that language, plus content in no language (settings, authors, images), which every language shares. A page is in a language when its route names it (`s.router(router, { locale: … }, item)`) or its content has an `s.locale()` field.
+  - Picking a language while you are on something in another one moves you: to the same entry in the new language where Val knows it (a record keyed by `s.locale()`, or a route that differs only in its language segment), otherwise to the nearest parent that is not in another language, otherwise to the Studio's start screen with nothing selected.
+  - A link or a reference to something in another language still opens it, and that one item is listed while you are on it.
+  - Publish, Discard all and the error count are not filtered: they act on every language.
+
+- [#969](https://github.com/valbuild/val/pull/969) [`7db39ef`](https://github.com/valbuild/val/commit/7db39ef722b4f743e6974effd5fedfadc76e6544) Thanks [@freekh](https://github.com/freekh)! - **Sketchpad**: work out a page's content and rough layout with the assistant before anyone builds it.
+
+  A sketchpad is a document of headings, text, boxes and columns, where you edit the text in place. A box can show an image or a video from a link: paste one, or drag an image in from a web page. The assistant sees the same sketch as text in one strict format, so what it reads is what is on screen. It has tools to list, create, read and write sketchpads, and **Send to AI** asks it to read the one you are on.
+
+  - Sketchpads live on the server, apart from any chat or page. They outlast the chat they started in, and the page a sketchpad is about can be changed. A sketchpad can be archived and reopened.
+  - Open one from a page's menu (**Sketch changes**), from the top bar, or when the assistant offers one.
+  - On a desktop the page, the sketchpad and the chat sit side by side, the chat docked beside them. On a phone a sketchpad can go full screen, with the page one tap away and the buttons at the bottom.
+  - In local development sketchpads are stored in `.val/sketchpads/`. A hosted project needs the content host's sketchpad API; without it the Studio does not offer sketchpads.
+
 ## 0.150.13
 
 ### Patch Changes
