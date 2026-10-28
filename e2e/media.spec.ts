@@ -305,7 +305,9 @@ test.describe("an s.imagedir() gallery in a non-default directory", () => {
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/subdir/blue-8x8_8b441.png"]);
 
-    const tile = studio.locator('img[src*="blue-8x8_"]');
+    // The TILE's picture: the upload is opened once it is in, so the panel
+    // beside the grid shows the same file a second time.
+    const tile = studio.locator('button[aria-pressed] img[src*="blue-8x8_"]');
     await expect(tile).toHaveCount(1);
     // Unpublished, so it MUST come from the patch — the committed path has no
     // file behind it yet, and `next dev` answers that path with the app's HTML,
@@ -339,6 +341,39 @@ test.describe("an s.imagedir() gallery in a non-default directory", () => {
         message: "the server served the bytes, but the tile never decoded them",
       })
       .toBe(8);
+
+    await discardAll(page);
+    await expectNoPatchesOnServer(request);
+  });
+
+  /*
+   * An upload is an `add` at the END of the record, and the grid used to show
+   * the record in order: the uploading tile sat first, and the finished file
+   * jumped to the bottom of a long grid. It is listed first now, marked as
+   * not live yet, and opened, so where it went is never a question.
+   */
+  test("lists the upload first, marks it New, and opens it", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page, `/val/~${MODULE}`);
+    const studio = page.locator("#val-shadow-root");
+    await picker(studio).first().setInputFiles(IMAGE);
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual(["/public/test/subdir/blue-8x8_8b441.png"]);
+
+    const tiles = studio
+      .locator("button[aria-pressed]")
+      .filter({ has: page.locator("img") });
+    const first = tiles.first();
+    await expect(first).toContainText("blue-8x8_8b441.png");
+    await expect(first).toContainText("New");
+    await expect(first).toHaveAttribute("aria-pressed", "true");
+    // The published entry is not new.
+    await expect(tiles.filter({ hasText: "red-8x8_" })).not.toContainText(
+      "New",
+    );
 
     await discardAll(page);
     await expectNoPatchesOnServer(request);

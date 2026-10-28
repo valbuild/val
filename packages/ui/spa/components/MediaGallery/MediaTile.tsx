@@ -72,6 +72,11 @@ export function MediaTile({
         )}
       >
         <TilePicture kind={kind} item={item} playing={playing} />
+        {item.isNew && (
+          <div className="pointer-events-none absolute left-1.5 top-1.5">
+            <NewBadge />
+          </div>
+        )}
         {isVideo && (
           <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 flex items-end justify-between gap-1">
             {item.isHls ? <Badge>HLS</Badge> : <span />}
@@ -225,6 +230,19 @@ function Badge({ children }: { children: string }) {
   return (
     <span className="rounded bg-black/70 px-1.5 py-0.5 text-[0.625rem] font-semibold tracking-wide text-white">
       {children}
+    </span>
+  );
+}
+
+/**
+ * Added since the last publish. The brand colour rather than the dark chip
+ * the other badges use: those describe the file, this describes its state,
+ * and it has to be found in a grid at a glance.
+ */
+export function NewBadge() {
+  return (
+    <span className="shrink-0 rounded bg-bg-brand-primary px-1.5 py-0.5 text-[0.625rem] font-semibold tracking-wide text-fg-brand-primary">
+      New
     </span>
   );
 }
