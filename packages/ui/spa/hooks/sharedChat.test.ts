@@ -1,4 +1,12 @@
-import { runningAsker, someoneElseAdded } from "./sharedChat";
+import type { ProposalParticipant } from "../components/proposals/types";
+import {
+  applyWatchedEvent,
+  runningAsker,
+  someoneElseAdded,
+  watchedQuestionText,
+  type WatchedChat,
+} from "./sharedChat";
+import { AIServerMessage, type AIWatchedMessage } from "./useAIWebSocket";
 
 /**
  * A proposal's chat, read again every few seconds (valbuild/home
@@ -46,5 +54,203 @@ describe("someoneElseAdded", () => {
   });
   test("a chat that got shorter is shown as it is now", () => {
     expect(someoneElseAdded([ask(ME), answer()], [ask(ME)], ME)).toBe(true);
+  });
+});
+
+describe("applyWatchedEvent", () => {
+  const KARI_P = { id: KARI, name: "Kari" };
+
+  function watching() {
+    const calls: unknown[][] = [];
+    const record =
+      (name: string) =>
+      (...args: unknown[]) => {
+        calls.push([name, ...args]);
+      };
+    const turnBy: (ProposalParticipant | null)[] = [];
+    const ended: boolean[] = [];
+    const watched: WatchedChat = {
+      chat: {
+        appendMessage: record("appendMessage"),
+        startAssistantMessage: record("start"),
+        appendAssistantChunk: record("chunk"),
+        completeAssistantMessage: record("complete"),
+        errorAssistantMessage: record("error"),
+      },
+      activeId: { current: null },
+      started: new Set(),
+      participantOf: (id) => (id === KARI ? KARI_P : { id, name: "?" }),
+      setTurnBy: (by) => turnBy.push(by),
+      turnEnded: (joinedMidway) => ended.push(joinedMidway),
+    };
+    const send = (event: AIWatchedMessage["event"]) =>
+      applyWatchedEvent(event, watched);
+    return { calls, turnBy, ended, send, watched };
+  }
+
+  test("someone else's question, then its answer as it streams", () => {
+    const { calls, turnBy, ended, send } = watching();
+    send({
+      type: "ai_turn_started",
+      id: "q1",
+      sessionId: "chat-1",
+      authorId: KARI,
+      message: [{ type: "text", text: "Shorter title?" }],
+    });
+    send({ type: "ai_streaming", id: "q1", chunk: "Su" });
+    send({ type: "ai_streaming", id: "q1", chunk: "re" });
+    send({
+      type: "ai_response",
+      id: "q1",
+      sessionId: "chat-1",
+      response: "Sure",
+      metadata: { outputTokens: 3 },
+    });
+    send({ type: "ai_turn_ended", id: "q1", sessionId: "chat-1" });
+
+    expect(calls).toEqual([
+      [
+        "appendMessage",
+        {
+          id: "watched-q1",
+          role: "user",
+          content: "Shorter title?",
+          status: "complete",
+          author: KARI_P,
+        },
+      ],
+      // Started once, not per chunk: starting again would drop what streamed.
+      ["start", "q1"],
+      ["chunk", "q1", "Su"],
+      ["chunk", "q1", "re"],
+      ["complete", "q1", { outputTokens: 3 }],
+    ]);
+    // Kari holds the chat until the turn ends, and then nobody does.
+    expect(turnBy).toEqual([KARI_P, null]);
+    // The question was seen asked, so the chat is not shown again.
+    expect(ended).toEqual([false]);
+  });
+
+  test("an answer that did not stream is shown whole", () => {
+    const { calls, send } = watching();
+    send({
+      type: "ai_response",
+      id: "q1",
+      sessionId: "chat-1",
+      response: "Done",
+    });
+    expect(calls).toEqual([
+      ["start", "q1"],
+      ["chunk", "q1", "Done"],
+      ["complete", "q1", { outputTokens: undefined }],
+    ]);
+  });
+
+  test("a stopped turn keeps what it had, or says it stopped", () => {
+    const partial = watching();
+    partial.send({
+      type: "ai_streaming",
+      id: "q1",
+      chunk: "Half",
+    });
+    partial.send({
+      type: "ai_cancelled",
+      id: "q1",
+      sessionId: "chat-1",
+      partialResponse: "Half",
+    });
+    expect(partial.calls).toEqual([
+      ["start", "q1"],
+      ["chunk", "q1", "Half"],
+      ["complete", "q1", { stopped: true }],
+    ]);
+
+    const silent = watching();
+    silent.send({ type: "ai_cancelled", id: "q1", sessionId: "chat-1" });
+    expect(silent.calls).toEqual([
+      ["start", "q1"],
+      ["chunk", "q1", "Stopped.", { fromModel: false }],
+      ["complete", "q1", { stopped: true }],
+    ]);
+  });
+
+  test("a failed turn shows why", () => {
+    const { calls, send } = watching();
+    send({
+      type: "ai_error",
+      id: "q1",
+      code: "internal_error",
+      message: "The model could not be reached.",
+    });
+    expect(calls).toEqual([
+      ["start", "q1"],
+      ["error", "q1", "The model could not be reached.", "internal_error"],
+    ]);
+  });
+
+  test("a turn joined midway shows the chat again when it ends", () => {
+    const { ended, send, watched } = watching();
+    send({ type: "ai_streaming", id: "q1", chunk: "…" });
+    send({ type: "ai_turn_ended", id: "q1", sessionId: "chat-1" });
+    expect(ended).toEqual([true]);
+    expect(watched.activeId.current).toBeNull();
+  });
+});
+
+describe("watchedQuestionText", () => {
+  test("the question, without the image keys meant for the model", () => {
+    expect(
+      watchedQuestionText([
+        {
+          type: "text",
+          text: 'Use this one\n\n[Attached images — …:\n- a.png: image_key="k"]',
+        },
+        { type: "image_key", key: "k" },
+      ]),
+    ).toBe("Use this one");
+    expect(watchedQuestionText("Plain")).toBe("Plain");
+  });
+});
+
+describe("the relay, as the content server sends it", () => {
+  test("a watched turn's events parse, so none is dropped", () => {
+    // As valbuild/home's `relayToWatchers` wraps them.
+    const wrap = (event: object) => ({
+      type: "ai_watched",
+      sessionId: "chat-1",
+      event,
+    });
+    for (const event of [
+      {
+        type: "ai_turn_started",
+        id: "q1",
+        sessionId: "chat-1",
+        authorId: KARI,
+        message: [
+          { type: "text", text: "Hi" },
+          { type: "image_key", key: "k" },
+        ],
+      },
+      { type: "ai_streaming", id: "q1", chunk: "Hel" },
+      {
+        type: "ai_response",
+        id: "q1",
+        sessionId: "chat-1",
+        response: "Hello",
+        metadata: { outputTokens: 2 },
+      },
+      { type: "ai_cancelled", id: "q1", sessionId: "chat-1" },
+      { type: "ai_error", id: "q1", code: "session_busy", message: "Busy" },
+      { type: "ai_turn_ended", id: "q1", sessionId: "chat-1" },
+    ]) {
+      expect(AIServerMessage.safeParse(wrap(event)).success).toBe(true);
+    }
+    expect(
+      AIServerMessage.safeParse({
+        type: "ai_watching",
+        sessionId: "chat-1",
+        runningAuthorId: null,
+      }).success,
+    ).toBe(true);
   });
 });
