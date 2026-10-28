@@ -24,6 +24,12 @@ const CALL_DEADLINE_MS = 5 * 60_000;
 
 export function workerBuilder(options: {
   onBroken: () => void;
+  /**
+   * Handed the way to stop the worker while it works: a cancelled build. It
+   * stops it only if a call is outstanding, so a cancel between calls keeps
+   * the loaded builder for the next build.
+   */
+  onStoppable?: (stop: (reason: Error) => boolean) => void;
 }): Promise<StudioBuilder> {
   const worker = new Worker(new URL("./builder.worker.ts", import.meta.url), {
     type: "module",
@@ -48,6 +54,12 @@ export function workerBuilder(options: {
     worker.terminate();
     options.onBroken();
   };
+
+  options.onStoppable?.((reason) => {
+    if (broken !== null || waiting.size === 0) return false;
+    breakAll(reason);
+    return true;
+  });
 
   const ready = new Promise<void>((resolve, reject) => {
     /*

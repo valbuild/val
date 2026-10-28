@@ -1,6 +1,29 @@
 import { modules } from "@valbuild/tanstack";
 import { config } from "./val.config";
 
+/**
+ * The end-to-end suite's fixtures: `content/`, the shapes the Playwright specs
+ * drive (`e2e/`), which a showcase has no reason to show.
+ *
+ * Off unless the suite's own servers turn it on (`playwright.config.ts`), so a
+ * plain `pnpm dev` and `vite build` of this app are the showcase and nothing
+ * else. The same expression is read in three places, and has to give one
+ * answer in all of them: the server, the Studio in the browser (which is handed
+ * these modules too) and `val validate`, which evaluates this file in a
+ * `node:vm` sandbox with the real `process`. `vite.config.ts` inlines it for
+ * the first two, where there is no `process.env` to read.
+ */
+const e2eFixtures = process.env.VAL_E2E_FIXTURES === "true";
+
+/**
+ * The fixtures' REMOTE media, separately: a remote schema anywhere in a project
+ * makes the Studio ask for remote settings and makes every publish require
+ * remote credentials, so only the proxy-mode server, whose mock content host
+ * answers both, turns this on. See `content/remoteImages.val.ts`.
+ */
+const e2eRemoteMedia =
+  e2eFixtures && process.env.VAL_E2E_REMOTE_MEDIA === "true";
+
 export default modules(config, [
   // The project's settings: one per project, at the root of the content tree.
   { def: () => import("./settings.val") },
@@ -38,4 +61,40 @@ export default modules(config, [
   { def: () => import("./src/content/access.val") },
   // Hidden from the nav, reached through the `s.view()` row on access.val.ts.
   { def: () => import("./src/content/roster.val") },
+  ...(e2eFixtures
+    ? [
+        { def: () => import("./content/authors.val") },
+        { def: () => import("./content/media.val") },
+        { def: () => import("./content/theme.val") },
+        { def: () => import("./content/kb.val") },
+        { def: () => import("./content/jsonEntryMedia.val") },
+        { def: () => import("./content/tags.val") },
+        { def: () => import("./content/translated.val") },
+        { def: () => import("./content/handbook.val") },
+        { def: () => import("./content/mediaFixtures.val") },
+        { def: () => import("./content/fileGallery.val") },
+        { def: () => import("./content/mediaFields.val") },
+        { def: () => import("./content/encodedImages.val") },
+        { def: () => import("./content/encodedFields.val") },
+        { def: () => import("./content/access.val") },
+        { def: () => import("./content/lists.val") },
+        { def: () => import("./content/featuredContent.val") },
+        // Pages that are not in this app, keyed by their whole URL: what the
+        // generic page's `url` points at.
+        { def: () => import("./content/external.val") },
+        // The fixture PAGES: routes of this app, ported from the Next
+        // example's `app/` so the canvas and page specs have them.
+        { def: () => import("./src/routes/_site.blogs.$blog.val") },
+        { def: () => import("./src/routes/_site.support.$slug.val") },
+        { def: () => import("./src/routes/_site.notes.$note.val") },
+        { def: () => import("./src/routes/_site.generic.$.val") },
+      ]
+    : []),
+  ...(e2eRemoteMedia
+    ? [
+        { def: () => import("./content/remoteImages.val") },
+        { def: () => import("./content/remoteFields.val") },
+        { def: () => import("./content/remoteVideos.val") },
+      ]
+    : []),
 ]);

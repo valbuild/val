@@ -30,6 +30,9 @@ export * from "./localeRelocation";
 export * from "./getErrorMessageFromUnknownJson";
 export * from "./zod/SerializedSchema";
 export * from "./valCanvasProtocol";
+export * from "./elementPicker";
+export * from "./pageInspection";
+export * from "./quickPreview";
 // Schema-shaped helpers that both realms need: the Studio's chat tools run in
 // the browser, and the MCP tool registry in @valbuild/server runs server-side,
 // but the patches they build and the errors they filter are the same logic.
@@ -42,6 +45,7 @@ export * from "./aiTools/aiSourceToolPatches";
 export * from "./validation/partitionValidationErrors";
 export * from "./validation/blockingValidationErrors";
 export * from "./validation/studioFixes";
+export * from "./validation/validationWarnings";
 // What `s.image({ encode })` means, with none of the pixels: the Studio runs
 // the conversion on a canvas and the MCP image tool runs it on sharp, and the
 // two must agree on which images get converted and how far they are scaled.

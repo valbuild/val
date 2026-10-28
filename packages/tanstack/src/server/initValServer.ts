@@ -152,6 +152,7 @@ const initValApiHandler = (
            */
           next: tanstackVersion,
           core: coreVersion,
+          framework: "tanstack",
         },
         ...config,
         /*

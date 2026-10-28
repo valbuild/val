@@ -799,6 +799,11 @@ export class ValOpsMemory extends ValOps {
     return { metadata: file.metadata } as OpsMetadata<T>;
   }
 
+  /** See {@link ValOps.canReadPublishedFiles}: `getBinaryFile` never can. */
+  override canReadPublishedFiles(): boolean {
+    return false;
+  }
+
   override async getBinaryFile(
     _filePathOrRef: string,
   ): Promise<Uint8Array | null> {

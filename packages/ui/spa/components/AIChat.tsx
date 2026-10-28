@@ -28,6 +28,8 @@ import {
   Paperclip,
   X,
   AlertTriangle,
+  ArrowUp,
+  Clock,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
@@ -36,7 +38,7 @@ import { randomUUID } from "../utils/randomUUID";
 import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
 import { useValPortal } from "./ValPortalProvider";
-import { urlOf } from "@valbuild/shared/internal";
+import { urlOf, type PickedElement } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 import { AIChatEditor } from "./AIChatEditor";
 import { AIChatModelPicker } from "./AIChatModelPicker";
@@ -68,6 +70,9 @@ import type {
   ToolActivity,
 } from "./AIChatToolActivities";
 import { Spinner } from "./designSystem/spinner";
+import { Avatar } from "./Avatar";
+import { PeopleStack } from "./proposals/PeopleStack";
+import type { ProposalParticipant } from "./proposals/types";
 
 export type {
   AskUserQuestionAnswer,
@@ -125,6 +130,54 @@ export type ChatMessage = {
    * show none.
    */
   turnStats?: TurnStats;
+  /**
+   * Who wrote a user message, in a chat several people write in. See
+   * `AIChatTogether`.
+   */
+  author?: ProposalParticipant;
+};
+
+/**
+ * A chat that belongs to a proposal, which everyone on the project can read
+ * and continue. valbuild/home `docs/proposals.md`, Flow H.
+ *
+ * Optional, and nothing changes without it: a chat on the site is the
+ * editor's own, and only gets `header` (Work together).
+ */
+export type AIChatTogether = {
+  /** The person looking: their messages say "You". */
+  viewerId: string;
+  /**
+   * The people in this chat. With more than one, user messages are named.
+   */
+  people: ProposalParticipant[];
+  /**
+   * Beside "New chat": `ProposalPeopleButton` in a proposal,
+   * `WorkTogetherButton` on the site.
+   */
+  header?: ReactNode;
+  /**
+   * Who asked the turn that is running, while one is. Someone else's turn
+   * cannot be stopped from here, and a message written meanwhile waits in
+   * this tab until it is done: a chat has one model conversation, so one
+   * question runs at a time.
+   */
+  turnBy?: ProposalParticipant | null;
+  /**
+   * In place of the composer, when the chat can be read and not continued: a
+   * merged or closed proposal's chats stay with it.
+   */
+  readOnly?: { message: string; action?: ReactNode };
+  /** The chat list, in a proposal: its chats, everyone's. */
+  sessionList?: {
+    title: string;
+    /** By session id. */
+    people: Record<string, ProposalParticipant[]>;
+    /** Session ids with a turn running now. */
+    live?: string[];
+    /** Under the list: the way to the editor's own chats on the site. */
+    footer?: ReactNode;
+  };
 };
 
 type AttachedFile = {
@@ -134,6 +187,33 @@ type AttachedFile = {
   key?: string;
   previewUrl?: string;
 };
+
+/**
+ * A message on its way: sent now, or held in this tab until someone else's
+ * turn ends. `files` are the composer's own attachments, kept as they were so
+ * "Don't send" can put everything back; a retry has none to put back.
+ */
+type QueuedMessage = {
+  /** Stable across edits of the queue, for its rows' keys. */
+  id: string;
+  outgoing: string | ChatDocument;
+  displayText: string;
+  doc?: ChatDocument;
+  attachments?: ChatMessageAttachment[];
+  files: (AttachedFile & { key: string })[];
+  /**
+   * What was taken with it when it was written (`onCaptureSendContext`): the
+   * element picked then, not whatever is picked when it is sent.
+   */
+  context?: SendContext;
+};
+
+/**
+ * What a message carries besides its text, taken when it is written: the
+ * design tab's picked element. `pointedAt: null` sends none, even if
+ * something is picked by the time it goes.
+ */
+export type SendContext = { pointedAt: PickedElement | null };
 
 type CurrentMessage = {
   message: ChatMessage;
@@ -198,6 +278,11 @@ export type AIChatHandle = {
   clearMessages: () => void;
   /** Bulk-load historical messages (e.g. when restoring a session) */
   loadMessages: (messages: ChatMessage[]) => void;
+  /**
+   * Add a finished message to the end of the transcript: someone else's
+   * question in a shared chat, as it is asked (see `AIChatTogether`).
+   */
+  appendMessage: (message: ChatMessage) => void;
 };
 
 export type AIChatProps = {
@@ -215,11 +300,23 @@ export type AIChatProps = {
   models?: AIModelInfo[];
   selectedModel?: AIModel | null;
   onSelectModel?: (model: AIModel) => void;
+  /**
+   * The open chat has started, so `selectedModel` is the model it keeps: shown,
+   * not offered. A new chat is where another model is picked.
+   */
+  modelLocked?: boolean;
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
     content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
+    context?: SendContext,
   ) => boolean;
+  /**
+   * Take what goes with a message that is QUEUED rather than sent -- the
+   * design tab's picked element -- so it goes with that message when it is
+   * sent, not with whichever message is sent next.
+   */
+  onCaptureSendContext?: () => SendContext;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
@@ -271,11 +368,17 @@ export type AIChatProps = {
   ) => void;
   /** Called when the user cancels an ask_user_question tool call */
   onCancelToolQuestion?: (toolCallId: string) => void;
+  /** A chat several people work in: see `AIChatTogether`. */
+  together?: AIChatTogether;
   /**
    * @internal – seed messages for Storybook / testing only.
    * Not part of the public API.
    */
   initialMessages?: ChatMessage[];
+  /**
+   * @internal – open on the chat list, for Storybook / testing only.
+   */
+  initialShowSessions?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -580,7 +683,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     models,
     selectedModel,
     onSelectModel,
+    modelLocked,
     onSendMessage,
+    onCaptureSendContext,
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
@@ -599,6 +704,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onAnswerToolQuestions,
     onCancelToolQuestion,
     initialMessages,
+    initialShowSessions = false,
+    together,
     chatEditorRef: chatEditorRefProp,
   },
   ref,
@@ -630,7 +737,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const internalEditorRef = useRef<ChatEditorRef | null>(null);
   const editorRef = chatEditorRefProp ?? internalEditorRef;
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [showSessions, setShowSessions] = useState(false);
+  const [showSessions, setShowSessions] = useState(initialShowSessions);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
     null,
   );
@@ -971,6 +1078,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage(null);
       setCompletedMessages(messages);
     },
+    appendMessage(message: ChatMessage) {
+      setCompletedMessages((prev) => [...prev, message]);
+    },
   }));
 
   // ---- Derived state ----
@@ -978,7 +1088,31 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
-  const composerDisabled = authError || !isConnected || isStreaming;
+  const viewerId = together?.viewerId ?? null;
+  const viewer = together?.people.find((p) => p.id === viewerId) ?? null;
+  const turnBy = together?.turnBy ?? null;
+  /**
+   * Someone else asked the turn that is running. It streams here as it does
+   * for them, but it is not this tab's to stop, and writing is not blocked by
+   * it: what is sent waits for it (`queued`).
+   */
+  const othersTurn = turnBy !== null && turnBy.id !== viewerId;
+  /** Names on messages only once there is more than one person to tell apart. */
+  const showAuthors = (together?.people.length ?? 0) > 1;
+  /** This tab's own turn is the one running. */
+  const ownTurnRunning = isStreaming && !othersTurn;
+  /**
+   * What was written while a turn ran: sent one per turn, in order, once the
+   * turn before has ended. Writing is never blocked by a turn.
+   */
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
+  /**
+   * The queue waits for the person: they pressed Stop, or the turn before
+   * failed. Sending the next one into whatever went wrong would only repeat
+   * it, so they choose (`Send next`, `Clear`).
+   */
+  const [queueStopped, setQueueStopped] = useState(false);
+  const composerDisabled = authError || !isConnected;
 
   const focusComposer = useCallback(() => {
     editorRef.current?.focus();
@@ -1045,10 +1179,62 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     });
   }, []);
 
+  /**
+   * Put a message in the transcript and send it. From `handleSend`, or from
+   * the queue once someone else's turn has ended.
+   */
+  const deliver = useCallback(
+    (message: QueuedMessage) => {
+      const { attachments } = message;
+      const msgId = nextId();
+      const userMsg: ChatMessage = {
+        id: msgId,
+        role: "user",
+        content: message.displayText,
+        status: "complete",
+        attachments,
+        userDoc: message.doc,
+        ...(viewer ? { author: viewer } : {}),
+      };
+      setCompletedMessages((prev) => [...prev, userMsg]);
+
+      const sent = onSendMessage
+        ? message.context !== undefined
+          ? onSendMessage(message.outgoing, attachments, message.context)
+          : onSendMessage(message.outgoing, attachments)
+        : true;
+      if (!sent) {
+        setCompletedMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? { ...m, status: "error", error: "Failed to send" }
+              : m,
+          ),
+        );
+      } else {
+        setAwaitingSince(Date.now());
+        // Streaming is about to disable the composer, which blurs it. Ask for
+        // the caret back once the answer lands.
+        armForSend();
+      }
+    },
+    [viewer, onSendMessage, setAwaitingSince, armForSend],
+  );
+
+  /**
+   * A turn is running, or a sent message has had no reply yet: what is
+   * written now waits in the queue.
+   */
+  const busy = isStreaming || othersTurn || awaitingSince !== null;
+
+  /** The turn before ended in an error: the queue waits for the person. */
+  const lastMessage = messages[messages.length - 1];
+  const lastFailed =
+    lastMessage !== undefined && lastMessage.status === "error" && !busy;
+  const queuePaused = queueStopped || lastFailed;
+
   const handleSend = useCallback(
     (suggestion?: string) => {
-      if (isStreaming) return;
-
       let outgoing: string | ChatDocument;
       let displayText: string;
       let outgoingDoc: ChatDocument | undefined;
@@ -1074,17 +1260,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         displayText = chatDocumentToPlainText(doc);
       }
 
-      const doneAttachments: ChatMessageAttachment[] = attachedFiles
-        .filter(
-          (f): f is AttachedFile & { key: string } =>
-            f.status === "done" && f.key !== undefined,
-        )
-        .map((f) => ({
-          key: f.key,
-          name: f.file.name,
-          mimeType: f.file.type || undefined,
-          previewUrl: f.previewUrl,
-        }));
+      const doneFiles = attachedFiles.filter(
+        (f): f is AttachedFile & { key: string } =>
+          f.status === "done" && f.key !== undefined,
+      );
 
       attachedFiles.forEach((f) => {
         if (f.previewUrl && f.status !== "done")
@@ -1092,61 +1271,153 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       });
       setAttachedFiles([]);
 
-      const msgId = nextId();
-      const userMsg: ChatMessage = {
-        id: msgId,
-        role: "user",
-        content: displayText,
-        status: "complete",
-        attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
-        userDoc: outgoingDoc,
-      };
-      setCompletedMessages((prev) => [...prev, userMsg]);
-
       if (suggestion === undefined) {
         editorRef.current?.clear();
         setIsEditorEmpty(true);
       }
 
-      const sent = onSendMessage
-        ? onSendMessage(
-            outgoing,
-            doneAttachments.length > 0 ? doneAttachments : undefined,
-          )
-        : true;
-      if (!sent) {
-        setCompletedMessages((prev) =>
-          prev.map((m) =>
-            m.id === msgId
-              ? { ...m, status: "error", error: "Failed to send" }
-              : m,
-          ),
-        );
-      } else {
-        setAwaitingSince(Date.now());
-        // Streaming is about to disable the composer, which blurs it. Ask for
-        // the caret back once the answer lands.
-        armForSend();
+      const message: QueuedMessage = {
+        id: randomUUID(),
+        outgoing,
+        displayText,
+        doc: outgoingDoc,
+        attachments:
+          doneFiles.length > 0
+            ? doneFiles.map(
+                (f): ChatMessageAttachment => ({
+                  key: f.key,
+                  name: f.file.name,
+                  mimeType: f.file.type || undefined,
+                  previewUrl: f.previewUrl,
+                }),
+              )
+            : undefined,
+        files: doneFiles,
+      };
+      // Behind what is already waiting, in the order it was written -- unless
+      // the queue is paused: then what is written now is what the person
+      // wants sent, and it goes straight away.
+      if (busy || (queue.length > 0 && !queuePaused)) {
+        // Taken here, at the press, not in the updater: taking it clears
+        // the pick, which is another component's state.
+        const queued: QueuedMessage = onCaptureSendContext
+          ? { ...message, context: onCaptureSendContext() }
+          : message;
+        setQueue((prev) => [...prev, queued]);
+        requestAnimationFrame(() => editorRef.current?.focus());
+        return;
       }
+      deliver(message);
 
       requestAnimationFrame(() => editorRef.current?.focus());
     },
     [
-      isStreaming,
+      busy,
+      queue.length,
+      queuePaused,
       attachedFiles,
-      onSendMessage,
       editorRef,
-      armForSend,
-      setAwaitingSince,
+      deliver,
+      onCaptureSendContext,
     ],
+  );
+
+  /**
+   * Send the next queued message once the turn before has ended. Never
+   * merged into the running turn: it was written before its answer was read.
+   */
+  useEffect(() => {
+    if (queue.length === 0 || busy || queuePaused || !isConnected) return;
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    deliver(next);
+  }, [queue, busy, queuePaused, isConnected, deliver]);
+
+  /** Send the next queued message now: after a Stop or a failed turn. */
+  const sendNext = useCallback(() => {
+    if (queue.length === 0 || busy) return;
+    setQueueStopped(false);
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    deliver(next);
+  }, [queue, busy, deliver]);
+
+  const clearQueue = useCallback(() => {
+    setQueue([]);
+    setQueueStopped(false);
+  }, []);
+
+  const stopTurn = useCallback(() => {
+    // What was queued behind the turn waits: Stop is "not like that", and
+    // the next message was written before the person saw why.
+    if (queue.length > 0) setQueueStopped(true);
+    onCancel?.();
+  }, [queue.length, onCancel]);
+
+  const removeQueued = useCallback((id: string) => {
+    setQueue((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  const moveQueuedUp = useCallback((id: string) => {
+    setQueue((prev) => {
+      const index = prev.findIndex((m) => m.id === id);
+      if (index <= 0) return prev;
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }, []);
+
+  /**
+   * "Edit": the message comes out of the queue and back into the composer,
+   * files and all. Only into an empty composer, so nothing being written is
+   * overwritten.
+   */
+  const editQueued = useCallback(
+    (id: string) => {
+      const message = queue.find((m) => m.id === id);
+      if (message === undefined || !isEditorEmpty) return;
+      setQueue((prev) => prev.filter((m) => m.id !== id));
+      editorRef.current?.setDocument(
+        message.doc ?? [{ tag: "p", children: [message.displayText] }],
+      );
+      setIsEditorEmpty(false);
+      setAttachedFiles((prev) => [...message.files, ...prev]);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [queue, isEditorEmpty, editorRef],
   );
 
   const handleRetry = useCallback(
     (errorMsgId: string) => {
       const errorMsg = messages.find((m) => m.id === errorMsgId);
 
+      /**
+       * In a chat several people write in, a retry is a new message from
+       * whoever pressed it: "Kari left before the answer was done" is asked
+       * again in this person's name, not resent as Kari's. And it waits for
+       * someone else's running turn, like anything else they send.
+       */
+      const askAgain = (source: ChatMessage, removeId: string) => {
+        setCompletedMessages((prev) => prev.filter((m) => m.id !== removeId));
+        const message: QueuedMessage = {
+          id: randomUUID(),
+          outgoing: source.userDoc ?? getTextContent(source.content),
+          displayText: getTextContent(source.content),
+          doc: source.userDoc,
+          attachments: source.attachments,
+          files: [],
+        };
+        if (othersTurn) setQueue((prev) => [...prev, message]);
+        else deliver(message);
+      };
+
       // Retry a failed user message (WebSocket send error)
       if (errorMsg?.role === "user") {
+        if (othersTurn) {
+          askAgain(errorMsg, errorMsgId);
+          return;
+        }
         setCompletedMessages((prev) =>
           prev.map((m) =>
             m.id === errorMsgId
@@ -1182,6 +1453,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         .reverse()
         .find((m) => m.role === "user");
       if (!prevUserMsg) return;
+      if (
+        othersTurn ||
+        (prevUserMsg.author !== undefined && prevUserMsg.author.id !== viewerId)
+      ) {
+        askAgain(prevUserMsg, errorMsgId);
+        return;
+      }
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
@@ -1191,7 +1469,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
       if (sent) setAwaitingSince(Date.now());
     },
-    [messages, onSendMessage, setAwaitingSince],
+    [messages, onSendMessage, setAwaitingSince, othersTurn, deliver, viewerId],
   );
 
   // ---- Render ----
@@ -1204,7 +1482,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       )}
     >
       {/* Header with New Chat + History buttons */}
-      {(!isEmpty || onFetchSessions) && (
+      {(!isEmpty || onFetchSessions || together?.header) && (
         <div className="shrink-0 flex justify-between items-center p-2 border-b border-border-primary">
           <div>
             {onFetchSessions && (
@@ -1222,13 +1500,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               </Button>
             )}
           </div>
-          <div>
+          <div className="flex items-center gap-1">
+            {together?.header}
             {!isEmpty && onNewSession && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={onNewSession}
-                disabled={isStreaming}
+                disabled={ownTurnRunning}
                 className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
@@ -1254,7 +1533,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm font-medium flex-1">Chat history</span>
+            <span className="text-sm font-medium flex-1 truncate">
+              {together?.sessionList?.title ?? "Chat history"}
+            </span>
             {onNewSession && (
               <Button
                 variant="ghost"
@@ -1327,6 +1608,15 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                           {displayName}
                         </button>
                       )}
+                      {!isRenaming && together?.sessionList && (
+                        <SessionPeople
+                          people={together.sessionList.people[session.id]}
+                          live={
+                            together.sessionList.live?.includes(session.id) ??
+                            false
+                          }
+                        />
+                      )}
                       {!isRenaming && (
                         <Button
                           variant="ghost"
@@ -1345,6 +1635,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {together?.sessionList?.footer && (
+              <div className="border-t border-border-primary">
+                {together.sessionList.footer}
               </div>
             )}
           </ScrollArea>
@@ -1373,6 +1668,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <MessageBubble
                 key={msg.id}
                 message={msg}
+                author={
+                  showAuthors && msg.role === "user" && msg.author
+                    ? {
+                        person: msg.author,
+                        isViewer: msg.author.id === viewerId,
+                      }
+                    : undefined
+                }
                 onRetry={handleRetry}
                 onSubmitToolAnswers={(toolCallId, answers) => {
                   recordAnswersInState(msg.id, toolCallId, answers);
@@ -1400,6 +1703,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
         {unavailable && !authError ? (
           <AIUnavailable {...unavailable} />
+        ) : together?.readOnly ? (
+          <div className="flex items-center gap-2 rounded-md border border-border-primary bg-bg-secondary px-3 py-2 text-xs touch:text-sm text-fg-secondary">
+            <span className="min-w-0 flex-1">{together.readOnly.message}</span>
+            {together.readOnly.action}
+          </div>
         ) : (
           <>
             {!isConnected && !authError && (
@@ -1407,6 +1715,27 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
                 Connecting…
               </div>
+            )}
+            {othersTurn && turnBy && (
+              <OthersTurnStrip turnBy={turnBy} queued={queue.length} />
+            )}
+            {queue.length > 0 && (
+              <QueuedMessages
+                queue={queue}
+                paused={
+                  queuePaused
+                    ? lastFailed
+                      ? "The last answer failed, so these wait for you."
+                      : "Stopped, so these wait for you."
+                    : null
+                }
+                canEdit={isEditorEmpty}
+                onEdit={editQueued}
+                onRemove={removeQueued}
+                onMoveUp={moveQueuedUp}
+                onSendNext={busy ? null : sendNext}
+                onClear={clearQueue}
+              />
             )}
             {/* Attached file previews */}
             {attachedFiles.length > 0 && (
@@ -1486,12 +1815,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   "text-fg-primary text-base",
                 )}
               />
-              <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+              <div className="flex items-center gap-1 border-t border-border-primary px-2 py-1.5">
                 {onUploadFile && (
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    disabled={!isConnected || isStreaming || authError}
+                    disabled={!isConnected || authError}
                     onClick={() => fileInputRef.current?.click()}
                     aria-label="Attach files"
                   >
@@ -1509,40 +1838,56 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     models={models}
                     selectedModel={selectedModel}
                     onSelectModel={onSelectModel}
-                    disabled={isStreaming}
+                    // Someone else's turn has its asker's model; the next
+                    // message, waiting for it or not, is this person's.
+                    disabled={ownTurnRunning}
+                    locked={modelLocked}
                     portalContainer={portalContainer}
                   />
                 )}
-                {isStreaming && onCancel ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={onCancel}
-                    aria-label="Stop generating"
-                    title="Stop generating"
-                    className="ml-auto"
-                  >
-                    <Square className="h-3.5 w-3.5 fill-current" />
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={
-                      !isConnected ||
-                      isStreaming ||
-                      isUploading ||
-                      hasPendingInlineImage ||
-                      authError ||
-                      isEditorEmpty
-                    }
-                    onClick={() => handleSend()}
-                    aria-label="Send message"
-                    className="ml-auto"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                )}
+                <span className="ml-auto flex items-center gap-1">
+                  {(!ownTurnRunning || !isEditorEmpty) && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={
+                        !isConnected ||
+                        isUploading ||
+                        hasPendingInlineImage ||
+                        authError ||
+                        isEditorEmpty
+                      }
+                      onClick={() => handleSend()}
+                      aria-label={
+                        busy || queue.length > 0
+                          ? "Send when the answer is done"
+                          : "Send message"
+                      }
+                      title={
+                        busy || queue.length > 0
+                          ? "Send when the answer is done"
+                          : undefined
+                      }
+                    >
+                      {busy || queue.length > 0 ? (
+                        <Clock className="h-4 w-4" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
+                  {ownTurnRunning && onCancel && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={stopTurn}
+                      aria-label="Stop generating"
+                      title="Stop generating"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                    </Button>
+                  )}
+                </span>
               </div>
             </div>
           </>
@@ -1551,6 +1896,185 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     </div>
   );
 });
+
+/**
+ * Someone else's question is running. Their turn holds the chat until it
+ * ends; what this person writes meanwhile is sent after it, never into it.
+ */
+function OthersTurnStrip({
+  turnBy,
+  queued,
+}: {
+  turnBy: ProposalParticipant;
+  /** How many of this person's messages wait for it. */
+  queued: number;
+}) {
+  return (
+    <div
+      role="status"
+      className="mb-2 flex items-center gap-2 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs touch:text-sm text-fg-secondary"
+    >
+      <Avatar name={turnBy.name} imageUrl={turnBy.avatarUrl} size="xs" />
+      <span className="min-w-0 flex-1">
+        <span className="font-medium text-fg-primary">{turnBy.name}</span> is
+        asking.{" "}
+        {queued === 0
+          ? "Yours is sent when the answer is done."
+          : queued === 1
+            ? "Then yours."
+            : `Then yours, ${queued} of them, in order.`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * What was written while a turn ran, waiting to be sent one per turn. Each
+ * can be taken back to edit, moved up or dropped; a paused queue says why and
+ * offers to go on.
+ */
+function QueuedMessages({
+  queue,
+  paused,
+  canEdit,
+  onEdit,
+  onRemove,
+  onMoveUp,
+  onSendNext,
+  onClear,
+}: {
+  queue: QueuedMessage[];
+  /** Why it is waiting for the person; `null` while it goes on by itself. */
+  paused: string | null;
+  /** Edit puts a message back into the composer: only into an empty one. */
+  canEdit: boolean;
+  onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  /** `null` while a turn runs: the next is sent when it ends. */
+  onSendNext: (() => void) | null;
+  onClear: () => void;
+}) {
+  return (
+    <section
+      aria-label="Queued messages"
+      className="mb-2 rounded-md border border-border-primary bg-bg-secondary text-xs touch:text-sm"
+    >
+      <div className="flex items-center gap-2 px-2 pt-1.5 text-fg-secondary">
+        <Clock className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 flex-1">
+          {paused ??
+            (queue.length === 1
+              ? "Sent when the answer is done."
+              : `${queue.length} queued, sent one at a time.`)}
+        </span>
+        {paused !== null && onSendNext !== null && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onSendNext}
+            className="h-6 shrink-0 px-2 text-xs"
+          >
+            Send next
+          </Button>
+        )}
+        {queue.length > 1 || paused !== null ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            className="h-6 shrink-0 px-2 text-xs"
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+      <ol className="flex flex-col py-1">
+        {queue.map((message, index) => (
+          <li
+            key={message.id}
+            className="group flex items-center gap-1.5 px-2 py-0.5"
+          >
+            <span className="w-3 shrink-0 text-right tabular-nums text-fg-tertiary">
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-fg-primary">
+              {truncate(message.displayText, 120)}
+            </span>
+            {message.context?.pointedAt && (
+              <span
+                className="shrink-0 rounded bg-bg-primary px-1 font-mono text-[10px] text-fg-tertiary"
+                title="The element picked when this was written goes with it"
+              >
+                &lt;{message.context.pointedAt.tag}&gt;
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => onEdit(message.id)}
+              disabled={!canEdit}
+              aria-label="Take back to edit"
+              title={
+                canEdit
+                  ? "Take it back to edit"
+                  : "Send or clear what you are writing first"
+              }
+              className="shrink-0 rounded px-1 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary disabled:text-fg-disabled"
+            >
+              Edit
+            </button>
+            {index > 0 && (
+              <button
+                type="button"
+                onClick={() => onMoveUp(message.id)}
+                aria-label="Move up"
+                title="Move up"
+                className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary"
+              >
+                <ArrowUp className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(message.id)}
+              aria-label="Remove from the queue"
+              title="Remove from the queue"
+              className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function truncate(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** A chat's people in a proposal's chat list, and whether a turn is running. */
+function SessionPeople({
+  people,
+  live,
+}: {
+  people: ProposalParticipant[] | undefined;
+  live: boolean;
+}) {
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      {people && <PeopleStack people={people} max={2} />}
+      {live && (
+        <span className="flex items-center gap-1 text-xs text-fg-secondary">
+          <span className="h-1.5 w-1.5 rounded-full bg-fg-brand-primary animate-pulse" />
+          live
+        </span>
+      )}
+    </span>
+  );
+}
 
 /**
  * The assistant is not there, and this is what is known about why.
@@ -1672,11 +2196,14 @@ function EmptyState({
 
 function MessageBubble({
   message,
+  author,
   onRetry,
   onSubmitToolAnswers,
   onCancelToolQuestion,
 }: {
   message: ChatMessage;
+  /** Who wrote it, in a chat several people write in. */
+  author?: { person: ProposalParticipant; isViewer: boolean };
   onRetry: (id: string) => void;
   onSubmitToolAnswers: (
     toolCallId: string,
@@ -1711,9 +2238,28 @@ function MessageBubble({
     <div
       className={cn(
         "flex flex-col gap-1.5 min-w-0",
-        isUser ? "items-end" : "items-stretch",
+        // Someone else's message is on the left, as in any chat with more
+        // than two parties: the right side is "you".
+        !isUser
+          ? "items-stretch"
+          : author && !author.isViewer
+            ? "items-start"
+            : "items-end",
       )}
     >
+      {author && (
+        <span className="flex items-center gap-1.5 px-1 text-xs text-fg-secondary">
+          {!author.isViewer && (
+            <Avatar
+              name={author.person.name}
+              imageUrl={author.person.avatarUrl}
+              size="xs"
+              className="h-5 w-5"
+            />
+          )}
+          {author.isViewer ? "You" : author.person.name}
+        </span>
+      )}
       {/* Tool calls are a row of their own, above the answer - see
           ToolActivities. */}
       {!isUser && activities.length > 0 && (

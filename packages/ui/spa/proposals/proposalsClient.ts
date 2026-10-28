@@ -386,6 +386,18 @@ export type ProposalsClient = {
     message?: string,
   ): Promise<z.infer<typeof StagedAnswer>>;
   /**
+   * A patch written into a module's FILE in the proposal and staged there
+   * with its code: the design tab's `create_patch` (valbuild/home
+   * `docs/design-tab.md`). The server writes it as a save writes a
+   * `.val.ts`, into the proposal's copy or the site's.
+   */
+  patchFile(
+    name: string,
+    moduleFilePath: string,
+    patch: unknown[],
+    message?: string,
+  ): Promise<z.infer<typeof StagedAnswer>>;
+  /**
    * Onto the site as it is now: its base build becomes the site's, and its
    * staged code needs building again. The site-code check's action.
    */
@@ -527,6 +539,14 @@ export function createProposalsClient(options: {
       StagedAnswer.parse(
         await call(`${at(name)}/files`, "POST", {
           files,
+          ...(message !== undefined ? { message } : {}),
+        }),
+      ),
+    patchFile: async (name, moduleFilePath, patch, message) =>
+      StagedAnswer.parse(
+        await call(`${at(name)}/patch-file`, "POST", {
+          moduleFilePath,
+          patch,
           ...(message !== undefined ? { message } : {}),
         }),
       ),

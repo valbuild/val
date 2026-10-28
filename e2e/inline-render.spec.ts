@@ -26,7 +26,7 @@ import { clearPatchChain, openStudio } from "./studio";
  * the chain is a fact about the server, and the store's own record of it is the
  * thing under test rather than the oracle for it.
  */
-const MODULE = "/app/generic/[[...path]]/page.val.ts";
+const MODULE = "/src/routes/_site.generic.$.val.ts";
 const PAGE = `/val/~${MODULE}?p=%22%2Fgeneric%2Ftest%2Ffoo%22`;
 
 const TEXT = "This is a test page with some text content.";

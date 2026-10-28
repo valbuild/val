@@ -1,17 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useEffect, useState } from "react";
-import { Shell } from "../../shell/Shell";
-import { mockShellData } from "../../shell/mockShellData";
-import type { TopBarProposals } from "../../shell/TopBar";
-import type { ShellPanel } from "../../shell/types";
-import {
-  NewProposalDialog,
-  type NewProposalProblem,
-} from "../NewProposalDialog";
 import { CloseProposalDialog } from "../CloseProposalDialog";
-import { RenameProposalDialog } from "../RenameProposalDialog";
-import { AllProposalsDialog, ProposalsList } from "../ProposalsList";
-import type { ProposalSummary, StudioLocation } from "../types";
+import { ProposalsList } from "../ProposalsList";
+import { mockSelectionIds } from "../../shell/mockShellData";
+import {
+  NOW,
+  PASSING_CHECKS,
+  inProposal,
+  open,
+  proposals,
+  shell,
+} from "./proposalsShellHarness";
 
 /**
  * Proposals in the Studio: `docs/proposals.md` in valbuild/home, flows B and
@@ -28,335 +26,37 @@ const meta: Meta = {
 };
 export default meta;
 
-/** One clock for every story, so "2h ago" does not drift between runs. */
-const NOW = new Date("2026-10-06T12:00:00Z");
-const ago = (minutes: number) =>
-  new Date(NOW.getTime() - minutes * 60_000).toISOString();
-
-const proposals: ProposalSummary[] = [
-  {
-    name: "a1b2c3d4e5f6a7b8c9d0",
-    displayName: "Spring campaign",
-    description: "Rewrite of all product copy for the spring launch",
-    status: "open",
-    owner: { name: "Fredrik Ekholdt" },
-    ownedByViewer: true,
-    changes: 15,
-    updatedAt: ago(120),
-    setup: { status: "succeeded" },
-  },
-  {
-    name: "b2c3d4e5f6a7b8c9d0e1",
-    displayName: "New pricing page",
-    description: null,
-    status: "open",
-    owner: { name: "Kari Nordmann" },
-    ownedByViewer: false,
-    changes: 4,
-    updatedAt: ago(60 * 26),
-    setup: { status: "succeeded" },
-  },
-  {
-    name: "c3d4e5f6a7b8c9d0e1f2",
-    displayName: "Autumn sale",
-    description: "Banner and product discounts",
-    status: "merged",
-    owner: { name: "Kari Nordmann" },
-    ownedByViewer: false,
-    changes: 9,
-    updatedAt: ago(60 * 24 * 12),
-  },
-  {
-    name: "d4e5f6a7b8c9d0e1f2a3",
-    displayName: "Try a darker hero",
-    description: "An experiment",
-    status: "closed",
-    owner: { name: "Fredrik Ekholdt" },
-    ownedByViewer: true,
-    changes: 2,
-    updatedAt: ago(60 * 24 * 3),
-    closedBy: { name: "Kari Nordmann" },
-  },
-];
-const open = proposals.filter((p) => p.status === "open");
-
-const PUBLISH_LATER =
-  "Publishing a proposal arrives with the next part of proposals: for now a proposal is saved and shared.";
-
-type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
-const inProposal = (over: Partial<InProposal> = {}): InProposal => ({
-  kind: "proposal",
-  proposal: open[0],
-  unsaved: 3,
-  save: { state: "idle" },
-  overlay: { status: "succeeded" },
-  renderCheck: { status: "succeeded" },
-  publishBlockedBy: PUBLISH_LATER,
-  code: null,
-  ...over,
-});
-
-type HarnessProps = {
-  location: StudioLocation;
-  list?: ProposalSummary[];
-  theme?: "dark" | "light";
-  switcherOpen?: boolean;
-  menuOpen?: boolean;
-  dialog?: "new" | "close" | "rename" | "all" | null;
-  newProblem?: NewProposalProblem | null;
-  /** Validation errors a save would be refused for. */
-  validationErrors?: number;
-  /** A panel open from the start: the phone's sheets, say. */
-  panel?: ShellPanel;
-};
-
-/**
- * The whole Studio with proposals on, holding the state the app would: where
- * you are, the open dialog, and a save that runs.
- */
-function ProposalsShell({
-  location: initialLocation,
-  list = proposals,
-  theme: initialTheme = "dark",
-  switcherOpen = false,
-  menuOpen = false,
-  dialog: initialDialog = null,
-  newProblem = null,
-  validationErrors = 0,
-  panel,
-}: HarnessProps) {
-  const [theme, setTheme] = useState(initialTheme);
-  const [location, setLocation] = useState<StudioLocation>(initialLocation);
-  const [all, setAll] = useState(list);
-  const [dialog, setDialog] = useState(initialDialog);
-  const [creating, setCreating] = useState(false);
-  const [problem, setProblem] = useState(newProblem);
-  const [reopening, setReopening] = useState<string | null>(null);
-
-  // A save, as the app sees one: committing, then the address catching up,
-  // then the render check.
-  const [saveStep, setSaveStep] = useState(0);
-  useEffect(() => {
-    if (saveStep === 0 || location.kind !== "proposal") return;
-    const next = (patch: Partial<InProposal>, then: number) =>
-      setTimeout(() => {
-        setLocation((current) =>
-          current.kind === "proposal" ? { ...current, ...patch } : current,
-        );
-        setSaveStep(then);
-      }, 900);
-    const timer =
-      saveStep === 1
-        ? next(
-            {
-              save: { state: "idle" },
-              unsaved: 0,
-              overlay: { status: "running" },
-              renderCheck: null,
-            },
-            2,
-          )
-        : saveStep === 2
-          ? next(
-              {
-                overlay: { status: "succeeded" },
-                renderCheck: { status: "running" },
-              },
-              3,
-            )
-          : next({ renderCheck: { status: "succeeded" } }, 0);
-    return () => clearTimeout(timer);
-  }, [saveStep, location.kind]);
-
-  const goTo = (name: string) => {
-    const proposal = all.find((p) => p.name === name);
-    if (proposal) {
-      setLocation(inProposal({ proposal, unsaved: 0 }));
-      setDialog(null);
-    }
-  };
-  const handlers: TopBarProposals = {
-    location,
-    ...(validationErrors > 0
-      ? {
-          saveBlockedBy: {
-            errors: validationErrors,
-            onShow: () => console.log("show the validation errors"),
-          },
-        }
-      : {}),
-    open: all.filter((p) => p.status === "open"),
-    onOpenSite: () => setLocation({ kind: "site" }),
-    onOpenProposal: goTo,
-    onNewProposal: () => {
-      setProblem(null);
-      setDialog("new");
-    },
-    onShowAllProposals: () => setDialog("all"),
-    onSave: () => {
-      setLocation((current) =>
-        current.kind === "proposal"
-          ? { ...current, save: { state: "saving" } }
-          : current,
-      );
-      setSaveStep(1);
-    },
-    onBuild: () =>
-      setLocation((current) =>
-        current.kind === "proposal"
-          ? { ...current, code: { state: "building" } }
-          : current,
-      ),
-    onPublish: () => undefined,
-    onCompare: () => console.log("compare with the site"),
-    onRename: () => setDialog("rename"),
-    onCopyLink: () => console.log("copy link"),
-    onClose: () => setDialog("close"),
-    defaultSwitcherOpen: switcherOpen,
-    defaultMenuOpen: menuOpen,
-  };
-  const current = location.kind === "proposal" ? location.proposal : null;
-  return (
-    <>
-      <Shell
-        initialPanel={panel ?? null}
-        data={mockShellData}
-        theme={theme}
-        onThemeChange={setTheme}
-        /*
-         * In a proposal, Review shows what Publish would publish: the
-         * proposal against the site, saved and unsaved alike.
-         */
-        pendingChanges={
-          location.kind === "proposal"
-            ? location.proposal.changes + location.unsaved
-            : 12
-        }
-        onCompare={() => console.log("open the review view")}
-        mode="http"
-        proposals={handlers}
-      />
-      <NewProposalDialog
-        open={dialog === "new"}
-        onOpenChange={(isOpen) => setDialog(isOpen ? "new" : null)}
-        suggestedName="Bright harbour"
-        creating={creating}
-        problem={problem}
-        onOpenExisting={goTo}
-        onCreate={({ displayName, description }) => {
-          setCreating(true);
-          setTimeout(() => {
-            const made: ProposalSummary = {
-              name: Math.random().toString(16).slice(2, 22).padEnd(20, "0"),
-              displayName,
-              description: description || null,
-              status: "open",
-              owner: { name: "Fredrik Ekholdt" },
-              ownedByViewer: true,
-              changes: 0,
-              updatedAt: NOW.toISOString(),
-              setup: { status: "running" },
-            };
-            setAll((list) => [made, ...list]);
-            setCreating(false);
-            setDialog(null);
-            setLocation(
-              inProposal({
-                proposal: made,
-                unsaved: 0,
-                overlay: null,
-                renderCheck: null,
-              }),
-            );
-            setTimeout(
-              () =>
-                setLocation((loc) =>
-                  loc.kind === "proposal"
-                    ? {
-                        ...loc,
-                        proposal: {
-                          ...loc.proposal,
-                          setup: { status: "succeeded" },
-                        },
-                      }
-                    : loc,
-                ),
-              1500,
-            );
-          }, 900);
-        }}
-      />
-      {current !== null && (
-        <RenameProposalDialog
-          open={dialog === "rename"}
-          onOpenChange={(isOpen) => setDialog(isOpen ? "rename" : null)}
-          displayName={current.displayName}
-          onRename={(displayName) => {
-            const renamed = { ...current, displayName };
-            setAll((list) =>
-              list.map((p) => (p.name === current.name ? renamed : p)),
-            );
-            setLocation((loc) =>
-              loc.kind === "proposal" ? { ...loc, proposal: renamed } : loc,
-            );
-            setDialog(null);
-          }}
-        />
-      )}
-      {current !== null && (
-        <CloseProposalDialog
-          open={dialog === "close"}
-          onOpenChange={(isOpen) => setDialog(isOpen ? "close" : null)}
-          displayName={current.displayName}
-          changes={current.changes}
-          onConfirm={() => {
-            setAll((list) =>
-              list.map((p) =>
-                p.name === current.name
-                  ? {
-                      ...p,
-                      status: "closed",
-                      closedBy: { name: "Fredrik Ekholdt" },
-                    }
-                  : p,
-              ),
-            );
-            setDialog(null);
-            setLocation({ kind: "site" });
-          }}
-        />
-      )}
-      <AllProposalsDialog
-        open={dialog === "all"}
-        onOpenChange={(isOpen) => setDialog(isOpen ? "all" : null)}
-        proposals={all}
-        now={NOW}
-        onOpen={goTo}
-        onNewProposal={() => setDialog("new")}
-        reopening={reopening}
-        onReopen={(name) => {
-          setReopening(name);
-          setTimeout(() => {
-            setAll((list) =>
-              list.map((p) =>
-                p.name === name ? { ...p, status: "open", closedBy: null } : p,
-              ),
-            );
-            setReopening(null);
-          }, 800);
-        }}
-      />
-    </>
-  );
-}
-
-type ShellStory = StoryObj<typeof ProposalsShell>;
-const shell = (args: HarnessProps): ShellStory => ({
-  render: () => <ProposalsShell {...args} />,
-});
-
 /** On the site, as every project with proposals starts: the switcher says so. */
 export const OnTheSite = shell({ location: { kind: "site" } });
+
+/*
+ * LOADING. At an address it has not been at before, the Studio learns it is
+ * in a proposal from `/stat`; until then it says it is loading rather than
+ * showing the site's switcher and Publish. Next time at the same address it
+ * remembers, and starts in the proposal.
+ */
+export const Loading = shell({
+  location: { kind: "site" },
+  loading: true,
+  selectionId: mockSelectionIds.home,
+});
+
+/** In a proposal, before its own details are read: the name it had last time. */
+export const LoadingTheProposal = shell({
+  location: inProposal({ unsaved: 0 }),
+  loading: true,
+  selectionId: mockSelectionIds.home,
+});
+
+/**
+ * A proposal chosen in the switcher: the browser goes to its address, through
+ * sign-in, and this page stays on screen until then -- saying so.
+ */
+export const OpeningAProposal = shell({
+  location: { kind: "site" },
+  leaving: "Opening “New pricing page”…",
+  selectionId: mockSelectionIds.home,
+});
 
 /** The switcher, open: the site, the open proposals, and the two ways on. */
 export const SwitcherOpen = shell({
@@ -373,30 +73,157 @@ export const SwitcherWithNoProposals = shell({
 
 /**
  * In a proposal: the bar wears the proposal colour, the switcher names it, and
- * Save takes Publish's place. Press Save to run one.
+ * Save stands where Publish is on the site. Press Save to run one: once it is
+ * done, the same button is Publish.
  */
 export const InAProposal = shell({ location: inProposal() });
 
-/** Nothing unsaved: Save is off, and Merge reads plain "Merge". */
+/**
+ * The project's own proposal colour (`theme.proposal` in settings): here a
+ * cyan, for a project whose accent is violet. The whole proposal chrome
+ * follows it, in both modes.
+ */
+export const CustomProposalColour = shell({
+  location: inProposal(),
+  selectionId: mockSelectionIds.home,
+  proposalColor: "#0891b2",
+  menuOpen: true,
+});
+
+export const CustomProposalColourLight = shell({
+  location: inProposal(),
+  selectionId: mockSelectionIds.home,
+  proposalColor: "#0891b2",
+  theme: "light",
+});
+
+/** Everything saved: Save has become Publish. */
 export const InAProposalAllSaved = shell({
   location: inProposal({ unsaved: 0 }),
 });
 
-/** The proposal's menu: compare, rename, copy its link, close. */
+/** Ready to publish, with the caret open. */
+export const InAProposalAllSavedMenuOpen = shell({
+  location: inProposal({ unsaved: 0 }),
+  menuOpen: true,
+});
+
+/**
+ * A page open in a proposal: what an editor mostly looks at. The bar is the
+ * only thing that says where the edits go.
+ */
+export const InAProposalEditingAPage = shell({
+  location: inProposal(),
+  selectionId: mockSelectionIds.home,
+});
+
+/** Publish, pressed: the merge checks, then Publish. */
+export const PublishFromAProposal = shell({
+  location: inProposal(),
+  selectionId: mockSelectionIds.home,
+  dialog: "publish",
+  publishState: {
+    kind: "ready",
+    checks: PASSING_CHECKS,
+    changes: 18,
+    unsaved: 3,
+  },
+});
+
+/**
+ * At a published proposal's address: finished, said above the editor, with
+ * the ways on.
+ */
+export const PublishedProposal = shell({
+  location: inProposal({
+    unsaved: 0,
+    proposal: { ...open[0]!, status: "merged" },
+    publishBlockedBy:
+      "It is published: this proposal is finished. Anything more starts a new one.",
+  }),
+  selectionId: mockSelectionIds.home,
+  merged: { continuedIn: null },
+});
+
+/** Changes made while it was being published went to a new proposal. */
+export const PublishedProposalContinued = shell({
+  location: inProposal({
+    unsaved: 0,
+    proposal: { ...open[0]!, status: "merged" },
+    publishBlockedBy:
+      "It is published: this proposal is finished. Anything more starts a new one.",
+  }),
+  selectionId: mockSelectionIds.home,
+  merged: { continuedIn: "Spring campaign (continued)" },
+});
+
+/**
+ * The caret beside Save: the steps -- Save, Build, Publish, which saves
+ * first. What is done with the proposal itself is in the switcher.
+ */
 export const InAProposalMenuOpen = shell({
   location: inProposal(),
   menuOpen: true,
 });
 
-/** The switcher from inside a proposal: "here" is the proposal. */
+/**
+ * The switcher from inside a proposal, as the phone's sheet: the proposal's
+ * name, compare, rename, copy its link and close, then where else to go.
+ */
 export const InAProposalSwitcherOpen = shell({
   location: inProposal(),
   switcherOpen: true,
 });
 
-/** Publish enabled, as it will be once merging exists: the site's own green. */
-export const InAProposalReadyToPublish = shell({
-  location: inProposal({ publishBlockedBy: null }),
+/**
+ * Publish refused, saying why on hover: here, the proposal is being brought
+ * up to date with the site.
+ */
+export const InAProposalPublishBlocked = shell({
+  location: inProposal({
+    unsaved: 0,
+    publishBlockedBy: "It is being brought up to date with the site.",
+  }),
+  menuOpen: true,
+});
+
+/*
+ * AFTER A SAVE. The proposal's address catches up with the save, then is
+ * checked to still render: said beside the switcher while it runs, and when
+ * it fails.
+ */
+
+/** A new proposal, while its address is being made. */
+export const SettingUp = shell({
+  location: inProposal({
+    unsaved: 0,
+    proposal: { ...open[0]!, changes: 0, setup: { status: "running" } },
+    overlay: null,
+    renderCheck: null,
+  }),
+});
+
+export const UpdatingThePreview = shell({
+  location: inProposal({
+    unsaved: 0,
+    overlay: { status: "running" },
+    renderCheck: null,
+  }),
+});
+
+export const CheckingThePreview = shell({
+  location: inProposal({ unsaved: 0, renderCheck: { status: "running" } }),
+});
+
+/** The pages did not render after the save: said, with why on hover. */
+export const PreviewDidNotRender = shell({
+  location: inProposal({
+    unsaved: 0,
+    renderCheck: {
+      status: "failed",
+      error: "/products answered 500",
+    },
+  }),
 });
 
 export const Saving = shell({
@@ -428,6 +255,12 @@ export const SaveFailed = shell({
  */
 export const BuildRequired = shell({
   location: inProposal({ unsaved: 0, code: { state: "required" } }),
+});
+
+/** Build is next, and Publish is still in the menu: it builds first. */
+export const BuildRequiredMenuOpen = shell({
+  location: inProposal({ unsaved: 0, code: { state: "required" } }),
+  menuOpen: true,
 });
 
 export const Building = shell({
@@ -599,5 +432,5 @@ export const PhoneChangesSheet = shell({
 });
 /** Saved and built: the one action is Publish. */
 export const PhoneReadyToPublish = shell({
-  location: inProposal({ unsaved: 0, publishBlockedBy: null }),
+  location: inProposal({ unsaved: 0 }),
 });

@@ -350,6 +350,23 @@ export type ComparePane = {
   groups: CompareGroup[];
 };
 
+/** How wide a page is drawn when the dialog shows pages rather than fields. */
+export type ComparePageDevice = "desktop" | "mobile";
+
+/**
+ * One side of a page, as the dialog asks a caller to draw it.
+ *
+ * The dialog knows which pane is a page and lays the two sides out; what a side
+ * IS -- a frame of the live site, a frame of the proposal, a picture in a story
+ * -- is the caller's, because only the caller knows where each side is served.
+ */
+export type ComparePageView = {
+  /** The page's route, e.g. `/blogs/blog1`. Always starts with `/`. */
+  url: string;
+  side: "left" | "right";
+  device: ComparePageDevice;
+};
+
 /**
  * Where the dialog opens: a pane, and optionally one row in it.
  *

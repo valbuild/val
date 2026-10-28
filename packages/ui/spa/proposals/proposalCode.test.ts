@@ -4,7 +4,11 @@ import {
   isCodeTool,
   proposalProject,
   runCodeTool,
+  runReadPage,
+  type BuildReport,
   type CodeToolDeps,
+  type ProposalBuildControl,
+  type ProposalBuildOutcome,
 } from "./proposalCode";
 import {
   ProposalsApiError,
@@ -21,6 +25,18 @@ const staged = (over: Partial<ProposalStaged> = {}): ProposalStaged => ({
   buildRequired: true,
   ...over,
 });
+/** A build the tools reach, answering `start` and reporting `report`. */
+const control = (
+  start: () => Promise<ProposalBuildOutcome>,
+  over: Partial<ProposalBuildControl> = {},
+): ProposalBuildControl => ({
+  start,
+  running: () => null,
+  report: (): BuildReport => ({ status: "idle", last: null }),
+  cancel: () => false,
+  ...over,
+});
+
 /** For a build whose serving answers: nothing reads the proposal back. */
 const notRead = async (): Promise<ProposalJson> => {
   throw new Error("the proposal is not read back in this test");
@@ -106,6 +122,59 @@ describe("buildProposal", () => {
     expect(deployed).toEqual([OWN]);
     expect(served).toEqual([[NAME, { publishId: "p-1", inputs: INPUTS }]]);
     expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+  });
+
+  test("a cancel ends it at once, and a build stopped mid-deploy is never served", async () => {
+    const controller = new AbortController();
+    const serveBuild = jest.fn();
+    let deploySignal: AbortSignal | undefined;
+    const building = buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild,
+      },
+      // A deploy that never answers: an upload that hangs.
+      deploy: (_files, _target, signal) => {
+        deploySignal = signal;
+        return new Promise(() => {});
+      },
+      canBuildHere: () => true,
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    expect(await building).toEqual({
+      status: "failed",
+      message: "The build was cancelled.",
+      cancelled: true,
+    });
+    // The deploy was handed the signal, to stop what it was doing.
+    expect(deploySignal?.aborted).toBe(true);
+    expect(serveBuild).not.toHaveBeenCalled();
+  });
+
+  test("stopped with an error of its own -- a stall -- it fails with that error", async () => {
+    const controller = new AbortController();
+    const building = buildProposal({
+      name: NAME,
+      client: {
+        files: () => new Promise(() => {}),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild: notRead,
+      },
+      deploy: async () => ({ status: "uploaded", publishId: "p-1" }),
+      canBuildHere: () => true,
+      signal: controller.signal,
+    });
+    controller.abort(new Error("Stalled while reading the proposal."));
+    expect(await building).toEqual({
+      status: "failed",
+      message: "Stalled while reading the proposal.",
+    });
   });
 
   test("builds nothing when nothing is staged, or its build is already of them", async () => {
@@ -281,9 +350,16 @@ describe("the code tools", () => {
     over: Partial<CodeToolDeps> = {},
   ): CodeToolDeps & {
     staged: unknown[];
+    patched: unknown[];
+    formatted: unknown[];
     offered: number;
   } => {
-    const record = { staged: [] as unknown[], offered: 0 };
+    const record = {
+      staged: [] as unknown[],
+      patched: [] as unknown[],
+      formatted: [] as unknown[],
+      offered: 0,
+    };
     return Object.assign(record, {
       proposal: { name: NAME },
       client: {
@@ -299,13 +375,34 @@ describe("the code tools", () => {
             staged: staged({ files: Object.keys(files).sort() }),
           };
         },
+        patchFile: async (
+          name: string,
+          moduleFilePath: string,
+          patch: unknown[],
+          message?: string,
+        ) => {
+          record.patched.push([name, moduleFilePath, patch, message]);
+          return {
+            commit: "c2",
+            staged: staged({ files: [moduleFilePath.slice(1)] }),
+          };
+        },
       },
+      // Stands in for prettier: collapses runs of spaces.
+      formatCode: async (text: string, path: string) => {
+        record.formatted.push(path);
+        return {
+          status: "formatted" as const,
+          text: text.replace(/ {2,}/g, " "),
+        };
+      },
+      typecheck: async () => ({ status: "nothing-staged" as const }),
       siteSource: async () => SITE,
-      build: async () => ({
+      build: control(async () => ({
         status: "built" as const,
         hash: "b1",
         proposal: proposal("b1"),
-      }),
+      })),
       offerProposal: () => {
         record.offered++;
       },
@@ -313,15 +410,210 @@ describe("the code tools", () => {
     });
   };
 
-  test("are four, and known by name", () => {
+  test("are ten, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
+      "search_code",
       "write_files",
+      "format_files",
+      "typecheck",
       "build_proposal",
+      "build_status",
+      "cancel_build",
+      "wait",
     ]);
     expect(isCodeTool("write_files")).toBe(true);
+    // The Studio's create_patch is a content tool; the design tab's is
+    // dispatched as code by the tab, not by name.
     expect(isCodeTool("create_patch")).toBe(false);
+  });
+
+  test("search the project as grep would: every matching line, where it is", async () => {
+    const d = deps({
+      siteSource: async () => ({
+        ...SITE,
+        "src/app.tsx": "import { Hero } from './components/Hero';\n<Hero />\n",
+        "pnpm-lock.yaml": "Hero: 1.0.0",
+      }),
+    });
+    const found = await runCodeTool("search_code", { query: "Hero" }, d);
+    expect(found).toEqual({
+      result: {
+        matches: [
+          {
+            path: "src/app.tsx",
+            line: 1,
+            text: "import { Hero } from './components/Hero';",
+          },
+          { path: "src/app.tsx", line: 2, text: "<Hero />" },
+        ],
+        total: 2,
+      },
+      isError: false,
+    });
+    // The proposal's copy, case aside, by a regular expression, narrowed.
+    const own = await runCodeTool(
+      "search_code",
+      {
+        query: "^NEW",
+        regex: true,
+        ignore_case: true,
+        prefix: "src/components/",
+      },
+      d,
+    );
+    expect(own.result).toEqual({
+      matches: [{ path: "src/components/Hero.tsx", line: 1, text: "new hero" }],
+      total: 1,
+    });
+    const capped = await runCodeTool(
+      "search_code",
+      { query: "Hero", max_results: 1 },
+      d,
+    );
+    expect(capped.result).toMatchObject({
+      total: 2,
+      truncated: expect.any(String),
+    });
+    expect(
+      (await runCodeTool("search_code", { query: "(", regex: true }, d))
+        .isError,
+    ).toBe(true);
+  });
+
+  test("create_patch writes content into the module's file in the proposal, staged with its code", async () => {
+    const d = deps();
+    const patch = [{ op: "replace", path: ["title"], value: "Worn for years" }];
+    const answer = await runCodeTool(
+      "create_patch",
+      { module_file_path: "/content/home.val.ts", patch, message: "Title" },
+      d,
+    );
+    expect(d.patched).toEqual([[NAME, "/content/home.val.ts", patch, "Title"]]);
+    expect(answer).toMatchObject({
+      result: { success: true, staged: ["content/home.val.ts"] },
+      isError: false,
+    });
+    expect(
+      (await runCodeTool("create_patch", { module_file_path: "/a.val.ts" }, d))
+        .isError,
+    ).toBe(true);
+  });
+
+  test("format_files formats what the proposal stages as the project does, and stages what changed", async () => {
+    const d = deps({
+      client: {
+        files: async () => ({
+          files: {
+            "src/components/Hero.tsx": "const  hero =  1;",
+            "src/tidy.ts": "ok",
+          },
+          staged: staged({ files: ["src/components/Hero.tsx", "src/tidy.ts"] }),
+        }),
+        stageFiles: async (name, files, message) => {
+          d.staged.push([name, files, message]);
+          return { commit: "c3", staged: staged() };
+        },
+        patchFile: async () => ({ commit: "c4", staged: staged() }),
+      },
+    });
+    const answer = await runCodeTool("format_files", {}, d);
+    expect(d.formatted).toEqual(["src/components/Hero.tsx", "src/tidy.ts"]);
+    expect(answer).toEqual({
+      result: {
+        success: true,
+        files: [
+          { path: "src/components/Hero.tsx", status: "changed" },
+          { path: "src/tidy.ts", status: "unchanged" },
+        ],
+        next: "The changed files are staged, formatted.",
+      },
+      isError: false,
+    });
+    expect(d.staged).toEqual([
+      [NAME, { "src/components/Hero.tsx": "const hero = 1;" }, "Format"],
+    ]);
+  });
+
+  test("format_files without write only reports, and says what it cannot format", async () => {
+    const d = deps({
+      formatCode: async (_text, path) =>
+        path === "src/components/Hero.tsx"
+          ? { status: "formatted", text: "changed" }
+          : {
+              status: "unsupported",
+              message: "Prettier does not format it here.",
+            },
+    });
+    const answer = await runCodeTool(
+      "format_files",
+      {
+        paths: ["src/components/Hero.tsx", "src/app.tsx", "src/nope.ts"],
+        write: false,
+      },
+      d,
+    );
+    expect(answer.result).toMatchObject({
+      files: [
+        { path: "src/components/Hero.tsx", status: "changed" },
+        {
+          path: "src/app.tsx",
+          status: "unsupported",
+          message: "Prettier does not format it here.",
+        },
+        { path: "src/nope.ts", status: "missing" },
+      ],
+      next: "Call format_files again with write: true to stage these formatted.",
+    });
+    expect(d.staged).toEqual([]);
+    expect(
+      (await runCodeTool("format_files", { paths: "src/app.tsx" }, d)).isError,
+    ).toBe(true);
+    expect(
+      (await runCodeTool("format_files", {}, deps({ proposal: null }))).isError,
+    ).toBe(true);
+  });
+
+  test("typecheck answers the errors the proposal adds, and what to do next", async () => {
+    const error = {
+      file: "src/components/Hero.tsx",
+      line: 3,
+      column: 7,
+      code: 2322,
+      message: "Type 'number' is not assignable to type 'string'.",
+    };
+    const failing = await runCodeTool(
+      "typecheck",
+      {},
+      deps({ typecheck: async () => ({ status: "done", errors: [error] }) }),
+    );
+    expect(failing).toEqual({
+      result: {
+        success: true,
+        newErrors: 1,
+        errors: [error],
+        next: "Fix these in the files, then typecheck again.",
+      },
+      isError: false,
+    });
+    const clean = await runCodeTool(
+      "typecheck",
+      {},
+      deps({ typecheck: async () => ({ status: "done", errors: [] }) }),
+    );
+    expect(clean.result).toMatchObject({ newErrors: 0 });
+    const broken = await runCodeTool(
+      "typecheck",
+      {},
+      deps({
+        typecheck: async () => ({ status: "failed", message: "adept is down" }),
+      }),
+    );
+    expect(broken.isError).toBe(true);
+    expect(
+      (await runCodeTool("typecheck", {}, deps({ proposal: null }))).isError,
+    ).toBe(true);
   });
 
   test("in a proposal, list and read its project, and say what is staged", async () => {
@@ -407,15 +699,131 @@ describe("the code tools", () => {
       "build_proposal",
       {},
       deps({
-        build: async () => ({
+        build: control(async () => ({
           status: "failed",
           message: "Could not build: x",
-        }),
+        })),
       }),
     );
     expect(failed).toEqual({
       result: { success: false, error: "Could not build: x" },
       isError: true,
+    });
+  });
+
+  test("build_proposal answers with each step's time once the build ends", async () => {
+    const last = {
+      status: "built" as const,
+      seconds: 31.5,
+      steps: [
+        { step: "Building", seconds: 12.1 },
+        { step: "Serving the build at the proposal's address", seconds: 19.4 },
+      ],
+      ended_seconds_ago: 0,
+    };
+    const answer = await runCodeTool(
+      "build_proposal",
+      {},
+      deps({
+        build: control(
+          async () => ({
+            status: "built",
+            hash: "b1",
+            proposal: proposal("b1"),
+          }),
+          { report: () => ({ status: "idle", last }) },
+        ),
+      }),
+    );
+    expect(answer.result).toEqual({
+      success: true,
+      status: "built",
+      hash: "b1",
+      seconds: 31.5,
+      steps: last.steps,
+    });
+  });
+
+  test("build_proposal does not hold the turn past wait_seconds: the build goes on", async () => {
+    const building: BuildReport = {
+      status: "building",
+      step: "Uploading",
+      elapsed_seconds: 30,
+      steps: [{ step: "Building", seconds: 20 }],
+    };
+    const waited: number[] = [];
+    const answer = await runCodeTool(
+      "build_proposal",
+      { wait_seconds: 30 },
+      deps({
+        build: control(() => new Promise<ProposalBuildOutcome>(() => {}), {
+          report: () => building,
+        }),
+        sleep: async (ms) => {
+          waited.push(ms);
+        },
+      }),
+    );
+    expect(waited).toEqual([30_000]);
+    expect(answer.isError).toBe(false);
+    expect(answer.result).toMatchObject({
+      success: true,
+      status: "building",
+      step: "Uploading",
+    });
+  });
+
+  test("wait ends when the running build does, and answers its status", async () => {
+    let report: BuildReport = {
+      status: "building",
+      step: "Building",
+      elapsed_seconds: 1,
+      steps: [],
+    };
+    let finish: (outcome: ProposalBuildOutcome) => void = () => {};
+    const running = new Promise<ProposalBuildOutcome>((resolve) => {
+      finish = resolve;
+    });
+    const waiting = runCodeTool(
+      "wait",
+      { seconds: 120 },
+      deps({
+        build: control(() => running, {
+          running: () => running,
+          report: () => report,
+        }),
+        // Never ends on its own: only the build can end the wait.
+        sleep: () => new Promise<void>(() => {}),
+      }),
+    );
+    report = { status: "idle", last: null };
+    finish({ status: "built", hash: "b2", proposal: proposal("b2") });
+    const answer = await waiting;
+    expect(answer.result).toMatchObject({
+      build: { status: "idle" },
+    });
+  });
+
+  test("wait refuses a duration it cannot wait", async () => {
+    const answer = await runCodeTool("wait", { seconds: "soon" }, deps());
+    expect(answer.isError).toBe(true);
+  });
+
+  test("cancel_build stops the running build, and says when there was none", async () => {
+    let cancels = 0;
+    const d = deps({
+      build: control(async () => ({ status: "nothing-staged" }), {
+        cancel: () => {
+          cancels++;
+          return cancels === 1;
+        },
+      }),
+    });
+    expect((await runCodeTool("cancel_build", {}, d)).result).toMatchObject({
+      cancelled: true,
+    });
+    expect((await runCodeTool("cancel_build", {}, d)).result).toMatchObject({
+      cancelled: false,
     });
   });
 });
@@ -550,5 +958,76 @@ describe("buildProposal, serving the build", () => {
         "The proposal's files changed while it was being built. Build it again.",
     });
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("read_page", () => {
+  const snapshot = {
+    url: "https://p1--site.valstart.dev/",
+    title: "Home",
+    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
+    outline: [],
+  };
+
+  test("says there is nothing to read before a page is showing", async () => {
+    const answer = await runReadPage({}, { readPage: null, pointedAt: null });
+    expect(answer.isError).toBe(true);
+  });
+
+  test("reads the picked element by its selector", async () => {
+    const asked: unknown[] = [];
+    const answer = await runReadPage(
+      { picked: true },
+      {
+        readPage: async (options) => {
+          asked.push(options);
+          return snapshot;
+        },
+        pointedAt: {
+          tag: "h2",
+          text: "Contact",
+          classes: [],
+          selector: "section#contact > h2",
+        },
+      },
+    );
+    expect(asked).toEqual([{ selector: "section#contact > h2" }]);
+    expect(answer).toEqual({
+      result: { success: true, ...snapshot },
+      isError: false,
+    });
+  });
+
+  test("switches the width first when asked, and refuses one it does not know", async () => {
+    const order: string[] = [];
+    const deps = {
+      readPage: async () => {
+        order.push("read");
+        return snapshot;
+      },
+      pointedAt: null,
+      setDevice: async (device: string) => {
+        order.push(device);
+      },
+    };
+    await runReadPage({ device: "mobile" }, deps);
+    expect(order).toEqual(["mobile", "read"]);
+    expect((await runReadPage({ device: "watch" }, deps)).isError).toBe(true);
+  });
+
+  test("a page that does not answer is an error the model can read", async () => {
+    const answer = await runReadPage(
+      {},
+      {
+        readPage: async () => {
+          throw new Error("The page did not answer.");
+        },
+        pointedAt: null,
+      },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
   });
 });

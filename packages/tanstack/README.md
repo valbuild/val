@@ -183,6 +183,23 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/val/")({ component: () => null }); // and "/val/$"
 ```
 
+### `src/router.tsx` — import `@valbuild/tanstack/autotag` first
+
+```ts
+// src/router.tsx
+import "@valbuild/tanstack/autotag";
+import { createRouter } from "@tanstack/react-router";
+import { routeTree } from "./routeTree.gen";
+```
+
+The first import, before the router and the route tree. It makes Val's edit
+tags into `data-val-path` attributes, which is what makes content
+click-to-edit -- and keeps them out of a visitor's text when content analytics
+is on. `@valbuild/tanstack` does it too, but under `vite dev` a module that
+ran before it keeps React's own functions, so in development some components
+would not be editable and the leak warning would name their text. A
+production build is not affected.
+
 ### The site's layout — `ValProvider`
 
 Put the site's own chrome and `ValProvider` in a **pathless layout route**, not

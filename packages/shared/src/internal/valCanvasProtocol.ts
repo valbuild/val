@@ -21,6 +21,9 @@
  */
 
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { PickedElement, PickModifier } from "./elementPicker";
+import type { PageLocation, PageSnapshot } from "./pageInspection";
+import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -168,6 +171,52 @@ export type ValCanvasPageMessage =
        * from outside, so the page says so and the canvas can show it is working.
        */
       pending: boolean;
+    }
+  | {
+      /**
+       * Something on the page was picked while `pickElements` was on: ANY
+       * element, described (`describeElement`), since the element itself
+       * cannot leave the page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "elementPicked";
+      element: PickedElement;
+    }
+  | {
+      /**
+       * Esc on the page while Select was on. The key went to the page, which
+       * has the focus once it has been clicked, so the studio hears it only
+       * from here.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "elementPickingStopped";
+    }
+  | ({
+      /**
+       * Where the page is: its path and scroll, as it moves. The design tab
+       * opens a new build there (`scrollTo`), so a new version replaces the
+       * page in place rather than starting over at the top of the front page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "location";
+    } & PageLocation)
+  | {
+      /** What `readPage` asked for, or why it could not be read. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageRead";
+      requestId: string;
+      snapshot: PageSnapshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * A quick preview's files are stored in the page's worker, and a page
+       * opened with its id is served them (`quickPreview.ts`) -- or why not.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreviewStored";
+      id: string;
+      error?: string;
     };
 
 /** What the studio tells the page. */
@@ -260,6 +309,55 @@ export type ValCanvasStudioMessage =
        * on a link should follow the link.
        */
       picking: boolean;
+    }
+  | {
+      /**
+       * Picking ANY element, as the design tab does (`elementPicker.ts`),
+       * rather than the fields Val tagged, as `setPicking` does.
+       *
+       * While `enabled`, holding `modifier` outlines what is under the
+       * pointer and a click picks it; `active` picks without the modifier (the
+       * tab's Select). Sent whole every time, so a page that missed one
+       * message is put right by the next. A bridge that predates it ignores
+       * it, and the tab then simply never hears of a pick.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pickElements";
+      enabled: boolean;
+      active: boolean;
+      modifier: PickModifier;
+      /** Whether the studio still holds the last pick: false takes its outline down. */
+      keepPicked: boolean;
+    }
+  | {
+      /** Scroll to where the page before this one was (`location`). */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "scrollTo";
+      x: number;
+      y: number;
+    }
+  | {
+      /**
+       * Read what is on the page (`readPageSnapshot`): the assistant's
+       * `read_page`. Answered with `pageRead` and the same `requestId`. A
+       * bridge that predates it never answers, and the tab says so.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "readPage";
+      requestId: string;
+      selector?: string;
+      maxItems?: number;
+    }
+  | {
+      /**
+       * Store a quick preview's files in this origin's worker
+       * (`storeQuickPreview`): the tab cannot, being another origin.
+       * Answered with `quickPreviewStored`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreview";
+      id: string;
+      files: QuickPreviewFiles;
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -275,9 +373,42 @@ export function isValCanvasPageMessage(
     message.type === "clicked" ||
     message.type === "pinch" ||
     message.type === "zoom" ||
-    message.type === "refreshing"
+    message.type === "refreshing" ||
+    message.type === "elementPickingStopped" ||
+    (message.type === "elementPicked" &&
+      isPickedElement((data as { element?: unknown }).element)) ||
+    (message.type === "location" && isPageLocation(data)) ||
+    (message.type === "pageRead" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "quickPreviewStored" &&
+      typeof (data as { id?: unknown }).id === "string")
   );
 }
+
+function isPageLocation(value: object): boolean {
+  const location = value as Record<string, unknown>;
+  return (
+    typeof location.path === "string" &&
+    location.path.startsWith("/") &&
+    typeof location.scrollX === "number" &&
+    typeof location.scrollY === "number"
+  );
+}
+
+function isPickedElement(value: unknown): value is PickedElement {
+  if (typeof value !== "object" || value === null) return false;
+  const element = value as Record<string, unknown>;
+  return (
+    typeof element.tag === "string" &&
+    typeof element.text === "string" &&
+    typeof element.selector === "string" &&
+    Array.isArray(element.classes) &&
+    element.classes.every((item) => typeof item === "string") &&
+    (element.valPath === undefined || typeof element.valPath === "string")
+  );
+}
+
+const PICK_MODIFIERS: readonly unknown[] = ["alt", "meta", "shift", "ctrl"];
 
 /**
  * Whether a value is a colour a `theme` message may carry.
@@ -319,6 +450,40 @@ export function isValCanvasStudioMessage(
     return (
       isCanvasSelectionColor(message.selection) &&
       isCanvasSelectionColor(message.selectionSoft)
+    );
+  }
+  if (message.type === "pickElements") {
+    const pick = data as Record<string, unknown>;
+    return (
+      typeof pick.enabled === "boolean" &&
+      typeof pick.active === "boolean" &&
+      typeof pick.keepPicked === "boolean" &&
+      PICK_MODIFIERS.includes(pick.modifier)
+    );
+  }
+  if (message.type === "scrollTo") {
+    const scroll = data as Record<string, unknown>;
+    return (
+      typeof scroll.x === "number" &&
+      Number.isFinite(scroll.x) &&
+      typeof scroll.y === "number" &&
+      Number.isFinite(scroll.y)
+    );
+  }
+  if (message.type === "quickPreview") {
+    const preview = data as Record<string, unknown>;
+    return (
+      typeof preview.id === "string" &&
+      /^[A-Za-z0-9_-]{1,64}$/.test(preview.id) &&
+      isQuickPreviewFiles(preview.files)
+    );
+  }
+  if (message.type === "readPage") {
+    const read = data as Record<string, unknown>;
+    return (
+      typeof read.requestId === "string" &&
+      (read.selector === undefined || typeof read.selector === "string") &&
+      (read.maxItems === undefined || typeof read.maxItems === "number")
     );
   }
   return (

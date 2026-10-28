@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.150.0",
+  "version": "0.150.12",
   "description": "Val CLI tools",
   "repository": {
     "type": "git",
@@ -73,7 +73,7 @@
     "@tanstack/router-plugin": "1.168.34",
     "@valbuild/tanstack-build": "workspace:*",
     "prettier": "~3.8.5",
-    "rolldown": "^1.2.5",
+    "rolldown": "1.2.9",
     "tsx": "^4.23.12"
   }
 }

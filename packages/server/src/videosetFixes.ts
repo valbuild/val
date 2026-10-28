@@ -58,7 +58,7 @@ import type {
 import { checkGalleryFiles, incompleteGalleryEntries } from "./galleryFiles";
 import { galleryEntryOf, type GalleryEntryKey } from "./galleryEntryKey";
 import { isHlsMasterPlaylist } from "./hls";
-import { openRemoteUploadSession } from "./remoteUpload";
+import { localFilesWarning, openRemoteUploadSession } from "./remoteUpload";
 import type { Service } from "./Service";
 import { filesOfVideo } from "./videoFiles";
 import {
@@ -451,13 +451,6 @@ export async function handleVideosetCheckRemote(
 export async function handleVideosetUploadRemote(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  if (!ctx.fix) {
-    return {
-      success: false,
-      // No sourcePath in the message: the reported location already points at it.
-      errorMessage: `Video needs to be uploaded to Val Remote (use --fix to upload)`,
-    };
-  }
   const key = ctx.validationError.value;
   if (typeof key !== "string") {
     return {
@@ -505,6 +498,13 @@ export async function handleVideosetUploadRemote(
   ]);
   if (missing !== undefined) {
     return { success: false, errorMessage: `File ${missing} does not exist` };
+  }
+
+  if (!ctx.fix) {
+    return localFilesWarning([
+      ...(keyIsLocal ? [key] : []),
+      ...entryFiles.map((file) => file.path),
+    ]);
   }
 
   const opened = await openRemoteUploadSession(ctx);

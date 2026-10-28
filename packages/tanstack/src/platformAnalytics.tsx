@@ -18,7 +18,8 @@ import type { ValAnalytics } from "./ValAnalytics";
  * Only what the platform HANDED this isolate is read, never `process.env`:
  * that is baked into the bundle at build time, and a `VAL_ANALYTICS` there
  * would be a second switch, in the code, that keeps counting after the owner
- * has turned it off.
+ * has turned it off. The one exception is the development server
+ * (`analyticsFromDevelopment`), which no visitor ever reaches.
  */
 
 /** The element the server render writes the setting into. */
@@ -43,6 +44,30 @@ export function analyticsFromPlatform(): ValAnalytics | null {
   return {
     enabled: true,
     ...(typeof contentVersion === "string" && contentVersion !== ""
+      ? { contentVersion }
+      : {}),
+  };
+}
+
+/**
+ * `VAL_ANALYTICS=true` in the app's `.env.development`, while `vite dev`
+ * serves it: so a developer sees what analytics does to their pages --
+ * above all the leak warning, which names content whose edit tag reached
+ * the page outside React -- before a hosted site counts anything. Null in
+ * any other build: `NODE_ENV` is `development` only on the development
+ * server, so the setting cannot follow the code into production, where the
+ * platform's switch is the only one.
+ */
+export function analyticsFromDevelopment(): ValAnalytics | null {
+  if (typeof process === "undefined") return null;
+  const env = process.env;
+  if (env["NODE_ENV"] !== "development" || env["VAL_ANALYTICS"] !== "true") {
+    return null;
+  }
+  const contentVersion = env["VAL_CONTENT_VERSION"];
+  return {
+    enabled: true,
+    ...(contentVersion !== undefined && contentVersion !== ""
       ? { contentVersion }
       : {}),
   };
@@ -90,10 +115,13 @@ export function analyticsFromPage(): ValAnalytics | null {
   return readFromPage;
 }
 
-/** On the server, what the platform handed it; in the browser, what the server wrote. */
+/**
+ * On the server, what the platform handed it, or the development server's
+ * own setting; in the browser, what the server wrote.
+ */
 export function analyticsOfThisPage(): ValAnalytics | null {
   return typeof document === "undefined"
-    ? analyticsFromPlatform()
+    ? (analyticsFromPlatform() ?? analyticsFromDevelopment())
     : analyticsFromPage();
 }
 

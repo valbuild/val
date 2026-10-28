@@ -1,5 +1,76 @@
 # @valbuild/core
 
+## 0.150.3
+
+### Patch Changes
+
+- [#954](https://github.com/valbuild/val/pull/954) [`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c) Thanks [@freekh](https://github.com/freekh)! - Proposals in the Studio, reworked:
+
+  - **Save becomes Publish.** In a proposal, one split button stands where Publish is on the site. Its main half is the next step (Save, then Build, then Publish), and its caret offers every step, so you can publish straight away: Publish saves first. The separate Publish button beside the switcher is gone.
+  - **The switcher is where the proposal is managed**, as on a phone: its name and changes, Compare with the site, Rename, Copy link and Close, then where else to go.
+  - **Upgrade proposals** have one Publish (the bar's), say what they upgrade in the Publish dialog, cannot be published while Val Build is still working them out, are discarded rather than closed, and have their own icon.
+  - **A published proposal** shows a dialog with the ways out (the site, a new proposal, all proposals), since nothing more can be done in it.
+  - **Notices about where you are** (an upgrade, an upgrade under way, a restore) pop up from the bottom right and stay until dismissed; a dismissed one folds into the status bar and comes back from there.
+  - **No more flash of the site's chrome** at a proposal's address: the bar says "Loading…" until it knows, a return visit starts in the proposal at once, and opening a proposal says "Opening …" while the browser gets there.
+  - **After a save**, "Updating the preview…" and a failed render check are shown beside the switcher, and the status bar counts what is not saved to the proposal instead of saying "All changes saved".
+  - **Dialogs** dim the Studio instead of hiding it.
+  - **`theme.proposal`** in `s.settings()` sets the colour the Studio wears in a proposal (Val's violet when unset), under Settings → Studio. Like the accent, its shades are generated so text on them stays legible.
+
+## 0.150.2
+
+### Patch Changes
+
+- [#944](https://github.com/valbuild/val/pull/944) [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70) Thanks [@freekh](https://github.com/freekh)! - A TanStack splat route now has a page of its own. `src/routes/docs.$.tsx` serves `/docs` as well as everything under it, the way TanStack Router matches it, and `/docs` is now a valid key in its Val module. It used to be refused ("does not match `/docs/[..._splat]`"), so the page TanStack served at `/docs` could not be given content. `useValRoute` on that page reads the `/docs` entry.
+
+## 0.150.1
+
+### Patch Changes
+
+- [#894](https://github.com/valbuild/val/pull/894) [`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02) Thanks [@freekh](https://github.com/freekh)! - `val validate` no longer fails a project just because some of its files are
+  local while the project stores files remotely (`files: { remote: true }` or
+  `.remote()`). Every project made from a template starts like that, and the
+  site serves those files from `public/` until they are uploaded. They are now
+  reported as **warnings**, grouped into one block per file with the command
+  that uploads them:
+
+  ```
+  content/images.val.ts  ⚠ 7 warnings  (12ms)
+  │
+  │  ⚠  Local files in a project with remote files. Your site serves them from public/ for now; they move to remote storage when uploaded.
+  │
+  │     content/images.val.ts:7:5  /public/val/images/image-0_00000.png
+  │     content/images.val.ts:8:5  /public/val/images/image-1_00001.png
+  │     content/images.val.ts:9:5  /public/val/images/image-2_00002.png
+  │     content/images.val.ts:10:5  /public/val/images/image-3_00003.png
+  │     content/images.val.ts:11:5  /public/val/images/image-4_00004.png
+  │     … 2 more
+  │
+  │     → val validate --fix uploads them (needs val login)
+  │
+
+  ✔ No validation errors · 7 warnings in 1 file
+  ```
+
+  - `--strict` on `val validate` and `val publish` makes warnings fail too.
+  - `val validate --fix` still fails when it cannot upload them, for example
+    when you are not logged in.
+  - A local file that does not exist is still an error.
+  - The language server shows these as warnings.
+  - In the Studio, **Check everything** on the Validate page lists them with a
+    **Fix** button that uploads them, so a hosted project, which
+    has no command line, can move its template's images and files to remote
+    storage. That covers images, files and videos (a video's poster, captions
+    and HLS stream go up with it), images inside rich text included, and the
+    fields that picked a gallery image or a video from a set are updated with
+    it.
+  - On a hosted project, **Check everything** no longer reports the template's
+    images and videos as "The file is gone", and no longer offers a Fix that
+    would remove them from their gallery or video set.
+
+  Fixable errors are now printed with `✘`, like every other error, instead of
+  the `⚠` warnings use. They were always errors and still make `val validate`
+  fail.
+
 ## 0.148.7
 
 ### Patch Changes

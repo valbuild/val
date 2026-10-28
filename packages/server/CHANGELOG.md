@@ -1,5 +1,168 @@
 # @valbuild/server
 
+## 0.150.12
+
+### Patch Changes
+
+- [#977](https://github.com/valbuild/val/pull/977) [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows which versions of Val it runs. Open the Account panel (the button at the foot of the left rail) and click the grey line at the bottom, for example `TanStack · Val 0.150.8`, to see:
+
+  - what your app's server runs: `@valbuild/next` or `@valbuild/tanstack`, `@valbuild/core` and `@valbuild/server`
+  - what the Studio in your browser loaded: `@valbuild/ui`, and the `@valbuild/core` bundled into it
+
+  **Copy all** puts the list on the clipboard, ready to paste into a bug report. The server's half comes from a new `GET /api/val/versions` route, which needs the same sign-in as the rest of the Studio. If your server's Val is older than the Studio, the list says so and still shows the Studio's half.
+
+- Updated dependencies [[`e39a373`](https://github.com/valbuild/val/commit/e39a3730624cbf3a5434d4fb0d13be26f44280db), [`d47537a`](https://github.com/valbuild/val/commit/d47537a40ca7ca0c6a5e7b80f1dfb18791fc5bc1), [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/ui@0.150.12
+  - @valbuild/shared@0.150.12
+
+## 0.150.11
+
+### Patch Changes
+
+- [#976](https://github.com/valbuild/val/pull/976) [`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38) Thanks [@freekh](https://github.com/freekh)! - Images the assistant adds now show up in remote storage, which is where every image in a hosted project lives: in a remote gallery (`s.imagedir(...).remote()`), in a remote image field (`s.image().remote()`) and inline in rich text whose images are remote. They used to be saved under a plain `/public/...` path while their bytes were stored as a remote file, so the Studio looked for a local file that did not exist and showed a broken image, and a published site would have named a file nothing serves. They are now saved under a remote ref, the same as an image uploaded with the Studio's own Upload button.
+
+  The image is still moved from the chat to the change rather than copied: the content service points the change at the image it already holds, and nothing is downloaded or uploaded again. The content service now says what the image's bytes hash to, which is what a remote ref is named by; against one that does not yet, the Studio downloads the image once to hash it.
+
+  The assistant can also now put an image into an empty rich text by writing the whole value; that used to be refused.
+
+- [#974](https://github.com/valbuild/val/pull/974) [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78) Thanks [@freekh](https://github.com/freekh)! - The design tab no longer makes you wait.
+
+  - **Quick preview.** A change to components, layout or styles is shown in seconds, without a build: the proposal's browser code is bundled in the tab and the page in the preview runs it. What runs on the server (loaders, server functions, the page's first render) stays the last build's, and the tab says so, with a button to build. The assistant has it too (`quick_preview`).
+  - **Cancel and Try again.** A build can be cancelled from the tab, and a build that stops making progress for three minutes is stopped, saying at which step, so it never spins until a reload. The assistant waits for a build with `wait` instead of holding its turn, and has `build_status` and `cancel_build`.
+  - **Each step of a build is timed**, and the Build check lists where the time went.
+  - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
+  - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+  - **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
+  - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
+
+  The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/ui@0.150.11
+  - @valbuild/shared@0.150.11
+
+## 0.150.10
+
+### Patch Changes
+
+- [#970](https://github.com/valbuild/val/pull/970) [`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94) Thanks [@freekh](https://github.com/freekh)! - A proposal's shared AI chat now shows other people's turns live: their question appears as they send it, each tool the turn runs shows as a step, and the answer streams in as it is written, instead of turning up a few seconds later. Who is asking is what the content server says rather than a guess. Against a content server that does not relay chats yet, the Studio falls back to reading the chat again every few seconds, as before.
+
+  An answer's tool steps are now also shown when a chat is opened again or the page is reloaded, for every chat on a content server that keeps them.
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/ui@0.150.10
+  - @valbuild/shared@0.150.10
+
+## 0.150.9
+
+### Patch Changes
+
+- Updated dependencies [[`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279)]:
+  - @valbuild/ui@0.150.9
+  - @valbuild/shared@0.150.8
+
+## 0.150.8
+
+### Patch Changes
+
+- [#968](https://github.com/valbuild/val/pull/968) [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2) Thanks [@freekh](https://github.com/freekh)! - The assistant can search, format and typecheck a proposal's code, and change content in the design tab.
+
+  - **`search_code`** finds every line of the project that matches some text or a regular expression, with its file and line number, so the assistant finds where something is rendered before reading whole files.
+  - **`format_files`** formats the proposal's files with Prettier and the project's own config (`.prettierrc`, `.prettierrc.json` or `package.json`'s `prettier`), and stages the ones that change. It runs in the browser, loaded the first time it is used, because the platform's server cannot run Prettier. A config it cannot read — JavaScript, YAML, plugins or per-file overrides — is reported rather than guessed at.
+  - **`typecheck`** checks the proposal's code with TypeScript and answers the type errors the proposal adds — not the ones the site already has. The assistant runs it after changing code and before building. In the design tab its result is the Types check.
+  - **`create_patch` in the design tab** writes content into the module's file in the proposal and stages it with the code, so a field the assistant adds to a schema is filled in the same change and built with it.
+
+- [#963](https://github.com/valbuild/val/pull/963) [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a) Thanks [@freekh](https://github.com/freekh)! - The assistant's chats in a proposal are shared with everyone on the project. A chat started while you are in a proposal belongs to it: anyone on the project who opens the proposal sees it in the chat list, with who is in it, and can read it and keep asking. Messages are named once more than one person has written, and the chat header has a link to the chat. One question runs at a time: if someone else's question is running, what you write is sent when its answer is done. Chats started on the site stay your own.
+
+  It needs the content server that knows about proposal chats; with an older one, chats work as before.
+
+- Updated dependencies [[`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028), [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2), [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a)]:
+  - @valbuild/shared@0.150.8
+  - @valbuild/ui@0.150.8
+
+## 0.150.5
+
+### Patch Changes
+
+- [#956](https://github.com/valbuild/val/pull/956) [`47a31cc`](https://github.com/valbuild/val/commit/47a31cc3574841acf4f3207d5053f8bc728d25cd) Thanks [@freekh](https://github.com/freekh)! - The design tab: a proposal's code, changed with the assistant, in a tab of its own. Open it from a proposal's menu in the switcher ("Open design tab"). It opens at `/val/design/<proposal>` on the site's address, beside the proposal's, and shows the files the proposal changes against the site, each one's diff, the proposal's history, Build, and the proposal's address in a frame at desktop, tablet and phone widths. The assistant there changes the proposal's code (and only reads content).
+
+  The tab is served by the site's build, not the proposal's. So a change the assistant breaks the proposal with takes away the preview, never the tab or the tools that fix it. For that, the site's Val server now stages files in, and builds, a proposal it names; a proposal's address still writes only its own.
+
+- Updated dependencies [[`47a31cc`](https://github.com/valbuild/val/commit/47a31cc3574841acf4f3207d5053f8bc728d25cd)]:
+  - @valbuild/ui@0.150.5
+
+## 0.150.3
+
+### Patch Changes
+
+- Updated dependencies [[`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c)]:
+  - @valbuild/ui@0.150.3
+  - @valbuild/core@0.150.3
+  - @valbuild/shared@0.150.3
+
+## 0.150.2
+
+### Patch Changes
+
+- Updated dependencies [[`c674aae`](https://github.com/valbuild/val/commit/c674aae361be3c75b5232acb41ea6d8da973c678), [`c044e55`](https://github.com/valbuild/val/commit/c044e55452ba34ec5b7b38c935c9c25491d980be), [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595), [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70), [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7), [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795), [`520d22c`](https://github.com/valbuild/val/commit/520d22cc721ff23b83e4bae0b4ba7f52a6a0fa0c)]:
+  - @valbuild/ui@0.150.2
+  - @valbuild/shared@0.150.2
+  - @valbuild/core@0.150.2
+
+## 0.150.1
+
+### Patch Changes
+
+- [#894](https://github.com/valbuild/val/pull/894) [`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02) Thanks [@freekh](https://github.com/freekh)! - `val validate` no longer fails a project just because some of its files are
+  local while the project stores files remotely (`files: { remote: true }` or
+  `.remote()`). Every project made from a template starts like that, and the
+  site serves those files from `public/` until they are uploaded. They are now
+  reported as **warnings**, grouped into one block per file with the command
+  that uploads them:
+
+  ```
+  content/images.val.ts  ⚠ 7 warnings  (12ms)
+  │
+  │  ⚠  Local files in a project with remote files. Your site serves them from public/ for now; they move to remote storage when uploaded.
+  │
+  │     content/images.val.ts:7:5  /public/val/images/image-0_00000.png
+  │     content/images.val.ts:8:5  /public/val/images/image-1_00001.png
+  │     content/images.val.ts:9:5  /public/val/images/image-2_00002.png
+  │     content/images.val.ts:10:5  /public/val/images/image-3_00003.png
+  │     content/images.val.ts:11:5  /public/val/images/image-4_00004.png
+  │     … 2 more
+  │
+  │     → val validate --fix uploads them (needs val login)
+  │
+
+  ✔ No validation errors · 7 warnings in 1 file
+  ```
+
+  - `--strict` on `val validate` and `val publish` makes warnings fail too.
+  - `val validate --fix` still fails when it cannot upload them, for example
+    when you are not logged in.
+  - A local file that does not exist is still an error.
+  - The language server shows these as warnings.
+  - In the Studio, **Check everything** on the Validate page lists them with a
+    **Fix** button that uploads them, so a hosted project, which
+    has no command line, can move its template's images and files to remote
+    storage. That covers images, files and videos (a video's poster, captions
+    and HLS stream go up with it), images inside rich text included, and the
+    fields that picked a gallery image or a video from a set are updated with
+    it.
+  - On a hosted project, **Check everything** no longer reports the template's
+    images and videos as "The file is gone", and no longer offers a Fix that
+    would remove them from their gallery or video set.
+
+  Fixable errors are now printed with `✘`, like every other error, instead of
+  the `⚠` warnings use. They were always errors and still make `val validate`
+  fail.
+
+- Updated dependencies [[`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02), [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11)]:
+  - @valbuild/core@0.150.1
+  - @valbuild/shared@0.150.1
+  - @valbuild/ui@0.150.1
+
 ## 0.150.0
 
 ### Patch Changes

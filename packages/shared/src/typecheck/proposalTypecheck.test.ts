@@ -17,9 +17,10 @@ type Reported = {
 
 /*
  * valbuild/home `docs/adept.md`, decision 20: an upgrade is judged by the
- * type errors it ADDS. The site's code with its lockfile is the base, the
- * proposal's code with its own the upgrade, and only what the base does not
- * have is reported.
+ * type errors it ADDS. The proposal's code with its own lockfile is the
+ * upgrade, the site's code with its lockfile the base, and only what the base
+ * does not have is reported. The base is checked only when the upgrade has
+ * errors: without any, it adds none.
  */
 
 const error = (file: string, message: string, line = 1): TypeErrorEntry => ({
@@ -107,13 +108,13 @@ function deps(over: Partial<ProposalTypecheckDeps<Reported>> = {}) {
 }
 
 describe("a proposal's typecheck", () => {
-  test("the site with its lockfile, then the proposal with its own: only the new errors are reported", async () => {
+  test("the proposal with its lockfile, then the site with its own: only the new errors are reported", async () => {
     const { deps: d, checked, reported } = deps();
     const outcome = await runProposalTypecheck(d);
     expect(checked).toEqual([
-      { lockfile: "site lock", files: ["package.json", "src/a.ts"] },
       // The lockfile is the check's, not one of the project's files.
       { lockfile: "proposal lock", files: ["package.json", "src/a.ts"] },
+      { lockfile: "site lock", files: ["package.json", "src/a.ts"] },
     ]);
     expect(reported).toEqual([
       {
@@ -124,6 +125,26 @@ describe("a proposal's typecheck", () => {
       },
     ]);
     expect(outcome).toMatchObject({ status: "checked", inputs: "inputs-1" });
+  });
+
+  test("a proposal without errors adds none: the site is not checked", async () => {
+    const {
+      deps: d,
+      checked,
+      reported,
+    } = deps({
+      check: async (input) => {
+        checked.push({
+          lockfile: input.lockfile,
+          files: Object.keys(input.files).sort(),
+        });
+        return result([]);
+      },
+    });
+    const outcome = await runProposalTypecheck(d);
+    expect(checked.map((c) => c.lockfile)).toEqual(["proposal lock"]);
+    expect(reported).toEqual([{ inputs: "inputs-1", newErrors: [] }]);
+    expect(outcome).toMatchObject({ status: "checked", errors: [] });
   });
 
   test("a site with no lockfile on record is checked against one computed from its package.json", async () => {
@@ -137,7 +158,57 @@ describe("a proposal's typecheck", () => {
     });
     await runProposalTypecheck(d);
     expect(asked).toEqual(['{"dependencies":{"zod":"3"}}']);
-    expect(checked[0]?.lockfile).toBe("computed");
+    expect(checked.map((c) => c.lockfile)).toEqual([
+      "proposal lock",
+      "computed",
+    ]);
+  });
+
+  test("no lockfile is computed for a site that is not checked", async () => {
+    const { deps: d, checked } = deps({
+      siteDependencyFiles: async () => ({}),
+      computeLockfile: async () => {
+        throw new Error("not asked for here");
+      },
+      check: async (input) => {
+        checked.push({
+          lockfile: input.lockfile,
+          files: Object.keys(input.files).sort(),
+        });
+        return result([]);
+      },
+    });
+    await expect(runProposalTypecheck(d)).resolves.toMatchObject({
+      status: "checked",
+      errors: [],
+    });
+    expect(checked.map((c) => c.lockfile)).toEqual(["proposal lock"]);
+  });
+
+  test("a proposal with no lockfile of its own is checked with the site's, computed once", async () => {
+    let computed = 0;
+    const { deps: d, checked } = deps({
+      client: {
+        files: async () => ({
+          files: { "src/b.ts": "export const b: number = '';" },
+          staged: staged("inputs-1"),
+        }),
+        reportTypecheck: async (_name, report) => ({
+          inputs: report.inputs,
+          newErrors: report.newErrors.length,
+          errors: report.newErrors,
+          checkedAt: "now",
+        }),
+      },
+      siteDependencyFiles: async () => ({}),
+      computeLockfile: async () => {
+        computed++;
+        return "computed";
+      },
+    });
+    await runProposalTypecheck(d);
+    expect(computed).toBe(1);
+    expect(checked.map((c) => c.lockfile)).toEqual(["computed", "computed"]);
   });
 
   test("nothing staged is nothing to check, and nothing is reported", async () => {

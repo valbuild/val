@@ -127,6 +127,28 @@ export type PlanRefusalErrorT = z.infer<typeof PlanRefusalError>;
 export const VAL_STUDIO_HEADER = "x-val-studio";
 
 /**
+ * On a user message in an AI chat: the tools called in the turn it asked for,
+ * as the content server keeps them (valbuild/home `docs/proposals.md`,
+ * Flow H) - what each tool row shows, never what the tool read or wrote.
+ *
+ * A chat with a summary this cannot read loads without its tool rows rather
+ * than not at all, hence the `catch`.
+ */
+export const AIToolCallSummaries = z
+  .array(
+    z.object({
+      toolCallId: z.string(),
+      name: z.string(),
+      isError: z.boolean(),
+      /** `ask_user_question`: what was asked, and what was answered. */
+      questions: z.array(z.unknown()).optional(),
+      answers: z.array(z.unknown()).optional(),
+    }),
+  )
+  .optional()
+  .catch(undefined);
+
+/**
  * What Val Build answered, mapped onto the statuses this server speaks: a
  * `code` in the JSON is what the web components act on, so it is passed
  * through untouched.
@@ -680,6 +702,52 @@ export const Api = {
         }),
         z.object({
           status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The versions of Val's packages the server runs, for the list at the foot
+   * of the Studio's account panel.
+   */
+  "/versions": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** Null where no binding said: the demo, a test. */
+            framework: z
+              .object({
+                name: z.union([z.literal("next"), z.literal("tanstack")]),
+                version: z.string(),
+              })
+              .nullable(),
+            core: z.string(),
+            server: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(401),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+        /*
+         * A server older than the Studio, which has no such route: it answers
+         * "Route not found". Listed so the Studio can tell that apart from a
+         * request that failed, since only the second is worth retrying.
+         */
+        z.object({
+          status: z.literal(404),
           json: z.object({
             message: z.string(),
           }),
@@ -2323,6 +2391,12 @@ export const Api = {
           limit: onlyOneStringQueryParam.optional(),
           cursor_updatedAt: onlyOneStringQueryParam.optional(),
           cursor_id: onlyOneStringQueryParam.optional(),
+          /**
+           * The proposal the Studio is in, by name: lists that proposal's
+           * chats, everyone's, instead of your own (valbuild/home
+           * `docs/proposals.md`, Flow H).
+           */
+          proposal: onlyOneStringQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -2337,6 +2411,8 @@ export const Api = {
                 name: z.string().nullable(),
                 createdAt: z.string(),
                 updatedAt: z.string(),
+                /** Who is in a proposal's chat, starter first. */
+                authorIds: z.array(z.string()).optional(),
               }),
             ),
             nextCursor: z
@@ -2393,6 +2469,9 @@ export const Api = {
           json: z.object({
             messages: z.array(
               z.object({
+                /** Who asked, on a user message in a proposal's chat. */
+                authorId: z.string().nullable().optional(),
+                toolCalls: AIToolCallSummaries,
                 role: z.string(),
                 content: z.union([
                   z.string(),
@@ -2459,6 +2538,11 @@ export const Api = {
                   height: z.number(),
                   mimeType: z.string(),
                 }),
+                /**
+                 * SHA-256 of the bytes, hex: what a remote file's ref names.
+                 * Absent from a content service that predates it.
+                 */
+                sha256: z.string().optional(),
               }),
             ),
           }),
@@ -2712,6 +2796,18 @@ export type ClientOf<Api extends ApiGuard> = <
       ? {
           [key in keyof Endpoint["req"]["query"]]: z.infer<
             Endpoint["req"]["query"][key]
+          >;
+        }
+      : undefined;
+    // Sent as request headers: what a route declares it reads, such as the
+    // admin proxy's `x-val-studio`.
+    headers: Endpoint["req"]["headers"] extends Record<
+      string,
+      z.ZodSchema<string | undefined>
+    >
+      ? {
+          [key in keyof Endpoint["req"]["headers"]]: z.infer<
+            Endpoint["req"]["headers"][key]
           >;
         }
       : undefined;

@@ -1,5 +1,6 @@
 import {
   CSSProperties,
+  Fragment,
   ReactNode,
   useCallback,
   useEffect,
@@ -58,6 +59,7 @@ import {
   ProjectName,
   PublishButton,
   PublishState,
+  PublishPlaceholder,
   TopBar,
   type TopBarProposals,
 } from "./TopBar";
@@ -66,8 +68,14 @@ import {
   ProposalBuildButton,
   ProposalPublishButton,
   ProposalSaveButton,
+  nextProposalAction,
 } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
+import {
+  FloatingNotices,
+  FoldedNoticeChip,
+  type FloatingNoticeItem,
+} from "./FloatingNotices";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour, TourActions, TourObserved } from "./StudioTour";
 import {
@@ -90,6 +98,7 @@ import {
   ShellNotification,
   ShellPanel,
   ShellValidationError,
+  ShellVersions,
 } from "./types";
 
 /**
@@ -405,6 +414,16 @@ export type ShellProps = {
   /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
   statusNotice?: ReactNode;
   /**
+   * Notices about where the Studio is -- an upgrade proposal, a published
+   * one, an upgrade under way -- popping up from below, above the status bar,
+   * until dismissed; a dismissed one folds into the status bar and comes back
+   * from there. See `FloatingNotices`. On a phone, with no room to float
+   * anything over, they sit above the editor like `notice`.
+   */
+  floatingNotices?: FloatingNoticeItem[];
+  /** Floating notices dismissed from the start, by id. For stories. */
+  initialDismissedNotices?: string[];
+  /**
    * The plan's status -- a Hosted trial's days and publishes, a Free
    * project's changes left -- where it fits: the top bar on a desktop, above
    * the editor below that, where the bar has no room. A render prop because
@@ -494,6 +513,8 @@ export type ShellProps = {
   onOpenValidate?: () => void;
   /** See `TopBar`'s `upgrade`; on a phone, a row in the account sheet. */
   upgrade?: UpgradeButton;
+  /** See `AccountPanel`'s `versions`. */
+  versions?: ShellVersions;
   validateActive?: boolean;
   validateCount?: number;
   /**
@@ -571,6 +592,8 @@ export type ShellProps = {
  * lives here rather than in the individual pieces, which stay
  * presentational.
  */
+const NO_FLOATING_NOTICES: FloatingNoticeItem[] = [];
+
 export function Shell({
   data,
   initialPanel = null,
@@ -626,6 +649,8 @@ export function Shell({
   editorOverride,
   notice,
   statusNotice,
+  floatingNotices = NO_FLOATING_NOTICES,
+  initialDismissedNotices,
   renderPlanStatus,
   renderHistory,
   onPublish,
@@ -642,6 +667,7 @@ export function Shell({
   onOpenHistory,
   onOpenValidate,
   upgrade,
+  versions,
   validateActive,
   validateCount,
   onMentionField,
@@ -666,6 +692,26 @@ export function Shell({
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
+  /*
+   * Dismissed floating notices, by id. In memory: a reload shows them again,
+   * which is what a reload is for, and a notice with new words has a new id.
+   */
+  const [dismissedNotices, setDismissedNotices] = useState<ReadonlySet<string>>(
+    () => new Set(initialDismissedNotices),
+  );
+  const openNotices = floatingNotices.filter(
+    (each) => !dismissedNotices.has(each.id),
+  );
+  const foldedNotices = floatingNotices.filter((each) =>
+    dismissedNotices.has(each.id),
+  );
+  const toggleNotice = (id: string, dismissed: boolean) =>
+    setDismissedNotices((current) => {
+      const next = new Set(current);
+      if (dismissed) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const [notifications, setNotifications] = useState<ShellNotification[]>(
     data.notifications ?? [],
   );
@@ -1272,14 +1318,16 @@ export function Shell({
     proposals?.location.kind === "proposal" ? proposals.location : null;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
-      phoneProposal.unsaved > 0 ? (
+      nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
+      "save" ? (
         <ProposalSaveButton
           location={phoneProposal}
           onSave={proposals.onSave}
           blockedBy={proposals.saveBlockedBy}
           className="h-9 min-w-[5.5rem]"
         />
-      ) : phoneProposal.code !== null && proposals.onBuild !== undefined ? (
+      ) : nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
+          "build" && proposals.onBuild !== undefined ? (
         <ProposalBuildButton
           location={phoneProposal}
           onBuild={proposals.onBuild}
@@ -1292,6 +1340,8 @@ export function Shell({
           className="h-9"
         />
       )
+    ) : proposals?.loading ? (
+      <PublishPlaceholder className="h-9" />
     ) : (
       (publishSlot ?? (
         <PublishButton
@@ -1325,6 +1375,14 @@ export function Shell({
     >
       {columnPlanStatus === null ? null : (
         <div className="mb-3">{columnPlanStatus}</div>
+      )}
+      {/* On a phone the floating notices are here, not floating. */}
+      {breakpoint === "mobile" && floatingNotices.length > 0 && (
+        <div className="mb-6 flex flex-col gap-3">
+          {floatingNotices.map((each) => (
+            <Fragment key={each.id}>{each.content}</Fragment>
+          ))}
+        </div>
       )}
       {notice === undefined || notice === null ? null : (
         <div className="mb-6">{notice}</div>
@@ -1493,12 +1551,40 @@ export function Shell({
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
             branch={data.branch}
+            unsavedInProposal={
+              proposals?.location.kind === "proposal"
+                ? proposals.location.unsaved
+                : 0
+            }
             deployments={deployments}
             studioIsDeployer={studioIsDeployer}
             publishIndicator={publishIndicator}
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpen}
-            notice={statusNotice}
+            notice={
+              statusNotice === undefined && foldedNotices.length === 0 ? (
+                statusNotice
+              ) : (
+                <>
+                  {foldedNotices.map((each) => (
+                    <FoldedNoticeChip
+                      key={each.id}
+                      notice={each}
+                      onOpen={() => toggleNotice(each.id, false)}
+                    />
+                  ))}
+                  {statusNotice}
+                </>
+              )
+            }
+          />
+        )}
+        {breakpoint !== "mobile" && (
+          <FloatingNotices
+            notices={openNotices}
+            onDismiss={(id) => toggleNotice(id, true)}
+            // Above the status bar, at the right edge the bar ends at.
+            className="bottom-14 right-3"
           />
         )}
 
@@ -1636,6 +1722,7 @@ export function Shell({
               breakpoint === "mobile" && canStartTour ? startTour : undefined
             }
             upgrade={breakpoint === "mobile" ? upgrade : undefined}
+            versions={versions}
             members={
               breakpoint === "mobile" &&
               orgOfProject(data.projectName) !== null &&

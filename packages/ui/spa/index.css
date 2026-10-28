@@ -229,12 +229,13 @@
      * screenshot says it was taken in a proposal rather than on the site.
      * Violet, because nothing else in the studio is.
      */
-    --bg-proposal: #6d28d9;
-    --bg-proposal-hover: #5b21b6;
-    --bg-proposal-soft: #f3efff;
-    --fg-proposal: #6d28d9;
-    --fg-on-proposal: #ffffff;
-    --border-proposal: #a78bfa;
+    /* A project's own: `proposalCustomProperties` in @valbuild/shared. */
+    --bg-proposal: var(--theme-proposal-light-bg, #6d28d9);
+    --bg-proposal-hover: var(--theme-proposal-light-bg-hover, #5b21b6);
+    --bg-proposal-soft: var(--theme-proposal-light-bg-soft, #f3efff);
+    --fg-proposal: var(--theme-proposal-light-fg, #6d28d9);
+    --fg-on-proposal: var(--theme-proposal-light-fg-on, #ffffff);
+    --border-proposal: var(--theme-proposal-light-border, #a78bfa);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-150);
@@ -325,12 +326,15 @@
     --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
     --border-float: var(--colors-gray-dark-mode-gray-700);
 
-    --bg-proposal: #7c3aed;
-    --bg-proposal-hover: #8b5cf6;
-    --bg-proposal-soft: rgba(139, 92, 246, 0.16);
-    --fg-proposal: #c4b5fd;
-    --fg-on-proposal: #ffffff;
-    --border-proposal: #7c3aed;
+    --bg-proposal: var(--theme-proposal-dark-bg, #7c3aed);
+    --bg-proposal-hover: var(--theme-proposal-dark-bg-hover, #8b5cf6);
+    --bg-proposal-soft: var(
+      --theme-proposal-dark-bg-soft,
+      rgba(139, 92, 246, 0.16)
+    );
+    --fg-proposal: var(--theme-proposal-dark-fg, #c4b5fd);
+    --fg-on-proposal: var(--theme-proposal-dark-fg-on, #ffffff);
+    --border-proposal: var(--theme-proposal-dark-border, #7c3aed);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);

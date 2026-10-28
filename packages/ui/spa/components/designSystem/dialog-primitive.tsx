@@ -234,26 +234,24 @@ type PrimitiveDivProps = React.ComponentPropsWithoutRef<typeof Primitive.div>;
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface DialogOverlayImplProps extends PrimitiveDivProps {}
 
-const Slot = createSlot("DialogOverlay.RemoveScroll");
-
 const DialogOverlayImpl = React.forwardRef<
   DialogOverlayImplElement,
   DialogOverlayImplProps
 >((props: ScopedProps<DialogOverlayImplProps>, forwardedRef) => {
   const { __scopeDialog, ...overlayProps } = props;
   const context = useDialogContext(OVERLAY_NAME, __scopeDialog);
+  /*
+   * No `RemoveScroll` here: the scroll lock is on the CONTENT. See
+   * `DialogContentModal`.
+   */
   return (
-    // Make sure `Content` is scrollable even when it doesn't live inside `RemoveScroll`
-    // ie. when `Overlay` and `Content` are siblings
-    <RemoveScroll as={Slot} allowPinchZoom shards={[context.contentRef]}>
-      <Primitive.div
-        data-state={getState(context.open)}
-        {...overlayProps}
-        ref={forwardedRef}
-        // We re-enable pointer-events prevented by `Dialog.Content` to allow scrolling the overlay.
-        style={{ pointerEvents: "auto", ...overlayProps.style }}
-      />
-    </RemoveScroll>
+    <Primitive.div
+      data-state={getState(context.open)}
+      {...overlayProps}
+      ref={forwardedRef}
+      // We re-enable pointer-events prevented by `Dialog.Content` to allow scrolling the overlay.
+      style={{ pointerEvents: "auto", ...overlayProps.style }}
+    />
   );
 });
 
@@ -319,42 +317,64 @@ const DialogContentModal = React.forwardRef<
     if (content) return hideOthers(content);
   }, []);
 
+  /*
+   * The scroll lock wraps the content rather than the overlay, unlike
+   * upstream Radix -- because the Studio lives in a shadow root.
+   *
+   * Upstream puts `RemoveScroll` on the overlay and lists the content as a
+   * SHARD. `react-remove-scroll` decides whether a wheel or touchmove may
+   * scroll from a listener on `document`, and a shard is matched with
+   * `shard.contains(event.target)`. From `document`, an event that started
+   * inside a shadow root has its target retargeted to the shadow host, which
+   * no shard inside the root contains -- so every wheel over the content was
+   * cancelled, and nothing in a Studio dialog could be scrolled. Events that
+   * pass through the lock's OWN React tree are recorded with their real target
+   * first (and matched back up through the shadow host), so with the lock on
+   * the content they are judged by what they actually hit.
+   *
+   * Wheels over the overlay are still outside the lock and still cancelled,
+   * so the Studio behind a dialog does not scroll. See `architecture/quirks.md`.
+   */
   return (
-    <DialogContentImpl
-      {...props}
-      ref={composedRefs}
-      // we make sure focus isn't trapped once `DialogContent` has been closed
-      // (closed !== unmounted when animating out)
-      trapFocus={context.open}
-      disableOutsidePointerEvents
-      onCloseAutoFocus={composeEventHandlers(
-        props.onCloseAutoFocus,
-        (event) => {
-          event.preventDefault();
-          context.triggerRef.current?.focus();
-        },
-      )}
-      onPointerDownOutside={composeEventHandlers(
-        props.onPointerDownOutside,
-        (event) => {
-          const originalEvent = event.detail.originalEvent;
-          const ctrlLeftClick =
-            originalEvent.button === 0 && originalEvent.ctrlKey === true;
-          const isRightClick = originalEvent.button === 2 || ctrlLeftClick;
+    <RemoveScroll as={Slot} allowPinchZoom>
+      <DialogContentImpl
+        {...props}
+        ref={composedRefs}
+        // we make sure focus isn't trapped once `DialogContent` has been closed
+        // (closed !== unmounted when animating out)
+        trapFocus={context.open}
+        disableOutsidePointerEvents
+        onCloseAutoFocus={composeEventHandlers(
+          props.onCloseAutoFocus,
+          (event) => {
+            event.preventDefault();
+            context.triggerRef.current?.focus();
+          },
+        )}
+        onPointerDownOutside={composeEventHandlers(
+          props.onPointerDownOutside,
+          (event) => {
+            const originalEvent = event.detail.originalEvent;
+            const ctrlLeftClick =
+              originalEvent.button === 0 && originalEvent.ctrlKey === true;
+            const isRightClick = originalEvent.button === 2 || ctrlLeftClick;
 
-          // If the event is a right-click, we shouldn't close because
-          // it is effectively as if we right-clicked the `Overlay`.
-          if (isRightClick) event.preventDefault();
-        },
-      )}
-      // When focus is trapped, a `focusout` event may still happen.
-      // We make sure we don't trigger our `onDismiss` in such case.
-      onFocusOutside={composeEventHandlers(props.onFocusOutside, (event) =>
-        event.preventDefault(),
-      )}
-    />
+            // If the event is a right-click, we shouldn't close because
+            // it is effectively as if we right-clicked the `Overlay`.
+            if (isRightClick) event.preventDefault();
+          },
+        )}
+        // When focus is trapped, a `focusout` event may still happen.
+        // We make sure we don't trigger our `onDismiss` in such case.
+        onFocusOutside={composeEventHandlers(props.onFocusOutside, (event) =>
+          event.preventDefault(),
+        )}
+      />
+    </RemoveScroll>
   );
 });
+
+const Slot = createSlot("DialogContent.RemoveScroll");
 
 /* -----------------------------------------------------------------------------------------------*/
 

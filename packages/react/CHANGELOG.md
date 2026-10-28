@@ -1,5 +1,97 @@
 # @valbuild/react
 
+## 0.150.12
+
+### Patch Changes
+
+- Updated dependencies [[`e39a373`](https://github.com/valbuild/val/commit/e39a3730624cbf3a5434d4fb0d13be26f44280db), [`d47537a`](https://github.com/valbuild/val/commit/d47537a40ca7ca0c6a5e7b80f1dfb18791fc5bc1), [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/ui@0.150.12
+  - @valbuild/shared@0.150.12
+
+## 0.150.11
+
+### Patch Changes
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/ui@0.150.11
+  - @valbuild/shared@0.150.11
+
+## 0.150.10
+
+### Patch Changes
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/ui@0.150.10
+  - @valbuild/shared@0.150.10
+
+## 0.150.9
+
+### Patch Changes
+
+- Updated dependencies [[`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279)]:
+  - @valbuild/ui@0.150.9
+  - @valbuild/shared@0.150.8
+
+## 0.150.8
+
+### Patch Changes
+
+- Updated dependencies [[`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028), [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2), [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a)]:
+  - @valbuild/shared@0.150.8
+  - @valbuild/ui@0.150.8
+
+## 0.150.7
+
+### Patch Changes
+
+- [#965](https://github.com/valbuild/val/pull/965) [`2d5ad2e`](https://github.com/valbuild/val/commit/2d5ad2e90f2a2bdd6ad8af98b21e19bc0bf6dbcc) Thanks [@freekh](https://github.com/freekh)! - In development, a component that passes its children on to a link or another element -- `<TextLink>{label} →</TextLink>` -- no longer leaves the edit tag in the text. React's development build freezes those children, and Val tagged the element without cleaning its text, so the leak warning named it. Production was not affected.
+
+## 0.150.6
+
+### Patch Changes
+
+- [#962](https://github.com/valbuild/val/pull/962) [`f84222b`](https://github.com/valbuild/val/commit/f84222b2c902d8725b1da96f79481060fb8b9842) Thanks [@freekh](https://github.com/freekh)! - Text rendered through `React.createElement` no longer keeps Val's invisible edit tag. TanStack Router's `<Link>` renders its link that way, so with content analytics on, the text of a link built from content carried the tag on every visitor's page.
+
+  New: `import "@valbuild/tanstack/autotag"` as the first import of `src/router.tsx`. Under `vite dev`, components whose modules ran before `@valbuild/tanstack` was imported were not click-to-edit, and the leak warning named their text as leaked. A production build was not affected.
+
+## 0.150.5
+
+### Patch Changes
+
+- Updated dependencies [[`47a31cc`](https://github.com/valbuild/val/commit/47a31cc3574841acf4f3207d5053f8bc728d25cd)]:
+  - @valbuild/ui@0.150.5
+
+## 0.150.3
+
+### Patch Changes
+
+- Updated dependencies [[`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c)]:
+  - @valbuild/ui@0.150.3
+  - @valbuild/core@0.150.3
+  - @valbuild/shared@0.150.3
+
+## 0.150.2
+
+### Patch Changes
+
+- [#946](https://github.com/valbuild/val/pull/946) [`e24dc6e`](https://github.com/valbuild/val/commit/e24dc6e56e7647654e27ee2390d2181b0eaff3ad) Thanks [@freekh](https://github.com/freekh)! - Content analytics now warns in development about edit tags that leak out of React. With analytics on, `ValProvider` looks at the page as a visitor gets it and names every place content arrived with its edit tag still in it: a `<title>`, a `<meta>`, JSON-LD, a share link built with `encodeURIComponent`, or any other attribute or text. Each warning says which content it was and where, and that `val.raw()` fixes it. Open the site in a window where Val is not enabled to see them; production never runs the check.
+
+  Also fixed: text inside a fragment (`<li>{a}<> — {b}</></li>`) kept its edit tag on the page. It is now cleaned, and the element the fragment sits in is tagged with its content instead.
+
+- Updated dependencies [[`c674aae`](https://github.com/valbuild/val/commit/c674aae361be3c75b5232acb41ea6d8da973c678), [`c044e55`](https://github.com/valbuild/val/commit/c044e55452ba34ec5b7b38c935c9c25491d980be), [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595), [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70), [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7), [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795), [`520d22c`](https://github.com/valbuild/val/commit/520d22cc721ff23b83e4bae0b4ba7f52a6a0fa0c)]:
+  - @valbuild/ui@0.150.2
+  - @valbuild/shared@0.150.2
+  - @valbuild/core@0.150.2
+
+## 0.150.1
+
+### Patch Changes
+
+- Updated dependencies [[`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02), [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11)]:
+  - @valbuild/core@0.150.1
+  - @valbuild/shared@0.150.1
+  - @valbuild/ui@0.150.1
+
 ## 0.150.0
 
 ### Patch Changes

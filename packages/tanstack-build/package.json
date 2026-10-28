@@ -7,7 +7,7 @@
     "url": "git+https://github.com/valbuild/val.git"
   },
   "license": "MIT",
-  "version": "0.149.2",
+  "version": "0.150.12",
   "sideEffects": false,
   "main": "dist/valbuild-tanstack-build.cjs.js",
   "module": "dist/valbuild-tanstack-build.esm.js",
@@ -72,7 +72,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
-    "rolldown": "^1.2.5",
+    "rolldown": "1.2.9",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3"
   },

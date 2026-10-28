@@ -1,5 +1,169 @@
 # @valbuild/tanstack
 
+## 0.150.12
+
+### Patch Changes
+
+- [#977](https://github.com/valbuild/val/pull/977) [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows which versions of Val it runs. Open the Account panel (the button at the foot of the left rail) and click the grey line at the bottom, for example `TanStack · Val 0.150.8`, to see:
+
+  - what your app's server runs: `@valbuild/next` or `@valbuild/tanstack`, `@valbuild/core` and `@valbuild/server`
+  - what the Studio in your browser loaded: `@valbuild/ui`, and the `@valbuild/core` bundled into it
+
+  **Copy all** puts the list on the clipboard, ready to paste into a bug report. The server's half comes from a new `GET /api/val/versions` route, which needs the same sign-in as the rest of the Studio. If your server's Val is older than the Studio, the list says so and still shows the Studio's half.
+
+- Updated dependencies [[`e39a373`](https://github.com/valbuild/val/commit/e39a3730624cbf3a5434d4fb0d13be26f44280db), [`d47537a`](https://github.com/valbuild/val/commit/d47537a40ca7ca0c6a5e7b80f1dfb18791fc5bc1), [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/ui@0.150.12
+  - @valbuild/server@0.150.12
+  - @valbuild/shared@0.150.12
+  - @valbuild/react@0.150.12
+  - @valbuild/language-server@0.150.12
+  - @valbuild/mcp@0.150.12
+
+## 0.150.11
+
+### Patch Changes
+
+- [#974](https://github.com/valbuild/val/pull/974) [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78) Thanks [@freekh](https://github.com/freekh)! - The design tab no longer makes you wait.
+
+  - **Quick preview.** A change to components, layout or styles is shown in seconds, without a build: the proposal's browser code is bundled in the tab and the page in the preview runs it. What runs on the server (loaders, server functions, the page's first render) stays the last build's, and the tab says so, with a button to build. The assistant has it too (`quick_preview`).
+  - **Cancel and Try again.** A build can be cancelled from the tab, and a build that stops making progress for three minutes is stopped, saying at which step, so it never spins until a reload. The assistant waits for a build with `wait` instead of holding its turn, and has `build_status` and `cancel_build`.
+  - **Each step of a build is timed**, and the Build check lists where the time went.
+  - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
+  - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+  - **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
+  - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
+
+  The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/ui@0.150.11
+  - @valbuild/shared@0.150.11
+  - @valbuild/server@0.150.11
+  - @valbuild/react@0.150.11
+  - @valbuild/language-server@0.150.11
+  - @valbuild/mcp@0.150.11
+
+## 0.150.10
+
+### Patch Changes
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/ui@0.150.10
+  - @valbuild/shared@0.150.10
+  - @valbuild/server@0.150.10
+  - @valbuild/react@0.150.10
+  - @valbuild/language-server@0.150.10
+  - @valbuild/mcp@0.150.10
+
+## 0.150.9
+
+### Patch Changes
+
+- Updated dependencies [[`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279)]:
+  - @valbuild/ui@0.150.9
+  - @valbuild/react@0.150.9
+  - @valbuild/server@0.150.9
+  - @valbuild/shared@0.150.8
+  - @valbuild/language-server@0.150.9
+  - @valbuild/mcp@0.150.9
+
+## 0.150.8
+
+### Patch Changes
+
+- [#960](https://github.com/valbuild/val/pull/960) [`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028) Thanks [@freekh](https://github.com/freekh)! - The design tab can point the assistant at anything on the page. Hold ⌥ (Alt) and click any element in the preview, or press **Select** first: the element under the pointer is outlined and named, and the one picked is shown above the assistant and sent with the next message. A **Pages** menu shows any of the site's pages in the preview, and **Publish** publishes the proposal from the tab, the same way its own Studio does. The checks are now a single quiet status beside the proposal's name, the history is behind a button, and the changed files are listed in the Changes view instead of a panel of their own.
+
+  The picking runs in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for picking to work in its design tab.
+
+- Updated dependencies [[`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028), [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2), [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a)]:
+  - @valbuild/shared@0.150.8
+  - @valbuild/ui@0.150.8
+  - @valbuild/server@0.150.8
+  - @valbuild/language-server@0.150.8
+  - @valbuild/mcp@0.150.8
+  - @valbuild/react@0.150.8
+
+## 0.150.7
+
+### Patch Changes
+
+- Updated dependencies [[`2d5ad2e`](https://github.com/valbuild/val/commit/2d5ad2e90f2a2bdd6ad8af98b21e19bc0bf6dbcc)]:
+  - @valbuild/react@0.150.7
+
+## 0.150.6
+
+### Patch Changes
+
+- [#962](https://github.com/valbuild/val/pull/962) [`f84222b`](https://github.com/valbuild/val/commit/f84222b2c902d8725b1da96f79481060fb8b9842) Thanks [@freekh](https://github.com/freekh)! - Text rendered through `React.createElement` no longer keeps Val's invisible edit tag. TanStack Router's `<Link>` renders its link that way, so with content analytics on, the text of a link built from content carried the tag on every visitor's page.
+
+  New: `import "@valbuild/tanstack/autotag"` as the first import of `src/router.tsx`. Under `vite dev`, components whose modules ran before `@valbuild/tanstack` was imported were not click-to-edit, and the leak warning named their text as leaked. A production build was not affected.
+
+- Updated dependencies [[`f84222b`](https://github.com/valbuild/val/commit/f84222b2c902d8725b1da96f79481060fb8b9842)]:
+  - @valbuild/react@0.150.6
+
+## 0.150.5
+
+### Patch Changes
+
+- Updated dependencies [[`47a31cc`](https://github.com/valbuild/val/commit/47a31cc3574841acf4f3207d5053f8bc728d25cd)]:
+  - @valbuild/server@0.150.5
+  - @valbuild/ui@0.150.5
+  - @valbuild/language-server@0.150.5
+  - @valbuild/mcp@0.150.5
+  - @valbuild/react@0.150.5
+
+## 0.150.4
+
+### Patch Changes
+
+- [#957](https://github.com/valbuild/val/pull/957) [`820cd47`](https://github.com/valbuild/val/commit/820cd479ff6c44e7db195b9dd320a001129c17a4) Thanks [@freekh](https://github.com/freekh)! - Content analytics can be turned on while developing: `VAL_ANALYTICS=true` in the app's `.env.development` turns it on under `vite dev` for a `<ValProvider>` that is passed no `analytics`, so the leak warning shows you where an edit tag leaves React before any visitor gets it. It is read only on the development server; a hosted site is still switched on in its project settings.
+
+  The "Val is currently hidden" note in the browser console now shows in development with TanStack Start. It looked for `process.env.NODE_ENV`, which the development server does not set in the browser.
+
+## 0.150.3
+
+### Patch Changes
+
+- Updated dependencies [[`bc0cc43`](https://github.com/valbuild/val/commit/bc0cc433e157cca08f9ee384a4fb8be9bd3dad2c)]:
+  - @valbuild/ui@0.150.3
+  - @valbuild/core@0.150.3
+  - @valbuild/shared@0.150.3
+  - @valbuild/react@0.150.3
+  - @valbuild/server@0.150.3
+  - @valbuild/language-server@0.150.3
+  - @valbuild/mcp@0.150.3
+
+## 0.150.2
+
+### Patch Changes
+
+- [#946](https://github.com/valbuild/val/pull/946) [`e24dc6e`](https://github.com/valbuild/val/commit/e24dc6e56e7647654e27ee2390d2181b0eaff3ad) Thanks [@freekh](https://github.com/freekh)! - Content analytics now warns in development about edit tags that leak out of React. With analytics on, `ValProvider` looks at the page as a visitor gets it and names every place content arrived with its edit tag still in it: a `<title>`, a `<meta>`, JSON-LD, a share link built with `encodeURIComponent`, or any other attribute or text. Each warning says which content it was and where, and that `val.raw()` fixes it. Open the site in a window where Val is not enabled to see them; production never runs the check.
+
+  Also fixed: text inside a fragment (`<li>{a}<> — {b}</></li>`) kept its edit tag on the page. It is now cleaned, and the element the fragment sits in is tagged with its content instead.
+
+- [#944](https://github.com/valbuild/val/pull/944) [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70) Thanks [@freekh](https://github.com/freekh)! - A TanStack splat route now has a page of its own. `src/routes/docs.$.tsx` serves `/docs` as well as everything under it, the way TanStack Router matches it, and `/docs` is now a valid key in its Val module. It used to be refused ("does not match `/docs/[..._splat]`"), so the page TanStack served at `/docs` could not be given content. `useValRoute` on that page reads the `/docs` entry.
+- Updated dependencies [[`e24dc6e`](https://github.com/valbuild/val/commit/e24dc6e56e7647654e27ee2390d2181b0eaff3ad), [`c674aae`](https://github.com/valbuild/val/commit/c674aae361be3c75b5232acb41ea6d8da973c678), [`c044e55`](https://github.com/valbuild/val/commit/c044e55452ba34ec5b7b38c935c9c25491d980be), [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595), [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70), [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7), [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795), [`520d22c`](https://github.com/valbuild/val/commit/520d22cc721ff23b83e4bae0b4ba7f52a6a0fa0c)]:
+  - @valbuild/react@0.150.2
+  - @valbuild/ui@0.150.2
+  - @valbuild/shared@0.150.2
+  - @valbuild/core@0.150.2
+  - @valbuild/server@0.150.2
+  - @valbuild/language-server@0.150.2
+  - @valbuild/mcp@0.150.2
+
+## 0.150.1
+
+### Patch Changes
+
+- Updated dependencies [[`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02), [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11)]:
+  - @valbuild/core@0.150.1
+  - @valbuild/mcp@0.150.1
+  - @valbuild/server@0.150.1
+  - @valbuild/shared@0.150.1
+  - @valbuild/language-server@0.150.1
+  - @valbuild/ui@0.150.1
+  - @valbuild/react@0.150.1
+
 ## 0.150.0
 
 ### Patch Changes

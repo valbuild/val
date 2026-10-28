@@ -93,6 +93,88 @@ async function main() {
   await checkChunkImports(handler, app.body);
 
   await checkStaticWasm();
+
+  await checkStaticFiles(handler);
+}
+
+/**
+ * The Studio as files (`static/`, see buildStatic.js) is the same Studio the
+ * embedded handler serves, route for route.
+ *
+ * A host that serves `static/` follows the manifest's `routes` and nothing
+ * else, so a route the manifest gets wrong is a Studio that does not load
+ * there -- while every other host, and every check above, goes on working.
+ * So each route is asked of the embedded handler too, and the two have to
+ * agree on the body. Binary files are compared on status only: the embedded
+ * record reads them as utf-8, which is exactly what `static/` does not do.
+ */
+async function checkStaticFiles(handler) {
+  const crypto = require("crypto");
+  const dir = path.join(__dirname, "static");
+  const manifestPath = path.join(dir, "manifest.json");
+  check(
+    "the static manifest was written",
+    fs.existsSync(manifestPath),
+    `${manifestPath} does not exist; fix-server-hack.js did not run writeStatic`,
+  );
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+  check(
+    "the static manifest is for this version",
+    manifest.version === VERSION,
+    `it says ${JSON.stringify(manifest.version)}`,
+  );
+  for (const [file, described] of Object.entries(manifest.files)) {
+    const bytes = fs.readFileSync(path.join(dir, "files", file));
+    const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+    if (sha256 !== described.sha256 || bytes.length !== described.size) {
+      check(`static/files${file} matches the manifest`, false, "it does not");
+    }
+  }
+  check(
+    "every static file matches its manifest entry",
+    Object.keys(manifest.files).length > 0,
+    "the manifest lists no files",
+  );
+  for (const [route, { file }] of Object.entries(manifest.routes)) {
+    const described = manifest.files[file];
+    if (!described) {
+      check(`route ${route} names a file`, false, `${file} is not listed`);
+    }
+    const res = await handler(route, `http://localhost/api/val/static${route}`);
+    const isText = /^(text\/|application\/(javascript|json))/.test(
+      described.contentType,
+    );
+    const same =
+      res.status === 200 &&
+      (!isText ||
+        res.body === fs.readFileSync(path.join(dir, "files", file), "utf-8"));
+    if (!same) {
+      check(
+        `route ${route} serves ${file}, as the embedded handler does`,
+        false,
+        `the embedded handler answered ${res.status} with a different body`,
+      );
+    }
+  }
+  check(
+    `the embedded handler agrees with all ${Object.keys(manifest.routes).length} static routes`,
+    true,
+    "",
+  );
+  const fallback = await handler(
+    `/${VERSION}/no-such-file`,
+    `http://localhost/api/val/static/${VERSION}/no-such-file`,
+  );
+  check(
+    "the static fallback is the embedded handler's",
+    fallback.status === 200 &&
+      fallback.body ===
+        fs.readFileSync(
+          path.join(dir, "files", manifest.fallback.file),
+          "utf-8",
+        ),
+    `the embedded handler's fallback is not ${manifest.fallback.file}`,
+  );
 }
 
 /**

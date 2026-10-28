@@ -3,8 +3,14 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
+  type PageLocation,
+  type PageSnapshot,
+  type QuickPreviewFiles,
+  type PickedElement,
+  type PickModifier,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
+  type ValCanvasPageMessage,
   ValCanvasStudioMessage,
   withValCanvasParam,
 } from "@valbuild/shared/internal";
@@ -41,10 +47,32 @@ type FrameState =
 export const ANSWER_TIMEOUT_MS = 8000;
 
 export type CanvasFrameProps = {
-  /** The page's own URL, e.g. `/blogs/blog1`. */
+  /** The page's own URL, e.g. `/blogs/blog1`; absolute when `origin` is another. */
   url: string;
-  width: number;
-  height: number;
+  width: number | string;
+  height: number | string;
+  /**
+   * The origin the page is served from, when it is not the Studio's: the
+   * design tab frames a proposal's address from the site's
+   * (valbuild/home `docs/design-tab.md`). Messages are sent to it, and preview
+   * mode is turned on there.
+   */
+  origin?: string;
+  /**
+   * Whether this Studio's edits are relayed into the page. Off when the page is
+   * not this Studio's content: a proposal's page reads its own drafts, and the
+   * site's would be the wrong ones. The page is still told when there is
+   * nothing to wait for (`sourcesSynced`).
+   */
+  relaySources?: boolean;
+  /**
+   * Load the page through `/api/val/enable` every time, so it is in preview
+   * mode from its first document. The design tab's frame: the proposal's
+   * address is another origin, which the Studio's own enable never reached,
+   * and without the cookie it sets the page mounts no bridge -- nothing on it
+   * can be picked, and the tab learns that only from a timeout.
+   */
+  throughEnable?: boolean;
   /** Bumped to reload. */
   reloadKey: number;
   /** Whether a click on the page picks the element under it. */
@@ -63,6 +91,19 @@ export type CanvasFrameProps = {
   onElements?: (elements: ValCanvasElement[]) => void;
   /** Something on the page was picked. */
   onPick?: (paths: SourcePath[]) => void;
+  /**
+   * Picking ANY element, the design tab's way (`pickElements` in
+   * `valCanvasProtocol`): `null` off, absent never sent. `isPicking` is the
+   * other kind, of the fields Val tagged.
+   */
+  elementPicking?: {
+    active: boolean;
+    modifier: PickModifier;
+    keepPicked: boolean;
+  } | null;
+  onPickElement?: (element: PickedElement) => void;
+  /** Esc on the page while `elementPicking.active`. */
+  onElementPickingStopped?: () => void;
   /**
    * A two-finger gesture on the page.
    *
@@ -94,7 +135,42 @@ export type CanvasFrameProps = {
   onStatusChange?: (status: CanvasPreviewStatus) => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
   onRefreshingChange?: (isRefreshing: boolean) => void;
+  /** Where the page is, as it moves: its path and scroll (`location`). */
+  onLocation?: (location: PageLocation) => void;
+  /**
+   * Where each new document is scrolled to once it says it is there: the
+   * design tab swapping a new build in where the last one was.
+   */
+  scrollTo?: { x: number; y: number } | null;
+  /**
+   * Handed the way to read the page (`readPage`), and `null` when the frame
+   * goes: the assistant's `read_page`.
+   */
+  onPageReader?: (reader: PageReader | null) => void;
+  /**
+   * Handed the way to store a quick preview's files in the page's worker
+   * (`quickPreview`), and `null` when the frame goes.
+   */
+  onQuickPreviewStorer?: (store: QuickPreviewStorer | null) => void;
 };
+
+/** Store a quick preview's files at the page's origin: see `quickPreview.ts`. */
+export type QuickPreviewStorer = (
+  id: string,
+  files: QuickPreviewFiles,
+) => Promise<void>;
+
+/** How long a page is given to store a quick preview. */
+export const QUICK_PREVIEW_STORE_TIMEOUT_MS = 45_000;
+
+/** Read what is on the page: see `readPageSnapshot`. */
+export type PageReader = (options: {
+  selector?: string;
+  maxItems?: number;
+}) => Promise<PageSnapshot>;
+
+/** How long a page is given to answer `readPage`. */
+export const PAGE_READ_TIMEOUT_MS = 5000;
 
 /**
  * The running site, in a frame, talking to the studio.
@@ -116,17 +192,27 @@ export function CanvasFrame({
   url,
   width,
   height,
+  origin = typeof window === "undefined" ? "" : window.origin,
+  relaySources = true,
+  throughEnable = false,
   reloadKey,
   isPicking,
   selectionColors,
   highlightedPath,
   onElements,
   onPick,
+  elementPicking,
+  onPickElement,
+  onElementPickingStopped,
   onPinch,
   onZoom,
   onRefreshingChange,
   enableKey = 0,
   onStatusChange,
+  onLocation,
+  scrollTo = null,
+  onPageReader,
+  onQuickPreviewStorer,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<FrameState>({ status: "waiting" });
@@ -174,11 +260,14 @@ export function CanvasFrame({
   const frameSrc = useMemo(() => withValCanvasParam(url), [url]);
 
   /** Send one message into the frame. */
-  const send = useCallback((message: ValCanvasStudioMessage) => {
-    // Same origin as the studio — the page is served by the same app — so the
-    // target origin can be named rather than left as `*`.
-    frameRef.current?.contentWindow?.postMessage(message, window.origin);
-  }, []);
+  const send = useCallback(
+    (message: ValCanvasStudioMessage) => {
+      // The page's origin -- the Studio's own unless told otherwise -- named
+      // rather than left as `*`.
+      frameRef.current?.contentWindow?.postMessage(message, origin);
+    },
+    [origin],
+  );
 
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
@@ -201,6 +290,9 @@ export function CanvasFrame({
       // Only this frame, and only messages shaped like the protocol: a window
       // hears from anything holding a handle on it.
       if (event.source !== frameRef.current?.contentWindow) return;
+      // A frame of another origin is held to it; the Studio's own pages are
+      // already the only thing `source` can be.
+      if (origin !== window.origin && event.origin !== origin) return;
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
@@ -219,6 +311,26 @@ export function CanvasFrame({
         });
       } else if (message.type === "zoom") {
         onZoom?.(message.factor, message.center);
+      } else if (message.type === "elementPicked") {
+        onPickElement?.(message.element);
+      } else if (message.type === "elementPickingStopped") {
+        onElementPickingStopped?.();
+      } else if (message.type === "location") {
+        onLocation?.({
+          path: message.path,
+          scrollX: message.scrollX,
+          scrollY: message.scrollY,
+        });
+      } else if (message.type === "quickPreviewStored") {
+        const storing = storings.current.get(message.id);
+        if (storing === undefined) return;
+        storings.current.delete(message.id);
+        storing(message.error);
+      } else if (message.type === "pageRead") {
+        const reading = readings.current.get(message.requestId);
+        if (reading === undefined) return;
+        readings.current.delete(message.requestId);
+        reading(message);
       } else {
         pickedHere.current = message.paths[0] ?? null;
         onPick?.(message.paths);
@@ -226,13 +338,137 @@ export function CanvasFrame({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [onElements, onPick, onPinch, onZoom, onRefreshingChange]);
+  }, [
+    onElements,
+    onPick,
+    onPickElement,
+    onElementPickingStopped,
+    onPinch,
+    onZoom,
+    onRefreshingChange,
+    onLocation,
+    origin,
+  ]);
+
+  /** `readPage` requests the page has not answered yet, by id. */
+  const readings = useRef(
+    new Map<
+      string,
+      (answer: Extract<ValCanvasPageMessage, { type: "pageRead" }>) => void
+    >(),
+  );
+  const readPage = useCallback<PageReader>(
+    (options) =>
+      new Promise<PageSnapshot>((resolve, reject) => {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timer = setTimeout(() => {
+          readings.current.delete(requestId);
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading, or its Val packages may be older than the Studio's and cannot be read from here.",
+            ),
+          );
+        }, PAGE_READ_TIMEOUT_MS);
+        readings.current.set(requestId, (answer) => {
+          clearTimeout(timer);
+          if (answer.snapshot !== null) resolve(answer.snapshot);
+          else reject(new Error(answer.error ?? "The page could not be read."));
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "readPage",
+          requestId,
+          ...(options.selector !== undefined
+            ? { selector: options.selector }
+            : {}),
+          ...(options.maxItems !== undefined
+            ? { maxItems: options.maxItems }
+            : {}),
+        });
+      }),
+    [send],
+  );
+  useEffect(() => {
+    if (onPageReader === undefined) return;
+    onPageReader(readPage);
+    return () => onPageReader(null);
+  }, [onPageReader, readPage]);
+
+  /** Quick previews the page has not said it stored, by id. */
+  const storings = useRef(new Map<string, (error?: string) => void>());
+  const storeQuickPreview = useCallback<QuickPreviewStorer>(
+    (id, files) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          storings.current.delete(id);
+          reject(
+            new Error(
+              "The page did not take the quick preview. Its Val packages may be older than the Studio's: build the proposal instead.",
+            ),
+          );
+        }, QUICK_PREVIEW_STORE_TIMEOUT_MS);
+        storings.current.set(id, (error) => {
+          clearTimeout(timer);
+          if (error === undefined) resolve();
+          else reject(new Error(error));
+        });
+        send({ val: VAL_CANVAS_MESSAGE, type: "quickPreview", id, files });
+      }),
+    [send],
+  );
+  useEffect(() => {
+    if (onQuickPreviewStorer === undefined) return;
+    onQuickPreviewStorer(storeQuickPreview);
+    return () => onQuickPreviewStorer(null);
+  }, [onQuickPreviewStorer, storeQuickPreview]);
+
+  /*
+   * The frame's first document, scrolled to where it is told to be -- once:
+   * a page the person then navigates in, or that reloads itself, is where
+   * they took it, not where the build before it was.
+   */
+  const scrolled = useRef(false);
+  const scrollX = scrollTo?.x ?? null;
+  const scrollY = scrollTo?.y ?? null;
+  useEffect(() => {
+    if (scrolled.current || scrollX === null || scrollY === null) return;
+    if (documentEpoch === 0) return;
+    scrolled.current = true;
+    send({ val: VAL_CANVAS_MESSAGE, type: "scrollTo", x: scrollX, y: scrollY });
+  }, [send, scrollX, scrollY, documentEpoch]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.
   useEffect(() => {
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
+
+  // Whole, every time, and again for every new document: a reload starts the
+  // page's picker afresh.
+  const pickActive = elementPicking?.active === true;
+  const pickModifier = elementPicking?.modifier ?? "alt";
+  const keepPicked = elementPicking?.keepPicked !== false;
+  const pickEnabled =
+    elementPicking === undefined ? undefined : elementPicking !== null;
+  useEffect(() => {
+    if (pickEnabled === undefined) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "pickElements",
+      enabled: pickEnabled,
+      active: pickActive,
+      modifier: pickModifier,
+      keepPicked,
+    });
+  }, [
+    send,
+    pickEnabled,
+    pickActive,
+    pickModifier,
+    keepPicked,
+    state.status,
+    documentEpoch,
+  ]);
 
   /**
    * The outline colours, pushed for a stronger reason than picking is.
@@ -305,14 +541,10 @@ export function CanvasFrame({
      * for as long as the tab was open.
      */
     setState({ status: "waiting" });
-    const redirectTo = new URL(frameSrc, window.location.origin).toString();
-    const enableUrl = `/api/val/enable?redirect_to=${encodeURIComponent(
-      redirectTo,
-    )}`;
     if (frameRef.current) {
-      frameRef.current.src = enableUrl;
+      frameRef.current.src = enableUrlOf(frameSrc, origin);
     }
-  }, [frameSrc]);
+  }, [frameSrc, origin]);
 
   /**
    * Relay every edit into the frame.
@@ -337,7 +569,7 @@ export function CanvasFrame({
     },
     [send],
   );
-  useValSourceUpdates(isLive, sendSourceUpdate);
+  useValSourceUpdates(isLive && relaySources, sendSourceUpdate);
 
   /**
    * And catch the page up the moment it is listening.
@@ -355,7 +587,7 @@ export function CanvasFrame({
   const sendPendingSources = useValPendingSourceSnapshot();
   useEffect(() => {
     if (!isLive) return;
-    sendPendingSources(sendSourceUpdate);
+    if (relaySources) sendPendingSources(sendSourceUpdate);
     /**
      * And say that was all of it.
      *
@@ -368,7 +600,14 @@ export function CanvasFrame({
      * draft, and renders committed source for it immediately.
      */
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
-  }, [isLive, documentEpoch, sendPendingSources, sendSourceUpdate, send]);
+  }, [
+    isLive,
+    relaySources,
+    documentEpoch,
+    sendPendingSources,
+    sendSourceUpdate,
+    send,
+  ]);
 
   /**
    * Turn preview mode on when asked from outside.
@@ -436,7 +675,7 @@ export function CanvasFrame({
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
         key={`${frameSrc}-${reloadKey}`}
-        src={frameSrc}
+        src={throughEnable ? enableUrlOf(frameSrc, origin) : frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
@@ -453,4 +692,12 @@ export function CanvasFrame({
        */}
     </div>
   );
+}
+
+/** The page, through `/api/val/enable` at its own origin: the cookie it sets is the page's. */
+function enableUrlOf(frameSrc: string, origin: string): string {
+  const redirectTo = new URL(frameSrc, origin).toString();
+  return `${origin === window.origin ? "" : origin}/api/val/enable?redirect_to=${encodeURIComponent(
+    redirectTo,
+  )}`;
 }

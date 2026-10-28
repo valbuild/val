@@ -191,6 +191,8 @@ export const AIErrorCode = z.enum([
   "byok_invalid_key",
   "provider_not_configured",
   "model_refusal",
+  // Someone else's question is running in this chat (a proposal's, shared).
+  "session_busy",
 ]);
 export type AIErrorCode = z.infer<typeof AIErrorCode>;
 
@@ -296,6 +298,69 @@ export const AIUsageMessage = z.object({
 });
 export type AIUsageMessage = z.infer<typeof AIUsageMessage>;
 
+export const AIMessageContentBlock = z.union([
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("image_key"), key: z.string() }),
+]);
+export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
+
+// --- A shared chat, watched (valbuild/home docs/proposals.md, Flow H) ---
+
+/** Someone else asked in a watched chat: their question, as they sent it. */
+export const AITurnStartedEvent = z.object({
+  type: z.literal("ai_turn_started"),
+  id: z.string(),
+  sessionId: z.string(),
+  authorId: z.string(),
+  message: z.union([z.string(), z.array(AIMessageContentBlock)]),
+});
+
+/**
+ * A tool ran in a watched turn, and how it went: the row the asker sees,
+ * without the request to run it, which is theirs alone.
+ */
+export const AIToolActivityEvent = z.object({
+  type: z.literal("ai_tool_activity"),
+  id: z.string(),
+  toolCallId: z.string(),
+  name: z.string(),
+  status: z.enum(["pending", "complete", "error"]),
+});
+
+/** That question's turn is over, however it ended. */
+export const AITurnEndedEvent = z.object({
+  type: z.literal("ai_turn_ended"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+
+/**
+ * An event of a turn someone else asked in a chat this socket watches. The
+ * same events the asker gets, but never a tool call: those ask the asker's
+ * Studio to act.
+ */
+export const AIWatchedMessage = z.object({
+  type: z.literal("ai_watched"),
+  sessionId: z.string(),
+  event: z.discriminatedUnion("type", [
+    AITurnStartedEvent,
+    AIToolActivityEvent,
+    AIStreamingMessage,
+    AIResponseMessage,
+    AICancelledMessage,
+    AIErrorMessage,
+    AITurnEndedEvent,
+  ]),
+});
+export type AIWatchedMessage = z.infer<typeof AIWatchedMessage>;
+
+/** A watch was taken, and who holds the chat now, if anyone does. */
+export const AIWatchingMessage = z.object({
+  type: z.literal("ai_watching"),
+  sessionId: z.string(),
+  runningAuthorId: z.string().nullable(),
+});
+
 export const AIServerMessage = z.discriminatedUnion("type", [
   AIResponseMessage,
   AIStreamingMessage,
@@ -305,17 +370,13 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AISessionUnhiddenMessage,
   AIAgentHandoffMessage,
   AIUsageMessage,
+  AIWatchedMessage,
+  AIWatchingMessage,
 ]);
 
 export type AIServerMessage = z.infer<typeof AIServerMessage>;
 
 // --- Client → Server message types ---
-
-export const AIMessageContentBlock = z.union([
-  z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({ type: z.literal("image_key"), key: z.string() }),
-]);
-export type AIMessageContentBlock = z.infer<typeof AIMessageContentBlock>;
 
 export const AIPromptMessage = z.object({
   type: z.literal("ai_prompt"),
@@ -333,6 +394,12 @@ export const AIPromptMessage = z.object({
   hidden: z.boolean().optional(),
   /** Ask for `ai_usage` messages while the turn runs. */
   reportUsage: z.boolean().optional(),
+  /**
+   * The proposal the Studio is in, by name. A chat created with one belongs to
+   * it, and everyone on the project can read and continue it (valbuild/home
+   * `docs/proposals.md`, Flow H). Honoured only when the session is created.
+   */
+  proposal: z.string().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -396,11 +463,26 @@ export const AIUnhideSessionMessage = z.object({
 });
 export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
 
+/** See every turn of a shared chat, whoever asks it, as it is written. */
+export const AIWatchSessionMessage = z.object({
+  type: z.literal("ai_watch_session"),
+  sessionId: z.string(),
+});
+export type AIWatchSessionMessage = z.infer<typeof AIWatchSessionMessage>;
+
+export const AIUnwatchSessionMessage = z.object({
+  type: z.literal("ai_unwatch_session"),
+  sessionId: z.string(),
+});
+export type AIUnwatchSessionMessage = z.infer<typeof AIUnwatchSessionMessage>;
+
 export type AIClientMessage =
   | AIPromptMessage
   | AIToolResultMessage
   | AICancelMessage
-  | AIUnhideSessionMessage;
+  | AIUnhideSessionMessage
+  | AIWatchSessionMessage
+  | AIUnwatchSessionMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 
@@ -411,6 +493,8 @@ export type AISession = {
   name: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who is in a proposal's chat, starter first. Absent on your own chats. */
+  authorIds?: string[];
 };
 
 const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;

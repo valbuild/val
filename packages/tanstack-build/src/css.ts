@@ -27,7 +27,7 @@
 // read its imports in the order they are written, and walk depth-first
 // emitting dependencies before the module that imported them. That is ESM
 // evaluation order, which is what a bundler would have used.
-import { parseAstAsync } from "@rolldown/browser/parseAst";
+import { loadRolldown } from "./rolldown";
 import { dirname, resolve, resolveInFiles } from "./paths";
 import type { AliasMap } from "./tsconfigPaths";
 
@@ -54,6 +54,7 @@ interface Node {
 /** Import sources of one module, in the order they appear in the source. */
 async function importsOf(path: string, code: string): Promise<Array<string>> {
   const lang = path.endsWith(".tsx") || path.endsWith(".jsx") ? "tsx" : "ts";
+  const { parseAstAsync } = await loadRolldown();
   const ast = (await parseAstAsync(code, { lang }, path)) as unknown as {
     body: Array<Node>;
   };

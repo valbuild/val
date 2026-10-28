@@ -50,6 +50,12 @@ export type ColorFieldPureProps = {
   id?: string;
   /** Disable all interaction. */
   readonly?: boolean;
+  /**
+   * What the colour is, for assistive tech: "Proposal colour" names the two
+   * inputs "Proposal colour picker" and "Proposal colour value". Two colour
+   * fields on one panel were otherwise two identical "Color picker"s.
+   */
+  label?: string;
 };
 
 /**
@@ -67,6 +73,7 @@ export function ColorFieldPure({
   alpha,
   id,
   readonly,
+  label = "Color",
 }: ColorFieldPureProps) {
   const targetFormat = format ?? DEFAULT_COLOR_FORMAT;
   const [text, setText] = useState(value ?? "");
@@ -136,7 +143,7 @@ export function ColorFieldPure({
               swatch can be styled (and can show alpha). */}
           <input
             type="color"
-            aria-label="Color picker"
+            aria-label={`${label} picker`}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
             disabled={readonly}
             value={Internal.color.colorToHex(swatchColor)}
@@ -152,7 +159,7 @@ export function ColorFieldPure({
         </div>
         <div className="relative flex-1 min-w-0">
           <Input
-            aria-label="Color value"
+            aria-label={`${label} value`}
             aria-invalid={isInvalid}
             spellCheck={false}
             autoComplete="off"

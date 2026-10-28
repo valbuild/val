@@ -2,6 +2,9 @@ import { FC, useState } from "react";
 import { HANDOFF_PARAM, storedHandoffIntent } from "../publish/handoff";
 import { HandoffPublishTab } from "./shell/HandoffPublishTab";
 import { HandoffProposalBuildTab } from "./proposals/HandoffProposalBuildTab";
+import { DesignTab } from "./design/DesignTab";
+import { HandoffQuickPreviewTab } from "./design/HandoffQuickPreviewTab";
+import { designProposalOf } from "../design/designTabUrl";
 import { ValClient } from "@valbuild/shared/internal";
 import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
@@ -52,6 +55,23 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       ? { name: stored.intent.name, at: stored.at }
       : null;
   });
+  // Or to bundle a quick preview for the design tab: the same, its own kind.
+  const [quickPreview] = useState(() => {
+    if (handoffId === null) return null;
+    const stored = storedHandoffIntent(handoffId);
+    return stored?.intent.kind === "quick-preview"
+      ? { name: stored.intent.name, at: stored.at }
+      : null;
+  });
+  /*
+   * A proposal's design tab (valbuild/home `docs/design-tab.md`): a tab of
+   * its own, opened on the site's address, so read once like the two above.
+   */
+  const [designProposal] = useState(() =>
+    typeof window === "undefined"
+      ? null
+      : designProposalOf(window.location.pathname),
+  );
   return (
     <ValProvider
       client={client}
@@ -87,8 +107,16 @@ export const ValStudio: FC<ValFullscreenProps> = ({
                     name={proposalBuild.name}
                     at={proposalBuild.at}
                   />
+                ) : handoffId !== null && quickPreview !== null ? (
+                  <HandoffQuickPreviewTab
+                    id={handoffId}
+                    name={quickPreview.name}
+                    at={quickPreview.at}
+                  />
                 ) : handoffId !== null ? (
                   <HandoffPublishTab id={handoffId} />
+                ) : designProposal !== null ? (
+                  <DesignTab name={designProposal} />
                 ) : (
                   <ValShell />
                 ))}

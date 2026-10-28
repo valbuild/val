@@ -18,10 +18,36 @@ import {
  * service thinks happened.
  */
 
-/** Long enough for `next dev` to compile the Studio route on the first test. */
+/** Long enough for the dev server to compile the Studio route on the first test. */
 const INTAKE_TIMEOUT = 60_000;
 
-const MOCK_BASE = `http://localhost:${MOCK_CONTENT_PORT}`;
+/**
+ * One proxy-mode app and the mock content host it talks to.
+ *
+ * A parameter rather than constants because the mock is ONE project -- every
+ * request names the project it is for -- so a second app needs a second mock,
+ * and these helpers have to be told which pair they are driving. Today there
+ * is one pair, `examples/tanstack` and its mock ({@link PROXY_APP}); the Next
+ * example had its own until every proxy-mode spec moved off `next dev`.
+ */
+export type HttpTarget = {
+  /** Where the proxy-mode app listens. */
+  appPort: number;
+  /** Where its mock content host listens. */
+  mockPort: number;
+  /** `val.config.ts`'s `project`, which the mock checks on every call. */
+  project: string;
+  /** `val.config.ts`'s `root`, which the mock joins paths against. */
+  root: string;
+};
+
+/** The proxy-mode copy of `examples/tanstack`, which every spec here drives. */
+const PROXY_APP: HttpTarget = {
+  appPort: HTTP_APP_PORT,
+  mockPort: MOCK_CONTENT_PORT,
+  project: MOCK_PROJECT,
+  root: MOCK_ROOT,
+};
 
 /** Which of the mock's two editors a test is acting as. */
 export type UserKey = "ada" | "linus";
@@ -54,7 +80,10 @@ export const USERS: Record<UserKey, { profileId: string }> = {
  * session reads as invalid — which the Studio reports as "you will need to login
  * again", pointing nowhere near the cause.
  */
-export function sessionCookie(user: UserKey): {
+function sessionCookieFor(
+  target: HttpTarget,
+  user: UserKey,
+): {
   name: string;
   value: string;
   domain: string;
@@ -64,7 +93,7 @@ export function sessionCookie(user: UserKey): {
   secure: boolean;
   sameSite: "Lax";
 } {
-  const [org, project] = MOCK_PROJECT.split("/");
+  const [org, project] = target.project.split("/");
   const token = encodeJwt(
     {
       sub: USERS[user].profileId,
@@ -90,14 +119,15 @@ export function sessionCookie(user: UserKey): {
 }
 
 /** A browser context already logged in as one of the two users. */
-export async function contextAs(
+async function contextAsFor(
+  target: HttpTarget,
   browser: Browser,
   user: UserKey,
 ): Promise<BrowserContext> {
   const context = await browser.newContext({
-    baseURL: `http://localhost:${HTTP_APP_PORT}`,
+    baseURL: `http://localhost:${target.appPort}`,
   });
-  await context.addCookies([sessionCookie(user)]);
+  await context.addCookies([sessionCookieFor(target, user)]);
   return context;
 }
 
@@ -109,7 +139,9 @@ export async function contextAs(
  * resolves, and it asserts the mode it got — a test that silently ran against
  * `fs` mode would pass while proving nothing.
  */
-export async function openHttpStudio(
+async function openHttpStudioOn(
+  target: HttpTarget,
+  mock: Mock,
   page: Page,
   route = "/val",
 ): Promise<void> {
@@ -167,7 +199,7 @@ export async function openHttpStudio(
       timeout: INTAKE_TIMEOUT,
       message: "this page never opened a socket to the content service",
     })
-    .toContain(`ws://localhost:${MOCK_CONTENT_PORT}/ws`);
+    .toContain(`ws://localhost:${target.mockPort}/ws`);
   // And the mock has it, so anything broadcast from here on actually arrives.
   await expect
     .poll(async () => (await mock.state()).socketsAccepted, {
@@ -200,6 +232,8 @@ export type MockPatchFile = {
   type: "file" | "image";
   remote: boolean;
   bytes: number;
+  /** Uploaded by the browser, or moved from an image attached in the chat. */
+  source: "upload" | "session-file";
 };
 
 export type MockCommit = {
@@ -349,18 +383,22 @@ export type MockAiState = {
 };
 
 async function control<T>(
+  target: HttpTarget,
   action: string,
   init?: { method: "POST"; body?: unknown },
 ): Promise<T> {
-  const res = await fetch(`${MOCK_BASE}/__test__/${action}`, {
-    method: init?.method ?? "GET",
-    ...(init?.body === undefined
-      ? {}
-      : {
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(init.body),
-        }),
-  });
+  const res = await fetch(
+    `http://localhost:${target.mockPort}/__test__/${action}`,
+    {
+      method: init?.method ?? "GET",
+      ...(init?.body === undefined
+        ? {}
+        : {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(init.body),
+          }),
+    },
+  );
   if (!res.ok) {
     throw new Error(
       `mock control plane ${action} failed: ${res.status} ${await res.text()}`,
@@ -377,124 +415,173 @@ async function control<T>(
  * opened. There is no editor action that produces one, so a test that wants to
  * see the Studio react has to be able to say it happened.
  */
-export const mock = {
-  /** Forget every patch, commit, deployment and uploaded file. */
-  async reset(): Promise<void> {
-    await control("reset", { method: "POST" });
-  },
+function mockOf(target: HttpTarget) {
+  return {
+    /** Forget every patch, commit, deployment and uploaded file. */
+    async reset(): Promise<void> {
+      await control(target, "reset", { method: "POST" });
+    },
 
-  /** What the content service currently holds. */
-  state(): Promise<MockState> {
-    return control<MockState>("state");
-  },
+    /** What the content service currently holds. */
+    state(): Promise<MockState> {
+      return control<MockState>(target, "state");
+    },
 
-  /**
-   * Make this project publish as jobs: a press of Publish is a request, the
-   * Val server prepares the job, and the content service seals it.
-   *
-   * Off by default -- see the mock's `State.publishJobsEnabled`. Say it before
-   * the Studio opens: the Studio reads it from `/stat`.
-   */
-  async enablePublishJobs(enabled = true): Promise<void> {
-    await control("publish-jobs", { method: "POST", body: { enabled } });
-  },
+    /**
+     * Make this project publish as jobs: a press of Publish is a request, the
+     * Val server prepares the job, and the content service seals it.
+     *
+     * Off by default -- see the mock's `State.publishJobsEnabled`. Say it before
+     * the Studio opens: the Studio reads it from `/stat`.
+     */
+    async enablePublishJobs(enabled = true): Promise<void> {
+      await control(target, "publish-jobs", {
+        method: "POST",
+        body: { enabled },
+      });
+    },
 
-  /** The text a commit wrote for one module, or null if no commit touched it. */
-  async committedSource(moduleFilePath: string): Promise<string | null> {
-    const res = await control<{ content: string | null }>(
-      `committed-source?path=${encodeURIComponent(`${MOCK_ROOT}${moduleFilePath}`)}`,
-    );
-    return res.content;
-  },
+    /** The text a commit wrote for one module, or null if no commit touched it. */
+    async committedSource(moduleFilePath: string): Promise<string | null> {
+      const res = await control<{ content: string | null }>(
+        target,
+        `committed-source?path=${encodeURIComponent(`${target.root}${moduleFilePath}`)}`,
+      );
+      return res.content;
+    },
 
-  /**
-   * How many bytes a commit wrote at one repo path, or null if it wrote none.
-   *
-   * For the files there is no text to compare — an image. Asserting that the
-   * path appears in the commit is not enough on its own: a commit carrying the
-   * wrong bytes puts the path there just the same.
-   */
-  async committedBytes(repoPath: string): Promise<number | null> {
-    const res = await control<{ bytes: number | null }>(
-      `committed-source?path=${encodeURIComponent(`${MOCK_ROOT}${repoPath}`)}`,
-    );
-    return res.bytes;
-  },
+    /**
+     * How many bytes a commit wrote at one repo path, or null if it wrote none.
+     *
+     * For the files there is no text to compare — an image. Asserting that the
+     * path appears in the commit is not enough on its own: a commit carrying the
+     * wrong bytes puts the path there just the same.
+     */
+    async committedBytes(repoPath: string): Promise<number | null> {
+      const res = await control<{ bytes: number | null }>(
+        target,
+        `committed-source?path=${encodeURIComponent(`${target.root}${repoPath}`)}`,
+      );
+      return res.bytes;
+    },
 
-  /**
-   * Announce a deployment, or move an existing one to a new state.
-   *
-   * `broadcast: false` records it without pushing it down the socket, so the
-   * Studio can only learn about it from the next `/stat` — which is how a
-   * Studio that was not connected, or was reconnecting, finds out in
-   * production.
-   */
-  deployment(body: {
-    commitSha?: string;
-    deploymentId?: string;
-    deploymentState?: string;
-    broadcast?: boolean;
-  }): Promise<{ deployment: MockDeployment }> {
-    return control<{ deployment: MockDeployment }>("deployment", {
-      method: "POST",
-      body,
-    });
-  },
+    /**
+     * Announce a deployment, or move an existing one to a new state.
+     *
+     * `broadcast: false` records it without pushing it down the socket, so the
+     * Studio can only learn about it from the next `/stat` — which is how a
+     * Studio that was not connected, or was reconnecting, finds out in
+     * production.
+     */
+    deployment(body: {
+      commitSha?: string;
+      deploymentId?: string;
+      deploymentState?: string;
+      broadcast?: boolean;
+    }): Promise<{ deployment: MockDeployment }> {
+      return control<{ deployment: MockDeployment }>(target, "deployment", {
+        method: "POST",
+        body,
+      });
+    },
 
-  /**
-   * The archive a publish left behind for one commit, or null if none.
-   *
-   * Null is a real answer: a commit from `pushCommit` has no archive on
-   * purpose, standing in for a commit from before archiving shipped.
-   */
-  async archive(commitSha: string): Promise<MockCommitArchive | null> {
-    const res = await control<{ archive: MockCommitArchive | null }>(
-      `archive?commit=${encodeURIComponent(commitSha)}`,
-    );
-    return res.archive;
-  },
+    /**
+     * The archive a publish left behind for one commit, or null if none.
+     *
+     * Null is a real answer: a commit from `pushCommit` has no archive on
+     * purpose, standing in for a commit from before archiving shipped.
+     */
+    async archive(commitSha: string): Promise<MockCommitArchive | null> {
+      const res = await control<{ archive: MockCommitArchive | null }>(
+        target,
+        `archive?commit=${encodeURIComponent(commitSha)}`,
+      );
+      return res.archive;
+    },
 
-  /** Someone pushed a commit that did not come from the Studio. */
-  pushCommit(body?: {
-    commitMessage?: string;
-    creator?: string;
-    branch?: string;
-  }): Promise<{ commit: MockCommit }> {
-    return control<{ commit: MockCommit }>("commit", {
-      method: "POST",
-      body: body ?? {},
-    });
-  },
+    /** Someone pushed a commit that did not come from the Studio. */
+    pushCommit(body?: {
+      commitMessage?: string;
+      creator?: string;
+      branch?: string;
+    }): Promise<{ commit: MockCommit }> {
+      return control<{ commit: MockCommit }>(target, "commit", {
+        method: "POST",
+        body: body ?? {},
+      });
+    },
 
-  /**
-   * Queue what the assistant does on its next turn.
-   *
-   * One script per prompt, in order, so a test that sends two messages queues
-   * two. Queue before sending: the mock consumes a script the moment the prompt
-   * arrives, and an empty queue answers with a message saying so rather than
-   * hanging — a test that forgot to queue then fails on its assertion instead of
-   * on a timeout.
-   */
-  async aiScript(script: AiScript): Promise<void> {
-    await control("ai-script", { method: "POST", body: script });
-  },
+    /**
+     * Queue what the assistant does on its next turn.
+     *
+     * One script per prompt, in order, so a test that sends two messages queues
+     * two. Queue before sending: the mock consumes a script the moment the prompt
+     * arrives, and an empty queue answers with a message saying so rather than
+     * hanging — a test that forgot to queue then fails on its assertion instead of
+     * on a timeout.
+     */
+    async aiScript(script: AiScript): Promise<void> {
+      await control(target, "ai-script", { method: "POST", body: script });
+    },
 
-  /** What the assistant was asked, what it called, and what it was answered. */
-  aiState(): Promise<MockAiState> {
-    return control<MockAiState>("ai-state");
-  },
+    /** What the assistant was asked, what it called, and what it was answered. */
+    aiState(): Promise<MockAiState> {
+      return control<MockAiState>(target, "ai-state");
+    },
 
-  /**
-   * Make `/ai/initialize` fail, or let it succeed again.
-   *
-   * The studio tries five times before it gives up and reports that the
-   * assistant is unavailable, and no editor action can produce that — so a test
-   * that wants to see the studio out of options has to say so here.
-   */
-  async aiOffline(offline: boolean): Promise<void> {
-    await control("ai-offline", { method: "POST", body: { offline } });
-  },
-};
+    /**
+     * Make `/ai/initialize` fail, or let it succeed again.
+     *
+     * The studio tries five times before it gives up and reports that the
+     * assistant is unavailable, and no editor action can produce that — so a test
+     * that wants to see the studio out of options has to say so here.
+     */
+    async aiOffline(offline: boolean): Promise<void> {
+      await control(target, "ai-offline", {
+        method: "POST",
+        body: { offline },
+      });
+    },
+
+    /**
+     * Whether `from-session-file` hands back each image's SHA-256. Off plays a
+     * content service from before it did. Back on at `reset()`.
+     */
+    async aiSessionSha256(enabled: boolean): Promise<void> {
+      await control(target, "ai-session-sha256", {
+        method: "POST",
+        body: { enabled },
+      });
+    },
+  };
+}
+
+/** What a test is handed for one {@link HttpTarget}. */
+export type Mock = ReturnType<typeof mockOf>;
+
+/**
+ * The helpers that depend on which app a suite drives: who is signed in, how
+ * the Studio is opened, and which mock answers.
+ */
+export function httpTarget(target: HttpTarget): {
+  sessionCookie: (user: UserKey) => ReturnType<typeof sessionCookieFor>;
+  contextAs: (browser: Browser, user: UserKey) => Promise<BrowserContext>;
+  openHttpStudio: (page: Page, route?: string) => Promise<void>;
+  mock: Mock;
+} {
+  const mock = mockOf(target);
+  return {
+    sessionCookie: (user) => sessionCookieFor(target, user),
+    contextAs: (browser, user) => contextAsFor(target, browser, user),
+    openHttpStudio: (page, route) =>
+      openHttpStudioOn(target, mock, page, route),
+    mock,
+  };
+}
+
+/** The proxy-mode suites' helpers, bound to {@link PROXY_APP}. */
+export const { sessionCookie, contextAs, openHttpStudio, mock } =
+  httpTarget(PROXY_APP);
 
 // #endregion
 

@@ -10,9 +10,11 @@ import {
   writeKeyed,
 } from "./browserStorage";
 import {
+  isQuickPreviewFiles,
   parseRequestStatus,
   type PublishRequestStatus,
   type PublishTabJob,
+  type QuickPreviewFiles,
 } from "@valbuild/shared/internal";
 
 /**
@@ -112,7 +114,18 @@ export type HandoffIntent =
    * cannot build (`buildProposal`). Nothing goes live on the site. The tab is
    * opened at the proposal's address, so it reads the proposal's files there.
    */
-  | { kind: "build-proposal"; name: string };
+  | { kind: "build-proposal"; name: string }
+  /**
+   * Bundle a proposal's client code for a quick preview and hand the files
+   * back (`buildQuickPreview`): the design tab's Quick preview, from a page
+   * that cannot build. Nothing is uploaded; the page shows them.
+   */
+  | { kind: "quick-preview"; name: string };
+
+/** How a quick preview's bundle in a builder tab ended, as the tab reports it. */
+export type HandedQuickPreview =
+  | { status: "built"; files: QuickPreviewFiles }
+  | { status: "failed"; message: string };
 
 /**
  * How a proposal build in a builder tab ended, as the tab reports it: the
@@ -191,7 +204,9 @@ export type ToSite =
       summary?: string;
     }
   /** How a proposal build ended: see {@link HandedProposalBuild}. */
-  | { type: "proposal-built"; outcome: HandedProposalBuild };
+  | { type: "proposal-built"; outcome: HandedProposalBuild }
+  /** How a quick preview's bundle ended: see {@link HandedQuickPreview}. */
+  | { type: "quick-preview-built"; outcome: HandedQuickPreview };
 
 type Envelope<T> = { id: string; message: T };
 
@@ -281,10 +296,10 @@ function asIntent(value: unknown): HandoffIntent | null {
     const field: unknown = key in value ? Reflect.get(value, key) : undefined;
     return typeof field === "string" && field !== "" ? field : null;
   };
-  if (value.kind === "build-proposal") {
+  if (value.kind === "build-proposal" || value.kind === "quick-preview") {
     const name = text("name");
     return name !== null && PROPOSAL_NAME.test(name)
-      ? { kind: "build-proposal", name }
+      ? { kind: value.kind, name }
       : null;
   }
   const requestId = text("requestId");
@@ -645,6 +660,33 @@ function asToSite(message: unknown): ToSite | null {
   if (message.type === "job-result" && "result" in message) {
     const result = asJobResult(message.result);
     return result === null ? null : { type: "job-result", result };
+  }
+  if (message.type === "quick-preview-built" && "outcome" in message) {
+    const outcome: unknown = message.outcome;
+    if (typeof outcome !== "object" || outcome === null) return null;
+    if (
+      "status" in outcome &&
+      outcome.status === "built" &&
+      "files" in outcome &&
+      isQuickPreviewFiles(outcome.files)
+    ) {
+      return {
+        type: "quick-preview-built",
+        outcome: { status: "built", files: outcome.files },
+      };
+    }
+    if (
+      "status" in outcome &&
+      outcome.status === "failed" &&
+      "message" in outcome &&
+      typeof outcome.message === "string"
+    ) {
+      return {
+        type: "quick-preview-built",
+        outcome: { status: "failed", message: outcome.message },
+      };
+    }
+    return null;
   }
   if (message.type === "proposal-built" && "outcome" in message) {
     const outcome = asHandedProposalBuild(message.outcome);

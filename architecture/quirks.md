@@ -194,6 +194,17 @@ which is the path the event actually travelled — `useDismissOnOutsidePointer`
 does. This cost the Preview menu's "Open in a new tab" and every suggestion in
 the canvas address bar.
 
+**The same retargeting froze scrolling in every modal dialog.** Radix puts its
+scroll lock (`react-remove-scroll`) on the OVERLAY and lists the content as a
+"shard", matched with `shard.contains(event.target)` from a `document` wheel
+listener — where the target is the shadow host, which no shard contains. So
+every wheel over a dialog's content was cancelled: nothing in the compare
+dialog could be scrolled, and the mobile sidebar's `hideOverlay` was a
+workaround for it. Our copy (`designSystem/dialog-primitive.tsx`) puts the
+lock on the CONTENT instead, so its events are judged by their real target.
+jsdom has no layout, so no unit test can see this; check it in a browser with
+the dialog portalled into a shadow root.
+
 **A Radix popup with no `container` opens OUTSIDE the shadow root, and that also
 reads as a dead button.** The default portal target is `document.body`, where
 none of Val's styles reach the menu and nothing gives it a stacking context
@@ -1018,6 +1029,44 @@ nothing. Chromium can, on request: `Page.setWebLifecycleState` with
 `e2e/http/publishHandoff.spec.ts` freezes the Studio straight after the tap.
 That spec fails on the old hand-off with the same screen an iPhone showed.
 
+## `val publish` builds with native rolldown, the tab with `@rolldown/browser`
+
+_Noted 2026-10-26. The incident below can be deleted once `@rolldown/browser`
+pairs `@napi-rs/wasm-runtime` 1.2.6 or later with an `@emnapi/core` it works
+with; the rule itself is permanent and documented in
+`packages/tanstack-build/src/rolldown.ts`._
+
+`@valbuild/tanstack-build` builds a site in a browser tab and in Node with the
+same code, and rolldown has two builds with one API. Nothing in the package
+imports either statically: `loadRolldown()` picks, and Node is handed the
+native one (`useRolldown(nativeRolldown)`, which `val publish` does), while
+anything not handed one loads `@rolldown/browser` on first use.
+
+What forced it: on 2026-10-25 `@napi-rs/wasm-runtime` 1.2.6 was released, and
+`@rolldown/browser` 1.2.15 accepts it (`~1.2.5`) while pinning
+`@emnapi/core` 2.0.0-alpha.5, which 1.2.6 does not work with. Loading the
+WebAssembly build in Node then throws `Cannot set properties of undefined
+(setting 'initWorker')`, and `val publish` reported it as "@valbuild/tanstack-build
+and rolldown … could not be loaded". A site's lockfile chooses that version,
+so a Val Build upgrade (or any `pnpm update`) broke the site's CI publish
+while every check on Val Build passed — those build with Val Build's own
+lockfile, not the site's. Native rolldown has no WebAssembly glue, so the
+site's `@napi-rs/wasm-runtime` no longer matters in Node.
+
+The browser side is still exposed, but only to lockfiles we own: the Studio
+bundles `@rolldown/browser` from this repository's, and Val Build's upgrade
+page from valbuild/home's. **Do not move `@rolldown/browser` to a release that
+resolves `@napi-rs/wasm-runtime` 1.2.6 until the pair loads** — the
+end-to-end specs that publish from the builder tab (`publishHandoff.spec.ts`)
+are what load it; the `tanstack-build` probes build with native rolldown, as
+Node does, because the WebAssembly build crashed in Node's worker threads
+under a loaded test run. Val's dev copy of native
+`rolldown` is pinned to the same release as `@rolldown/browser`, because
+`Rolldown` is typed by the browser build and two releases' types disagree.
+
+A site whose `@valbuild/tanstack-build` predates this still loads the
+WebAssembly build in Node; its next upgrade brings the fix.
+
 ## A request "pending" in dev is usually queued, not slow
 
 The devtools show a request as pending from the moment it is _created_, which
@@ -1329,6 +1378,33 @@ already scoped — `useVal` subscribes to exactly `getModuleIds(selector)`.
 
 ## TanStack Start
 
+**Under `vite dev`, Val's edit tags reach only the components whose modules
+ran after `@valbuild/tanstack/autotag`.** `autoTagJSX` works by replacing
+`jsx`, `jsxs`, `jsxDEV` and `createElement` on React's own export objects.
+A production bundle reads those exports when it calls them, so the order
+modules run in does not matter there. `vite dev` serves React pre-bundled as
+CommonJS and gives each importing module its OWN copy of what it imports --
+a named import is read once, a namespace import (`import * as React`, which
+is how `@tanstack/react-router` imports it) is a spread of the exports --
+taken when that module first runs. So a component whose module ran before
+the wrapping keeps React's unwrapped functions: in development its content is
+not click-to-edit, its text keeps its edit tag, and the leak warning names it
+as though the app had leaked it. `@valbuild/tanstack` wraps them when it is
+imported, which is too late for the router, which it imports itself. That is
+what `@valbuild/tanstack/autotag` is for: an entry that does nothing but the
+wrapping, imported first in `src/router.tsx`, before the router or any route
+has run. It cost an afternoon to find because the showcase happened to be
+clean -- in the templates, 22 of the home page's texts were flagged in
+development and none in a production build.
+
+**`createElement` takes its children as arguments, not in `props`.** The
+wrapper `jsx` gets reads `props.children`, so `createElement` needs its own
+(`WrapCreateElement`): TanStack Router's `<Link>` renders its `<a>` with
+`React.createElement(host, linkProps, children)`, and before it the link got
+its `data-val-path` (from the template's own component, which spread its
+props onto `<Link>`) while its text kept the edit tag -- on every visitor's
+page, with analytics on.
+
 **A `*.val.ts` under `src/routes` is read as a route unless you say otherwise.**
 TanStack Router's generator scans every file in the routes folder and warns, on
 every run, that `posts.$postId.val.ts` exports no `Route` — while quietly
@@ -1416,3 +1492,16 @@ links packages as source. The server's request handlers use `Uint8Array` and
 global `Buffer` in what the browser entry reaches, `@valbuild/core` and
 `@valbuild/shared` included. Seeing it takes the packed packages in an app of
 its own; the workspace hides it.
+
+**In this repository, the first page with the overlay on reloads the Studio.**
+`ValTanStackProvider` imports `@valbuild/shared/internal` lazily, the first
+time a page renders with the overlay. The workspace links `@valbuild/*` as
+source, which Vite does not pre-bundle, so it meets that entrypoint's
+dependencies (zod, zod-validation-error, flexsearch) only then, re-optimizes,
+and reloads every page it serves, the Studio's included. In an e2e run that
+reload landed mid-edit in the first canvas test on a fresh checkout, and the
+row being typed in was gone. `examples/tanstack/vite.config.ts` lists them in
+`optimizeDeps.include`. A dependency added to that entrypoint brings the reload
+back, and a cold cache (`rm -rf examples/tanstack/node_modules/.vite`) is how to
+see it. An app that installs Val from npm is not affected:
+`@valbuild/tanstack` is pre-bundled there, with what it imports lazily.

@@ -1,5 +1,28 @@
 # @valbuild/tanstack-build
 
+## 0.150.12
+
+### Patch Changes
+
+- [#980](https://github.com/valbuild/val/pull/980) [`46f07c7`](https://github.com/valbuild/val/commit/46f07c77f71b0d3b1f3964d648ff31eaf8e5eec3) Thanks [@freekh](https://github.com/freekh)! - Building a site in Safari (and every browser on an iPhone) no longer fails with "Cannot access '…' before initialization". The browser build loaded rolldown's bundler and its parser at the same time, and Safari could hand back the bundler before it had finished loading; they now load one after the other.
+
+## 0.150.9
+
+### Patch Changes
+
+- [#971](https://github.com/valbuild/val/pull/971) [`fdb0280`](https://github.com/valbuild/val/commit/fdb02809830355e595127814c8e8676fdb0d5279) Thanks [@freekh](https://github.com/freekh)! - The Studio's files now also ship as plain files, so a host can serve them itself instead of from your app's server.
+
+  - `@valbuild/ui` includes `static/`: every Studio file, plus a `manifest.json` that says which request path under `/api/val/static` serves which file. Binary files are copied byte for byte. `@valbuild/ui/server` is unchanged, and so is every host that uses it.
+  - `@valbuild/tanstack-build` uses it on Val Build's hosting. When the platform says it serves build assets, the site's dependency layer leaves out the Studio copy embedded in `@valbuild/ui/server` and carries the Studio's files as build assets instead. The site's server then loads about 18 MB less JavaScript and uses roughly 80-100 MB less memory. That margin is what kept a Studio from loading on a hosted site: its server ran out of memory and was restarted on almost every request.
+
+## 0.150.1
+
+### Patch Changes
+
+- [#942](https://github.com/valbuild/val/pull/942) [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11) Thanks [@freekh](https://github.com/freekh)! - `val publish` builds with native `rolldown` instead of rolldown's WebAssembly build. A site whose lockfile resolved `@napi-rs/wasm-runtime` 1.2.6 (released 2026-10-25) could no longer publish: `@rolldown/browser` 1.2.15 accepts that version but does not load with it, and `val publish` failed with "@valbuild/tanstack-build and rolldown … could not be loaded: Cannot set properties of undefined (setting 'initWorker')". Native `rolldown` does not use `@napi-rs/wasm-runtime` at all, so the site's version of it no longer matters. The Studio still builds in the browser with `@rolldown/browser`, from Val's own pinned versions.
+
+  New: `val check-build-tools` loads what `val publish` builds with and builds a one-line module with it, without asking content anything, and fails when it could not. Val Build runs it on an upgrade's install before a project whose CI publishes it can publish the upgrade.
+
 ## 0.149.2
 
 ### Patch Changes

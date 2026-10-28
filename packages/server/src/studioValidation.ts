@@ -109,10 +109,21 @@ export async function checkModuleForStudio(
   // not judge without the bytes — which is every image that has metadata at
   // all. Reading them is what turns "has metadata" into "has the RIGHT
   // metadata".
+  // A published file this server cannot read is not judged at all: in a
+  // hosted project a template's files are in the built site, not the content
+  // service (`ValOps.canReadPublishedFiles`), and reading them reported every
+  // one as unreadable.
+  const readableFiles = ops.canReadPublishedFiles()
+    ? validation.files
+    : Object.fromEntries(
+        Object.entries(validation.files).filter(
+          ([, file]) => input.fileLastUpdatedByPatchId[file.path] !== undefined,
+        ),
+      );
   const fileErrors = await ops.validateFiles(
     schemas,
     sources,
-    validation.files,
+    readableFiles,
     input.fileLastUpdatedByPatchId,
   );
   for (const [sourcePath, found] of Object.entries(fileErrors)) {
@@ -188,6 +199,10 @@ function isEntries(source: unknown): source is Record<string, unknown> {
  *   is never compared with the file (`videosetCheckAllFilesPatch` says why).
  * - **A remote entry** is asked of its host, as any remote file is, but only
  *   whether the host has it (`existenceOnly`).
+ * - **A local entry this server cannot read** is skipped: in a hosted project
+ *   a template's files are in the built site, not the content service
+ *   (`ValOps.canReadPublishedFiles`), and "gone" would be a lie whose fix
+ *   deletes the entry. Its `*:upload-remote` row is what moves it.
  */
 async function checkMediaDirEntries(
   ops: ValOps,
@@ -219,9 +234,15 @@ async function checkMediaDirEntries(
       remoteEntries[entryPath] = { path: key };
       continue;
     }
+    const fromPatch = input.fileLastUpdatedByPatchId[entry.localPath] ?? null;
+    if (fromPatch === null && !ops.canReadPublishedFiles()) {
+      // Nowhere to read it from -- a hosted project's template files are in
+      // the built site, not the content service -- so nothing to say about
+      // it. Never "gone": that row's fix removes the entry.
+      continue;
+    }
     if (type === "videos") {
       // A video: there or not, and nothing else. See above.
-      const fromPatch = input.fileLastUpdatedByPatchId[entry.localPath] ?? null;
       const reader = await ops.openBinaryFile(entry.localPath, fromPatch);
       if (reader === null) {
         errors[entryPath] = [

@@ -3,10 +3,11 @@
  * reports what its modules are -- what the builder tab does, on Node.
  *
  * A separate process for the reason splitEnvMarkersProbe.ts gives: rolldown is
- * `@rolldown/browser`'s, which is ESM-only, and jest runs CommonJS here. The
+ * rolldown's, which is ESM-only, and jest runs CommonJS here. The
  * site's vendor chunk is a file under a temp directory standing in for the
  * origin, re-exporting this repository's `@valbuild/core`.
  */
+import "./nativeBundler";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";

@@ -23,7 +23,7 @@ import {
  * it builds its own chain: nothing a person does in a test writes 650 patches.
  */
 
-const VAL_DIR = join(__dirname, "..", "examples/next/.val");
+const VAL_DIR = join(__dirname, "..", "examples/tanstack/.val");
 const PATCHES_DIR = join(VAL_DIR, "patches");
 const LOCK_FILE = join(VAL_DIR, PATCH_LOCK_FILE_NAME);
 const CHAIN_LENGTH = 650;

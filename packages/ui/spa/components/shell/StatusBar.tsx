@@ -56,6 +56,12 @@ export type StatusBarProps = {
    * environment: it is the one item here that asks for something.
    */
   notice?: ReactNode;
+  /**
+   * In a proposal: changes kept on the content service but not saved to the
+   * proposal yet. "All changes saved" beside a Save button counting them
+   * said two opposite things, so with any the label counts them instead.
+   */
+  unsavedInProposal?: number;
 };
 
 /**
@@ -84,6 +90,7 @@ export function StatusBar({
   deploymentsOpen = false,
   onDeploymentsOpenChange,
   notice,
+  unsavedInProposal = 0,
 }: StatusBarProps) {
   return (
     <footer
@@ -165,7 +172,11 @@ export function StatusBar({
             <Divider />
           </>
         )}
-        <SaveIndicator saveState={saveState} breakpoint={breakpoint} />
+        <SaveIndicator
+          saveState={saveState}
+          breakpoint={breakpoint}
+          unsavedInProposal={unsavedInProposal}
+        />
       </div>
     </footer>
   );
@@ -178,9 +189,12 @@ function Divider() {
 export function SaveIndicator({
   saveState,
   breakpoint,
+  unsavedInProposal = 0,
 }: {
   saveState: SaveState;
   breakpoint?: ShellBreakpoint;
+  /** See `StatusBarProps.unsavedInProposal`. */
+  unsavedInProposal?: number;
 }) {
   /*
    * One width for every state.
@@ -203,7 +217,11 @@ export function SaveIndicator({
             state !== saveState && "invisible",
           )}
         >
-          <SaveLabel saveState={state} breakpoint={breakpoint} />
+          <SaveLabel
+            saveState={state}
+            breakpoint={breakpoint}
+            unsavedInProposal={unsavedInProposal}
+          />
         </span>
       ))}
     </span>
@@ -215,9 +233,11 @@ const SAVE_STATES: SaveState[] = ["saved", "saving", "error"];
 function SaveLabel({
   saveState,
   breakpoint,
+  unsavedInProposal,
 }: {
   saveState: SaveState;
   breakpoint?: ShellBreakpoint;
+  unsavedInProposal: number;
 }) {
   if (saveState === "saving") {
     return (
@@ -236,6 +256,18 @@ function SaveLabel({
           <CircleDot size={13} />
         </SaveIcon>
         Could not save
+      </span>
+    );
+  }
+  if (unsavedInProposal > 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <SaveIcon>
+          <span className="w-1.5 h-1.5 rounded-full border border-fg-proposal" />
+        </SaveIcon>
+        {breakpoint === "tablet"
+          ? `${unsavedInProposal} unsaved`
+          : `${unsavedInProposal} not saved to the proposal`}
       </span>
     );
   }

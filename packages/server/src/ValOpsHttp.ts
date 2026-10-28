@@ -40,6 +40,7 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
+import { patchModuleText } from "./patchModuleText";
 import {
   MoveInputs,
   movesAtMerge,
@@ -74,6 +75,18 @@ const textEncoder = new TextEncoder();
 
 /** The body of the content API's 403 for a write the project's plan refuses. */
 const PlanRefusedBody = z.object({ error: PlanRefusalError });
+
+/** `POST /proposals-api/<name>/patch-file`: see `patchFileInProposal`. */
+const PatchFileBody = z.object({
+  moduleFilePath: z.string().regex(/^\/.+\.val\.(ts|js)$/),
+  patch: Patch,
+  message: z.string().max(500).optional(),
+});
+
+/** What `patchFileInProposal` reads of content's answer for a proposal's files. */
+const ProposalFilesRead = z.object({
+  files: z.record(z.string(), z.string().nullable()),
+});
 
 const PatchId = z.string().refine((s): s is PatchId => !!s); // TODO: validate
 const CommitSha = z.string().refine((s): s is CommitSha => !!s); // TODO: validate
@@ -693,6 +706,11 @@ export class ValOpsHttp extends ValOps {
     return this.projectExpectation?.sourceMode ?? null;
   }
 
+  /** See {@link ValOps.canReadPublishedFiles}: not without a repository. */
+  override canReadPublishedFiles(): boolean {
+    return this.git !== null;
+  }
+
   /** Remembered with {@link sourceMode}, from the same response. */
   override projectBranch(): string | null {
     return this.projectExpectation?.branch ?? null;
@@ -993,22 +1011,56 @@ export class ValOpsHttp extends ValOps {
    * (valbuild/home `docs/adept.md`, step 6), reporting the typecheck of
    * them (step 7, decision 20), serving a build of it
    * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
-   * site's code (step 8, "Update from the site") -- is made by the
-   * proposal's own server and nobody else's: the file tools act on the
-   * proposal the Studio is open in (P11), and the site's files change only
-   * when a proposal is merged. The proposal it names, or `null` when this
-   * path is not such a write.
+   * site's code (step 8, "Update from the site"). The proposal it names and
+   * what it does, or `null` when this path is not such a write.
+   *
+   * Who may make one is {@link ValOpsHttp.mayWriteFiles}.
    */
   private static proposalFilesWrite(
     method: string,
     path: string,
-  ): string | null {
+  ): { name: string; write: string } | null {
     if (method !== "POST") return null;
-    return (
+    const match =
       /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|update-from-site|restore-code)$/.exec(
         path,
-      )?.[1] ?? null
-    );
+      );
+    return match === null ? null : { name: match[1], write: match[2] };
+  }
+
+  /**
+   * The writes the SITE's server may make to a proposal's files: what the
+   * design tab does (valbuild/home `docs/design-tab.md`, step 2) -- stage
+   * code, build it, and report its typecheck. The tab is served by the site's
+   * build so that a build the assistant breaks in the proposal cannot take
+   * down the tools it would fix it with; at the proposal's address those
+   * tools run on the proposal's own code.
+   *
+   * The typecheck too, though it blocks the proposal's Publish (adept.md,
+   * decision 20): it is the proposal's staged files checked against the
+   * site's, the same program from either address, and the content service
+   * keeps it only for the inputs it was made from. Without it the tab's
+   * Types check, and the assistant's `typecheck`, had nothing to show.
+   *
+   * The rest stay the proposal's own: Update from the site and the lockfile
+   * are answered from the proposal's build and schemas, and bringing back a
+   * point's code is the Studio at its address finishing a restore.
+   */
+  private static readonly SITE_MAY_WRITE = new Set([
+    "files",
+    "build",
+    "typecheck",
+  ]);
+
+  /**
+   * Whether this server may make a write to a proposal's files: the
+   * proposal's own server, any of them; the site's, the design tab's; and a
+   * proposal's address, none to another proposal. Either way the site's own
+   * files change only when a proposal is merged.
+   */
+  private mayWriteFiles(write: { name: string; write: string }): boolean {
+    if (this.proposal !== null) return write.name === this.proposal.name;
+    return ValOpsHttp.SITE_MAY_WRITE.has(write.write);
   }
 
   /**
@@ -1059,6 +1111,10 @@ export class ValOpsHttp extends ValOps {
     if (updating !== undefined && init.method === "POST") {
       return this.updateContentFromSite(updating, init.body, profileId);
     }
+    const patching = /^\/([0-9a-f]{20})\/patch-file$/.exec(path)?.[1];
+    if (patching !== undefined && init.method === "POST") {
+      return this.patchFileInProposal(patching, init.body, profileId);
+    }
     const withCode = /^\/([0-9a-f]{20})\/update-code$/.exec(path)?.[1];
     if (withCode !== undefined && init.method === "POST") {
       return this.updateCodeFromSite(withCode, init.body, profileId);
@@ -1095,14 +1151,14 @@ export class ValOpsHttp extends ValOps {
       };
     }
     const writes = ValOpsHttp.proposalFilesWrite(init.method, path);
-    if (writes !== null && writes !== this.proposal?.name) {
+    if (writes !== null && !this.mayWriteFiles(writes)) {
       return {
         status: 403,
         contentType: json,
         body: JSON.stringify({
           message:
             this.proposal === null
-              ? "The site's files are changed in a proposal: open one, and change them there."
+              ? "Only the proposal's own Studio does this: open the proposal, and do it there."
               : "Files are changed in the proposal this Studio is open in, not in another.",
         }),
       };
@@ -1128,6 +1184,112 @@ export class ValOpsHttp extends ValOps {
       status: res.status,
       body: await res.text(),
       contentType: res.headers.get("Content-Type") ?? json,
+    };
+  }
+
+  /**
+   * A patch written into a module's FILE in a proposal, and staged there as
+   * code: the design tab's `create_patch` (valbuild/home `docs/design-tab.md`).
+   * The assistant there changes the proposal's code, so content it writes goes
+   * with that code -- a field it just added is filled in the same change, and
+   * built and rendered with it -- rather than into the proposal's saves, which
+   * the site's server does not write.
+   *
+   * Answered here, at `POST /<name>/patch-file`: the file is the proposal's
+   * copy if it has one, otherwise the one this build was made from, and the
+   * patch is written into it as a save writes one (`patchModuleText`). Who may
+   * is who may stage files: {@link ValOpsHttp.mayWriteFiles}.
+   */
+  private async patchFileInProposal(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (!this.mayWriteFiles({ name, write: "files" })) {
+      return answer(403, {
+        message:
+          "Files are changed in the proposal this Studio is open in, not in another.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The patch's body is not JSON." });
+    }
+    const request = PatchFileBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid patch: ${fromError(request.error).toString()}`,
+      });
+    }
+    const { moduleFilePath, patch, message } = request.data;
+    const content = this.proposalContent(name, profileId);
+    const read = await content("/files");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const files = ProposalFilesRead.safeParse(await read.json());
+    if (!files.success) {
+      return answer(502, {
+        message: `Content answered the proposal's files in a shape this Val does not read: ${fromError(files.error).toString()}`,
+      });
+    }
+    const filePath = moduleFilePath.replace(/^\/+/, "");
+    const own = files.data.files[filePath];
+    if (own === null) {
+      return answer(409, {
+        message: `${moduleFilePath} is deleted in this proposal.`,
+      });
+    }
+    if (own === undefined && this.projectSource === null) {
+      return answer(409, {
+        message: `This build does not carry its source, so ${moduleFilePath} can only be patched once the proposal has its own copy: write it with write_files.`,
+      });
+    }
+    const text = own ?? this.projectSource?.[filePath];
+    if (text === undefined) {
+      return answer(404, {
+        message: `There is no module file ${moduleFilePath} in this proposal or on the site.`,
+      });
+    }
+    const patched = await patchModuleText(text, patch);
+    if (result.isErr(patched)) {
+      return answer(422, {
+        message: `The patch does not apply to ${moduleFilePath}: ${patched.error}`,
+      });
+    }
+    let formatted = patched.value;
+    if (this.options?.formatter) {
+      try {
+        formatted = await this.options.formatter(patched.value, moduleFilePath);
+      } catch (error) {
+        return answer(422, {
+          message: `The patched ${moduleFilePath} could not be formatted: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+    const staged = await content("/files", {
+      method: "POST",
+      body: JSON.stringify({
+        files: { [filePath]: formatted },
+        ...(message !== undefined ? { message } : {}),
+      }),
+    });
+    return {
+      status: staged.status,
+      contentType: staged.headers.get("Content-Type") ?? json,
+      body: await staged.text(),
     };
   }
 

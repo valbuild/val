@@ -17,7 +17,13 @@ import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
 import { Avatar } from "../Avatar";
 import { AccountErrorNotice, ShellAccountError } from "./AccountError";
 import { DeploymentRows } from "./Deployments";
-import { ShellAdminLinks, ShellBreakpoint, ShellDeployment } from "./types";
+import {
+  ShellAdminLinks,
+  ShellBreakpoint,
+  ShellDeployment,
+  ShellVersions,
+} from "./types";
+import { VersionList } from "./VersionList";
 import type { UpgradeButton } from "../../upgrade/useUpgrade";
 
 export type AccountPanelProps = {
@@ -78,6 +84,11 @@ export type AccountPanelProps = {
    * is nothing to upgrade.
    */
   upgrade?: UpgradeButton;
+  /**
+   * The versions of Val's packages, as one quiet line at the very foot.
+   * Absent where there is no server to ask (a story that does not supply one).
+   */
+  versions?: ShellVersions;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -113,6 +124,7 @@ export function AccountPanel({
   onStartTour,
   members,
   upgrade,
+  versions,
   onClose,
   navSwitcher,
 }: AccountPanelProps) {
@@ -282,6 +294,8 @@ export function AccountPanel({
             </button>
           </div>
         )}
+
+        {versions && <VersionList versions={versions} mode={mode} />}
       </div>
     </FloatingPanel>
   );

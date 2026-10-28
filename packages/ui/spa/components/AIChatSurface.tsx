@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { AIChat, type AIChatHandle } from "./AIChat";
-import { useAI } from "../hooks/useAI";
+import { useAI, type UseAIOptions } from "../hooks/useAI";
 import { useAIChatActions } from "./AIChatActionsContext";
 import {
   useAIConnectionError,
@@ -13,6 +13,7 @@ import { useSessionParam } from "./ValRouter";
 import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
 import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { AiSetup } from "./shell/AiSetup";
+import { ShareChatLink } from "./proposals/ShareChatLink";
 
 /**
  * The assistant, wired.
@@ -39,7 +40,14 @@ import { AiSetup } from "./shell/AiSetup";
  * its session id is seeded from `sessionStorage` rather than from the studio's
  * URL, which is how the two hand a conversation back and forth.
  */
-export function AIChatSurface({ className }: { className?: string }) {
+export function AIChatSurface({
+  className,
+  design,
+}: {
+  className?: string;
+  /** The design tab's proposal: see `UseAIOptions.design`. */
+  design?: UseAIOptions["design"];
+}) {
   /**
    * Nobody has said whether this project has an assistant, so ask before there
    * is a conversation at all — see `EnableAssistantPrompt`. Before the hooks
@@ -54,10 +62,16 @@ export function AIChatSurface({ className }: { className?: string }) {
       </div>
     );
   }
-  return <ConnectedChat className={className} />;
+  return <ConnectedChat className={className} design={design} />;
 }
 
-function ConnectedChat({ className }: { className?: string }) {
+function ConnectedChat({
+  className,
+  design,
+}: {
+  className?: string;
+  design?: UseAIOptions["design"];
+}) {
   const chatRef = useRef<AIChatHandle | null>(null);
   const mode = useValMode();
   /**
@@ -79,6 +93,7 @@ function ConnectedChat({ className }: { className?: string }) {
   const initialSessionIdRef = useRef(sessionParam);
   const {
     sendMessage,
+    captureSendContext,
     uploadAiImage,
     isConnected,
     authError,
@@ -92,7 +107,10 @@ function ConnectedChat({ className }: { className?: string }) {
     answerToolQuestions,
     cancelToolQuestion,
     cancel,
+    shared,
+    sessionModel,
   } = useAI(chatRef, {
+    ...(design ? { design } : {}),
     initialSessionId: initialSessionIdRef.current,
     onSessionBorn: (id) => {
       setSessionParam(id, { replace: true });
@@ -154,10 +172,12 @@ function ConnectedChat({ className }: { className?: string }) {
       className={className}
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
+      onCaptureSendContext={captureSendContext}
       onCancel={cancel}
       models={aiModels.models}
-      selectedModel={aiModels.selected}
+      selectedModel={sessionModel ?? aiModels.selected}
       onSelectModel={aiModels.select}
+      modelLocked={sessionModel !== null}
       onUploadFile={uploadAiImage}
       onNewSession={newSession}
       isConnected={isConnected}
@@ -176,6 +196,23 @@ function ConnectedChat({ className }: { className?: string }) {
       isLoadingSession={isLoadingSession}
       onAnswerToolQuestions={answerToolQuestions}
       onCancelToolQuestion={cancelToolQuestion}
+      // In a proposal its chats are everyone's on the project (valbuild/home
+      // `docs/proposals.md`, Flow H): names on messages, whose question runs,
+      // and who is in each chat.
+      together={
+        shared
+          ? {
+              viewerId: shared.viewerId,
+              people: shared.people,
+              turnBy: shared.turnBy,
+              header: <ShareChatLink people={shared.people} />,
+              sessionList: {
+                title: "Chats in this proposal",
+                people: shared.sessionPeople,
+              },
+            }
+          : undefined
+      }
       emptyStateOverride={
         // Connected and still no model means no key reaches one: offer to add
         // it here rather than let the first message fail with "no key". Not

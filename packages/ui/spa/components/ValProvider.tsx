@@ -177,7 +177,23 @@ export type AIContentBlock =
 export type AIMessageContent = string | AIContentBlock[];
 
 export type AIMessagesResponse = {
-  messages: { role: string; content: AIMessageContent }[];
+  messages: {
+    role: string;
+    content: AIMessageContent;
+    /** Who asked, on a user message in a proposal's chat. */
+    authorId?: string | null;
+    /**
+     * On a user message: the tools called in the turn it asked for, as the
+     * content server kept them (valbuild/home `docs/proposals.md`, Flow H).
+     */
+    toolCalls?: {
+      toolCallId: string;
+      name: string;
+      isError: boolean;
+      questions?: unknown[];
+      answers?: unknown[];
+    }[];
+  }[];
   nextCursor?: { updatedAt: string; id: string } | null;
 };
 
@@ -345,6 +361,8 @@ type ValContextValue = {
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
+    /** In a proposal: its chats, everyone's, instead of your own. */
+    proposal?: string;
   }) => Promise<AISessionsResponse>;
   aiGetSessionMessages: (
     sessionId: string,
@@ -365,7 +383,7 @@ type ValContextValue = {
     files: { filePath: string; key: string; isRemote?: boolean }[];
   }) => Promise<{
     patchId: PatchId;
-    files: { filePath: string; metadata: ImageMetadata }[];
+    files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
   }>;
 };
 /**
@@ -499,10 +517,12 @@ export function ValProvider({
     async (opts?: {
       limit?: number;
       cursor?: { updatedAt: string; id: string };
+      proposal?: string;
     }): Promise<AISessionsResponse> => {
       const res = await client("/ai/sessions", "GET", {
         query: {
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          proposal: opts?.proposal,
           cursor_updatedAt: opts?.cursor?.updatedAt,
           cursor_id: opts?.cursor?.id,
         },
@@ -560,7 +580,7 @@ export function ValProvider({
       files: { filePath: string; key: string; isRemote?: boolean }[];
     }): Promise<{
       patchId: PatchId;
-      files: { filePath: string; metadata: ImageMetadata }[];
+      files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
     }> => {
       const res = await client("/ai/session-image-to-patch-file", "POST", {
         body: args,
