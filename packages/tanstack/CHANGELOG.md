@@ -1,5 +1,11 @@
 # @valbuild/tanstack
 
+## 0.150.15
+
+### Patch Changes
+
+- [#986](https://github.com/valbuild/val/pull/986) [`afe3998`](https://github.com/valbuild/val/commit/afe399890afc056961992319254045389e498257) Thanks [@freekh](https://github.com/freekh)! - Content analytics now counts the visitors of a hosted site that has published content without a build. Such a site serves its content as a snapshot, and the analytics script took any snapshot for a proposal's address and never started, so those sites counted nothing even though their content was tagged.
+
 ## 0.150.14
 
 ### Patch Changes
