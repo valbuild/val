@@ -11,6 +11,8 @@ import {
   type InviteRowState,
 } from "../ProposalInviteMenu";
 import { ProposalPeopleButton } from "../ProposalPeopleButton";
+import { applyWatchedEvent } from "../../../hooks/sharedChat";
+import type { AIWatchedMessage } from "../../../hooks/useAIWebSocket";
 import { WorkTogetherButton, WorkTogetherOffer } from "../WorkTogether";
 import type { ProposalParticipant, ProposalParticipantReason } from "../types";
 
@@ -442,6 +444,11 @@ const PROPOSAL_CHAT: ChatMessage[] = [
     content:
       "Shortened it to “Spring is here — and so is everything for it.” (44 characters, one line on a phone).",
     status: "complete",
+    // As kept by the content server: still there after a reload.
+    toolActivities: [
+      { toolCallId: "s1", name: "get_source", status: "complete" },
+      { toolCallId: "s2", name: "create_patch", status: "complete" },
+    ],
   },
 ];
 
@@ -543,6 +550,122 @@ function SomeoneElseIsAskingDemo() {
           );
           return true;
         }}
+        together={{
+          viewerId: VIEWER,
+          people: [FREDRIK, KARI, OLA],
+          turnBy,
+          header: (
+            <ProposalPeopleButton
+              people={[FREDRIK, KARI, OLA]}
+              viewerId={VIEWER}
+              menu={<InviteMenuDemo />}
+            />
+          ),
+        }}
+      />
+    </ChatFrame>
+  );
+}
+
+/**
+ * Live: Kari asks in the chat Fredrik has open, and he sees it as it happens.
+ * Fed by the content server's relay events (`ai_watched`) through
+ * `applyWatchedEvent`, the code the Studio runs: her question appears as she
+ * sends it, each tool her turn runs is a row, the answer streams in, and
+ * "Kari is asking" clears when her turn ends. Write a message meanwhile and it
+ * waits for her answer. The rows on the answer before hers are as a reload
+ * shows them, from the tool calls the content server keeps.
+ */
+export const WatchedLive: Story = {
+  render: () => <WatchedLiveDemo />,
+};
+
+function WatchedLiveDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+  const activeId = useRef<string | null>(null);
+  const [turnBy, setTurnBy] = useState<ProposalParticipant | null>(null);
+  useEffect(() => {
+    const started = new Set<string>();
+    const people: Record<string, ProposalParticipant> = {
+      [KARI.id]: KARI,
+      [OLA.id]: OLA,
+    };
+    const relay = (event: AIWatchedMessage["event"]) =>
+      applyWatchedEvent(event, {
+        chat: chatRef.current,
+        activeId,
+        started,
+        participantOf: (id) => people[id] ?? { id, name: id },
+        setTurnBy,
+        turnEnded: () => {},
+      });
+    const id = "karis-turn";
+    const events: AIWatchedMessage["event"][] = [
+      {
+        type: "ai_turn_started",
+        id,
+        sessionId: "chat-1",
+        authorId: KARI.id,
+        message: [
+          { type: "text", text: "Update the prices to the spring price list" },
+        ],
+      },
+      ...(["search_content", "create_patch"] as const).flatMap(
+        (name, n): AIWatchedMessage["event"][] => [
+          {
+            type: "ai_tool_activity",
+            id,
+            toolCallId: `t${n}`,
+            name,
+            status: "pending",
+          },
+          {
+            type: "ai_tool_activity",
+            id,
+            toolCallId: `t${n}`,
+            name,
+            status: "complete",
+          },
+        ],
+      ),
+      ...(KARIS_ANSWER.match(/[^]{1,4}/g) ?? []).map(
+        (chunk): AIWatchedMessage["event"] => ({
+          type: "ai_streaming",
+          id,
+          chunk,
+        }),
+      ),
+      { type: "ai_response", id, sessionId: "chat-1", response: KARIS_ANSWER },
+      { type: "ai_turn_ended", id, sessionId: "chat-1" },
+    ];
+    let i = 0;
+    // Kari asks a moment after the chat opens, then the answer streams.
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timers.push(
+      setTimeout(() => {
+        const interval = setInterval(() => {
+          const event = events[i++];
+          if (!event) {
+            clearInterval(interval);
+            return;
+          }
+          relay(event);
+        }, 70);
+        timers.push(interval);
+      }, 1500),
+    );
+    return () => timers.forEach((t) => clearInterval(t));
+  }, []);
+  return (
+    <ChatFrame>
+      <AIChat
+        ref={chatRef}
+        isConnected
+        authError={false}
+        mode="http"
+        onNewSession={() => {}}
+        initialMessages={PROPOSAL_CHAT}
+        onSendMessage={() => true}
         together={{
           viewerId: VIEWER,
           people: [FREDRIK, KARI, OLA],

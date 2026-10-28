@@ -41,6 +41,7 @@ import {
   ValServerErrorStatus,
   parseJob,
   AnalyticsBeacon,
+  AIToolCallSummaries,
 } from "@valbuild/shared/internal";
 import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
@@ -3660,6 +3661,8 @@ export const ValServer = (
                   content: AIMessageContent,
                   // Who asked, on a user message (Flow H).
                   authorId: z.string().nullable().optional(),
+                  // The tools that question's turn called (Flow H).
+                  toolCalls: AIToolCallSummaries,
                 }),
               ),
               nextCursor: z

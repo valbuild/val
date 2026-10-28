@@ -263,6 +263,11 @@ export type AIChatHandle = {
   clearMessages: () => void;
   /** Bulk-load historical messages (e.g. when restoring a session) */
   loadMessages: (messages: ChatMessage[]) => void;
+  /**
+   * Add a finished message to the end of the transcript: someone else's
+   * question in a shared chat, as it is asked (see `AIChatTogether`).
+   */
+  appendMessage: (message: ChatMessage) => void;
 };
 
 export type AIChatProps = {
@@ -1043,6 +1048,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     loadMessages(messages: ChatMessage[]) {
       setCurrentMessage(null);
       setCompletedMessages(messages);
+    },
+    appendMessage(message: ChatMessage) {
+      setCompletedMessages((prev) => [...prev, message]);
     },
   }));
 

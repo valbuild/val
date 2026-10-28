@@ -182,6 +182,17 @@ export type AIMessagesResponse = {
     content: AIMessageContent;
     /** Who asked, on a user message in a proposal's chat. */
     authorId?: string | null;
+    /**
+     * On a user message: the tools called in the turn it asked for, as the
+     * content server kept them (valbuild/home `docs/proposals.md`, Flow H).
+     */
+    toolCalls?: {
+      toolCallId: string;
+      name: string;
+      isError: boolean;
+      questions?: unknown[];
+      answers?: unknown[];
+    }[];
   }[];
   nextCursor?: { updatedAt: string; id: string } | null;
 };

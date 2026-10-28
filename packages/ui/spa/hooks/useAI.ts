@@ -25,7 +25,14 @@ import type {
   ChatMessageAttachment,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
-import { runningAsker, someoneElseAdded } from "./sharedChat";
+import type { ToolActivity } from "../components/AIChatToolActivities";
+import {
+  applyWatchedEvent,
+  runningAsker,
+  someoneElseAdded,
+  storedToolActivities,
+} from "./sharedChat";
+import { AskUserQuestionArgs } from "./askUserQuestion";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -458,33 +465,6 @@ const ASK_USER_QUESTION_TOOL: AITool = {
   // 30s timeout so the call doesn't get aborted while the user is deciding.
   timeoutMs: null,
 };
-// ask_user_question is the one tool whose arguments drive an interactive
-// render rather than a lookup, so a malformed payload is not recoverable the
-// way a bad argument to a read tool is: with no questions there is no card to
-// submit, and since the tool intentionally sends no immediate result the turn
-// would sit on a spinner forever.
-//
-// Only the fields the card cannot render without are strict. The cosmetic ones
-// use .catch so a wrong type drops just that field rather than rejecting an
-// otherwise perfectly answerable question.
-const AskUserQuestionArgs = z.object({
-  questions: z
-    .array(
-      z.object({
-        question: z.string(),
-        header: z.string().optional().catch(undefined),
-        options: z.array(
-          z.object({
-            label: z.string(),
-            description: z.string().optional().catch(undefined),
-          }),
-        ),
-        multiSelect: z.boolean().optional().catch(undefined),
-        defaults: z.array(z.number()).optional().catch(undefined),
-      }),
-    )
-    .min(1),
-});
 type AskUserQuestions = z.infer<typeof AskUserQuestionArgs>["questions"];
 
 const PATH_ARRAY_DESCRIPTION =
@@ -1011,11 +991,24 @@ export function useAI(
   );
   const participantOfRef = useRef(participantOf);
   participantOfRef.current = participantOf;
+  /**
+   * The open chat, once the content server has said it relays it here
+   * (`ai_watching`). From then on others' turns stream in as they are written
+   * and whose turn runs is what the server says, not a guess.
+   */
+  const [watchedSessionId, setWatchedSessionId] = useState<string | null>(null);
+  const watchedSessionIdRef = useRef<string | null>(null);
+  /** The watched turn whose answer is on screen as it streams. */
+  const watchedActiveIdRef = useRef<string | null>(null);
+  /** Watched turns whose question was seen asked, rather than joined midway. */
+  const watchedStartedRef = useRef<Set<string>>(new Set());
   /** Remember the open chat as the server has it, and whose turn is running. */
   const takeServerMessages = useCallback(
     (sessionId: string, messages: ServerMessage[]) => {
       serverMessagesRef.current = messages;
       setServerMessages(messages);
+      // Watched, the server says whose turn runs; the messages can only guess.
+      if (watchedSessionIdRef.current === sessionId) return;
       const asker = runningAsker(messages, viewerIdRef.current);
       if (asker === null) {
         pendingSinceRef.current = null;
@@ -1055,6 +1048,54 @@ export function useAI(
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      if (message.type === "ai_watching") {
+        if (message.sessionId !== sessionIdRef.current) return;
+        watchedSessionIdRef.current = message.sessionId;
+        setWatchedSessionId(message.sessionId);
+        // The viewer's own turn is nobody else's, as with `runningAsker`.
+        const by = message.runningAuthorId;
+        setTurnBy(
+          by === null || by === viewerIdRef.current
+            ? null
+            : participantOfRef.current(by),
+        );
+        return;
+      }
+      if (message.type === "ai_watched") {
+        if (message.sessionId !== sessionIdRef.current) return;
+        const sessionId = message.sessionId;
+        applyWatchedEvent(message.event, {
+          chat: chatRef.current,
+          activeId: watchedActiveIdRef,
+          started: watchedStartedRef.current,
+          participantOf: participantOfRef.current,
+          setTurnBy,
+          turnEnded: (joinedMidway) => {
+            aiGetSessionMessages(sessionId)
+              .then((res) => {
+                if (sessionIdRef.current !== sessionId) return;
+                if (joinedMidway) {
+                  chatRef.current?.loadMessages(
+                    toChatMessages(
+                      sessionId,
+                      res.messages,
+                      participantOfRef.current,
+                    ),
+                  );
+                }
+                takeServerMessages(sessionId, res.messages);
+              })
+              .catch((err) => {
+                // Only who is in the chat is stale, until the next turn ends.
+                Internal.log.debug(
+                  "Could not read the shared chat again:",
+                  err,
+                );
+              });
+          },
+        });
+        return;
+      }
       // Not ours: another part of the Studio is driving its own prompt on this
       // socket. `ai_session_unhidden` carries a request id rather than a prompt
       // id and is nobody's turn, so it is filtered the same way.
@@ -2501,6 +2542,8 @@ export function useAI(
     currentProfile,
     currentSourcePath,
     profiles,
+    aiGetSessionMessages,
+    takeServerMessages,
   ]);
 
   const uploadAiImage = useCallback(
@@ -2958,15 +3001,42 @@ Do not describe what you will do unless you do it for clarification — just do 
   );
 
   /*
-   * A proposal's chat is shared, so others may be asking in it. Until the
-   * content server relays a chat to everyone watching it, the open chat is
-   * read again every few seconds, and shown again when someone else has added
-   * to it. Never while this tab's own question runs (that one is on screen as
-   * it streams), and never just for this tab's own messages, which are on
-   * screen already with their tool activity, which a reload would drop.
+   * A proposal's chat is shared, so others may be asking in it: ask the
+   * content server to send this socket every turn of the open chat as it is
+   * written. A socket that closes loses its watches, so a reconnect asks again.
+   */
+  useEffect(() => {
+    if (
+      sharedProposalName === null ||
+      currentSessionId === null ||
+      !isWsConnected
+    ) {
+      return;
+    }
+    const sessionId = currentSessionId;
+    sendWsMessage({ type: "ai_watch_session", sessionId });
+    return () => {
+      sendWsMessage({ type: "ai_unwatch_session", sessionId });
+      if (watchedSessionIdRef.current === sessionId) {
+        watchedSessionIdRef.current = null;
+        setWatchedSessionId(null);
+      }
+      watchedActiveIdRef.current = null;
+      watchedStartedRef.current.clear();
+    };
+  }, [sharedProposalName, currentSessionId, isWsConnected, sendWsMessage]);
+
+  /*
+   * The fallback, for a content server that does not relay chats (it never
+   * answers the watch): the open chat is read again every few seconds, and
+   * shown again when someone else has added to it. Never while this tab's own
+   * question runs (that one is on screen as it streams), and never just for
+   * this tab's own messages, which are on screen already with their tool
+   * activity, which a reload would drop.
    */
   useEffect(() => {
     if (sharedProposalName === null || currentSessionId === null) return;
+    if (watchedSessionId === currentSessionId) return;
     let stopped = false;
     const timer = setInterval(async () => {
       const sid = sessionIdRef.current;
@@ -3009,6 +3079,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   }, [
     sharedProposalName,
     currentSessionId,
+    watchedSessionId,
     aiGetSessionMessages,
     chatRef,
     takeServerMessages,
@@ -3123,17 +3194,32 @@ function toChatMessages(
   messages: ServerMessage[],
   participantOf: (id: string) => ProposalParticipant,
 ): ChatMessage[] {
-  return messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map(
-      (m, i): ChatMessage => ({
-        id: `history-${sessionId}-${i}`,
-        role: m.role === "user" ? "user" : "assistant",
+  const chat: ChatMessage[] = [];
+  /** The tools the last question's turn called: they go on its answer. */
+  let toolActivities: ToolActivity[] = [];
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    // Numbered among the messages shown, as they always were.
+    const id = `history-${sessionId}-${chat.length}`;
+    if (m.role === "user") {
+      toolActivities = m.toolCalls ? storedToolActivities(m.toolCalls) : [];
+      chat.push({
+        id,
+        role: "user",
         content: m.content,
         status: "complete",
-        ...(m.role === "user" && m.authorId
-          ? { author: participantOf(m.authorId) }
-          : {}),
-      }),
-    );
+        ...(m.authorId ? { author: participantOf(m.authorId) } : {}),
+      });
+      continue;
+    }
+    chat.push({
+      id,
+      role: "assistant",
+      content: m.content,
+      status: "complete",
+      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+    });
+    toolActivities = [];
+  }
+  return chat;
 }
