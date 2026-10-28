@@ -82,6 +82,12 @@ import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
+import {
+  useRemoteUploadSettings,
+  type RemoteUploadReadiness,
+} from "../components/ValRemoteProvider";
+import { nameSessionImageRemote } from "../utils/sessionImageToRemote";
+import { galleryEntrySchemaOf } from "../utils/uploadLocalMedia";
 import { z } from "zod";
 import {
   buildImageGalleryPatch,
@@ -97,6 +103,7 @@ import {
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
+  type SessionKeyRemoteNamer,
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
@@ -669,6 +676,32 @@ export type UseAIOptions = {
   onSessionCleared?: () => void;
 };
 
+/**
+ * How the assistant's tools name a session image in remote storage. Needs the
+ * project's remote settings, so a remote image fails here, saying why, until
+ * they have loaded.
+ */
+function nameRemoteWith(
+  remoteUpload: RemoteUploadReadiness,
+): SessionKeyRemoteNamer {
+  return async ({ localPath, patchId, remoteSchema, metadata, sha256 }) => {
+    if (remoteUpload.status !== "ready") {
+      return {
+        status: "error",
+        message: `Remote files are not ready: ${remoteUpload.message}`,
+      };
+    }
+    return nameSessionImageRemote({
+      localPath,
+      patchId,
+      schema: remoteSchema,
+      metadata,
+      sha256,
+      remote: remoteUpload.settings,
+    });
+  };
+}
+
 export function useAI(
   chatRef: React.RefObject<AIChatHandle | null>,
   opts?: UseAIOptions,
@@ -950,6 +983,13 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
+  // Read by the image tools when they run, through a ref so a bucket being
+  // picked does not re-subscribe the tool handler.
+  const remoteUpload = useRemoteUploadSettings();
+  const remoteUploadRef = useRef(remoteUpload);
+  useEffect(() => {
+    remoteUploadRef.current = remoteUpload;
+  });
   const assistant = useAssistantAvailability();
   /**
    * Can the assistant be USED, as opposed to offered?
@@ -1381,6 +1421,7 @@ export function useAI(
                 patchId,
                 parentRef,
                 transfer: aiSessionImagesToPatchFile,
+                nameRemote: nameRemoteWith(remoteUploadRef.current),
               });
             } catch (err) {
               const availableKeys =
@@ -1566,6 +1607,7 @@ export function useAI(
             let sessionRes: {
               filePath: string;
               metadata: ImageMetadata;
+              sha256?: string;
             };
             try {
               const batchRes = await aiSessionImagesToPatchFile({
@@ -1624,12 +1666,49 @@ export function useAI(
               metadata.hotspot = args.hotspot as { x: number; y: number };
             }
 
-            const buildResult: BuildResult = buildImageGalleryPatch(
-              {
-                filePath: args.file_path,
-                imageKey: args.image_key,
+            // Where the entry is keyed: the path the model named, or in a
+            // remote gallery the ref its bytes hash to. The bytes are on the
+            // patch either way, under the path.
+            let entryKey = args.file_path;
+            if (isRemote) {
+              if (moduleSchema.type !== "record") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Module schema is not an images gallery (got '${moduleSchema.type}').`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              const named = await nameRemoteWith(remoteUploadRef.current)({
+                localPath: args.file_path,
+                patchId,
+                remoteSchema: galleryEntrySchemaOf(moduleSchema),
                 metadata,
-              },
+                sha256: sessionRes.sha256,
+              });
+              if (named.status === "error") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Could not add the image to a remote gallery: ${named.message}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              entryKey = named.ref;
+            }
+
+            const buildResult: BuildResult = buildImageGalleryPatch(
+              { filePath: entryKey, imageKey: args.image_key, metadata },
               moduleSchema,
             );
 
@@ -1710,7 +1789,8 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
-                  filePath: sessionRes.filePath,
+                  // The entry's key, which is a ref in a remote gallery.
+                  filePath: entryKey,
                   message: "Image converted to patch successfully.",
                 },
               });

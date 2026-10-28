@@ -3838,6 +3838,7 @@ export const ValServer = (
                     height: z.number(),
                     mimeType: z.string(),
                   }),
+                  sha256: z.string().optional(),
                 }),
               ),
             });
@@ -3865,6 +3866,9 @@ export const ValServer = (
             // has. A local store without local binary files (ValOpsMemory, which
             // uses Val's remote files) skips it, and the draft image is served
             // from the content host rather than mirrored.
+            // The hash a remote ref names, where the content service did not
+            // say: the fs branch below has the bytes in hand, so it is free.
+            const sha256ByFilePath = new Map<string, string>();
             if (isFsOps(serverOps)) {
               // Mirror the binaries from the content host into local patch
               // storage so /files?patch_id=... can serve them. Match upstream
@@ -3907,6 +3911,10 @@ export const ValServer = (
                 // act was to unwrap it again - ceremony to satisfy a convention
                 // that no longer exists.
                 const bytes = new Uint8Array(await binaryRes.arrayBuffer());
+                sha256ByFilePath.set(
+                  file.filePath,
+                  Internal.getSHA256Hash(bytes),
+                );
                 const type: "image" | "file" =
                   file.metadata.mimeType.startsWith("image/")
                     ? "image"
@@ -3934,7 +3942,11 @@ export const ValServer = (
               status: 200 as const,
               json: {
                 patchId: req.body.patchId,
-                files: json.data.files,
+                files: json.data.files.map((file) => {
+                  const sha256 =
+                    file.sha256 ?? sha256ByFilePath.get(file.filePath);
+                  return sha256 !== undefined ? { ...file, sha256 } : file;
+                }),
               },
             };
           } catch (err) {

@@ -383,7 +383,7 @@ type ValContextValue = {
     files: { filePath: string; key: string; isRemote?: boolean }[];
   }) => Promise<{
     patchId: PatchId;
-    files: { filePath: string; metadata: ImageMetadata }[];
+    files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
   }>;
 };
 /**
@@ -580,7 +580,7 @@ export function ValProvider({
       files: { filePath: string; key: string; isRemote?: boolean }[];
     }): Promise<{
       patchId: PatchId;
-      files: { filePath: string; metadata: ImageMetadata }[];
+      files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
     }> => {
       const res = await client("/ai/session-image-to-patch-file", "POST", {
         body: args,

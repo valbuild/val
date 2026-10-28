@@ -2492,6 +2492,11 @@ export const Api = {
                   height: z.number(),
                   mimeType: z.string(),
                 }),
+                /**
+                 * SHA-256 of the bytes, hex: what a remote file's ref names.
+                 * Absent from a content service that predates it.
+                 */
+                sha256: z.string().optional(),
               }),
             ),
           }),
