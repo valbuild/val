@@ -11,9 +11,11 @@ import { PreviewMock, SKETCH } from "./sketchpadFixtures";
 /**
  * The Sketchpad on a phone. There is no room for the page beside the sketch,
  * so the Sketchpad offers the whole screen to the two of them instead: the
- * full-screen button in its header covers the Studio's bars, puts the sketch
- * and its page a switch apart, the tools under the page where the thumb is,
- * and **Send to AI** under them, the width of the screen.
+ * full-screen button in its header covers the Studio's bars and leaves the
+ * title at the top. Everything else is at the bottom, where the thumb is: the
+ * tools, and under them one bar -- the chat at the left, as in the Studio's
+ * own bar; one button to the other view (it says **Page** on the sketch and
+ * **Sketch** on the page); **Send to AI**; and **X** to leave.
  *
  * The sheet is pinned to what is visible, as the overlay's full-screen sheets
  * are, so with the keyboard up the tools sit on top of it -- and "Send to AI"
@@ -79,6 +81,7 @@ function PhoneSketchpad({ fullscreen }: Props) {
       onArchive={() => undefined}
       fullscreenPreview={<PreviewMock />}
       defaultFullscreen={fullscreen}
+      onOpenChat={() => undefined}
     />
   );
 
@@ -126,12 +129,12 @@ export const FullScreen: Story = {
   args: { fullscreen: true },
 };
 
-/** Full screen, on the page it sketches: one switch away. */
+/** Full screen, on the page it sketches: the button now says Sketch. */
 export const FullScreenOnThePage: Story = {
   args: { fullscreen: true },
   play: async ({ canvasElement }) => {
     await userEvent.click(
-      within(canvasElement).getByRole("radio", { name: "Page" }),
+      within(canvasElement).getByRole("button", { name: "Page" }),
     );
   },
 };

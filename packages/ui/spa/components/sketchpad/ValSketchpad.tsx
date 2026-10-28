@@ -29,6 +29,7 @@ export function ValSketchpad({
   client,
   sketchpads,
   onSendToAssistant,
+  onOpenAssistant,
   pageOptions,
   currentProfileId,
 }: {
@@ -41,6 +42,8 @@ export function ValSketchpad({
   };
   /** Opens the chat and asks it to read the sketchpad. Absent without one. */
   onSendToAssistant?: (sketchpad: SketchpadT) => void;
+  /** Opens the chat. Absent without one. */
+  onOpenAssistant?: () => void;
   pageOptions: string[];
   currentProfileId: string | null;
 }) {
@@ -192,6 +195,7 @@ export function ValSketchpad({
             onSendToAssistant={
               onSendToAssistant && (() => onSendToAssistant(known))
             }
+            onOpenAssistant={onOpenAssistant}
             pageOptions={pageOptions}
             currentProfileId={currentProfileId}
             assistantRead={snapshot.assistantRead[known.id]}
@@ -216,6 +220,7 @@ function OpenSketchpad({
   onPageChange,
   onArchive,
   onSendToAssistant,
+  onOpenAssistant,
   pageOptions,
   currentProfileId,
   list,
@@ -228,6 +233,7 @@ function OpenSketchpad({
   onPageChange: (page: string | null) => void;
   onArchive: () => void;
   onSendToAssistant?: () => void;
+  onOpenAssistant?: () => void;
   pageOptions: string[];
   currentProfileId: string | null;
   list: Parameters<typeof Sketchpad>[0]["sketchpads"];
@@ -369,6 +375,7 @@ function OpenSketchpad({
               : `Saved ${relative(sketchpad.updatedAt)}`
         }
         onAskAssistant={onSendToAssistant}
+        onOpenChat={onOpenAssistant}
         assistantStatus={status}
         onArchive={onArchive}
         sketchpads={list}

@@ -3,6 +3,7 @@ import {
   ChevronDown,
   FileText,
   Maximize2,
+  PencilRuler,
   Sparkles,
   X,
 } from "lucide-react";
@@ -74,13 +75,19 @@ export type SketchpadProps = {
   /**
    * The page as the site serves it, for full screen. Given, the header has a
    * full-screen button: on a phone, the sketch and its page take the whole
-   * screen, the Studio's bars and all, with a switch between them, the tools
-   * by the thumb and "Send to AI" under them. Where there is room for the
+   * screen, the Studio's bars and all. The tools are by the thumb, and under
+   * them one bar: the chat, a button to the other view, "Send to AI" and X. Where there is room for the
    * two side by side, leave it out.
    */
   fullscreenPreview?: ReactNode;
   /** Opens in full screen. */
   defaultFullscreen?: boolean;
+  /**
+   * Opens the assistant's chat. In full screen that is the small button at
+   * the left of the bottom bar, where the Studio's own bar has it; it leaves
+   * full screen, since the chat is the Studio's and full screen covers it.
+   */
+  onOpenChat?: () => void;
 };
 
 /**
@@ -127,6 +134,7 @@ export function Sketchpad({
   pageOptions,
   fullscreenPreview,
   defaultFullscreen = false,
+  onOpenChat,
 }: SketchpadProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [fullscreen, setFullscreen] = useState(
@@ -224,10 +232,7 @@ export function Sketchpad({
       onClick={onArchive}
       title="Archive this sketchpad. It can be reopened from the list of sketchpads."
       aria-label="Archive this sketchpad"
-      className={cn(
-        "flex shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-        fullscreen ? "h-10 w-10" : "h-7 w-7",
-      )}
+      className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
     >
       <Archive className="h-4 w-4" />
     </button>
@@ -252,28 +257,8 @@ export function Sketchpad({
     >
       {fullscreen ? (
         <div className="shrink-0 border-b border-border-primary">
-          <div className="flex items-center gap-2 px-2 py-1.5">
-            <button
-              type="button"
-              onClick={() => setFullscreen(false)}
-              className="h-10 shrink-0 cursor-pointer rounded-md border border-border-primary px-3 text-sm font-medium text-fg-primary hover:bg-bg-secondary"
-            >
-              Done
-            </button>
-            <div className="min-w-0 flex-1">{titleBlock}</div>
-            {archiveButton}
-          </div>
-          <div className="px-2 pb-2">
-            <Segmented
-              label="Show"
-              options={[
-                { value: "sketch", label: "Sketch" },
-                { value: "page", label: "Page" },
-              ]}
-              value={shown}
-              onChange={setShown}
-            />
-          </div>
+          {/* Only what it is: every button is in the bar at the bottom. */}
+          <div className="px-3 py-2">{titleBlock}</div>
           {notice && (
             <div className="px-2 pb-2">
               <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
@@ -337,53 +322,70 @@ export function Sketchpad({
       )}
       {/*
        * Under the tools, where the thumb is -- and out of the way while the
-       * keyboard is up, when what is being done is typing.
+       * keyboard is up, when what is being done is typing. The chat at the
+       * left, as in the Studio's own bar; leaving at the right.
        */}
-      {fullscreen && onAskAssistant && !viewport.isKeyboardOpen && (
-        <div className="shrink-0 border-t border-border-primary px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <AskAssistant
-            status={assistantStatus ?? "changed"}
-            onAsk={onAskAssistant}
-            size="bar"
-          />
+      {fullscreen && !viewport.isKeyboardOpen && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-border-primary px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          {onOpenChat && (
+            <button
+              type="button"
+              onClick={() => {
+                setFullscreen(false);
+                onOpenChat();
+              }}
+              aria-label="AI chat"
+              title="Open the chat with the assistant"
+              className="grid h-12 w-12 shrink-0 cursor-pointer place-items-center rounded-md border border-border-primary text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
+            >
+              <Sparkles className="h-5 w-5" />
+            </button>
+          )}
+          {/*
+           * One button, naming the other view: on the sketch it says Page,
+           * on the page Sketch. A fixed width, so the bar does not shift
+           * when it is pressed.
+           */}
+          <button
+            type="button"
+            onClick={() => setShown(shown === "sketch" ? "page" : "sketch")}
+            title={
+              shown === "sketch"
+                ? "Show the page this sketches"
+                : "Back to the sketch"
+            }
+            className="flex h-12 w-24 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border-primary text-base font-medium text-fg-primary hover:bg-bg-secondary"
+          >
+            {shown === "sketch" ? (
+              <>
+                <FileText className="h-4 w-4" /> Page
+              </>
+            ) : (
+              <>
+                <PencilRuler className="h-4 w-4" /> Sketch
+              </>
+            )}
+          </button>
+          <div className="min-w-0 flex-1">
+            {onAskAssistant && (
+              <AskAssistant
+                status={assistantStatus ?? "changed"}
+                onAsk={onAskAssistant}
+                size="bar"
+              />
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFullscreen(false)}
+            aria-label="Leave full screen"
+            title="Leave full screen"
+            className="grid h-12 w-12 shrink-0 cursor-pointer place-items-center rounded-md border border-border-primary text-fg-primary hover:bg-bg-secondary"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
       )}
-    </div>
-  );
-}
-
-function Segmented<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="flex rounded-lg border border-border-primary bg-bg-secondary p-0.5"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "h-9 flex-1 cursor-pointer rounded-md text-sm font-medium text-fg-secondary",
-            value === option.value && "bg-bg-primary text-fg-primary shadow-sm",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
     </div>
   );
 }
@@ -501,7 +503,7 @@ function AskAssistant({
       className={cn(
         "relative inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-medium disabled:cursor-default disabled:opacity-60",
         size === "bar"
-          ? "h-12 w-full justify-center text-base"
+          ? "h-12 w-full justify-center whitespace-nowrap text-base"
           : "h-7 px-2 text-xs",
         status === "changed"
           ? "border-border-brand-primary bg-bg-brand-primary text-fg-brand-primary hover:bg-bg-brand-primary-hover"
@@ -515,9 +517,6 @@ function AskAssistant({
         )}
       />
       {status === "reading" ? "AI is reading…" : "Send to AI"}
-      {size === "bar" && status === "read" && (
-        <span className="text-sm font-normal opacity-80">· read</span>
-      )}
       <span className="sr-only">. {hint}.</span>
     </button>
   );

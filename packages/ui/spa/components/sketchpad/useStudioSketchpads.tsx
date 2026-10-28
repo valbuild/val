@@ -167,6 +167,7 @@ export function useStudioSketchpads(options: {
           client={client}
           sketchpads={{ items, refresh: () => void refresh() }}
           onSendToAssistant={openAssistant ? sendToAssistant : undefined}
+          onOpenAssistant={openAssistant ?? undefined}
           pageOptions={pageOptions}
           currentProfileId={currentProfileId}
         />
