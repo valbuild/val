@@ -81,6 +81,12 @@ import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
+import { useRemoteUploadSettings } from "../components/ValRemoteProvider";
+import {
+  sessionImageAsRemote,
+  type SessionImageAsRemote,
+} from "../utils/sessionImageToRemote";
+import { galleryEntrySchemaOf } from "../utils/uploadLocalMedia";
 import { z } from "zod";
 import {
   buildImageGalleryPatch,
@@ -922,6 +928,13 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
+  // Read by the gallery tool when it runs, through a ref so a bucket being
+  // picked does not re-subscribe the tool handler.
+  const remoteUpload = useRemoteUploadSettings();
+  const remoteUploadRef = useRef(remoteUpload);
+  useEffect(() => {
+    remoteUploadRef.current = remoteUpload;
+  });
   const assistant = useAssistantAvailability();
   /**
    * Can the assistant be USED, as opposed to offered?
@@ -1547,7 +1560,10 @@ export function useAI(
                   {
                     filePath: args.file_path,
                     key: args.image_key,
-                    isRemote,
+                    // Local even for a remote gallery: the service cannot name
+                    // the ref a remote entry is keyed by. See
+                    // `sessionImageAsRemote`, below.
+                    isRemote: false,
                   },
                 ],
               });
@@ -1596,12 +1612,57 @@ export function useAI(
               metadata.hotspot = args.hotspot as { x: number; y: number };
             }
 
+            // Where the entry is keyed, and what its `file` op carries: the
+            // path and the session key, which the service has already made
+            // into bytes on the patch -- or, in a remote gallery, the ref and
+            // the bytes themselves, to go up as any remote upload does.
+            let entry = { filePath: args.file_path, imageKey: args.image_key };
+            if (isRemote) {
+              if (moduleSchema.type !== "record") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Module schema is not an images gallery (got '${moduleSchema.type}').`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              const remote = remoteUploadRef.current;
+              const asRemote: SessionImageAsRemote =
+                remote.status === "ready"
+                  ? await sessionImageAsRemote({
+                      localPath: args.file_path,
+                      patchId,
+                      schema: galleryEntrySchemaOf(moduleSchema),
+                      metadata,
+                      remote: remote.settings,
+                    })
+                  : {
+                      status: "error",
+                      message: `Remote files are not ready: ${remote.message}`,
+                    };
+              if (asRemote.status === "error") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Could not add the image to a remote gallery: ${asRemote.message}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              entry = { filePath: asRemote.ref, imageKey: asRemote.dataUrl };
+            }
+
             const buildResult: BuildResult = buildImageGalleryPatch(
-              {
-                filePath: args.file_path,
-                imageKey: args.image_key,
-                metadata,
-              },
+              { ...entry, metadata },
               moduleSchema,
             );
 
@@ -1672,8 +1733,9 @@ export function useAI(
               sessionIdRef.current,
               // The id the bytes were attached to, above.
               patchId,
-              // ...by the content service, so the store must not upload them.
-              true,
+              // ...by the content service, so the store must not upload them
+              // -- except a remote gallery's, which the `file` op carries.
+              !isRemote,
             );
             if (patchRes.status === "patch-synced") {
               sendWsMessage({
@@ -1682,7 +1744,8 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
-                  filePath: sessionRes.filePath,
+                  // The entry's key, which is a ref in a remote gallery.
+                  filePath: entry.filePath,
                   message: "Image converted to patch successfully.",
                 },
               });
