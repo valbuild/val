@@ -3013,11 +3013,12 @@ Do not describe what you will do unless you do it for clarification — just do 
   const loadSession = useCallback(
     async (sessionId: string): Promise<void> => {
       rejectPendingQuestions("User switched to a different session.");
+      // Not the chat it is leaving's model: the effect above holds this one
+      // to the model it continues on. The same chat opened again keeps its
+      // own, since the effect would not run again to put it back.
+      if (sessionIdRef.current !== sessionId) lockModel(null);
       sessionIdRef.current = sessionId;
       setCurrentSessionId(sessionId);
-      // Not the chat it is leaving's model: the effect above holds this one
-      // to the model it continues on.
-      lockModel(null);
       chatRef.current?.clearMessages();
       setIsLoadingSession(true);
       try {
