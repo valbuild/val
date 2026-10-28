@@ -10,7 +10,7 @@ import {
   localeMeantBy,
   localeOfRouteKey,
 } from "@valbuild/shared/internal";
-import { isAtLocation } from "../utils/isAtLocation";
+import { isListedUnder } from "../utils/isAtLocation";
 import { useProjectLocales } from "../hooks/useProjectLocales";
 import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
@@ -134,9 +134,6 @@ export function LocaleFiltered({
   if (filter === null || !projectLocales.includes(filter)) {
     return <>{children}</>;
   }
-  if (isAtLocation(location, path)) {
-    return <>{children}</>;
-  }
   if (localeField === null) {
     // No scope here, so nothing to hide: content in no language is always shown.
     return <>{children}</>;
@@ -152,10 +149,7 @@ export function LocaleFiltered({
     schema?.type === "object"
       ? localeMeantBy(schema.items[localeField], value, projectLocales)
       : null;
-  if (locale !== null && locale !== filter) {
-    return null;
-  }
-  return <>{children}</>;
+  return isListedUnder(filter, locale, location, path) ? <>{children}</> : null;
 }
 
 /**
@@ -237,11 +231,11 @@ export function useLocaleFilterPredicate(): (
       return () => true;
     }
     return (node) => {
-      const opened = localeScopeOf(node, projectLocales);
-      return (
-        opened === null ||
-        opened === filter ||
-        isAtLocation(location, node.path)
+      return isListedUnder(
+        filter,
+        localeScopeOf(node, projectLocales),
+        location,
+        node.path,
       );
     };
   }, [filter, location, projectLocales]);

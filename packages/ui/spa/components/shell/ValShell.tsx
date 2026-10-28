@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { relocateForLocale, ValCanvasElement } from "@valbuild/shared/internal";
-import { isAtLocation } from "../../utils/isAtLocation";
+import { isListedUnder } from "../../utils/isAtLocation";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
@@ -568,6 +568,7 @@ function ValShellBody({
     searchQuery,
     activeLocale,
     projectLocales,
+    navigation.currentSourcePath || null,
   );
   const unfilteredData: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
@@ -588,11 +589,13 @@ function ValShellBody({
     const modules =
       activeLocale === null
         ? unfilteredData.data
-        : unfilteredData.data.filter(
-            (module) =>
-              module.locale === undefined ||
-              module.locale === activeLocale ||
-              isAtLocation(location, module.moduleFilePath),
+        : unfilteredData.data.filter((module) =>
+            isListedUnder(
+              activeLocale,
+              module.locale,
+              location,
+              module.moduleFilePath,
+            ),
           );
     return pages === unfilteredData.pages &&
       modules.length === unfilteredData.data.length
@@ -734,52 +737,6 @@ function ValShellBody({
         );
 
   /**
-   * Pick a language, and leave anything that is in another one.
-   *
-   * Picking Norsk while on an English page would otherwise leave the editor on
-   * the one page the filter exists to hide. Where they go is
-   * `relocateForLocale`'s answer: the same entry in Norsk where Val knows it
-   * for certain, else the nearest parent that is not English, else the
-   * Studio's start with nothing selected. Not a page: even `/` can be English.
-   *
-   * Only here, on a pick. A link or a reference that OPENS something English
-   * while Norsk is picked is the editor asking for exactly that, and it stays
-   * open — see `isAtLocation`.
-   *
-   * A navigation, not a replace: the entry before it still has the old
-   * language in its URL, so Back undoes both at once.
-   */
-  const valSystem = useValSystem();
-  const changeLocale = useCallback(
-    (next: string | null) => {
-      setLocale(next);
-      const path = navigation.currentSourcePath;
-      if (next === null || !projectLocales.includes(next) || !path) {
-        return;
-      }
-      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-      const schema = valSystem?.system.schemaStore.get(moduleFilePath);
-      const source = valSystem?.system.sourceStore.moduleSource(moduleFilePath);
-      if (schema === undefined || source === undefined) {
-        return;
-      }
-      const relocation = relocateForLocale(
-        path,
-        next,
-        schema,
-        source,
-        projectLocales,
-      );
-      if (relocation.type === "path") {
-        navigation.navigate(relocation.path);
-      } else if (relocation.type === "home") {
-        navigation.navigate(VAL_HOME_ROUTE);
-      }
-    },
-    [navigation, projectLocales, valSystem],
-  );
-
-  /**
    * The route the canvas opens on.
    *
    * A page selection is a router entry, and a route pointing anywhere inside one
@@ -822,6 +779,64 @@ function ValShellBody({
     }
     setTypedRoute(null);
   }, [selectedPageRoute]);
+
+  /**
+   * Pick a language, and leave anything that is in another one.
+   *
+   * Picking Norsk while on an English page would otherwise leave the editor on
+   * the one page the filter exists to hide. Where they go is
+   * `relocateForLocale`'s answer: the same entry in Norsk where Val knows it
+   * for certain, else the nearest parent that is not English, else the
+   * Studio's start with nothing selected. Not a page: even `/` can be English.
+   *
+   * Only here, on a pick. A link or a reference that OPENS something English
+   * while Norsk is picked is the editor asking for exactly that, and it stays
+   * open — see `isAtLocation`.
+   *
+   * A navigation, not a replace: the entry before it still has the old
+   * language in its URL, so Back undoes both at once.
+   *
+   * Below `typedRoute`, which it clears when that route is in another
+   * language.
+   */
+  const valSystem = useValSystem();
+  const changeLocale = useCallback(
+    (next: string | null) => {
+      setLocale(next);
+      // A route typed into the canvas bar is a location too. One in another
+      // language goes, and the canvas falls back to a route the filter lists.
+      const typedPage =
+        typedRoute === null || next === null
+          ? undefined
+          : findPageByUrl(unfilteredData.pages, typedRoute);
+      if (!isListedUnder(next, typedPage?.locale, null, undefined)) {
+        setTypedRoute(null);
+      }
+      const path = navigation.currentSourcePath;
+      if (next === null || !projectLocales.includes(next) || !path) {
+        return;
+      }
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+      const schema = valSystem?.system.schemaStore.get(moduleFilePath);
+      const source = valSystem?.system.sourceStore.moduleSource(moduleFilePath);
+      if (schema === undefined || source === undefined) {
+        return;
+      }
+      const relocation = relocateForLocale(
+        path,
+        next,
+        schema,
+        source,
+        projectLocales,
+      );
+      if (relocation.type === "path") {
+        navigation.navigate(relocation.path);
+      } else if (relocation.type === "home") {
+        navigation.navigate(VAL_HOME_ROUTE);
+      }
+    },
+    [navigation, projectLocales, valSystem, typedRoute, unfilteredData.pages],
+  );
 
   /** The routes Val resolves, for the address bar's suggestions. */
   /**
@@ -1978,4 +1993,21 @@ function readTourParam(): string | null {
   } catch {
     return null;
   }
+}
+
+/** The page at a URL, anywhere in the tree, or `undefined` where none is. */
+function findPageByUrl(
+  pages: ShellData["pages"],
+  urlPath: string,
+): ShellData["pages"][number] | undefined {
+  for (const page of pages) {
+    if (page.urlPath === urlPath && page.sourcePath !== undefined) {
+      return page;
+    }
+    const below = findPageByUrl(page.children ?? [], urlPath);
+    if (below !== undefined) {
+      return below;
+    }
+  }
+  return undefined;
 }

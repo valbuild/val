@@ -22,3 +22,26 @@ export function isAtLocation(
     isPathWithin(location, path)
   );
 }
+
+/**
+ * Whether something is listed while the Studio shows `filter`: always when no
+ * language is picked, when it is in that language or in none, and when the
+ * editor is on it ({@link isAtLocation}).
+ *
+ * The one rule every list asks — the Pages tree, the Data list, rows inside a
+ * field and search — so they cannot disagree about what a language hides.
+ */
+export function isListedUnder(
+  filter: string | null,
+  itemLocale: string | null | undefined,
+  location: string | null,
+  path: string | undefined,
+): boolean {
+  return (
+    filter === null ||
+    itemLocale === null ||
+    itemLocale === undefined ||
+    itemLocale === filter ||
+    isAtLocation(location, path)
+  );
+}

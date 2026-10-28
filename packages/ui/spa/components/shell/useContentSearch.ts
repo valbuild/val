@@ -5,9 +5,19 @@ import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
 import { useGetNavPath } from "../ValFieldProvider";
 import { SearchResult } from "./GlobalSearch";
 import { localeScopeAt } from "@valbuild/shared/internal";
+import { isListedUnder } from "../../utils/isAtLocation";
 
 /** How many content hits to ask for. Enough to be useful, few enough to read. */
 const LIMIT = 20;
+/**
+ * How many to ask for while a language is picked.
+ *
+ * Hits in other languages are dropped AFTER the index answers, so asking for
+ * twenty could come back as twenty English hits and show nothing at all under
+ * Norsk while Norwegian ones exist. Asking for more, then showing at most
+ * {@link LIMIT}, keeps that from happening in all but a very lopsided project.
+ */
+const LIMIT_WITH_LOCALE = LIMIT * 5;
 
 export type ContentSearchState = {
   results: SearchResult[];
@@ -37,12 +47,14 @@ export type ContentSearchState = {
  *
  * With a language picked, a hit in another language is not a row: search is a
  * way to navigate, and navigating never leads to another language. A hit in no
- * language is, as everywhere — see `localeAt`.
+ * language is, as everywhere, and so is one on the item the editor is on — see
+ * `isListedUnder`.
  */
 export function useContentSearch(
   query: string,
   locale: string | null = null,
   projectLocales: readonly string[] = [],
+  location: string | null = null,
 ): ContentSearchState {
   const val = useValSystem();
   const getNavPath = useGetNavPath();
@@ -72,7 +84,7 @@ export function useContentSearch(
     let cancelled = false;
     setIsQuerying(true);
     void val.system
-      .search(trimmed, LIMIT)
+      .search(trimmed, locale === null ? LIMIT : LIMIT_WITH_LOCALE)
       .then((res) => {
         if (cancelled) return;
         // `no-index` means the project has nothing indexable at all, which is
@@ -89,7 +101,7 @@ export function useContentSearch(
       // A slow answer for "a" must not overwrite the answer for "abc".
       cancelled = true;
     };
-  }, [val, trimmed, hasQuery, loadProgress]);
+  }, [val, trimmed, hasQuery, loadProgress, locale]);
 
   const results = useMemo((): SearchResult[] => {
     const seen = new Set<string>();
@@ -104,7 +116,7 @@ export function useContentSearch(
             ? null
             : (localeScopeAt(hit.path, schema, source, projectLocales)
                 ?.locale ?? null);
-        if (hitLocale !== null && hitLocale !== locale) continue;
+        if (!isListedUnder(locale, hitLocale, location, hit.path)) continue;
       }
       // One row per thing the studio can open: several hits often resolve to
       // the same field once the nav path is taken.
@@ -114,6 +126,7 @@ export function useContentSearch(
       const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
         hit.path,
       );
+      if (rows.length >= LIMIT) break;
       rows.push({
         // The hit's own path, not the nav path: opening it should land on the
         // field that matched.
@@ -124,7 +137,7 @@ export function useContentSearch(
       });
     }
     return rows;
-  }, [found, getNavPath, locale, projectLocales, val]);
+  }, [found, getNavPath, locale, projectLocales, val, location]);
 
   return {
     results,

@@ -1,9 +1,11 @@
 # Picking a language scopes the whole Studio
 
-> **Status: proposed.** Nothing here is built yet beyond what section 1 lists
-> as already there. It replaces one rule the code states today — "the filter
-> changes what is LISTED, never what is reachable" (`LocaleFilter.tsx`,
-> `useShellUrlState.ts`) — with the invariant in section 3.
+> **Status: built, first round** (valbuild/val#940). Sections 2, 3 and 5's
+> "never hide anything", and the Pages tree, Data list, field lists, canvas and
+> search rows of section 4, are what the Studio does. **Not built yet:** the
+> pickers and new-page rows of section 4, and the hidden-by-filter label in
+> section 5. It replaced one rule the code used to state — "the filter changes
+> what is LISTED, never what is reachable" — with the invariant in section 3.
 
 The ask: when an editor picks one language in the Studio's locale picker, they
 see that language and nothing in any other. Routes in another language leave the
@@ -166,17 +168,17 @@ one location the editor opened directly.**
 The rule for every surface: run the same predicate over everything it lists.
 After that, any group left empty is hidden too.
 
-| Surface                            | Under L                                                                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pages tree                         | Routes in another language are gone, and folders left empty go with them (`/nb/…` disappears under English)                                                     |
-| Explorer                           | Modules whose root opens a scope in another language are gone. Lists inside a module filter as they do now                                                      |
-| Fields (records, arrays, blocks)   | As built today (`LocaleFiltered`, `useLocaleFilterPredicate`), extended to router keys                                                                          |
-| Canvas route bar and fallback      | Only L's routes and routes in no language                                                                                                                       |
-| Search                             | Hits whose `localeAt` is another language are dropped                                                                                                           |
-| keyOf, route and reference pickers | Offer only options in L or in no language. A value already set to another language is still SHOWN as the value: it is content, and hiding it would misreport it |
-| New page / new entry               | A locale route parameter or a locale field starts at L (`useEmptyOf` already does this for fields)                                                              |
-| Media, Settings                    | Unchanged. They are in no language                                                                                                                              |
-| Headings, breadcrumbs              | Unchanged. The invariant means they can only name a location in L                                                                                               |
+| Surface                            | Under L                                                                                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pages tree                         | Routes in another language are gone, and folders left empty go with them (`/nb/…` disappears under English)                                                                |
+| Explorer                           | Modules whose root opens a scope in another language are gone. Lists inside a module filter as they do now                                                                 |
+| Fields (records, arrays, blocks)   | As built today (`LocaleFiltered`, `useLocaleFilterPredicate`), extended to router keys                                                                                     |
+| Canvas route bar and fallback      | Only L's routes and routes in no language                                                                                                                                  |
+| Search                             | Hits whose `localeAt` is another language are dropped                                                                                                                      |
+| keyOf, route and reference pickers | NOT BUILT. Offer only options in L or in no language. A value already set to another language is still SHOWN as the value: it is content, and hiding it would misreport it |
+| New page / new entry               | NOT BUILT for routes. A locale route parameter starts at L (`useEmptyOf` already does this for locale fields)                                                              |
+| Media, Settings                    | Unchanged. They are in no language                                                                                                                                         |
+| Headings, breadcrumbs              | Unchanged. The invariant means they can only name a location in L                                                                                                          |
 
 The last row of the pickers entry is the one place "not see anything" gives way:
 showing a stored value as something else would be a lie about the content.
@@ -188,31 +190,32 @@ language at once. **They must not hide anything.** Hiding the English change
 you are about to publish from an editor working in Norwegian turns a view
 filter into a way to ship things nobody looked at.
 
-These surfaces show everything. They group whatever the filter would have hidden
-under a label such as "2 changes in English, hidden by the language filter",
-with a button that switches to English. Opening one of those changes is a 3b
-navigation: it opens, and the filter stays.
+These surfaces show everything, and that much is built. Not built yet: grouping
+whatever the filter would have hidden under a label such as "2 changes in
+English, hidden by the language filter", with a button that switches to
+English. Opening one of those changes is a 3b navigation: it opens, and the
+filter stays.
 
 ## 6. One implementation
 
-- **One predicate: `visibleUnder(L, path)`, built on `localeAt`.** It is not a
-  second walk over the content, and nothing in the UI compares locale strings.
-  `localeScopeOf` in `LocaleFilterProvider.tsx` gets the router case through
-  `localeOfRouteKey` (exported from `localeAt.ts`). A row then has to carry its
-  module file path and its parent router's schema. That is the gap behind "a
-  router's pages are not filtered".
+- **One rule: `isListedUnder(filter, itemLocale, location, path)`**
+  (`ui/spa/utils/isAtLocation.ts`). The Pages tree, the Data list, the field
+  lists and search all ask it, so none of them compares locale strings itself.
+  What language an item is in comes from `localeAt`'s per-module form,
+  `localeScopeAt`, or for a list row from `localeScopeOf` in
+  `LocaleFilterProvider.tsx`, which gets the router case through
+  `localeOfRouteKey`.
 - **The schema decides what needs reading.** A route key or a record key
-  answers from the path alone, with no source read, so the Pages tree filters
-  for free. Only a locale FIELD needs source. A module whose schema has no
-  locale opener anywhere can never be hidden, so it is never read for this. A
-  module whose root object has a locale field is read with one listener per
-  module, as `usePreviewDemand` does for previews, never one per row.
-- **One owner of the invariant.** `ValShell` already owns `locale`. One effect
-  there takes the current path and canvas route and applies 3a when `locale`
-  changes. The 3b exception is the current path, handed to the menus as the one
-  location they keep. The counterpart lookup (3a.1) is a
-  pure function of the path and the snapshot, beside `localeAt` in
-  `@valbuild/shared`, and it is unit-tested there.
+  answers from the path alone. Only a locale FIELD needs source. Pages and data
+  modules are given their language in `useShellData`, which already recomputes
+  on every source change (the nav reads sources with `useShallowModulesAtPaths`,
+  which does), and reads nothing for a project with no languages declared.
+- **One owner of the invariant.** `ValShell` owns `locale`. `changeLocale` there
+  applies 3a when a language is picked: it moves the selected path
+  (`relocateForLocale`, a pure function beside `localeAt` in `@valbuild/shared`,
+  unit-tested there) and clears a route typed into the canvas bar when that
+  route is in another language. The 3b exception is the current path, handed
+  to the menus as the one location they keep.
 - **The comments that state the old rule change with it**, in
   `LocaleFilter.tsx`, `LocaleFilterProvider.tsx` and `useShellUrlState.ts`
   ("never what is reachable").
@@ -221,9 +224,10 @@ navigation: it opens, and the filter stays.
 
 The unit tests sit next to `localeAt.test.ts`:
 
-- `visibleUnder` for each of the three answers and each of the three openers
-- the counterpart and the nearest visible ancestor for a record key, a route, a
-  field and a module root
+- `localeRelocation.test.ts`: the counterpart, the nearest visible ancestor and
+  the start screen, for a record key, a route, a field and a module root
+- `localePages.test.ts`: the filtered page tree, the current page kept, and
+  rows reused where nothing changed
 
 The end-to-end tests run in `examples/tanstack`, which has all three openers,
 in the `tanstack` project:
@@ -239,8 +243,8 @@ in the `tanstack` project:
 4. Open a link to the English page with `?locale=nb-NO`. The page opens, the
    filter still reads Norsk, and the Pages tree lists that English page and no
    other English one. Navigate to another page, and it leaves the tree.
-5. With Norsk picked and an English change pending, the publish review still
-   lists that change, under the hidden-by-filter label.
+5. Not built yet: with Norsk picked and an English change pending, the publish
+   review still lists that change, under the hidden-by-filter label.
 
 ## 8. The demo
 

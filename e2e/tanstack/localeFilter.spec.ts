@@ -42,30 +42,38 @@ test("the Pages tree lists only the picked language, and pages in none", async (
   page,
 }) => {
   await openStudio(page, "/val?panel=pages&locale=nb-NO");
+  // Found by filtering, as an editor would: the example has enough pages that
+  // the tree opens collapsed.
+  const filter = page.getByPlaceholder("Filter pages…");
+  await filter.fill("val-");
   await expect(pageRow(page, "val-pa-norsk")).toBeVisible({
     timeout: 30_000,
   });
   await expect(pageRow(page, "val-in-english")).toHaveCount(0);
   // A page in no language is in every one.
+  await filter.fill("dashboard");
   await expect(pageRow(page, "dashboard")).toBeVisible();
 });
 
 test("picking a language on a page in another one goes to the Studio's start", async ({
   page,
 }) => {
-  await openStudio(page, ENGLISH_NEWS);
+  await openStudio(page, `${ENGLISH_NEWS}&panel=pages`);
   await expect(page.getByRole("textbox").first()).toHaveValue(
     "Val, in English",
     { timeout: 30_000 },
   );
+  // Listed while the editor is on it...
+  await expect(pageRow(page, "val-in-english")).toBeVisible();
   await pick(page, "nb-NO");
   // The Norwegian news page has its own slug, so nothing says it is this
   // page's translation. Nor is any other page a safe place to land: even `/`
   // can be in the language just left. So nothing is selected.
   await expect.poll(() => new URL(page.url()).pathname).toBe("/val");
   await expect(page.getByText("Pick something to edit")).toBeVisible();
-  // And the Pages tree no longer lists the English page.
-  await expect(page.getByText("Val, in English")).toHaveCount(0);
+  // ...and not once they are moved off it.
+  await expect(pageRow(page, "val-pa-norsk")).toBeVisible();
+  await expect(pageRow(page, "val-in-english")).toHaveCount(0);
 });
 
 test("picking a language on a translated entry goes to the same entry in it", async ({

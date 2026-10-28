@@ -1,4 +1,4 @@
-import { isAtLocation } from "../../utils/isAtLocation";
+import { isListedUnder } from "../../utils/isAtLocation";
 import { ShellPage } from "./types";
 
 /**
@@ -15,8 +15,8 @@ import { ShellPage } from "./types";
  * `/nb/…` under it — stays as a folder: the rows under it still need their
  * place in the URL tree, and the page itself is no longer something to open.
  *
- * Returns the same array when nothing is filtered, so a memo downstream does
- * not see a change that is not one.
+ * Returns the same array, and the same rows, wherever nothing was filtered, so
+ * a memo downstream does not see a change that is not one.
  */
 export function pagesInLocale(
   pages: ShellPage[],
@@ -26,16 +26,18 @@ export function pagesInLocale(
   if (locale === null) {
     return pages;
   }
-  const visible = (page: ShellPage) =>
-    page.locale === undefined ||
-    page.locale === locale ||
-    isAtLocation(location, page.sourcePath);
-  const filter = (rows: ShellPage[]): ShellPage[] =>
-    rows.flatMap((page): ShellPage[] => {
+  // Rows are reused where nothing under them changed, and so is an array none
+  // of whose rows did: this runs on every navigation (the editor's location is
+  // part of the rule), and a fresh tree each time re-rendered every row.
+  const filter = (rows: ShellPage[]): ShellPage[] => {
+    const kept = rows.flatMap((page): ShellPage[] => {
       const children =
         page.children === undefined ? undefined : filter(page.children);
-      if (page.sourcePath !== undefined && visible(page)) {
-        return [{ ...page, children }];
+      if (
+        page.sourcePath !== undefined &&
+        isListedUnder(locale, page.locale, location, page.sourcePath)
+      ) {
+        return [children === page.children ? page : { ...page, children }];
       }
       if (children === undefined || children.length === 0) {
         return [];
@@ -50,5 +52,10 @@ export function pagesInLocale(
         },
       ];
     });
+    return kept.length === rows.length &&
+      kept.every((page, index) => page === rows[index])
+      ? rows
+      : kept;
+  };
   return filter(pages);
 }

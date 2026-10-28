@@ -80,3 +80,16 @@ describe("pagesInLocale", () => {
     expect(urls(root.children ?? [])).toEqual(["/about", "/nb"]);
   });
 });
+
+describe("pagesInLocale keeps what it did not change", () => {
+  test("a language that hides nothing gives back the same tree", () => {
+    const shared = [page("/", undefined, [page("/about")])];
+    expect(pagesInLocale(shared, "nb-NO", null)).toBe(shared);
+  });
+
+  test("a branch nothing was taken from is the same object", () => {
+    const filtered = pagesInLocale(site, "nb-NO", null);
+    const about = (site[0].children ?? [])[0];
+    expect((filtered[0].children ?? [])[0]).toBe(about);
+  });
+});
