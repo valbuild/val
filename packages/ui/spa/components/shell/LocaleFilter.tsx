@@ -11,10 +11,14 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
  * top bar's right-hand cluster rather than among the icon buttons: it changes
  * what you are looking at, not what happens next.
  *
- * **It changes what is LISTED, never what is reachable.** A link to a Norwegian
- * page opens that page while the filter says English — the filter is for
- * working through one language, not a permission on the content. Content in NO
- * language is always shown, which in most projects is most of it.
+ * **It decides what is LISTED, everywhere, and where an editor can navigate.**
+ * With English picked, nothing Norwegian is in the Pages tree, the Data list,
+ * a list inside a field or a search result, so ordinary navigation never leads
+ * there — and picking English while on a Norwegian page moves the editor off it
+ * (see `relocateForLocale`). What it is not is a permission: a link or a
+ * reference to a Norwegian page still opens it, and that one page is listed
+ * while the editor is on it. Content in NO language is always shown, which in
+ * most projects is most of it.
  *
  * Renders nothing at all where the project has declared no languages. A picker
  * offering only "All locales" is furniture that explains nothing, and every

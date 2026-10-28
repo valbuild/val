@@ -4,9 +4,20 @@ import { useValSystem } from "../../stores/react/SystemContext";
 import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
 import { useGetNavPath } from "../ValFieldProvider";
 import { SearchResult } from "./GlobalSearch";
+import { localeScopeAt } from "@valbuild/shared/internal";
+import { isListedUnder } from "../../utils/isAtLocation";
 
 /** How many content hits to ask for. Enough to be useful, few enough to read. */
 const LIMIT = 20;
+/**
+ * How many to ask for while a language is picked.
+ *
+ * Hits in other languages are dropped AFTER the index answers, so asking for
+ * twenty could come back as twenty English hits and show nothing at all under
+ * Norsk while Norwegian ones exist. Asking for more, then showing at most
+ * {@link LIMIT}, keeps that from happening in all but a very lopsided project.
+ */
+const LIMIT_WITH_LOCALE = LIMIT * 5;
 
 export type ContentSearchState = {
   results: SearchResult[];
@@ -33,8 +44,18 @@ export type ContentSearchState = {
  * And several hits can live under one thing the studio can actually show, so
  * they are collapsed to one row per navigable path. Otherwise a page with the
  * word in four fields is four identical-looking rows.
+ *
+ * With a language picked, a hit in another language is not a row: search is a
+ * way to navigate, and navigating never leads to another language. A hit in no
+ * language is, as everywhere, and so is one on the item the editor is on — see
+ * `isListedUnder`.
  */
-export function useContentSearch(query: string): ContentSearchState {
+export function useContentSearch(
+  query: string,
+  locale: string | null = null,
+  projectLocales: readonly string[] = [],
+  location: string | null = null,
+): ContentSearchState {
   const val = useValSystem();
   const getNavPath = useGetNavPath();
   const trimmed = query.trim();
@@ -63,7 +84,7 @@ export function useContentSearch(query: string): ContentSearchState {
     let cancelled = false;
     setIsQuerying(true);
     void val.system
-      .search(trimmed, LIMIT)
+      .search(trimmed, locale === null ? LIMIT : LIMIT_WITH_LOCALE)
       .then((res) => {
         if (cancelled) return;
         // `no-index` means the project has nothing indexable at all, which is
@@ -80,12 +101,23 @@ export function useContentSearch(query: string): ContentSearchState {
       // A slow answer for "a" must not overwrite the answer for "abc".
       cancelled = true;
     };
-  }, [val, trimmed, hasQuery, loadProgress]);
+  }, [val, trimmed, hasQuery, loadProgress, locale]);
 
   const results = useMemo((): SearchResult[] => {
     const seen = new Set<string>();
     const rows: SearchResult[] = [];
     for (const hit of found) {
+      if (locale !== null && val !== null) {
+        const [hitModule] = Internal.splitModuleFilePathAndModulePath(hit.path);
+        const schema = val.system.schemaStore.get(hitModule);
+        const source = val.system.sourceStore.moduleSource(hitModule);
+        const hitLocale =
+          schema === undefined || source === undefined
+            ? null
+            : (localeScopeAt(hit.path, schema, source, projectLocales)
+                ?.locale ?? null);
+        if (!isListedUnder(locale, hitLocale, location, hit.path)) continue;
+      }
       // One row per thing the studio can open: several hits often resolve to
       // the same field once the nav path is taken.
       const navPath = getNavPath(hit.path) || hit.path;
@@ -94,6 +126,7 @@ export function useContentSearch(query: string): ContentSearchState {
       const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
         hit.path,
       );
+      if (rows.length >= LIMIT) break;
       rows.push({
         // The hit's own path, not the nav path: opening it should land on the
         // field that matched.
@@ -104,7 +137,7 @@ export function useContentSearch(query: string): ContentSearchState {
       });
     }
     return rows;
-  }, [found, getNavPath]);
+  }, [found, getNavPath, locale, projectLocales, val, location]);
 
   return {
     results,

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { ValCanvasElement } from "@valbuild/shared/internal";
+import { relocateForLocale, ValCanvasElement } from "@valbuild/shared/internal";
+import { isListedUnder } from "../../utils/isAtLocation";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
@@ -31,6 +32,7 @@ import {
 } from "./types";
 import { useShellData } from "./useShellData";
 import { useShellVersions } from "./useShellVersions";
+import { pagesInLocale } from "./localePages";
 import { ValSettingsSections } from "./ValSettingsSections";
 import { SiteUpdateSection } from "./SiteUpdateSection";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
@@ -75,6 +77,7 @@ import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
   VAL_ERRORS_ROUTE,
+  VAL_HOME_ROUTE,
   VAL_HISTORY_ROUTE,
   VAL_REVIEW_ROUTE,
   scrollToStudioPath,
@@ -367,7 +370,6 @@ function ValShellBody({
   // The query the search overlay is showing, so the content index can answer
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
-  const contentSearch = useContentSearch(searchQuery);
   /**
    * Remote files unavailable: a card above the editor, folded into a chip in
    * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
@@ -553,8 +555,53 @@ function ValShellBody({
     return () => setOpenAIChatImpl(null);
   }, [isAIChatEnabled, setOpenAIChatImpl, openAIPanel]);
 
-  const data: ShellData =
+  /**
+   * The language being shown, or null for all of them — one the project has,
+   * or none. The same normalising `LocaleFilterProvider` does, for the reads
+   * here that happen outside it.
+   */
+  const activeLocale =
+    locale !== null && projectLocales.includes(locale) ? locale : null;
+  // Down here rather than beside `searchQuery`: a hit in another language is
+  // left out, so the search needs the language. See `useContentSearch`.
+  const contentSearch = useContentSearch(
+    searchQuery,
+    activeLocale,
+    projectLocales,
+    navigation.currentSourcePath || null,
+  );
+  const unfilteredData: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  /**
+   * The shell's data, with the pages and modules the picked language hides
+   * taken out.
+   *
+   * Here, before anything reads `pages`, so the Pages tree, the canvas's route
+   * bar and the route the canvas falls back to all list the same pages — the
+   * three of them disagreeing is how an editor working in Norwegian ends up on
+   * an English page they never chose. See `pagesInLocale`.
+   */
+  const data: ShellData = useMemo(() => {
+    const location = navigation.currentSourcePath || null;
+    const pages = pagesInLocale(unfilteredData.pages, activeLocale, location);
+    // A data module is in a language as a whole only where its root has a
+    // locale field; everything finer is filtered inside it, row by row.
+    const modules =
+      activeLocale === null
+        ? unfilteredData.data
+        : unfilteredData.data.filter((module) =>
+            isListedUnder(
+              activeLocale,
+              module.locale,
+              location,
+              module.moduleFilePath,
+            ),
+          );
+    return pages === unfilteredData.pages &&
+      modules.length === unfilteredData.data.length
+      ? unfilteredData
+      : { ...unfilteredData, pages, data: modules };
+  }, [unfilteredData, activeLocale, navigation.currentSourcePath]);
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
     own: deployState,
@@ -732,6 +779,64 @@ function ValShellBody({
     }
     setTypedRoute(null);
   }, [selectedPageRoute]);
+
+  /**
+   * Pick a language, and leave anything that is in another one.
+   *
+   * Picking Norsk while on an English page would otherwise leave the editor on
+   * the one page the filter exists to hide. Where they go is
+   * `relocateForLocale`'s answer: the same entry in Norsk where Val knows it
+   * for certain, else the nearest parent that is not English, else the
+   * Studio's start with nothing selected. Not a page: even `/` can be English.
+   *
+   * Only here, on a pick. A link or a reference that OPENS something English
+   * while Norsk is picked is the editor asking for exactly that, and it stays
+   * open — see `isAtLocation`.
+   *
+   * A navigation, not a replace: the entry before it still has the old
+   * language in its URL, so Back undoes both at once.
+   *
+   * Below `typedRoute`, which it clears when that route is in another
+   * language.
+   */
+  const valSystem = useValSystem();
+  const changeLocale = useCallback(
+    (next: string | null) => {
+      setLocale(next);
+      // A route typed into the canvas bar is a location too. One in another
+      // language goes, and the canvas falls back to a route the filter lists.
+      const typedPage =
+        typedRoute === null || next === null
+          ? undefined
+          : findPageByUrl(unfilteredData.pages, typedRoute);
+      if (!isListedUnder(next, typedPage?.locale, null, undefined)) {
+        setTypedRoute(null);
+      }
+      const path = navigation.currentSourcePath;
+      if (next === null || !projectLocales.includes(next) || !path) {
+        return;
+      }
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+      const schema = valSystem?.system.schemaStore.get(moduleFilePath);
+      const source = valSystem?.system.sourceStore.moduleSource(moduleFilePath);
+      if (schema === undefined || source === undefined) {
+        return;
+      }
+      const relocation = relocateForLocale(
+        path,
+        next,
+        schema,
+        source,
+        projectLocales,
+      );
+      if (relocation.type === "path") {
+        navigation.navigate(relocation.path);
+      } else if (relocation.type === "home") {
+        navigation.navigate(VAL_HOME_ROUTE);
+      }
+    },
+    [navigation, projectLocales, valSystem, typedRoute, unfilteredData.pages],
+  );
 
   /** The routes Val resolves, for the address bar's suggestions. */
   /**
@@ -1415,7 +1520,10 @@ function ValShellBody({
 
   return (
     <ContentAnalyticsProvider>
-      <LocaleFilterProvider locale={locale}>
+      <LocaleFilterProvider
+        locale={locale}
+        location={navigation.currentSourcePath || null}
+      >
         <Shell
           renderHistory={renderHistory}
           data={data}
@@ -1506,7 +1614,7 @@ function ValShellBody({
           initialPanel={urlState.initial.panel}
           locales={projectLocales}
           locale={locale}
-          onLocaleChange={setLocale}
+          onLocaleChange={changeLocale}
           initialCanvasOpen={urlState.initial.canvasOpen}
           initialCanvasView={urlState.initial.canvasView}
           restoreViewState={restoreViewState}
@@ -1891,4 +1999,21 @@ function readTourParam(): string | null {
   } catch {
     return null;
   }
+}
+
+/** The page at a URL, anywhere in the tree, or `undefined` where none is. */
+function findPageByUrl(
+  pages: ShellData["pages"],
+  urlPath: string,
+): ShellData["pages"][number] | undefined {
+  for (const page of pages) {
+    if (page.urlPath === urlPath && page.sourcePath !== undefined) {
+      return page;
+    }
+    const below = findPageByUrl(page.children ?? [], urlPath);
+    if (below !== undefined) {
+      return below;
+    }
+  }
+  return undefined;
 }
