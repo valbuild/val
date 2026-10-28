@@ -22,6 +22,7 @@
 
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
+import type { PageLocation, PageSnapshot } from "./pageInspection";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -188,6 +189,23 @@ export type ValCanvasPageMessage =
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "elementPickingStopped";
+    }
+  | ({
+      /**
+       * Where the page is: its path and scroll, as it moves. The design tab
+       * opens a new build there (`scrollTo`), so a new version replaces the
+       * page in place rather than starting over at the top of the front page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "location";
+    } & PageLocation)
+  | {
+      /** What `readPage` asked for, or why it could not be read. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageRead";
+      requestId: string;
+      snapshot: PageSnapshot | null;
+      error?: string;
     };
 
 /** What the studio tells the page. */
@@ -299,6 +317,25 @@ export type ValCanvasStudioMessage =
       modifier: PickModifier;
       /** Whether the studio still holds the last pick: false takes its outline down. */
       keepPicked: boolean;
+    }
+  | {
+      /** Scroll to where the page before this one was (`location`). */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "scrollTo";
+      x: number;
+      y: number;
+    }
+  | {
+      /**
+       * Read what is on the page (`readPageSnapshot`): the assistant's
+       * `read_page`. Answered with `pageRead` and the same `requestId`. A
+       * bridge that predates it never answers, and the tab says so.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "readPage";
+      requestId: string;
+      selector?: string;
+      maxItems?: number;
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -317,7 +354,20 @@ export function isValCanvasPageMessage(
     message.type === "refreshing" ||
     message.type === "elementPickingStopped" ||
     (message.type === "elementPicked" &&
-      isPickedElement((data as { element?: unknown }).element))
+      isPickedElement((data as { element?: unknown }).element)) ||
+    (message.type === "location" && isPageLocation(data)) ||
+    (message.type === "pageRead" &&
+      typeof (data as { requestId?: unknown }).requestId === "string")
+  );
+}
+
+function isPageLocation(value: object): boolean {
+  const location = value as Record<string, unknown>;
+  return (
+    typeof location.path === "string" &&
+    location.path.startsWith("/") &&
+    typeof location.scrollX === "number" &&
+    typeof location.scrollY === "number"
   );
 }
 
@@ -385,6 +435,23 @@ export function isValCanvasStudioMessage(
       typeof pick.active === "boolean" &&
       typeof pick.keepPicked === "boolean" &&
       PICK_MODIFIERS.includes(pick.modifier)
+    );
+  }
+  if (message.type === "scrollTo") {
+    const scroll = data as Record<string, unknown>;
+    return (
+      typeof scroll.x === "number" &&
+      Number.isFinite(scroll.x) &&
+      typeof scroll.y === "number" &&
+      Number.isFinite(scroll.y)
+    );
+  }
+  if (message.type === "readPage") {
+    const read = data as Record<string, unknown>;
+    return (
+      typeof read.requestId === "string" &&
+      (read.selector === undefined || typeof read.selector === "string") &&
+      (read.maxItems === undefined || typeof read.maxItems === "number")
     );
   }
   return (

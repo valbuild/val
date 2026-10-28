@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { AIChatSurface } from "../AIChatSurface";
-import { CanvasFrame } from "../shell/canvas/CanvasFrame";
+import type { PageReader } from "../shell/canvas/CanvasFrame";
+import { DesignPreviewFrames } from "./DesignPreviewFrames";
 import type { CanvasPreviewStatus } from "../shell/canvas/CanvasPreviewNotice";
 import { PublishProposalDialog } from "../proposals/PublishProposalDialog";
 import { useValPortal } from "../ValPortalProvider";
@@ -124,19 +125,11 @@ export function DesignTab({ name }: { name: string }) {
 
   const checkpoints = useCheckpoints(proposal?.branch ?? null, state.changed);
 
-  // The frame shows the last build until a new one is served: reload it
-  // then. Not on the first read, which is what it mounted with.
+  // The frame shows the last build until a new one is served, which is then
+  // swapped in behind it (`DesignPreviewFrames`). Reload is the person's.
   const [reloadKey, setReloadKey] = useState(0);
-  const builtHash =
-    proposal === null ? undefined : (proposal.built?.hash ?? null);
-  const lastBuilt = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    if (builtHash === undefined) return;
-    if (lastBuilt.current !== undefined && builtHash !== lastBuilt.current) {
-      setReloadKey((key) => key + 1);
-    }
-    lastBuilt.current = builtHash;
-  }, [builtHash]);
+  const builtHash = proposal?.built?.hash ?? null;
+  const [swapping, setSwapping] = useState(false);
 
   const [route, setRoute] = useState("/");
   const address = proposal?.address ?? null;
@@ -200,6 +193,13 @@ export function DesignTab({ name }: { name: string }) {
   }, [picking]);
   const [frameStatus, setFrameStatus] =
     useState<CanvasPreviewStatus>("connecting");
+  /** Reads the page in front: the assistant's `read_page`. */
+  const [pageReader, setPageReaderState] = useState<PageReader | null>(null);
+  // A function in state is set with an updater, or React calls it.
+  const setPageReader = useCallback(
+    (reader: PageReader | null) => setPageReaderState(() => reader),
+    [],
+  );
   const [enableKey, setEnableKey] = useState(0);
   const addressOrigin = useMemo(() => {
     try {
@@ -254,6 +254,7 @@ export function DesignTab({ name }: { name: string }) {
           building: state.building,
           progress,
           startedAt: state.startedAt,
+          swapping,
           onBuild: open && build !== null ? () => void build() : null,
           onCancel: () => void cancel(),
         }}
@@ -269,17 +270,13 @@ export function DesignTab({ name }: { name: string }) {
             // The Studio's canvas frame, at the proposal's origin: the page
             // picks any element itself and reports it described. The site's
             // edits are not relayed -- the page is the proposal's, and reads
-            // its own.
-            <CanvasFrame
-              url={previewSrc}
-              origin={addressOrigin}
-              relaySources={false}
-              throughEnable
-              width="100%"
-              height="100%"
+            // its own. A new build is swapped in behind it.
+            <DesignPreviewFrames
+              address={address ?? addressOrigin}
+              src={previewSrc}
+              buildKey={builtHash}
               reloadKey={reloadKey}
-              isPicking={false}
-              highlightedPath={null}
+              origin={addressOrigin}
               elementPicking={{
                 active: picking,
                 modifier: PICK_MODIFIER,
@@ -292,6 +289,8 @@ export function DesignTab({ name }: { name: string }) {
               onElementPickingStopped={() => setPicking(false)}
               enableKey={enableKey}
               onStatusChange={setFrameStatus}
+              onPageReader={setPageReader}
+              onSwappingChange={setSwapping}
             />
           ) : null
         }

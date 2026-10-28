@@ -30,6 +30,7 @@ export * from "./getErrorMessageFromUnknownJson";
 export * from "./zod/SerializedSchema";
 export * from "./valCanvasProtocol";
 export * from "./elementPicker";
+export * from "./pageInspection";
 // Schema-shaped helpers that both realms need: the Studio's chat tools run in
 // the browser, and the MCP tool registry in @valbuild/server runs server-side,
 // but the patches they build and the errors they filter are the same logic.

@@ -154,6 +154,8 @@ export type DesignTabViewProps = {
     onBuild: (() => void) | null;
     /** Stop the running build. */
     onCancel: () => void;
+    /** A new build is served, and loading behind the page in front. */
+    swapping?: boolean;
   };
   builder: DesignBuilder;
   onOpenBuilder?: () => void;
@@ -219,6 +221,7 @@ export function DesignTabView(props: DesignTabViewProps) {
               progress={props.build.progress}
               startedAt={props.build.startedAt}
               onCancel={props.build.onCancel}
+              swapping={props.build.swapping === true}
               device={device}
               preview={props.preview}
               picking={props.picking}
@@ -911,6 +914,7 @@ function PreviewArea({
   progress,
   startedAt,
   onCancel,
+  swapping,
   device,
   preview,
   picking,
@@ -920,6 +924,7 @@ function PreviewArea({
   progress: { label: string; percent: number | null } | null;
   startedAt: number | null;
   onCancel: () => void;
+  swapping: boolean;
   device: DesignDevice;
   preview: ReactNode;
   picking: DesignPicking | null;
@@ -967,6 +972,15 @@ function PreviewArea({
               Cancel
             </button>
           </span>
+        </div>
+      )}
+      {!building && swapping && (
+        <div
+          role="status"
+          className="flex items-center gap-3 border-b border-border-primary bg-bg-primary px-4 py-2 text-xs text-fg-secondary"
+        >
+          <Spinner size={12} />
+          <span>Built. Loading the new version behind this one.</span>
         </div>
       )}
       <div className="flex min-h-0 flex-1 justify-center overflow-hidden p-4">
