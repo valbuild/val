@@ -280,6 +280,41 @@ describe("at a proposal's address", () => {
   // The proposal's saved Source: the third source provider. See `ValDraft`.
   const snapshot = { [UNTOUCHED]: { text: "saved in the proposal" } };
 
+  test("the draft says it is a proposal's, which a visitor's page never is", async () => {
+    // Content analytics counts a visitor's page and no other, and a proposal
+    // is not the live site: `ValProvider` reads this, never the snapshot.
+    const { server } = fakeValServer(draftAnswer);
+    const reviewer = initFetchValDraft(
+      server,
+      async () => false,
+      cookies(undefined),
+      oneRequestScope(),
+      snapshot,
+      undefined,
+      true,
+    );
+    expect(await reviewer()).toEqual({
+      sources: {},
+      snapshot,
+      draftMode: false,
+      atProposal: true,
+    });
+    const editor = initFetchValDraft(
+      server,
+      async () => true,
+      cookies("session"),
+      oneRequestScope(),
+      snapshot,
+      undefined,
+      true,
+    );
+    expect(await editor()).toEqual({
+      sources: { [EDITED]: { text: "DRAFT" } },
+      snapshot,
+      atProposal: true,
+    });
+  });
+
   test("a reviewer who is not editing still gets the proposal, and no draft", async () => {
     const { server, calls } = fakeValServer(draftAnswer);
     const fetchValDraft = initFetchValDraft(
@@ -329,5 +364,30 @@ describe("at a proposal's address", () => {
       snapshot,
       draftMode: false,
     });
+  });
+});
+
+describe("on a site serving a content version", () => {
+  // Content published without a build: the live site, over its bundle. The
+  // readers get it as a snapshot, like a proposal's, and a visitor's page is
+  // still a visitor's -- it was read as a proposal's, and no visitor of a
+  // site that had published content without a build was ever counted.
+  const snapshot = { [UNTOUCHED]: { text: "published without a build" } };
+
+  test("a visitor gets the content version, and a draft that is not a proposal's", async () => {
+    const { server, calls } = fakeValServer(draftAnswer);
+    const fetchValDraft = initFetchValDraft(
+      server,
+      async () => false,
+      cookies(undefined),
+      oneRequestScope(),
+      snapshot,
+      undefined,
+      false,
+    );
+    const draft = await fetchValDraft();
+    expect(draft).toEqual({ sources: {}, snapshot, draftMode: false });
+    expect(draft?.atProposal).toBeUndefined();
+    expect(calls).toEqual([]);
   });
 });

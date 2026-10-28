@@ -38,7 +38,7 @@ import { floatDarkBg, floatLightBg } from "./fallbackColors";
 import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
-import type { ValDraft } from "./ValDraft";
+import { isLiveSitePage, type ValDraft } from "./ValDraft";
 import type { ValAnalytics } from "./ValAnalytics";
 import { PlatformAnalytics, analyticsOfThisPage } from "./platformAnalytics";
 
@@ -270,6 +270,7 @@ export const ValTanStackProvider = (props: {
   const analytics = analyticsSetting?.enabled === true;
   const contentVersion = analyticsSetting?.contentVersion;
   const snapshot = initialDraft?.snapshot;
+  const liveSitePage = isLiveSitePage(initialDraft);
   /*
    * The base the Studio's overlay must start from, where it is not the
    * bundle's (`ValDraft.base`): set while rendering, not in an effect, so it
@@ -420,9 +421,12 @@ export const ValTanStackProvider = (props: {
    * `mountOverlay === false` is "known not to be an editor": no Val enable
    * cookie, so no draft mode and no canvas. A page the server rendered from a
    * draft is an editor's too, whatever the enable cookie says -- the draft
-   * mode cookie can outlive it. So is one at a proposal's address, which
-   * comes with a snapshot: its content is not published, and counting it
-   * would credit the live site with it. The Studio's own pages count nothing
+   * mode cookie can outlive it. So is one at a proposal's address
+   * (`ValDraft.atProposal`): its content is not published, and counting it
+   * would credit the live site with it. Not "one with a snapshot": a site
+   * serving a content version -- content published without a build -- gets
+   * one too, and is the live site; asking that counted no visitor of any site
+   * that had published content without a build. The Studio's own pages count nothing
    * either. Loaded with a dynamic import after hydration, so a site
    * with analytics off never downloads it, and one with it on downloads it
    * off the critical path. It imports nothing from core, shared or zod.
@@ -431,8 +435,7 @@ export const ValTanStackProvider = (props: {
     if (
       !analytics ||
       mountOverlay !== false ||
-      hasDraft ||
-      snapshot !== undefined ||
+      !liveSitePage ||
       isCanvas ||
       isValStudioPath(location.pathname)
     ) {
@@ -469,8 +472,7 @@ export const ValTanStackProvider = (props: {
     analytics,
     contentVersion,
     mountOverlay,
-    hasDraft,
-    snapshot,
+    liveSitePage,
     isCanvas,
     route,
     router,

@@ -42,4 +42,23 @@ export type ValDraft = {
    * only the {@link snapshot}. Absent: a draft, as it always was.
    */
   draftMode?: false;
+  /**
+   * `true` at a proposal's address. Not the same as a {@link snapshot}: a
+   * site serving a content version -- content published without a build --
+   * hands the readers that as a snapshot too, and is the live site. Content
+   * analytics counts the live site's visitors and nobody else's, so this is
+   * what `ValProvider` asks, never whether there is a snapshot.
+   */
+  atProposal?: true;
 };
+
+/**
+ * Whether the page rendered from `draft` is the live site as a visitor gets
+ * it -- what content analytics counts, and nothing else. No draft at all is,
+ * and so is one that is only a content version's snapshot. A draft mode
+ * render is an editor's, and a proposal's address is not the live site.
+ */
+export function isLiveSitePage(draft: ValDraft | null | undefined): boolean {
+  if (draft === null || draft === undefined) return true;
+  return draft.draftMode === false && draft.atProposal !== true;
+}
