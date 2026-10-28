@@ -45,6 +45,28 @@ type Story = StoryObj<typeof DesignTabView>;
 
 export const Working: Story = { args: BASE };
 
+export const QuickPreview: Story = {
+  name: "Quick preview",
+  args: {
+    ...BASE,
+    checks: [
+      { label: "Types", check: { state: "passed" } },
+      { label: "Build", check: { state: "idle", detail: "needed" } },
+    ],
+    build: { ...BASE.build, required: true, onBuild: () => {} },
+    quickPreview: { running: null, onRun: () => {}, shown: true },
+  },
+};
+
+export const QuickPreviewRunning: Story = {
+  name: "Quick preview, running",
+  args: {
+    ...BASE,
+    build: { ...BASE.build, required: true, onBuild: () => {} },
+    quickPreview: { running: "Building", onRun: () => {}, shown: false },
+  },
+};
+
 export const Building: Story = {
   args: {
     ...BASE,
