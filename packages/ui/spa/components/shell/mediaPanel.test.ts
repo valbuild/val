@@ -13,16 +13,54 @@ const file = (ref: string): ShellMediaFile => ({
  * subdirectories — so the panel groups by where they are rather than showing
  * one flat list of names. The labels are relative to the gallery's own
  * directory, because that directory is on the row above and repeating it on
- * every heading pushes the part that differs off the end.
+ * every heading pushes the part that differs off the end -- and the files
+ * directly in it have no heading at all.
  */
 describe("groupByDirectory", () => {
-  test("files at the top of the gallery are one group", () => {
+  test("files at the top of the gallery are one group, with no heading", () => {
     const groups = groupByDirectory(
       [file("/public/val/images/a.png"), file("/public/val/images/b.png")],
       "/public/val/images",
     );
     expect(groups).toHaveLength(1);
-    expect(groups[0].label).toBe("In this folder");
+    expect(groups[0].label).toBeNull();
+    expect(groups[0].files).toHaveLength(2);
+  });
+
+  test("a gallery directory written with a trailing slash is the same directory", () => {
+    const groups = groupByDirectory(
+      [file("/public/val/images/a.png")],
+      "/public/val/images/",
+    );
+    expect(groups[0].label).toBeNull();
+  });
+
+  test("a remote file is grouped by the directory it was uploaded into", () => {
+    // The ref is a URL. Grouped by the URL's own directory, the remote file
+    // got a heading that was the whole URL, and the local files one that
+    // said "In this folder".
+    const remote =
+      "https://ce1d5d1.valstart.dev/_val/file/p/ce1d5d1/b/r2/v/0.150.3/h/50d3/f/561cff11fe18/p/public/val/images/hero_a1b2c.png";
+    const groups = groupByDirectory(
+      [file("/public/val/images/a.png"), file(remote)],
+      "/public/val/images",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBeNull();
+    expect(groups[0].files.map((entry) => entry.ref)).toEqual([
+      "/public/val/images/a.png",
+      remote,
+    ]);
+  });
+
+  test("a remote file in a subdirectory is grouped with that subdirectory", () => {
+    const remote =
+      "https://remote.val.build/file/p/proj/b/r2/v/0.150.3/h/50d3/f/561cff11fe18/p/public/val/images/portraits/ada_a1b2c.jpg";
+    const groups = groupByDirectory(
+      [file("/public/val/images/portraits/ida.jpg"), file(remote)],
+      "/public/val/images",
+    );
+    expect(groups.map((group) => group.label)).toEqual(["portraits"]);
     expect(groups[0].files).toHaveLength(2);
   });
 
@@ -35,10 +73,7 @@ describe("groupByDirectory", () => {
       ],
       "/public/val/images",
     );
-    expect(groups.map((group) => group.label)).toEqual([
-      "In this folder",
-      "portraits",
-    ]);
+    expect(groups.map((group) => group.label)).toEqual([null, "portraits"]);
     expect(groups[1].files.map((entry) => entry.ref)).toEqual([
       "/public/val/images/portraits/ada.jpg",
       "/public/val/images/portraits/ida.jpg",

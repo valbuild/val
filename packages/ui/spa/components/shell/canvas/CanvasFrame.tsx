@@ -3,10 +3,15 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
+  type PageLocation,
+  type PageScreenshot,
+  type PageSnapshot,
+  type QuickPreviewFiles,
   type PickedElement,
   type PickModifier,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
+  type ValCanvasPageMessage,
   ValCanvasStudioMessage,
   withValCanvasParam,
 } from "@valbuild/shared/internal";
@@ -131,7 +136,55 @@ export type CanvasFrameProps = {
   onStatusChange?: (status: CanvasPreviewStatus) => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
   onRefreshingChange?: (isRefreshing: boolean) => void;
+  /** Where the page is, as it moves: its path and scroll (`location`). */
+  onLocation?: (location: PageLocation) => void;
+  /**
+   * Where each new document is scrolled to once it says it is there: the
+   * design tab swapping a new build in where the last one was.
+   */
+  scrollTo?: { x: number; y: number } | null;
+  /**
+   * Handed the way to read the page (`readPage`), and `null` when the frame
+   * goes: the assistant's `read_page`.
+   */
+  onPageReader?: (reader: PageReader | null) => void;
+  /**
+   * Handed the way to take a picture of the page (`screenshotPage`), and
+   * `null` when the frame goes.
+   */
+  onPageCamera?: (camera: PageCamera | null) => void;
+  /**
+   * Handed the way to store a quick preview's files in the page's worker
+   * (`quickPreview`), and `null` when the frame goes.
+   */
+  onQuickPreviewStorer?: (store: QuickPreviewStorer | null) => void;
 };
+
+/** Store a quick preview's files at the page's origin: see `quickPreview.ts`. */
+export type QuickPreviewStorer = (
+  id: string,
+  files: QuickPreviewFiles,
+) => Promise<void>;
+
+/** How long a page is given to store a quick preview. */
+export const QUICK_PREVIEW_STORE_TIMEOUT_MS = 45_000;
+
+/** Read what is on the page: see `readPageSnapshot`. */
+export type PageReader = (options: {
+  selector?: string;
+  maxItems?: number;
+}) => Promise<PageSnapshot>;
+
+/** How long a page is given to answer `readPage`. */
+export const PAGE_READ_TIMEOUT_MS = 5000;
+
+/** Take a picture of the page: see `screenshotPage`. */
+export type PageCamera = (options: {
+  fullPage?: boolean;
+}) => Promise<PageScreenshot>;
+
+/** How long a page is given to draw itself: a long page with many images is slow. */
+export const PAGE_SCREENSHOT_TIMEOUT_MS = 30_000;
 
 /**
  * The running site, in a frame, talking to the studio.
@@ -170,6 +223,11 @@ export function CanvasFrame({
   onRefreshingChange,
   enableKey = 0,
   onStatusChange,
+  onLocation,
+  scrollTo = null,
+  onPageReader,
+  onPageCamera,
+  onQuickPreviewStorer,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<FrameState>({ status: "waiting" });
@@ -272,6 +330,27 @@ export function CanvasFrame({
         onPickElement?.(message.element);
       } else if (message.type === "elementPickingStopped") {
         onElementPickingStopped?.();
+      } else if (message.type === "location") {
+        onLocation?.({
+          path: message.path,
+          scrollX: message.scrollX,
+          scrollY: message.scrollY,
+        });
+      } else if (message.type === "quickPreviewStored") {
+        const storing = storings.current.get(message.id);
+        if (storing === undefined) return;
+        storings.current.delete(message.id);
+        storing(message.error);
+      } else if (message.type === "pageRead") {
+        const reading = readings.current.get(message.requestId);
+        if (reading === undefined) return;
+        readings.current.delete(message.requestId);
+        reading(message);
+      } else if (message.type === "pageScreenshot") {
+        const shooting = shootings.current.get(message.requestId);
+        if (shooting === undefined) return;
+        shootings.current.delete(message.requestId);
+        shooting(message);
       } else {
         pickedHere.current = message.paths[0] ?? null;
         onPick?.(message.paths);
@@ -287,8 +366,142 @@ export function CanvasFrame({
     onPinch,
     onZoom,
     onRefreshingChange,
+    onLocation,
     origin,
   ]);
+
+  /** `readPage` requests the page has not answered yet, by id. */
+  const readings = useRef(
+    new Map<
+      string,
+      (answer: Extract<ValCanvasPageMessage, { type: "pageRead" }>) => void
+    >(),
+  );
+  const readPage = useCallback<PageReader>(
+    (options) =>
+      new Promise<PageSnapshot>((resolve, reject) => {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timer = setTimeout(() => {
+          readings.current.delete(requestId);
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading, or its Val packages may be older than the Studio's and cannot be read from here.",
+            ),
+          );
+        }, PAGE_READ_TIMEOUT_MS);
+        readings.current.set(requestId, (answer) => {
+          clearTimeout(timer);
+          if (answer.snapshot !== null) resolve(answer.snapshot);
+          else reject(new Error(answer.error ?? "The page could not be read."));
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "readPage",
+          requestId,
+          ...(options.selector !== undefined
+            ? { selector: options.selector }
+            : {}),
+          ...(options.maxItems !== undefined
+            ? { maxItems: options.maxItems }
+            : {}),
+        });
+      }),
+    [send],
+  );
+  useEffect(() => {
+    if (onPageReader === undefined) return;
+    onPageReader(readPage);
+    return () => onPageReader(null);
+  }, [onPageReader, readPage]);
+
+  /** `screenshotPage` requests the page has not answered yet, by id. */
+  const shootings = useRef(
+    new Map<
+      string,
+      (
+        answer: Extract<ValCanvasPageMessage, { type: "pageScreenshot" }>,
+      ) => void
+    >(),
+  );
+  const screenshotPage = useCallback<PageCamera>(
+    (options) =>
+      new Promise<PageScreenshot>((resolve, reject) => {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timer = setTimeout(() => {
+          shootings.current.delete(requestId);
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading, or its Val packages may be older than the Studio's and cannot take a picture.",
+            ),
+          );
+        }, PAGE_SCREENSHOT_TIMEOUT_MS);
+        shootings.current.set(requestId, (answer) => {
+          clearTimeout(timer);
+          if (answer.screenshot !== null) resolve(answer.screenshot);
+          else
+            reject(
+              new Error(answer.error ?? "The page could not be pictured."),
+            );
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "screenshotPage",
+          requestId,
+          ...(options.fullPage !== undefined
+            ? { fullPage: options.fullPage }
+            : {}),
+        });
+      }),
+    [send],
+  );
+  useEffect(() => {
+    if (onPageCamera === undefined) return;
+    onPageCamera(screenshotPage);
+    return () => onPageCamera(null);
+  }, [onPageCamera, screenshotPage]);
+
+  /** Quick previews the page has not said it stored, by id. */
+  const storings = useRef(new Map<string, (error?: string) => void>());
+  const storeQuickPreview = useCallback<QuickPreviewStorer>(
+    (id, files) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          storings.current.delete(id);
+          reject(
+            new Error(
+              "The page did not take the quick preview. Its Val packages may be older than the Studio's: build the proposal instead.",
+            ),
+          );
+        }, QUICK_PREVIEW_STORE_TIMEOUT_MS);
+        storings.current.set(id, (error) => {
+          clearTimeout(timer);
+          if (error === undefined) resolve();
+          else reject(new Error(error));
+        });
+        send({ val: VAL_CANVAS_MESSAGE, type: "quickPreview", id, files });
+      }),
+    [send],
+  );
+  useEffect(() => {
+    if (onQuickPreviewStorer === undefined) return;
+    onQuickPreviewStorer(storeQuickPreview);
+    return () => onQuickPreviewStorer(null);
+  }, [onQuickPreviewStorer, storeQuickPreview]);
+
+  /*
+   * The frame's first document, scrolled to where it is told to be -- once:
+   * a page the person then navigates in, or that reloads itself, is where
+   * they took it, not where the build before it was.
+   */
+  const scrolled = useRef(false);
+  const scrollX = scrollTo?.x ?? null;
+  const scrollY = scrollTo?.y ?? null;
+  useEffect(() => {
+    if (scrolled.current || scrollX === null || scrollY === null) return;
+    if (documentEpoch === 0) return;
+    scrolled.current = true;
+    send({ val: VAL_CANVAS_MESSAGE, type: "scrollTo", x: scrollX, y: scrollY });
+  }, [send, scrollX, scrollY, documentEpoch]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.

@@ -7,6 +7,7 @@ import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 import { ValScript } from "./ValScript";
 import type { ValDemoOptions, ValDemoRuntime } from "@valbuild/shared/internal";
 import { startDemoRelay } from "./demo/demoRelayHost";
+import { VERSION } from "./version";
 
 /**
  * How often the embedded Studio announces itself to the opener.
@@ -312,7 +313,12 @@ function useDemoServer(
           retryable: false,
         };
       }
-      const fetch = createInTabValFetch(modules, { config });
+      const fetch = createInTabValFetch(modules, {
+        config,
+        ...(VERSION !== null
+          ? { framework: { name: "tanstack", version: VERSION } }
+          : {}),
+      });
       const uploads = await startDemoRelay(fetch);
       const { tour, tours, audiences } = optionsRef.current ?? {};
       const runtime: ValDemoRuntime = {

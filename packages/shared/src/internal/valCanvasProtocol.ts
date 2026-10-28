@@ -22,6 +22,9 @@
 
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
+import type { PageLocation, PageSnapshot } from "./pageInspection";
+import type { PageScreenshot } from "./pageScreenshot";
+import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -188,6 +191,44 @@ export type ValCanvasPageMessage =
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "elementPickingStopped";
+    }
+  | ({
+      /**
+       * Where the page is: its path and scroll, as it moves. The design tab
+       * opens a new build there (`scrollTo`), so a new version replaces the
+       * page in place rather than starting over at the top of the front page.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "location";
+    } & PageLocation)
+  | {
+      /** What `readPage` asked for, or why it could not be read. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageRead";
+      requestId: string;
+      snapshot: PageSnapshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * What `screenshotPage` asked for: the page as a JPEG data URL, or why
+       * it could not be taken (`pageScreenshot.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageScreenshot";
+      requestId: string;
+      screenshot: PageScreenshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * A quick preview's files are stored in the page's worker, and a page
+       * opened with its id is served them (`quickPreview.ts`) -- or why not.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreviewStored";
+      id: string;
+      error?: string;
     };
 
 /** What the studio tells the page. */
@@ -299,6 +340,47 @@ export type ValCanvasStudioMessage =
       modifier: PickModifier;
       /** Whether the studio still holds the last pick: false takes its outline down. */
       keepPicked: boolean;
+    }
+  | {
+      /** Scroll to where the page before this one was (`location`). */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "scrollTo";
+      x: number;
+      y: number;
+    }
+  | {
+      /**
+       * Read what is on the page (`readPageSnapshot`): the assistant's
+       * `read_page`. Answered with `pageRead` and the same `requestId`. A
+       * bridge that predates it never answers, and the tab says so.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "readPage";
+      requestId: string;
+      selector?: string;
+      maxItems?: number;
+    }
+  | {
+      /**
+       * Take a picture of the page (`screenshotPage`): the assistant's
+       * `screenshot_page`. Answered with `pageScreenshot` and the same
+       * `requestId`; a bridge that predates it never answers.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "screenshotPage";
+      requestId: string;
+      fullPage?: boolean;
+    }
+  | {
+      /**
+       * Store a quick preview's files in this origin's worker
+       * (`storeQuickPreview`): the tab cannot, being another origin.
+       * Answered with `quickPreviewStored`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "quickPreview";
+      id: string;
+      files: QuickPreviewFiles;
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -317,7 +399,24 @@ export function isValCanvasPageMessage(
     message.type === "refreshing" ||
     message.type === "elementPickingStopped" ||
     (message.type === "elementPicked" &&
-      isPickedElement((data as { element?: unknown }).element))
+      isPickedElement((data as { element?: unknown }).element)) ||
+    (message.type === "location" && isPageLocation(data)) ||
+    (message.type === "pageRead" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "pageScreenshot" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "quickPreviewStored" &&
+      typeof (data as { id?: unknown }).id === "string")
+  );
+}
+
+function isPageLocation(value: object): boolean {
+  const location = value as Record<string, unknown>;
+  return (
+    typeof location.path === "string" &&
+    location.path.startsWith("/") &&
+    typeof location.scrollX === "number" &&
+    typeof location.scrollY === "number"
   );
 }
 
@@ -385,6 +484,38 @@ export function isValCanvasStudioMessage(
       typeof pick.active === "boolean" &&
       typeof pick.keepPicked === "boolean" &&
       PICK_MODIFIERS.includes(pick.modifier)
+    );
+  }
+  if (message.type === "scrollTo") {
+    const scroll = data as Record<string, unknown>;
+    return (
+      typeof scroll.x === "number" &&
+      Number.isFinite(scroll.x) &&
+      typeof scroll.y === "number" &&
+      Number.isFinite(scroll.y)
+    );
+  }
+  if (message.type === "quickPreview") {
+    const preview = data as Record<string, unknown>;
+    return (
+      typeof preview.id === "string" &&
+      /^[A-Za-z0-9_-]{1,64}$/.test(preview.id) &&
+      isQuickPreviewFiles(preview.files)
+    );
+  }
+  if (message.type === "screenshotPage") {
+    const asked = data as Record<string, unknown>;
+    return (
+      typeof asked.requestId === "string" &&
+      (asked.fullPage === undefined || typeof asked.fullPage === "boolean")
+    );
+  }
+  if (message.type === "readPage") {
+    const read = data as Record<string, unknown>;
+    return (
+      typeof read.requestId === "string" &&
+      (read.selector === undefined || typeof read.selector === "string") &&
+      (read.maxItems === undefined || typeof read.maxItems === "number")
     );
   }
   return (

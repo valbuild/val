@@ -232,6 +232,8 @@ export type MockPatchFile = {
   type: "file" | "image";
   remote: boolean;
   bytes: number;
+  /** Uploaded by the browser, or moved from an image attached in the chat. */
+  source: "upload" | "session-file";
 };
 
 export type MockCommit = {
@@ -538,6 +540,17 @@ function mockOf(target: HttpTarget) {
       await control(target, "ai-offline", {
         method: "POST",
         body: { offline },
+      });
+    },
+
+    /**
+     * Whether `from-session-file` hands back each image's SHA-256. Off plays a
+     * content service from before it did. Back on at `reset()`.
+     */
+    async aiSessionSha256(enabled: boolean): Promise<void> {
+      await control(target, "ai-session-sha256", {
+        method: "POST",
+        body: { enabled },
       });
     },
   };

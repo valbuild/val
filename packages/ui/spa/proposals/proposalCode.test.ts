@@ -4,7 +4,12 @@ import {
   isCodeTool,
   proposalProject,
   runCodeTool,
+  runReadPage,
+  runScreenshotPage,
+  type BuildReport,
   type CodeToolDeps,
+  type ProposalBuildControl,
+  type ProposalBuildOutcome,
 } from "./proposalCode";
 import {
   ProposalsApiError,
@@ -21,6 +26,18 @@ const staged = (over: Partial<ProposalStaged> = {}): ProposalStaged => ({
   buildRequired: true,
   ...over,
 });
+/** A build the tools reach, answering `start` and reporting `report`. */
+const control = (
+  start: () => Promise<ProposalBuildOutcome>,
+  over: Partial<ProposalBuildControl> = {},
+): ProposalBuildControl => ({
+  start,
+  running: () => null,
+  report: (): BuildReport => ({ status: "idle", last: null }),
+  cancel: () => false,
+  ...over,
+});
+
 /** For a build whose serving answers: nothing reads the proposal back. */
 const notRead = async (): Promise<ProposalJson> => {
   throw new Error("the proposal is not read back in this test");
@@ -106,6 +123,59 @@ describe("buildProposal", () => {
     expect(deployed).toEqual([OWN]);
     expect(served).toEqual([[NAME, { publishId: "p-1", inputs: INPUTS }]]);
     expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+  });
+
+  test("a cancel ends it at once, and a build stopped mid-deploy is never served", async () => {
+    const controller = new AbortController();
+    const serveBuild = jest.fn();
+    let deploySignal: AbortSignal | undefined;
+    const building = buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild,
+      },
+      // A deploy that never answers: an upload that hangs.
+      deploy: (_files, _target, signal) => {
+        deploySignal = signal;
+        return new Promise(() => {});
+      },
+      canBuildHere: () => true,
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    expect(await building).toEqual({
+      status: "failed",
+      message: "The build was cancelled.",
+      cancelled: true,
+    });
+    // The deploy was handed the signal, to stop what it was doing.
+    expect(deploySignal?.aborted).toBe(true);
+    expect(serveBuild).not.toHaveBeenCalled();
+  });
+
+  test("stopped with an error of its own -- a stall -- it fails with that error", async () => {
+    const controller = new AbortController();
+    const building = buildProposal({
+      name: NAME,
+      client: {
+        files: () => new Promise(() => {}),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild: notRead,
+      },
+      deploy: async () => ({ status: "uploaded", publishId: "p-1" }),
+      canBuildHere: () => true,
+      signal: controller.signal,
+    });
+    controller.abort(new Error("Stalled while reading the proposal."));
+    expect(await building).toEqual({
+      status: "failed",
+      message: "Stalled while reading the proposal.",
+    });
   });
 
   test("builds nothing when nothing is staged, or its build is already of them", async () => {
@@ -329,11 +399,11 @@ describe("the code tools", () => {
       },
       typecheck: async () => ({ status: "nothing-staged" as const }),
       siteSource: async () => SITE,
-      build: async () => ({
+      build: control(async () => ({
         status: "built" as const,
         hash: "b1",
         proposal: proposal("b1"),
-      }),
+      })),
       offerProposal: () => {
         record.offered++;
       },
@@ -341,15 +411,19 @@ describe("the code tools", () => {
     });
   };
 
-  test("are seven, and known by name", () => {
+  test("are eleven, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
       "write_files",
       "format_files",
+      "lint",
       "typecheck",
       "build_proposal",
+      "build_status",
+      "cancel_build",
+      "wait",
     ]);
     expect(isCodeTool("write_files")).toBe(true);
     // The Studio's create_patch is a content tool; the design tab's is
@@ -462,6 +536,128 @@ describe("the code tools", () => {
     expect(d.staged).toEqual([
       [NAME, { "src/components/Hero.tsx": "const hero = 1;" }, "Format"],
     ]);
+  });
+
+  describe("lint, with Val's own rules", () => {
+    const MODULES = `export default modules(config, [
+  { def: () => import("./src/content/home.val") },
+]);`;
+    const lintDeps = (files: Record<string, string>, stagedFiles: string[]) => {
+      const d = deps({
+        siteSource: async () => ({}),
+        client: {
+          files: async () => ({
+            files,
+            staged: staged({ files: stagedFiles }),
+          }),
+          stageFiles: async (name, written, message) => {
+            d.staged.push([name, written, message]);
+            return { commit: "c5", staged: staged() };
+          },
+          patchFile: async () => ({ commit: "c6", staged: staged() }),
+        },
+      });
+      return d;
+    };
+
+    test("reports what the rules find in the staged files, and that a module path can be fixed", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": MODULES,
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+import { Hero } from "../components/Hero";
+const content = "Hello";
+export default c.define("/src/content/start.val.ts", s.string(), content);`,
+          "src/components/Hero.tsx": "export const Hero = () => null;",
+        },
+        ["src/content/home.val.ts", "src/components/Hero.tsx"],
+      );
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.isError).toBe(false);
+      expect(answer.result).toMatchObject({
+        success: true,
+        linted: 2,
+        next: "Fix these: the fixable ones with lint and fix: true, the rest in the files. Then lint again.",
+      });
+      const problems = (
+        answer.result as {
+          problems: { rule: string; path: string; fixable: boolean }[];
+        }
+      ).problems;
+      expect(
+        problems.map(({ path, rule, fixable }) => [path, rule, fixable]),
+      ).toEqual([
+        ["src/content/home.val.ts", "no-illegal-imports", false],
+        ["src/content/home.val.ts", "no-illegal-module-paths", true],
+        ["src/content/home.val.ts", "no-define-with-variable", false],
+      ]);
+      expect(d.staged).toEqual([]);
+    });
+
+    test("with fix, stages what the rules can fix", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": MODULES,
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/start.val.ts", s.string(), "Hello");`,
+        },
+        ["src/content/home.val.ts"],
+      );
+      const answer = await runCodeTool("lint", { fix: true }, d);
+      expect(answer.result).toMatchObject({
+        success: true,
+        problems: [],
+        fixedAndStaged: ["src/content/home.val.ts"],
+        next: "No problems.",
+      });
+      expect(d.staged).toEqual([
+        [
+          NAME,
+          {
+            "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
+          },
+          "Lint fixes",
+        ],
+      ]);
+    });
+
+    test("a module val.modules.ts no longer registers is found, though its file did not change", async () => {
+      const d = lintDeps(
+        {
+          "val.modules.ts": "export default modules(config, []);",
+          "src/content/home.val.ts": `import { c, s } from "../../val.config";
+export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
+        },
+        ["val.modules.ts"],
+      );
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.result).toMatchObject({
+        linted: 2,
+        problems: [
+          {
+            path: "src/content/home.val.ts",
+            line: 2,
+            rule: "module-in-val-modules",
+          },
+        ],
+      });
+    });
+
+    test("a file that does not parse says so, rather than passing", async () => {
+      const d = lintDeps({ "src/broken.ts": "export const = ;" }, [
+        "src/broken.ts",
+      ]);
+      const answer = await runCodeTool("lint", {}, d);
+      expect(answer.result).toMatchObject({
+        problems: [{ path: "src/broken.ts", rule: null }],
+      });
+    });
+
+    test("is refused on the site", async () => {
+      const answer = await runCodeTool("lint", {}, deps({ proposal: null }));
+      expect(answer.isError).toBe(true);
+    });
   });
 
   test("format_files without write only reports, and says what it cannot format", async () => {
@@ -627,15 +823,131 @@ describe("the code tools", () => {
       "build_proposal",
       {},
       deps({
-        build: async () => ({
+        build: control(async () => ({
           status: "failed",
           message: "Could not build: x",
-        }),
+        })),
       }),
     );
     expect(failed).toEqual({
       result: { success: false, error: "Could not build: x" },
       isError: true,
+    });
+  });
+
+  test("build_proposal answers with each step's time once the build ends", async () => {
+    const last = {
+      status: "built" as const,
+      seconds: 31.5,
+      steps: [
+        { step: "Building", seconds: 12.1 },
+        { step: "Serving the build at the proposal's address", seconds: 19.4 },
+      ],
+      ended_seconds_ago: 0,
+    };
+    const answer = await runCodeTool(
+      "build_proposal",
+      {},
+      deps({
+        build: control(
+          async () => ({
+            status: "built",
+            hash: "b1",
+            proposal: proposal("b1"),
+          }),
+          { report: () => ({ status: "idle", last }) },
+        ),
+      }),
+    );
+    expect(answer.result).toEqual({
+      success: true,
+      status: "built",
+      hash: "b1",
+      seconds: 31.5,
+      steps: last.steps,
+    });
+  });
+
+  test("build_proposal does not hold the turn past wait_seconds: the build goes on", async () => {
+    const building: BuildReport = {
+      status: "building",
+      step: "Uploading",
+      elapsed_seconds: 30,
+      steps: [{ step: "Building", seconds: 20 }],
+    };
+    const waited: number[] = [];
+    const answer = await runCodeTool(
+      "build_proposal",
+      { wait_seconds: 30 },
+      deps({
+        build: control(() => new Promise<ProposalBuildOutcome>(() => {}), {
+          report: () => building,
+        }),
+        sleep: async (ms) => {
+          waited.push(ms);
+        },
+      }),
+    );
+    expect(waited).toEqual([30_000]);
+    expect(answer.isError).toBe(false);
+    expect(answer.result).toMatchObject({
+      success: true,
+      status: "building",
+      step: "Uploading",
+    });
+  });
+
+  test("wait ends when the running build does, and answers its status", async () => {
+    let report: BuildReport = {
+      status: "building",
+      step: "Building",
+      elapsed_seconds: 1,
+      steps: [],
+    };
+    let finish: (outcome: ProposalBuildOutcome) => void = () => {};
+    const running = new Promise<ProposalBuildOutcome>((resolve) => {
+      finish = resolve;
+    });
+    const waiting = runCodeTool(
+      "wait",
+      { seconds: 120 },
+      deps({
+        build: control(() => running, {
+          running: () => running,
+          report: () => report,
+        }),
+        // Never ends on its own: only the build can end the wait.
+        sleep: () => new Promise<void>(() => {}),
+      }),
+    );
+    report = { status: "idle", last: null };
+    finish({ status: "built", hash: "b2", proposal: proposal("b2") });
+    const answer = await waiting;
+    expect(answer.result).toMatchObject({
+      build: { status: "idle" },
+    });
+  });
+
+  test("wait refuses a duration it cannot wait", async () => {
+    const answer = await runCodeTool("wait", { seconds: "soon" }, deps());
+    expect(answer.isError).toBe(true);
+  });
+
+  test("cancel_build stops the running build, and says when there was none", async () => {
+    let cancels = 0;
+    const d = deps({
+      build: control(async () => ({ status: "nothing-staged" }), {
+        cancel: () => {
+          cancels++;
+          return cancels === 1;
+        },
+      }),
+    });
+    expect((await runCodeTool("cancel_build", {}, d)).result).toMatchObject({
+      cancelled: true,
+    });
+    expect((await runCodeTool("cancel_build", {}, d)).result).toMatchObject({
+      cancelled: false,
     });
   });
 });
@@ -770,5 +1082,168 @@ describe("buildProposal, serving the build", () => {
         "The proposal's files changed while it was being built. Build it again.",
     });
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("read_page", () => {
+  const snapshot = {
+    url: "https://p1--site.valstart.dev/",
+    title: "Home",
+    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
+    outline: [],
+  };
+
+  test("says there is nothing to read before a page is showing", async () => {
+    const answer = await runReadPage({}, { readPage: null, pointedAt: null });
+    expect(answer.isError).toBe(true);
+  });
+
+  test("reads the picked element by its selector", async () => {
+    const asked: unknown[] = [];
+    const answer = await runReadPage(
+      { picked: true },
+      {
+        readPage: async (options) => {
+          asked.push(options);
+          return snapshot;
+        },
+        pointedAt: {
+          tag: "h2",
+          text: "Contact",
+          classes: [],
+          selector: "section#contact > h2",
+        },
+      },
+    );
+    expect(asked).toEqual([{ selector: "section#contact > h2" }]);
+    expect(answer).toEqual({
+      result: { success: true, ...snapshot },
+      isError: false,
+    });
+  });
+
+  test("switches the width first when asked, and refuses one it does not know", async () => {
+    const order: string[] = [];
+    const deps = {
+      readPage: async () => {
+        order.push("read");
+        return snapshot;
+      },
+      pointedAt: null,
+      setDevice: async (device: string) => {
+        order.push(device);
+      },
+    };
+    await runReadPage({ device: "mobile" }, deps);
+    expect(order).toEqual(["mobile", "read"]);
+    expect((await runReadPage({ device: "watch" }, deps)).isError).toBe(true);
+  });
+
+  test("a page that does not answer is an error the model can read", async () => {
+    const answer = await runReadPage(
+      {},
+      {
+        readPage: async () => {
+          throw new Error("The page did not answer.");
+        },
+        pointedAt: null,
+      },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
+  });
+});
+
+describe("screenshot_page", () => {
+  // A JPEG's first bytes, as the page's canvas would encode them.
+  const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
+  const shot = {
+    dataUrl: JPEG,
+    width: 1280,
+    height: 800,
+    fullPage: false,
+    clipped: true,
+  };
+
+  test("uploads the page's picture and hands its key over with the answer", async () => {
+    const uploaded: File[] = [];
+    const devices: string[] = [];
+    const asked: unknown[] = [];
+    const answer = await runScreenshotPage(
+      { full_page: true, device: "mobile" },
+      {
+        screenshotPage: async (options) => {
+          asked.push(options);
+          return { ...shot, fullPage: true };
+        },
+        setDevice: async (device) => {
+          devices.push(device);
+        },
+        uploadImage: async (file) => {
+          uploaded.push(file);
+          return { key: "p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg" };
+        },
+      },
+    );
+    expect(devices).toEqual(["mobile"]);
+    expect(asked).toEqual([{ fullPage: true }]);
+    expect(answer).toEqual({
+      result: {
+        success: true,
+        width: 1280,
+        height: 800,
+        full_page: true,
+        note: "The page goes on below the picture.",
+        image: "attached",
+      },
+      isError: false,
+      images: ["p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg"],
+    });
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0].type).toBe("image/jpeg");
+    // The bytes of the data URL, decoded: a JPEG starts FF D8 FF.
+    const bytes = new Uint8Array(await uploaded[0].arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  });
+
+  test("says there is nothing to picture before a page is showing", async () => {
+    const answer = await runScreenshotPage(
+      {},
+      {
+        screenshotPage: null,
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer).not.toHaveProperty("images");
+  });
+
+  test("says why when the page could not be pictured, and attaches nothing", async () => {
+    const answer = await runScreenshotPage(
+      {},
+      {
+        screenshotPage: async () => {
+          throw new Error("The page did not answer.");
+        },
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
+  });
+
+  test("refuses a width it does not know", async () => {
+    const answer = await runScreenshotPage(
+      { device: "watch" },
+      {
+        screenshotPage: async () => shot,
+        uploadImage: async () => ({ key: "k" }),
+      },
+    );
+    expect(answer.isError).toBe(true);
   });
 });

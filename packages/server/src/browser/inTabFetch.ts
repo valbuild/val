@@ -39,6 +39,8 @@ export function createInTabValFetch(
     patchStore?: ValPatchStore;
     /** The path the Studio's client calls. */
     route?: string;
+    /** The binding that started it, for the Studio's version list. */
+    framework?: ValServerConfig["framework"];
   },
 ): InTabFetch {
   const route = options.route ?? "/api/val";
@@ -50,6 +52,9 @@ export function createInTabValFetch(
     unsafelyAllowUnauthenticated: true,
     valContentUrl: DEFAULT_CONTENT_HOST,
     config: options.config,
+    ...(options.framework !== undefined
+      ? { framework: options.framework }
+      : {}),
   };
   const server = ValServer(
     valModules,

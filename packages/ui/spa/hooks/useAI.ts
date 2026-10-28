@@ -23,6 +23,7 @@ import type {
   AskUserQuestionAnswer,
   ChatMessage,
   ChatMessageAttachment,
+  SendContext,
 } from "../components/AIChat";
 import type { ProposalParticipant } from "../components/proposals/types";
 import type { ToolActivity } from "../components/AIChatToolActivities";
@@ -60,6 +61,7 @@ import {
 } from "../components/sketchpad/sketchpadTools";
 import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
+  AIModel,
   AISession,
   AIServerMessage,
   AIMessageContentBlock,
@@ -89,6 +91,12 @@ import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
+import {
+  useRemoteUploadSettings,
+  type RemoteUploadReadiness,
+} from "../components/ValRemoteProvider";
+import { nameSessionImageRemote } from "../utils/sessionImageToRemote";
+import { galleryEntrySchemaOf } from "../utils/uploadLocalMedia";
 import { z } from "zod";
 import {
   buildImageGalleryPatch,
@@ -104,6 +112,7 @@ import {
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
+  type SessionKeyRemoteNamer,
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
 import {
@@ -112,13 +121,23 @@ import {
   designSystemPrompt,
   pickedElementPrompt,
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_QUICK_PREVIEW_TOOL,
+  DESIGN_READ_PAGE_TOOL,
+  DESIGN_SCREENSHOT_TOOL,
   isCodeTool,
   runCodeTool,
+  runQuickPreviewTool,
+  runReadPage,
+  runScreenshotPage,
+  type QuickPreviewResult,
+  type ReadPageDeps,
+  type ScreenshotPageDeps,
 } from "../proposals/proposalCode";
 import { typecheckProposal } from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
   requestProposal,
+  proposalBuildControl,
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
@@ -640,6 +659,9 @@ const ALL_TOOLS: AITool[] = [
  */
 const DESIGN_TOOLS: AITool[] = [
   DESIGN_CREATE_PATCH_TOOL,
+  DESIGN_READ_PAGE_TOOL,
+  DESIGN_SCREENSHOT_TOOL,
+  DESIGN_QUICK_PREVIEW_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
   SEARCH_CONTENT_TOOL,
@@ -666,6 +688,14 @@ export type UseAIOptions = {
      */
     pointedAt?: PickedElement | null;
     onPointedAtSent?: () => void;
+    /** Reads the page the preview shows: `read_page`. */
+    readPage?: ReadPageDeps["readPage"];
+    /** Pictures the page the preview shows: `screenshot_page`. */
+    screenshotPage?: ScreenshotPageDeps["screenshotPage"];
+    /** Switches the preview's width: `read_page`'s `device`. */
+    setDevice?: ReadPageDeps["setDevice"];
+    /** Shows the proposal's change in seconds: `quick_preview`. */
+    quickPreview?: (() => Promise<QuickPreviewResult>) | null;
   };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
@@ -674,6 +704,32 @@ export type UseAIOptions = {
   /** Called when the session returns to the unborn state (newSession, or loadSession failure). */
   onSessionCleared?: () => void;
 };
+
+/**
+ * How the assistant's tools name a session image in remote storage. Needs the
+ * project's remote settings, so a remote image fails here, saying why, until
+ * they have loaded.
+ */
+function nameRemoteWith(
+  remoteUpload: RemoteUploadReadiness,
+): SessionKeyRemoteNamer {
+  return async ({ localPath, patchId, remoteSchema, metadata, sha256 }) => {
+    if (remoteUpload.status !== "ready") {
+      return {
+        status: "error",
+        message: `Remote files are not ready: ${remoteUpload.message}`,
+      };
+    }
+    return nameSessionImageRemote({
+      localPath,
+      patchId,
+      schema: remoteSchema,
+      metadata,
+      sha256,
+      remote: remoteUpload.settings,
+    });
+  };
+}
 
 export function useAI(
   chatRef: React.RefObject<AIChatHandle | null>,
@@ -735,6 +791,25 @@ export function useAI(
     design?.proposal.name,
   ).build;
   const proposalBuildRef = useRef(proposalBuild);
+  /**
+   * The element the last message carried. The pick is cleared once it is
+   * sent, and the turn that message starts is when `read_page`'s `picked`
+   * is asked for: it means this one.
+   */
+  const lastPointedAtRef = useRef<PickedElement | null>(null);
+  /**
+   * `uploadAiImage`, for the message handler above where it is declared:
+   * `screenshot_page` uploads its picture as an image of the chat.
+   */
+  const uploadAiImageRef = useRef<
+    ((file: File) => Promise<{ key: string }>) | null
+  >(null);
+  /** The picked element, taken for a message that waits in the queue. */
+  const captureSendContext = useCallback((): SendContext => {
+    const pointedAt = designRef.current?.pointedAt ?? null;
+    if (pointedAt !== null) designRef.current?.onPointedAtSent?.();
+    return { pointedAt };
+  }, []);
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
     () => ({
@@ -972,6 +1047,13 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
+  // Read by the image tools when they run, through a ref so a bucket being
+  // picked does not re-subscribe the tool handler.
+  const remoteUpload = useRemoteUploadSettings();
+  const remoteUploadRef = useRef(remoteUpload);
+  useEffect(() => {
+    remoteUploadRef.current = remoteUpload;
+  });
   const assistant = useAssistantAvailability();
   /**
    * Can the assistant be USED, as opposed to offered?
@@ -987,12 +1069,45 @@ export function useAI(
   // server does.
   const { selected: selectedModel } = useAIModelSelection();
   const defaultModel = useAvailableAIModel();
-  const chatModel = selectedModel ?? defaultModel;
+  const pickedModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  /**
+   * The model the open chat is held to, once it has started.
+   *
+   * A chat keeps the model it began with: changing it halfway through hands the
+   * rest of the conversation to a model that did not write the first half, and
+   * the picker is shared by every surface (the design tab, the panel, the
+   * on-page window), so a pick made for a new chat in one of them would
+   * otherwise move a chat already running in another. Kept here because the
+   * content server does not say which model a chat used: a chat loaded from the
+   * list is held to the model it continues on.
+   *
+   * A ref beside the state because `sendMessage` locks on the first send and
+   * must read the lock in the same call, before a render has happened.
+   */
+  const [sessionModel, setSessionModel] = useState<AIModel | null>(null);
+  const sessionModelRef = useRef<AIModel | null>(null);
+  const lockModel = useCallback((model: AIModel | null) => {
+    sessionModelRef.current = model;
+    setSessionModel(model);
+  }, []);
+  const chatModel = sessionModel ?? pickedModel;
+  // A chat that exists is held, however it came to exist: a first message, an
+  // image attached before one, or a chat loaded from the list or the URL —
+  // which may happen before the models are known, hence the wait for one.
+  useEffect(() => {
+    if (currentSessionId === null) {
+      if (sessionModelRef.current !== null) lockModel(null);
+      return;
+    }
+    if (sessionModelRef.current === null && pickedModel !== null) {
+      lockModel(pickedModel);
+    }
+  }, [currentSessionId, pickedModel, lockModel]);
   // Keep callbacks in a ref so we don't have to thread them through every useCallback dep array.
   const onSessionBornRef = useRef(opts?.onSessionBorn);
   const onSessionClearedRef = useRef(opts?.onSessionCleared);
@@ -1403,6 +1518,7 @@ export function useAI(
                 patchId,
                 parentRef,
                 transfer: aiSessionImagesToPatchFile,
+                nameRemote: nameRemoteWith(remoteUploadRef.current),
               });
             } catch (err) {
               const availableKeys =
@@ -1588,6 +1704,7 @@ export function useAI(
             let sessionRes: {
               filePath: string;
               metadata: ImageMetadata;
+              sha256?: string;
             };
             try {
               const batchRes = await aiSessionImagesToPatchFile({
@@ -1646,12 +1763,49 @@ export function useAI(
               metadata.hotspot = args.hotspot as { x: number; y: number };
             }
 
-            const buildResult: BuildResult = buildImageGalleryPatch(
-              {
-                filePath: args.file_path,
-                imageKey: args.image_key,
+            // Where the entry is keyed: the path the model named, or in a
+            // remote gallery the ref its bytes hash to. The bytes are on the
+            // patch either way, under the path.
+            let entryKey = args.file_path;
+            if (isRemote) {
+              if (moduleSchema.type !== "record") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Module schema is not an images gallery (got '${moduleSchema.type}').`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              const named = await nameRemoteWith(remoteUploadRef.current)({
+                localPath: args.file_path,
+                patchId,
+                remoteSchema: galleryEntrySchemaOf(moduleSchema),
                 metadata,
-              },
+                sha256: sessionRes.sha256,
+              });
+              if (named.status === "error") {
+                sendWsMessage({
+                  type: "ai_tool_result",
+                  toolCallId,
+                  result: {
+                    success: false,
+                    error: `Could not add the image to a remote gallery: ${named.message}`,
+                  },
+                  isError: true,
+                });
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+                return;
+              }
+              entryKey = named.ref;
+            }
+
+            const buildResult: BuildResult = buildImageGalleryPatch(
+              { filePath: entryKey, imageKey: args.image_key, metadata },
               moduleSchema,
             );
 
@@ -1732,7 +1886,8 @@ export function useAI(
                 result: {
                   success: true,
                   patchId: patchRes.patchId,
-                  filePath: sessionRes.filePath,
+                  // The entry's key, which is a ref in a remote gallery.
+                  filePath: entryKey,
                   message: "Image converted to patch successfully.",
                 },
               });
@@ -2052,6 +2207,74 @@ export function useAI(
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
         } else if (
+          designRef.current !== null &&
+          message.name === "quick_preview"
+        ) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runQuickPreviewTool(designRef.current.quickPreview ?? null).then(
+            ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            },
+          );
+        } else if (
+          designRef.current !== null &&
+          message.name === "screenshot_page"
+        ) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const design = designRef.current;
+          void runScreenshotPage(message.arguments, {
+            screenshotPage: design.screenshotPage ?? null,
+            ...(design.setDevice !== undefined
+              ? { setDevice: design.setDevice }
+              : {}),
+            uploadImage: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (upload === null) {
+                return Promise.reject(
+                  new Error("The chat cannot take images yet."),
+                );
+              }
+              return upload(file);
+            },
+          }).then(({ result, isError, images }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+              ...(images !== undefined ? { images } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (designRef.current !== null && message.name === "read_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const design = designRef.current;
+          void runReadPage(message.arguments, {
+            readPage: design.readPage ?? null,
+            // Picked now, or carried by the message this turn answers.
+            pointedAt: design.pointedAt ?? lastPointedAtRef.current,
+            ...(design.setDevice !== undefined
+              ? { setDevice: design.setDevice }
+              : {}),
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (
           isCodeTool(message.name) ||
           // The design tab's create_patch writes into the proposal's files:
           // `DESIGN_CREATE_PATCH_TOOL`.
@@ -2064,15 +2287,7 @@ export function useAI(
             proposal: currentProposalRef.current,
             client: codeClients.proposals,
             siteSource: () => codeClients.publish.projectSource(),
-            build: () => {
-              const build = proposalBuildRef.current;
-              return build === null
-                ? Promise.resolve({
-                    status: "failed",
-                    message: "Only a proposal is built here.",
-                  })
-                : build();
-            },
+            build: proposalBuildControl(proposalBuildRef.current),
             typecheck: () => {
               const proposal = currentProposalRef.current;
               return proposal === null
@@ -2088,7 +2303,8 @@ export function useAI(
             if (
               (toolName === "write_files" ||
                 toolName === "create_patch" ||
-                toolName === "format_files") &&
+                toolName === "format_files" ||
+                toolName === "lint") &&
               !isError
             )
               proposalCodeChanged();
@@ -2686,11 +2902,17 @@ export function useAI(
     },
     [getDirectFileUploadSettings],
   );
+  uploadAiImageRef.current = uploadAiImage;
 
   const sendMessage = useCallback(
     (
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
+      /**
+       * Taken when the message was written, for one that waited in the
+       * queue: its picked element, rather than whatever is picked now.
+       */
+      context?: SendContext,
     ): boolean => {
       // No reachable provider means no key is configured for any of them. Refuse
       // here rather than send a prompt the server will refuse: this way the chat
@@ -2717,6 +2939,8 @@ export function useAI(
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
+      const model = sessionModelRef.current ?? chatModel;
+      if (sessionModelRef.current === null) lockModel(model);
       const baseText =
         typeof content === "string" ? content : chatDocumentToHtmlText(content);
       // Pull inline image nodes out of the rich document so their keys are
@@ -2753,9 +2977,16 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt = designRef.current?.pointedAt ?? null;
+      const pointedAt =
+        context !== undefined
+          ? context.pointedAt
+          : (designRef.current?.pointedAt ?? null);
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
+      }
+      lastPointedAtRef.current = pointedAt;
+      // Taken with the message when it was written, when it carries one.
+      if (context === undefined && pointedAt !== null) {
         designRef.current?.onPointedAtSent?.();
       }
       const contentBlocks: AIMessageContentBlock[] = [
@@ -2788,7 +3019,7 @@ export function useAI(
             // provider and not another, and asking for the wrong one is
             // refused. Null means AI is off, which is checked before we get
             // here.
-            model: chatModel,
+            model,
             systemPrompt:
               designRef.current !== null
                 ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
@@ -2906,7 +3137,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [chatModel, chatRef, sendWsMessage],
+    [chatModel, chatRef, sendWsMessage, lockModel],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -3026,12 +3257,13 @@ Do not describe what you will do unless you do it for clarification — just do 
     rejectPendingQuestions("User started a new session.");
     sessionIdRef.current = null;
     setCurrentSessionId(null);
+    lockModel(null);
     serverMessagesRef.current = [];
     setServerMessages([]);
     setTurnBy(null);
     chatRef.current?.clearMessages();
     onSessionClearedRef.current?.();
-  }, [chatRef, rejectPendingQuestions]);
+  }, [chatRef, rejectPendingQuestions, lockModel]);
 
   const getSessions = useCallback(
     async (opts?: {
@@ -3063,6 +3295,10 @@ Do not describe what you will do unless you do it for clarification — just do 
   const loadSession = useCallback(
     async (sessionId: string): Promise<void> => {
       rejectPendingQuestions("User switched to a different session.");
+      // Not the chat it is leaving's model: the effect above holds this one
+      // to the model it continues on. The same chat opened again keeps its
+      // own, since the effect would not run again to put it back.
+      if (sessionIdRef.current !== sessionId) lockModel(null);
       sessionIdRef.current = sessionId;
       setCurrentSessionId(sessionId);
       chatRef.current?.clearMessages();
@@ -3084,7 +3320,13 @@ Do not describe what you will do unless you do it for clarification — just do 
         setIsLoadingSession(false);
       }
     },
-    [chatRef, aiGetSessionMessages, rejectPendingQuestions, takeServerMessages],
+    [
+      chatRef,
+      aiGetSessionMessages,
+      rejectPendingQuestions,
+      takeServerMessages,
+      lockModel,
+    ],
   );
 
   /*
@@ -3224,6 +3466,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 
   return {
     sendMessage,
+    captureSendContext,
     uploadAiImage,
     isStreaming,
     /** Stop the running prompt. False when there is nothing running. */
@@ -3241,6 +3484,12 @@ Do not describe what you will do unless you do it for clarification — just do 
     cancelToolQuestion,
     /** In a proposal: who is in the chat, and whose turn runs. See Flow H. */
     shared,
+    /**
+     * The model the open chat is held to, or null before it has started. Show
+     * it instead of the picker's selection while it is set, and do not offer
+     * to change it: see `sessionModel`.
+     */
+    sessionModel,
   };
 }
 

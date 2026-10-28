@@ -100,6 +100,7 @@ import {
   ShellNotification,
   ShellPanel,
   ShellValidationError,
+  ShellVersions,
 } from "./types";
 
 /**
@@ -526,6 +527,8 @@ export type ShellProps = {
   onOpenValidate?: () => void;
   /** See `TopBar`'s `upgrade`; on a phone, a row in the account sheet. */
   upgrade?: UpgradeButton;
+  /** See `AccountPanel`'s `versions`. */
+  versions?: ShellVersions;
   validateActive?: boolean;
   validateCount?: number;
   /**
@@ -681,6 +684,7 @@ export function Shell({
   onOpenHistory,
   onOpenValidate,
   upgrade,
+  versions,
   validateActive,
   validateCount,
   onMentionField,
@@ -1773,6 +1777,7 @@ export function Shell({
               breakpoint === "mobile" && canStartTour ? startTour : undefined
             }
             upgrade={breakpoint === "mobile" ? upgrade : undefined}
+            versions={versions}
             members={
               breakpoint === "mobile" &&
               orgOfProject(data.projectName) !== null &&

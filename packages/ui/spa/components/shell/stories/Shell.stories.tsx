@@ -15,7 +15,7 @@ import { Shell } from "../Shell";
 import { ExternalPagesDialog } from "../ExternalPagesDialog";
 import { PublishState } from "../TopBar";
 import { SaveState, StatusBarProps } from "../StatusBar";
-import { ShellData, ShellPanel } from "../types";
+import { ShellData, ShellPanel, ShellVersions } from "../types";
 import {
   emptyShellData,
   mockDeployments,
@@ -439,6 +439,7 @@ function ShellHarness({
   return (
     <Shell
       renderSettings={() => <MockSettingsSections />}
+      versions={mockVersions}
       // The Pages panel's External pages button is only there when the app can
       // render the dialog, so the story has to supply it for the button to
       // appear at all.
@@ -568,6 +569,17 @@ function useSimulatedPublish(enabled: boolean): ShellDeployment | null {
   }, [enabled]);
   return deployment;
 }
+
+/** The versions at the foot of the Account panel, from a TanStack app. */
+const mockVersions: ShellVersions = {
+  studio: { ui: "0.150.8", core: "0.150.3" },
+  loadServer: async () => ({
+    status: "success",
+    framework: { name: "tanstack", version: "0.150.8" },
+    core: "0.150.3",
+    server: "0.150.8",
+  }),
+};
 
 type Story = StoryObj<typeof ShellHarness>;
 

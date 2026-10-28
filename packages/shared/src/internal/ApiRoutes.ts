@@ -741,6 +741,52 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * The versions of Val's packages the server runs, for the list at the foot
+   * of the Studio's account panel.
+   */
+  "/versions": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** Null where no binding said: the demo, a test. */
+            framework: z
+              .object({
+                name: z.union([z.literal("next"), z.literal("tanstack")]),
+                version: z.string(),
+              })
+              .nullable(),
+            core: z.string(),
+            server: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(401),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+        /*
+         * A server older than the Studio, which has no such route: it answers
+         * "Route not found". Listed so the Studio can tell that apart from a
+         * request that failed, since only the second is worth retrying.
+         */
+        z.object({
+          status: z.literal(404),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/stat": {
     POST: {
       req: {
@@ -2628,6 +2674,11 @@ export const Api = {
                   height: z.number(),
                   mimeType: z.string(),
                 }),
+                /**
+                 * SHA-256 of the bytes, hex: what a remote file's ref names.
+                 * Absent from a content service that predates it.
+                 */
+                sha256: z.string().optional(),
               }),
             ),
           }),

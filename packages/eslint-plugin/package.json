@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/eslint-plugin",
-  "version": "0.125.0",
+  "version": "0.150.13",
   "description": "ESLint rules for val",
   "repository": {
     "type": "git",
@@ -19,6 +19,10 @@
     ".": {
       "module": "./dist/valbuild-eslint-plugin.esm.js",
       "default": "./dist/valbuild-eslint-plugin.cjs.js"
+    },
+    "./rules": {
+      "module": "./rules/dist/valbuild-eslint-plugin-rules.esm.js",
+      "default": "./rules/dist/valbuild-eslint-plugin-rules.cjs.js"
     },
     "./package.json": "./package.json"
   },
@@ -40,5 +44,12 @@
   "scripts": {
     "test": "jest",
     "typecheck": "tsc -p jsconfig.json"
+  },
+  "preconstruct": {
+    "entrypoints": [
+      "./index.js",
+      "./rules.js"
+    ],
+    "exports": true
   }
 }

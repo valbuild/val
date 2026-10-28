@@ -124,10 +124,10 @@ test("a message written during someone else's turn is sent after it", () => {
   expect(screen.getByText("You")).toBeTruthy();
 });
 
-test("Don't send puts the message back and sends nothing", () => {
+test("taking a queued message back puts it in the composer and sends nothing", () => {
   const { editorRef, onSendMessage, endKarisTurn } = setup();
   sendWithEnter();
-  fireEvent.click(screen.getByRole("button", { name: "Don’t send" }));
+  fireEvent.click(screen.getByRole("button", { name: "Take back to edit" }));
   expect(editorRef.current?.getDocument()).toEqual([
     { tag: "p", children: ["Hi"] },
   ]);

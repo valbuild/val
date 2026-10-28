@@ -96,6 +96,74 @@ describe("attachElementPicker", () => {
     expect(picked).toHaveLength(1);
   });
 
+  /** A touch, as a phone's browser reports it: pointer events, with a type. */
+  const touch = (
+    element: Element,
+    type: "pointerdown" | "pointerup" | "pointercancel",
+    at: { x: number; y: number } = { x: 10, y: 10 },
+  ) => {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: at.x,
+      clientY: at.y,
+    });
+    Object.defineProperty(event, "pointerType", { value: "touch" });
+    return element.dispatchEvent(event);
+  };
+
+  test("with Select on, a tap picks -- once, though the browser may click after it", () => {
+    const root = page(`<p>A paragraph nothing listens to</p>`);
+    const paragraph = root.querySelector("p")!;
+    const picked: Element[] = [];
+    attachElementPicker(root, {
+      modifier: "alt",
+      active: () => true,
+      onHover: () => {},
+      onPick: (element) => picked.push(element),
+    });
+    touch(paragraph, "pointerdown");
+    expect(touch(paragraph, "pointerup")).toBe(false);
+    expect(picked).toEqual([paragraph]);
+    // The click iOS sends after a tap on something clickable: not a second pick,
+    // and still not the page's.
+    expect(click(paragraph)).toBe(false);
+    expect(picked).toHaveLength(1);
+  });
+
+  test("a touch that scrolls picks nothing", () => {
+    const root = page(`<p>Long page</p>`);
+    const paragraph = root.querySelector("p")!;
+    const picked: Element[] = [];
+    attachElementPicker(root, {
+      modifier: "alt",
+      active: () => true,
+      onHover: () => {},
+      onPick: (element) => picked.push(element),
+    });
+    touch(paragraph, "pointerdown", { x: 10, y: 300 });
+    touch(paragraph, "pointerup", { x: 10, y: 120 });
+    touch(paragraph, "pointerdown");
+    touch(paragraph, "pointercancel");
+    touch(paragraph, "pointerup");
+    expect(picked).toEqual([]);
+  });
+
+  test("without Select, a tap is the page's", () => {
+    const root = page(`<p>Text</p>`);
+    const paragraph = root.querySelector("p")!;
+    const picked: Element[] = [];
+    attachElementPicker(root, {
+      modifier: "alt",
+      active: () => false,
+      onHover: () => {},
+      onPick: (element) => picked.push(element),
+    });
+    touch(paragraph, "pointerdown");
+    expect(touch(paragraph, "pointerup")).toBe(true);
+    expect(picked).toEqual([]);
+  });
+
   test("outlines what is under the pointer only while picking", () => {
     const root = page(`<h1>Clothes</h1>`);
     const heading = root.querySelector("h1")!;

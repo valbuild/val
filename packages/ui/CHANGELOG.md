@@ -1,5 +1,77 @@
 # @valbuild/ui
 
+## 0.150.14
+
+### Patch Changes
+
+- [#987](https://github.com/valbuild/val/pull/987) [`e8d2fd3`](https://github.com/valbuild/val/commit/e8d2fd371d8732e4bb140760aeb1ac5227c0a51c) Thanks [@freekh](https://github.com/freekh)! - The demo no longer offers "Check everything" on the Validate page, which always stopped at the first file there ("Checking everything needs the project's files and Val's file hosts, and this Studio runs without them"). The demo's server runs in the browser tab without the project's files, so the page shows the Studio's own errors and says why the full check is not there, and the top bar shows Validate only while there are errors to show.
+
+## 0.150.13
+
+### Patch Changes
+
+- [#982](https://github.com/valbuild/val/pull/982) [`295a925`](https://github.com/valbuild/val/commit/295a92513fe0356fafc78978bd0a6d32866f1dbe) Thanks [@freekh](https://github.com/freekh)! - The compare dialog -- "Review changes" on the review page, and "Compare with the site" in a proposal -- can be scrolled again. Every modal dialog in the Studio cancelled the mouse wheel over its own content, because its scroll lock could not tell from outside the Studio's shadow root that the wheel was inside the dialog.
+
+  Dialogs that did not set their own background are no longer see-through: the compare dialog showed its text straight over the blurred Studio behind it.
+
+  An image added to or removed from a gallery is shown in the compare dialog as the image, with its file name, size and alt text, instead of as its width, height and mime type.
+
+- [#985](https://github.com/valbuild/val/pull/985) [`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1) Thanks [@freekh](https://github.com/freekh)! - The design tab's assistant can check its work two more ways.
+
+  - **`lint`** runs Val's own eslint rules -- the ones `@valbuild/eslint-plugin` runs in an editor -- over the proposal's files: a `c.define` path that is not the file's own, a module missing from `val.modules.ts`, `c.define` content that is a variable (which validates, then fails at publish), an import a `.val` file may not make. With `fix: true` it stages the fixes the rules can make themselves.
+  - **`screenshot_page`** shows the assistant a picture of the page in the preview, at desktop, tablet or phone width, on screen or the whole page. The page draws itself, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for it. The picture is drawn from the page's HTML and CSS: images from other sites, videos, canvases and embeds may come out blank.
+
+  `@valbuild/eslint-plugin` has a new entry, `@valbuild/eslint-plugin/rules`, with the same rules over a project that is not on a disk (`createRules(host)`). The plugin itself behaves as before.
+
+- [#983](https://github.com/valbuild/val/pull/983) [`0e490a9`](https://github.com/valbuild/val/commit/0e490a9b6e44b1e3d70e914d2b16009335124c4b) Thanks [@freekh](https://github.com/freekh)! - The Media panel no longer shows a remote image's whole URL as a folder heading, or an "In this folder" heading above the rest of the gallery. A remote file is listed with the other files in the folder it was uploaded into, and only a real subfolder of a gallery gets a heading of its own.
+
+## 0.150.12
+
+### Patch Changes
+
+- [#978](https://github.com/valbuild/val/pull/978) [`e39a373`](https://github.com/valbuild/val/commit/e39a3730624cbf3a5434d4fb0d13be26f44280db) Thanks [@freekh](https://github.com/freekh)! - A chat with the assistant now keeps the model it started with, in the Studio and in the design tab. Once the first message is sent (or an image attached), the model is shown beside the composer with a lock rather than offered as a choice; start a new chat to use another model. Picking a model for a new chat in one place no longer changes the model of a chat already running in another.
+
+  The attach button and the model picker beside the composer are also spaced apart.
+
+- [#981](https://github.com/valbuild/val/pull/981) [`d47537a`](https://github.com/valbuild/val/commit/d47537a40ca7ca0c6a5e7b80f1dfb18791fc5bc1) Thanks [@freekh](https://github.com/freekh)! - **Open design tab** is now on a phone too. On a phone, what you can do with a proposal is in the sheet behind the proposal chip in the top bar, and the design tab was missing from it, so a phone had no way into it. It is there now, as it is in the proposal menu on a wider screen.
+
+- [#977](https://github.com/valbuild/val/pull/977) [`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows which versions of Val it runs. Open the Account panel (the button at the foot of the left rail) and click the grey line at the bottom, for example `TanStack · Val 0.150.8`, to see:
+
+  - what your app's server runs: `@valbuild/next` or `@valbuild/tanstack`, `@valbuild/core` and `@valbuild/server`
+  - what the Studio in your browser loaded: `@valbuild/ui`, and the `@valbuild/core` bundled into it
+
+  **Copy all** puts the list on the clipboard, ready to paste into a bug report. The server's half comes from a new `GET /api/val/versions` route, which needs the same sign-in as the rest of the Studio. If your server's Val is older than the Studio, the list says so and still shows the Studio's half.
+
+## 0.150.11
+
+### Patch Changes
+
+- [#976](https://github.com/valbuild/val/pull/976) [`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38) Thanks [@freekh](https://github.com/freekh)! - Images the assistant adds now show up in remote storage, which is where every image in a hosted project lives: in a remote gallery (`s.imagedir(...).remote()`), in a remote image field (`s.image().remote()`) and inline in rich text whose images are remote. They used to be saved under a plain `/public/...` path while their bytes were stored as a remote file, so the Studio looked for a local file that did not exist and showed a broken image, and a published site would have named a file nothing serves. They are now saved under a remote ref, the same as an image uploaded with the Studio's own Upload button.
+
+  The image is still moved from the chat to the change rather than copied: the content service points the change at the image it already holds, and nothing is downloaded or uploaded again. The content service now says what the image's bytes hash to, which is what a remote ref is named by; against one that does not yet, the Studio downloads the image once to hash it.
+
+  The assistant can also now put an image into an empty rich text by writing the whole value; that used to be refused.
+
+- [#974](https://github.com/valbuild/val/pull/974) [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78) Thanks [@freekh](https://github.com/freekh)! - The design tab no longer makes you wait.
+
+  - **Quick preview.** A change to components, layout or styles is shown in seconds, without a build: the proposal's browser code is bundled in the tab and the page in the preview runs it. What runs on the server (loaders, server functions, the page's first render) stays the last build's, and the tab says so, with a button to build. The assistant has it too (`quick_preview`).
+  - **Cancel and Try again.** A build can be cancelled from the tab, and a build that stops making progress for three minutes is stopped, saying at which step, so it never spins until a reload. The assistant waits for a build with `wait` instead of holding its turn, and has `build_status` and `cancel_build`.
+  - **Each step of a build is timed**, and the Build check lists where the time went.
+  - **A new build fades in where you were**, at the same page and scroll, instead of the preview going blank and starting over at the top.
+  - **`read_page`** lets the assistant check its change on the page: the headings, text, links, images and inputs in order, and one element's computed styles and how many lines it wraps to, at desktop, tablet or phone width.
+  - **On a phone**, the design tab shows the preview, the assistant and the changes one at a time, as tabs. Picking is Select, then a tap, and a pick takes you to the assistant with it. On Safari and on an iPhone, where the tab cannot bundle code itself, the quick preview is prepared in a builder tab, as a build already is.
+  - **Queue messages in the assistant's chat.** Write while it answers: what you write waits and is sent when the answer is done, one at a time. A queued message can be taken back to edit, moved up or removed, and Stop or a failed answer holds the queue until you go on.
+
+  The quick preview and `read_page` run in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for them. The quick preview is served by a service worker on the proposal's address (`/api/val/quick-preview-sw.js`), which takes code only from the site's own design tab.
+
+## 0.150.10
+
+### Patch Changes
+
+- [#970](https://github.com/valbuild/val/pull/970) [`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94) Thanks [@freekh](https://github.com/freekh)! - A proposal's shared AI chat now shows other people's turns live: their question appears as they send it, each tool the turn runs shows as a step, and the answer streams in as it is written, instead of turning up a few seconds later. Who is asking is what the content server says rather than a guess. Against a content server that does not relay chats yet, the Studio falls back to reading the chat again every few seconds, as before.
+
+  An answer's tool steps are now also shown when a chat is opened again or the page is reloaded, for every chat on a content server that keeps them.
+
 ## 0.150.9
 
 ### Patch Changes

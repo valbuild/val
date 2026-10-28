@@ -104,14 +104,6 @@ export function buildLocalMediaUploadPatches(args: {
   | { status: "error"; message: string } {
   const { target, bytes, remote } = args;
   const localPath = target.kind === "field" ? target.value.path : target.key;
-  const filePath = publicFilePathOf(localPath);
-  if (filePath === null || Internal.isRemoteMediaPath(localPath)) {
-    return {
-      status: "error",
-      message: `Val cannot upload '${localPath}': it is not a file under /public.`,
-    };
-  }
-  const filename = localPath.slice(localPath.lastIndexOf("/") + 1);
 
   // The schema and metadata the ref's validation hash is computed over: the
   // CLI's (`handleRemoteFileUpload`, `handleRemoteGalleryFileUpload`), so a
@@ -120,30 +112,22 @@ export function buildLocalMediaUploadPatches(args: {
     target.kind === "field"
       ? { schema: target.schema, metadata: withoutPath(target.value) }
       : {
-          schema: Internal.galleryEntryMediaSchema(
-            target.record.mediaType === "files" ? "file" : "image",
-            target.record,
-          ),
+          schema: galleryEntrySchemaOf(target.record),
           metadata: target.entry,
         };
-  const fileMetadata = fileMetadataOf(schema.type, metadata, bytes.dataUrl);
-  const fileHash = Internal.remote.hashToRemoteFileHash(bytes.sha256);
-  const validationHash = Internal.remote.getValidationHash(
-    remote.coreVersion,
+  const made = remoteRefOf({
+    localPath,
     schema,
-    extensionOf(filename),
     metadata,
-    fileHash,
-    new TextEncoder(),
-  );
-  const ref = Internal.remote.createRemoteRef(remote.remoteHost, {
-    publicProjectId: remote.publicProjectId,
-    coreVersion: remote.coreVersion,
-    bucket: remote.bucket,
-    validationHash,
-    fileHash,
-    filePath,
+    sha256: bytes.sha256,
+    remote,
   });
+  if (made.status === "error") {
+    return made;
+  }
+  const { ref } = made;
+  const filename = localPath.slice(localPath.lastIndexOf("/") + 1);
+  const fileMetadata = fileMetadataOf(schema.type, metadata, bytes.dataUrl);
   const fileOp = (path: string[]): Operation => ({
     op: "file",
     path,
@@ -213,6 +197,65 @@ export function buildLocalMediaUploadPatches(args: {
         ([moduleFilePath, patch]) => ({ moduleFilePath, patch }),
       ),
     },
+  };
+}
+
+/** The schema a gallery's entry is validated (and its ref hashed) against. */
+export function galleryEntrySchemaOf(
+  record: SerializedRecordSchema,
+): SerializedImageSchema | SerializedFileSchema {
+  return Internal.galleryEntryMediaSchema(
+    record.mediaType === "files" ? "file" : "image",
+    record,
+  );
+}
+
+/**
+ * The remote ref a file at `localPath` is uploaded under: the one rule, for
+ * every way a file gets into remote storage from the Studio -- a local file
+ * moved there by Fix, and an image the assistant was given.
+ */
+export function remoteRefOf(args: {
+  /** Where the file would be under `/public`: `/public/val/a.png`. */
+  localPath: string;
+  schema: SerializedImageSchema | SerializedFileSchema;
+  /**
+   * The value or gallery entry, as it will be stored. Its width, height and
+   * mime type are hashed with the bytes.
+   */
+  metadata: Record<string, unknown>;
+  /** SHA-256 of the bytes, hex. */
+  sha256: string;
+  remote: RemoteUploadSettings;
+}): { status: "ok"; ref: string } | { status: "error"; message: string } {
+  const { localPath, schema, metadata, sha256, remote } = args;
+  const filePath = publicFilePathOf(localPath);
+  if (filePath === null || Internal.isRemoteMediaPath(localPath)) {
+    return {
+      status: "error",
+      message: `Val cannot upload '${localPath}': it is not a file under /public.`,
+    };
+  }
+  const filename = localPath.slice(localPath.lastIndexOf("/") + 1);
+  const fileHash = Internal.remote.hashToRemoteFileHash(sha256);
+  const validationHash = Internal.remote.getValidationHash(
+    remote.coreVersion,
+    schema,
+    extensionOf(filename),
+    metadata,
+    fileHash,
+    new TextEncoder(),
+  );
+  return {
+    status: "ok",
+    ref: Internal.remote.createRemoteRef(remote.remoteHost, {
+      publicProjectId: remote.publicProjectId,
+      coreVersion: remote.coreVersion,
+      bucket: remote.bucket,
+      validationHash,
+      fileHash,
+      filePath,
+    }),
   };
 }
 

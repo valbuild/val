@@ -2,6 +2,8 @@ import {
   VAL_EXTENSION,
   type ImageMetadata,
   type PatchId,
+  type SerializedFileSchema,
+  type SerializedImageSchema,
   type SerializedSchema,
   type Source,
 } from "@valbuild/core";
@@ -12,6 +14,7 @@ import {
   getInlineImgInfo,
   isRemoteSchema,
   resolveSerializedSchemaAtPath,
+  richTextImageSchema,
 } from "@valbuild/shared/internal";
 
 /**
@@ -53,7 +56,13 @@ export type PendingTransfer = {
   readonly siteId: number;
   readonly key: string;
   readonly filePath: string;
+  /** Where the file ends up: in remote storage, under a ref, or at `filePath`. */
   readonly isRemote: boolean;
+  /**
+   * The schema a remote file's ref is hashed against: the field's own, or a
+   * rich text's `img`. Present exactly when `isRemote` is.
+   */
+  readonly remoteSchema?: SerializedImageSchema | SerializedFileSchema;
 };
 
 export type PlanResult =
@@ -62,6 +71,7 @@ export type PlanResult =
       transfers: PendingTransfer[];
       apply: (
         metadataBySiteId: Record<number, ImageMetadata | undefined>,
+        refBySiteId?: Record<number, string | undefined>,
       ) => ApplyResult;
     }
   | { kind: "wrong-tool"; suggestedTool: ToolName; reason: string }
@@ -77,6 +87,7 @@ type LeafSite = {
   opPath: string[];
   subtype: "image" | "file";
   remote: boolean;
+  remoteSchema: SerializedImageSchema | SerializedFileSchema | null;
   sessionKey: SessionKey;
 };
 
@@ -88,6 +99,7 @@ type InlineImgSite = {
   // This is also the `nestedFilePath` used in the appended `file` op.
   valuePath: string[];
   remote: boolean;
+  remoteSchema: SerializedImageSchema | null;
   sessionKey: SessionKey;
 };
 
@@ -277,7 +289,9 @@ export function planSessionKeyExpansion(args: {
       continue;
     }
 
-    if (resolved.kind === "leaf") {
+    // A value written AT a rich text (the whole of it) holds its inline images
+    // the same as one written below it, so it takes the rich text branch.
+    if (resolved.kind === "leaf" && resolved.schema.type !== "richtext") {
       const leafSchema = resolved.schema;
       const valueIsSessionKey = isSessionKey(op.value);
 
@@ -290,12 +304,14 @@ export function planSessionKeyExpansion(args: {
               message: `Patch op #${opIndex}: SessionKey _tag is '${sk[SESSION_SUBTYPE_TAG]}' but the schema is '${leafSchema.type}'.`,
             };
           }
+          const remote = isRemoteSchema(leafSchema);
           sites.push({
             kind: "leaf",
             opIndex,
             opPath,
             subtype: leafSchema.type,
-            remote: isRemoteSchema(leafSchema),
+            remote,
+            remoteSchema: remote ? leafSchema : null,
             sessionKey: sk,
           });
           continue;
@@ -321,8 +337,14 @@ export function planSessionKeyExpansion(args: {
       continue;
     }
 
-    // resolved.kind === "richtext"
+    // A rich text: walked into, or written whole.
     const inlineImg = getInlineImgInfo(resolved.schema);
+    const inlineRemote =
+      inlineImg.kind === "allowed" ? inlineImg.remote : false;
+    const inlineImgSchema =
+      inlineRemote && resolved.schema.type === "richtext"
+        ? richTextImageSchema(resolved.schema)
+        : null;
     let foundSiteCount = 0;
     let forbiddenAt: string[] | null = null;
     walkRichtextValueForSessionKeys(
@@ -333,7 +355,8 @@ export function planSessionKeyExpansion(args: {
           opIndex,
           opPath,
           valuePath,
-          remote: inlineImg.kind === "allowed" ? inlineImg.remote : false,
+          remote: inlineRemote,
+          remoteSchema: inlineImgSchema,
           sessionKey: sk,
         });
         foundSiteCount += 1;
@@ -356,15 +379,25 @@ export function planSessionKeyExpansion(args: {
     }
   }
 
+  for (const site of sites) {
+    if (site.remote && site.remoteSchema === null) {
+      return {
+        kind: "error",
+        message: `Patch op #${site.opIndex}: the image is remote, but its schema could not be found to name it by.`,
+      };
+    }
+  }
   const transfers: PendingTransfer[] = sites.map((s, siteId) => ({
     siteId,
     key: s.sessionKey.key,
     filePath: s.sessionKey.filePath,
     isRemote: s.remote,
+    ...(s.remoteSchema !== null ? { remoteSchema: s.remoteSchema } : {}),
   }));
 
   const apply = (
     metadataBySiteId: Record<number, ImageMetadata | undefined>,
+    refBySiteId: Record<number, string | undefined> = {},
   ): ApplyResult => {
     if (sites.length === 0) {
       return { kind: "ok", patch };
@@ -375,8 +408,12 @@ export function planSessionKeyExpansion(args: {
     for (let siteId = 0; siteId < sites.length; siteId++) {
       const site = sites[siteId];
       const metadata = mergeMetadata(metadataBySiteId[siteId], site.sessionKey);
+      // A remote file is stored under its ref. Its bytes are the session
+      // key's either way: the service has already put them on the patch.
+      const filePath = refBySiteId[siteId] ?? site.sessionKey.filePath;
+      const fileValue = site.sessionKey.key;
       const refValue = buildFileRefValue(
-        site.sessionKey.filePath,
+        filePath,
         metadata as unknown as Record<string, unknown>,
       );
 
@@ -386,8 +423,8 @@ export function planSessionKeyExpansion(args: {
         fileOps.push({
           op: "file",
           path: site.opPath,
-          filePath: site.sessionKey.filePath,
-          value: site.sessionKey.key,
+          filePath,
+          value: fileValue,
           remote: site.remote,
           metadata,
         });
@@ -408,8 +445,8 @@ export function planSessionKeyExpansion(args: {
           op: "file",
           path: site.opPath,
           nestedFilePath: site.valuePath,
-          filePath: site.sessionKey.filePath,
-          value: site.sessionKey.key,
+          filePath,
+          value: fileValue,
           remote: site.remote,
           metadata,
         });
@@ -436,8 +473,25 @@ export type SessionKeyTransfer = (args: {
   files: { filePath: string; key: string; isRemote: boolean }[];
 }) => Promise<{
   patchId: PatchId;
-  files: { filePath: string; metadata: ImageMetadata }[];
+  files: { filePath: string; metadata: ImageMetadata; sha256?: string }[];
 }>;
+
+/**
+ * The remote ref a session image attached at `localPath` is stored under.
+ *
+ * A ref names the SHA-256 of the bytes, which the content service hands back
+ * with the transfer. Against one that does not, `sha256` is undefined and the
+ * namer has to find it some other way: see `nameSessionImageRemote`.
+ */
+export type SessionKeyRemoteNamer = (args: {
+  localPath: string;
+  patchId: PatchId;
+  remoteSchema: SerializedImageSchema | SerializedFileSchema;
+  metadata: ImageMetadata;
+  sha256: string | undefined;
+}) => Promise<
+  { status: "ok"; ref: string } | { status: "error"; message: string }
+>;
 
 export type ExpandResult =
   | { kind: "ok"; patch: Patch }
@@ -453,6 +507,13 @@ export type ExpandResult =
  * All transfers are batched into a single call. Duplicate `(filePath, key,
  * isRemote)` triples in the patch are deduped on the wire and the upstream
  * metadata is fanned back out to every site that referenced them.
+ *
+ * The transfer MOVES the bytes: the service points the patch's file at the
+ * object the session image already is, so nothing is copied and the patch's
+ * `file` ops carry the session key. A remote site is attached as remote, under
+ * its `/public` path as every remote upload is; what it still needs is a ref
+ * to be stored under, which `nameRemote` makes from the hash the transfer
+ * returned.
  */
 export async function expandSessionKeysInPatch(args: {
   patch: Patch;
@@ -461,6 +522,8 @@ export async function expandSessionKeysInPatch(args: {
   patchId: PatchId;
   parentRef: ParentRef;
   transfer: SessionKeyTransfer;
+  /** Required when a site is remote. */
+  nameRemote?: SessionKeyRemoteNamer;
 }): Promise<ExpandResult> {
   const plan = planSessionKeyExpansion({
     patch: args.patch,
@@ -470,6 +533,7 @@ export async function expandSessionKeysInPatch(args: {
   if (plan.kind !== "ok") return plan;
 
   const metadataBySiteId: Record<number, ImageMetadata | undefined> = {};
+  const sha256BySiteId: Record<number, string | undefined> = {};
   if (plan.transfers.length > 0) {
     type FileKey = string;
     const keyOf = (t: {
@@ -513,10 +577,37 @@ export async function expandSessionKeysInPatch(args: {
         };
       }
       metadataBySiteId[t.siteId] = res.files[idx].metadata;
+      sha256BySiteId[t.siteId] = res.files[idx].sha256;
     }
   }
 
-  const applied = plan.apply(metadataBySiteId);
+  const refBySiteId: Record<number, string | undefined> = {};
+  for (const t of plan.transfers) {
+    if (t.remoteSchema === undefined) continue;
+    if (!args.nameRemote) {
+      return {
+        kind: "error",
+        message:
+          "This patch puts an image in remote storage, which this Studio cannot do from the assistant.",
+      };
+    }
+    const named = await args.nameRemote({
+      localPath: t.filePath,
+      patchId: args.patchId,
+      remoteSchema: t.remoteSchema,
+      metadata: metadataBySiteId[t.siteId] ?? {},
+      sha256: sha256BySiteId[t.siteId],
+    });
+    if (named.status === "error") {
+      return {
+        kind: "error",
+        message: `Could not name ${t.filePath} in remote storage: ${named.message}`,
+      };
+    }
+    refBySiteId[t.siteId] = named.ref;
+  }
+
+  const applied = plan.apply(metadataBySiteId, refBySiteId);
   if (applied.kind === "error") {
     return { kind: "error", message: applied.message };
   }

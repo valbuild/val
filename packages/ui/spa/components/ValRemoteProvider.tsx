@@ -1,5 +1,6 @@
 import { DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
 import React, { useContext, useEffect, useState } from "react";
+import type { RemoteUploadSettings } from "../utils/uploadLocalMedia";
 
 type RemoteFiles =
   | {
@@ -84,6 +85,62 @@ export function useRemoteHost(): string {
   return remoteFiles?.status === "ready" && remoteFiles.remoteHost
     ? remoteFiles.remoteHost
     : DEFAULT_VAL_REMOTE_HOST;
+}
+
+/**
+ * Everything a new remote ref names, or why there is none yet.
+ *
+ * For code that writes remote files without being a field: the assistant's
+ * tools. It does not throw outside a provider, because the hook that mounts
+ * them is rendered without one in stories and tests, where no tool runs.
+ */
+export type RemoteUploadReadiness =
+  | { status: "ready"; settings: RemoteUploadSettings }
+  | { status: "unavailable"; message: string };
+
+export function useRemoteUploadSettings(): RemoteUploadReadiness {
+  const remoteFiles = useContext(ValRemoteContext)?.remoteFiles ?? null;
+  const [bucket, setBucket] = useState<string | null>(null);
+  useEffect(() => {
+    if (
+      remoteFiles?.status === "ready" &&
+      remoteFiles.buckets.length > 0 &&
+      bucket === null
+    ) {
+      setBucket(
+        remoteFiles.buckets[
+          Math.floor(Math.random() * remoteFiles.buckets.length)
+        ],
+      );
+    }
+  }, [remoteFiles, bucket]);
+  if (remoteFiles === null) {
+    return {
+      status: "unavailable",
+      message: "Remote files are not available here.",
+    };
+  }
+  if (remoteFiles.status === "inactive") {
+    return {
+      status: "unavailable",
+      message: remoteFiles.message,
+    };
+  }
+  if (remoteFiles.status !== "ready" || bucket === null) {
+    return {
+      status: "unavailable",
+      message: "Uploads are still being prepared.",
+    };
+  }
+  return {
+    status: "ready",
+    settings: {
+      publicProjectId: remoteFiles.publicProjectId,
+      bucket,
+      coreVersion: remoteFiles.coreVersion,
+      remoteHost: remoteFiles.remoteHost || DEFAULT_VAL_REMOTE_HOST,
+    },
+  };
 }
 
 export function useCurrentRemoteFileBucket() {

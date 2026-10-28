@@ -128,8 +128,21 @@ describe("ValApp's demo", () => {
       },
     ],
   };
-  const settled = () => new Promise((resolve) => setTimeout(resolve, 100));
   const alert = () => document.querySelector('[role="alert"]');
+  /**
+   * Until the demo has either started or said why it cannot: one of the two
+   * always happens, and asserting before it did is a guess at how long the
+   * machine takes (a fixed 100 ms was, and failed on a busy CI runner).
+   */
+  const settled = async () => {
+    const until = Date.now() + 5_000;
+    while (alert() === null && window.__VAL_DEMO__ === undefined) {
+      if (Date.now() > until) {
+        throw new Error("The demo neither started nor said why not.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
   let ValApp: typeof import("./ValApp").ValApp;
   let ValModulesClient: typeof import("./ValModulesClient").ValModulesClient;
   let createRoot: typeof import("react-dom/client").createRoot;

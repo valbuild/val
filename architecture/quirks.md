@@ -194,6 +194,17 @@ which is the path the event actually travelled — `useDismissOnOutsidePointer`
 does. This cost the Preview menu's "Open in a new tab" and every suggestion in
 the canvas address bar.
 
+**The same retargeting froze scrolling in every modal dialog.** Radix puts its
+scroll lock (`react-remove-scroll`) on the OVERLAY and lists the content as a
+"shard", matched with `shard.contains(event.target)` from a `document` wheel
+listener — where the target is the shadow host, which no shard contains. So
+every wheel over a dialog's content was cancelled: nothing in the compare
+dialog could be scrolled, and the mobile sidebar's `hideOverlay` was a
+workaround for it. Our copy (`designSystem/dialog-primitive.tsx`) puts the
+lock on the CONTENT instead, so its events are judged by their real target.
+jsdom has no layout, so no unit test can see this; check it in a browser with
+the dialog portalled into a shadow root.
+
 **A Radix popup with no `container` opens OUTSIDE the shadow root, and that also
 reads as a dead button.** The default portal target is `document.body`, where
 none of Val's styles reach the menu and nothing gives it a stacking context

@@ -1,5 +1,44 @@
 # @valbuild/mcp
 
+## 0.150.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.150.14
+
+## 0.150.13
+
+### Patch Changes
+
+- Updated dependencies [[`0cd38eb`](https://github.com/valbuild/val/commit/0cd38eb62c80e2b3989aa45a6c9c75b02fc27cd1)]:
+  - @valbuild/shared@0.150.13
+  - @valbuild/server@0.150.13
+
+## 0.150.12
+
+### Patch Changes
+
+- Updated dependencies [[`55f565e`](https://github.com/valbuild/val/commit/55f565eefe470d1a7cda436d628aec2f7ad61969)]:
+  - @valbuild/server@0.150.12
+  - @valbuild/shared@0.150.12
+
+## 0.150.11
+
+### Patch Changes
+
+- Updated dependencies [[`9abd5ef`](https://github.com/valbuild/val/commit/9abd5efea0c1adc7e7ff2d05b2ea38b76af73b38), [`9c6bc8d`](https://github.com/valbuild/val/commit/9c6bc8d25f40427a6fb9eec6ff5506996b718a78)]:
+  - @valbuild/shared@0.150.11
+  - @valbuild/server@0.150.11
+
+## 0.150.10
+
+### Patch Changes
+
+- Updated dependencies [[`bc39500`](https://github.com/valbuild/val/commit/bc395000866ae9cbde8825f53d1bb606e1093c94)]:
+  - @valbuild/shared@0.150.10
+  - @valbuild/server@0.150.10
+
 ## 0.150.9
 
 ### Patch Changes
