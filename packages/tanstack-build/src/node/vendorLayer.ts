@@ -370,7 +370,7 @@ export interface VendorLayer {
    * once, by its hash, so a publisher asks which it is missing and sends
    * only those.
    */
-  assetFiles?: Record<string, string>;
+  assetBytes?: Record<string, string>;
 }
 
 /** Digest of the dependency stylesheets, for the layer revision. */
@@ -1849,7 +1849,7 @@ export async function buildVendorLayer(
       skipped,
       workerOnly,
       workerOnlyReasons,
-      ...(studio ? { assets: studio.assets, assetFiles: studio.files } : {}),
+      ...(studio ? { assets: studio.assets, assetBytes: studio.files } : {}),
     };
   } finally {
     await rm(stubs, { recursive: true, force: true });
