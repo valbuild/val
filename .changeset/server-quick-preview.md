@@ -8,3 +8,5 @@
 The proposal is also typechecked in the background after each change, and whenever it is built. The assistant hears about type errors on its next step, can ask where the typecheck is with `typecheck_status`, and is told to call `typecheck` only once its edits are done.
 
 Projects Val Build does not build yet make quick previews in the browser as before, and don't start them on their own.
+
+Not yet: a change that uses a Tailwind class the site doesn't use yet shows without that class's styles, in a quick preview and in a build alike. Studio builds still ship the live site's stylesheet, and compiling stylesheets on Val Build comes next.
