@@ -115,6 +115,9 @@ const BUILD_PROPOSAL_TOOL: AITool = {
   description:
     "Build the proposal's code, so its preview shows the files staged with write_files. " +
     "Nothing is published: the site is unchanged until the proposal is merged. " +
+    "In the design tab a quick preview shows components, layout, styles and text without one, so build only for what it cannot show -- " +
+    "routes added, removed or renamed; code that runs on the server (loaders, server functions, API routes, a route's head); " +
+    "a .val.ts schema; dependencies -- or once when the person's request is finished. Never after each edit. " +
     "Answers when the build ends, or after wait_seconds with status 'building' if it is still going: " +
     "then call wait to wait for it, build_status to see where it is, or cancel_build to stop it. " +
     "A build already running is joined, not started again.",
@@ -644,7 +647,11 @@ Besides content, you can read the project's code (list_files, read_file, search_
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. ${
+    where.kind === "design"
+      ? "The preview shows the change as a quick preview by itself; build_proposal only when the change needs a build (see the design tab's rules), never after each edit."
+      : "Then build_proposal, so the proposal's preview shows it."
+  } Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
 - A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
 - ${here}`;
@@ -676,7 +683,14 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - Keep each change small enough to check: write it, format it and lint it, then -- once the edits for it are done -- typecheck it and fix what it reports, then build. The typecheck runs in the background after each change; typecheck_status says where it is.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
-- A change to components, layout or styles shows in the preview in seconds as a quick preview, which runs by itself after each change where Val Build makes them; call quick_preview when none ran, or to see it now. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
+- A change to components, layout, styles or text shows in the preview in seconds as a quick preview, which runs by itself after each change where Val Build makes them; call quick_preview when none ran, or to see it now. Do not build to see such a change.
+- build_proposal is for what a quick preview cannot show, and only then:
+  - routes: a page added, removed or renamed (the server does not know a new route until it is built);
+  - code that runs on the server: loaders, server functions, API routes, a route's head (title, meta);
+  - a .val.ts schema change: Val's server reads the schema;
+  - dependencies (package.json): a quick preview cannot load them;
+  - and once when the person's request is finished, so it can be published: the build also checks the page still renders on the server.
+  Build once for all of these together, at the end of the request, not after each edit; build earlier only when you have to check one of them on the page.
 - Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
 - When how it LOOKS is the question -- a colour, spacing, an overlap, a layout on a phone -- read it with read_page and a selector: the computed styles, the sizes and where each element is.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
@@ -737,6 +751,8 @@ export type CodeToolDeps = {
   lintCode?: typeof lintWithValRules;
   /** Offer the person a proposal to make the change in. */
   offerProposal: () => void;
+  /** In the design tab, where a quick preview shows a change and a build is seldom needed. */
+  design?: boolean;
 };
 
 /**
@@ -855,9 +871,11 @@ export async function runCodeTool(
           success: true,
           staged: staged.staged.files,
           buildRequired: staged.staged.buildRequired,
-          next: staged.staged.buildRequired
-            ? "Call build_proposal when the change is complete, so the preview shows it."
-            : "The preview already shows these files.",
+          next: !staged.staged.buildRequired
+            ? "The preview already shows these files."
+            : deps.design === true
+              ? "The preview shows them as a quick preview by itself. Build only when the change needs one, once, when the request is done."
+              : "Call build_proposal when the change is complete, so the preview shows it.",
         },
         isError: false,
       };
@@ -890,7 +908,10 @@ export async function runCodeTool(
           success: true,
           staged: staged.staged.files,
           buildRequired: staged.staged.buildRequired,
-          next: "Written into the module's file and staged. Call build_proposal when the change is complete, so the preview shows it.",
+          next:
+            deps.design === true
+              ? "Written into the module's file and staged. The preview shows it as a quick preview by itself: no build is needed for content."
+              : "Written into the module's file and staged. Call build_proposal when the change is complete, so the preview shows it.",
         },
         isError: false,
       };
@@ -946,7 +967,9 @@ export async function runCodeTool(
             : {}),
           next:
             outcome.errors.length === 0
-              ? "No new type errors. Call build_proposal when the change is complete."
+              ? deps.design === true
+                ? "No new type errors."
+                : "No new type errors. Call build_proposal when the change is complete."
               : "Fix these in the files, then typecheck again.",
         },
         isError: false,

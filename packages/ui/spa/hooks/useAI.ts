@@ -2356,6 +2356,7 @@ export function useAI(
               };
             },
             offerProposal: requestProposal,
+            design: designRef.current !== null,
           }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
