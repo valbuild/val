@@ -123,7 +123,6 @@ import {
   DESIGN_CREATE_PATCH_TOOL,
   DESIGN_QUICK_PREVIEW_TOOL,
   DESIGN_READ_PAGE_TOOL,
-  DESIGN_SCREENSHOT_TOOL,
   isCodeTool,
   runCodeTool,
   runQuickPreviewTool,
