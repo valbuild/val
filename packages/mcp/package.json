@@ -20,7 +20,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-mcp.cjs.d.ts",
-  "version": "0.150.20",
+  "version": "0.150.21",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
