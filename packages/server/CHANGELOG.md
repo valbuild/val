@@ -1,5 +1,20 @@
 # @valbuild/server
 
+## 0.150.19
+
+### Patch Changes
+
+- [#996](https://github.com/valbuild/val/pull/996) [`17fa9ab`](https://github.com/valbuild/val/commit/17fa9ab7d86d3dc304109b8f5222f46f22bd5770) Thanks [@freekh](https://github.com/freekh)! - **The design tab's quick preview is made by Val Build, and shows itself after each change.** Where Val Build builds your project's proposals, a quick preview is bundled there rather than in your browser. It is the same build a Build of the same files makes, so pressing Build afterwards is quicker too. The design tab no longer needs a cross-origin isolated page or a builder tab for it, and it shows each change on its own about a second after the files stop changing.
+
+  The proposal is also typechecked in the background after each change, and whenever it is built. The assistant hears about type errors on its next step, can ask where the typecheck is with `typecheck_status`, and is told to call `typecheck` only once its edits are done.
+
+  Projects Val Build does not build yet make quick previews in the browser as before, and don't start them on their own.
+
+  Not yet: a change that uses a Tailwind class the site doesn't use yet shows without that class's styles, in a quick preview and in a build alike. Studio builds still ship the live site's stylesheet, and compiling stylesheets on Val Build comes next.
+
+- Updated dependencies [[`17fa9ab`](https://github.com/valbuild/val/commit/17fa9ab7d86d3dc304109b8f5222f46f22bd5770)]:
+  - @valbuild/ui@0.150.19
+
 ## 0.150.18
 
 ### Patch Changes
