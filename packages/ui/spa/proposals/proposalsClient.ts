@@ -484,7 +484,30 @@ export type ProposalsClient = {
    * does not build yet.
    */
   askBuild(name: string, inputs: string): Promise<ProposalJson>;
+  /**
+   * Ask Val Build for a quick preview of its staged files `inputs` names
+   * (`quickPreviewOnServer`): the browser half of their build, for the
+   * page's quick preview worker, answered when it is built. Nothing is
+   * served. A 409 with `details.code: "server-builds-off"` for a project it
+   * does not build yet.
+   */
+  quickPreview(name: string, inputs: string): Promise<QuickPreviewAnswer>;
 };
+
+/** What Val Build answers a quick preview with. */
+export type QuickPreviewAnswer = z.infer<typeof QuickPreviewAnswer>;
+const QuickPreviewAnswer = z.object({
+  inputs: z.string(),
+  files: z.record(
+    z.string(),
+    z.object({
+      body: z.string(),
+      contentType: z.string(),
+      base64: z.literal(true).optional(),
+    }),
+  ),
+  timings: z.object({ prepare: z.number(), total: z.number() }).optional(),
+});
 
 /**
  * A proposal's build target, and whose layer it is: `own` when the proposal
@@ -584,6 +607,10 @@ export function createProposalsClient(options: {
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     askBuild: (name, inputs) => one(`${at(name)}/build`, "POST", { inputs }),
+    quickPreview: async (name, inputs) =>
+      QuickPreviewAnswer.parse(
+        await call(`${at(name)}/quick-preview`, "POST", { inputs }),
+      ),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>
       UpdateContentAnswer.parse(

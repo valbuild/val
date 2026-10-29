@@ -412,7 +412,7 @@ describe("the code tools", () => {
     });
   };
 
-  test("are eleven, and known by name", () => {
+  test("are twelve, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
@@ -421,6 +421,7 @@ describe("the code tools", () => {
       "format_files",
       "lint",
       "typecheck",
+      "typecheck_status",
       "build_proposal",
       "build_status",
       "cancel_build",
@@ -738,6 +739,45 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
     expect(broken.isError).toBe(true);
     expect(
       (await runCodeTool("typecheck", {}, deps({ proposal: null }))).isError,
+    ).toBe(true);
+  });
+
+  test("typecheck_status says where the background typecheck is, without starting one", async () => {
+    const error = {
+      file: "src/components/Hero.tsx",
+      line: 3,
+      column: 7,
+      code: 2322,
+      message: "Type 'number' is not assignable to type 'string'.",
+    };
+    const running = await runCodeTool(
+      "typecheck_status",
+      {},
+      deps({
+        typecheckStatus: async () => ({ status: "running", step: "reading" }),
+      }),
+    );
+    expect(running.result).toEqual({ status: "running", step: "reading" });
+    const stale = await runCodeTool(
+      "typecheck_status",
+      {},
+      deps({
+        typecheckStatus: async () => ({
+          status: "done",
+          errors: [error],
+          current: false,
+        }),
+      }),
+    );
+    expect(stale.result).toMatchObject({
+      status: "done",
+      current: false,
+      newErrors: 1,
+      errors: [error],
+    });
+    expect(
+      (await runCodeTool("typecheck_status", {}, deps({ proposal: null })))
+        .isError,
     ).toBe(true);
   });
 
