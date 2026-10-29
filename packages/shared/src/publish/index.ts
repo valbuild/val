@@ -74,11 +74,17 @@ export {
 } from "./runStudioJob";
 export {
   BUILD_CANCELLED_MESSAGE,
+  SERVER_BUILDS_OFF,
+  SERVER_BUILD_POLL_MS,
+  SERVER_BUILD_WAIT_MS,
   SERVE_POLL_MS,
   SERVE_WAIT_MS,
   buildProposal,
+  buildProposalOnServer,
   withoutLockfiles,
   type BuiltProposal,
+  type ServerBuildClient,
+  type ServerBuildStep,
   type ProposalBuildClient,
   type ProposalBuildOutcome,
   type ProposalBuildStep,

@@ -4,7 +4,7 @@ import type {
   BuildStepTimes,
   ProposalBuildControl,
   ProposalBuildOutcome,
-  ProposalBuildStep,
+  StudioBuildStep,
 } from "./proposalCode";
 
 /**
@@ -39,7 +39,7 @@ export type ProposalBuildState = {
     percent?: number | null;
   } | null;
   /** Where a build in this page is, around its deploy; `null` when none is. */
-  step: ProposalBuildStep | null;
+  step: StudioBuildStep | null;
   /** `Date.now()` when the running build started; `null` when none runs. */
   startedAt: number | null;
   /** The running build's steps so far, each with how long it took. */
@@ -311,12 +311,14 @@ export function proposalBuildControl(
 }
 
 /** A step of the build around its deploy, as its timing is named. */
-export function stepLabel(step: ProposalBuildStep): string {
+export function stepLabel(step: StudioBuildStep): string {
   switch (step.kind) {
     case "reading":
       return "Reading the proposal";
     case "deploying":
       return "Building";
+    case "on-server":
+      return "Building on Val Build";
     case "serving":
       return "Serving the build at the proposal's address";
     case "waiting":
