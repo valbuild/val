@@ -1008,7 +1008,7 @@ export class ValOpsHttp extends ValOps {
       );
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|verify|update-from-site|restore-code)$/.test(
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|quick-preview|verify|update-from-site|restore-code)$/.test(
         path,
       )
     );
@@ -1030,7 +1030,7 @@ export class ValOpsHttp extends ValOps {
   ): { name: string; write: string } | null {
     if (method !== "POST") return null;
     const match =
-      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|update-from-site|restore-code)$/.exec(
+      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|quick-preview|update-from-site|restore-code)$/.exec(
         path,
       );
     return match === null ? null : { name: match[1], write: match[2] };
@@ -1050,6 +1050,9 @@ export class ValOpsHttp extends ValOps {
    * keeps it only for the inputs it was made from. Without it the tab's
    * Types check, and the assistant's `typecheck`, had nothing to show.
    *
+   * And a quick preview: the browser half of a build of the staged files,
+   * which Val Build makes and nothing serves.
+   *
    * The rest stay the proposal's own: Update from the site and the lockfile
    * are answered from the proposal's build and schemas, and bringing back a
    * point's code is the Studio at its address finishing a restore.
@@ -1057,6 +1060,7 @@ export class ValOpsHttp extends ValOps {
   private static readonly SITE_MAY_WRITE = new Set([
     "files",
     "build",
+    "quick-preview",
     "typecheck",
   ]);
 

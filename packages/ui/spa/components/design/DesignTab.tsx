@@ -16,6 +16,10 @@ import { useClient, useCurrentProposal } from "../ValProvider";
 import { formatRelativeTime } from "../shell/shellDataMapping";
 import { canBuildHere } from "../../publish/handoff";
 import {
+  cancelScheduledTypecheck,
+  scheduleTypecheck,
+} from "../../proposals/useProposalTypecheck";
+import {
   createProposalsClient,
   type ProposalJson,
 } from "../../proposals/proposalsClient";
@@ -58,6 +62,9 @@ const DEVICE_SETTLE_MS = 600;
 
 /** Held to pick on the page: Option on a Mac, Alt elsewhere. */
 const PICK_MODIFIER: PickModifier = "alt";
+
+/** How long after the staged files stop changing the tab shows them as a quick preview. */
+const AUTO_QUICK_PREVIEW_DELAY_MS = 1_000;
 
 function isMac(): boolean {
   return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -248,6 +255,38 @@ export function DesignTab({ name }: { name: string }) {
   const publish = useDesignPublish(name, proposal, proposals);
 
   const open = proposal?.status === "open";
+
+  /*
+   * After each change to what is staged -- the assistant's or the person's --
+   * the proposal is typechecked in the background, once the changes stop,
+   * and shown as a quick preview where Val Build makes one. Neither builds
+   * or saves anything: a Build is still what serves it, and Publish what
+   * takes it to the site.
+   */
+  const stagedInputs = proposal?.staged?.inputs ?? null;
+  const buildRequired = proposal?.staged?.buildRequired ?? false;
+  const reread = useCallback(() => setAttempt((n) => n + 1), []);
+  const checkedInputs = proposal?.typecheck?.inputs ?? null;
+  useEffect(() => {
+    if (!open || stagedInputs === null) return;
+    // Checked already, by this tab or another: not checked again
+    if (checkedInputs === stagedInputs) return;
+    scheduleTypecheck(name, proposals, reread, undefined, stagedInputs);
+  }, [open, stagedInputs, checkedInputs, name, proposals, reread]);
+  useEffect(() => () => cancelScheduledTypecheck(name), [name]);
+  const autoQuick = quick.run;
+  // Only once the page in the preview answers: it is what takes the files
+  const pageAnswers = frameStatus === "live";
+  useEffect(() => {
+    if (!open || stagedInputs === null || !buildRequired || !pageAnswers)
+      return;
+    const timer = setTimeout(
+      () => void autoQuick({ auto: true }),
+      AUTO_QUICK_PREVIEW_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [open, stagedInputs, buildRequired, pageAnswers, autoQuick]);
+
   return (
     <>
       <DesignTabView
@@ -303,7 +342,14 @@ export function DesignTab({ name }: { name: string }) {
           progress,
           startedAt: state.startedAt,
           swapping,
-          onBuild: open && build !== null ? () => void build() : null,
+          onBuild:
+            open && build !== null
+              ? () => {
+                  // A build is always typechecked, beside it
+                  scheduleTypecheck(name, proposals, reread, 0, stagedInputs);
+                  void build();
+                }
+              : null,
           onCancel: () => void cancel(),
         }}
         builder={

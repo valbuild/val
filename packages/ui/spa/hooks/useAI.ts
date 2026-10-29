@@ -133,7 +133,13 @@ import {
   type ReadPageDeps,
   type ScreenshotPageDeps,
 } from "../proposals/proposalCode";
-import { typecheckProposal } from "../proposals/useProposalTypecheck";
+import {
+  markTypeErrorsTold,
+  scheduleTypecheck,
+  typecheckProposal,
+  typecheckStatusOf,
+  untoldTypeErrors,
+} from "../proposals/useProposalTypecheck";
 import {
   proposalCodeChanged,
   requestProposal,
@@ -2282,23 +2288,74 @@ export function useAI(
           const toolCallId = message.toolCallId;
           const messageId = message.id;
           const toolName = message.name;
+          const proposalName = currentProposalRef.current?.name ?? null;
+          const stagedInputs = async () =>
+            proposalName === null
+              ? null
+              : ((await codeClients.proposals.get(proposalName)).staged
+                  ?.inputs ?? null);
+          const build = proposalBuildControl(proposalBuildRef.current);
           void runCodeTool(toolName, message.arguments, {
             proposal: currentProposalRef.current,
             client: codeClients.proposals,
             siteSource: () => codeClients.publish.projectSource(),
-            build: proposalBuildControl(proposalBuildRef.current),
-            typecheck: () => {
-              const proposal = currentProposalRef.current;
-              return proposal === null
+            build:
+              proposalName === null
+                ? build
+                : {
+                    ...build,
+                    // A build is always typechecked: what it builds is
+                    // checked beside it, and a failure reaches the assistant
+                    // on its next tool call
+                    start: () => {
+                      void stagedInputs()
+                        .catch(() => null)
+                        .then((inputs) =>
+                          scheduleTypecheck(
+                            proposalName,
+                            codeClients.proposals,
+                            proposalCodeChanged,
+                            0,
+                            inputs,
+                          ),
+                        );
+                      return build.start();
+                    },
+                  },
+            typecheck: () =>
+              proposalName === null
                 ? Promise.resolve({ status: "nothing-staged" })
                 : typecheckProposal(
-                    proposal.name,
+                    proposalName,
                     codeClients.proposals,
                     proposalCodeChanged,
-                  );
+                    stagedInputs,
+                  ),
+            typecheckStatus: async () => {
+              if (proposalName === null) return { status: "none" };
+              const status = typecheckStatusOf(proposalName);
+              if (status.status === "running") {
+                return {
+                  status: "running",
+                  step:
+                    status.step === null
+                      ? null
+                      : status.step.step === "checking"
+                        ? `checking the ${status.step.which}'s code`
+                        : status.step.step,
+                };
+              }
+              if (status.status !== "done") return status;
+              const now = await stagedInputs();
+              if (now === status.inputs) markTypeErrorsTold(status.inputs);
+              return {
+                status: "done",
+                errors: status.errors,
+                current: now === status.inputs,
+              };
             },
             offerProposal: requestProposal,
-          }).then(({ result, isError }) => {
+          }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
                 toolName === "create_patch" ||
@@ -2307,10 +2364,37 @@ export function useAI(
               !isError
             )
               proposalCodeChanged();
+            // The background typecheck found errors in what is staged now,
+            // and the assistant has not heard: it hears on this answer
+            const untold =
+              proposalName === null ? null : untoldTypeErrors(proposalName);
+            // Told only of errors in what is staged now; the read that says
+            // so is given a few seconds, never the answer's whole wait
+            const notice =
+              untold !== null &&
+              (await Promise.race([
+                stagedInputs().catch(() => null),
+                new Promise<null>((resolve) =>
+                  setTimeout(() => resolve(null), 3_000),
+                ),
+              ])) === untold.inputs
+                ? untold
+                : null;
+            if (notice !== null) markTypeErrorsTold(notice.inputs);
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId,
-              result,
+              result:
+                notice === null
+                  ? result
+                  : {
+                      result,
+                      typecheck_errors: {
+                        newErrors: notice.errors.length,
+                        errors: notice.errors.slice(0, 20),
+                        next: "The background typecheck found these in what is staged. Fix them before you build.",
+                      },
+                    },
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);

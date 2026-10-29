@@ -33,4 +33,16 @@ describe("serverFirst: Val Build builds a proposal before this page does", () =>
     expect(onServer).toHaveBeenCalledTimes(1);
     expect(here).toHaveBeenCalledTimes(2);
   });
+
+  test("what Val Build is off for is remembered per kind: builds go on asking after quick previews were off", async () => {
+    const quickOff = jest.fn().mockResolvedValue({ status: "off" });
+    const here = jest.fn().mockResolvedValue({ status: "here" });
+    await serverFirst(quickOff, here, "quick-preview");
+    const build = jest.fn().mockResolvedValue({ status: "built" });
+    expect(await serverFirst(build, here, "build")).toEqual({
+      status: "built",
+    });
+    await serverFirst(quickOff, here, "quick-preview");
+    expect(quickOff).toHaveBeenCalledTimes(1);
+  });
 });

@@ -206,9 +206,18 @@ const TYPECHECK_TOOL: AITool = {
   description:
     "Typecheck the proposal's code: the staged files with the site's, checked with TypeScript. " +
     "Answers the type errors the proposal ADDS -- errors the site already has are not counted. " +
-    "Call it after write_files, before build_proposal; fix what it reports. Takes seconds to a minute.",
+    "The proposal is typechecked by itself in the background after each change, so call this once ALL your edits for a change are done, not after each one: " +
+    "it answers at once when the background check of what is staged has finished, and waits for one otherwise. Takes seconds to a minute.",
   parameters: { type: "object", properties: {}, required: [] },
   timeoutMs: 5 * 60_000,
+};
+
+const TYPECHECK_STATUS_TOOL: AITool = {
+  name: "typecheck_status",
+  description:
+    "Where the background typecheck of the proposal is, without starting one: scheduled (the files just changed), running, " +
+    "done (with the type errors it found, and whether it is of what is staged now) or failed. Answers at once.",
+  parameters: { type: "object", properties: {}, required: [] },
 };
 
 const FORMAT_FILES_TOOL: AITool = {
@@ -269,6 +278,7 @@ export const CODE_TOOLS: AITool[] = [
   FORMAT_FILES_TOOL,
   LINT_TOOL,
   TYPECHECK_TOOL,
+  TYPECHECK_STATUS_TOOL,
   BUILD_PROPOSAL_TOOL,
   BUILD_STATUS_TOOL,
   CANCEL_BUILD_TOOL,
@@ -281,6 +291,16 @@ export type QuickPreviewTiming = { step: string; ms: number };
 /** What a quick preview came to: see `useQuickPreview`. */
 export type QuickPreviewResult =
   | { status: "shown"; ms: number; timings: QuickPreviewTiming[] }
+  /**
+   * Started by the tab after a change, with nothing to do: Val Build does
+   * not make quick previews here (`off`), or what is staged is shown already
+   * (`shown`). See `useQuickPreview`.
+   */
+  | {
+      status: "skipped";
+      reason: "off" | "shown";
+      timings: QuickPreviewTiming[];
+    }
   | { status: "failed"; message: string; timings: QuickPreviewTiming[] };
 
 /**
@@ -291,7 +311,8 @@ export type QuickPreviewResult =
 export const DESIGN_QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
   description:
-    "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled here and the page in the preview runs it. " +
+    "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
+    "Where Val Build makes quick previews, one runs by itself after each change, so call this only to see the change now, or when none ran. " +
     "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
     "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
     "Answers once the page shows it, with what each step took.",
@@ -320,6 +341,26 @@ export async function runQuickPreviewTool(
     return {
       result: { success: false, error: result.message, steps },
       isError: true,
+    };
+  }
+  if (result.status === "skipped" && result.reason === "off") {
+    return {
+      result: {
+        success: false,
+        error:
+          "Val Build does not make quick previews for this project, and none was made here. Call build_proposal to see the change.",
+      },
+      isError: true,
+    };
+  }
+  if (result.status === "skipped") {
+    return {
+      result: {
+        success: true,
+        note: "The preview already shows what is staged.",
+        next: "Check it with read_page or screenshot_page; build_proposal before you say it is done, so the server's half is checked too.",
+      },
+      isError: false,
     };
   }
   return {
@@ -603,7 +644,8 @@ Besides content, you can read the project's code (list_files, read_file, search_
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint and typecheck, and fix what they report; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
 - ${here}`;
 }
@@ -631,10 +673,10 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
 
 ## Working
-- Keep each change small enough to check: write it, format it, lint and typecheck it and fix what they report, then build.
+- Keep each change small enough to check: write it, format it and lint it, then -- once the edits for it are done -- typecheck it and fix what it reports, then build. The typecheck runs in the background after each change; typecheck_status says where it is.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
-- To see a change to components, layout or styles quickly, call quick_preview after typecheck: the preview shows it in seconds. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
+- A change to components, layout or styles shows in the preview in seconds as a quick preview, which runs by itself after each change where Val Build makes them; call quick_preview when none ran, or to see it now. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
 - Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
 - When how it LOOKS is the question -- a colour, spacing, an overlap, a layout on a phone -- look at it with screenshot_page: you get a picture of the preview. read_page is for the exact text and sizes.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
@@ -683,6 +725,8 @@ export type CodeToolDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** Typecheck the proposal, and report it: see `typecheckProposal`. */
   typecheck: () => Promise<CodeTypecheck>;
+  /** Where the background typecheck is, without starting one: see `typecheckStatusOf`. */
+  typecheckStatus?: () => Promise<CodeTypecheckStatus>;
   /** Format one file as the project does; `formatWithProjectPrettier` unless a test says otherwise. */
   formatCode?: (
     text: string,
@@ -738,6 +782,13 @@ export type BuildReport =
     };
 
 /** What the proposal's typecheck came to, for the `typecheck` tool. */
+/** `typecheck_status`: the background typecheck, and whether it is of what is staged now. */
+export type CodeTypecheckStatus =
+  | { status: "none" | "scheduled" }
+  | { status: "running"; step: string | null }
+  | { status: "done"; errors: ProposalTypeError[]; current: boolean }
+  | { status: "failed"; message: string };
+
 export type CodeTypecheck =
   | { status: "done"; errors: ProposalTypeError[] }
   | { status: "nothing-staged" }
@@ -840,6 +891,29 @@ export async function runCodeTool(
           staged: staged.staged.files,
           buildRequired: staged.staged.buildRequired,
           next: "Written into the module's file and staged. Call build_proposal when the change is complete, so the preview shows it.",
+        },
+        isError: false,
+      };
+    }
+    if (name === "typecheck_status") {
+      if (deps.proposal === null || deps.typecheckStatus === undefined) {
+        return fail(
+          "Only a proposal's code is typechecked here: on the site, nothing is staged.",
+        );
+      }
+      const status = await deps.typecheckStatus();
+      if (status.status !== "done") return { result: status, isError: false };
+      return {
+        result: {
+          status: "done",
+          current: status.current,
+          newErrors: status.errors.length,
+          errors: status.errors.slice(0, MAX_TYPE_ERRORS),
+          ...(status.current
+            ? {}
+            : {
+                note: "This check is of files staged before the last change: call typecheck once your edits are done.",
+              }),
         },
         isError: false,
       };

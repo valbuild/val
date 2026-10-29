@@ -12,6 +12,12 @@ import {
 } from "../../publish/loadBuilder";
 import { canBuildHere } from "../../publish/handoff";
 import { quickPreviewInTab } from "../../proposals/buildInTab";
+import { quickPreviewOnServer } from "../../proposals/quickPreviewOnServer";
+import {
+  markServerOff,
+  serverFirst,
+  serverKnownOff,
+} from "../../proposals/serverFirst";
 import { randomUUID } from "../../utils/randomUUID";
 import type {
   QuickPreviewResult,
@@ -20,9 +26,13 @@ import type {
 
 /**
  * The design tab's quick preview (`quickPreview.ts` in `@valbuild/shared`):
- * the proposal's client code bundled here, handed to the page in the
- * preview, and shown there in seconds -- with the server's half still the
- * last build's, which the tab says.
+ * the proposal's client code bundled, handed to the page in the preview, and
+ * shown there in seconds -- with the server's half still the last build's,
+ * which the tab says.
+ *
+ * Bundled by Val Build where it builds the project (`quickPreviewOnServer`),
+ * so the page needs no cross-origin isolation and no builder tab; here, or in
+ * a builder tab, where it does not yet.
  */
 
 export type QuickPreviewState =
@@ -35,7 +45,10 @@ const SHOW_TIMEOUT_MS = 30_000;
 
 export function useQuickPreview(
   name: string,
-  proposals: Pick<ProposalsClient, "files" | "buildTarget">,
+  proposals: Pick<
+    ProposalsClient,
+    "files" | "buildTarget" | "get" | "quickPreview"
+  >,
 ) {
   const [state, setState] = useState<QuickPreviewState>({ status: "idle" });
   const [shownId, setShownId] = useState<string | null>(null);
@@ -56,113 +69,184 @@ export function useQuickPreview(
     showing.current.get(front.quick)?.();
     showing.current.delete(front.quick);
   }, []);
-  const running = useRef<Promise<QuickPreviewResult> | null>(null);
+  const running = useRef<{
+    work: Promise<QuickPreviewResult>;
+    auto: boolean;
+  } | null>(null);
+  /** A change came while one ran: another automatic one after it. */
+  const autoAgain = useRef(false);
+  /** The staged inputs the last quick preview shown was of. */
+  const shownInputs = useRef<string | null>(null);
 
-  const run = useCallback((): Promise<QuickPreviewResult> => {
-    if (running.current !== null) return running.current;
-    const startedAt = Date.now();
-    const timings: QuickPreviewTiming[] = [];
-    let stepNow = { label: "Reading the proposal", at: startedAt };
-    const step = (label: string) => {
-      const at = Date.now();
-      timings.push({ step: stepNow.label, ms: at - stepNow.at });
-      stepNow = { label, at };
-      setState({ status: "running", step: label, startedAt });
-    };
-    const end = (): QuickPreviewTiming[] => {
-      timings.push({ step: stepNow.label, ms: Date.now() - stepNow.at });
-      return timings;
-    };
-    setState({ status: "running", step: stepNow.label, startedAt });
-    const work = (async (): Promise<QuickPreviewResult> => {
-      const publish = createStudioPublishClient({ api: "/api/val" });
-      const generateRouteTree = routeTreeGenerator();
-      let first = true;
-      const onStep = (label: string) => {
-        // The first step is the one already running.
-        if (first) {
-          first = false;
-          if (label === stepNow.label) return;
+  /**
+   * `auto`: one the tab starts itself after a change (`DesignTab`), and only
+   * where Val Build makes it -- never a bundle here or a builder tab nobody
+   * asked for. It says nothing when there is nothing to do (Val Build off,
+   * what is staged shown already) and nothing when it fails: the person did
+   * not ask, and a change half-way through an edit is often one that does
+   * not build. A change while one runs is shown after it, never dropped.
+   *
+   * One asked for -- the button, the assistant's `quick_preview` -- never
+   * joins an automatic one, whose files may be older than the ask: it waits
+   * for it, then makes its own.
+   */
+  const run = useCallback(
+    (options?: { auto?: boolean }): Promise<QuickPreviewResult> => {
+      const auto = options?.auto === true;
+      const now = running.current;
+      if (now !== null) {
+        if (auto) {
+          autoAgain.current = true;
+          return now.work;
         }
-        if (label !== stepNow.label) step(label);
-      };
-      // Safari, an iPhone: bundled in a builder tab, as a build is there.
-      const built = canBuildHere()
-        ? await holdingBuilder(() =>
-            buildQuickPreview({
-              name,
-              proposals,
-              siteSource: () => publish.projectSource(),
-              siteTarget: () => publish.buildTarget(),
-              loadBuilder,
-              ...(generateRouteTree !== null ? { generateRouteTree } : {}),
-              onStep,
-            }),
-          )
-        : await quickPreviewInTab(name, {
-            onTab: (inTab) => {
-              setInTab(inTab);
-              if (inTab?.step) onStep(inTab.step);
-              else if (inTab?.blocked) onStep("Waiting for the builder tab");
-            },
-          });
-      if (built.status === "failed") {
-        return { status: "failed", message: built.message, timings: end() };
+        if (!now.auto) return now.work;
+        return now.work.then(() => run());
       }
-      const store = storer.current;
-      if (store === null) {
+      if (auto && serverKnownOff("quick-preview")) {
+        return Promise.resolve({
+          status: "skipped",
+          reason: "off",
+          timings: [],
+        });
+      }
+      const startedAt = Date.now();
+      const timings: QuickPreviewTiming[] = [];
+      let stepNow = { label: "Reading the proposal", at: startedAt };
+      const step = (label: string) => {
+        const at = Date.now();
+        timings.push({ step: stepNow.label, ms: at - stepNow.at });
+        stepNow = { label, at };
+        setState({ status: "running", step: label, startedAt });
+      };
+      const end = (): QuickPreviewTiming[] => {
+        timings.push({ step: stepNow.label, ms: Date.now() - stepNow.at });
+        return timings;
+      };
+      setState({ status: "running", step: stepNow.label, startedAt });
+      const work = (async (): Promise<QuickPreviewResult> => {
+        const publish = createStudioPublishClient({ api: "/api/val" });
+        const generateRouteTree = routeTreeGenerator();
+        let first = true;
+        const onStep = (label: string) => {
+          // The first step is the one already running.
+          if (first) {
+            first = false;
+            if (label === stepNow.label) return;
+          }
+          if (label !== stepNow.label) step(label);
+        };
+        const built = auto
+          ? await quickPreviewOnServer(name, proposals, onStep)
+          : await serverFirst(
+              () => quickPreviewOnServer(name, proposals, onStep),
+              // Safari, an iPhone: bundled in a builder tab, as a build is there.
+              () =>
+                canBuildHere()
+                  ? holdingBuilder(() =>
+                      buildQuickPreview({
+                        name,
+                        proposals,
+                        siteSource: () => publish.projectSource(),
+                        siteTarget: () => publish.buildTarget(),
+                        loadBuilder,
+                        ...(generateRouteTree !== null
+                          ? { generateRouteTree }
+                          : {}),
+                        onStep,
+                      }),
+                    )
+                  : quickPreviewInTab(name, {
+                      onTab: (inTab) => {
+                        setInTab(inTab);
+                        if (inTab?.step) onStep(inTab.step);
+                        else if (inTab?.blocked)
+                          onStep("Waiting for the builder tab");
+                      },
+                    }),
+              "quick-preview",
+            );
+        if (built.status === "off") {
+          markServerOff("quick-preview");
+          return { status: "skipped", reason: "off", timings: end() };
+        }
+        if (built.status === "failed") {
+          return { status: "failed", message: built.message, timings: end() };
+        }
+        // A builder tab's quick preview says nothing of what it was made of
+        const builtInputs =
+          "inputs" in built && typeof built.inputs === "string"
+            ? built.inputs
+            : null;
+        if (
+          auto &&
+          builtInputs !== null &&
+          builtInputs === shownInputs.current
+        ) {
+          return { status: "skipped", reason: "shown", timings: end() };
+        }
+        const store = storer.current;
+        if (store === null) {
+          return {
+            status: "failed",
+            message:
+              "No page is showing in the preview to show it in. Wait for it to load, and try again.",
+            timings: end(),
+          };
+        }
+        step("Handing it to the page");
+        const id = randomUUID().replace(/-/g, "").slice(0, 16);
+        await store(id, built.files);
+        step("Loading the page with it");
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            showing.current.delete(id);
+            reject(
+              new Error(
+                "The page with the quick preview did not load. Build the proposal instead.",
+              ),
+            );
+          }, SHOW_TIMEOUT_MS);
+          showing.current.set(id, () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          setShownId(id);
+        });
+        shownInputs.current = builtInputs;
         return {
-          status: "failed",
-          message:
-            "No page is showing in the preview to show it in. Wait for it to load, and try again.",
+          status: "shown",
+          ms: Date.now() - startedAt,
           timings: end(),
         };
-      }
-      step("Handing it to the page");
-      const id = randomUUID().replace(/-/g, "").slice(0, 16);
-      await store(id, built.files);
-      step("Loading the page with it");
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          showing.current.delete(id);
-          reject(
-            new Error(
-              "The page with the quick preview did not load. Build the proposal instead.",
-            ),
+      })()
+        .catch(
+          (error): QuickPreviewResult => ({
+            status: "failed",
+            message: error instanceof Error ? error.message : String(error),
+            timings: end(),
+          }),
+        )
+        .then((result) => {
+          running.current = null;
+          // Quiet when automatic: only what was asked for is reported
+          const reported = !auto && result.status !== "skipped";
+          if (reported) setLast(result);
+          setState(
+            reported && result.status === "failed"
+              ? { status: "failed", message: result.message }
+              : { status: "idle" },
           );
-        }, SHOW_TIMEOUT_MS);
-        showing.current.set(id, () => {
-          clearTimeout(timer);
-          resolve();
+          if (autoAgain.current) {
+            autoAgain.current = false;
+            void run({ auto: true });
+          }
+          return result;
         });
-        setShownId(id);
-      });
-      return {
-        status: "shown",
-        ms: Date.now() - startedAt,
-        timings: end(),
-      };
-    })()
-      .catch(
-        (error): QuickPreviewResult => ({
-          status: "failed",
-          message: error instanceof Error ? error.message : String(error),
-          timings: end(),
-        }),
-      )
-      .then((result) => {
-        running.current = null;
-        setLast(result);
-        setState(
-          result.status === "failed"
-            ? { status: "failed", message: result.message }
-            : { status: "idle" },
-        );
-        return result;
-      });
-    running.current = work;
-    return work;
-  }, [name, proposals]);
+      running.current = { work, auto };
+      return work;
+    },
+    [name, proposals],
+  );
 
   /** Forget a failure: a build has shown what the quick preview could not. */
   const dismiss = useCallback(() => {
