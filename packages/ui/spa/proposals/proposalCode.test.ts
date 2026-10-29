@@ -1,5 +1,6 @@
 import {
   buildProposal,
+  buildProposalOnServer,
   CODE_TOOLS,
   isCodeTool,
   proposalProject,
@@ -1082,6 +1083,191 @@ describe("buildProposal, serving the build", () => {
         "The proposal's files changed while it was being built. Build it again.",
     });
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildProposalOnServer: Val Build builds it", () => {
+  const clock = () => {
+    let at = 0;
+    return {
+      now: () => at,
+      sleep: async (ms: number) => {
+        at += ms;
+      },
+    };
+  };
+  const pending = (inputs = INPUTS): ProposalJson => ({
+    ...proposal(null),
+    serverBuild: { state: "pending", inputs, error: null },
+  });
+  const failed = (error: string, inputs = INPUTS): ProposalJson => ({
+    ...proposal(null),
+    serverBuild: { state: "failed", inputs, error },
+  });
+  const served = (hash: string): ProposalJson => ({
+    ...proposal(hash),
+    serverBuild: null,
+  });
+  const off = () =>
+    new ProposalsApiError(
+      409,
+      "Val Build does not build this project's proposals yet: build it in the Studio.",
+      { details: { code: "server-builds-off" } },
+    );
+
+  test("is asked once, and the proposal is read until it says the build is served", async () => {
+    const { now, sleep } = clock();
+    const askBuild = jest.fn().mockResolvedValue(pending());
+    const reads = [pending(), pending(), served("b1")];
+    const steps: string[] = [];
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get: async () => reads.shift() ?? served("b1"),
+        askBuild,
+      },
+      onStep: (step) => steps.push(step.kind),
+      now,
+      sleep,
+    });
+    expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+    expect(askBuild).toHaveBeenCalledWith(NAME, INPUTS);
+    expect(askBuild).toHaveBeenCalledTimes(1);
+    expect(steps[0]).toBe("reading");
+    expect(new Set(steps.slice(1))).toEqual(new Set(["on-server"]));
+  });
+
+  test("a project Val Build does not build yet is off, and nothing else is asked", async () => {
+    const get = jest.fn();
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get,
+        askBuild: async () => {
+          throw off();
+        },
+      },
+    });
+    expect(outcome).toEqual({ status: "off" });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  test("a build it could not make fails in its words; one of other inputs is not this build's", async () => {
+    const { now, sleep } = clock();
+    const reads = [
+      failed("an older build's failure", "b".repeat(64)),
+      failed("The build failed: SyntaxError: Unexpected token (16:21)"),
+    ];
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get: async () => reads.shift()!,
+        askBuild: async () => pending(),
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "The build failed: SyntaxError: Unexpected token (16:21)",
+    });
+  });
+
+  test("content from before Val Build built anything is off too: it refuses the request as an invalid body", async () => {
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get: notRead,
+        askBuild: async () => {
+          throw new ProposalsApiError(
+            400,
+            'Invalid body. Error: Validation error: Required at "publishId"',
+            undefined,
+          );
+        },
+      },
+    });
+    expect(outcome).toEqual({ status: "off" });
+  });
+
+  test("any other refusal fails at once, in content's words", async () => {
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get: notRead,
+        askBuild: async () => {
+          throw new ProposalsApiError(
+            409,
+            "The proposal's files changed while it was being built. Build it again.",
+            undefined,
+          );
+        },
+      },
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message:
+        "The proposal's files changed while it was being built. Build it again.",
+    });
+  });
+
+  test("nothing staged, or built already, asks for nothing", async () => {
+    const askBuild = jest.fn();
+    for (const [over, status] of [
+      [{ inputs: null }, "nothing-staged"],
+      [{ buildRequired: false }, "already-built"],
+    ] as const) {
+      const outcome = await buildProposalOnServer({
+        name: NAME,
+        client: {
+          files: async () => ({ files: OWN, staged: staged(over) }),
+          get: notRead,
+          askBuild,
+        },
+      });
+      expect(outcome.status).toBe(status);
+    }
+    expect(askBuild).not.toHaveBeenCalled();
+  });
+
+  test("a build never said to be served is given up on, and says to try again", async () => {
+    const { now, sleep } = clock();
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get: async () => pending(),
+        askBuild: async () => pending(),
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "Val Build did not finish the build in 4 minutes. Try again.",
+    });
+  });
+
+  test("a cancel stops the waiting, and is no failure", async () => {
+    const controller = new AbortController();
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        get: async () => pending(),
+        askBuild: async () => {
+          controller.abort();
+          return pending();
+        },
+      },
+      signal: controller.signal,
+    });
+    expect(outcome).toMatchObject({ status: "failed", cancelled: true });
   });
 });
 

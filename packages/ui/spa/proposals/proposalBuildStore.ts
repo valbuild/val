@@ -317,6 +317,8 @@ export function stepLabel(step: ProposalBuildStep): string {
       return "Reading the proposal";
     case "deploying":
       return "Building";
+    case "on-server":
+      return "Building on Val Build";
     case "serving":
       return "Serving the build at the proposal's address";
     case "waiting":

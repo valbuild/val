@@ -5,7 +5,12 @@ import {
 } from "../components/ValProvider";
 import { canBuildHere } from "../publish/handoff";
 import { buildInTab, openBuilder as openBuilderTab } from "./buildInTab";
-import { buildProposal, type ProposalBuildOutcome } from "./proposalCode";
+import {
+  buildProposal,
+  buildProposalOnServer,
+  type ProposalBuildOutcome,
+} from "./proposalCode";
+import { serverFirst } from "./serverFirst";
 import {
   proposalBuildProgress,
   type ProposalBuildProgress,
@@ -82,42 +87,57 @@ export function useProposalBuild(
   const name = proposalName ?? here?.name ?? null;
   const build = useCallback(
     () =>
-      runProposalBuild(({ signal, progress }) =>
-        !canBuildHere() && name !== null
-          ? buildInTab(name, proposals, {
-              onTab: (inTab) => {
-                set({ inTab });
-                if (inTab !== null) {
-                  progress(inTab.step ?? "Opening the builder tab");
-                }
-              },
-              signal,
-            })
-          : buildProposal({
-              name: name ?? "",
+      runProposalBuild(({ signal, progress }) => {
+        const here = () =>
+          !canBuildHere() && name !== null
+            ? buildInTab(name, proposals, {
+                onTab: (inTab) => {
+                  set({ inTab });
+                  if (inTab !== null) {
+                    progress(inTab.step ?? "Opening the builder tab");
+                  }
+                },
+                signal,
+              })
+            : buildProposal({
+                name: name ?? "",
+                client: proposals,
+                canBuildHere,
+                deploy: async (files, target, deploySignal) =>
+                  (
+                    await deploy(null, files, {
+                      binaryFiles: null,
+                      branch: null,
+                      until: "confirmed",
+                      ...(target ? { target } : {}),
+                      ...(deploySignal !== undefined
+                        ? { signal: deploySignal }
+                        : {}),
+                      onPhase: (phase) =>
+                        progress(describeDeployStep(phase.kind)),
+                    })
+                  ).result,
+                onStep: (step) => {
+                  set({ step });
+                  if (step.kind !== "deploying") progress(stepLabel(step));
+                },
+                signal,
+              });
+        if (name === null) return here();
+        return serverFirst(
+          () =>
+            buildProposalOnServer({
+              name,
               client: proposals,
-              canBuildHere,
-              deploy: async (files, target, deploySignal) =>
-                (
-                  await deploy(null, files, {
-                    binaryFiles: null,
-                    branch: null,
-                    until: "confirmed",
-                    ...(target ? { target } : {}),
-                    ...(deploySignal !== undefined
-                      ? { signal: deploySignal }
-                      : {}),
-                    onPhase: (phase) =>
-                      progress(describeDeployStep(phase.kind)),
-                  })
-                ).result,
               onStep: (step) => {
                 set({ step });
-                if (step.kind !== "deploying") progress(stepLabel(step));
+                progress(stepLabel(step));
               },
               signal,
             }),
-      ),
+          here,
+        );
+      }),
     [deploy, name, proposals],
   );
   const progress: ProposalBuildProgress | null = !state.building

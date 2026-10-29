@@ -20,6 +20,7 @@ import type {
 export type ProposalBuildOutcome = Outcome<ProposalJson>;
 export {
   buildProposal,
+  buildProposalOnServer,
   withoutLockfiles,
   SERVE_POLL_MS,
   SERVE_WAIT_MS,

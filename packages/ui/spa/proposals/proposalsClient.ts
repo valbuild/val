@@ -128,6 +128,18 @@ const ProposalJson = z.object({
     .object({ hash: z.string(), inputs: z.string() })
     .nullable()
     .optional(),
+  /**
+   * A build Val Build was asked for and has not served: `pending`, or
+   * `failed` with why. Absent from content that does not build.
+   */
+  serverBuild: z
+    .object({
+      state: z.enum(["pending", "failed"]),
+      inputs: z.string(),
+      error: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   /** What it holds of the project's code. Only on a read of one. */
   staged: z
     .object({
@@ -465,6 +477,13 @@ export type ProposalsClient = {
     name: string,
     build: { publishId: string; inputs: string },
   ): Promise<ProposalJson>;
+  /**
+   * Ask Val Build to build its staged files `inputs` names and serve the
+   * build (`buildProposalOnServer`): answered at once, with `serverBuild`
+   * pending. A 409 with `details.code: "server-builds-off"` for a project it
+   * does not build yet.
+   */
+  askBuild(name: string, inputs: string): Promise<ProposalJson>;
 };
 
 /**
@@ -564,6 +583,7 @@ export function createProposalsClient(options: {
       LockfileAnswer.parse(await call(`${at(name)}/lockfile`, "POST", {}))
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
+    askBuild: (name, inputs) => one(`${at(name)}/build`, "POST", { inputs }),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>
       UpdateContentAnswer.parse(

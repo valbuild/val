@@ -35,6 +35,9 @@ export function proposalBuildProgress(
             percent: Math.round(deployPercent(deploy.phase) * DEPLOY_SHARE),
           }
         : { label: "Building", percent: null };
+    case "on-server":
+      // Val Build builds, renders and serves it, and says nothing between
+      return { label: "Building on Val Build", percent: null };
     case "serving":
       return {
         label: "Serving the build at the proposal's address",
