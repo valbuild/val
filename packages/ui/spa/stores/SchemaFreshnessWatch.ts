@@ -110,6 +110,33 @@ export class SchemaFreshnessWatch {
     };
   }
 
+  /**
+   * Ask the server which schema it runs NOW, rather than at the next `/stat`
+   * -- which, with a websocket, can be twenty minutes away. For when
+   * something says the server may have moved on: a page in the preview
+   * loaded (`CanvasFrame`), and it is the build that page came from whose
+   * source paths the editor is about to pick. After a proposal is built, the
+   * page shows the new build at once, and a Studio still on the old one
+   * could not find a field the new code added; now it says to reload.
+   *
+   * The same rules: nothing until the two have agreed once, and the fresh
+   * answer decides.
+   */
+  checkNow(): void {
+    if (this.reported || this.stopped || !this.agreed) return;
+    if (this.readServedSchemaSha === undefined) {
+      this.check();
+      return;
+    }
+    this.unsettled = true;
+    if (this.reading) {
+      this.changedDuringRead = true;
+      return;
+    }
+    this.cancel();
+    this.schedule(0);
+  }
+
   private disagree(): boolean {
     const running = this.host.schemaSha();
     const served = this.stat.currentSchemaSha();

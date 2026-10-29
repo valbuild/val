@@ -173,6 +173,11 @@ export type WorkerRealm = {
 export type System = HostRealm &
   WorkerRealm & {
     /**
+     * Ask the server which schema it runs now, and say "reload" if it is not
+     * this page's: see `SchemaFreshnessWatch.checkNow`.
+     */
+    checkSchemaNow(): void;
+    /**
      * Gather the snapshot the search index needs and hand it across the worker
      * seam. Explicit, because this is the one operation in the system that
      * copies every module — it must be a thing someone chose to do, not a side
@@ -744,12 +749,13 @@ export function createSystem(options: SystemOptions): System {
     patchStore,
     options.fetchBaseSources,
   );
+  // Says "reload" when the server runs a schema this page does not.
+  const schemaFreshness = new SchemaFreshnessWatch(host, stat, status, {
+    readServedSchemaSha: options.readServedSchemaSha,
+  });
   const unsubscribe = [
     baseAlignment.listenTo(stat),
-    // Says "reload" when the server runs a schema this page does not.
-    new SchemaFreshnessWatch(host, stat, status, {
-      readServedSchemaSha: options.readServedSchemaSha,
-    }).listen(),
+    schemaFreshness.listen(),
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
@@ -1142,6 +1148,7 @@ export function createSystem(options: SystemOptions): System {
   }
 
   return {
+    checkSchemaNow: () => schemaFreshness.checkNow(),
     host,
     stat,
     status,
