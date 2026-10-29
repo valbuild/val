@@ -527,3 +527,46 @@ test("removed-patch notices are delivered once, even on a stat dropped as older"
   expect(removed).toHaveLength(2);
   errors.mockRestore();
 });
+
+/**
+ * A proposal built while its Studio was open: the page in the preview is the
+ * new build at once, and the editor picks a field the new code added. The
+ * Studio is asked to check when the page loads (`checkSchemaNow`), rather
+ * than at a `/stat` that, with a websocket, can be twenty minutes away.
+ */
+test("asked to check now, a server that moved on says reload at once, with no /stat", async () => {
+  let served = oldSha;
+  const system = makeAskingSystem(() => served);
+  system.host.receive(before());
+  stat(system, oldSha);
+  served = newSha;
+
+  system.checkSchemaNow();
+  await jest.advanceTimersByTimeAsync(0);
+
+  expect(system.reads).toHaveLength(1);
+  expect(freshness(system)).toBe("out-of-date");
+});
+
+test("asked to check now, a server on the page's schema asks nothing", async () => {
+  const system = makeAskingSystem(() => oldSha);
+  system.host.receive(before());
+  stat(system, oldSha);
+
+  system.checkSchemaNow();
+  await jest.advanceTimersByTimeAsync(0);
+
+  expect(system.reads).toHaveLength(1);
+  expect(freshness(system)).toBe("current");
+});
+
+test("asked to check now before the page and the server have agreed once, nothing is asked", async () => {
+  const system = makeAskingSystem(() => newSha);
+  system.host.receive(before());
+
+  system.checkSchemaNow();
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 2);
+
+  expect(system.reads).toHaveLength(0);
+  expect(freshness(system)).toBe("current");
+});

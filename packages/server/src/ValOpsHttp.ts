@@ -41,6 +41,7 @@ import {
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
 import { patchModuleText } from "./patchModuleText";
+import { stagedModuleSources } from "./stagedModuleSources";
 import {
   MoveInputs,
   movesAtMerge,
@@ -84,6 +85,32 @@ const PatchFileBody = z.object({
   patch: Patch,
   message: z.string().max(500).optional(),
 });
+
+/** A staging's body, as `write_files` sends it. */
+const StageFilesBody = z.object({
+  files: z.record(z.string(), z.string().nullable()),
+});
+
+/**
+ * A staging's body with the Source its module files declare added
+ * (`stagedModuleSources`). A body this does not read goes as it came: content
+ * answers it.
+ */
+async function withStagedModuleSources(body: string): Promise<string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  const request = StageFilesBody.safeParse(parsed);
+  if (!request.success || typeof parsed !== "object" || parsed === null) {
+    return body;
+  }
+  const modules = await stagedModuleSources(request.data.files);
+  if (Object.keys(modules).length === 0) return body;
+  return JSON.stringify({ ...parsed, modules });
+}
 
 /** What `patchFileInProposal` reads of content's answer for a proposal's files. */
 const ProposalFilesRead = z.object({
@@ -1175,6 +1202,11 @@ export class ValOpsHttp extends ValOps {
         }),
       };
     }
+    // Staged module files go with the Source they declare.
+    const body =
+      writes?.write === "files" && init.body !== undefined
+        ? await withStagedModuleSources(init.body)
+        : init.body;
     const res = await fetch(
       `${this.contentUrl}/v1/${this.project}/proposals${path}`,
       {
@@ -1187,9 +1219,9 @@ export class ValOpsHttp extends ValOps {
            * refuses those writes from a credential that names nobody.
            */
           ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
-          ...(init.body === undefined ? {} : { "Content-Type": json }),
+          ...(body === undefined ? {} : { "Content-Type": json }),
         },
-        ...(init.body === undefined ? {} : { body: init.body }),
+        ...(body === undefined ? {} : { body }),
       },
     );
     return {
@@ -1291,10 +1323,14 @@ export class ValOpsHttp extends ValOps {
         });
       }
     }
+    const staging = { [filePath]: formatted };
+    const modules = await stagedModuleSources(staging);
     const staged = await content("/files", {
       method: "POST",
       body: JSON.stringify({
-        files: { [filePath]: formatted },
+        files: staging,
+        // The Source the patched text declares: see `stagedModuleSources`.
+        ...(Object.keys(modules).length > 0 ? { modules } : {}),
         ...(message !== undefined ? { message } : {}),
       }),
     });

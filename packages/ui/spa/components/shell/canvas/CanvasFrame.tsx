@@ -15,11 +15,13 @@ import {
   ValCanvasStudioMessage,
   withValCanvasParam,
 } from "@valbuild/shared/internal";
+import { useValSystem } from "../../../stores/react/SystemContext";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
 import { CanvasPoint } from "./types";
 import {
+  useValBaseAligned,
   useValPendingSourceSnapshot,
   useValSourceUpdates,
 } from "../../../stores/react/ValOverlayEmitter";
@@ -230,6 +232,7 @@ export function CanvasFrame({
   onQuickPreviewStorer,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const valSystem = useValSystem();
   const [state, setState] = useState<FrameState>({ status: "waiting" });
   const [isEnabling, setIsEnabling] = useState(false);
   /**
@@ -312,6 +315,11 @@ export function CanvasFrame({
       const message = event.data;
       if (message.type === "ready") {
         setState({ status: "ready", draftMode: message.draftMode });
+        // The page may be a newer build than this Studio -- a proposal
+        // built since it loaded -- and its paths name fields this Studio
+        // has not got: ask the server now, so the editor is told to reload
+        // before picking one, not after
+        valSystem?.system.checkSchemaNow();
         setDocumentEpoch((epoch) => epoch + 1);
         setIsEnabling(false);
       } else if (message.type === "elements") {
@@ -359,6 +367,7 @@ export function CanvasFrame({
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
   }, [
+    valSystem,
     onElements,
     onPick,
     onPickElement,
@@ -651,8 +660,14 @@ export function CanvasFrame({
    * page announcing itself is the one signal that covers both.
    */
   const sendPendingSources = useValPendingSourceSnapshot();
+  /*
+   * Not before the store's base is the server's: until then it can hold the
+   * build from before a publish, and the page -- rendered with what came
+   * after -- would show the old text until the base caught up.
+   */
+  const baseAligned = useValBaseAligned(isLive);
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || !baseAligned) return;
     if (relaySources) sendPendingSources(sendSourceUpdate);
     /**
      * And say that was all of it.
@@ -668,6 +683,7 @@ export function CanvasFrame({
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
   }, [
     isLive,
+    baseAligned,
     relaySources,
     documentEpoch,
     sendPendingSources,

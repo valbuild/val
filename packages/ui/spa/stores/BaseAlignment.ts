@@ -49,6 +49,14 @@ export class BaseAlignment {
     sources: Record<ModuleFilePath, Json>;
   } | null = null;
 
+  /**
+   * Whether the source store's base has been in step with the server's chain
+   * at least once: see {@link onAligned}. Never goes back to `false` -- every
+   * later swap happens in one turn, so nothing out of step is on screen.
+   */
+  private aligned = false;
+  private alignedListeners = new Set<() => void>();
+
   constructor(
     private readonly host: HostStore,
     private readonly sourceStore: SourceStore,
@@ -65,6 +73,36 @@ export class BaseAlignment {
    */
   private heldBack: string | null = null;
 
+  /**
+   * Call `listener` once the base and the chain first belong together: a stat
+   * adopted after intake, on the base it names, or adopted as it stands
+   * because no better base is coming. At once if that has happened already.
+   *
+   * Until then the source store holds the bundle's source -- which after a
+   * publish can be the build from before it -- so a page shown what the store
+   * holds is shown the old text, and then the new text once the base is
+   * swapped: the flicker of a draft page after a publish. What hands source
+   * to a page waits for this (`ValOverlayEmitter`, the canvas relay).
+   */
+  onAligned(listener: () => void): () => void {
+    if (this.aligned) {
+      listener();
+      return () => {};
+    }
+    this.alignedListeners.add(listener);
+    return () => {
+      this.alignedListeners.delete(listener);
+    };
+  }
+
+  private markAligned(): void {
+    if (this.aligned || this.current === null) return;
+    this.aligned = true;
+    const listeners = [...this.alignedListeners];
+    this.alignedListeners.clear();
+    for (const listener of listeners) listener();
+  }
+
   listenTo(stat: StatStore): () => void {
     stat.setPreparer((snapshot) => this.prepare(snapshot));
     return this.host.events.on("host:base-received", (event) => {
@@ -74,7 +112,11 @@ export class BaseAlignment {
       // this turn, so the bundle's source under it is never on screen.
       const last = this.lastStat;
       const wanted = last?.sourcesSha;
-      if (wanted === undefined || wanted === this.current) return;
+      if (wanted === undefined || wanted === this.current) {
+        // A stat adopted before intake, naming this build or none.
+        if (last !== null) this.markAligned();
+        return;
+      }
       if (this.fetched?.sourcesSha === wanted) {
         // Restoring what was showing, not adopting anything: no stat moves, so
         // a newer one being prepared is not overtaken.
@@ -83,6 +125,7 @@ export class BaseAlignment {
           this.patchStore.chainRecords(),
         );
         this.current = wanted;
+        this.markAligned();
         return;
       }
       // The base is not held (it cannot be, short of a failed fetch): prepare
@@ -96,6 +139,8 @@ export class BaseAlignment {
   ): (() => boolean) | Promise<() => boolean> {
     const adopt = () => {
       this.lastStat = snapshot;
+      // Before intake there is no base to be in step with: intake decides.
+      this.markAligned();
       return true;
     };
     const wanted = snapshot.sourcesSha;

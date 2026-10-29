@@ -106,6 +106,15 @@ const WRITE_FILES_TOOL: AITool = {
   },
 };
 
+/** Why `build_proposal` is called: the only things a quick preview cannot show, or a finished request. */
+const BUILD_REASONS = [
+  "routes",
+  "server",
+  "schema",
+  "dependencies",
+  "finished",
+] as const;
+
 /** How long `build_proposal` and `wait` wait at most: well inside their timeout. */
 const MAX_WAIT_SECONDS = 240;
 const DEFAULT_BUILD_WAIT_SECONDS = 90;
@@ -124,12 +133,21 @@ const BUILD_PROPOSAL_TOOL: AITool = {
   parameters: {
     type: "object",
     properties: {
+      reason: {
+        type: "string",
+        enum: [...BUILD_REASONS],
+        description:
+          "Why this needs a build, which a quick preview cannot give: 'routes' (a page added, removed or renamed), " +
+          "'server' (loaders, server functions, API routes, a route's head), 'schema' (a .val.ts schema changed), " +
+          "'dependencies' (package.json), or 'finished' (the person's whole request is done, so it can be published). " +
+          "A change to components, layout, styles, text or content is none of these: the quick preview shows it.",
+      },
       wait_seconds: {
         type: "number",
         description: `How long to wait for the build before answering (default ${DEFAULT_BUILD_WAIT_SECONDS}, at most ${MAX_WAIT_SECONDS}). The build goes on either way.`,
       },
     },
-    required: [],
+    required: ["reason"],
   },
   timeoutMs: 5 * 60_000,
 };
@@ -361,7 +379,7 @@ export async function runQuickPreviewTool(
       result: {
         success: true,
         note: "The preview already shows what is staged.",
-        next: "Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
+        next: "Check it with read_page. No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
       },
       isError: false,
     };
@@ -371,7 +389,7 @@ export async function runQuickPreviewTool(
       success: true,
       seconds: Math.round(result.ms / 100) / 10,
       steps,
-      next: "The preview shows it. Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
+      next: "The preview shows it. Check it with read_page. No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
     },
     isError: false,
   };
@@ -591,7 +609,7 @@ export const DESIGN_CREATE_PATCH_TOOL: AITool = {
   name: "create_patch",
   description:
     "Change content in the proposal: JSON Patch operations, written into the module's file (its .val.ts) and staged " +
-    "with the proposal's code, like write_files -- build_proposal makes the preview show it. " +
+    "with the proposal's code, like write_files -- the preview shows it as a quick preview, with no build. " +
     "Supported ops: 'replace', 'add', 'remove'. The 'path' is a JSON Pointer AS AN ARRAY (e.g. ['title'], ['items', '0', 'name']); " +
     "a record key that is a URL ('/foo/bar') is ONE segment: ['/foo/bar']. " +
     "Use it for content of a module the proposal changes as well as any other: a field you just added to a schema is filled here. " +
@@ -670,7 +688,7 @@ export function designSystemPrompt(displayName: string): string {
 Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
 
 ## What you can do here
-- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal), so the preview shows it.
+- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files) and check it (lint, typecheck). The preview shows each change as a quick preview, by itself. Build it (build_proposal) only for what a quick preview cannot show -- see below.
 - Change content with create_patch: it is written into the module's file in the proposal and staged with the code, so a field you add to a schema can be filled in the same change.
 - Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content: a module the proposal changed is read with read_file.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
@@ -680,7 +698,7 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
 
 ## Working
-- Keep each change small enough to check: write it, format it and lint it, then -- once the edits for it are done -- typecheck it and fix what it reports, then build. The typecheck runs in the background after each change; typecheck_status says where it is.
+- Keep each change small enough to check: write it, format it and lint it, then -- once the edits for it are done -- typecheck it and fix what it reports, and look at it in the quick preview with read_page. The typecheck runs in the background after each change; typecheck_status says where it is.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
 - A change to components, layout, styles or text shows in the preview in seconds as a quick preview, which runs by itself after each change where Val Build makes them; call quick_preview when none ran, or to see it now. Do not build to see such a change.
@@ -1001,6 +1019,19 @@ export async function runCodeTool(
         deps.offerProposal();
         return fail(
           "Only a proposal is built here, and this Studio is on the site. The person has been offered to open one.",
+        );
+      }
+      // In the design tab a build is for what a quick preview cannot show,
+      // and has to say which: asked without, it is not started
+      const reason = input["reason"];
+      if (
+        deps.design === true &&
+        !BUILD_REASONS.some((known) => known === reason)
+      ) {
+        return fail(
+          "Not built: say why it needs a build (reason). A quick preview already shows changes to components, layout, styles, text and content, " +
+            "with no build. Build only for routes added, removed or renamed ('routes'), code that runs on the server ('server'), " +
+            "a .val.ts schema ('schema'), dependencies ('dependencies'), or once when the person's whole request is done ('finished').",
         );
       }
       const seconds = waitSeconds(

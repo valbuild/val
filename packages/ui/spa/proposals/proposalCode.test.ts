@@ -876,6 +876,45 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
     });
   });
 
+  test("in the design tab, build_proposal builds only for a reason a quick preview cannot cover", async () => {
+    const started: number[] = [];
+    const d = deps({
+      design: true,
+      build: control(async () => {
+        started.push(1);
+        return { status: "built", hash: "b1", proposal: proposal("b1") };
+      }),
+    });
+    const refused = await runCodeTool("build_proposal", {}, d);
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.result)).toMatch(/quick preview/);
+    const made_up = await runCodeTool(
+      "build_proposal",
+      { reason: "a button moved" },
+      d,
+    );
+    expect(made_up.isError).toBe(true);
+    expect(started).toEqual([]);
+
+    const built = await runCodeTool(
+      "build_proposal",
+      { reason: "finished" },
+      d,
+    );
+    expect(built.isError).toBe(false);
+    expect(started).toEqual([1]);
+  });
+
+  test("the design tab's quick preview and content answers do not ask for a build", async () => {
+    const d = deps({ design: true });
+    const written = await runCodeTool(
+      "write_files",
+      { files: { "src/a.ts": "a" } },
+      d,
+    );
+    expect(JSON.stringify(written.result)).not.toMatch(/Call build_proposal/);
+  });
+
   test("build_proposal answers with each step's time once the build ends", async () => {
     const last = {
       status: "built" as const,
