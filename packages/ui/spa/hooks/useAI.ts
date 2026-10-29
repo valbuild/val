@@ -786,10 +786,9 @@ export function useAI(
   currentProposalRef.current = currentProposal;
   const designRef = useRef(design);
   designRef.current = design;
-  const proposalBuild = useProposalBuild(
-    undefined,
-    design?.proposal.name,
-  ).build;
+  const proposalBuild = useProposalBuild(undefined, design?.proposal.name, {
+    onServer: design !== null,
+  }).build;
   const proposalBuildRef = useRef(proposalBuild);
   /**
    * The element the last message carried. The pick is cleared once it is

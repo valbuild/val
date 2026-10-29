@@ -64,6 +64,14 @@ export function openBuilder(): void {
 export function useProposalBuild(
   client?: ProposalsClient,
   proposalName?: string,
+  options: {
+    /**
+     * Ask Val Build to build it first (`serverFirst`). The design tab's, and
+     * the assistant's in it, while server builds roll out there first
+     * (valbuild/home `docs/plans/server-builds.md`).
+     */
+    onServer?: boolean;
+  } = {},
 ): {
   state: ProposalBuildState;
   /** `null` off a proposal: nothing to build. */
@@ -84,11 +92,12 @@ export function useProposalBuild(
     () => client ?? createProposalsClient({ api: "/api/val" }),
     [client],
   );
+  const onServer = options.onServer ?? false;
   const name = proposalName ?? here?.name ?? null;
   const build = useCallback(
     () =>
       runProposalBuild(({ signal, progress }) => {
-        const here = () =>
+        const inThisPage = () =>
           !canBuildHere() && name !== null
             ? buildInTab(name, proposals, {
                 onTab: (inTab) => {
@@ -123,7 +132,7 @@ export function useProposalBuild(
                 },
                 signal,
               });
-        if (name === null) return here();
+        if (name === null || !onServer) return inThisPage();
         return serverFirst(
           () =>
             buildProposalOnServer({
@@ -135,10 +144,10 @@ export function useProposalBuild(
               },
               signal,
             }),
-          here,
+          inThisPage,
         );
       }),
-    [deploy, name, proposals],
+    [deploy, name, proposals, onServer],
   );
   const progress: ProposalBuildProgress | null = !state.building
     ? null

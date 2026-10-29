@@ -81,7 +81,9 @@ export function DesignTab({ name }: { name: string }) {
     [],
   );
   const studioProposal = useCurrentProposal();
-  const { state, build, progress, cancel } = useProposalBuild(proposals, name);
+  const { state, build, progress, cancel } = useProposalBuild(proposals, name, {
+    onServer: true,
+  });
   const { askAssistant } = useAIChatActions();
   const portalContainer = useValPortal();
 
