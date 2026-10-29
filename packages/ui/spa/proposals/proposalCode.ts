@@ -358,7 +358,7 @@ export async function runQuickPreviewTool(
       result: {
         success: true,
         note: "The preview already shows what is staged.",
-        next: "Check it with read_page or screenshot_page; build_proposal before you say it is done, so the server's half is checked too.",
+        next: "Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
       },
       isError: false,
     };
@@ -368,7 +368,7 @@ export async function runQuickPreviewTool(
       success: true,
       seconds: Math.round(result.ms / 100) / 10,
       steps,
-      next: "The preview shows it. Check it with read_page or screenshot_page; build_proposal before you say it is done, so the server's half is checked too.",
+      next: "The preview shows it. Check it with read_page; build_proposal before you say it is done, so the server's half is checked too.",
     },
     isError: false,
   };
@@ -678,7 +678,7 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
 - A change to components, layout or styles shows in the preview in seconds as a quick preview, which runs by itself after each change where Val Build makes them; call quick_preview when none ran, or to see it now. Its server half (loaders, server functions, API routes, the first render) is the last build's, so build_proposal when you change those, and before you say a change is done.
 - Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
-- When how it LOOKS is the question -- a colour, spacing, an overlap, a layout on a phone -- look at it with screenshot_page: you get a picture of the preview. read_page is for the exact text and sizes.
+- When how it LOOKS is the question -- a colour, spacing, an overlap, a layout on a phone -- read it with read_page and a selector: the computed styles, the sizes and where each element is.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
 
