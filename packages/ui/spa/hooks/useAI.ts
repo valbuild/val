@@ -2308,12 +2308,17 @@ export function useAI(
                     // checked beside it, and a failure reaches the assistant
                     // on its next tool call
                     start: () => {
-                      scheduleTypecheck(
-                        proposalName,
-                        codeClients.proposals,
-                        proposalCodeChanged,
-                        0,
-                      );
+                      void stagedInputs()
+                        .catch(() => null)
+                        .then((inputs) =>
+                          scheduleTypecheck(
+                            proposalName,
+                            codeClients.proposals,
+                            proposalCodeChanged,
+                            0,
+                            inputs,
+                          ),
+                        );
                       return build.start();
                     },
                   },
@@ -2363,9 +2368,16 @@ export function useAI(
             // and the assistant has not heard: it hears on this answer
             const untold =
               proposalName === null ? null : untoldTypeErrors(proposalName);
+            // Told only of errors in what is staged now; the read that says
+            // so is given a few seconds, never the answer's whole wait
             const notice =
               untold !== null &&
-              (await stagedInputs().catch(() => null)) === untold.inputs
+              (await Promise.race([
+                stagedInputs().catch(() => null),
+                new Promise<null>((resolve) =>
+                  setTimeout(() => resolve(null), 3_000),
+                ),
+              ])) === untold.inputs
                 ? untold
                 : null;
             if (notice !== null) markTypeErrorsTold(notice.inputs);

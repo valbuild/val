@@ -291,8 +291,16 @@ export type QuickPreviewTiming = { step: string; ms: number };
 /** What a quick preview came to: see `useQuickPreview`. */
 export type QuickPreviewResult =
   | { status: "shown"; ms: number; timings: QuickPreviewTiming[] }
-  /** Started by the tab after a change, with nothing to do: see `useQuickPreview`. */
-  | { status: "skipped"; timings: QuickPreviewTiming[] }
+  /**
+   * Started by the tab after a change, with nothing to do: Val Build does
+   * not make quick previews here (`off`), or what is staged is shown already
+   * (`shown`). See `useQuickPreview`.
+   */
+  | {
+      status: "skipped";
+      reason: "off" | "shown";
+      timings: QuickPreviewTiming[];
+    }
   | { status: "failed"; message: string; timings: QuickPreviewTiming[] };
 
 /**
@@ -332,6 +340,16 @@ export async function runQuickPreviewTool(
   if (result.status === "failed") {
     return {
       result: { success: false, error: result.message, steps },
+      isError: true,
+    };
+  }
+  if (result.status === "skipped" && result.reason === "off") {
+    return {
+      result: {
+        success: false,
+        error:
+          "Val Build does not make quick previews for this project, and none was made here. Call build_proposal to see the change.",
+      },
       isError: true,
     };
   }

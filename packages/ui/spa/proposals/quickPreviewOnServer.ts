@@ -49,23 +49,32 @@ export async function quickPreviewOnServer(
 
 function quickPreviewOff(error: unknown): boolean {
   if (!(error instanceof ProposalsApiError)) return false;
-  // A route content does not have answers express's page, not JSON; a
-  // proposal it does not have answers JSON, and is not this
-  if (error.status === 404) {
-    return typeof error.body !== "object" || error.body === null;
-  }
+  if (error.status === 404) return routeMissing(error.body);
   if (error.status !== 409) return false;
-  const body: unknown = error.body;
-  const details: unknown =
-    typeof body === "object" && body !== null && "details" in body
-      ? body.details
-      : null;
+  const details = detailsOf(error.body);
   return (
     typeof details === "object" &&
     details !== null &&
     "code" in details &&
     details.code === "server-builds-off"
   );
+}
+
+/**
+ * Content that has no such route: its catch-all answers 404 with "No route
+ * found for ..." in `details`, as JSON, and Val's server passes it on. A 404
+ * for a proposal content does not have says something else, and is not this.
+ */
+function routeMissing(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return true;
+  const details = detailsOf(body);
+  return typeof details === "string" && details.startsWith("No route found");
+}
+
+function detailsOf(body: unknown): unknown {
+  return typeof body === "object" && body !== null && "details" in body
+    ? body.details
+    : null;
 }
 
 function messageOf(error: unknown): string {

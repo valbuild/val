@@ -13,7 +13,11 @@ import {
 import { canBuildHere } from "../../publish/handoff";
 import { quickPreviewInTab } from "../../proposals/buildInTab";
 import { quickPreviewOnServer } from "../../proposals/quickPreviewOnServer";
-import { serverBuildsKnownOff, serverFirst } from "../../proposals/serverFirst";
+import {
+  markServerOff,
+  serverFirst,
+  serverKnownOff,
+} from "../../proposals/serverFirst";
 import { randomUUID } from "../../utils/randomUUID";
 import type {
   QuickPreviewResult,
@@ -65,22 +69,45 @@ export function useQuickPreview(
     showing.current.get(front.quick)?.();
     showing.current.delete(front.quick);
   }, []);
-  const running = useRef<Promise<QuickPreviewResult> | null>(null);
+  const running = useRef<{
+    work: Promise<QuickPreviewResult>;
+    auto: boolean;
+  } | null>(null);
+  /** A change came while one ran: another automatic one after it. */
+  const autoAgain = useRef(false);
   /** The staged inputs the last quick preview shown was of. */
   const shownInputs = useRef<string | null>(null);
 
   /**
    * `auto`: one the tab starts itself after a change (`DesignTab`), and only
    * where Val Build makes it -- never a bundle here or a builder tab nobody
-   * asked for. It says nothing when there is nothing to do: Val Build off,
-   * no page yet, or what is staged shown already.
+   * asked for. It says nothing when there is nothing to do (Val Build off,
+   * what is staged shown already) and nothing when it fails: the person did
+   * not ask, and a change half-way through an edit is often one that does
+   * not build. A change while one runs is shown after it, never dropped.
+   *
+   * One asked for -- the button, the assistant's `quick_preview` -- never
+   * joins an automatic one, whose files may be older than the ask: it waits
+   * for it, then makes its own.
    */
   const run = useCallback(
     (options?: { auto?: boolean }): Promise<QuickPreviewResult> => {
-      if (running.current !== null) return running.current;
       const auto = options?.auto === true;
-      if (auto && (serverBuildsKnownOff() || storer.current === null)) {
-        return Promise.resolve({ status: "skipped", timings: [] });
+      const now = running.current;
+      if (now !== null) {
+        if (auto) {
+          autoAgain.current = true;
+          return now.work;
+        }
+        if (!now.auto) return now.work;
+        return now.work.then(() => run());
+      }
+      if (auto && serverKnownOff("quick-preview")) {
+        return Promise.resolve({
+          status: "skipped",
+          reason: "off",
+          timings: [],
+        });
       }
       const startedAt = Date.now();
       const timings: QuickPreviewTiming[] = [];
@@ -136,9 +163,11 @@ export function useQuickPreview(
                           onStep("Waiting for the builder tab");
                       },
                     }),
+              "quick-preview",
             );
         if (built.status === "off") {
-          return { status: "skipped", timings: end() };
+          markServerOff("quick-preview");
+          return { status: "skipped", reason: "off", timings: end() };
         }
         if (built.status === "failed") {
           return { status: "failed", message: built.message, timings: end() };
@@ -153,7 +182,7 @@ export function useQuickPreview(
           builtInputs !== null &&
           builtInputs === shownInputs.current
         ) {
-          return { status: "skipped", timings: end() };
+          return { status: "skipped", reason: "shown", timings: end() };
         }
         const store = storer.current;
         if (store === null) {
@@ -199,15 +228,21 @@ export function useQuickPreview(
         )
         .then((result) => {
           running.current = null;
-          if (result.status !== "skipped") setLast(result);
+          // Quiet when automatic: only what was asked for is reported
+          const reported = !auto && result.status !== "skipped";
+          if (reported) setLast(result);
           setState(
-            result.status === "failed"
+            reported && result.status === "failed"
               ? { status: "failed", message: result.message }
               : { status: "idle" },
           );
+          if (autoAgain.current) {
+            autoAgain.current = false;
+            void run({ auto: true });
+          }
           return result;
         });
-      running.current = work;
+      running.current = { work, auto };
       return work;
     },
     [name, proposals],

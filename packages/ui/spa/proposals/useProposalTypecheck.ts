@@ -178,21 +178,42 @@ export function scheduleTypecheck(
   client: Pick<ProposalsClient, "files" | "reportTypecheck">,
   onReported: () => void,
   delayMs: number = BACKGROUND_TYPECHECK_DELAY_MS,
+  /** What is staged now, when known: a check of exactly that is not run again. */
+  inputs: string | null = null,
 ): void {
+  if (checkedAlready(name, inputs)) return;
   if (scheduled !== null) clearTimeout(scheduled.timer);
   scheduled = {
     name,
     timer: setTimeout(() => {
       scheduled = null;
+      if (checkedAlready(name, inputs)) return;
       if (running !== null && running.name === name) {
         void running.done.then(() =>
-          scheduleTypecheck(name, client, onReported, 0),
+          scheduleTypecheck(name, client, onReported, 0, inputs),
         );
         return;
       }
       void runTypecheck(name, client, onReported);
     }, delayMs),
   };
+}
+
+function checkedAlready(name: string, inputs: string | null): boolean {
+  const state = snapshot();
+  return (
+    inputs !== null &&
+    state.status === "done" &&
+    state.name === name &&
+    state.inputs === inputs
+  );
+}
+
+/** Forget a background typecheck not started yet: the design tab was left. */
+export function cancelScheduledTypecheck(name: string): void {
+  if (scheduled === null || scheduled.name !== name) return;
+  clearTimeout(scheduled.timer);
+  scheduled = null;
 }
 
 /** Where proposal `name`'s typecheck is, without starting one: the assistant's `typecheck_status`. */

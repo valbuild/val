@@ -1,4 +1,5 @@
 import {
+  cancelScheduledTypecheck,
   markTypeErrorsTold,
   resetProposalTypecheck,
   scheduleTypecheck,
@@ -74,5 +75,28 @@ describe("the design tab's background typecheck", () => {
     );
     expect(answer).toEqual({ status: "done", errors: [ERROR] });
     expect(mockRunProposalTypecheck).toHaveBeenCalledTimes(1);
+  });
+
+  test("files a finished check is of are not checked again", async () => {
+    mockRunProposalTypecheck.mockResolvedValue({
+      status: "done",
+      inputs: "a",
+      errors: [],
+    });
+    scheduleTypecheck(NAME, client, () => {}, 0);
+    await jest.runAllTimersAsync();
+    scheduleTypecheck(NAME, client, () => {}, 0, "a");
+    await jest.runAllTimersAsync();
+    expect(mockRunProposalTypecheck).toHaveBeenCalledTimes(1);
+    scheduleTypecheck(NAME, client, () => {}, 0, "b");
+    await jest.runAllTimersAsync();
+    expect(mockRunProposalTypecheck).toHaveBeenCalledTimes(2);
+  });
+
+  test("one not started yet is forgotten when the tab is left", async () => {
+    scheduleTypecheck(NAME, client, () => {}, 2_000);
+    cancelScheduledTypecheck(NAME);
+    await jest.runAllTimersAsync();
+    expect(mockRunProposalTypecheck).not.toHaveBeenCalled();
   });
 });

@@ -46,22 +46,42 @@ describe("quickPreviewOnServer: Val Build makes the quick preview", () => {
     expect(outcome).toEqual({ status: "off" });
   });
 
-  test("content from before quick previews were made there is off too", async () => {
+  test("content from before quick previews were made there is off too: its catch-all's 404", async () => {
     const outcome = await quickPreviewOnServer(
       "0123456789abcdef0123",
       {
         get: async () => proposal(INPUTS),
         quickPreview: async () => {
-          throw new ProposalsApiError(
-            404,
-            "The proposals API answered 404.",
-            undefined,
-          );
+          throw new ProposalsApiError(404, "Not Found", {
+            statusCode: 404,
+            message: "Not Found",
+            details:
+              "No route found for POST /v1/org/project/proposals/0123456789abcdef0123/quick-preview",
+          });
         },
       },
       () => {},
     );
     expect(outcome).toEqual({ status: "off" });
+  });
+
+  test("a proposal content does not have is a failure, not off", async () => {
+    const outcome = await quickPreviewOnServer(
+      "0123456789abcdef0123",
+      {
+        get: async () => proposal(INPUTS),
+        quickPreview: async () => {
+          throw new ProposalsApiError(404, "There is no such proposal.", {
+            message: "There is no such proposal.",
+          });
+        },
+      },
+      () => {},
+    );
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "There is no such proposal.",
+    });
   });
 
   test("code that does not build is the preview's failure, in the builder's words", async () => {

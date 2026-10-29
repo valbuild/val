@@ -15,7 +15,10 @@ import { useAIChatActions } from "../AIChatActionsContext";
 import { useClient, useCurrentProposal } from "../ValProvider";
 import { formatRelativeTime } from "../shell/shellDataMapping";
 import { canBuildHere } from "../../publish/handoff";
-import { scheduleTypecheck } from "../../proposals/useProposalTypecheck";
+import {
+  cancelScheduledTypecheck,
+  scheduleTypecheck,
+} from "../../proposals/useProposalTypecheck";
 import {
   createProposalsClient,
   type ProposalJson,
@@ -263,19 +266,26 @@ export function DesignTab({ name }: { name: string }) {
   const stagedInputs = proposal?.staged?.inputs ?? null;
   const buildRequired = proposal?.staged?.buildRequired ?? false;
   const reread = useCallback(() => setAttempt((n) => n + 1), []);
+  const checkedInputs = proposal?.typecheck?.inputs ?? null;
   useEffect(() => {
     if (!open || stagedInputs === null) return;
-    scheduleTypecheck(name, proposals, reread);
-  }, [open, stagedInputs, name, proposals, reread]);
+    // Checked already, by this tab or another: not checked again
+    if (checkedInputs === stagedInputs) return;
+    scheduleTypecheck(name, proposals, reread, undefined, stagedInputs);
+  }, [open, stagedInputs, checkedInputs, name, proposals, reread]);
+  useEffect(() => () => cancelScheduledTypecheck(name), [name]);
   const autoQuick = quick.run;
+  // Only once the page in the preview answers: it is what takes the files
+  const pageAnswers = frameStatus === "live";
   useEffect(() => {
-    if (!open || stagedInputs === null || !buildRequired) return;
+    if (!open || stagedInputs === null || !buildRequired || !pageAnswers)
+      return;
     const timer = setTimeout(
       () => void autoQuick({ auto: true }),
       AUTO_QUICK_PREVIEW_DELAY_MS,
     );
     return () => clearTimeout(timer);
-  }, [open, stagedInputs, buildRequired, autoQuick]);
+  }, [open, stagedInputs, buildRequired, pageAnswers, autoQuick]);
 
   return (
     <>
@@ -336,7 +346,7 @@ export function DesignTab({ name }: { name: string }) {
             open && build !== null
               ? () => {
                   // A build is always typechecked, beside it
-                  scheduleTypecheck(name, proposals, reread, 0);
+                  scheduleTypecheck(name, proposals, reread, 0, stagedInputs);
                   void build();
                 }
               : null,
