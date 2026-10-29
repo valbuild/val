@@ -190,6 +190,16 @@ export const ValTanStackProvider = (props: {
    * FIRST mounts during a client navigation -- a layout the visitor reached
    * from a route outside it -- has to be handed the value then too, or it
    * stays off until the next page load.
+   *
+   * A SELF-HOSTED site (Custom hosting) has no platform to hand it the
+   * setting, so the provider reads nothing there: the layout's loader reads
+   * `VAL_ANALYTICS` from the server's environment and passes it here, as
+   * the showcase's `fetchValAnalytics()` does --
+   * `{ enabled: process.env.VAL_ANALYTICS === "true" }`. Its Val server, in
+   * http mode (`VAL_API_KEY`, `VAL_SECRET` and `VAL_PROJECT` set), hands
+   * the beacons on to Val's ingest, which counts them only while analytics
+   * is switched on for the project in Val's admin; while it is off the
+   * script is told so (410) and stops sending.
    */
   analytics?: ValAnalytics | null;
   /**

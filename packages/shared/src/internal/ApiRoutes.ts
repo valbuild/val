@@ -437,15 +437,31 @@ export const Api = {
     POST: {
       // Parsed by the handler rather than here, so a beacon of a version this
       // server does not know is ignored instead of refused.
-      req: { body: z.unknown() },
+      req: {
+        body: z.unknown(),
+        // What a server that forwards beacons to Val's ingest has to check
+        // and pass on itself: a forward loses the browser's own headers. The
+        // visitor's IP is deliberately not one of them.
+        headers: {
+          "sec-fetch-site": z.string().optional(),
+          "user-agent": z.string().optional(),
+          "x-vercel-ip-country": z.string().optional(),
+          "cf-ipcountry": z.string().optional(),
+          "cloudfront-viewer-country": z.string().optional(),
+        },
+      },
       res: z.union([
-        // `counted` is false wherever nothing stores the counts -- every
-        // server but the hosted platform's, for now.
+        // `counted` is true only where the beacon was handed to Val's ingest
+        // and it counted it: the hosted platform, or a self-hosted server in
+        // http mode. False everywhere else, local dev included.
         z.object({
           status: z.literal(200),
           json: z.object({ counted: z.boolean() }),
         }),
         z.object({ status: z.literal(400), json: GenericError }),
+        // Analytics is switched off for this project in Val's admin. The
+        // browser script stops sending when it sees this.
+        z.object({ status: z.literal(410), json: GenericError }),
       ]),
     },
   },

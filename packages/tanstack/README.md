@@ -400,7 +400,7 @@ does not 404 either.
 
 ## Content analytics
 
-Val can count which content your visitors see, on a site Val hosts. It is
+Val can count which content your visitors see. On a site Val hosts it is
 **off by default**, and a setting of the hosted project rather than of the
 code: the owner turns it on in the project's settings, and Val's hosting hands
 it to the site as the `VAL_ANALYTICS` variable, along with the id of the
@@ -455,11 +455,33 @@ the content version, so a page can be compared before and after a publish. No
 cookies, no storage and no visitor IDs, and nothing is sent in draft mode, in
 the Studio or from an automated browser.
 
-A site Val does not host has nowhere to send counts yet, and nothing hands it
-the setting, so it stays off. To see the mode working in local development,
-pass `analytics` yourself -- `examples/tanstack/src/val/server.ts` reads
-`VAL_ANALYTICS` from `process.env`, which TanStack Start fills from
-`.env.development`.
+To see the mode working in local development, set `VAL_ANALYTICS=true` in
+`.env.development`: the development server reads it, and nothing else does.
+
+### On your own hosting
+
+A site Val does not host is counted too, on the Custom hosting plan. Its own
+Val server answers `/api/val/analytics` and forwards each beacon to Val, with
+the `VAL_API_KEY` and `VAL_PROJECT` it already has for publishing. It needs
+two things:
+
+1. Content analytics switched on in the project's settings on val.build,
+   under Analytics. Switched off there, Val answers the forwarded beacons
+   with a 410 and the script stops sending them.
+2. The layout passing `analytics`, since no hosting hands it the setting. Read
+   it on the server, so it is never baked into the browser bundle:
+
+```tsx
+// src/routes/_site.tsx
+const getValPage = createServerFn().handler(async () => ({
+  draft: await fetchValDraft(),
+  analytics: { enabled: process.env.VAL_ANALYTICS === "true" },
+}));
+```
+
+and set `VAL_ANALYTICS=true` where the site is deployed. The visitor's country
+is read from the host's own header when there is one (`x-vercel-ip-country`,
+`cf-ipcountry` or `cloudfront-viewer-country`); the IP address never is.
 
 ## Images
 
@@ -497,7 +519,7 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 | `ValImage` wraps `next/image`       | `ValImage` is an `<img>`                           |
 | `fetchVal` in a Server Component    | hooks in components; `createServerFn` for loaders  |
 | client hooks render published SSR   | `ValProvider draft` renders the draft during SSR   |
-| no content analytics yet            | `ValProvider analytics` (hosted projects only)     |
+| no content analytics yet            | `ValProvider analytics`                            |
 
 ## Schema reference
 

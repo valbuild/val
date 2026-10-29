@@ -92,6 +92,12 @@ import {
   newestCommitSha,
 } from "@valbuild/shared/internal";
 import { createSketchpadRoutes } from "./sketchpads/sketchpadRoutes";
+import {
+  DEFAULT_ANALYTICS_INGEST_URL,
+  forwardAnalyticsBeacon,
+  prepareAnalyticsForward,
+  warnAnalyticsUnauthorizedOnce,
+} from "./analyticsForward";
 
 export type ValServerOptions = {
   route: string;
@@ -100,6 +106,13 @@ export type ValServerOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
   valBuildUrl?: string;
   valContentUrl: string;
+  /**
+   * Where a self-hosted site's content analytics beacons are forwarded, in
+   * `http` mode. `initHandlerOptions` resolves it (the `valAnalyticsIngestUrl`
+   * option, then `VAL_ANALYTICS_INGEST_URL`); absent is
+   * {@link DEFAULT_ANALYTICS_INGEST_URL}.
+   */
+  valAnalyticsIngestUrl?: string;
   valSecret?: string;
   apiKey?: string;
   project?: string;
@@ -882,10 +895,20 @@ export const ValServer = (
      * Content analytics beacons, outside the hosted platform.
      *
      * On a site Val hosts, the platform's loader answers this route before a
-     * request reaches the app, and counts. Everywhere else nothing counts yet:
-     * this checks the beacon and answers, so a site with analytics on does not
-     * fill its visitors' consoles with 404s. In local dev it also logs a line
-     * per beacon, which is how the showcase shows analytics working.
+     * request reaches the app, and counts.
+     *
+     * A SELF-HOSTED site in http mode has the project's api key, and hands
+     * each beacon on to Val's ingest, which counts it (`analyticsForward.ts`).
+     * For that the site needs `VAL_API_KEY` and `VAL_PROJECT` (which http
+     * mode needs anyway), the script started -- `VAL_ANALYTICS`, read by the
+     * layout and passed to `<ValProvider analytics>` -- and analytics switched
+     * on for the project in Val's admin. While it is off there, the ingest
+     * answers 410, which is passed on, and the script stops.
+     *
+     * Everywhere else -- fs mode, memory mode -- nothing counts: this checks
+     * the beacon and answers, so a site with analytics on does not fill its
+     * visitors' consoles with 404s. In local dev it also logs a line per
+     * beacon, which is how the showcase shows analytics working.
      */
     "/analytics": {
       POST: async (req) => {
@@ -913,7 +936,42 @@ export const ValServer = (
             `analytics: ${beacon.route}${beacon.view ? " (page view)" : ""}: ${count(beacon.rendered)} rendered, ${count(beacon.viewed)} viewed`,
           );
         }
-        return { status: 200, json: { counted: false } };
+        if (options.mode !== "http") {
+          return { status: 200, json: { counted: false } };
+        }
+        const body = JSON.stringify(parsed.data);
+        const plan = prepareAnalyticsForward(req.headers, body);
+        if (!plan.ok) {
+          Internal.log.debug(`analytics: not forwarded (${plan.reason})`);
+          return { status: 200, json: { counted: false } };
+        }
+        const ingestStatus = await forwardAnalyticsBeacon({
+          ingestUrl:
+            options.valAnalyticsIngestUrl ?? DEFAULT_ANALYTICS_INGEST_URL,
+          apiKey: options.apiKey,
+          project: options.project,
+          body,
+          userAgent: plan.userAgent,
+          country: plan.country,
+        });
+        if (ingestStatus === 410) {
+          // Off for this project: the script stops on a 410, so it is passed
+          // on rather than answered as "not counted", which it would retry.
+          return {
+            status: 410,
+            json: {
+              message: "Content analytics is switched off for this project.",
+            },
+          };
+        }
+        if (ingestStatus === 401) {
+          warnAnalyticsUnauthorizedOnce(options.project);
+        } else if (ingestStatus !== null && ingestStatus !== 204) {
+          Internal.log.debug(
+            `analytics: the ingest answered ${ingestStatus} to a beacon`,
+          );
+        }
+        return { status: 200, json: { counted: ingestStatus === 204 } };
       },
     },
     "/draft/stat": {

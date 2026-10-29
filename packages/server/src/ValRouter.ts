@@ -205,6 +205,18 @@ type ValServerOverrides = Partial<{
    */
   valContentUrl: string;
   /**
+   * Where content analytics beacons are forwarded to be counted, on a
+   * self-hosted site in proxy mode. A site Val hosts never uses it: the
+   * platform answers `/api/val/analytics` itself.
+   *
+   * Typically this should not be set.
+   *
+   * Can also be overridden using the VAL_ANALYTICS_INGEST_URL env var.
+   *
+   * @example "https://platform.valstart.dev/__ingest/analytics"
+   */
+  valAnalyticsIngestUrl: string;
+  /**
    * The full project name of the Val project.
    *
    * @example "myorg/my-project"
