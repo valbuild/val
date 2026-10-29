@@ -14,7 +14,7 @@
     "tanstack-router",
     "react"
   ],
-  "version": "0.150.20",
+  "version": "0.150.21",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"

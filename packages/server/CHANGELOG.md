@@ -1,5 +1,13 @@
 # @valbuild/server
 
+## 0.150.21
+
+### Patch Changes
+
+- [#1000](https://github.com/valbuild/val/pull/1000) [`0d516bf`](https://github.com/valbuild/val/commit/0d516bf5347950071444eaa07baf48d1d7fe418c) Thanks [@freekh](https://github.com/freekh)! - **Edits to fields the design tab added no longer revert.** When the design tab added something to a `.val.ts` in a proposal, such as a new button, the module's code changed but the content the proposal served for it did not. An edit to the new button showed on the canvas and then went back. A staged module file now goes to Val Build with the content its text declares, so the two stay in step. This needs the matching Val Build update.
+- Updated dependencies [[`0d516bf`](https://github.com/valbuild/val/commit/0d516bf5347950071444eaa07baf48d1d7fe418c)]:
+  - @valbuild/ui@0.150.21
+
 ## 0.150.20
 
 ### Patch Changes

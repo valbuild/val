@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.150.20",
+  "version": "0.150.21",
   "description": "Val CLI tools",
   "repository": {
     "type": "git",
