@@ -134,8 +134,6 @@ function orAborted<T>(
 export type ProposalBuildStep =
   | { kind: "reading" }
   | { kind: "deploying" }
-  /** Val Build is building it, rendering it and serving it (`buildProposalOnServer`). */
-  | { kind: "on-server"; since: number }
   | { kind: "serving"; since: number }
   | { kind: "waiting"; since: number };
 
@@ -351,7 +349,7 @@ export async function buildProposal<P extends BuiltProposal>(deps: {
 export const SERVER_BUILDS_OFF = "server-builds-off";
 
 /** How often the proposal is read while the platform builds it. */
-export const SERVER_BUILD_POLL_MS = 500;
+export const SERVER_BUILD_POLL_MS = 1_000;
 
 /**
  * How long a build by the platform is waited for. It is seconds
@@ -360,10 +358,20 @@ export const SERVER_BUILD_POLL_MS = 500;
  */
 export const SERVER_BUILD_WAIT_MS = 4 * 60_000;
 
+/**
+ * Where a build by the platform is (`buildProposalOnServer`): reading what is
+ * staged, then Val Build building, rendering and serving it. Its own type,
+ * not `ProposalBuildStep`'s, which every page that runs `buildProposal`
+ * switches over.
+ */
+export type ServerBuildStep =
+  | { kind: "reading" }
+  | { kind: "on-server"; since: number };
+
 /** The calls a build by the platform makes. An error carries content's `status`. */
 export type ServerBuildClient<P extends BuiltProposal> = Pick<
   ProposalBuildClient<P>,
-  "files" | "get"
+  "get"
 > & {
   /** Ask the platform to build the staged files `inputs` names: `/build` without a publish. */
   askBuild(name: string, inputs: string): Promise<P>;
@@ -412,7 +420,7 @@ function serverBuildsOff(error: unknown): boolean {
 export async function buildProposalOnServer<P extends BuiltProposal>(deps: {
   name: string;
   client: ServerBuildClient<P>;
-  onStep?: (step: ProposalBuildStep) => void;
+  onStep?: (step: ServerBuildStep) => void;
   signal?: AbortSignal;
   /** For tests: the clock, and waiting on it. */
   now?: () => number;
@@ -425,20 +433,19 @@ export async function buildProposalOnServer<P extends BuiltProposal>(deps: {
   const step = deps.onStep ?? (() => {});
   const signal = deps.signal;
   step({ kind: "reading" });
+  // The proposal says what is staged: its files are not needed here
   let read;
   try {
-    read = await orAborted(deps.client.files(deps.name), signal);
+    read = await orAborted(deps.client.get(deps.name), signal);
   } catch (error) {
     return { status: "failed", message: messageOf(error) };
   }
   if (read === ABORTED || signal?.aborted) return abortedOutcome(signal);
-  const { staged } = read;
-  if (staged.inputs === null) return { status: "nothing-staged" };
+  const staged = read.staged;
+  if (!staged || staged.inputs === null) return { status: "nothing-staged" };
   if (!staged.buildRequired) return { status: "already-built", hash: null };
   const inputs = staged.inputs;
-  const since = now();
-  step({ kind: "on-server", since });
-  /** Where the proposal is: served, failed, or still being built. */
+  /** Where the proposal is: served, failed, replaced, or still being built. */
   const settled = (proposal: P): ProposalBuildOutcome<P> | null => {
     if (proposal.built?.inputs === inputs && proposal.built.hash) {
       return { status: "built", hash: proposal.built.hash, proposal };
@@ -452,6 +459,14 @@ export async function buildProposalOnServer<P extends BuiltProposal>(deps: {
         message: proposal.serverBuild.error ?? "Val Build could not build it.",
       };
     }
+    // Staged again since (by anyone): this build is not the one to wait for
+    if (proposal.staged && proposal.staged.inputs !== inputs) {
+      return {
+        status: "failed",
+        message:
+          "The proposal's files changed while it was being built. Build it again.",
+      };
+    }
     return null;
   };
   let asked;
@@ -462,6 +477,9 @@ export async function buildProposalOnServer<P extends BuiltProposal>(deps: {
     return { status: "failed", message: messageOf(error) };
   }
   if (asked === ABORTED) return abortedOutcome(signal);
+  // Said only now: a project Val Build does not build never was building there
+  const since = now();
+  step({ kind: "on-server", since });
   const first = settled(asked);
   if (first !== null) return first;
   while (now() - since < SERVER_BUILD_WAIT_MS) {
@@ -471,8 +489,14 @@ export async function buildProposalOnServer<P extends BuiltProposal>(deps: {
     let proposal;
     try {
       proposal = await orAborted(deps.client.get(deps.name), signal);
-    } catch {
-      // A read that did not come back is asked again: the build goes on.
+    } catch (error) {
+      // A gateway that gave up, or no answer at all, is asked again: the
+      // build goes on. Anything else (signed out, the proposal gone) is
+      // content's answer, and the same next time.
+      if (!gatewayGaveUp(error)) {
+        return { status: "failed", message: messageOf(error) };
+      }
+      step({ kind: "on-server", since });
       continue;
     }
     if (proposal === ABORTED) return abortedOutcome(signal);

@@ -84,6 +84,7 @@ export {
   withoutLockfiles,
   type BuiltProposal,
   type ServerBuildClient,
+  type ServerBuildStep,
   type ProposalBuildClient,
   type ProposalBuildOutcome,
   type ProposalBuildStep,

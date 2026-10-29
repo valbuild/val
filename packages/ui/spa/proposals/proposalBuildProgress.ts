@@ -1,6 +1,6 @@
 import { describeDeployPhase, deployPercent } from "../publish/deployProgress";
 import type { StudioDeployState } from "../publish/useStudioDeploy";
-import type { ProposalBuildStep } from "./proposalCode";
+import type { StudioBuildStep } from "./proposalCode";
 
 /**
  * A build of the proposal as it is shown: in the upgrade's dialog, and by the
@@ -21,7 +21,7 @@ export type ProposalBuildProgress = { label: string; percent: number | null };
 const DEPLOY_SHARE = 0.85;
 
 export function proposalBuildProgress(
-  step: ProposalBuildStep | null,
+  step: StudioBuildStep | null,
   deploy: StudioDeployState,
 ): ProposalBuildProgress {
   switch (step?.kind) {

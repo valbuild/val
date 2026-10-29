@@ -1096,35 +1096,45 @@ describe("buildProposalOnServer: Val Build builds it", () => {
       },
     };
   };
-  const pending = (inputs = INPUTS): ProposalJson => ({
+  /** The proposal as a read of one answers it: with what is staged. */
+  const read = (
+    over: Partial<ProposalJson> = {},
+    stagedOver: Partial<ProposalStaged> = {},
+  ): ProposalJson => ({
     ...proposal(null),
-    serverBuild: { state: "pending", inputs, error: null },
+    staged: staged(stagedOver),
+    ...over,
   });
-  const failed = (error: string, inputs = INPUTS): ProposalJson => ({
-    ...proposal(null),
-    serverBuild: { state: "failed", inputs, error },
-  });
-  const served = (hash: string): ProposalJson => ({
-    ...proposal(hash),
-    serverBuild: null,
-  });
+  const pending = (inputs = INPUTS): ProposalJson =>
+    read({ serverBuild: { state: "pending", inputs, error: null } });
+  const failed = (error: string, inputs = INPUTS): ProposalJson =>
+    read({ serverBuild: { state: "failed", inputs, error } });
+  const served = (hash: string): ProposalJson =>
+    read(
+      { built: { hash, inputs: INPUTS }, serverBuild: null },
+      { buildRequired: false },
+    );
   const off = () =>
     new ProposalsApiError(
       409,
       "Val Build does not build this project's proposals yet: build it in the Studio.",
       { details: { code: "server-builds-off" } },
     );
+  /** `get` answering `reads` in turn, the first being what is staged. */
+  const reading = (reads: ProposalJson[]) => async () => {
+    const next = reads.shift();
+    if (next === undefined) throw new Error("read once too often");
+    return next;
+  };
 
   test("is asked once, and the proposal is read until it says the build is served", async () => {
     const { now, sleep } = clock();
     const askBuild = jest.fn().mockResolvedValue(pending());
-    const reads = [pending(), pending(), served("b1")];
     const steps: string[] = [];
     const outcome = await buildProposalOnServer({
       name: NAME,
       client: {
-        files: async () => ({ files: OWN, staged: staged() }),
-        get: async () => reads.shift() ?? served("b1"),
+        get: reading([read(), pending(), pending(), served("b1")]),
         askBuild,
       },
       onStep: (step) => steps.push(step.kind),
@@ -1138,50 +1148,29 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     expect(new Set(steps.slice(1))).toEqual(new Set(["on-server"]));
   });
 
-  test("a project Val Build does not build yet is off, and nothing else is asked", async () => {
-    const get = jest.fn();
+  test("a project Val Build does not build yet is off, nothing else is asked, and no step says it built there", async () => {
+    const get = jest.fn().mockResolvedValue(read());
+    const steps: string[] = [];
     const outcome = await buildProposalOnServer({
       name: NAME,
       client: {
-        files: async () => ({ files: OWN, staged: staged() }),
         get,
         askBuild: async () => {
           throw off();
         },
       },
+      onStep: (step) => steps.push(step.kind),
     });
     expect(outcome).toEqual({ status: "off" });
-    expect(get).not.toHaveBeenCalled();
-  });
-
-  test("a build it could not make fails in its words; one of other inputs is not this build's", async () => {
-    const { now, sleep } = clock();
-    const reads = [
-      failed("an older build's failure", "b".repeat(64)),
-      failed("The build failed: SyntaxError: Unexpected token (16:21)"),
-    ];
-    const outcome = await buildProposalOnServer({
-      name: NAME,
-      client: {
-        files: async () => ({ files: OWN, staged: staged() }),
-        get: async () => reads.shift()!,
-        askBuild: async () => pending(),
-      },
-      now,
-      sleep,
-    });
-    expect(outcome).toEqual({
-      status: "failed",
-      message: "The build failed: SyntaxError: Unexpected token (16:21)",
-    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual(["reading"]);
   });
 
   test("content from before Val Build built anything is off too: it refuses the request as an invalid body", async () => {
     const outcome = await buildProposalOnServer({
       name: NAME,
       client: {
-        files: async () => ({ files: OWN, staged: staged() }),
-        get: notRead,
+        get: async () => read(),
         askBuild: async () => {
           throw new ProposalsApiError(
             400,
@@ -1194,12 +1183,102 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     expect(outcome).toEqual({ status: "off" });
   });
 
-  test("any other refusal fails at once, in content's words", async () => {
+  test("a build it could not make fails in its words; one of other inputs is not this build's", async () => {
+    const { now, sleep } = clock();
     const outcome = await buildProposalOnServer({
       name: NAME,
       client: {
-        files: async () => ({ files: OWN, staged: staged() }),
-        get: notRead,
+        get: reading([
+          read(),
+          failed("an older build's failure", "b".repeat(64)),
+          failed("The build failed: SyntaxError: Unexpected token (16:21)"),
+        ]),
+        askBuild: async () => pending(),
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "The build failed: SyntaxError: Unexpected token (16:21)",
+    });
+  });
+
+  test("files staged again meanwhile end the wait at once: this build will not be served", async () => {
+    const { now, sleep } = clock();
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        get: reading([
+          read(),
+          read(
+            {
+              serverBuild: {
+                state: "pending",
+                inputs: "b".repeat(64),
+                error: null,
+              },
+            },
+            { inputs: "b".repeat(64) },
+          ),
+        ]),
+        askBuild: async () => pending(),
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message:
+        "The proposal's files changed while it was being built. Build it again.",
+    });
+  });
+
+  test("a read a gateway gave up on is asked again; a refusal (signed out) fails at once, in content's words", async () => {
+    const { now, sleep } = clock();
+    const reads: (ProposalJson | Error)[] = [
+      read(),
+      new ProposalsApiError(524, "The proposals API answered 524.", undefined),
+      served("b1"),
+    ];
+    const answer = async () => {
+      const next = reads.shift()!;
+      if (next instanceof Error) throw next;
+      return next;
+    };
+    expect(
+      await buildProposalOnServer({
+        name: NAME,
+        client: { get: answer, askBuild: async () => pending() },
+        now,
+        sleep,
+      }),
+    ).toMatchObject({ status: "built", hash: "b1" });
+
+    const signedOut = [
+      read(),
+      new ProposalsApiError(401, "Not signed in", undefined),
+    ];
+    const refuse = async () => {
+      const next = signedOut.shift()!;
+      if (next instanceof Error) throw next;
+      return next;
+    };
+    expect(
+      await buildProposalOnServer({
+        name: NAME,
+        client: { get: refuse, askBuild: async () => pending() },
+        now,
+        sleep,
+      }),
+    ).toEqual({ status: "failed", message: "Not signed in" });
+  });
+
+  test("any other refusal of the build fails at once, in content's words", async () => {
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        get: async () => read(),
         askBuild: async () => {
           throw new ProposalsApiError(
             409,
@@ -1224,11 +1303,7 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     ] as const) {
       const outcome = await buildProposalOnServer({
         name: NAME,
-        client: {
-          files: async () => ({ files: OWN, staged: staged(over) }),
-          get: notRead,
-          askBuild,
-        },
+        client: { get: async () => read({}, over), askBuild },
       });
       expect(outcome.status).toBe(status);
     }
@@ -1239,11 +1314,7 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     const { now, sleep } = clock();
     const outcome = await buildProposalOnServer({
       name: NAME,
-      client: {
-        files: async () => ({ files: OWN, staged: staged() }),
-        get: async () => pending(),
-        askBuild: async () => pending(),
-      },
+      client: { get: async () => pending(), askBuild: async () => pending() },
       now,
       sleep,
     });
@@ -1258,7 +1329,6 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     const outcome = await buildProposalOnServer({
       name: NAME,
       client: {
-        files: async () => ({ files: OWN, staged: staged() }),
         get: async () => pending(),
         askBuild: async () => {
           controller.abort();

@@ -25,7 +25,15 @@ export {
   SERVE_POLL_MS,
   SERVE_WAIT_MS,
   type ProposalBuildStep,
+  type ServerBuildStep,
 } from "@valbuild/shared/publish";
+import type {
+  ProposalBuildStep as InPageStep,
+  ServerBuildStep as OnServerStep,
+} from "@valbuild/shared/publish";
+
+/** A step of a proposal's build, made in this page or by Val Build. */
+export type StudioBuildStep = InPageStep | OnServerStep;
 
 /**
  * A proposal's CODE: the project's files, changed in a proposal and built for
