@@ -21,6 +21,7 @@ import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
 import { CanvasPoint } from "./types";
 import {
+  useValBaseAligned,
   useValPendingSourceSnapshot,
   useValSourceUpdates,
 } from "../../../stores/react/ValOverlayEmitter";
@@ -659,8 +660,14 @@ export function CanvasFrame({
    * page announcing itself is the one signal that covers both.
    */
   const sendPendingSources = useValPendingSourceSnapshot();
+  /*
+   * Not before the store's base is the server's: until then it can hold the
+   * build from before a publish, and the page -- rendered with what came
+   * after -- would show the old text until the base caught up.
+   */
+  const baseAligned = useValBaseAligned(isLive);
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || !baseAligned) return;
     if (relaySources) sendPendingSources(sendSourceUpdate);
     /**
      * And say that was all of it.
@@ -676,6 +683,7 @@ export function CanvasFrame({
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
   }, [
     isLive,
+    baseAligned,
     relaySources,
     documentEpoch,
     sendPendingSources,

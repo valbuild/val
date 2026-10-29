@@ -178,6 +178,12 @@ export type System = HostRealm &
      */
     checkSchemaNow(): void;
     /**
+     * Call `listener` once the source store's base is the one the server's
+     * chain belongs on -- before that it can be an older build's, and a page
+     * handed it shows the old text: see `BaseAlignment.onAligned`.
+     */
+    onBaseAligned(listener: () => void): () => void;
+    /**
      * Gather the snapshot the search index needs and hand it across the worker
      * seam. Explicit, because this is the one operation in the system that
      * copies every module — it must be a thing someone chose to do, not a side
@@ -1149,6 +1155,7 @@ export function createSystem(options: SystemOptions): System {
 
   return {
     checkSchemaNow: () => schemaFreshness.checkNow(),
+    onBaseAligned: (listener) => baseAlignment.onAligned(listener),
     host,
     stat,
     status,

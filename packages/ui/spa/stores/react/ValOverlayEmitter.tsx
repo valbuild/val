@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Internal } from "@valbuild/core";
 import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import { useValSystem, type ValSystem } from "./SystemContext";
 
@@ -73,6 +74,71 @@ function isJsonObject(value: Json): value is { readonly [key: string]: Json } {
 const DEBOUNCE_MS = 200;
 
 /**
+ * How long a page is kept waiting for the base to align before it is handed
+ * what the store holds anyway. Alignment is one `/stat` away, or one base
+ * fetch after that; a server that answers neither must not leave the page
+ * without the editor's changes -- and a draft page suspends on
+ * `sources-synced`, with its own ten second timeout behind this.
+ */
+const ALIGN_FALLBACK_MS = 5_000;
+
+/**
+ * `listener`, once the store's base is the one the server's chain belongs on
+ * (`System.onBaseAligned`), or after {@link ALIGN_FALLBACK_MS}.
+ *
+ * Nothing goes to a page before that. The store starts from the bundle's
+ * source, and after a publish that can be the build from before it: a draft
+ * page was handed the old text over the new it had just rendered, and then
+ * the new text again once the base caught up -- the flicker of a reload in
+ * draft mode after a publish.
+ */
+function onceBaseAligned(
+  system: ValSystem["system"],
+  listener: () => void,
+): () => void {
+  let done = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const fire = (fallback: boolean) => {
+    if (done) return;
+    done = true;
+    if (timer !== null) clearTimeout(timer);
+    if (fallback) {
+      Internal.log.debug(
+        "the editor's base did not align in time; handing the page what it holds",
+      );
+    }
+    listener();
+  };
+  const off = system.onBaseAligned(() => fire(false));
+  if (!done) timer = setTimeout(() => fire(true), ALIGN_FALLBACK_MS);
+  return () => {
+    done = true;
+    off();
+    if (timer !== null) clearTimeout(timer);
+  };
+}
+
+/**
+ * Whether the store's base is in step with the server's chain, so what it
+ * holds can be handed to a page: see {@link onceBaseAligned}. Only waited
+ * for while `enabled`.
+ */
+export function useValBaseAligned(enabled: boolean): boolean {
+  const val = useValSystem();
+  const system = val?.system ?? null;
+  // The system that aligned, so a new system starts out unaligned.
+  const [alignedSystem, setAlignedSystem] = useState<
+    ValSystem["system"] | null
+  >(null);
+  useEffect(() => {
+    if (!enabled || system === null) return;
+    return onceBaseAligned(system, () => setAlignedSystem(system));
+  }, [system, enabled]);
+  // No system: nothing will be handed over, so there is nothing to wait for.
+  return system === null || alignedSystem === system;
+}
+
+/**
  * Read one module's source as it stands, and hand it over.
  *
  * Shared by the subscription below and by the snapshot after it, because the
@@ -144,15 +210,17 @@ export function useValSourceUpdates(
     const system = val.system;
     const pending = new Set<ModuleFilePath>();
     let timeout: ReturnType<typeof setTimeout> | null = null;
+    // Changes before the base aligns are collected, not sent: they are sent
+    // as the store holds them once it does. See `onceBaseAligned`.
+    let aligned = false;
 
     const emit = (moduleFilePath: ModuleFilePath) =>
       emitModuleSource(system, moduleFilePath, (path, source) =>
         onUpdateRef.current(path, source),
       );
 
-    const off = system.sourceStore.events.on("source:change", (event) => {
-      pending.add(event.moduleFilePath);
-      if (timeout !== null) return;
+    const schedule = () => {
+      if (!aligned || timeout !== null || pending.size === 0) return;
       timeout = setTimeout(() => {
         timeout = null;
         const moduleFilePaths = [...pending];
@@ -161,9 +229,18 @@ export function useValSourceUpdates(
           emit(moduleFilePath);
         }
       }, DEBOUNCE_MS);
+    };
+    const off = system.sourceStore.events.on("source:change", (event) => {
+      pending.add(event.moduleFilePath);
+      schedule();
+    });
+    const offAligned = onceBaseAligned(system, () => {
+      aligned = true;
+      schedule();
     });
     return () => {
       off();
+      offAligned();
       if (timeout !== null) clearTimeout(timeout);
     };
   }, [val, enabled]);
@@ -255,12 +332,15 @@ export function ValOverlayEmitter({ enabled }: { enabled: boolean }) {
    * the overlay shares the window and was missed.
    */
   const sendPendingSources = useValPendingSourceSnapshot();
+  // Not before the base aligns: until then the store can hold the build from
+  // before a publish, and this would hand it to a page showing what came after.
+  const aligned = useValBaseAligned(enabled);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !aligned) return;
     sendPendingSources(emit);
     window.dispatchEvent(
       new CustomEvent("val-event", { detail: { type: "sources-synced" } }),
     );
-  }, [enabled, sendPendingSources, emit]);
+  }, [enabled, aligned, sendPendingSources, emit]);
   return null;
 }
