@@ -9,6 +9,7 @@ import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { ValOpsMemory } from "./ValOpsMemory";
+import { DEFAULT_ANALYTICS_INGEST_URL } from "./analyticsForward";
 import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
@@ -246,6 +247,17 @@ export async function initHandlerOptions(
   warnIfInsecureUrls({ valBuildUrl, valContentUrl });
   if (isProxyMode) {
     /*
+     * Where a self-hosted site's analytics beacons are counted. Only http mode
+     * forwards them -- it is the mode with the project's api key -- so only
+     * it resolves this, and only here is it checked for a plain-http host:
+     * the api key goes with every beacon.
+     */
+    const valAnalyticsIngestUrl =
+      opts.valAnalyticsIngestUrl ||
+      process.env.VAL_ANALYTICS_INGEST_URL ||
+      DEFAULT_ANALYTICS_INGEST_URL;
+    warnIfInsecureUrls({ valAnalyticsIngestUrl });
+    /*
      * Why this app is in http mode, in the message that says what is missing.
      *
      * "must be set in proxy mode" is a fine sentence for a developer who wrote
@@ -377,6 +389,7 @@ export async function initHandlerOptions(
       valDisableRedirectUrl,
       valContentUrl,
       valBuildUrl,
+      valAnalyticsIngestUrl,
       config,
     };
   } else {
@@ -500,10 +513,14 @@ export function createValOps(
  * only `valBuildUrl` hands back the app token that becomes the session cookie,
  * so a single shared sentence would overstate one and understate the other.
  */
-type CredentialBearingUrl = "valBuildUrl" | "valContentUrl";
+type CredentialBearingUrl =
+  | "valBuildUrl"
+  | "valContentUrl"
+  | "valAnalyticsIngestUrl";
 const CREDENTIAL_BEARING_URLS: CredentialBearingUrl[] = [
   "valBuildUrl",
   "valContentUrl",
+  "valAnalyticsIngestUrl",
 ];
 const WHAT_IS_AT_RISK: Record<CredentialBearingUrl, string> = {
   valBuildUrl:
@@ -511,6 +528,9 @@ const WHAT_IS_AT_RISK: Record<CredentialBearingUrl, string> = {
     "so both can be read - and the token replaced - by anyone on the network path.",
   valContentUrl:
     "Val's api key, or the caller's personal access token, is sent to this host, " +
+    "so it can be read by anyone on the network path.",
+  valAnalyticsIngestUrl:
+    "Val's api key is sent to this host with every analytics beacon, " +
     "so it can be read by anyone on the network path.",
 };
 
@@ -539,9 +559,10 @@ function forLog(parsed: URL): string {
  * Returns a warning if `url` would send credentials somewhere they can be read
  * off the wire, or null if it is fine.
  *
- * Both URLs default to https, but each is overridable - `opts.valBuildUrl` /
- * `VAL_BUILD_URL`, `opts.valContentUrl` / `VAL_CONTENT_URL` - and neither
- * override has ever been scheme-checked. Point one at a plain http host and the
+ * Each URL defaults to https, but each is overridable - `opts.valBuildUrl` /
+ * `VAL_BUILD_URL`, `opts.valContentUrl` / `VAL_CONTENT_URL`,
+ * `opts.valAnalyticsIngestUrl` / `VAL_ANALYTICS_INGEST_URL` - and no override
+ * was scheme-checked before this. Point one at a plain http host and the
  * api key goes out in clear text, and whatever comes back is whatever the
  * network says: for `valBuildUrl` that includes the app token this server
  * re-signs into the session cookie.
@@ -583,9 +604,15 @@ export function insecureUrlWarning(
   );
 }
 
-function warnIfInsecureUrls(urls: Record<CredentialBearingUrl, string>): void {
+function warnIfInsecureUrls(
+  urls: Partial<Record<CredentialBearingUrl, string>>,
+): void {
   for (const name of CREDENTIAL_BEARING_URLS) {
-    const warning = insecureUrlWarning(name, urls[name]);
+    const url = urls[name];
+    if (url === undefined) {
+      continue;
+    }
+    const warning = insecureUrlWarning(name, url);
     if (warning) {
       Internal.log.warn(warning);
     }
