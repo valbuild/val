@@ -2,6 +2,7 @@ import ts from "typescript";
 import { result, pipe } from "@valbuild/core/fp";
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./ops";
 import { analyzeValModule } from "./valModule";
+import { evaluateExpression } from "./syntax";
 import {
   analyzeJsonValuesEntries,
   jsonValuesRecordKeys,
@@ -34,6 +35,7 @@ export {
   tsOps,
   parseValFile,
   analyzeValModule,
+  evaluateExpression,
   analyzeJsonValuesEntries,
   jsonValuesRecordKeys,
   insertValJsonEntry,

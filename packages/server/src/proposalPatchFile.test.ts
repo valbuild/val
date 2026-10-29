@@ -149,3 +149,88 @@ describe("a patch written into a module's file in a proposal", () => {
     expect(sent).toEqual([]);
   });
 });
+
+/*
+ * A staging sends the Source its module files declare, so the proposal's
+ * Source moves with its code (`stagedModuleSources`). Without it a field the
+ * design tab added was in the module's text and its build, and not in the
+ * Source the proposal's server served and saved: an edit into it showed on
+ * the canvas and then reverted.
+ */
+describe("the Source a staged module file declares", () => {
+  const withButtons = SITE_TEXT.replace(
+    "s.object({ title: s.string() })",
+    "s.object({ title: s.string(), buttons: s.array(s.object({ label: s.string() })) })",
+  ).replace(
+    '{ title: "On the site" }',
+    '{ title: "On the site", buttons: [{ label: "New button" }] }',
+  );
+
+  test("goes with a patch written into a module's file", async () => {
+    ownFiles = { [PATH]: withButtons };
+    await patchFile(ops(), NAME, "Worn for years");
+    const staged = sent[1]!.body as { modules?: Record<string, unknown> };
+    expect(staged.modules).toEqual({
+      [`/${PATH}`]: {
+        title: "Worn for years",
+        buttons: [{ label: "New button" }],
+      },
+    });
+  });
+
+  test("goes with module files a file tool stages, and only with those", async () => {
+    const answer = await ops().proposalsApi(
+      `/${NAME}/files`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          files: {
+            [PATH]: withButtons,
+            "src/Button.tsx": "export const Button = () => null;",
+          },
+          message: "Buttons",
+        }),
+      },
+      "profile-1",
+    );
+    expect(answer.status).toBe(200);
+    expect(sent.map((r) => `${r.method} ${r.url}`)).toEqual([
+      `POST https://content.example/v1/org/project/proposals/${NAME}/files`,
+    ]);
+    const staged = sent[0]!.body as {
+      files: Record<string, string>;
+      modules?: Record<string, unknown>;
+      message: string;
+    };
+    expect(staged.message).toBe("Buttons");
+    expect(Object.keys(staged.files).sort()).toEqual([PATH, "src/Button.tsx"]);
+    expect(staged.modules).toEqual({
+      [`/${PATH}`]: {
+        title: "On the site",
+        buttons: [{ label: "New button" }],
+      },
+    });
+  });
+
+  test("is left out where it cannot be read without running the module", async () => {
+    const computed = SITE_TEXT.replace(
+      '{ title: "On the site" }',
+      "{ title: ['On', 'the', 'site'].join(' ') }",
+    );
+    await ops().proposalsApi(
+      `/${NAME}/files`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          files: {
+            [PATH]: computed,
+            "content/shared.val.ts": "export const shared = 1;",
+          },
+        }),
+      },
+      "profile-1",
+    );
+    const staged = sent[0]!.body as { modules?: Record<string, unknown> };
+    expect(staged.modules).toBeUndefined();
+  });
+});
