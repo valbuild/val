@@ -20,6 +20,14 @@
  *    document's `/_app/` requests from the files, and everything else from
  *    the network: the HTML is the last build's, rendered by its server, and
  *    the new code takes it over in the browser.
+ * 4. It takes it over by RENDERING it, not by hydrating it. Hydration keeps
+ *    the markup the server sent wherever only an attribute differs -- React
+ *    mends text, never a `className` -- so a change to classes and props,
+ *    which is most of what the design tab changes, hydrated into the old
+ *    page and showed nothing. The worker adds a script to the end of that
+ *    document's `<body>` ({@link QUICK_PREVIEW_RENDER_SCRIPT}) that takes the
+ *    server's markup out before the app's scripts run, so hydration finds
+ *    nothing to keep and React renders the page with the new code.
  *
  * What it cannot show, and the tab says so: anything on the server. Server
  * functions, API routes and loaders that run there are the last build's, as
@@ -36,6 +44,18 @@ export const QUICK_PREVIEW_PARAM = "val_quick";
 
 /** Where Val's API serves the worker: under `/api/val`. */
 export const QUICK_PREVIEW_SERVICE_WORKER_PATH = "/quick-preview-sw.js";
+
+/**
+ * What a quick preview's document runs before the app's scripts: the
+ * server's markup out of `<body>`, every script left where it is -- the
+ * router's dehydrated state and the app's entry are among them. Hydration
+ * then finds the body empty and React renders the page, with the new code's
+ * attributes and classes, where it would have kept the old ones.
+ */
+export const QUICK_PREVIEW_RENDER_SCRIPT =
+  "<script>(function(){var b=document.body;if(!b)return;" +
+  "Array.prototype.slice.call(b.childNodes).forEach(function(n){" +
+  'if(n.nodeName!=="SCRIPT")b.removeChild(n)})})()</script>';
 
 /** What the page sends the worker to store a preview's files. */
 export const QUICK_PREVIEW_STORE_MESSAGE = "val-quick-preview-store";
@@ -75,6 +95,7 @@ export function isQuickPreviewFiles(
 export const QUICK_PREVIEW_SERVICE_WORKER_SOURCE = `
 "use strict";
 const PARAM = "${QUICK_PREVIEW_PARAM}";
+const RENDER = ${JSON.stringify(QUICK_PREVIEW_RENDER_SCRIPT)};
 const CACHE = "val-quick-preview";
 const PREFIX = "/__val_quick/";
 const INDEX = PREFIX + "index";
@@ -152,14 +173,32 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   if (event.request.mode === "navigate") {
-    if (event.resultingClientId) {
-      byClient.set(event.resultingClientId, url.searchParams.get(PARAM));
-    }
+    const id = url.searchParams.get(PARAM);
+    if (event.resultingClientId) byClient.set(event.resultingClientId, id);
+    if (id) event.respondWith(rendered(event.request));
     return;
   }
   if (!url.pathname.startsWith("/_app/")) return;
   event.respondWith(serve(event, url));
 });
+
+/** A quick preview's document, with the script that has it rendered, not hydrated. */
+async function rendered(request) {
+  const response = await fetch(request);
+  const type = response.headers.get("Content-Type") || "";
+  if (!response.ok || !type.includes("text/html")) return response;
+  const html = await response.text();
+  const at = html.lastIndexOf("</body>");
+  if (at === -1) return new Response(html, response);
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  headers.delete("Content-Encoding");
+  return new Response(html.slice(0, at) + RENDER + html.slice(at), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 async function serve(event, url) {
   const id = await previewOf(event.clientId);

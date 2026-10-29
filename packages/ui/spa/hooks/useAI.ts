@@ -123,7 +123,6 @@ import {
   DESIGN_CREATE_PATCH_TOOL,
   DESIGN_QUICK_PREVIEW_TOOL,
   DESIGN_READ_PAGE_TOOL,
-  DESIGN_SCREENSHOT_TOOL,
   isCodeTool,
   runCodeTool,
   runQuickPreviewTool,
@@ -666,7 +665,8 @@ const ALL_TOOLS: AITool[] = [
 const DESIGN_TOOLS: AITool[] = [
   DESIGN_CREATE_PATCH_TOOL,
   DESIGN_READ_PAGE_TOOL,
-  DESIGN_SCREENSHOT_TOOL,
+  // Not `DESIGN_SCREENSHOT_TOOL`: its picture did not come back from the
+  // page, and read_page answers what it was for
   DESIGN_QUICK_PREVIEW_TOOL,
   GET_ALL_SCHEMA_TOOL,
   GET_SOURCE_TOOL,
@@ -2355,6 +2355,7 @@ export function useAI(
               };
             },
             offerProposal: requestProposal,
+            design: designRef.current !== null,
           }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||

@@ -1,4 +1,5 @@
 import {
+  QUICK_PREVIEW_RENDER_SCRIPT,
   QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
   QUICK_PREVIEW_STORE_MESSAGE,
   quickPreviewSiteOrigin,
@@ -12,6 +13,11 @@ import {
  */
 
 const ORIGIN = "https://p1--site.valstart.dev";
+
+/** A page as the last build's server renders it. */
+const PAGE =
+  '<html><head></head><body><main class="flex-col">Old</main>' +
+  '<script>window.$_TSR={}</script><script type="module" src="/_app/app.js"></script></body></html>';
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -34,6 +40,11 @@ function load(clients: Array<{ id: string; url: string }>) {
   const fetched: string[] = [];
   const fakeFetch = async (request: Request) => {
     fetched.push(new URL(request.url).pathname);
+    if (request.mode === "navigate") {
+      return new Response(PAGE, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
     return new Response("from the network");
   };
   const self = {
@@ -118,11 +129,29 @@ describe("the quick preview's worker", () => {
   test("knows a preview by its navigation, before the page has an address", async () => {
     const worker = load([]);
     await worker.store("q1", files);
-    expect(
-      worker.request("/about?val_quick=q1", "fresh", "navigate"),
-    ).toBeNull();
+    await worker.request("/about?val_quick=q1", "fresh", "navigate");
     const app = await worker.request("/_app/app.js", "fresh");
     expect(await app?.text()).toBe("export const quick = true;");
+  });
+
+  test("has a preview's page rendered by the new code, not hydrated into the old markup", async () => {
+    const worker = load([]);
+    const page = await worker.request(
+      "/about?val_quick=q1",
+      "fresh",
+      "navigate",
+    );
+    const html = (await page?.text()) ?? "";
+    // Before the app's scripts run, which are deferred: the body's markup
+    // goes, its scripts stay
+    expect(html).toBe(
+      PAGE.replace("</body>", `${QUICK_PREVIEW_RENDER_SCRIPT}</body>`),
+    );
+  });
+
+  test("leaves a page not opened as a preview to the network, as it is", () => {
+    const worker = load([]);
+    expect(worker.request("/about", "visitor", "navigate")).toBeNull();
   });
 
   test("leaves everything outside /_app/ alone", () => {
