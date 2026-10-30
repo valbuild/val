@@ -613,7 +613,9 @@ export const DESIGN_CREATE_PATCH_TOOL: AITool = {
     "Supported ops: 'replace', 'add', 'remove'. The 'path' is a JSON Pointer AS AN ARRAY (e.g. ['title'], ['items', '0', 'name']); " +
     "a record key that is a URL ('/foo/bar') is ONE segment: ['/foo/bar']. " +
     "Use it for content of a module the proposal changes as well as any other: a field you just added to a schema is filled here. " +
-    "Images and files cannot be uploaded here. Entries of a .jsonValues() record live in .val.json files: write those with write_files.",
+    "Images and files cannot be uploaded here. A .jsonValues() record keeps each entry in its own .val.json file: a patch into an " +
+    "entry (['/blog/hello', 'title']) is written into that file, but adding, replacing or removing a whole entry is a key in the " +
+    ".val.ts and a .val.json beside it -- write those with write_files.",
   parameters: {
     type: "object",
     properties: {
