@@ -1,8 +1,8 @@
-import { initVal } from "@valbuild/core";
+import { initVal, type ModuleFilePath } from "@valbuild/core";
 import { ValOpsHttp } from "./ValOpsHttp";
 import type { ValProposal } from "./proposal";
 
-const { config } = initVal();
+const { config, c, s } = initVal();
 
 /*
  * The design tab's `create_patch` (valbuild/home `docs/design-tab.md`): a
@@ -232,5 +232,158 @@ describe("the Source a staged module file declares", () => {
     );
     const staged = sent[0]!.body as { modules?: Record<string, unknown> };
     expect(staged.modules).toBeUndefined();
+  });
+});
+
+/*
+ * The same for a `.jsonValues()` record, whose Source holds a marker per
+ * entry and whose entries' content is in their own `*.val.json` files. An
+ * entry the design tab added -- a key in the `.val.ts` and its file -- was in
+ * the proposal's code and not in its Source, which still named the entries
+ * of the last save: the proposal's server did not have it, and an edit into
+ * it was undone.
+ */
+describe("an entry staged into a .jsonValues() record", () => {
+  const KB = "/app/kb.val.ts" as ModuleFilePath;
+  const KB_PATH = "app/kb.val.ts";
+  const kbText = (
+    keys: string[],
+    inline = "",
+  ) => `import { c, s } from "../val.config";
+export default c.define(
+  "/app/kb.val.ts",
+  s.record(s.object({ title: s.string() })).jsonValues(),
+  {
+${keys.map((key) => `    ${key}: c.json(() => import("./kb/${key}.val.json")),`).join("\n")}${inline}
+  },
+);
+`;
+  // The proposal's build, made after the design tab added entry `c`.
+  const kbModules = [
+    {
+      def: async () => ({
+        default: c.define(
+          KB,
+          s.record(s.object({ title: s.string() })).jsonValues(),
+          {
+            a: c.json(() => Promise.resolve({ default: { title: "a" } })),
+            b: c.json(() => Promise.resolve({ default: { title: "b" } })),
+            c: c.json(() =>
+              Promise.resolve({ default: { title: "c from the build" } }),
+            ),
+          },
+        ),
+      }),
+    },
+  ];
+  /** What the proposal saved before the design tab added `c`. */
+  const savedBefore = {
+    [KB]: { a: { _type: "json" }, b: { _type: "json" } },
+  };
+
+  const stageFiles = async (files: Record<string, string>) => {
+    const answer = await ops().proposalsApi(
+      `/${NAME}/files`,
+      { method: "POST", body: JSON.stringify({ files }) },
+      "profile-1",
+    );
+    expect(answer.status).toBe(200);
+    return sent[0]!.body as {
+      files: Record<string, string>;
+      modules?: Record<string, unknown>;
+    };
+  };
+
+  test("is in the Source the proposal's server is handed, and its content is the staged file's", async () => {
+    const staged = await stageFiles({
+      [KB_PATH]: kbText(["a", "b", "c"]),
+      "app/kb/c.val.json": JSON.stringify({ title: "c staged" }),
+    });
+    // What content then hands the proposal's address: the last save's
+    // Source, with what the staging recorded over it.
+    const proposal: ValProposal = {
+      name: NAME,
+      branch: `val/p/${NAME}`,
+      commit: "staged-1",
+      modules: { ...savedBefore, ...(staged.modules ?? {}) },
+      files: staged.files,
+    };
+    const atProposal = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      null,
+      { apiKey: "test" },
+      { config, modules: kbModules },
+      { config, proposal },
+    );
+    const { sources } = await atProposal.getSources();
+    expect(sources[KB]).toEqual({
+      a: { _type: "json" },
+      b: { _type: "json" },
+      c: { _type: "json" },
+    });
+    expect(
+      await atProposal.getJsonEntry(KB, "c", { applyPatches: false }),
+    ).toEqual({ status: "success", content: { title: "c staged" } });
+  });
+
+  test("a value written inline beside the entries is sent as written", async () => {
+    const staged = await stageFiles({
+      [KB_PATH]: kbText(["a"], '\n    inline: { title: "Inline" },'),
+    });
+    expect(staged.modules).toEqual({
+      [KB]: { a: { _type: "json" }, inline: { title: "Inline" } },
+    });
+  });
+
+  test("an entry that is not a c.json(...) of an import leaves the module out", async () => {
+    const staged = await stageFiles({
+      [KB_PATH]: kbText(["a"], "\n    other: c.json(load),"),
+    });
+    expect(staged.modules).toBeUndefined();
+  });
+
+  const patchEntry = (patch: unknown[]) =>
+    ops().proposalsApi(
+      `/${NAME}/patch-file`,
+      {
+        method: "POST",
+        body: JSON.stringify({ moduleFilePath: KB, patch }),
+      },
+      "profile-1",
+    );
+
+  test("a patch into an entry is written into the entry's own file, and nothing else", async () => {
+    ownFiles = {
+      [KB_PATH]: kbText(["a", "c"]),
+      "app/kb/c.val.json": JSON.stringify({ title: "c staged" }),
+    };
+    const answer = await patchEntry([
+      { op: "replace", path: ["c", "title"], value: "Edited" },
+    ]);
+    expect(answer.status).toBe(200);
+    const staged = sent[1]!.body as {
+      files: Record<string, string>;
+      modules?: unknown;
+    };
+    expect(staged.files).toEqual({
+      "app/kb/c.val.json": JSON.stringify({ title: "Edited" }, null, 2),
+    });
+    expect(staged.modules).toBeUndefined();
+  });
+
+  test("a patch of a whole entry is refused, and says to write the files", async () => {
+    ownFiles = { [KB_PATH]: kbText(["a"]) };
+    const answer = await patchEntry([
+      { op: "add", path: ["d"], value: { title: "d" } },
+    ]);
+    // A new entry too: it would be written into the record inline.
+    expect(answer.status).toBe(422);
+    const replaced = await patchEntry([
+      { op: "replace", path: ["a"], value: { title: "a" } },
+    ]);
+    expect(replaced.status).toBe(422);
+    expect(JSON.parse(replaced.body).message).toContain("write_files");
+    expect(sent.filter((r) => r.method === "POST")).toEqual([]);
   });
 });

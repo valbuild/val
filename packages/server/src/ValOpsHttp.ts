@@ -40,7 +40,7 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
-import { patchModuleText } from "./patchModuleText";
+import { patchModuleFiles } from "./patchModuleText";
 import { stagedModuleSources } from "./stagedModuleSources";
 import {
   MoveInputs,
@@ -1307,23 +1307,55 @@ export class ValOpsHttp extends ValOps {
         message: `There is no module file ${moduleFilePath} in this proposal or on the site.`,
       });
     }
-    const patched = await patchModuleText(text, patch);
+    const patched = await patchModuleFiles(
+      moduleFilePath,
+      text,
+      (path) => {
+        const proposalCopy = files.data.files[path];
+        return proposalCopy !== undefined
+          ? proposalCopy
+          : this.projectSource?.[path];
+      },
+      patch,
+    );
     if (result.isErr(patched)) {
       return answer(422, {
         message: `The patch does not apply to ${moduleFilePath}: ${patched.error}`,
       });
     }
-    let formatted = patched.value;
-    if (this.options?.formatter) {
+    const formatter = this.options?.formatter;
+    const format = async (
+      written: string,
+      path: string,
+    ): Promise<result.Result<string, string>> => {
+      if (!formatter) return result.ok(written);
       try {
-        formatted = await this.options.formatter(patched.value, moduleFilePath);
+        return result.ok(await formatter(written, path));
       } catch (error) {
-        return answer(422, {
-          message: `The patched ${moduleFilePath} could not be formatted: ${error instanceof Error ? error.message : String(error)}`,
-        });
+        return result.err(
+          `The patched ${path} could not be formatted: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
+    };
+    const staging: Record<string, string> = {};
+    if (patched.value.moduleText !== null) {
+      const formatted = await format(patched.value.moduleText, moduleFilePath);
+      if (result.isErr(formatted)) {
+        return answer(422, { message: formatted.error });
+      }
+      staging[filePath] = formatted.value;
     }
-    const staging = { [filePath]: formatted };
+    // An entry's file as a save writes it: see `ValOps.prepare`.
+    for (const [entryFile, content] of Object.entries(patched.value.entries)) {
+      const formatted = await format(
+        JSON.stringify(content, null, 2),
+        `/${entryFile}`,
+      );
+      if (result.isErr(formatted)) {
+        return answer(422, { message: formatted.error });
+      }
+      staging[entryFile] = formatted.value;
+    }
     const modules = await stagedModuleSources(staging);
     const staged = await content("/files", {
       method: "POST",

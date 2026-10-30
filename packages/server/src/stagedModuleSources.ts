@@ -15,9 +15,11 @@ import { result } from "@valbuild/core/fp";
  * canvas showed it, and then it was gone.
  *
  * Only what can be read without running anything: a `c.define(...)` whose
- * Source is a literal. Anything else -- a `.jsonValues()` module, a Source
- * built by code, a file of shared schemas -- is left out, and content keeps
- * the Source it has for it, as before this existed.
+ * Source is a literal, a `.jsonValues()` record's entries as the markers its
+ * stored Source holds (`evaluateModuleSource`) -- so an entry the design tab
+ * adds is one the proposal has. Anything else -- a Source built by code, a
+ * file of shared schemas -- is left out, and content keeps the Source it has
+ * for it, as before this existed.
  */
 export async function stagedModuleSources(
   files: Record<string, string | null>,
@@ -27,14 +29,14 @@ export async function stagedModuleSources(
   );
   if (modules.length === 0) return {};
   // The compiler, loaded when a staging asks for it, as a save loads it.
-  const { parseValFile, analyzeValModule, evaluateExpression } =
+  const { parseValFile, analyzeValModule, evaluateModuleSource } =
     await import("./patch/ts/publishKit");
   const sources: Record<string, JSONValue> = {};
   for (const { path, text } of modules) {
     try {
       const analysis = analyzeValModule(parseValFile(text));
       if (result.isErr(analysis)) continue;
-      const source = evaluateExpression(analysis.value.source);
+      const source = evaluateModuleSource(analysis.value.source);
       if (result.isErr(source)) continue;
       sources[`/${path.replace(/^\/+/, "")}`] = source.value;
     } catch {

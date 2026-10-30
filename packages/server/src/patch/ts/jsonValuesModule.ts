@@ -1,4 +1,11 @@
 import ts from "typescript";
+import { result } from "@valbuild/core/fp";
+import type { JSONValue } from "@valbuild/core/patch";
+import {
+  evaluateExpression,
+  ValSyntaxError,
+  type ValSyntaxErrorTree,
+} from "./syntax";
 
 export type JsonValuesEntry = {
   /** The string literal inside `import("...")` in the entry's thunk. */
@@ -60,6 +67,47 @@ export function jsonValuesRecordKeys(source: ts.Expression): string[] {
     }
   }
   return keys;
+}
+
+/**
+ * The Source a `c.define(...)` literal declares, as a module's Source is
+ * stored: each `.jsonValues()` entry's `c.json(() => import("..."))` as the
+ * marker `{ _type: "json" }` its content stands behind, and every other value
+ * as written. An error for anything that is not a literal.
+ *
+ * What a staging records for a module (`stagedModuleSources`): without the
+ * markers, an entry the design tab added to a record was in the module's code
+ * and not in its Source, and an edit into it was undone.
+ */
+export function evaluateModuleSource(
+  source: ts.Expression,
+): result.Result<JSONValue, ValSyntaxErrorTree> {
+  const entries = analyzeJsonValuesEntries(source);
+  if (entries.size === 0 || !ts.isObjectLiteralExpression(source)) {
+    return evaluateExpression(source);
+  }
+  const value: { [key: string]: JSONValue } = {};
+  for (const prop of source.properties) {
+    if (!ts.isPropertyAssignment(prop)) {
+      return result.err(
+        new ValSyntaxError("Expected a property assignment", prop),
+      );
+    }
+    const key = getPropertyKey(prop.name);
+    if (key === null) {
+      return result.err(
+        new ValSyntaxError("Expected a literal key", prop.name),
+      );
+    }
+    if (entries.has(key)) {
+      value[key] = { _type: "json" };
+      continue;
+    }
+    const evaluated = evaluateExpression(prop.initializer);
+    if (result.isErr(evaluated)) return evaluated;
+    value[key] = evaluated.value;
+  }
+  return result.ok(value);
 }
 
 function getPropertyKey(name: ts.PropertyName): string | null {
