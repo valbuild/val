@@ -6,6 +6,7 @@ import {
   SourcePath,
   Internal,
 } from "@valbuild/core";
+import { richTextToString } from "../../utils/richTextToString";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -15,7 +16,6 @@ import type { Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import {
-  ShallowSource,
   useModuleSchema,
   useShallowSourceAtPath,
   useValConfig,
@@ -589,39 +589,4 @@ export function RichTextPreview({ path }: { path: SourcePath }) {
     return <FieldSourceError path={path} error={asString.error} />;
   }
   return <div className="truncate">{asString.value}</div>;
-}
-
-function richTextToString(source: ShallowSource["richtext"]):
-  | {
-      status: "error";
-      error: string;
-    }
-  | {
-      status: "ok";
-      value: string;
-    } {
-  let error: string | undefined;
-  function rec(node: unknown): string {
-    if (error) {
-      return error;
-    }
-    if (typeof node === "string") {
-      return node;
-    }
-    if (typeof node === "object" && node) {
-      if ("children" in node && Array.isArray(node.children)) {
-        return node.children.map(rec).join(" ");
-      } else if ("tag" in node && typeof node.tag === "string") {
-        return "";
-      }
-    }
-    error = "Invalid richtext node: " + JSON.stringify(node);
-    return JSON.stringify(node);
-  }
-  const value = source.map(rec).join(" ");
-  if (error) {
-    return { status: "error", error };
-  } else {
-    return { status: "ok", value };
-  }
 }
