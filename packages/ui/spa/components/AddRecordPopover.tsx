@@ -4,7 +4,7 @@ import {
   ModuleFilePath,
   isInlineRender,
 } from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
+import { recordAddPatch } from "./recordPatches";
 import { useState, useEffect, useCallback } from "react";
 
 import { Button } from "./designSystem/button";
@@ -84,13 +84,11 @@ export function AddRecordPopover({
       }
       const newPatchPath = Internal.createPatchPath(modulePath).concat(key);
       addPatch(
-        [
-          {
-            op: "add",
-            path: newPatchPath,
-            value: emptyOf(schema.item) as JSONValue,
-          },
-        ],
+        recordAddPatch(
+          Internal.createPatchPath(modulePath),
+          key,
+          emptyOf(schema.item),
+        ),
         "record",
       );
       // An inline entry is edited in place in the list, so adding one should

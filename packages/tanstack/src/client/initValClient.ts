@@ -14,21 +14,22 @@ import {
   type ResolvedVal,
   type RouteValueOf,
   getModuleIds,
-  stegaEncode,
 } from "@valbuild/react/stega";
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
 import { useHydrated } from "../useHydrated";
-import { overlaySourceOf, readWithOverlay } from "./overlayRead";
+import {
+  readEntryWithOverlay,
+  readRouteEntryWithOverlay,
+  readSelectorWithOverlay,
+  type CommittedEntries,
+} from "./overlayRead";
 import {
   bundledJsonEntryImport,
-  fillJsonValuesRecord,
-  getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
   initValRouteFromVal,
   isJsonValuesRecordSchema,
-  jsonValuesRecordToFill,
 } from "../routeFromVal";
 
 /**
@@ -140,44 +141,37 @@ function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   ) {
     React.use(store.waitForLoad(moduleIds));
   }
-  const sourceOf = overlaySourceOf(
-    moduleMap,
-    valOverlayContext.draftMode,
-    valOverlayContext.snapshot,
-  );
   /*
    * A whole `.jsonValues()` record is read with every entry's content: its own
    * source holds only lazy markers. The entries no draft or snapshot has are
    * imported from the bundle -- all of them started before waiting on any, so
    * they load together. `useValKey` is the reader for one entry.
    */
-  const jsonValues = jsonValuesRecordToFill(selector, (modulePath) => [
-    moduleMap && valOverlayContext.draftMode
-      ? moduleMap[modulePath]
-      : undefined,
-    valOverlayContext.snapshot?.[modulePath],
-  ]);
-  let filledRecord: Record<string, unknown> | null = null;
-  if (jsonValues !== null) {
-    const pending = jsonValues.load.map((key) =>
-      committedJsonEntryPromise(jsonValues.module, jsonValues.modulePath, key),
-    );
-    const loaded: Record<string, unknown> = {};
-    jsonValues.load.forEach((key, index) => {
-      const promise = pending[index];
-      loaded[key] = promise === undefined ? undefined : React.use(promise);
-    });
-    filledRecord = fillJsonValuesRecord(jsonValues.record, loaded);
-  }
-  return readWithOverlay(
+  return readSelectorWithOverlay(
     selector,
-    sourceOf,
-    jsonValues !== null
-      ? { modulePath: jsonValues.modulePath, record: filledRecord }
-      : null,
+    {
+      moduleMap,
+      draftMode: valOverlayContext.draftMode,
+      snapshot: valOverlayContext.snapshot,
+    },
     encodes,
+    suspendOnCommittedEntries,
   );
 }
+
+/** {@link CommittedEntries} for a component: every import started, then each awaited with `React.use`. */
+const suspendOnCommittedEntries: CommittedEntries = (
+  module,
+  modulePath,
+  keys,
+) => {
+  const pending = keys.map((key) =>
+    committedJsonEntryPromise(module, modulePath, key),
+  );
+  return pending.map((promise) =>
+    promise === undefined ? undefined : React.use(promise),
+  );
+};
 
 /**
  * The module's source as the overlay currently sees it — i.e. WITH the editor's
@@ -217,64 +211,6 @@ function useDraftModuleSource(
   return moduleMap?.[moduleFilePath] ?? snapshot;
 }
 
-/**
- * What the draft view says about one `.jsonValues()` entry.
- *
- * Mirrors the server-side rule in `fetchValKey`/`fetchValRoute`: a draft view
- * that HAS an answer wins, including the answer "this entry is gone", and the
- * bundled content is used only when there is no draft view.
- */
-function draftJsonEntry(
-  draftSource: Json | undefined,
-  key: string,
-):
-  | { status: "content"; content: unknown }
-  | { status: "absent" }
-  | { status: "unavailable" } {
-  if (draftSource === null) {
-    // A nullable record that is null in the draft view: it has no entries.
-    return { status: "absent" };
-  }
-  if (
-    draftSource === undefined ||
-    typeof draftSource !== "object" ||
-    Array.isArray(draftSource)
-  ) {
-    return { status: "unavailable" };
-  }
-  // Own keys only: an entry may be named `toString`.
-  if (!Object.prototype.hasOwnProperty.call(draftSource, key)) {
-    // The module IS in the draft view and this key is not: it was deleted.
-    return { status: "absent" };
-  }
-  const entry = (draftSource as Record<string, unknown>)[key];
-  if (Internal.isJson(entry)) {
-    // An un-loaded marker: the Studio has not fetched this entry's content, so
-    // the draft view cannot answer. (The engine asks for entries that pending
-    // patches touch, so this resolves itself for anything actually edited.)
-    return { status: "unavailable" };
-  }
-  return { status: "content", content: entry };
-}
-
-/**
- * The draft view's answer for one entry, or -- where it has none, a marker for
- * an entry the Studio has not loaded -- the snapshot's: a proposal's saves over
- * the content version the site serves, with entries filled in. The order the
- * server renders in (`snapshotJsonEntry` in initValContent), so a draft page
- * hydrates to what it was served rather than to the build's older entry.
- */
-function draftOrSnapshotJsonEntry(
-  draftSource: Json | undefined,
-  snapshotSource: Json | undefined,
-  key: string,
-): ReturnType<typeof draftJsonEntry> {
-  const draft = draftJsonEntry(draftSource, key);
-  return draft.status === "unavailable"
-    ? draftJsonEntry(snapshotSource, key)
-    : draft;
-}
-
 // Module-level cache of in-flight/resolved entry loads, so `React.use` gets a
 // stable promise across renders (keyed by module path + entry key).
 const jsonEntryPromiseCache = new Map<string, Promise<unknown>>();
@@ -301,24 +237,16 @@ function useValKeyStega<T extends ResolvableModule>(
   const moduleFilePath =
     valModule && (Internal.getValPath(valModule) as unknown as ModuleFilePath);
   const draftSource = useDraftModuleSource(moduleFilePath || undefined);
-  const draft = draftOrSnapshotJsonEntry(
-    draftSource,
-    moduleFilePath && valOverlayContext.snapshot?.[moduleFilePath],
+  // Deleted in the draft state: `undefined`, never the bundled entry, which
+  // would render content the editor has just removed.
+  return readEntryWithOverlay(
+    valModule,
     key,
+    draftSource,
+    moduleFilePath ? valOverlayContext.snapshot?.[moduleFilePath] : undefined,
+    encodes,
+    readCommittedJsonEntry,
   );
-  if (draft.status === "absent") {
-    // Deleted in the draft state. Falling back to the bundled entry here would
-    // render content the editor has just removed.
-    return undefined;
-  }
-  let content: unknown = draft.status === "content" ? draft.content : undefined;
-  if (content === undefined) {
-    content = readCommittedJsonEntry(valModule, key);
-  }
-  return stegaEncode(content, {
-    disabled: !encodes,
-    root: getJsonEntryStegaRoot(valModule, key),
-  });
 }
 
 /**
@@ -430,38 +358,14 @@ function useValRouteStega<T extends ResolvableModule>(
   // `.jsonValues()` router: map params → the entry key and load ONLY that
   // entry's backing `*.val.json` (one dynamic import), like `useValKey`.
   if (isJsonValuesRecordSchema(schema)) {
-    const source = valModule && Internal.getSource(valModule);
-    const url = getValRouteUrlFromVal(
+    return readRouteEntryWithOverlay(
+      valModule,
       resolvedParams || {},
-      "useValRoute",
-      path,
-      schema,
-      source,
-    );
-    if (!url) {
-      return null as RouteValueOf<T>;
-    }
-    const draft = draftOrSnapshotJsonEntry(
       draftSource,
-      moduleFilePath && valOverlayContext.snapshot?.[moduleFilePath],
-      url,
+      moduleFilePath ? valOverlayContext.snapshot?.[moduleFilePath] : undefined,
+      encodes,
+      readCommittedJsonEntry,
     );
-    if (draft.status === "absent") {
-      // The draft state says this route is gone — see useValKeyStega.
-      return null as RouteValueOf<T>;
-    }
-    let content: unknown =
-      draft.status === "content" ? draft.content : undefined;
-    if (content === undefined) {
-      content = readCommittedJsonEntry(valModule, url);
-    }
-    if (content === undefined) {
-      return null as RouteValueOf<T>;
-    }
-    return stegaEncode(content, {
-      disabled: !encodes,
-      root: getJsonEntryStegaRoot(valModule, url),
-    });
   }
   const route = initValRouteFromVal(
     resolvedParams || {},

@@ -7,6 +7,7 @@ import {
   SerializedImageSchema,
   SerializedFileSchema,
 } from "@valbuild/core";
+import { mediaPickPatch } from "./mediaPickPatch";
 import { JSONValue, Patch } from "@valbuild/core/patch";
 import { FieldLoading } from "../FieldLoading";
 import { FieldNotFound } from "../FieldNotFound";
@@ -481,16 +482,7 @@ export function FileField({
                   onSelect={(entry: GalleryEntry) => {
                     // Only the path: the mime type stays in the gallery, which
                     // is the one place that has it.
-                    addPatch(
-                      [
-                        {
-                          op: "replace",
-                          path: patchPath,
-                          value: { path: entry.filePath },
-                        },
-                      ],
-                      "file",
-                    );
+                    addPatch(mediaPickPatch(patchPath, entry.filePath), "file");
                   }}
                   isImage={false}
                   disabled={disabled}
@@ -533,10 +525,7 @@ export function FileField({
             disabled={disabled}
             onSelect={(ref) => {
               // Only the path, as from the picker: the set has the rest.
-              addPatch(
-                [{ op: "replace", path: patchPath, value: { path: ref } }],
-                "file",
-              );
+              addPatch(mediaPickPatch(patchPath, ref), "file");
             }}
           />
         )}

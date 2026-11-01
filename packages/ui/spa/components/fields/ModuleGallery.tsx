@@ -1,16 +1,19 @@
 import * as React from "react";
 import {
+  galleryAltPatch,
+  galleryRemovePatch,
+  galleryUploadPatch,
+  type GalleryFileMetadata,
+  type GalleryImageMetadata,
+} from "./galleryPatches";
+import {
   DEFAULT_VIDEO_ACCEPT,
-  FileMetadata,
-  ImageMetadata,
   Internal,
   SerializedFileSchema,
   SerializedImageSchema,
   SerializedVideoSchema,
   SourcePath,
 } from "@valbuild/core";
-import { array } from "@valbuild/core/fp";
-import { JSONValue, Patch } from "@valbuild/core/patch";
 import {
   useAddPatch,
   useFilePatchIds,
@@ -401,26 +404,16 @@ export function ModuleGallery({
         // set's files, named by nothing else (a field using the entry blocks
         // the delete before it gets here).
         const entryFiles = videoMode ? filesOfChoices(rawSource[ref]) : [];
-        const patch: Patch = [
-          {
-            op: "remove",
-            path: [...patchPath, ref] as unknown as array.NonEmptyArray<string>,
-          },
-          ...filePaths.map((filePath): Patch[number] => ({
-            op: "file",
-            path: [...patchPath, ref],
+        const patch = galleryRemovePatch({
+          patchPath,
+          ref,
+          filePaths,
+          remote: isRemoteRef,
+          entryFiles: entryFiles.map((filePath) => ({
             filePath,
-            value: null,
-            remote: isRemoteRef,
-          })),
-          ...entryFiles.map((filePath): Patch[number] => ({
-            op: "file",
-            path: [...patchPath, ref],
-            filePath,
-            value: null,
             remote: Internal.isRemoteMediaPath(filePath),
           })),
-        ];
+        });
         await addAndUploadPatchWithFileOps(
           patch,
           imageMode ? "image" : "file",
@@ -510,17 +503,7 @@ export function ModuleGallery({
   const setDescription = React.useCallback(
     (ref: string, newAltText: string) => {
       if (!rawSource || !(ref in rawSource)) return;
-      const patch: Patch = [
-        {
-          // "add", not "replace": on an object key the two mean the same thing,
-          // but "add" also works when the key is absent by the time the patch is
-          // applied - e.g. the entry was re-uploaded with fresh metadata.
-          op: "add",
-          path: [...patchPath, ref, "alt"],
-          value: newAltText,
-        },
-      ];
-      addPatch(patch, "record");
+      addPatch(galleryAltPatch(patchPath, ref, newAltText), "record");
     },
     [rawSource, patchPath, addPatch],
   );
@@ -737,7 +720,7 @@ export function ModuleGallery({
         readImage(ev, encode)
           .then(async (res) => {
             if (!res.width || !res.height || !res.mimeType) return;
-            const metadata: ImageMetadata = {
+            const metadata: GalleryImageMetadata = {
               width: res.width,
               height: res.height,
               mimeType: res.mimeType,
@@ -757,26 +740,13 @@ export function ModuleGallery({
             }
             const { ref, isRemote } = refRes;
 
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: {
-                  width: metadata.width,
-                  height: metadata.height,
-                  mimeType: metadata.mimeType,
-                  alt: null, // default alt for new uploads
-                } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "image", metadata },
+            });
             setUploading(true);
             let failed = false;
             await addAndUploadPatchWithFileOps(
@@ -801,7 +771,7 @@ export function ModuleGallery({
         readFile(ev)
           .then(async (res) => {
             if (!res.mimeType) return;
-            const metadata: FileMetadata = { mimeType: res.mimeType };
+            const metadata: GalleryFileMetadata = { mimeType: res.mimeType };
             const newFilename = Internal.createFilename(
               res.src,
               res.filename ?? null,
@@ -823,21 +793,13 @@ export function ModuleGallery({
               return;
             }
             const { ref, isRemote } = refRes;
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: { mimeType: metadata.mimeType } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "file", metadata },
+            });
             setUploading(true);
             let failed = false;
             await addAndUploadPatchWithFileOps(
@@ -916,7 +878,7 @@ export function ModuleGallery({
           } else if (imageMode) {
             const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
-            const metadata: ImageMetadata = {
+            const metadata: GalleryImageMetadata = {
               width: res.width,
               height: res.height,
               mimeType: res.mimeType,
@@ -935,26 +897,13 @@ export function ModuleGallery({
               continue;
             }
             const { ref, isRemote } = refRes;
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: {
-                  width: metadata.width,
-                  height: metadata.height,
-                  mimeType: metadata.mimeType,
-                  alt: null,
-                } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "image", metadata },
+            });
             let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
@@ -969,7 +918,7 @@ export function ModuleGallery({
           } else {
             const res = await readFileFromFile(file).catch(() => null);
             if (!res || !res.mimeType) continue;
-            const metadata: FileMetadata = { mimeType: res.mimeType };
+            const metadata: GalleryFileMetadata = { mimeType: res.mimeType };
             const refRes = computeRef(
               res,
               {
@@ -984,21 +933,13 @@ export function ModuleGallery({
               continue;
             }
             const { ref, isRemote } = refRes;
-            const patch: Patch = [
-              {
-                op: "add",
-                path: [...patchPath, ref],
-                value: { mimeType: metadata.mimeType } as JSONValue,
-              },
-              {
-                op: "file",
-                path: [...patchPath, ref],
-                filePath: ref,
-                value: res.src,
-                metadata,
-                remote: isRemote,
-              },
-            ];
+            const patch = galleryUploadPatch({
+              patchPath,
+              ref,
+              src: res.src,
+              remote: isRemote,
+              media: { kind: "file", metadata },
+            });
             let failed = false;
             await addAndUploadPatchWithFileOps(
               patch,
