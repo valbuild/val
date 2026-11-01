@@ -100,7 +100,8 @@ export function CodeModeButton({
         disabled={disabled}
         onClick={codeMode.onToggle}
         className={cn(
-          "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium",
+          // An icon alone, in both states: pressed reads as on.
+          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
           "disabled:cursor-progress disabled:opacity-60",
           on
             ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
@@ -108,7 +109,6 @@ export function CodeModeButton({
         )}
       >
         <CodeXml size={15} className="shrink-0" />
-        {on && <span className="hidden lg:inline">Code</span>}
       </button>
     );
   }
