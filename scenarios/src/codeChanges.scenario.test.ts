@@ -94,12 +94,13 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
    * then the Studio keeps that module (on its old schema) and shows an error
    * naming it.
    *
-   * SKIPPED: the module is kept -- but only because `SchemaStore.receive`
-   * merges (S13) -- and nothing tells the editor: `loadValModules` drops a
-   * module whose `def` rejects, silently. Pinned by the running test below.
-   * Plan: phase 9 ("a registry that does not load").
+   * It was skipped: the module was kept only because `SchemaStore.receive`
+   * merged (S13), and nothing told the editor, because `loadValModules`
+   * dropped a module whose `def` rejected, silently. Now the rejection keeps
+   * its place in the list, `HostStore.receive` keeps the module that was
+   * there, and the editor is told which one, with what it threw.
    */
-  test.skip("S12 a module whose code throws is reported, and the Studio keeps running", async () => {
+  test("S12 a module whose code throws is reported, and the Studio keeps running", async () => {
     world = await createWorld({ config, modules: [home, footer], server });
     const editor = await world.studio("editor");
     await editor.receiveRegistry(registryWithThrowingFooter());
@@ -107,17 +108,6 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
       "/content/footer.val.ts",
     );
     expect(editor.errors().join("\n")).toContain("/content/footer.val.ts");
-  });
-
-  test("S12 why: a module whose def rejects is dropped from intake without a word", async () => {
-    world = await createWorld({ config, modules: [home, footer], server });
-    const editor = await world.studio("editor");
-    await editor.receiveRegistry(registryWithThrowingFooter());
-    expect(editor.errors()).toEqual([]);
-    // Still there, from the previous intake: the merge of S13.
-    expect(Object.keys(editor.system.schemaStore.all())).toContain(
-      "/content/footer.val.ts",
-    );
   });
 
   /**

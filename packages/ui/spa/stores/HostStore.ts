@@ -43,6 +43,34 @@ import { noopActivity, type ActivitySink } from "./activity";
  *    validation stores can have the two things done that only an instance can
  *    do, without ever holding one.
  */
+/**
+ * One entry of a `val.modules` registry, as intake gets it: the module, or
+ * what its code threw (`loadValModules`).
+ */
+export type IntakeModule =
+  | ValModule<SelectorSource>
+  | { readonly threw: string };
+
+/** A module intake could not read, and why. See {@link HostStore.failures}. */
+export type ModuleFailure = {
+  moduleFilePath: string | null;
+  message: string;
+  /**
+   * The Studio still shows this module, as the last intake that could read
+   * it had it: its code threw this time, and a module whose code is mid-edit
+   * is not a module that was removed.
+   */
+  kept?: true;
+};
+
+/** What intake adopted at one place in the registry, to keep if it throws. */
+type Adopted = {
+  moduleFilePath: ModuleFilePath;
+  serializedSchema: SerializedSchema;
+  source: Json;
+  instance: Schema<SelectorSource>;
+};
+
 export class HostStore implements HostBridge {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -87,15 +115,21 @@ export class HostStore implements HostBridge {
    * must stop being reported. Read by the dev banner — see
    * `LocalModulesErrorBanner`.
    */
-  private moduleFailures: { moduleFilePath: string | null; message: string }[] =
-    [];
+  private moduleFailures: ModuleFailure[] = [];
 
-  failures(): readonly { moduleFilePath: string | null; message: string }[] {
+  failures(): readonly ModuleFailure[] {
     return this.moduleFailures;
   }
 
+  /**
+   * What the last intake adopted, by place in the registry: what a module
+   * whose code throws next time is kept as. Its place is the only thing that
+   * names it -- a registry entry is an `import()` and nothing else.
+   */
+  private adoptedAt: (Adopted | undefined)[] = [];
+
   receive(
-    modules: ValModule<SelectorSource>[],
+    modules: IntakeModule[],
     /**
      * The Source the page serves where it is not the bundle's, by module: a
      * content version -- content published without a build -- and a
@@ -111,9 +145,41 @@ export class HostStore implements HostBridge {
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     const sources: Record<ModuleFilePath, Json> = {};
     const adopted: ModuleFilePath[] = [];
-    const failures: { moduleFilePath: string | null; message: string }[] = [];
+    const failures: ModuleFailure[] = [];
+    const adoptedAt: (Adopted | undefined)[] = [];
 
-    for (const module of modules) {
+    for (const [index, module] of modules.entries()) {
+      /**
+       * Code that throws -- a module mid-edit -- keeps the module it was.
+       *
+       * Dropped, as it used to be, the module silently left the Studio, and
+       * came back only when the code was fixed. Kept, the editor goes on
+       * seeing it on the schema it last had, and is told why it did not move.
+       */
+      if ("threw" in module) {
+        const kept = this.adoptedAt[index];
+        if (
+          kept === undefined ||
+          serializedSchemas[kept.moduleFilePath] !== undefined
+        ) {
+          failures.push({
+            moduleFilePath: null,
+            message: `Module number ${index + 1} in val.modules could not be loaded: ${module.threw}`,
+          });
+          continue;
+        }
+        serializedSchemas[kept.moduleFilePath] = kept.serializedSchema;
+        sources[kept.moduleFilePath] = kept.source;
+        this.instances[kept.moduleFilePath] = kept.instance;
+        adopted.push(kept.moduleFilePath);
+        adoptedAt[index] = kept;
+        failures.push({
+          moduleFilePath: kept.moduleFilePath,
+          message: module.threw,
+          kept: true,
+        });
+        continue;
+      }
       /**
        * One bad module must not take the rest of the project down.
        *
@@ -155,6 +221,12 @@ export class HostStore implements HostBridge {
             : (JSON.parse(JSON.stringify(Internal.getSource(module))) as Json);
         this.instances[moduleFilePath] = schema;
         adopted.push(moduleFilePath);
+        adoptedAt[index] = {
+          moduleFilePath,
+          serializedSchema: serializedSchemas[moduleFilePath],
+          source: sources[moduleFilePath],
+          instance: schema,
+        };
       } catch (error) {
         failures.push({
           moduleFilePath: (Internal.getValPath(module) as string) ?? null,
@@ -163,6 +235,7 @@ export class HostStore implements HostBridge {
       }
     }
     this.moduleFailures = failures;
+    this.adoptedAt = adoptedAt;
 
     // BEFORE the announcement. Dispatch is synchronous, so a consumer woken by
     // `host:receive` reads this in the same turn — and it has to see the intake it

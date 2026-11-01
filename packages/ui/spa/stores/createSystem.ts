@@ -762,9 +762,42 @@ export function createSystem(options: SystemOptions): System {
   const schemaFreshness = new SchemaFreshnessWatch(host, stat, status, {
     readServedSchemaSha: options.readServedSchemaSha,
   });
+  /** The module messages the last intake raised, to take back on the next. */
+  let moduleFailureMessages: string[] = [];
   const unsubscribe = [
     baseAlignment.listenTo(stat),
     schemaFreshness.listen(),
+    /**
+     * A module intake could not read reaches the EDITOR, not only the dev
+     * banner: which module, what its code threw under Details, and that the
+     * Studio still shows the version it had. Taken back once an intake reads
+     * it again, because nothing is wrong any more.
+     */
+    host.events.on("host:receive", () => {
+      const failures = host.failures();
+      const messages = failures.map((failure) =>
+        failure.moduleFilePath === null
+          ? "A module could not be loaded, so the Studio does not show it. It appears once its code loads."
+          : failure.kept
+            ? `${failure.moduleFilePath} could not be loaded, so the Studio shows it as it was before. Its code threw an error, and it updates once that is fixed.`
+            : `${failure.moduleFilePath} could not be read, so the Studio does not show it. It appears once its code can be read.`,
+      );
+      const gone = new Set(
+        moduleFailureMessages.filter((message) => !messages.includes(message)),
+      );
+      if (gone.size > 0) {
+        status.dismissErrors(
+          status
+            .current()
+            .errors.filter((error) => gone.has(error.message))
+            .map((error) => error.id),
+        );
+      }
+      for (const [index, failure] of failures.entries()) {
+        status.reportError(messages[index], failure.message);
+      }
+      moduleFailureMessages = messages;
+    }),
     patchStore.listenTo(stat, sourceStore),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to

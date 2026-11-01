@@ -1,4 +1,5 @@
-import type { SelectorSource, ValModule, ValModules } from "@valbuild/core";
+import type { ValModules } from "@valbuild/core";
+import type { IntakeModule } from "../HostStore";
 
 /**
  * The modules of a `val.modules` registry, ready for `HostStore.receive`.
@@ -8,20 +9,30 @@ import type { SelectorSource, ValModule, ValModules } from "@valbuild/core";
  * separately -- and `HostStore.receive` records the ones that fail to
  * serialize rather than throwing, for the same reason.
  *
+ * A def that rejects -- a module whose code throws, mid-edit -- stays in the
+ * list, at its place, as what it threw. Its place is the only thing that
+ * names it (an entry is a `def` and nothing else), and `HostStore.receive`
+ * uses it to say which module failed and to keep the one it had there. It
+ * used to be left out, and the Studio said nothing.
+ *
  * Its own function so the scenario harness (`scenarios/`) takes modules in
  * exactly as the Studio does.
  */
 export async function loadValModules(
   valModules: ValModules,
-): Promise<ValModule<SelectorSource>[]> {
+): Promise<IntakeModule[]> {
   const settled = await Promise.allSettled(
     valModules.modules.map((entry) => entry.def()),
   );
-  const modules: ValModule<SelectorSource>[] = [];
-  for (const result of settled) {
-    if (result.status === "fulfilled") {
-      modules.push(result.value.default);
-    }
-  }
-  return modules;
+  return settled.map(
+    (result): IntakeModule =>
+      result.status === "fulfilled"
+        ? result.value.default
+        : {
+            threw:
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+          },
+  );
 }
