@@ -1,5 +1,30 @@
 # @valbuild/ui
 
+## 0.150.23
+
+### Patch Changes
+
+- [#1010](https://github.com/valbuild/val/pull/1010) [`41b73af`](https://github.com/valbuild/val/commit/41b73af5db02ec2fef3f8b3884be453712d9ada3) Thanks [@freekh](https://github.com/freekh)! - The assistant's code steps are named in plain words in the chat: "Changing
+  the code", "Checking the code", "Updating the preview" and so on, instead of
+  the tools' own names (`write_files`, `typecheck`, `build_proposal`).
+
+- [#1009](https://github.com/valbuild/val/pull/1009) [`e46c34a`](https://github.com/valbuild/val/commit/e46c34a7eb6080e2286a85cc70f1e98d3989b8a9) Thanks [@freekh](https://github.com/freekh)! - The assistant, docked beside the Sketchpad on a desktop, is now the same
+  height as the panes next to it. It used to start 16px higher, under the top
+  bar, which made it look misaligned.
+
+- [#1007](https://github.com/valbuild/val/pull/1007) [`1970507`](https://github.com/valbuild/val/commit/19705071884f8dddabd0a1319a8a4bdb4b9cdfed) Thanks [@freekh](https://github.com/freekh)! - Cards in an array or record list stay inside the editor and stay short.
+
+  - A long value — a paragraph, a URL, a long key — is cut off with "…"
+    instead of widening the card, so the menu on the right of each row is no
+    longer pushed out of view.
+  - An item without a `.preview()` shows at most four lines, the last saying
+    how many fields were left out, instead of every one of its fields.
+  - A field that is itself an object reads on one line —
+    `Author  Name Fredrik · Email fredrik@example.com · Role Developer` —
+    instead of a field list nested inside the card.
+
+  A `.preview()` on the item is still the way to choose exactly what a row shows.
+
 ## 0.150.22
 
 ### Patch Changes
