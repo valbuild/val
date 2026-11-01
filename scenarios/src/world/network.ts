@@ -13,6 +13,8 @@ export type Exchange = {
   path: string;
   /** The answer's status, or where the request is. */
   status: number | "in-flight" | "held";
+  /** Which handler answered, by the name it was given ({@link Network.name}). */
+  to?: string;
 };
 
 export type HoldRule = { method?: string; path: string };
@@ -36,7 +38,18 @@ export type Network = {
    * handler it reached, as it does in a dev server.
    */
   route(handler: (request: Request) => Promise<Response>): void;
+  /**
+   * Choose a handler per request, as a rollout does: two builds answer for a
+   * while, and which one a request reaches depends on where it lands. `pick`
+   * answering `null` sends the request to the current handler ({@link route}).
+   */
+  routeBy(pick: ((request: RouteRequest) => Handler | null) | null): void;
+  /** Name a handler, so the log says which one answered (`Exchange.to`). */
+  name(handler: Handler, name: string): void;
 };
+
+export type Handler = (request: Request) => Promise<Response>;
+export type RouteRequest = { from: string; method: string; path: string };
 
 const ORIGIN = "http://localhost";
 
@@ -44,6 +57,8 @@ export function createNetwork(
   initialHandler: (request: Request) => Promise<Response>,
 ): Network {
   let handler = initialHandler;
+  let pick: ((request: RouteRequest) => Handler | null) | null = null;
+  const names = new WeakMap<Handler, string>();
   const log: Exchange[] = [];
   const holds: HoldRule[] = [];
   let waiting: Array<() => void> = [];
@@ -81,7 +96,10 @@ export function createNetwork(
             await new Promise<void>((resolve) => waiting.push(resolve));
             exchange.status = "in-flight";
           }
-          const response = await handler(new Request(url.href, init));
+          const target =
+            pick?.({ from, method, path: url.pathname }) ?? handler;
+          exchange.to = names.get(target);
+          const response = await target(new Request(url.href, init));
           exchange.status = response.status;
           return response;
         } finally {
@@ -108,6 +126,12 @@ export function createNetwork(
     },
     route(next) {
       handler = next;
+    },
+    routeBy(next) {
+      pick = next;
+    },
+    name(target, name) {
+      names.set(target, name);
     },
   };
 }

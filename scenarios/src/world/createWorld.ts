@@ -1,5 +1,6 @@
 import {
   Internal,
+  type Json,
   type ModuleFilePath,
   type SelectorSource,
   type SourcePath,
@@ -17,6 +18,7 @@ import {
   initValServer,
 } from "@valbuild/tanstack/server";
 import {
+  getModuleIds,
   raw,
   type DecodeVal,
   type Resolvable,
@@ -36,7 +38,24 @@ import {
 import { stringFieldPatch } from "../../../packages/ui/spa/components/fields/stringFieldPatch";
 import { SchemaValidator } from "../../../packages/ui/spa/validation/validateModule";
 import type { System } from "../../../packages/ui/spa/stores/createSystem";
-import { createNetwork, type Network } from "./network";
+import { createNetwork, type Handler, type Network } from "./network";
+import {
+  startOverlayRelay,
+  type OverlayEvent,
+} from "../../../packages/ui/spa/stores/react/sourceRelay";
+// The page's own code, by path: TanStack's draft store and how `useVal`
+// reads it, which the package does not export.
+import {
+  applyValEvent,
+  createDraftStore,
+  isDraft,
+} from "../../../packages/tanstack/src/draftStore";
+import {
+  overlaySourceOf,
+  readWithOverlay,
+} from "../../../packages/tanstack/src/client/overlayRead";
+import type { ValExternalStore } from "../../../packages/tanstack/src/ValOverlayContext";
+import type { ValDraft } from "../../../packages/tanstack/src/ValDraft";
 import { inRequest } from "./tanstackStart";
 import { createFrames, type Frames } from "./frames";
 import { startFakeClock, type Clock } from "./clock";
@@ -73,7 +92,17 @@ export type World = {
    * `initValContent` are called again with the new registry. Pending edits
    * stay where they are (fs: `.val/patches`; memory: the same patch store).
    */
-  deployCode(modules: AnyModule[]): void;
+  deployCode(modules: AnyModule[]): Deployment;
+  /**
+   * A page in the browser with the Val overlay on it (not inside the Studio),
+   * loaded the way a TanStack page is: the server renders it from a
+   * server-read draft (`fetchValDraft`, the `draft` prop), the browser
+   * hydrates from the same draft, then the overlay's Studio starts from the
+   * page's own client modules and the base the page serves, and relays what
+   * it holds to the page's store. Every surface records a frame at each step
+   * and at every store change, so a value that comes and goes is caught.
+   */
+  loadPage(route: string, options: PageLoadOptions): Promise<LoadedPage>;
   /** {@link deployCode}, then every Studio's {@link Studio.receiveCode}. */
   changeCode(modules: AnyModule[]): Promise<void>;
   /** The invariants every scenario is held to. See `frames.ts`. */
@@ -105,6 +134,27 @@ export type Page = {
   route: string;
   /** A surface: something the page reads on the server (a loader). */
   reads(surface: string, read: (val: PageReaders) => Promise<unknown>): void;
+};
+
+/** What a deploy leaves behind: the build that answered until now, and the new one. */
+export type Deployment = { previous: Handler; current: Handler };
+
+export type PageLoadOptions = {
+  /**
+   * The modules the page's BROWSER bundle carries. The server's when not
+   * given; an older set models a browser running the previous build's
+   * client code (a cached `/_app/app.js`).
+   */
+  clientModules?: AnyModule[];
+  /** What the page shows: a field of a module, each a surface. */
+  shows: Array<{ surface: string; module: AnyModule; field: string[] }>;
+};
+
+export type LoadedPage = {
+  /** The overlay's Studio. */
+  studio: Studio;
+  /** Everything the overlay sent the page, in order. */
+  events: OverlayEvent[];
 };
 
 export type PageReaders = {
@@ -194,13 +244,29 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       ...hostOptions(host),
       draftMode: draftModeOf(apiDraftMode),
     }).valApiHandler;
-  const network = createNetwork(serverFor(valModules));
+  let serverModules = options.modules;
+  let currentHandler = serverFor(valModules);
+  const network = createNetwork(currentHandler);
+  let builds = 1;
+  network.name(currentHandler, `build ${builds}`);
   const pages: Array<() => void> = [];
-  const deployCode = (modules: AnyModule[]) => {
+  const deployCode = (modules: AnyModule[]): Deployment => {
+    serverModules = modules;
     valModules = registryOf(modules);
-    network.route(serverFor(valModules));
+    const previous = currentHandler;
+    currentHandler = serverFor(valModules);
+    network.name(currentHandler, `build ${++builds}`);
+    network.route(currentHandler);
     for (const reload of pages) reload();
+    return { previous, current: currentHandler };
   };
+  /** The readers a page's server uses, for the server's current code. */
+  const readersFor = (draft: { on: boolean }) =>
+    initValContent(options.config, valModules, {
+      ...hostOptions(host),
+      draftMode: draftModeOf(draft),
+    });
+  const relays: Array<() => void> = [];
   const frames = createFrames();
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
   const clock = startFakeClock();
@@ -220,111 +286,184 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       ]),
     ]);
 
+  /**
+   * A Studio, as `ValStoreProvider` starts one: a system on the real client,
+   * the modules in (with the base the page serves, when it serves one), then
+   * the /stat poll. `beforeIntake` runs what mounts beside the provider, such
+   * as the overlay's relay.
+   */
+  const startStudio = async (
+    name: string,
+    registry: ValModules,
+    options: {
+      base?: Record<ModuleFilePath, Json>;
+      beforeIntake?: (system: System) => void;
+    } = {},
+  ): Promise<Studio> => {
+    const client = createValClient("/api/val", null, {
+      fetch: network.fetchFor(`studio:${name}`),
+    });
+    const validator = new SchemaValidator();
+    const system = createValSystem(client, {
+      writes: true,
+      mode: "fs",
+      schemaValidation: {
+        validate: async (moduleFilePath, source, serializedSchema, version) =>
+          validator.validate(moduleFilePath, source, serializedSchema, version),
+      },
+    });
+    options.beforeIntake?.(system);
+    // Intake, then /stat: the order `ValStoreProvider` uses. With the base the
+    // page serves, where it is not the bundle's (`window.__VAL_BASE__`).
+    system.host.receive(await loadValModules(registry), options.base);
+
+    // The Studio's /stat poll: what is asked (`requestStat`), what an answer
+    // does to it (`statStateAfterAnswer`) and when it asks again
+    // (`statWait`) are the hook's own functions; the answer reaches the
+    // stores through `statSnapshotOf`, as `ValStoreProvider` hands it on.
+    // What is left here is only the loop that strings them together, which
+    // in the Studio is a React effect. No socket: fs and memory long-poll.
+    let stat: StatState = { status: "not-asked" };
+    let stopped = false;
+    const ask = async () => {
+      const res = await requestStat(client, stat);
+      const next = statStateAfterAnswer(stat, res, false, Date.now());
+      if (next === null) {
+        throw new Error(`/stat answered ${res.status}`);
+      }
+      stat = next;
+      if ("data" in stat && stat.data) {
+        system.stat.receiveStat(statSnapshotOf(stat.data));
+      }
+    };
+    await ask();
+    const polling = (async () => {
+      while (!stopped) {
+        const wait = statWait(stat, false, Date.now());
+        if (wait === null) return;
+        if (wait > 0) {
+          await new Promise((resolve) => setTimeout(resolve, wait));
+        }
+        if (stopped) return;
+        try {
+          await ask();
+        } catch (error) {
+          if (!stopped) throw error;
+        }
+      }
+    })();
+
+    const studio: Studio = {
+      name,
+      system,
+      async edit(module, fieldPath, value) {
+        const [moduleFilePath, patchPath] = patchTarget(module, fieldPath);
+        // What `useAddPatch` does for a field: the same call, the same
+        // arguments, minus the field instance's id.
+        const res = await system.patchStore.createPatch(
+          moduleFilePath,
+          stringFieldPatch(patchPath, value),
+        );
+        if (res.status !== "created") {
+          throw new Error(`The edit was refused: ${res.message}`);
+        }
+      },
+      get stat() {
+        return stat;
+      },
+      async receiveCode(modules) {
+        system.host.receive(await loadValModules(registryOf(modules)));
+      },
+      errors() {
+        return system.status.current().errors.map((error) => error.message);
+      },
+      reads(surface, module, fieldPath) {
+        const path = sourcePathOf(module, fieldPath);
+        surfaces.push({
+          name: surface,
+          read: async () => {
+            const read = await system.sourceStore.get(path, null);
+            return "data" in read ? read.data : `(${read.status})`;
+          },
+        });
+      },
+    };
+    studios.push({
+      studio,
+      stop: () => {
+        stopped = true;
+      },
+      polling,
+    });
+    return studio;
+  };
+
   return {
     server:
       host.mode === "fs" ? { mode: "fs", root: host.root } : { mode: "memory" },
     network,
     frames,
-    async studio(name) {
-      const client = createValClient("/api/val", null, {
-        fetch: network.fetchFor(`studio:${name}`),
-      });
-      const validator = new SchemaValidator();
-      const system = createValSystem(client, {
-        writes: true,
-        mode: "fs",
-        schemaValidation: {
-          validate: async (moduleFilePath, source, serializedSchema, version) =>
-            validator.validate(
-              moduleFilePath,
-              source,
-              serializedSchema,
-              version,
-            ),
-        },
-      });
-      // Intake, then /stat: the order `ValStoreProvider` uses.
-      system.host.receive(await loadValModules(valModules));
-
-      // The Studio's /stat poll: what is asked (`requestStat`), what an answer
-      // does to it (`statStateAfterAnswer`) and when it asks again
-      // (`statWait`) are the hook's own functions; the answer reaches the
-      // stores through `statSnapshotOf`, as `ValStoreProvider` hands it on.
-      // What is left here is only the loop that strings them together, which
-      // in the Studio is a React effect. No socket: fs and memory long-poll.
-      let stat: StatState = { status: "not-asked" };
-      let stopped = false;
-      const ask = async () => {
-        const res = await requestStat(client, stat);
-        const next = statStateAfterAnswer(stat, res, false, Date.now());
-        if (next === null) {
-          throw new Error(`/stat answered ${res.status}`);
-        }
-        stat = next;
-        if ("data" in stat && stat.data) {
-          system.stat.receiveStat(statSnapshotOf(stat.data));
-        }
-      };
-      await ask();
-      const polling = (async () => {
-        while (!stopped) {
-          const wait = statWait(stat, false, Date.now());
-          if (wait === null) return;
-          if (wait > 0) {
-            await new Promise((resolve) => setTimeout(resolve, wait));
-          }
-          if (stopped) return;
-          try {
-            await ask();
-          } catch (error) {
-            if (!stopped) throw error;
-          }
-        }
-      })();
-
-      const studio: Studio = {
-        name,
-        system,
-        async edit(module, fieldPath, value) {
-          const [moduleFilePath, patchPath] = patchTarget(module, fieldPath);
-          // What `useAddPatch` does for a field: the same call, the same
-          // arguments, minus the field instance's id.
-          const res = await system.patchStore.createPatch(
-            moduleFilePath,
-            stringFieldPatch(patchPath, value),
+    studio: (name) => startStudio(name, valModules),
+    async loadPage(route, pageOptions) {
+      const request = () =>
+        new Request(new URL(route, "http://localhost").href);
+      const clientModules = pageOptions.clientModules ?? serverModules;
+      const record = (
+        modules: AnyModule[],
+        sourceOf: (moduleId: string) => Json | undefined,
+      ) => {
+        for (const show of pageOptions.shows) {
+          frames.record(
+            show.surface,
+            readField(moduleLike(modules, show.module), show.field, sourceOf),
           );
-          if (res.status !== "created") {
-            throw new Error(`The edit was refused: ${res.message}`);
-          }
-        },
-        get stat() {
-          return stat;
-        },
-        async receiveCode(modules) {
-          system.host.receive(await loadValModules(registryOf(modules)));
-        },
-        errors() {
-          return system.status.current().errors.map((error) => error.message);
-        },
-        reads(surface, module, fieldPath) {
-          const path = sourcePathOf(module, fieldPath);
-          surfaces.push({
-            name: surface,
-            read: async () => {
-              const read = await system.sourceStore.get(path, null);
-              return "data" in read ? read.data : `(${read.status})`;
-            },
-          });
-        },
+        }
+        frames.tick();
       };
-      studios.push({
-        studio,
-        stop: () => {
-          stopped = true;
+      // 1. The server renders the page: the layout's loader reads the draft
+      //    (`fetchValDraft`) and the provider seeds its store from it.
+      const draft = await inRequest(request(), () =>
+        readersFor({ on: true }).fetchValDraft(),
+      );
+      const serverStore = createDraftStore(draft);
+      const read = (store: ValExternalStore, modules: AnyModule[]) =>
+        record(modules, (moduleId) =>
+          overlaySourceOf(
+            store.get(idsOf(modules)),
+            isDraft(draft) ? true : null,
+            draft?.snapshot,
+          )(moduleId),
+        );
+      read(serverStore, serverModules);
+      // 2. The browser hydrates from the same draft, as loader data -- which
+      //    is JSON on the way -- with its own client modules.
+      const loaderData: ValDraft | null =
+        draft === null ? null : JSON.parse(JSON.stringify(draft));
+      const pageStore = createDraftStore(loaderData);
+      read(pageStore, clientModules);
+      // 3. The overlay mounts: its Studio takes in the page's client modules
+      //    with the base the page serves (`window.__VAL_BASE__`), and its
+      //    relay hands the page's store what the Studio holds.
+      const events: OverlayEvent[] = [];
+      const studio = await startStudio(
+        `overlay ${route}`,
+        registryOf(clientModules),
+        {
+          base: isDraft(loaderData) ? loaderData.base : undefined,
+          beforeIntake: (system) => {
+            relays.push(
+              startOverlayRelay(system, (event) => {
+                events.push(event);
+                const outcome = applyValEvent(pageStore, event);
+                if (outcome.type === "updated" && outcome.changed) {
+                  read(pageStore, clientModules);
+                }
+              }),
+            );
+          },
         },
-        polling,
-      });
-      return studio;
+      );
+      return { studio, events };
     },
     page(route, pageOptions) {
       const draft = { on: pageOptions.draftMode };
@@ -394,6 +533,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       );
     },
     async dispose() {
+      for (const stop of relays) stop();
       for (const { stop } of studios) stop();
       // A parked long poll ends when the server's own interval runs out.
       await clock.advance(LONG_POLL_MS);
@@ -423,6 +563,43 @@ function draftModeOf(flag: { on: boolean }) {
       flag.on = false;
     },
   };
+}
+
+/** The module ids a read needs, as `useValStega` subscribes to them. */
+function idsOf(modules: AnyModule[]): ModuleFilePath[] {
+  const ids = new Set<ModuleFilePath>();
+  for (const module of modules) {
+    for (const id of getModuleIds(module)) {
+      ids.add(id as ModuleFilePath);
+    }
+  }
+  return [...ids];
+}
+
+/** The module in `modules` with the same path as `module`: the same module in another build. */
+function moduleLike(modules: AnyModule[], module: AnyModule): AnyModule {
+  const path = Internal.getValPath(module);
+  const found = modules.find((m) => Internal.getValPath(m) === path);
+  if (found === undefined) {
+    throw new Error(`No module at ${String(path)} in this build`);
+  }
+  return found;
+}
+
+/** A field of what `useVal` gives back, read the way the hook reads it. */
+function readField(
+  module: AnyModule,
+  field: string[],
+  sourceOf: (moduleId: string) => Json | undefined,
+): unknown {
+  let value: unknown = raw(readWithOverlay(module, sourceOf, null, false));
+  for (const key of field) {
+    value =
+      typeof value === "object" && value !== null
+        ? Object.entries(value).find(([k]) => k === key)?.[1]
+        : undefined;
+  }
+  return value;
 }
 
 /** The source path of a field, built the way a module's fields are walked. */

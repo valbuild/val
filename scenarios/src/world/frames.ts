@@ -25,6 +25,12 @@ export type Frames = {
   /** The last value a surface showed. */
   last(surface: string): unknown;
   expectInvariants(): void;
+  /**
+   * Only "never goes back": for surfaces that show DIFFERENT things (two
+   * fields), which "converges" -- every surface shows the same value at the
+   * end -- does not apply to.
+   */
+  expectNeverGoesBack(): void;
 };
 
 export function createFrames(): Frames {
@@ -44,6 +50,14 @@ export function createFrames(): Frames {
     of,
     last(surface) {
       return of(surface).at(-1)?.value;
+    },
+    expectNeverGoesBack() {
+      const problems = neverGoesBack(all);
+      if (problems.length > 0) {
+        throw new Error(
+          `${problems.join("\n\n")}\n\nAll frames:\n${describe(all)}`,
+        );
+      }
     },
     expectInvariants() {
       const problems = [...converges(all), ...neverGoesBack(all)];

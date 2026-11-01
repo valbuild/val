@@ -5,7 +5,11 @@
 > Studio's real `/stat` long poll on a fake clock. Scenarios: an edit reaches
 > a draft page's `fetchVal`; an edit reaches a second editor; and "a field
 > the assistant added reverts", reproduced in local development when the
-> Studio gets new code before the server (marked `test.failing` until fixed).
+> Studio gets new code before the server (marked `test.failing` until fixed);
+> and the flicker of a draft page loaded with the overlay after a build (new,
+> old, new), reproduced two ways: the overlay aligning to the previous build
+> that still answers its `/stat`, and the browser running the previous
+> build's client code (both `test.failing`, each with a test pinning why).
 > Until this plan is agreed, every "decided" below is a proposal. A session
 > that changes the design updates this file in the same PR as the change.
 
