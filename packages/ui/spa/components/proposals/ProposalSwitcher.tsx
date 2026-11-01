@@ -17,6 +17,11 @@ import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
 import { Spinner } from "../designSystem/spinner";
 import type { ProposalSummary, StudioLocation } from "./types";
+import {
+  PreviewProblemCard,
+  PreviewProblemDot,
+  type PreviewProblem,
+} from "./PreviewProblemCard";
 
 /**
  * Where you are -- the site, or one proposal -- and the way to go somewhere
@@ -50,6 +55,7 @@ export function ProposalSwitcher({
   onOpenDesign,
   loading = false,
   leaving = null,
+  problem = null,
   defaultOpen = false,
 }: {
   location: StudioLocation;
@@ -79,10 +85,16 @@ export function ProposalSwitcher({
   loading?: boolean;
   /** See `TopBarProposals.leaving`: said here, and nothing more to choose. */
   leaving?: string | null;
+  /**
+   * The preview could not be updated: a dot on the button, and the card at
+   * the top of the menu. See `PreviewProblem`.
+   */
+  problem?: PreviewProblem | null;
   /** For stories: show the menu open. */
   defaultOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const showProblem = problem !== null && location.kind === "proposal";
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setIsOpen(false), []);
   useDismissOnOutsidePointer(containerRef, isOpen, close);
@@ -116,13 +128,13 @@ export function ProposalSwitcher({
             : unknown
               ? "Finding out where this Studio is"
               : location.kind === "proposal"
-                ? `In the proposal ${location.proposal.displayName}. Switch`
+                ? `In the proposal ${location.proposal.displayName}.${showProblem ? " Its preview couldn't be updated." : ""} Switch`
                 : "On the site. Switch to a proposal"
         }
         disabled={leaving !== null || unknown}
         onClick={() => setIsOpen((open) => !open)}
         className={cn(
-          "inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+          "relative inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
           "disabled:cursor-progress",
           location.kind === "proposal"
             ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
@@ -152,6 +164,7 @@ export function ProposalSwitcher({
         {leaving === null && !unknown && (
           <ChevronDown size={13} className="shrink-0 opacity-70" />
         )}
+        {showProblem && !busy && <PreviewProblemDot />}
       </button>
       {isOpen && (
         <div
@@ -181,6 +194,13 @@ export function ProposalSwitcher({
                     .join(" · ")}
                 </div>
               </div>
+              {showProblem && problem !== null && (
+                <PreviewProblemCard
+                  problem={problem}
+                  onAct={() => setIsOpen(false)}
+                  className="mx-1 mb-1"
+                />
+              )}
               {onCompare !== undefined && (
                 <MenuRow
                   icon={<GitCompare size={14} />}
@@ -331,8 +351,11 @@ export function ProposalLocationChip({
   open,
   onClick,
   busy = false,
+  problem = false,
 }: {
   location: StudioLocation;
+  /** The preview could not be updated: a dot, and the card in the sheet. */
+  problem?: boolean;
   /** Whether its sheet is the one open. */
   open: boolean;
   onClick: () => void;
@@ -351,7 +374,7 @@ export function ProposalLocationChip({
       }
       onClick={onClick}
       className={cn(
-        "inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2",
+        "relative inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2",
         location.kind === "proposal"
           ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
           : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
@@ -369,6 +392,9 @@ export function ProposalLocationChip({
         <Globe size={15} className="shrink-0" />
       )}
       <ChevronDown size={13} className="shrink-0 opacity-70" />
+      {problem && location.kind === "proposal" && !busy && (
+        <PreviewProblemDot />
+      )}
     </button>
   );
 }

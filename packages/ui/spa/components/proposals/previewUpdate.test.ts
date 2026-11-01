@@ -76,6 +76,20 @@ describe("nextProposalAction, when Save updates the preview", () => {
     expect(nextProposalAction(at(null), true, true)).toBe("publish");
   });
 
+  test("a failed update is never Save's: Save cannot fix it", () => {
+    expect(buildIsDue({ state: "failed", error: "x" })).toBe(false);
+    expect(
+      nextProposalAction(at({ state: "failed", error: "x" }), true, true),
+    ).toBe("publish");
+    expect(
+      nextProposalAction(
+        at({ state: "dependencies-failed", error: null }),
+        true,
+        true,
+      ),
+    ).toBe("publish");
+  });
+
   test("without it, the packages are still a Build step", () => {
     expect(
       nextProposalAction(

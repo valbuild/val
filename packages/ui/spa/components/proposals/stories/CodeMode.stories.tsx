@@ -159,9 +159,10 @@ export const PreviewUpdating = shell({
 });
 
 /**
- * It could not be updated: a red dot on the reload button, which opens what
- * happened (the error under Details) and offers the assistant to fix it.
- * Save says "Couldn't update", and tries again.
+ * It could not be updated, after Kari's assistant changed the code: the
+ * preview's status says "Couldn't update" and opens what happened, and the
+ * switcher has a dot. Save does not change -- there is nothing to save --
+ * and Publish waits. Press the status: Kari's chat, or your own assistant.
  */
 export const PreviewCouldNotUpdate = shell({
   location: inProposal({
@@ -220,9 +221,9 @@ export const PackagesInstalling = shell({
 });
 
 /**
- * The packages could not be installed, and pressing again would only fail
- * the same way: Save stays red and says so instead of offering a retry, and
- * the reload button's "Couldn't update" offers the assistant to fix it.
+ * The packages could not be installed: to the person, a preview that could
+ * not be updated like any other, with no "Try again", since that would only
+ * fail the same way.
  */
 export const PackagesCouldNotInstall = shell({
   location: inProposal({
@@ -236,6 +237,64 @@ export const PackagesCouldNotInstall = shell({
   codeMode: { on: true },
   saveBuilds: true,
   renderChat: codeChat(MESSAGES),
+});
+
+/*
+ * WHEN THE PREVIEW COULD NOT BE UPDATED. Not on Save: the change that broke
+ * it was almost always an assistant's, often someone else's. A dot on the
+ * switcher (which never moves anything), and at the top of its menu what
+ * happened, whose change it followed, and the ways on.
+ */
+
+const FAILED = inProposal({
+  unsaved: 0,
+  code: {
+    state: "failed",
+    error:
+      "src/components/sections/Testimonials.tsx(5,22): error TS2304: Cannot find name 'Card'.",
+  },
+});
+
+/**
+ * Editing content in the proposal, code mode off: the switcher has a dot.
+ * Save is just Save. Press the switcher.
+ */
+export const PreviewProblemWhileEditing = shell({
+  location: { ...FAILED, unsaved: 2 },
+  selectionId: mockSelectionIds.home,
+  codeMode: {},
+  saveBuilds: true,
+});
+
+/**
+ * The switcher, open: what happened to the preview, after whose change, and
+ * the ways on -- Kari's chat (her assistant knows what it did), your own
+ * assistant, or Details for whoever needs the error.
+ */
+export const PreviewProblemInTheSwitcher = shell({
+  location: FAILED,
+  selectionId: mockSelectionIds.home,
+  codeMode: {},
+  saveBuilds: true,
+  switcherOpen: true,
+});
+
+/** Your own assistant's change: "After your assistant changed the code". */
+export const PreviewProblemByYourAssistant = shell({
+  location: FAILED,
+  selectionId: mockSelectionIds.home,
+  codeMode: {},
+  saveBuilds: true,
+  switcherOpen: true,
+  problemBy: "viewer",
+});
+
+/** On a phone: a dot on the location chip, and the card heads its sheet. */
+export const PhonePreviewProblem = shell({
+  location: FAILED,
+  panel: "proposals",
+  codeMode: {},
+  saveBuilds: true,
 });
 
 // ---------------------------------------------------------------------------

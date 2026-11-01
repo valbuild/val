@@ -1,7 +1,8 @@
-import { RotateCw, Sparkles } from "lucide-react";
+import { RotateCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
+import { PreviewProblemCard, type PreviewProblem } from "./PreviewProblemCard";
 
 /**
  * Where the preview is, in code mode, in words a person uses: up to date,
@@ -18,7 +19,8 @@ export type CodeModeBuild =
   | { state: "behind" }
   /** `progress` from 0 to 1, or `null` when it cannot be told. */
   | { state: "updating"; progress: number | null }
-  | { state: "failed"; error: string; onAskAssistant?: () => void };
+  /** What happened, and what can be done: see `PreviewProblem`. */
+  | { state: "failed"; problem: PreviewProblem };
 
 /** The tooltip, and what a screen reader hears. */
 export function codeModeStatusText(build: CodeModeBuild): string {
@@ -62,8 +64,8 @@ function percent(progress: number): string {
  * and the arrow is at its end, so the arrow does not move either.
  *
  * Pressing it reloads the preview -- except when the preview could not be
- * updated, where it opens what happened and what to do about it, Reload
- * among them.
+ * updated, where it opens what happened and what to do about it (the same
+ * `PreviewProblemCard` the switcher's menu shows).
  */
 export function CodeModeStatus({
   build,
@@ -141,48 +143,12 @@ export function CodeModeStatus({
         <div
           role="dialog"
           aria-label="The preview couldn't be updated"
-          className="absolute right-0 top-full z-full mt-1 w-72 rounded-md border border-border-float bg-bg-float p-3 text-xs shadow-lg"
+          className="absolute right-0 top-full z-full mt-1 w-80 rounded-md shadow-lg"
         >
-          <p className="font-medium text-fg-primary">
-            The preview couldn&rsquo;t be updated
-          </p>
-          <p className="mt-1 leading-relaxed text-fg-secondary">
-            It shows the last version that worked. The assistant can usually fix
-            this; or change something and Save again.
-          </p>
-          <details className="mt-2">
-            <summary className="cursor-pointer text-fg-secondary">
-              Details
-            </summary>
-            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[0.6875rem] text-fg-secondary">
-              {failed.error}
-            </pre>
-          </details>
-          <div className="mt-3 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onReload();
-              }}
-              className="inline-flex h-7 items-center rounded-md px-2 text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              Reload
-            </button>
-            {failed.onAskAssistant !== undefined && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsOpen(false);
-                  failed.onAskAssistant?.();
-                }}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-bg-proposal px-2 font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
-              >
-                <Sparkles size={13} className="shrink-0" />
-                Ask the assistant to fix it
-              </button>
-            )}
-          </div>
+          <PreviewProblemCard
+            problem={failed.problem}
+            onAct={() => setIsOpen(false)}
+          />
         </div>
       )}
     </div>

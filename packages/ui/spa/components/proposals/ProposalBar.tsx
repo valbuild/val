@@ -115,9 +115,10 @@ export function ProposalSaveButton({
  * - `updating`: any of the steps is running.
  * - `blocked`: this browser makes the preview in a new tab, which did not
  *   open (Safari).
- * - `failed`: it could not be made. `canRetry` is false where pressing again
- *   would fail the same way -- packages that could not be installed only
- *   install once something in the code changes -- so nothing offers a retry.
+ * - `failed`: it could not be made. Never shown on Save: see
+ *   `PreviewProblem`. `canRetry` is false where trying again would fail the
+ *   same way -- packages that could not be installed only install once
+ *   something in the code changes -- so the app offers no "Try again" then.
  */
 export type PreviewUpdate =
   | { state: "up-to-date" }
@@ -154,30 +155,34 @@ export function previewUpdateOf(code: ProposalCodeState | null): PreviewUpdate {
 }
 
 /**
- * Whether pressing Save, with nothing unsaved, would update the preview:
- * it is behind, its last update failed in a way a retry can fix, or the tab
- * it is made in has to be opened.
+ * Whether pressing Save, with nothing unsaved, would update the preview: it
+ * is behind, or the tab it is made in has to be opened (pressing Save is
+ * what may open one). NOT when the last update failed: that is almost always
+ * the code, so pressing Save again would fail the same way -- see
+ * `PreviewProblem`, which is where a failure is shown and fixed.
  */
 export function buildIsDue(code: ProposalCodeState | null): boolean {
   const update = previewUpdateOf(code);
-  return (
-    update.state === "behind" ||
-    update.state === "blocked" ||
-    (update.state === "failed" && update.canRetry)
-  );
+  return update.state === "behind" || update.state === "blocked";
 }
 
 /**
  * Save, when it updates the preview too (`onSaveAndBuild`): ONE step where
- * there were three -- Save, Compute lockfile, Build.
+ * there were three -- Save, Compute lockfile, Build -- and only Save's own
+ * states. Five, where it had nine:
  *
- * Enabled while there is something unsaved OR the preview is behind, and
- * pressing it saves what there is and then updates the preview, running
- * whatever that takes. It reads "Save" throughout; when the preview will be
- * updated too its icon is a hammer instead of the disk, and the tooltip says
- * so. While that runs it says "Updating…", and
- * when it could not, "Couldn't update" -- which pressing tries again, unless
- * trying again cannot help, when it says so instead of offering it.
+ * - "Save" (the disk) -- content to save; nothing else happens.
+ * - "Save" (a hammer) -- the preview is behind too, so pressing it saves
+ *   what there is and then updates the preview, whatever that takes.
+ * - "Saving…" / "Updating…" -- doing it.
+ * - "Fix N" -- the content would be refused: the person's own edits.
+ * - "Save failed" -- the save itself, which pressing tries again.
+ *
+ * When the PREVIEW could not be updated, Save does not say so. The change
+ * that broke it was most likely an assistant's -- often someone else's -- and
+ * a Save button that turns red at a person who did nothing, offering a retry
+ * that cannot help, explains nothing. That is `PreviewProblem`'s, shown on
+ * the switcher.
  */
 export function ProposalSaveAndBuildButton({
   location,
@@ -193,11 +198,7 @@ export function ProposalSaveAndBuildButton({
 }) {
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed" ? location.save : null;
-  const update = previewUpdateOf(location.code);
-  const updating = update.state === "updating";
-  const updateFailed =
-    location.unsaved === 0 && update.state === "failed" ? update : null;
-  const tabBlocked = location.unsaved === 0 && update.state === "blocked";
+  const updating = previewUpdateOf(location.code).state === "updating";
   const due = buildIsDue(location.code);
   const blocked =
     !saving &&
@@ -209,8 +210,7 @@ export function ProposalSaveAndBuildButton({
   const busy = saving || updating;
   const canPress =
     !busy && (location.unsaved > 0 || due || saveFailed !== null);
-  const error =
-    saveFailed !== null || updateFailed !== null || blocked !== null;
+  const error = saveFailed !== null || blocked !== null;
   const changes = `${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`;
   return (
     <button
@@ -224,29 +224,20 @@ export function ProposalSaveAndBuildButton({
             ? `${saveFailed.error}. Press to try again.`
             : updating
               ? "Updating the preview with the latest changes."
-              : updateFailed !== null
-                ? updateFailed.canRetry
-                  ? "The preview couldn't be updated. Press to try again."
-                  : "The preview couldn't be updated, and trying again won't help: something in the code has to change first. The assistant can fix it in code mode."
-                : tabBlocked
-                  ? "This browser updates the preview in a new tab, and did not let it open. Press to open it."
-                  : location.unsaved > 0 && due
-                    ? `Saves ${changes}, then updates the preview.`
-                    : location.unsaved > 0
-                      ? `Saves ${changes} in the proposal. Nothing reaches the site.`
-                      : due
-                        ? "The preview is behind the latest changes. Press to update it."
-                        : "Everything is saved, and the preview is up to date."
+              : location.unsaved > 0 && due
+                ? `Saves ${changes}, then updates the preview.`
+                : location.unsaved > 0
+                  ? `Saves ${changes} in the proposal. Nothing reaches the site.`
+                  : due
+                    ? "The preview is behind the latest changes. Press to update it."
+                    : "Everything is saved."
       }
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
         error
           ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
           : "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
-        // A failure that a retry cannot fix stays red: it is not "nothing to do".
-        updateFailed !== null && !updateFailed.canRetry
-          ? "disabled:cursor-default"
-          : "disabled:bg-bg-disabled disabled:text-fg-disabled",
+        "disabled:bg-bg-disabled disabled:text-fg-disabled",
         busy && "disabled:cursor-progress",
         className,
       )}
@@ -255,8 +246,6 @@ export function ProposalSaveAndBuildButton({
         <Spinner size={14} />
       ) : error ? (
         <AlertTriangle size={14} className="shrink-0" />
-      ) : tabBlocked ? (
-        <ExternalLink size={14} className="shrink-0" />
       ) : due ? (
         // One icon, not two: the hammer says the preview is updated too, and
         // the tooltip says it in words.
@@ -273,13 +262,9 @@ export function ProposalSaveAndBuildButton({
               ? `Fix ${blocked.errors > 9 ? "9+" : blocked.errors}`
               : saveFailed !== null
                 ? "Save failed"
-                : updateFailed !== null
-                  ? "Couldn't update"
-                  : tabBlocked
-                    ? "Open the tab to update"
-                    : "Save"}
+                : "Save"}
       </span>
-      {!busy && !error && !tabBlocked && location.unsaved > 0 && (
+      {!busy && !error && location.unsaved > 0 && (
         <span className="tabular-nums opacity-80">{location.unsaved}</span>
       )}
     </button>
@@ -545,7 +530,13 @@ export function nextProposalAction(
   saveBuilds = false,
 ): ProposalNextAction {
   if (location.unsaved > 0 || location.save.state !== "idle") return "save";
-  if (saveBuilds && location.code !== null) return "save";
+  if (saveBuilds) {
+    // A failed update is not Save's: see `ProposalSaveAndBuildButton`.
+    return buildIsDue(location.code) ||
+      previewUpdateOf(location.code).state === "updating"
+      ? "save"
+      : "publish";
+  }
   if (location.code !== null && canBuild) return "build";
   return "publish";
 }
@@ -671,11 +662,7 @@ export function ProposalActionButton({
         : location.publishBlockedBy !== null;
   const mainTone: Tone =
     action === "save"
-      ? blocked !== null ||
-        saveFailed ||
-        (saveAndBuild !== null &&
-          location.unsaved === 0 &&
-          update.state === "failed")
+      ? blocked !== null || saveFailed
         ? "error"
         : "primary"
       : action === "build"
@@ -683,9 +670,7 @@ export function ProposalActionButton({
           ? "error"
           : "outline"
         : "primary";
-  // A failure nothing here can retry stays red, caret and all.
-  const caretTone: Tone =
-    mainDisabled && mainTone !== "error" ? "muted" : mainTone;
+  const caretTone: Tone = mainDisabled ? "muted" : mainTone;
 
   const choose = (act: () => void) => () => {
     setIsOpen(false);
@@ -786,39 +771,26 @@ export function ProposalActionButton({
            */}
           {saveAndBuild !== null &&
             location.unsaved === 0 &&
-            update.state !== "up-to-date" && (
+            (buildIsDue(code) || update.state === "updating") && (
               <MenuItem
                 icon={
                   update.state === "updating" ? (
                     <Spinner size={14} />
-                  ) : update.state === "failed" ? (
-                    <AlertTriangle
-                      size={14}
-                      className="text-fg-error-on-surface"
-                    />
                   ) : (
                     <Hammer size={14} />
                   )
                 }
                 onClick={choose(saveAndBuild)}
-                disabled={!buildIsDue(code)}
+                disabled={update.state === "updating"}
                 detail={
                   update.state === "updating"
                     ? "Showing the latest changes in the preview."
-                    : update.state === "failed"
-                      ? update.canRetry
-                        ? "The preview couldn't be updated. Try again."
-                        : "The preview couldn't be updated, and trying again won't help. The assistant can fix it in code mode."
-                      : "Show the latest changes in the preview."
+                    : "Show the latest changes in the preview."
                 }
               >
                 {update.state === "updating"
                   ? "Updating the preview…"
-                  : update.state === "failed"
-                    ? update.canRetry
-                      ? "Try updating the preview again"
-                      : "Couldn't update the preview"
-                    : "Update the preview"}
+                  : "Update the preview"}
               </MenuItem>
             )}
           {build !== null && onBuild !== undefined && saveAndBuild === null && (

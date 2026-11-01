@@ -30,6 +30,7 @@ import {
   previewUpdateOf,
   type PreviewUpdate,
 } from "../ProposalBar";
+import type { PreviewProblem } from "../PreviewProblemCard";
 import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
 import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
 import {
@@ -234,6 +235,11 @@ export type HarnessProps = {
   /** Save builds too: `onSaveAndBuild`. See `ProposalSaveAndBuildButton`. */
   saveBuilds?: boolean;
   /**
+   * When the preview could not be updated, whose change it followed: someone
+   * else's assistant (the usual case), the person's own, or unknown.
+   */
+  problemBy?: "someone" | "viewer" | "unknown";
+  /**
    * The assistant, open from the start, docked beside code mode. A render
    * prop, so the chat can turn code mode on and change the code.
    */
@@ -278,6 +284,7 @@ export function ProposalsShell({
   proposalColor,
   codeMode,
   saveBuilds = false,
+  problemBy = "someone",
   renderChat,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
@@ -366,21 +373,69 @@ export function ProposalsShell({
    * Publish is refused while the upgrade is not staged, as
    * `publishBlockedByUpgrade` in `useProposalsBar` refuses it.
    */
+  // The preview's state, from the same rule Save follows.
+  const update: PreviewUpdate =
+    location.kind === "proposal"
+      ? previewUpdateOf(location.code)
+      : { state: "up-to-date" };
+  /*
+   * A failed update, as the app would describe it: whose change it followed,
+   * and the ways on. Usually someone else's assistant.
+   */
+  const previewProblem: PreviewProblem | null =
+    update.state !== "failed"
+      ? null
+      : {
+          error: update.error,
+          cause:
+            problemBy === "unknown"
+              ? null
+              : problemBy === "viewer"
+                ? {
+                    who: { name: "Fredrik Ekholdt" },
+                    isViewer: true,
+                    byAssistant: true,
+                    ago: "2 minutes ago",
+                  }
+                : {
+                    who: { name: "Kari Nordmann" },
+                    isViewer: false,
+                    byAssistant: true,
+                    ago: "5 minutes ago",
+                  },
+          onAskAssistant: () => {
+            action("ask the assistant to fix the preview")();
+            setCodeOn(true);
+          },
+          ...(problemBy === "someone"
+            ? { onOpenChat: action("open Kari's chat") }
+            : {}),
+          ...(update.canRetry ? { onRetry: () => build() } : {}),
+        };
   const barLocation: StudioLocation =
     location.kind === "proposal" &&
-    upgrade !== undefined &&
-    upgrade.state !== "staged" &&
+    previewProblem !== null &&
     location.publishBlockedBy === null
       ? {
           ...location,
+          // The app's call; this is what it might say.
           publishBlockedBy:
-            upgrade.state === "computing"
-              ? "Val Build is still working out this upgrade. It can be published once it is checked."
-              : upgrade.state === "failed"
-                ? "This upgrade could not be worked out. Val Build has the details."
-                : "There is nothing to upgrade: the site is up to date.",
+            "The latest code couldn't be shown in the preview. Fix that before publishing.",
         }
-      : location;
+      : location.kind === "proposal" &&
+          upgrade !== undefined &&
+          upgrade.state !== "staged" &&
+          location.publishBlockedBy === null
+        ? {
+            ...location,
+            publishBlockedBy:
+              upgrade.state === "computing"
+                ? "Val Build is still working out this upgrade. It can be published once it is checked."
+                : upgrade.state === "failed"
+                  ? "This upgrade could not be worked out. Val Build has the details."
+                  : "There is nothing to upgrade: the site is up to date.",
+          }
+        : location;
   const inOpenProposal =
     location.kind === "proposal" &&
     location.proposal.status === "open" &&
@@ -463,6 +518,7 @@ export function ProposalsShell({
 
   const handlers: TopBarProposals = {
     location: barLocation,
+    previewProblem,
     loading,
     leaving: leaving ?? null,
     ...(validationErrors > 0
@@ -566,21 +622,12 @@ export function ProposalsShell({
     });
   }
 
-  // The preview's status, from the same rule Save follows.
-  const update: PreviewUpdate =
-    location.kind === "proposal"
-      ? previewUpdateOf(location.code)
-      : { state: "up-to-date" };
   const codeBuild: CodeModeBuild =
     update.state === "updating"
       ? { state: "updating", progress }
-      : update.state === "failed"
-        ? {
-            state: "failed",
-            error: update.error,
-            onAskAssistant: action("ask the assistant to fix the preview"),
-          }
-        : update.state === "up-to-date"
+      : previewProblem !== null
+        ? { state: "failed", problem: previewProblem }
+        : update.state === "up-to-date" || update.state === "failed"
           ? { state: "up-to-date" }
           : { state: "behind" };
   const workspace = codeModeOn ? (

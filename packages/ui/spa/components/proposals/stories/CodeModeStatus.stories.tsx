@@ -3,6 +3,7 @@ import { action } from "storybook/actions";
 import { useEffect, useState } from "react";
 import { Monitor, Smartphone, Tablet } from "lucide-react";
 import { CodeModeStatus, type CodeModeBuild } from "../CodeModeStatus";
+import type { PreviewProblem } from "../PreviewProblemCard";
 
 /**
  * Whether code mode's preview is up to date, in two or three words in the
@@ -25,6 +26,19 @@ export default meta;
 const ERROR =
   "src/components/sections/Testimonials.tsx(5,22): error TS2304: Cannot find name 'Card'.";
 
+/** Someone else's assistant changed the code, and the preview could not follow. */
+const PROBLEM: PreviewProblem = {
+  error: ERROR,
+  cause: {
+    who: { name: "Kari Nordmann" },
+    isViewer: false,
+    byAssistant: true,
+    ago: "5 minutes ago",
+  },
+  onAskAssistant: action("ask the assistant to fix it"),
+  onOpenChat: action("open Kari's chat"),
+};
+
 const STATES: { label: string; build: CodeModeBuild }[] = [
   { label: "Up to date", build: { state: "up-to-date" } },
   { label: "Behind (Save to update)", build: { state: "behind" } },
@@ -37,11 +51,7 @@ const STATES: { label: string; build: CodeModeBuild }[] = [
   { label: "Updating 100%", build: { state: "updating", progress: 1 } },
   {
     label: "Couldn't update",
-    build: {
-      state: "failed",
-      error: ERROR,
-      onAskAssistant: action("ask the assistant to fix it"),
-    },
+    build: { state: "failed", problem: PROBLEM },
   },
 ];
 
@@ -139,7 +149,7 @@ function Live({ theme }: { theme: "dark" | "light" }) {
         : at < 18
           ? { state: "updating", progress: (at - 7) / 10 }
           : round % 3 === 2
-            ? { state: "failed", error: ERROR }
+            ? { state: "failed", problem: PROBLEM }
             : { state: "up-to-date" };
   return (
     <div

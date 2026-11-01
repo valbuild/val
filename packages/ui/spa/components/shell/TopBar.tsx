@@ -50,6 +50,7 @@ import {
   CodeModeButton,
   type TopBarCodeMode,
 } from "../proposals/CodeModeButton";
+import type { PreviewProblem } from "../proposals/PreviewProblemCard";
 import { Spinner } from "../designSystem/spinner";
 
 /**
@@ -90,6 +91,12 @@ export type TopBarProposals = {
    * Build as two steps. See `ProposalActionButton`.
    */
   onSaveAndBuild?: () => void;
+  /**
+   * The preview could not be updated with the latest code: a dot on the
+   * switcher, and what happened -- whose change it followed, and what to do
+   * -- at the top of its menu. Never on Save. See `PreviewProblem`.
+   */
+  previewProblem?: PreviewProblem | null;
   /**
    * The `</>` right of the switcher. Absent outside a hosted Studio, where
    * code is changed in an editor. See `CodeModeButton`.
@@ -360,6 +367,7 @@ export function TopBar({
         : {})}
       loading={proposals.loading}
       leaving={proposals.leaving ?? null}
+      problem={proposals.previewProblem ?? null}
       defaultOpen={proposals.defaultSwitcherOpen}
     />
   );
@@ -463,6 +471,7 @@ export function TopBar({
       {layout === "phone" && proposals !== undefined && (
         <ProposalLocationChip
           location={proposals.location}
+          problem={(proposals.previewProblem ?? null) !== null}
           open={openPanel === "proposals"}
           onClick={() => onTogglePanel("proposals")}
           busy={

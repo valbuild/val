@@ -157,7 +157,8 @@ export function ChangesSheet({
         {saveAndUpdate !== undefined &&
           here !== null &&
           here.unsaved === 0 &&
-          here.code !== null && (
+          (buildIsDue(here.code) ||
+            previewUpdateOf(here.code).state === "updating") && (
             <SheetRow
               icon={<Hammer size={16} />}
               disabled={!buildIsDue(here.code)}
@@ -244,10 +245,6 @@ function previewUpdateLabel(update: PreviewUpdate): string {
   switch (update.state) {
     case "updating":
       return "Updating the preview…";
-    case "failed":
-      return update.canRetry
-        ? "Try updating the preview again"
-        : "Couldn't update the preview";
     case "blocked":
       return "Open the tab to update";
     default:
@@ -259,10 +256,6 @@ function previewUpdateDetail(update: PreviewUpdate): string {
   switch (update.state) {
     case "updating":
       return "Showing the latest changes in the preview.";
-    case "failed":
-      return update.canRetry
-        ? "The preview couldn't be updated. Try again."
-        : "Trying again won't help. The assistant can fix it in code mode.";
     case "blocked":
       return "This browser updates the preview in a new tab, and did not let it open.";
     default:

@@ -17,8 +17,15 @@ type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
  * becomes Build. Proposed: ONE step. Save is enabled whenever there is a
  * build to make, even with nothing unsaved, and pressing it saves what there
  * is and then updates the preview. Then its icon is a hammer instead of the
- * disk -- one icon, not two -- and its tooltip says so. No "build" in the words: the person sees a
- * preview, so Save talks about the preview.
+ * disk -- one icon, not two -- and its tooltip says so. No "build" in the
+ * words: the person sees a preview, so Save talks about the preview.
+ *
+ * And Save has only Save's own states: Save, Saving…/Updating…, Fix N and
+ * Save failed. When the PREVIEW could not be updated, Save does not turn red:
+ * that change was most likely an assistant's, often someone else's, and
+ * pressing Save again would not fix it. It is shown on the switcher instead
+ * -- see `Proposals/Code mode`, "Preview could not update" -- and Publish
+ * waits until it is fixed.
  *
  * Each row is one state of the proposal, as the top bar's split button shows
  * it today and as it would. The caret opens the menu in both.
@@ -62,18 +69,21 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
   },
   {
     label: "Preview couldn't update",
-    detail: "Proposed: pressing it tries again.",
+    detail:
+      "Proposed: not Save's. Shown on the switcher; Publish waits for it.",
     location: inProposal({
       unsaved: 0,
       code: {
         state: "failed",
         error: "Cannot find name 'Card'",
       },
+      publishBlockedBy:
+        "The latest code couldn't be shown in the preview. Fix that before publishing.",
     }),
   },
   {
     label: "Update tab blocked (Safari)",
-    detail: "",
+    detail: "Proposed: Save, which is what opens the tab.",
     location: inProposal({ unsaved: 0, code: { state: "blocked" } }),
   },
   {
@@ -103,13 +113,15 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
   },
   {
     label: "Packages couldn't install",
-    detail: "Retrying cannot help: red, and not pressable, in both.",
+    detail: "Proposed: as any preview that couldn't update.",
     location: inProposal({
       unsaved: 0,
       code: {
         state: "dependencies-failed",
         error: "No matching version found for react-carousel-kit@^9.0.0",
       },
+      publishBlockedBy:
+        "The latest code couldn't be shown in the preview. Fix that before publishing.",
     }),
   },
   {

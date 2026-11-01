@@ -17,6 +17,7 @@ import type { TopBarProposals } from "../shell/TopBar";
 import type { ShellBreakpoint } from "../shell/types";
 import { ProposalIcon, proposalChangesLabel } from "./ProposalSwitcher";
 import type { ProposalSummary } from "./types";
+import { PreviewProblemCard } from "./PreviewProblemCard";
 
 /**
  * Where you are, on a phone: the sheet behind the top bar's location chip.
@@ -42,6 +43,7 @@ export function ProposalSheet({
   onClose: () => void;
 }) {
   const { location } = proposals;
+  const problem = proposals.previewProblem ?? null;
   const here = location.kind === "proposal" ? location : null;
   const choose = (action: () => void) => () => {
     onClose();
@@ -105,6 +107,11 @@ export function ProposalSheet({
       }
     >
       <div className="pb-4">
+        {here !== null && problem !== null && (
+          <div className="px-3 pt-3">
+            <PreviewProblemCard problem={problem} onAct={onClose} />
+          </div>
+        )}
         {codeMode !== undefined && codeSwitchable && (
           <div className="py-1">
             <SheetRow
