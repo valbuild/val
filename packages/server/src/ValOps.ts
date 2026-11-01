@@ -2629,7 +2629,26 @@ export abstract class ValOps {
       ModuleFilePath,
       { source: JSONValue | null; schema: SerializedSchema }
     > = {};
-    const { sources: sourcesAfter } = await this.getSources(patchAnalysis);
+    const { sources: sourcesAfter, errors: sourceErrors } =
+      await this.getSources(patchAnalysis);
+    /*
+     * A patch the file took and the Source did not refuses the save, as one
+     * the file refused does. Committed, it would record the text with the
+     * edit and the Source without it, and mark the patch applied: the edit is
+     * gone from what every reader is served, and the next look undoes it. A
+     * file and a Source out of step is a Val bug, or a proposal whose Source
+     * lags its code (see `stagedModuleSources`) -- either way not something a
+     * commit should hide. Where nothing patches the file (no repository),
+     * this is the only check there is.
+     */
+    for (const [pathS, moduleErrors] of Object.entries(sourceErrors)) {
+      const path = pathS as ModuleFilePath;
+      if (moduleErrors.length === 0 || sourceFilePatchErrors[path]) continue;
+      hasErrors = true;
+      sourceFilePatchErrors[path] = moduleErrors.map(({ patchId, error }) => ({
+        message: `The change ${patchId} applies to ${path}'s file but not to its content: ${error.message}`,
+      }));
+    }
     for (const path of Object.keys(patchesByModule) as ModuleFilePath[]) {
       let serialized: SerializedSchema | undefined;
       try {
