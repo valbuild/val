@@ -5,6 +5,7 @@ import {
   isCodeTool,
   proposalProject,
   runCodeTool,
+  applyFileEdits,
   runReadPage,
   runScreenshotPage,
   type BuildReport,
@@ -412,12 +413,13 @@ describe("the code tools", () => {
     });
   };
 
-  test("are twelve, and known by name", () => {
+  test("are thirteen, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
       "write_files",
+      "edit_file",
       "format_files",
       "lint",
       "typecheck",
@@ -826,6 +828,96 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
       success: true,
       buildRequired: true,
     });
+  });
+
+  /*
+   * edit_file: a change to a file that exists, without writing out the whole
+   * file -- which write_files needs, and which then stays in the
+   * conversation, read again on every turn.
+   */
+  test("edit_file stages the proposal's copy of a file, with the edit", async () => {
+    const d = deps();
+    const edited = await runCodeTool(
+      "edit_file",
+      {
+        path: "src/components/Hero.tsx",
+        edits: [{ old_text: "new", new_text: "bigger" }],
+        message: "A bigger hero",
+      },
+      d,
+    );
+    expect(edited.isError).toBe(false);
+    expect(d.staged).toEqual([
+      [NAME, { "src/components/Hero.tsx": "bigger hero" }, "A bigger hero"],
+    ]);
+    expect(edited.result).toMatchObject({
+      success: true,
+      path: "src/components/Hero.tsx",
+    });
+    // Never the file: the point is not to send it.
+    expect(JSON.stringify(edited.result)).not.toContain("bigger hero");
+  });
+
+  test("edit_file edits the site's file when the proposal has no copy", async () => {
+    const d = deps();
+    await runCodeTool(
+      "edit_file",
+      { path: "/src/app.tsx", edits: [{ old_text: "app", new_text: "app()" }] },
+      d,
+    );
+    expect(d.staged).toEqual([[NAME, { "src/app.tsx": "app()" }, undefined]]);
+  });
+
+  test("edit_file refuses what it cannot place, and stages nothing", async () => {
+    const d = deps();
+    const refused = async (args: unknown) => {
+      const answer = await runCodeTool("edit_file", args, d);
+      expect(answer.isError).toBe(true);
+      return JSON.stringify(answer.result);
+    };
+    const hero = "src/components/Hero.tsx";
+    expect(
+      await refused({
+        path: hero,
+        edits: [{ old_text: "old", new_text: "x" }],
+      }),
+    ).toContain("not in the file");
+    expect(
+      await refused({ path: hero, edits: [{ old_text: "e", new_text: "x" }] }),
+    ).toContain("more than once");
+    expect(
+      await refused({ path: hero, edits: [{ old_text: "", new_text: "x" }] }),
+    ).toContain("empty");
+    expect(
+      await refused({
+        path: hero,
+        edits: [{ old_text: "new", new_text: "new" }],
+      }),
+    ).toContain("nothing is staged");
+    // Deleted in the proposal, or never there: a new file is write_files'.
+    expect(
+      await refused({
+        path: "src/old.ts",
+        edits: [{ old_text: "old", new_text: "x" }],
+      }),
+    ).toContain("write_files");
+    expect(await refused({ path: hero, edits: [] })).toContain("old_text");
+    expect(
+      await refused({ path: hero, edits: [{ old_text: "new" }] }),
+    ).toContain("old_text");
+    expect(d.staged).toEqual([]);
+  });
+
+  test("edit_file on the site writes nothing, and offers a proposal", async () => {
+    const d = deps({ proposal: null });
+    const edited = await runCodeTool(
+      "edit_file",
+      { path: "src/app.tsx", edits: [{ old_text: "app", new_text: "x" }] },
+      d,
+    );
+    expect(edited.isError).toBe(true);
+    expect(d.staged).toEqual([]);
+    expect(d.offered).toBe(1);
   });
 
   test("ON THE SITE, NOTHING IS WRITTEN OR BUILT, and the person is offered a proposal", async () => {
@@ -1580,5 +1672,34 @@ describe("screenshot_page", () => {
       },
     );
     expect(answer.isError).toBe(true);
+  });
+});
+
+describe("applyFileEdits", () => {
+  test("applies the edits in order, each to the text the last one left", () => {
+    expect(
+      applyFileEdits("a b c", [
+        { oldText: "a", newText: "x" },
+        { oldText: "x b", newText: "y" },
+      ]),
+    ).toEqual({ status: "edited", text: "y c" });
+  });
+
+  test("a $ in the new text is text, not a replacement pattern", () => {
+    expect(
+      applyFileEdits("price", [{ oldText: "price", newText: "$& $1 $$" }]),
+    ).toEqual({ status: "edited", text: "$& $1 $$" });
+  });
+
+  test("says which edit failed", () => {
+    expect(
+      applyFileEdits("a b", [
+        { oldText: "a", newText: "x" },
+        { oldText: "a", newText: "y" },
+      ]),
+    ).toMatchObject({
+      status: "failed",
+      message: expect.stringContaining("edit 2"),
+    });
   });
 });

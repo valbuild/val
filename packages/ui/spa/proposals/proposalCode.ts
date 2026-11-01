@@ -83,6 +83,7 @@ const WRITE_FILES_TOOL: AITool = {
   name: "write_files",
   description:
     "Change the project's code: write whole files (the full new text of each), or delete one with null. " +
+    "For a change to a file that exists, use edit_file: it sends only what changes. " +
     "Only in a proposal -- the site's code is changed by merging a proposal, never directly. " +
     "Content is not code: change Val content with create_patch, not by rewriting a .val.ts. " +
     "A .val.ts IS written here when its schema changes. " +
@@ -103,6 +104,46 @@ const WRITE_FILES_TOOL: AITool = {
       },
     },
     required: ["files"],
+  },
+};
+
+const EDIT_FILE_TOOL: AITool = {
+  name: "edit_file",
+  description:
+    "Change part of one existing file of the project's code: each edit replaces old_text, which must occur exactly once in the file, with new_text. " +
+    "Use it for every change to a file that exists -- it costs a fraction of writing the whole file with write_files. " +
+    "Only in a proposal. Read the file first: old_text must match it exactly, whitespace included, with enough of the lines around it to be unique. " +
+    "The edits apply in order, each to the file as the ones before it left it. The change is staged in the proposal, as write_files stages one.",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "e.g. 'src/components/Hero.tsx'." },
+      edits: {
+        type: "array",
+        description: "The replacements, in order. At most 50.",
+        items: {
+          type: "object",
+          properties: {
+            old_text: {
+              type: "string",
+              description:
+                "Text in the file now, exactly once: copied from read_file, whitespace and all.",
+            },
+            new_text: {
+              type: "string",
+              description: "What replaces it; empty to delete it.",
+            },
+          },
+          required: ["old_text", "new_text"],
+        },
+      },
+      message: {
+        type: "string",
+        description:
+          "What the change does, in a sentence, for the proposal's history.",
+      },
+    },
+    required: ["path", "edits"],
   },
 };
 
@@ -296,6 +337,7 @@ export const CODE_TOOLS: AITool[] = [
   READ_FILE_TOOL,
   SEARCH_CODE_TOOL,
   WRITE_FILES_TOOL,
+  EDIT_FILE_TOOL,
   FORMAT_FILES_TOOL,
   LINT_TOOL,
   TYPECHECK_TOOL,
@@ -663,10 +705,10 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (edit_file, write_files), format it (format_files), check it (lint, typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
-- write_files takes each file's WHOLE new text. Read a file before you change it.
+- Change a file that exists with edit_file: it replaces text you name and sends only what changes. Read the file first, and copy old_text from it exactly. write_files takes a file's WHOLE text: use it for a new file, to delete one (null), or to rewrite most of one.
 - After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. ${
     where.kind === "design"
       ? "The preview shows the change as a quick preview by itself; build_proposal only when the change needs a build (see the design tab's rules), never after each edit."
@@ -690,7 +732,7 @@ export function designSystemPrompt(displayName: string): string {
 Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
 
 ## What you can do here
-- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files) and check it (lint, typecheck). The preview shows each change as a quick preview, by itself. Build it (build_proposal) only for what a quick preview cannot show -- see below.
+- Find and read the project's code (search_code, list_files, read_file), change it (edit_file; write_files for a new file), format it (format_files) and check it (lint, typecheck). The preview shows each change as a quick preview, by itself. Build it (build_proposal) only for what a quick preview cannot show -- see below.
 - Change content with create_patch: it is written into the module's file in the proposal and staged with the code, so a field you add to a schema can be filled in the same change.
 - Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content: a module the proposal changed is read with read_file.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
@@ -891,11 +933,7 @@ export async function runCodeTool(
           success: true,
           staged: staged.staged.files,
           buildRequired: staged.staged.buildRequired,
-          next: !staged.staged.buildRequired
-            ? "The preview already shows these files."
-            : deps.design === true
-              ? "The preview shows them as a quick preview by itself. Build only when the change needs one, once, when the request is done."
-              : "Call build_proposal when the change is complete, so the preview shows it.",
+          next: stagedNext(staged.staged.buildRequired, deps),
         },
         isError: false,
       };
@@ -1095,6 +1133,52 @@ export async function runCodeTool(
       staged = read.staged;
     }
     const project = proposalProject(site, own);
+    if (name === "edit_file") {
+      if (deps.proposal === null) {
+        deps.offerProposal();
+        return fail(
+          "The site's code is changed in a proposal, never directly, and this Studio is on the site. " +
+            "The person has been offered to open a proposal: ask them to, and make the change there.",
+        );
+      }
+      const path = input["path"];
+      if (typeof path !== "string") return fail("path must be a string.");
+      const edits = fileEditsOf(input["edits"]);
+      if (edits === null) {
+        return fail(
+          `edits must be 1 to ${MAX_FILE_EDITS} objects of old_text and new_text, both strings.`,
+        );
+      }
+      const filePath = path.replace(/^\/+/, "");
+      const text = project[filePath];
+      if (text === undefined) {
+        return fail(
+          `There is no file ${path}: write a new file with write_files. list_files names the files there are.`,
+        );
+      }
+      const edited = applyFileEdits(text, edits);
+      if (edited.status === "failed") return fail(`${path}: ${edited.message}`);
+      if (edited.text === text) {
+        return fail(`The edits leave ${path} as it is: nothing is staged.`);
+      }
+      const message =
+        typeof input["message"] === "string" ? input["message"] : undefined;
+      const staged = await deps.client.stageFiles(
+        deps.proposal.name,
+        { [filePath]: edited.text },
+        message,
+      );
+      return {
+        result: {
+          success: true,
+          path: filePath,
+          staged: staged.staged.files,
+          buildRequired: staged.staged.buildRequired,
+          next: stagedNext(staged.staged.buildRequired, deps),
+        },
+        isError: false,
+      };
+    }
     if (name === "list_files") {
       const prefix = typeof input["prefix"] === "string" ? input["prefix"] : "";
       const paths = Object.keys(project)
@@ -1270,6 +1354,78 @@ export async function runCodeTool(
   } catch (error) {
     return fail(messageOf(error));
   }
+}
+
+/** What to do after staging, for a code tool's answer. */
+function stagedNext(buildRequired: boolean, deps: CodeToolDeps): string {
+  if (!buildRequired) return "The preview already shows these files.";
+  return deps.design === true
+    ? "The preview shows them as a quick preview by itself. Build only when the change needs one, once, when the request is done."
+    : "Call build_proposal when the change is complete, so the preview shows it.";
+}
+
+/** One replacement `edit_file` makes. */
+export type FileEdit = { oldText: string; newText: string };
+
+const MAX_FILE_EDITS = 50;
+
+function fileEditsOf(value: unknown): FileEdit[] | null {
+  if (!Array.isArray(value)) return null;
+  if (value.length === 0 || value.length > MAX_FILE_EDITS) return null;
+  const edits: FileEdit[] = [];
+  for (const edit of value) {
+    if (!isRecord(edit)) return null;
+    const oldText = edit["old_text"];
+    const newText = edit["new_text"];
+    if (typeof oldText !== "string" || typeof newText !== "string") {
+      return null;
+    }
+    edits.push({ oldText, newText });
+  }
+  return edits;
+}
+
+/**
+ * `edit_file`: each edit's `oldText`, which must be in the text exactly
+ * once, replaced by its `newText`, in order. Exactly once, because a model
+ * that names a line it half remembers must hear so rather than change a
+ * different line that happens to match.
+ *
+ * Why it exists: `write_files` takes a file's whole text, so changing one
+ * class name made the model write out the whole component -- and that text
+ * then stayed in the conversation, read again on every turn after it.
+ */
+export function applyFileEdits(
+  text: string,
+  edits: readonly FileEdit[],
+): { status: "edited"; text: string } | { status: "failed"; message: string } {
+  let current = text;
+  for (const [index, { oldText, newText }] of edits.entries()) {
+    const which = edits.length > 1 ? `edit ${index + 1}: ` : "";
+    if (oldText === "") {
+      return {
+        status: "failed",
+        message: `${which}old_text is empty. Name the text to replace, or write the file with write_files.`,
+      };
+    }
+    const at = current.indexOf(oldText);
+    if (at === -1) {
+      return {
+        status: "failed",
+        message: `${which}old_text is not in the file${index > 0 ? " as the edits before it left it" : ""}. read_file it again and copy the text exactly, whitespace included.`,
+      };
+    }
+    if (current.indexOf(oldText, at + 1) !== -1) {
+      return {
+        status: "failed",
+        message: `${which}old_text is in the file more than once. Include more of the lines around it, so it names one place.`,
+      };
+    }
+    // Spliced, not `String.replace`: a `$` in the new text is text.
+    current =
+      current.slice(0, at) + newText + current.slice(at + oldText.length);
+  }
+  return { status: "edited", text: current };
 }
 
 /** One line that matched, where it is. */

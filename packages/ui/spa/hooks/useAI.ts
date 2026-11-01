@@ -1374,7 +1374,7 @@ export function useAI(
             result: {
               success: false,
               error:
-                "That tool is not available in the design tab. Change content with create_patch, which writes it into the proposal's files, and code with write_files.",
+                "That tool is not available in the design tab. Change content with create_patch, which writes it into the proposal's files, and code with edit_file and write_files.",
             },
             isError: true,
           });
@@ -2359,6 +2359,7 @@ export function useAI(
           }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
+                toolName === "edit_file" ||
                 toolName === "create_patch" ||
                 toolName === "format_files" ||
                 toolName === "lint") &&
