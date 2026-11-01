@@ -20,6 +20,7 @@ import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
 import { useHydrated } from "../useHydrated";
+import { overlaySourceOf, readWithOverlay } from "./overlayRead";
 import {
   bundledJsonEntryImport,
   fillJsonValuesRecord,
@@ -139,16 +140,11 @@ function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   ) {
     React.use(store.waitForLoad(moduleIds));
   }
-  const sourceOf = (moduleId: string): Json | undefined => {
-    if (moduleMap && valOverlayContext.draftMode) {
-      const draft = moduleMap[moduleId as ModuleFilePath];
-      if (draft !== undefined) {
-        return draft;
-      }
-    }
-    // At a proposal's address: its saved Source, not the bundle's.
-    return valOverlayContext.snapshot?.[moduleId as ModuleFilePath];
-  };
+  const sourceOf = overlaySourceOf(
+    moduleMap,
+    valOverlayContext.draftMode,
+    valOverlayContext.snapshot,
+  );
   /*
    * A whole `.jsonValues()` record is read with every entry's content: its own
    * source holds only lazy markers. The entries no draft or snapshot has are
@@ -173,13 +169,14 @@ function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
     });
     filledRecord = fillJsonValuesRecord(jsonValues.record, loaded);
   }
-  return stegaEncode(selector, {
-    disabled: !encodes,
-    getModule: (moduleId) =>
-      jsonValues !== null && moduleId === jsonValues.modulePath
-        ? filledRecord
-        : sourceOf(moduleId),
-  });
+  return readWithOverlay(
+    selector,
+    sourceOf,
+    jsonValues !== null
+      ? { modulePath: jsonValues.modulePath, record: filledRecord }
+      : null,
+    encodes,
+  );
 }
 
 /**

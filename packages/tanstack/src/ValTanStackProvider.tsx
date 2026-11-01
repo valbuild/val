@@ -8,12 +8,7 @@
  * What keeps this file out of a server-only context is that it uses hooks.
  */
 
-import {
-  DEFAULT_CONTENT_HOST,
-  ModuleFilePath,
-  ValConfig,
-  Internal,
-} from "@valbuild/core";
+import { DEFAULT_CONTENT_HOST, ValConfig, Internal } from "@valbuild/core";
 import {
   VAL_APP_PATH,
   VAL_OVERLAY_ID,
@@ -22,7 +17,8 @@ import {
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import React, { useEffect } from "react";
 import { ValScript } from "./ValScript";
-import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
+import { ValOverlayProvider } from "./ValOverlayContext";
+import { applyValEvent, createDraftStore, isDraft } from "./draftStore";
 import {
   SET_AUTO_TAG_JSX_ENABLED,
   isReactDevelopmentBuild,
@@ -258,7 +254,7 @@ export const ValTanStackProvider = (props: {
    * draft mode is on, and one that is ONLY a snapshot (`draftMode: false`) is
    * not a draft: it must not turn draft mode on or say the draft is synced.
    */
-  const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
+  const hasDraft = isDraft(initialDraft);
   /*
    * As the page was rendered. A ref, not the prop, for the reason
    * `initialDraft` is one: a later render's prop is a client navigation's
@@ -292,15 +288,10 @@ export const ValTanStackProvider = (props: {
     window.__VAL_BASE__ = hasDraft ? initialDraft.base : undefined;
   }
   // TODO: move below into react package
-  const valStore = React.useMemo(() => {
-    const store = new ValExternalStore();
-    if (hasDraft) {
-      for (const [path, source] of Object.entries(initialDraft.sources)) {
-        store.update(path as ModuleFilePath, source);
-      }
-    }
-    return store;
-  }, [initialDraft, hasDraft]);
+  const valStore = React.useMemo(
+    () => createDraftStore(initialDraft),
+    [initialDraft],
+  );
   // Whether useValStega should actually suspend. False during SSR and the
   // hydration render. Two paths: without `draft` the server store is empty
   // (draft data arrives via browser CustomEvents only), so suspending there
@@ -846,49 +837,40 @@ export const ValTanStackProvider = (props: {
         // (`useEncodesEditTags`), so this cannot reach one still hydrating.
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
-          if (event instanceof CustomEvent) {
-            if (event.detail?.type === "sources-synced") {
-              setDraftSourcesSynced(true);
-              return;
-            }
-            if (event.detail?.type === "source-update") {
-              const moduleFilePath = event.detail?.moduleFilePath;
-              const source = event.detail?.source;
-              if (typeof moduleFilePath === "string" && source !== undefined) {
-                const changed = valStore.update(
-                  moduleFilePath as ModuleFilePath,
-                  source,
-                );
-                /**
-                 * Armed by a CHANGE, not by a message.
-                 *
-                 * The editor re-sends everything it holds whenever this page
-                 * becomes a new document — a reload, or the one the dev server does
-                 * when a publish rewrites the `.val.ts` files — and most of that
-                 * snapshot is content this page already has. Counting those
-                 * bought a whole-route request per publish whether or not the
-                 * page was out of date, which with auto-save on is one per pause
-                 * in typing.
-                 *
-                 * The catch-up that MATTERS still refreshes: a page whose server
-                 * render predates the write has no value for that module, so the
-                 * first arrival counts as a change.
-                 */
-                if (changed && !props.disableRefresh) {
-                  rerenderCounterRef.current++;
-                  window.dispatchEvent(new Event(VAL_EDIT_LANDED));
-                }
-              } else {
-                Internal.log.error("invalid event detail", event.detail);
-              }
-            } else {
-              Internal.log.error(
-                "invalid custom event details (val-event)",
-                event.detail,
-              );
-            }
-          } else {
+          if (!(event instanceof CustomEvent)) {
             Internal.log.error("invalid custom event (val-event)", event);
+            return;
+          }
+          const outcome = applyValEvent(valStore, event.detail);
+          if (outcome.type === "synced") {
+            setDraftSourcesSynced(true);
+            return;
+          }
+          if (outcome.type === "invalid") {
+            Internal.log.error(
+              "invalid custom event details (val-event)",
+              outcome.detail,
+            );
+            return;
+          }
+          /**
+           * Armed by a CHANGE, not by a message.
+           *
+           * The editor re-sends everything it holds whenever this page
+           * becomes a new document — a reload, or the one the dev server does
+           * when a publish rewrites the `.val.ts` files — and most of that
+           * snapshot is content this page already has. Counting those
+           * bought a whole-route request per publish whether or not the
+           * page was out of date, which with auto-save on is one per pause
+           * in typing.
+           *
+           * The catch-up that MATTERS still refreshes: a page whose server
+           * render predates the write has no value for that module, so the
+           * first arrival counts as a change.
+           */
+          if (outcome.changed && !props.disableRefresh) {
+            rerenderCounterRef.current++;
+            window.dispatchEvent(new Event(VAL_EDIT_LANDED));
           }
         };
         window.addEventListener(
