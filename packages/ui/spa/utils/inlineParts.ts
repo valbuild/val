@@ -3,10 +3,11 @@ import { fixCapitalization } from "./fixCapitalization";
 import { parseLocalDay } from "./localDay";
 import { richTextToString } from "./richTextToString";
 
-/**
+/*
  * The text of `InlineObjectPreview`: one object's values on one line. Kept out
  * of the component so it is a pure function of (schema, value).
  */
+
 export type InlinePart = { label: string | null; text: string };
 
 /** The non-empty values under `value`, each with the name of its own field. */

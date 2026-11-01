@@ -42,13 +42,21 @@ export function InlineObjectPreview({
   }
   const parts = inlineParts(schema, sourceAtPath.data, null);
   if (parts.length === 0) {
-    return <div className="text-fg-disabled">—</div>;
+    return (
+      <div id={path} className="text-fg-disabled">
+        —
+      </div>
+    );
   }
   return (
     <div id={path} className="truncate">
       {parts.map((part, i) => (
         <span key={i}>
-          {i > 0 && <span className="px-1 text-fg-disabled">·</span>}
+          {i > 0 && (
+            <span className="px-1 text-fg-disabled" aria-hidden>
+              ·
+            </span>
+          )}
           {part.label !== null && (
             <span className="text-fg-disabled">{part.label} </span>
           )}
