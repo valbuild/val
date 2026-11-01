@@ -8,6 +8,9 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import { createValClient } from "@valbuild/shared/internal";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   InMemoryPatchStore,
   initValContent,
@@ -42,6 +45,8 @@ import { createFrames, type Frames } from "./frames";
  * product calls the extracted one too -- never a second copy here.
  */
 export type World = {
+  /** Which mode the server runs in, and for fs, the project directory. */
+  server: { mode: "memory" } | { mode: "fs"; root: string };
   network: Network;
   frames: Frames;
   studio(name: string): Promise<Studio>;
@@ -50,6 +55,8 @@ export type World = {
   observe(): Promise<void>;
   /** The invariants every scenario is held to. See `frames.ts`. */
   expectInvariants(): void;
+  /** Stops what the world started, and puts the working directory back. */
+  dispose(): void;
 };
 
 export type Studio = {
@@ -79,9 +86,65 @@ type AnyModule = ValModule<SelectorSource>;
 export type WorldOptions = {
   config: ValConfig;
   modules: AnyModule[];
-  /** Only memory for now. fs is next; http needs the mock content host. */
-  server: "memory";
+  /**
+   * Where pending edits live, as an app's server decides it:
+   * - `memory`: the host holds the source and the patches (`sourceFiles`, a
+   *   patch store passed to both `initValServer` and `initValContent`).
+   * - `fs`: local development. The project is the working directory
+   *   (`initHandlerOptions` reads `process.cwd()`), so the world makes a
+   *   fresh temporary directory and works in it for its lifetime; patches
+   *   land in its `.val/patches`, where both the API and the readers find
+   *   them, as in an app.
+   *
+   * http needs the mock content host, and is not here yet.
+   */
+  server: ServerMode;
 };
+
+export type ServerMode = "memory" | "fs";
+
+/** What an app passes to both `initValServer` and `initValContent` for a mode. */
+type ServerHost =
+  | {
+      mode: "memory";
+      sourceFiles: Record<string, string>;
+      patchStore: InMemoryPatchStore;
+      unsafelyAllowUnauthenticated: true;
+    }
+  | { mode: "fs"; root: string; restore: () => void };
+
+function hostFor(mode: ServerMode): ServerHost {
+  if (mode === "memory") {
+    return {
+      mode,
+      sourceFiles: {},
+      patchStore: new InMemoryPatchStore(),
+      unsafelyAllowUnauthenticated: true,
+    };
+  }
+  const root = mkdtempSync(join(tmpdir(), "val-scenario-"));
+  const previous = process.cwd();
+  process.chdir(root);
+  return {
+    mode,
+    root,
+    restore: () => {
+      process.chdir(previous);
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+/** The options both server-side entry points get, for the host's mode. */
+function hostOptions(host: ServerHost) {
+  return host.mode === "memory"
+    ? {
+        sourceFiles: host.sourceFiles,
+        patchStore: host.patchStore,
+        unsafelyAllowUnauthenticated: host.unsafelyAllowUnauthenticated,
+      }
+    : {};
+}
 
 export async function createWorld(options: WorldOptions): Promise<World> {
   const valModules: ValModules = {
@@ -90,14 +153,12 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       def: () => Promise.resolve({ default: module }),
     })),
   };
-  // One store of pending edits, shared by the API and the readers -- as an app
-  // passes the same one to `initValServer` and `initValContent`.
-  const patchStore = new InMemoryPatchStore();
+  // One place for pending edits, shared by the API and the readers -- as an
+  // app passes the same options to `initValServer` and `initValContent`.
+  const host = hostFor(options.server);
   const apiDraftMode = { on: true };
   const { valApiHandler } = initValServer(valModules, options.config, {
-    sourceFiles: {},
-    patchStore,
-    unsafelyAllowUnauthenticated: true,
+    ...hostOptions(host),
     draftMode: draftModeOf(apiDraftMode),
   });
   const network = createNetwork(valApiHandler);
@@ -105,6 +166,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
 
   return {
+    server:
+      host.mode === "fs" ? { mode: "fs", root: host.root } : { mode: "memory" },
     network,
     frames,
     async studio(name) {
@@ -170,9 +233,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     page(route, pageOptions) {
       const draft = { on: pageOptions.draftMode };
       const content = initValContent(options.config, valModules, {
-        sourceFiles: {},
-        patchStore,
-        unsafelyAllowUnauthenticated: true,
+        ...hostOptions(host),
         draftMode: draftModeOf(draft),
       });
       const readers: PageReaders = {
@@ -202,6 +263,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     expectInvariants() {
       frames.expectInvariants();
+    },
+    dispose() {
+      if (host.mode === "fs") host.restore();
     },
   };
 }

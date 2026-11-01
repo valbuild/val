@@ -56,7 +56,7 @@ test("an edit reaches the page", async () => {
   const world = await createWorld({
     config,
     modules: [homeVal],
-    server: "memory",
+    server: "fs", // or "memory"
   });
   const studio = await world.studio("editor");
   const page = world.page("/", { draftMode: true });
@@ -68,6 +68,7 @@ test("an edit reaches the page", async () => {
   await world.observe();
 
   world.expectInvariants();
+  world.dispose(); // in an afterEach, so a failing test cleans up too
 });
 ```
 
@@ -85,7 +86,7 @@ the surface and the frames:
 
 | Part              | The product code it runs                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Server            | `initValServer` from `@valbuild/tanstack/server`: the route handler an app mounts, in memory mode                               |
+| Server            | `initValServer` from `@valbuild/tanstack/server`: the route handler an app mounts, in memory or fs mode                         |
 | Studio            | `createValSystem`; modules in through `loadValModules`; `/stat` asked with `statRequestBody` and taken in with `statSnapshotOf` |
 | An edit           | `stringFieldPatch` and `patchStore.createPatch`, what a string field calls                                                      |
 | Page, server half | `initValContent`'s `fetchValStega`, with the same patch store as the API, as an app passes it                                   |
@@ -95,7 +96,10 @@ the surface and the frames:
 Each of these is a place where a scenario does NOT yet cover the product's
 path, and a scenario that depends on it would prove less than it looks:
 
-- **Server modes.** Memory only. fs (a temp directory) is next; http needs
+- **Server modes.** memory and fs. fs works in a fresh temporary directory
+  that the world makes its working directory for its lifetime, because fs
+  mode's project is `process.cwd()` (`initHandlerOptions`); `world.dispose()`
+  puts the old one back and removes the directory. http needs
   `e2e/mock-content-host` started in-process.
 - **The Studio's `/stat` loop.** What is asked and how the answer is taken in
   are the product's functions, but WHEN the Studio asks (the long poll, the
