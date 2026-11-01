@@ -14,5 +14,11 @@
     "moduleResolution": "bundler",
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "measure/**/*"]
+  "include": [
+    "src/**/*",
+    "measure/**/*",
+    // The Studio's own globals (`window.__VAL_BASE__`), for its code the
+    // harness compiles.
+    "../packages/ui/spa/types/window.d.ts"
+  ]
 }
