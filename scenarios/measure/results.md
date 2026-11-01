@@ -41,7 +41,39 @@ bundler will be slower, and has not been measured.
 
 ## A draft read on Val's server
 
-Pending: `node --import tsx measure/draftRead.ts all` is running and this
-table will be filled from it. Earlier spot numbers were dropped: the
-synthetic rich text was declared with options it did not allow, so every
-entry also reported validation errors, which inflated the times.
+2026-11-01, same container, quiet machine,
+`node --import tsx measure/draftRead.ts all --time-only`. Median of 5 runs in
+one process; "retained" is the heap still held after the reads (with
+`--expose-gc`, after `gc()`), on top of the modules already loaded.
+
+| Input                   | Content | Draft read (validated) | Without validation | Base only (BaseAlignment) | Retained after |
+| ----------------------- | ------- | ---------------------- | ------------------ | ------------------------- | -------------- |
+| valbuild/web            | 0.23 MB | 66 ms                  | 26 ms              | 23 ms                     | +1.7 MB        |
+| synthetic               | 1 MB    | 66 ms                  | 34 ms              | 20 ms                     | +2.4 MB        |
+| synthetic               | 5 MB    | 308 ms                 | 171 ms             | 174 ms                    | +10.1 MB       |
+| synthetic               | 10 MB   | 671 ms                 | 434 ms             | 419 ms                    | +19.5 MB       |
+| synthetic               | 21 MB   | 1,499 ms               | 890 ms             | 449 ms                    | +38.7 MB       |
+| synthetic + 650 patches | 1 MB    | 275 ms                 | 269 ms             | (not run)                 | +2.6 MB        |
+
+What it says:
+
+- **A draft read costs about 65-70 ms per MB of content, on every request**,
+  validation about 40% of it. A site of 5 MB pays 0.3 s per draft page view
+  before it renders anything. The plan's head (phase 6) makes it a lookup.
+- **It keeps about 1.8 times the content's size on the heap afterwards**:
+  +39 MB for 21 MB of content, on top of the 36 MB the modules themselves
+  take. For an isolate that also holds the app, that is the number that
+  matters for 128 MB, and it is a floor (see README).
+- **A 650-patch chain adds about 0.2 s per read**, almost all of it applying
+  patches (validation adds nothing measurable on top): each patch clones its
+  module. The copy-on-write engine (phase 2) is for this.
+
+**Peak heap.** An earlier run bisected the smallest heap each read completes
+in (`all`, without `--time-only`). The absolute numbers are dominated by the
+process starting up (tsx, the server packages, the Studio's embedded files:
+118-157 MB of old space before any read), so only the difference over the
+`load` baseline is usable, and only where the read needs more than startup
+does: about +15 MB for 5 MB of content and +39 MB for 10 MB, so roughly 3-4
+times the content's size at the peak. The run timed out before the 21 MB
+draft read. Measuring the read's own peak, rather than the process's, needs a
+better method than bisection; noted for the next run.
