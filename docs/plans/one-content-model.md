@@ -680,6 +680,32 @@ pulling makes collaboration more expensive than it is today.
 Each phase ships on its own and leaves everything working. Each adds the
 scenarios it makes pass.
 
+### Each phase deletes what it replaced
+
+The point of the plan is fewer paths, so old and new never live side by side
+longer than one PR. A phase is not done while the code it replaced is still
+there; there is no flag to choose between the two, and no "remove later".
+
+- **Behaviour first, then deletion.** What the old code did is pinned by a
+  scenario or a contract test before it goes. A unit test of deleted code is
+  deleted with it; a behaviour it pinned moves to a scenario first. (The rule
+  "never fix an issue by changing the test file" still holds: this is moving
+  what a test checks, not loosening it.)
+- **What may not simply be deleted:**
+  - **The public API** of `@valbuild/*`: `fetchVal`, `useVal`, the key and
+    route readers, `ValProvider`, `ValModulesClient` keep their signatures. An
+    export that has to go is `@deprecated` for a release first, as
+    `s.imageset` was.
+  - **The wire to the content service.** home deploys on its own schedule, so
+    a field Val stops reading stays optional on the wire until home stops
+    sending it, and a new field is optional until home sends it (as
+    `headPatchId` and `headVersion` are).
+  - **A deployed Studio against a newer server**, for the length of a
+    deploy: a `/stat` answer keeps what an older Studio reads until the
+    manifest has replaced it for a release.
+- **Each phase lists what it deletes**, below, so a review can check the
+  deletion happened rather than trust it.
+
 | #   | Phase                                                                                                                                                                                                                                                                                                                                                                                                                   | Repos     |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | 0   | **The harness and the first scenario.** `packages/scenarios`; `createWorld` in memory and fs; `createSourceRelay` and `createRefreshLoop` extracted; the invariants and counted budgets; the refresh-race scenario (red). Measure today's draft read and a prototype head in `workerd` at 128 MB.                                                                                                                       | val       |
@@ -690,8 +716,23 @@ scenarios it makes pass.
 | 5   | **The Studio on the view.** `withLocalEdits` over `chainSource` (today's behaviour as a source); `SourceStore` on top, reference-stable by key; `substitutedSource` and `withFilePatchIds` go.                                                                                                                                                                                                                          | val       |
 | 6   | **The store, the runtime and the head.** `tiered`, `memoryTier`, `bundleTier`; `valRuntime` per process; the head in the store; `serverDraftSource`; `GET /modules` with deltas; validation and previews leave the read path; a cheap `seq` in http mode. Within 128 MB.                                                                                                                                                | val, home |
 | 7   | **The Studio loads from one place.** `manifestSource` and `originTier` replace `chainSource`; BaseAlignment and `__VAL_BASE__` go; the code tools' `projectSource` keyed by version; staged schemas (`staged:<hash>`) in code mode.                                                                                                                                                                                     | val, home |
-| 8   | **Clean up and document.** Delete what phases 2–7 replaced; `architecture/content-versions.md`; `stores.md` and `quirks.md` updated.                                                                                                                                                                                                                                                                                    | val       |
+| 8   | **Document.** `architecture/content-versions.md`; `stores.md` and `quirks.md` updated; anything a phase could not delete in its own PR (only the wire and deprecations above), with the release it goes in.                                                                                                                                                                                                             | val       |
 | 9   | **Reloading the schema while the Studio runs.** See [the section below](#reloading-the-schema-while-the-studio-runs): one `reloadCode(registry)` for HMR and for a new build; a registry entry per build, named in the manifest; replaced, not merged; a registry that does not load leaves the Studio on the old one; edits that no longer apply are held, not deleted; `SchemaFreshnessWatch` and its dialog deleted. | val, home |
+
+What each phase deletes (to be checked against the code when the phase
+starts; the names are as of 2026-11-01):
+
+| #   | Deleted in the same PR                                                                                                                                                                                                                                                                                                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | Nothing; the relay and the refresh loop MOVE out of `ValOverlayEmitter`, `ValTanStackProvider` and `ValNextProvider` into plain functions the components call. Moved, not copied.                                                                                                                                                                                           |
+| 1   | Nothing: it only adds to the wire.                                                                                                                                                                                                                                                                                                                                          |
+| 2   | The patch rules in `ValOps.getSources` and `getSourcesWithPatchesApplied`; the replay in `applyJsonValuesEntryPatches`; `deepClone` per patch.                                                                                                                                                                                                                              |
+| 3   | `withJsonValuesEntries` (Next and TanStack), `draftJsonEntry`, `useDraftModuleSource`, `committedJsonEntryPromise`, `jsonEntryPromiseCache`; the inline source-priority arrays; the suspend gates in both `initValClient`s; the error-path `stegaEncode`; the two `useValStega` copies, which become one in `@valbuild/react`.                                              |
+| 4   | The safety refresh (`safetyRefresh.ts` in both packages, `SAFETY_REFRESH_MS`, `SAFETY_REFRESH_WINDOW_MS`) and the 500 ms throttle around it.                                                                                                                                                                                                                                |
+| 5   | `SourceStore`'s own patch rules in `applyEntries`; `substitutedSource`; `withFilePatchIds`; peek stability by recompute-and-compare.                                                                                                                                                                                                                                        |
+| 6   | The private `createValServer` in `initValRsc` and in `initValContent`, and MCP's `createOpsResolver`; `loadDraftSources`; `createReactCacheScope` and `createTanStackRequestScope`; the per-call `/json` in the key readers; `fetchValDraft`'s extra `/patches` and `/json`; whole-tree previews and validation in `PUT /sources/~`; MCP's rebuild per call in `loadState`. |
+| 7   | `BaseAlignment`; `__VAL_BASE__`; the Studio's `PUT /sources/~?apply_patches=false`; `chainSource`; the client's replay of the chain and its reconciliation of patches that vanished from `/stat`; the code tools' `projectSource` memo.                                                                                                                                     |
+| 9   | `SchemaFreshnessWatch`, `StatusStore.reportSchemaOutOfDate` and the dialog; the merge in `SchemaStore.receive`.                                                                                                                                                                                                                                                             |
 
 Phase 2 can run beside phases 3 and 4. Phase 6 moves ahead of 2–5 if phase 0
 shows today's draft read already crosses 128 MB. http mode joins
