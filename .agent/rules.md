@@ -855,6 +855,31 @@ pnpm format
 
 1. Never "fix" an issue by changing the test file
 2. Prefer to define test data in a type-safe manner using `s` and `c` from `initVal`. Search for examples.
+3. **A test drives the product's code, never a copy of it.** When a test does
+   something the product does (an edit, a code change, a request, a publish,
+   a build), it calls the same function the product calls for it: one
+   function, called by both. A helper with its own path proves that its own
+   path works, while the product's can break with the test still green.
+   - If the product's function is buried in a component, a hook or a tool
+     handler, extract it, make the product call the extracted one, and call
+     that from the test. Never write a second version for the test.
+   - Fakes stay at the edges we do not own: the network, the clock, the
+     framework's request context, a third-party service.
+   - If the product itself has two paths for one thing, the test is not done
+     until they are one, or it covers both.
+   - Example: the scenario harness's `studio.edit` writes through
+     `stringFieldPatch` and `patchStore.createPatch`, as a string field does;
+     `world.changeCode` must stage files through the same function as the
+     assistant's `write_files` tool.
+
+### Scenario tests (`scenarios/`)
+
+`scenarios/` is a private workspace package that runs Val's real server, the
+Studio's real stores and a page's real readers together, with the network and
+the framework's request context in the test's hands. Every scenario is
+checked against the same invariants (`world.expectInvariants()`). See
+`scenarios/README.md` and `docs/plans/one-content-model.md`. Run it with
+`pnpm test scenarios`.
 
 ## CI
 

@@ -667,6 +667,29 @@ export function awaitingDeploymentInterval(
   );
 }
 
+/**
+ * What a `/stat` request says the Studio already knows: the last answer's
+ * shas and patches, so the server can answer "no change" (or, in fs mode,
+ * long-poll until there is one). `null` on the first request.
+ *
+ * Its own function so the scenario harness (`scenarios/`) asks exactly what
+ * the Studio asks.
+ */
+export function statRequestBody(data: StatData | undefined) {
+  if (!data) {
+    return null;
+  }
+  return {
+    schemaSha: data.schemaSha,
+    sourcesSha: data.sourcesSha,
+    baseSha: data.baseSha,
+    patches: data.patches,
+    // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
+    // no other sha here can see that (a jsonValues module's source is markers).
+    jsonEntriesSha: data.jsonEntriesSha,
+  };
+}
+
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
@@ -684,18 +707,7 @@ async function execStat(
   const id = ++statIdRef.current;
   const socketPatchesAtRequest = socketPatchesRef.current;
   const requestedAt = Date.now();
-  let body = null;
-  if ("data" in stat && stat.data) {
-    body = {
-      schemaSha: stat.data.schemaSha,
-      sourcesSha: stat.data.sourcesSha,
-      baseSha: stat.data.baseSha,
-      patches: stat.data.patches,
-      // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
-      // no other sha here can see that (a jsonValues module's source is markers).
-      jsonEntriesSha: stat.data.jsonEntriesSha,
-    };
-  }
+  const body = statRequestBody("data" in stat ? stat.data : undefined);
 
   setAuthenticationLoadingIfNotAuthenticated();
   return client("/stat", "POST", {

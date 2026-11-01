@@ -1,12 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type {
-  PatchId,
-  SelectorSource,
-  ValModule,
-  ValModules,
-} from "@valbuild/core";
+import type { PatchId, ValModules } from "@valbuild/core";
 import type { System } from "../createSystem";
 import { ValSystemProvider } from "./SystemContext";
+import { loadValModules } from "./loadValModules";
 
 /**
  * Put the store system in context, take the project in, and feed it `/stat`.
@@ -78,21 +74,9 @@ export function ValStoreProvider({
     }
     let cancelled = false;
     void (async () => {
-      // The defs are async thunks (`() => import("./x.val")`), so intake has to
-      // await them. One failed module must not lose the rest, so each is
-      // settled separately — and `HostStore.receive` records the ones that fail
-      // to serialize rather than throwing, for the same reason.
-      const settled = await Promise.allSettled(
-        valModules.modules.map((entry) => entry.def()),
-      );
+      const modules = await loadValModules(valModules);
       if (cancelled) {
         return;
-      }
-      const modules: ValModule<SelectorSource>[] = [];
-      for (const result of settled) {
-        if (result.status === "fulfilled") {
-          modules.push(result.value.default);
-        }
       }
       /**
        * Unconditionally, even when NOTHING was adopted.

@@ -1,0 +1,20 @@
+{
+  "name": "@valbuild/scenarios",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Val's scenario tests: the real server, Studio and page together, with the network and the clock in the test's hands. See README.md.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@valbuild/core": "workspace:*",
+    "@valbuild/react": "workspace:*",
+    "@valbuild/server": "workspace:*",
+    "@valbuild/shared": "workspace:*",
+    "@valbuild/tanstack": "workspace:*",
+    "@valbuild/ui": "workspace:*",
+    "typescript": "^6.0.3"
+  }
+}

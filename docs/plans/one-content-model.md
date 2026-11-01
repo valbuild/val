@@ -1,9 +1,11 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01.** Nothing here is built. Phase 0 (the
-> scenario harness and its first scenario) is the first piece of work. Until
-> this plan is agreed, every "decided" below is a proposal. A session that
-> changes the design updates this file in the same PR as the change.
+> **Status: proposed 2026-11-01; phase 0 started.** The scenario harness
+> (`scenarios/`, see its README) runs a smoke scenario: an edit in the real
+> Studio reaches a draft page's real `fetchVal`, in memory mode. What it does
+> not cover yet is listed in that README. Until this plan is agreed, every
+> "decided" below is a proposal. A session that changes the design updates
+> this file in the same PR as the change.
 
 Content is read in about fifty places (listed in
 [The inventory](#appendix-the-inventory)): the app's readers in and out of
