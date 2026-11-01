@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ValBuildAccess } from "./useValBuildAccess";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { relocateForLocale, ValCanvasElement } from "@valbuild/shared/internal";
@@ -1368,6 +1369,15 @@ function ValShellBody({
    * module from calling hooks with a path it does not have.
    */
   const updates = studioIsDeployer ? upgradeSettings : null;
+  // What the shell already asked Val Build (`useShellData`), handed on so
+  // Settings does not ask again. A stable object, or the callback below
+  // changes on every render.
+  const shellConnected = data.webComponentsUrl !== undefined;
+  const shellStudioMode = data.studioMode;
+  const valBuild = useMemo<ValBuildAccess>(
+    () => ({ connected: shellConnected, studioMode: shellStudioMode }),
+    [shellConnected, shellStudioMode],
+  );
   const settingsModule = data.settings?.moduleFilePath;
   const renderSettings = useCallback(
     () => (
@@ -1383,13 +1393,17 @@ function ValShellBody({
          * A hosted project made from a template has no settings module, and
          * Updates is what it opened Settings for: telling it how to add one
          * is for a developer, who would see it in a project without Updates.
+         * Its variables and secrets are still shown -- a hosted site is
+         * where they are set from here.
          */}
-        {(settingsModule !== undefined || updates === null) && (
-          <ValSettingsSections moduleFilePath={settingsModule} />
-        )}
+        <ValSettingsSections
+          moduleFilePath={settingsModule}
+          explainMissingModule={updates === null}
+          valBuild={valBuild}
+        />
       </>
     ),
-    [settingsModule, updates],
+    [settingsModule, updates, valBuild],
   );
   const proposals = useMemo(
     () =>
