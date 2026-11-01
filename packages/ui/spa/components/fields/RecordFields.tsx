@@ -30,6 +30,7 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { RefPreview } from "../../components/RefPreview";
+import { CARD_MAX_FIELDS } from "../../components/SortableList";
 import type { ValidationError } from "@valbuild/core";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
@@ -253,9 +254,11 @@ const UNTRANSLATED_LABEL = (keyDecidesLocale: boolean): string | undefined =>
 
 /**
  * Row height estimate for the default card layout: gap (16) + border (2) +
- * card padding (32) + key header (40) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ * card padding (24) + key header (28) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ * A card with no `.preview()` is at most {@link CARD_MAX_FIELDS} lines, so the
+ * estimate is never off by more than a line or so.
  */
-const CARD_ROW_HEIGHT = 146;
+const CARD_ROW_HEIGHT = 126;
 /**
  * Row height estimate for a `.preview(...)` row: gap (16) + border (2) +
  * {@link PREVIEW_ROW_CONTENT_HEIGHT}.
@@ -345,12 +348,19 @@ function RecordCardList({
               <div
                 onClick={() => navigate(sourcePathOfItem(path, key))}
                 className={classNames(
-                  "bg-bg-primary cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                  // `min-w-0`, and no fixed minimum: a minimum wider than a
+                  // narrow pane is the card sticking out of it.
+                  "bg-bg-primary cursor-pointer min-w-0 max-h-[170px] overflow-hidden rounded-md border border-border-primary p-3",
                   "hover:bg-bg-secondary-hover",
                 )}
               >
                 <div className="flex justify-between items-start gap-2">
-                  <div className="pb-4 font-semibold text-md">{key}</div>
+                  <div
+                    className="min-w-0 pb-2 font-semibold truncate text-md"
+                    title={key}
+                  >
+                    {key}
+                  </div>
                   <ContentViewsBadge
                     path={sourcePathOfItem(path, key)}
                     className="ml-auto"
@@ -373,6 +383,10 @@ function RecordCardList({
                     <RefPreview
                       path={sourcePathOfItem(path, key)}
                       nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                      // The card is padded already; the preview's own `p-2`
+                      // indented the fields against the key above them.
+                      className="p-0"
+                      maxFields={CARD_MAX_FIELDS}
                     />
                   )}
                 </div>

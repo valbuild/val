@@ -181,7 +181,16 @@ export function FloatingPanel({
                 // the status bar, and — for left panels on desktop — to the
                 // right of the rail, which has to stay reachable while a
                 // panel is open.
-                "top-16 bottom-14 rounded-lg",
+                //
+                // Docked, it is a column of the work area rather than
+                // something hanging off the top bar, so it starts where the
+                // work area's panes do (`pt-20` in `Shell`'s
+                // `workspaceOverride` and in `PageWorkspace`): beside them, a
+                // panel 16px taller than the pane next to it read as a
+                // mistake.
+                docked
+                  ? "top-20 bottom-14 rounded-lg"
+                  : "top-16 bottom-14 rounded-lg",
                 side === "right"
                   ? "right-3"
                   : breakpoint === "desktop"
