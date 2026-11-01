@@ -398,7 +398,17 @@ export type SystemEvent =
    */
   | { type: "status:change" }
   /** Patches were removed from the chain, and source rebuilt without them. */
-  | { type: "patch:drop"; patches: PatchId[]; modules: ModuleFilePath[] }
+  | {
+      type: "patch:drop";
+      patches: PatchId[];
+      modules: ModuleFilePath[];
+      /**
+       * Gone from the server for a reason this tab cannot tell -- discarded
+       * elsewhere, or published where no sha moved (`reconcileVanished`) --
+       * rather than discarded or refused here.
+       */
+      vanished: boolean;
+    }
   /**
    * The write queue moved: in-sync, pending, saving, retrying.
    *

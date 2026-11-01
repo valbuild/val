@@ -162,6 +162,12 @@ export function emitModuleSource(
     for (const op of record.patch) {
       const key = op.path[0];
       if (typeof key === "string") keys.add(key);
+      // And where a rename takes the entry FROM: its content has to be here
+      // for the move to carry it, or the new key is a marker for an entry
+      // the page's bundle does not have.
+      const from =
+        op.op === "move" || op.op === "copy" ? op.from[0] : undefined;
+      if (typeof from === "string") keys.add(from);
     }
   }
   if (keys.size > 0) {

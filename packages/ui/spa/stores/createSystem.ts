@@ -633,11 +633,14 @@ export function createSystem(options: SystemOptions): System {
       const attempts = (unapplicableAttempts.get(patchId) ?? 0) + 1;
       unapplicableAttempts.set(patchId, attempts);
 
-      Internal.log.error(
+      // Debug when kept: a patch into an entry nobody has loaded is the normal
+      // case, and `SourceStore.receiveJsonEntry` applies it when the entry
+      // arrives. Only a discard is something to report.
+      (uncertain ? Internal.log.debug : Internal.log.error)(
         uncertain
-          ? "a patch could not be applied, and this module still has " +
-              "unloaded .jsonValues() entries — so it may apply once they " +
-              "arrive. Keeping it. If the edit never appears, please report this."
+          ? "a patch could not be applied yet: this module still has " +
+              "unloaded .jsonValues() entries, and it applies when they arrive. " +
+              "Keeping it."
           : "discarding a patch that cannot be applied. If you see this " +
               "often, please report it — it means a patch is being generated " +
               "that does not fit the source it targets.",

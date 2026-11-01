@@ -170,6 +170,12 @@ export type PatchIntake =
       kind: "revoked";
       patchIds: readonly PatchId[];
       modules: readonly ModuleFilePath[];
+      /**
+       * Gone for a reason this tab cannot tell (`patch:drop`'s `vanished`):
+       * the `.jsonValues()` entries they wrote into are read again rather
+       * than rebuilt from what was loaded. See `forgetEntriesOf`.
+       */
+      vanished: boolean;
     };
 
 /**
@@ -665,6 +671,23 @@ export class SourceStore {
     this.bumpBase(moduleFilePath);
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
+    /*
+     * And the chain's patches into this entry, applied to it.
+     *
+     * What arrived is the BASE content (the Studio reads entries with
+     * `apply_patches: false`), so without this the entry showed none of the
+     * pending edits inside it: a patch made while the entry was not loaded had
+     * failed against its marker and was kept for exactly this moment, and was
+     * then never applied -- so the field, and every page the overlay relays to,
+     * showed the published entry. An entry read again (`markJsonEntriesStale`)
+     * lost the edits that HAD applied to it the same way.
+     */
+    if (
+      this.holdsMarker(this.baseSources, moduleFilePath, key) &&
+      this.chainTouchesEntry(moduleFilePath, key)
+    ) {
+      this.replayChain(moduleFilePath);
+    }
     if (this.batchDepth > 0) {
       // `batched` emits one of these for the whole batch. Emitting here as well
       // would invalidate every render and every validation in the module once
@@ -678,6 +701,120 @@ export class SourceStore {
       withoutModule: [],
       modules: [moduleFilePath],
     });
+  }
+
+  /** Whether the module in `realm` has a `.jsonValues()` entry at `key`. */
+  private holdsMarker(
+    realm: Record<ModuleFilePath, Json>,
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): boolean {
+    const source = realm[moduleFilePath];
+    return isJsonObject(source) && Internal.isJson(source[key]);
+  }
+
+  /**
+   * Forget the loaded `.jsonValues()` entries a VANISHED patch wrote into, so
+   * the next read asks the server again.
+   *
+   * A patch vanishes when another tab discarded it -- or published it, which
+   * no sha says when only an entry changed: the module's source is its
+   * markers either way, so the base does not move and `reconcileVanished`
+   * cannot tell the two apart. Rebuilt from what was loaded, the entry went
+   * back to its content from BEFORE the publish, on every page the overlay
+   * relays to. Read again, it is right in both cases. A patch discarded or
+   * refused HERE is rebuilt from what was loaded, which is right and needs no
+   * request.
+   */
+  private forgetEntriesOf(record: PatchRecord): void {
+    const loaded = this.jsonEntries.get(record.moduleFilePath);
+    const base = this.baseJsonEntries.get(record.moduleFilePath);
+    let forgot = false;
+    for (const op of record.patch) {
+      const keys = [op.path[0]];
+      if (op.op === "move" || op.op === "copy") keys.push(op.from[0]);
+      for (const key of keys) {
+        if (typeof key !== "string") continue;
+        forgot = (loaded?.delete(key) ?? false) || forgot;
+        forgot = (base?.delete(key) ?? false) || forgot;
+      }
+    }
+    if (forgot) this.bumpBase(record.moduleFilePath);
+  }
+
+  /**
+   * The `.jsonValues()` entries this patch writes into that are not loaded:
+   * what it waits for before it can apply.
+   */
+  private unloadedEntriesOf(record: PatchRecord): string[] {
+    const loaded = this.jsonEntries.get(record.moduleFilePath);
+    const keys = new Set<string>();
+    for (const op of record.patch) {
+      const key = op.path[0];
+      if (
+        op.op !== "file" &&
+        typeof key === "string" &&
+        loaded?.has(key) !== true &&
+        this.holdsMarker(this.sources, record.moduleFilePath, key)
+      ) {
+        keys.add(key);
+      }
+    }
+    return [...keys];
+  }
+
+  /**
+   * Whether a patch in this module's chain writes into, or reads from, the
+   * `.jsonValues()` entry at `key` -- or writes the whole record.
+   */
+  private chainTouchesEntry(moduleFilePath: ModuleFilePath, key: string) {
+    return (this.chains.get(moduleFilePath) ?? []).some(({ record }) =>
+      record.patch.some(
+        (op) =>
+          op.op !== "file" &&
+          (op.path.length === 0 ||
+            op.path[0] === key ||
+            ((op.op === "move" || op.op === "copy") && op.from[0] === key)),
+      ),
+    );
+  }
+
+  /**
+   * Rebuild this module from its base and apply its whole chain again: the
+   * only way to apply a patch late, since one applied out of order would land
+   * on edits made after it. The same rebuild a drop does, without the drop.
+   *
+   * Woken as `external`: the edit is news to every field, its author's too,
+   * which was showing the entry without it.
+   */
+  private replayChain(moduleFilePath: ModuleFilePath): void {
+    const base = this.baseSources[moduleFilePath];
+    const chain = this.chains.get(moduleFilePath);
+    if (base === undefined || chain === undefined || chain.length === 0) {
+      return;
+    }
+    this.activity.work("source:rebuild-module", moduleFilePath);
+    this.sources[moduleFilePath] = deepClone(base as JSONValue);
+    const baseEntries = this.baseJsonEntries.get(moduleFilePath);
+    if (baseEntries !== undefined) {
+      this.jsonEntries.set(
+        moduleFilePath,
+        new Map(
+          [...baseEntries].map(([key, value]) => [
+            key,
+            deepClone(value as JSONValue),
+          ]),
+        ),
+      );
+    }
+    this.bump(moduleFilePath);
+    this.applyEntries(
+      chain.map((entry) => ({
+        record: entry.record,
+        origin: "external",
+        creatorFieldId: undefined,
+      })),
+    );
   }
 
   /**
@@ -781,9 +918,14 @@ export class SourceStore {
     keys: readonly string[],
   ): Promise<void> {
     const here = this.jsonEntries.get(moduleFilePath);
+    // The base too: an entry the chain removed or renamed away has left the
+    // patched entries but was read, and asking for it again would replay the
+    // chain, which removes it again, for ever. See `receiveJsonEntry`.
+    const read = this.baseJsonEntries.get(moduleFilePath);
     const wanted = keys.filter(
       (key) =>
         here?.has(key) !== true &&
+        read?.has(key) !== true &&
         !this.entryFailures.has(entryKey(moduleFilePath, key)),
     );
     if (wanted.length === 0) return;
@@ -1638,6 +1780,7 @@ export class SourceStore {
         kind: "revoked",
         patchIds: event.patches,
         modules: event.modules,
+        vanished: event.vanished,
       });
     });
     return () => {
@@ -1666,7 +1809,7 @@ export class SourceStore {
    */
   intake(intake: PatchIntake): void {
     if (intake.kind === "revoked") {
-      this.dropFromChains(intake.patchIds, intake.modules);
+      this.dropFromChains(intake.patchIds, intake.modules, intake.vanished);
       return;
     }
     this.applyPatches(
@@ -1739,6 +1882,7 @@ export class SourceStore {
   private dropFromChains(
     patchIds: readonly PatchId[],
     modules: readonly ModuleFilePath[],
+    vanished: boolean,
   ): void {
     const dropped = new Set(patchIds);
     const rebuilt: ModuleFilePath[] = [];
@@ -1767,6 +1911,7 @@ export class SourceStore {
         for (const entry of chain) {
           if (!dropped.has(entry.record.patchId)) continue;
           touched.push(...touchedSourcePaths(entry.record));
+          if (vanished) this.forgetEntriesOf(entry.record);
         }
         this.chains.set(moduleFilePath, surviving);
       }
@@ -2321,6 +2466,18 @@ export class SourceStore {
         }
       } else {
         failed.push({ patchId: record.patchId, message: res.error.message });
+        /*
+         * A patch into a `.jsonValues()` entry nobody has loaded fails against
+         * the entry's marker. It is kept (`discardUnapplicable`), and applied
+         * when the entry arrives (`receiveJsonEntry`) -- so the entry is asked
+         * for now. Nothing else would ask: a failed apply changes nothing, so
+         * no reader is woken and the overlay's relay never runs, and a page
+         * showing the entry kept the published content for good.
+         */
+        const waiting = this.unloadedEntriesOf(record);
+        if (waiting.length > 0) {
+          void this.loadEntries(record.moduleFilePath, waiting);
+        }
       }
     }
 

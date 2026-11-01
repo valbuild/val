@@ -72,18 +72,16 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
    * hands the page the entry's content with the edit (not a marker, not the
    * committed content), and no edit is discarded.
    *
-   * SKIPPED: the overlay's Studio cannot apply the editor's edit while the
-   * entry is unloaded (it keeps the patch, and says so at error level), loads
-   * the entry, and relays the committed content without the edit. Pinned by
-   * the running test below. (The page's server read of the whole record
-   * showed the committed entry too, F1; that is fixed: `fetchVal` reads the
-   * entries a pending patch touches from the server.)
+   * It was skipped, for two bugs both fixed: the page's server read of the
+   * whole record filled entries from the bundle (F1), and the overlay's
+   * Studio kept the edit it could not apply while the entry was unloaded and
+   * relayed the committed entry once it loaded (F2).
    *
    * The page's HOOK reading a whole `.jsonValues()` record is not covered:
    * `useValStega` fills the entries through `React.use` on cached promises,
    * which is not yet a plain function the world can call.
    */
-  test.skip("S17 an edit inside an unloaded .jsonValues() entry", async () => {
+  test("S17 an edit inside an unloaded .jsonValues() entry", async () => {
     world = await createWorld({ config, modules: [pagesVal], server });
     const { editor, page } = await editUnloadedEntry(world);
     expect(world.frames.last("field")).toBe("Edited A");
@@ -92,14 +90,6 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
     expect(page.studio.errors()).toEqual([]);
     expect(lastRelayedTitle(page.events)).toBe("Edited A");
     expect(world.network.log.filter((e) => e.method === "DELETE")).toEqual([]);
-  });
-
-  test("S17 why: the overlay relays the entry it loaded, without the edit it could not apply", async () => {
-    world = await createWorld({ config, modules: [pagesVal], server });
-    const { page } = await editUnloadedEntry(world);
-    expect(world.frames.last("field")).toBe("Edited A"); // the editor applies it
-    expect(lastRelayedTitle(page.events)).toBe("Page A"); // the overlay does not
-    expect(world.network.log.filter((e) => e.method === "DELETE")).toEqual([]); // kept, not deleted
   });
 
   /**

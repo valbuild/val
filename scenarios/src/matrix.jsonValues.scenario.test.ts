@@ -190,8 +190,6 @@ function sourcePathOf() {
  * Why cells fail today. Each is a bug: the user expects every one of these to
  * work. Evidence and suspected cause are in the README's matrix section.
  */
-const F2 =
-  "F2: a Studio that had not loaded the entry keeps the patch it could not apply and never applies it once the entry loads, so it shows (and the overlay relays) the committed entry";
 const R1 =
   "R1: in memory mode, after a publish the page's readers keep the pre-publish content: initValContent's own server instance does not adopt the publish, only the API's instance that handled /save does (fs mode is right after the dev server reloads the rewritten files)";
 
@@ -212,7 +210,6 @@ const Z = titleSurfaces("/blog/z");
 const cells: Cell[] = [
   {
     operation: "edit an entry",
-    failing: hooksFail("/blog/a", F2),
     surfaces: A,
     run: async (ctx) => {
       await ctx.editor.edit(blogVal, ["/blog/a", "title"], "Edited A");
@@ -237,7 +234,6 @@ const cells: Cell[] = [
   },
   {
     operation: "rename a key",
-    failing: hooksFail("/blog/z", F2),
     surfaces: [...Z, ...keySurfaces],
     run: async (ctx) => {
       await rename(ctx, "/blog/a", "/blog/z");
@@ -287,6 +283,9 @@ const cells: Cell[] = [
         "fetchValKey /blog/a": R1,
         "fetchValRoute /blog/a": R1,
         ...hooksFail("/blog/a", R1),
+        // The overlay shows the edit while it is pending, and the page's
+        // bundle -- the published content before the publish -- after it.
+        "never goes back": R1,
       },
     },
     surfaces: [
@@ -321,7 +320,6 @@ const cells: Cell[] = [
   },
   {
     operation: "another editor's edit, via /stat",
-    failing: hooksFail("/blog/a", F2),
     surfaces: A,
     run: async (ctx) => {
       const other = await ctx.other();
@@ -339,10 +337,6 @@ const cells: Cell[] = [
   },
   {
     operation: "an edit to an entry nobody has loaded",
-    failing: {
-      ...hooksFail("/blog/a", F2),
-      "studio /blog/a, opened after": F2,
-    },
     // Written without the entry open anywhere -- as the assistant's
     // `create_patch` writes -- so no Studio and no page has loaded it. The
     // editor's own field is read last, which loads it there.

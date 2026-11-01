@@ -257,6 +257,96 @@ describe("editing inside a `.jsonValues()` entry", () => {
     dispose();
   });
 
+  /**
+   * An edit made while its entry is not loaded applies when the entry loads.
+   *
+   * It fails against the entry's marker first, and is kept for exactly this.
+   * It used to stay unapplied after the entry arrived: the entry came in as
+   * the server's base content, and nothing applied the chain to it -- so the
+   * editor's own field, opened afterwards, showed the published value while
+   * the server held the edit.
+   */
+  it("applies an edit made before the entry loaded, once it loads", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+    const read = await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("Alpha edited");
+    expect((await patchStore.getHead()).type).not.toBe("empty");
+    dispose();
+  });
+
+  /**
+   * And the entry is asked for without a reader asking.
+   *
+   * A failed apply changes nothing, so no reader is woken by it -- the
+   * overlay's relay among them, which is what hands a page the entry. Unless
+   * the store asks, a page showing that entry keeps the published content.
+   */
+  it("loads the entry such an edit waits for, unasked", async () => {
+    const { sourceStore, patchStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+
+    await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(jsonEntries.requests()).toEqual([requested("/blogs.val.ts", "/a")]);
+    const peeked = sourceStore.peek('/blogs.val.ts?p="/a"."title"');
+    expect(peeked.status === "ready" && peeked.data).toBe("Alpha edited");
+    dispose();
+  });
+
+  /**
+   * A patch that VANISHED from the server -- another tab discarded it, or
+   * published it where no sha moved -- has its entry read again rather than
+   * rebuilt from what was loaded, which after a publish is the content from
+   * before it.
+   */
+  it("reads an entry again when a patch into it vanishes", async () => {
+    const {
+      sourceStore,
+      patchStore,
+      patchSync,
+      server,
+      stat,
+      jsonEntries,
+      dispose,
+    } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    stat.simulateExternal([]);
+    await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+    const created = await patchStore.createPatch("/blogs.val.ts", [
+      { op: "replace", path: ["/a", "title"], value: "Alpha edited" },
+    ]);
+    await patchSync.flush();
+
+    server.simulateForeignDiscard([created.patchId]);
+    for (let i = 0; i < 4; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    const read = await sourceStore.get('/blogs.val.ts?p="/a"."title"', null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("Alpha");
+    expect(jsonEntries.requests()).toEqual([
+      requested("/blogs.val.ts", "/a"),
+      requested("/blogs.val.ts", "/a"),
+    ]);
+    dispose();
+  });
+
   /** An edit to the record itself still works: it is not entry content. */
   it("applies an edit to the record around the entries", async () => {
     const { sourceStore, patchStore, dispose } = initTestSystem();

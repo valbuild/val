@@ -1082,7 +1082,7 @@ export class PatchStore {
         this.appliedSource?.markApplied(shipped);
       }
       if (discarded.length > 0) {
-        this.drop(discarded);
+        this.drop(discarded, true);
       }
     } finally {
       for (const patchId of ask) {
@@ -1587,7 +1587,11 @@ export class PatchStore {
    * {@link SourceStore} rebuilds those from base + the surviving chain — because
    * an already-applied patch cannot be un-applied, only recomputed without.
    */
-  drop(patchIds: readonly PatchId[]): void {
+  drop(
+    patchIds: readonly PatchId[],
+    /** See `vanished` on `patch:drop`. */
+    vanished: boolean = false,
+  ): void {
     const dropped: PatchId[] = [];
     const modules = new Set<ModuleFilePath>();
     for (const patchId of patchIds) {
@@ -1622,6 +1626,7 @@ export class PatchStore {
       type: "patch:drop",
       patches: dropped,
       modules: [...modules],
+      vanished,
     });
     // The head may have been the dropped patch. Announced after the drop so a
     // consumer reading `currentHead()` on this event sees the chain as it now
