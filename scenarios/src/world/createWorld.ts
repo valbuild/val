@@ -67,6 +67,15 @@ export type World = {
   settle(): Promise<void>;
   /** The world's fake clock. See `clock.ts`. */
   clock: Clock;
+  /**
+   * New code reaches the app's server, as HMR does in development: the server
+   * module is evaluated again, so `initValServer` and every page's
+   * `initValContent` are called again with the new registry. Pending edits
+   * stay where they are (fs: `.val/patches`; memory: the same patch store).
+   */
+  deployCode(modules: AnyModule[]): void;
+  /** {@link deployCode}, then every Studio's {@link Studio.receiveCode}. */
+  changeCode(modules: AnyModule[]): Promise<void>;
   /** The invariants every scenario is held to. See `frames.ts`. */
   expectInvariants(): void;
   /** Stops what the world started, and puts the working directory back. */
@@ -80,6 +89,14 @@ export type Studio = {
   edit(module: AnyModule, fieldPath: string[], value: string): Promise<void>;
   /** The Studio's `/stat` poll: what it last took in. */
   readonly stat: StatState;
+  /**
+   * New code reaches the Studio: what `ValStoreProvider` does when the app's
+   * `<ValModulesClient>` registers a new registry (`val-modules-updated`):
+   * `loadValModules`, then `HostStore.receive`.
+   */
+  receiveCode(modules: AnyModule[]): Promise<void>;
+  /** The messages the Studio is showing the editor (`StatusStore`). */
+  errors(): string[];
   /** A surface: the Studio's own value at a field, as a field reads it. */
   reads(surface: string, module: AnyModule, fieldPath: string[]): void;
 };
@@ -161,21 +178,29 @@ function hostOptions(host: ServerHost) {
 }
 
 export async function createWorld(options: WorldOptions): Promise<World> {
-  const valModules: ValModules = {
+  const registryOf = (modules: AnyModule[]): ValModules => ({
     config: options.config,
-    modules: options.modules.map((module) => ({
+    modules: modules.map((module) => ({
       def: () => Promise.resolve({ default: module }),
     })),
-  };
+  });
+  let valModules = registryOf(options.modules);
   // One place for pending edits, shared by the API and the readers -- as an
   // app passes the same options to `initValServer` and `initValContent`.
   const host = hostFor(options.server);
   const apiDraftMode = { on: true };
-  const { valApiHandler } = initValServer(valModules, options.config, {
-    ...hostOptions(host),
-    draftMode: draftModeOf(apiDraftMode),
-  });
-  const network = createNetwork(valApiHandler);
+  const serverFor = (registry: ValModules) =>
+    initValServer(registry, options.config, {
+      ...hostOptions(host),
+      draftMode: draftModeOf(apiDraftMode),
+    }).valApiHandler;
+  const network = createNetwork(serverFor(valModules));
+  const pages: Array<() => void> = [];
+  const deployCode = (modules: AnyModule[]) => {
+    valModules = registryOf(modules);
+    network.route(serverFor(valModules));
+    for (const reload of pages) reload();
+  };
   const frames = createFrames();
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
   const clock = startFakeClock();
@@ -275,6 +300,12 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         get stat() {
           return stat;
         },
+        async receiveCode(modules) {
+          system.host.receive(await loadValModules(registryOf(modules)));
+        },
+        errors() {
+          return system.status.current().errors.map((error) => error.message);
+        },
         reads(surface, module, fieldPath) {
           const path = sourcePathOf(module, fieldPath);
           surfaces.push({
@@ -297,9 +328,14 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     page(route, pageOptions) {
       const draft = { on: pageOptions.draftMode };
-      const content = initValContent(options.config, valModules, {
-        ...hostOptions(host),
-        draftMode: draftModeOf(draft),
+      const contentFor = (registry: ValModules) =>
+        initValContent(options.config, registry, {
+          ...hostOptions(host),
+          draftMode: draftModeOf(draft),
+        });
+      let content = contentFor(valModules);
+      pages.push(() => {
+        content = contentFor(valModules);
       });
       const readers: PageReaders = {
         async fetchVal(module) {
@@ -330,6 +366,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       frames.expectInvariants();
     },
     clock,
+    deployCode,
+    async changeCode(modules) {
+      deployCode(modules);
+      for (const { studio } of studios) {
+        await studio.receiveCode(modules);
+      }
+    },
     async settle() {
       let quiet = 0;
       for (let round = 0; round < SETTLE_MAX_ROUNDS; round++) {

@@ -30,13 +30,20 @@ export type Network = {
   readonly log: readonly Exchange[];
   /** Resolves when no request is in flight or held. */
   idle(): Promise<void>;
+  /**
+   * Send new requests to another handler: what happens when HMR re-evaluates
+   * the app's server module. A request already in flight finishes on the
+   * handler it reached, as it does in a dev server.
+   */
+  route(handler: (request: Request) => Promise<Response>): void;
 };
 
 const ORIGIN = "http://localhost";
 
 export function createNetwork(
-  handler: (request: Request) => Promise<Response>,
+  initialHandler: (request: Request) => Promise<Response>,
 ): Network {
+  let handler = initialHandler;
   const log: Exchange[] = [];
   const holds: HoldRule[] = [];
   let waiting: Array<() => void> = [];
@@ -98,6 +105,9 @@ export function createNetwork(
     idle() {
       if (inFlight === 0) return Promise.resolve();
       return new Promise((resolve) => idleWaiters.push(resolve));
+    },
+    route(next) {
+      handler = next;
     },
   };
 }

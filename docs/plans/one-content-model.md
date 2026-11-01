@@ -1,11 +1,13 @@
 # One content model: every reader, one version, one way to load
 
 > **Status: proposed 2026-11-01; phase 0 started.** The scenario harness
-> (`scenarios/`, see its README) runs a smoke scenario: an edit in the real
-> Studio reaches a draft page's real `fetchVal`, in memory mode. What it does
-> not cover yet is listed in that README. Until this plan is agreed, every
-> "decided" below is a proposal. A session that changes the design updates
-> this file in the same PR as the change.
+> (`scenarios/`, see its README) runs in memory and fs mode, with the
+> Studio's real `/stat` long poll on a fake clock. Scenarios: an edit reaches
+> a draft page's `fetchVal`; an edit reaches a second editor; and "a field
+> the assistant added reverts", reproduced in local development when the
+> Studio gets new code before the server (marked `test.failing` until fixed).
+> Until this plan is agreed, every "decided" below is a proposal. A session
+> that changes the design updates this file in the same PR as the change.
 
 Content is read in about fifty places (listed in
 [The inventory](#appendix-the-inventory)): the app's readers in and out of

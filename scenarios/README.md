@@ -91,6 +91,14 @@ the surface and the frames:
 | An edit           | `stringFieldPatch` and `patchStore.createPatch`, what a string field calls                                                                                               |
 | Page, server half | `initValContent`'s `fetchValStega`, with the same patch store as the API, as an app passes it                                                                            |
 
+## The scenarios
+
+| File                          | What it asserts                                                                                                                                                | Today                                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `smoke.scenario.test.ts`      | An edit in the Studio reaches a draft page's `fetchVal`; with draft mode off the page keeps the published content                                              | passes, memory and fs                                                                           |
+| `twoEditors.scenario.test.ts` | An edit by one editor reaches the other editor's field through `/stat` and a fetch of the patch                                                                | passes, memory and fs                                                                           |
+| `addedField.scenario.test.ts` | A field added to a schema can be typed into and kept, (a) when the server and the Studio both have the new code, (b) when the Studio gets it before the server | (a) passes; (b) **fails, marked `test.failing`**: the edit is discarded. See the test's comment |
+
 ## Not there yet
 
 Each of these is a place where a scenario does NOT yet cover the product's
@@ -117,6 +125,20 @@ path, and a scenario that depends on it would prove less than it looks:
   300 ms steps until nothing changes for three in a row, so a parked long poll
   costs nothing and a 20 s one is a few steps. Races are not scripted yet:
   `network.hold` exists, and no scenario uses it.
+- **Code changes, hosted.** `world.deployCode` / `studio.receiveCode` are
+  how new code arrives in LOCAL DEVELOPMENT: HMR evaluates the server module
+  again (`initValServer`, `initValContent`) and `<ValModulesClient>` registers
+  the new registry (`loadValModules`, `HostStore.receive`). The hosted
+  proposal is not expressed: the content version and overlay the platform
+  hands a build, `__VAL_BASE__`, stagings by the assistant's `write_files`.
+  The bug the `addedField` scenario reproduces in development is reported for
+  the hosted one, where those layers are the likelier cause.
+- **A long poll parked on the old server.** After `deployCode`, a `/stat`
+  already parked on the previous server instance answers from that instance
+  until its 20 s run out (as in a dev server). `settle()` counts a parked poll
+  as quiet, so a scenario can end with a Studio still holding what the old
+  server said. In `addedField` (b) this is why the field ends `(absent)`
+  rather than back on the new base.
 - **Invariants.** "Converges" and "never goes back", on values. The rest of
   the plan's list (one version per render, parity, never with another schema,
   events not timers, no schema dialog) and the counted budgets of work come as
