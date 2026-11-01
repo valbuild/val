@@ -63,7 +63,7 @@ coverage" (valbuild/val#1006).
    module whose code throws disappearing silently (S12), the error fallback
    giving visitors edit tags (S25), and a removed module staying in the Studio
    (S13). They are fixed on this branch, where the scenarios that pin them
-   live.
+   live. Fixed so far: the whole-record read (F1).
 3. **Code mode can be turned off, and turning it off discards nothing**: see
    "Code mode", below.
 4. **Code mode is shared; the view is each person's**: see "Code mode", below.

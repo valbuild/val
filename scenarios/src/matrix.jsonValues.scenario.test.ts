@@ -190,8 +190,6 @@ function sourcePathOf() {
  * Why cells fail today. Each is a bug: the user expects every one of these to
  * work. Evidence and suspected cause are in the README's matrix section.
  */
-const F1 =
-  "F1: a draft fetchVal of the WHOLE record fills its entries from the bundle's imports, not from the pending edit (fetchValKey and fetchValRoute show it)";
 const F2 =
   "F2: a Studio that had not loaded the entry keeps the patch it could not apply and never applies it once the entry loads, so it shows (and the overlay relays) the committed entry";
 const R1 =
@@ -214,7 +212,7 @@ const Z = titleSurfaces("/blog/z");
 const cells: Cell[] = [
   {
     operation: "edit an entry",
-    failing: { "fetchVal /blog/a": F1, ...hooksFail("/blog/a", F2) },
+    failing: hooksFail("/blog/a", F2),
     surfaces: A,
     run: async (ctx) => {
       await ctx.editor.edit(blogVal, ["/blog/a", "title"], "Edited A");
@@ -223,7 +221,6 @@ const cells: Cell[] = [
   },
   {
     operation: "add an entry",
-    failing: { "fetchVal /blog/c": F1 },
     surfaces: [...C, ...keySurfaces],
     run: async (ctx) => {
       await ctx.editor.write(
@@ -240,7 +237,7 @@ const cells: Cell[] = [
   },
   {
     operation: "rename a key",
-    failing: { "fetchVal /blog/z": F1, ...hooksFail("/blog/z", F2) },
+    failing: hooksFail("/blog/z", F2),
     surfaces: [...Z, ...keySurfaces],
     run: async (ctx) => {
       await rename(ctx, "/blog/a", "/blog/z");
@@ -324,7 +321,7 @@ const cells: Cell[] = [
   },
   {
     operation: "another editor's edit, via /stat",
-    failing: { "fetchVal /blog/a": F1, ...hooksFail("/blog/a", F2) },
+    failing: hooksFail("/blog/a", F2),
     surfaces: A,
     run: async (ctx) => {
       const other = await ctx.other();
@@ -343,7 +340,6 @@ const cells: Cell[] = [
   {
     operation: "an edit to an entry nobody has loaded",
     failing: {
-      "fetchVal /blog/a": F1,
       ...hooksFail("/blog/a", F2),
       "studio /blog/a, opened after": F2,
     },

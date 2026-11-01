@@ -26,6 +26,11 @@ type SourcesCall = {
   session: string | undefined;
 };
 
+/** An endpoint these reads never reach: a draft that edits no `.jsonValues()` entry. */
+const notAsked = async (): Promise<never> => {
+  throw new Error("not asked");
+};
+
 /**
  * A server with only the route the draft reader uses, recording what it was
  * asked for.
@@ -40,6 +45,8 @@ function fakeValServer(): {
 } {
   const calls: SourcesCall[] = [];
   const server: DraftSourcesValServer = {
+    "/json": { GET: notAsked },
+    "/patches": { GET: notAsked },
     "/sources/~": {
       PUT: async (req) => {
         calls.push({

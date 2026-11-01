@@ -71,10 +71,15 @@ export type DraftSources = Extract<
  * it says what the dependency IS, and it lets a test drive the reader with a
  * one-route fake instead of casting a partial object to the whole server type.
  */
-export type DraftSourcesValServer = Pick<ValServer, "/sources/~">;
+/**
+ * What the draft readers read: the tree, and -- for a whole `.jsonValues()`
+ * record a draft edits -- the patches' ops and the entries they touch
+ * (`draftJsonValuesRecord`).
+ */
+export type DraftSourcesValServer = DraftValServer;
 
 /** What the route readers need: the tree, plus the single-entry route. */
-export type RouteReaderValServer = Pick<ValServer, "/sources/~" | "/json">;
+export type RouteReaderValServer = DraftValServer;
 
 /**
  * Where the reader gets its per-request memo box.
@@ -250,10 +255,16 @@ export const initFetchValStega =
             () => loadDraftSources(valServerPromise, sessionCookie),
           );
           if (modules) {
+            const record = await draftJsonValuesRecord(
+              selector,
+              modules,
+              valServerPromise,
+              sessionCookie,
+            );
             return stegaEncode(selector, {
               disabled: !enabled,
               getModule: await withJsonValuesEntries(selector, (path) => [
-                modules[path]?.source,
+                record?.path === path ? record.source : modules[path]?.source,
                 snapshot?.[path],
               ]),
             });
@@ -306,6 +317,41 @@ async function withJsonValuesEntries(
   );
   const filled = fillJsonValuesRecord(plan.record, loaded) as Json;
   return (path) => (path === plan.modulePath ? filled : first(path));
+}
+
+/**
+ * The draft of the whole `.jsonValues()` record `selector` reads, with the
+ * entries its patches touch filled in from the server -- or `null` when it
+ * reads no such record, the draft changes nothing in it, or the edited entries
+ * could not be read.
+ *
+ * In the draft tree every entry is still a marker, an edited one too, so
+ * filling the record from the bundle rendered the PUBLISHED entry under a
+ * pending edit. The entries a patch touches are the server's patched content,
+ * as `fetchValKey` reads one; the rest stay markers and come from the bundle.
+ * `null` is the module's draft source as it was, markers and all: the bundle's
+ * entries, which is a stale preview rather than a failed render.
+ */
+async function draftJsonValuesRecord(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  selector: any,
+  modules: DraftSources,
+  valServerPromise: Promise<DraftValServer>,
+  sessionCookie: string | undefined,
+): Promise<{ path: ModuleFilePath; source: Json } | null> {
+  const path = jsonValuesRecordToFill(selector, () => [])?.modulePath;
+  const draft = path !== undefined ? modules[path] : undefined;
+  if (path === undefined || !draft?.patches?.applied.length) {
+    return null;
+  }
+  const source = await withDraftJsonEntries(
+    valServerPromise,
+    sessionCookie,
+    path,
+    draft.source,
+    draft.patches.applied,
+  );
+  return source !== undefined ? { path, source } : null;
 }
 
 /** A proposal's saved Source, by module: see `ValProposal` in `@valbuild/server`. */

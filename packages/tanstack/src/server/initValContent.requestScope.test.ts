@@ -52,12 +52,19 @@ const greeting = c.define(GREETING, s.object({ text: s.string() }), {
   text: "published hello",
 });
 
+/** An endpoint these reads never reach: a draft that edits no `.jsonValues()` entry. */
+const notAsked = async (): Promise<never> => {
+  throw new Error("not asked");
+};
+
 function fakeValServer(): {
   server: Promise<DraftSourcesValServer>;
   sessions: (string | undefined)[];
 } {
   const sessions: (string | undefined)[] = [];
   const server: DraftSourcesValServer = {
+    "/json": { GET: notAsked },
+    "/patches": { GET: notAsked },
     "/sources/~": {
       PUT: async (req) => {
         sessions.push(req.cookies["val_session"]);

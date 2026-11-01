@@ -1,6 +1,6 @@
 import { initVal, type ModuleFilePath } from "@valbuild/core";
 import { raw } from "@valbuild/react/stega";
-import type { RequestScopedMemo } from "@valbuild/shared/internal";
+import { PatchId, type RequestScopedMemo } from "@valbuild/shared/internal";
 import {
   initFetchValKeyStega,
   initFetchValStega,
@@ -51,11 +51,18 @@ const scope: GetDraftSourcesScope = async () =>
   ({}) as RequestScopedMemo<DraftSources | null>;
 
 /** A server whose draft view of `path` is `draft`. */
+/** An endpoint these reads never reach: a draft that edits no `.jsonValues()` entry. */
+const notAsked = async (): Promise<never> => {
+  throw new Error("not asked");
+};
+
 function draftServer(
   path: ModuleFilePath,
   draft: unknown,
 ): Promise<DraftSourcesValServer> {
   return Promise.resolve({
+    "/json": { GET: notAsked },
+    "/patches": { GET: notAsked },
     "/sources/~": {
       PUT: async () => ({
         status: 200,
@@ -110,6 +117,80 @@ describe("fetchVal on a .jsonValues() record", () => {
       b: "Note B",
     });
     expect(imports.a).not.toHaveBeenCalled();
+  });
+
+  test("draft: an entry a pending patch edits is the server's patched entry, not the bundle's", async () => {
+    const { module, imports, path } = notes("/server-notes-pending.val.ts");
+    const patchId = PatchId.parse("00000000-0000-4000-8000-000000000001");
+    const askedFor: (string[] | undefined)[] = [];
+    const server: DraftSourcesValServer = {
+      // In the draft tree an edited entry is still a marker, like the rest.
+      "/sources/~": {
+        PUT: async () => ({
+          status: 200,
+          json: {
+            schemaSha: "schema-sha",
+            sourcesSha: "sources-sha",
+            modules: {
+              [path]: {
+                source: { a: { _type: "json" }, b: { _type: "json" } },
+                patches: { applied: [patchId] },
+              },
+            },
+          },
+        }),
+      },
+      "/patches": {
+        GET: async () => ({
+          status: 200,
+          json: {
+            baseSha: "base-sha",
+            patches: [
+              {
+                path,
+                patchId,
+                patch: [
+                  { op: "replace", path: ["a", "title"], value: "Edited A" },
+                ],
+                createdAt: "2026-11-01T00:00:00.000Z",
+                authorId: null,
+                appliedAt: null,
+              },
+            ],
+          },
+        }),
+      },
+      "/json": {
+        GET: async (req) => {
+          askedFor.push(req.query.keys);
+          return {
+            status: 200,
+            json: {
+              path,
+              entries: [{ key: "a", content: { title: "Edited A" } }],
+              missing: [],
+              errors: [],
+            },
+          };
+        },
+      },
+    };
+    const fetchVal = initFetchValStega(
+      { project: "test" },
+      "/api/val",
+      Promise.resolve(server),
+      async () => true,
+      headers,
+      cookies,
+      scope,
+    );
+    expect(titles(await fetchVal(module))).toEqual({
+      a: "Edited A",
+      b: "Note B",
+    });
+    expect(askedFor).toEqual([["a"]]);
+    expect(imports.a).not.toHaveBeenCalled();
+    expect(imports.b).toHaveBeenCalledTimes(1);
   });
 });
 

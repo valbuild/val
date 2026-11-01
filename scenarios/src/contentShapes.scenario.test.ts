@@ -72,14 +72,12 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
    * hands the page the entry's content with the edit (not a marker, not the
    * committed content), and no edit is discarded.
    *
-   * SKIPPED: two things fail, each pinned by a running test below.
-   * (1) The page's server read of the WHOLE record (`fetchVal`) shows the
-   * committed entry: the draft tree holds markers for entries, and the reader
-   * fills them from the bundle's `import()`s, never from the pending edit.
-   * The single-entry reader (`fetchValKey`) does show it.
-   * (2) The overlay's Studio cannot apply the editor's edit while the entry
-   * is unloaded (it keeps the patch, and says so at error level), loads the
-   * entry, and relays the committed content without the edit.
+   * SKIPPED: the overlay's Studio cannot apply the editor's edit while the
+   * entry is unloaded (it keeps the patch, and says so at error level), loads
+   * the entry, and relays the committed content without the edit. Pinned by
+   * the running test below. (The page's server read of the whole record
+   * showed the committed entry too, F1; that is fixed: `fetchVal` reads the
+   * entries a pending patch touches from the server.)
    *
    * The page's HOOK reading a whole `.jsonValues()` record is not covered:
    * `useValStega` fills the entries through `React.use` on cached promises,
@@ -96,23 +94,7 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
     expect(world.network.log.filter((e) => e.method === "DELETE")).toEqual([]);
   });
 
-  test("S17 why (1): a whole-record draft read fills entries from the bundle, not the pending edit", async () => {
-    world = await createWorld({ config, modules: [pagesVal], server });
-    await editUnloadedEntry(world);
-    const draftPage = world.page("/", { draftMode: true });
-    draftPage.reads("whole record", async (val) =>
-      entryTitle(await val.fetchVal(pagesVal), "/a"),
-    );
-    draftPage.reads("one entry", async (val) =>
-      fieldOf(await val.fetchValKey(pagesVal, "/a"), "title"),
-    );
-    await world.observe();
-    expect(world.frames.last("one entry")).toBe("Edited A"); // the server has it
-    expect(world.frames.last("whole record")).toBe("Page A"); // the reader does not show it
-    expect(world.frames.last("loader")).toBe("Page A");
-  });
-
-  test("S17 why (2): the overlay relays the entry it loaded, without the edit it could not apply", async () => {
+  test("S17 why: the overlay relays the entry it loaded, without the edit it could not apply", async () => {
     world = await createWorld({ config, modules: [pagesVal], server });
     const { page } = await editUnloadedEntry(world);
     expect(world.frames.last("field")).toBe("Edited A"); // the editor applies it
