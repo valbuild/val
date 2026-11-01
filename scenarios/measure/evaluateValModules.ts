@@ -67,7 +67,13 @@ async function vendorChunk(dir: string, name: string, entry: string) {
   );
 }
 
-async function once(files: Record<string, string>, origin: string, target: BuildTarget, dir: string, run: number) {
+async function once(
+  files: Record<string, string>,
+  origin: string,
+  target: BuildTarget,
+  dir: string,
+  run: number,
+) {
   const startBundle = performance.now();
   const { code } = await bundleValModules({ files, target, origin });
   const bundled = performance.now();
@@ -80,7 +86,9 @@ async function once(files: Record<string, string>, origin: string, target: Build
   for (const { def } of entry.default.modules) {
     const module = (await def()).default;
     core.Internal.getSchema(module)["executeSerialize"]();
-    const source = await core.Internal.resolveJsonValues(core.Internal.getSource(module));
+    const source = await core.Internal.resolveJsonValues(
+      core.Internal.getSource(module),
+    );
     bytes += JSON.stringify(source).length;
     count++;
   }
@@ -101,8 +109,16 @@ async function main() {
   mkdirSync(path.join(dir, "_pvendor", "r1"), { recursive: true });
   writeFileSync(path.join(dir, "package.json"), `{ "type": "module" }`);
   await vendorChunk(dir, "valbuild__core", CORE);
-  await vendorChunk(dir, "valbuild__tanstack", path.join(PACKAGES, "tanstack/src/index.ts"));
-  await vendorChunk(dir, "valbuild__next", path.join(PACKAGES, "next/src/index.ts"));
+  await vendorChunk(
+    dir,
+    "valbuild__tanstack",
+    path.join(PACKAGES, "tanstack/src/index.ts"),
+  );
+  await vendorChunk(
+    dir,
+    "valbuild__next",
+    path.join(PACKAGES, "next/src/index.ts"),
+  );
   const target: BuildTarget = {
     base: {
       rev: "b1",
@@ -141,6 +157,8 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? error.stack : String(error)}\n`,
+  );
   process.exitCode = 1;
 });

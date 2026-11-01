@@ -74,7 +74,9 @@ async function measure(sizeKb: number) {
   system.dispose();
   times.sort((a, b) => a - b);
   return {
-    moduleKB: Math.round(JSON.stringify(Internal.getSource(module)).length / KB),
+    moduleKB: Math.round(
+      JSON.stringify(Internal.getSource(module)).length / KB,
+    ),
     medianMs: Number(times[Math.floor(times.length / 2)].toFixed(2)),
     p90Ms: Number(times[Math.floor(times.length * 0.9)].toFixed(2)),
   };

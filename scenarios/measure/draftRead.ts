@@ -14,7 +14,7 @@
  *
  * Heap: each (input, operation) is run in a child Node process with
  * `--max-old-space-size` set, and the smallest limit it completes in is found
- * by bisection. That is the V8 OLD-generation limit, so the young generation
+ * by bisection, to within 8 MB. That is the V8 OLD-generation limit, so the young generation
  * and code come on top; a Cloudflare isolate's 128 MB covers all of it, and
  * the app's own bundle as well. So read the result as "at least this much".
  */
@@ -31,7 +31,11 @@ import {
   type ValModule,
   type ValModules,
 } from "@valbuild/core";
-import { createValClient, type ValClient } from "@valbuild/shared/internal";
+import {
+  PatchId,
+  createValClient,
+  type ValClient,
+} from "@valbuild/shared/internal";
 import { InMemoryPatchStore, initValServer } from "@valbuild/tanstack/server";
 import { loadValModules } from "@valbuild/server";
 
@@ -67,7 +71,7 @@ const { s, c, config } = initVal({});
 const item = s.object({
   title: s.string(),
   summary: s.string(),
-  body: s.richtext({ style: { bold: true } }),
+  body: s.richtext({ bold: true }),
   tags: s.array(s.string()),
 });
 
@@ -193,7 +197,9 @@ async function seedChain(
         patches: [
           {
             path,
-            patchId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+            patchId: PatchId.parse(
+              `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+            ),
             patch: [
               {
                 op: "replace",
@@ -226,6 +232,8 @@ async function runOperation(client: ValClient, op: Operation): Promise<void> {
             validate_binary_files: false,
           }
         : {
+            apply_patches: undefined,
+            exclude_patches: undefined,
             validate_sources: op === "draft",
             validate_binary_files: false,
           },
@@ -288,9 +296,10 @@ function minimumHeap(input: Input, op: Operation): number | null {
     return child.status === 0;
   };
   let low = 8;
-  let high = 1024;
+  let high = 512;
   if (!passes(high)) return null;
-  while (high - low > 4) {
+  // To within 8 MB: the answer is a lower bound anyway (see the README).
+  while (high - low > 8) {
     const mid = Math.floor((low + high) / 2);
     if (passes(mid)) high = mid;
     else low = mid;

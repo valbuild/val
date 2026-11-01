@@ -881,6 +881,18 @@ checked against the same invariants (`world.expectInvariants()`). See
 `scenarios/README.md` and `docs/plans/one-content-model.md`. Run it with
 `pnpm test scenarios`.
 
+### Measuring performance (`scenarios/measure/`)
+
+Read `scenarios/measure/README.md` before measuring anything, and especially
+before claiming something fits in a Cloudflare isolate. In short: measure the
+product's path, print rather than assert a stopwatch, and gate CI on counted
+work (`world.expectWork`), not milliseconds. A heap number from Node with
+`--max-old-space-size` is a LOWER bound for an isolate's 128 MB, which also
+counts WebAssembly and the app's own code. It is not known that a local
+`workerd` / `wrangler dev` enforces 128 MB, so passing there proves nothing
+about the limit. Only a deployed loader (`wrangler tail`, `exceededMemory`) is
+certain.
+
 ## CI
 
 CI (`.github/workflows/check.yml`) runs the following jobs on every push. Before declaring a change ready, run all of these from the repo root:
