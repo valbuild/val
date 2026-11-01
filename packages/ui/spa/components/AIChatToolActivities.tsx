@@ -3,7 +3,14 @@ import {
   Check,
   ChevronRight,
   Clock,
+  CodeXml,
   Copy,
+  FileCode,
+  FolderTree,
+  Hammer,
+  Hourglass,
+  ListChecks,
+  Paintbrush,
   Database,
   FilePlus,
   FileText,
@@ -26,6 +33,10 @@ import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import { ToolName } from "@valbuild/shared/internal";
 import { Spinner } from "./designSystem/spinner";
+import {
+  CodeModeRequestCard,
+  type CodeModeRequest,
+} from "./CodeModeRequestCard";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +65,12 @@ export type ToolActivity = {
   questions?: AskUserQuestionItem[];
   answers?: AskUserQuestionAnswer[];
   cancelled?: boolean;
+  /**
+   * `request_code_mode`: the assistant asking for code mode. Shown as a card
+   * of its own, like a question, because the turn waits on it. See
+   * `CodeModeRequestCard`.
+   */
+  codeModeRequest?: CodeModeRequest;
 };
 
 /**
@@ -168,6 +185,67 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
 type ToolDisplay = { label: string; icon: React.ReactNode };
 
 /**
+ * The code tools (`CODE_TOOLS` in `proposals/proposalCode.ts`), which every
+ * hosted Studio's assistant has and which act only in code mode, and
+ * `request_code_mode`. Not in `toolNames`, which is the content tools the
+ * MCP server shares, so not checked for completeness by `TOOL_DISPLAY`.
+ */
+const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
+  list_files: {
+    label: "Listing files",
+    icon: <FolderTree className="h-3 w-3" />,
+  },
+  read_file: {
+    label: "Reading code",
+    icon: <FileCode className="h-3 w-3" />,
+  },
+  search_code: {
+    label: "Searching code",
+    icon: <Search className="h-3 w-3" />,
+  },
+  write_files: {
+    label: "Changing code",
+    icon: <CodeXml className="h-3 w-3" />,
+  },
+  format_files: {
+    label: "Formatting code",
+    icon: <Paintbrush className="h-3 w-3" />,
+  },
+  lint: {
+    label: "Linting",
+    icon: <ListChecks className="h-3 w-3" />,
+  },
+  typecheck: {
+    label: "Checking types",
+    icon: <ShieldCheck className="h-3 w-3" />,
+  },
+  typecheck_status: {
+    label: "Checking types",
+    icon: <ShieldCheck className="h-3 w-3" />,
+  },
+  build_proposal: {
+    label: "Building",
+    icon: <Hammer className="h-3 w-3" />,
+  },
+  build_status: {
+    label: "Checking the build",
+    icon: <Hammer className="h-3 w-3" />,
+  },
+  cancel_build: {
+    label: "Stopping the build",
+    icon: <Hammer className="h-3 w-3" />,
+  },
+  wait: {
+    label: "Waiting for the build",
+    icon: <Hourglass className="h-3 w-3" />,
+  },
+  request_code_mode: {
+    label: "Asking for code mode",
+    icon: <CodeXml className="h-3 w-3" />,
+  },
+};
+
+/**
  * The same map, keyed by plain string.
  *
  * `TOOL_DISPLAY` is `Record<ToolName, …>` so that adding a tool to `toolNames`
@@ -177,7 +255,10 @@ type ToolDisplay = { label: string; icon: React.ReactNode };
  * handles, telling the compiler the lookup cannot miss. Widening by assignment
  * keeps both: the exhaustive check above, and an honest `| undefined` here.
  */
-const TOOL_DISPLAY_BY_NAME: Partial<Record<string, ToolDisplay>> = TOOL_DISPLAY;
+const TOOL_DISPLAY_BY_NAME: Partial<Record<string, ToolDisplay>> = {
+  ...CODE_TOOL_DISPLAY,
+  ...TOOL_DISPLAY,
+};
 
 function toolDisplay(name: string): ToolDisplay {
   return (
@@ -213,6 +294,8 @@ export function ToolActivities({
   activities,
   onSubmitAnswers,
   onCancel,
+  onEnableCodeMode,
+  onDeclineCodeMode,
   defaultExpanded,
 }: {
   activities: ToolActivity[];
@@ -221,11 +304,20 @@ export function ToolActivities({
     answers: AskUserQuestionAnswer[],
   ) => void;
   onCancel: (toolCallId: string) => void;
+  /** A `request_code_mode` card's button: see `CodeModeRequestCard`. */
+  onEnableCodeMode?: (toolCallId: string) => void;
+  /** Its "Not now". */
+  onDeclineCodeMode?: (toolCallId: string) => void;
   /** Stories and tests open the list without a click. */
   defaultExpanded?: boolean;
 }) {
-  const toolCalls = activities.filter((a) => a.questions === undefined);
+  const toolCalls = activities.filter(
+    (a) => a.questions === undefined && a.codeModeRequest === undefined,
+  );
   const questions = activities.filter((a) => a.questions !== undefined);
+  const codeModeRequests = activities.filter(
+    (a) => a.codeModeRequest !== undefined,
+  );
   if (activities.length === 0) {
     return null;
   }
@@ -270,6 +362,16 @@ export function ToolActivities({
           </div>
         );
       })}
+      {codeModeRequests.map((activity) =>
+        activity.codeModeRequest !== undefined ? (
+          <CodeModeRequestCard
+            key={activity.toolCallId}
+            request={activity.codeModeRequest}
+            onEnable={() => onEnableCodeMode?.(activity.toolCallId)}
+            onDecline={() => onDeclineCodeMode?.(activity.toolCallId)}
+          />
+        ) : null,
+      )}
     </div>
   );
 }

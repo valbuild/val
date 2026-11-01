@@ -106,6 +106,136 @@ export function ProposalSaveButton({
 }
 
 /**
+ * Whether the proposal has code its preview does not show yet that pressing
+ * Save would build: staged and never built, a build that failed, or one this
+ * browser could not open the tab for. Not while it builds, and not the
+ * dependency states, which have steps of their own (see
+ * {@link describeDependencies}).
+ */
+export function buildIsDue(code: ProposalCodeState | null): boolean {
+  return (
+    code !== null &&
+    (code.state === "required" ||
+      code.state === "failed" ||
+      code.state === "blocked")
+  );
+}
+
+/**
+ * Save, when it builds too (`onSaveAndBuild`): ONE step where there were two.
+ *
+ * Enabled while there is something unsaved OR a build is due, and pressing it
+ * saves what there is and then builds -- so a proposal whose code changed is
+ * never "saved" with a preview that does not show it, and nobody has to learn
+ * that Build is a second button. It reads "Save" throughout; the hammer beside
+ * it says a build will follow, and the button itself says "Building…" while
+ * one runs and "Build failed" when it did, which pressing builds again.
+ */
+export function ProposalSaveAndBuildButton({
+  location,
+  onSaveAndBuild,
+  blockedBy,
+  className,
+}: {
+  location: InProposal;
+  onSaveAndBuild: () => void;
+  /** As {@link ProposalSaveButton}'s: "Fix N" while a save would be refused. */
+  blockedBy?: { errors: number; onShow: () => void };
+  className?: string;
+}) {
+  const saving = location.save.state === "saving";
+  const saveFailed = location.save.state === "failed" ? location.save : null;
+  const code = location.code;
+  const building = code?.state === "building";
+  const buildFailed =
+    location.unsaved === 0 && code?.state === "failed" ? code : null;
+  const tabBlocked = location.unsaved === 0 && code?.state === "blocked";
+  const due = buildIsDue(code);
+  const blocked =
+    !saving &&
+    location.unsaved > 0 &&
+    blockedBy !== undefined &&
+    blockedBy.errors > 0
+      ? blockedBy
+      : null;
+  const busy = saving || building;
+  const canPress =
+    !busy && (location.unsaved > 0 || due || saveFailed !== null);
+  const error = saveFailed !== null || buildFailed !== null || blocked !== null;
+  const changes = `${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`;
+  return (
+    <button
+      type="button"
+      onClick={blocked !== null ? blocked.onShow : onSaveAndBuild}
+      disabled={!canPress}
+      title={
+        blocked !== null
+          ? `${blocked.errors} validation ${blocked.errors === 1 ? "error" : "errors"} to fix before saving. Press to see ${blocked.errors === 1 ? "it" : "them"}.`
+          : saveFailed !== null
+            ? `${saveFailed.error}. Press to try again.`
+            : building
+              ? "Building the proposal's code, so its preview shows it."
+              : buildFailed !== null
+                ? `The build failed: ${buildFailed.error}. Press to build again.`
+                : tabBlocked
+                  ? "This browser builds the proposal in a new tab, and did not let it open. Press to open it."
+                  : location.unsaved > 0 && due
+                    ? `Saves ${changes}, then builds the code so the preview shows it.`
+                    : location.unsaved > 0
+                      ? `Saves ${changes} in the proposal. Nothing reaches the site.`
+                      : due
+                        ? "Code changed in this proposal. Press to build it, so the preview shows it."
+                        : "Everything is saved and built."
+      }
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
+        error
+          ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
+          : "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
+        "disabled:bg-bg-disabled disabled:text-fg-disabled",
+        busy && "disabled:cursor-progress",
+        className,
+      )}
+    >
+      {busy ? (
+        <Spinner size={14} />
+      ) : error ? (
+        <AlertTriangle size={14} className="shrink-0" />
+      ) : tabBlocked ? (
+        <ExternalLink size={14} className="shrink-0" />
+      ) : (
+        <Save size={14} className="shrink-0" />
+      )}
+      <span className="truncate">
+        {saving
+          ? "Saving…"
+          : building
+            ? "Building…"
+            : blocked !== null
+              ? `Fix ${blocked.errors > 9 ? "9+" : blocked.errors}`
+              : saveFailed !== null
+                ? "Save failed"
+                : buildFailed !== null
+                  ? "Build failed"
+                  : tabBlocked
+                    ? "Open the tab to build"
+                    : "Save"}
+      </span>
+      {!busy && !error && !tabBlocked && location.unsaved > 0 && (
+        <span className="tabular-nums opacity-80">{location.unsaved}</span>
+      )}
+      {!busy && !error && !tabBlocked && due && (
+        <Hammer
+          size={12}
+          aria-label="and build"
+          className="shrink-0 opacity-80"
+        />
+      )}
+    </button>
+  );
+}
+
+/**
  * Build, in a proposal with staged files: what makes its address show them
  * (valbuild/home `docs/hosted-publishing.md`, step 7). Shown only while there
  * is something to build -- "Build required" is the button itself -- and a
@@ -356,8 +486,19 @@ export type ProposalNextAction = "save" | "build" | "publish";
 export function nextProposalAction(
   location: InProposal,
   canBuild: boolean,
+  /**
+   * Save builds too (`onSaveAndBuild`): a build that is due, or running, is
+   * Save's, and only the dependency states are a Build step of their own.
+   */
+  saveBuilds = false,
 ): ProposalNextAction {
   if (location.unsaved > 0 || location.save.state !== "idle") return "save";
+  if (
+    saveBuilds &&
+    (buildIsDue(location.code) || location.code?.state === "building")
+  ) {
+    return "save";
+  }
   if (location.code !== null && canBuild) return "build";
   return "publish";
 }
@@ -394,6 +535,7 @@ export function ProposalActionButton({
   location,
   onSave,
   onBuild,
+  onSaveAndBuild,
   onPublish,
   saveBlockedBy,
   defaultMenuOpen = false,
@@ -402,6 +544,12 @@ export function ProposalActionButton({
   onSave: () => void;
   /** Absent: this proposal is not built here (an upgrade, in Val Build). */
   onBuild?: () => void;
+  /**
+   * Save, then build: given (with `onBuild`), Save is the one step for both
+   * -- see {@link ProposalSaveAndBuildButton} -- and Build is offered on its
+   * own only for the dependency states, which are not a build of the code.
+   */
+  onSaveAndBuild?: () => void;
   onPublish: () => void;
   saveBlockedBy?: { errors: number; onShow: () => void };
   defaultMenuOpen?: boolean;
@@ -422,7 +570,15 @@ export function ProposalActionButton({
   if (location.proposal.status === "merged") {
     return <ProposalPublishButton location={location} onPublish={onPublish} />;
   }
-  const action = nextProposalAction(location, onBuild !== undefined);
+  const saveAndBuild =
+    onSaveAndBuild !== undefined && onBuild !== undefined
+      ? onSaveAndBuild
+      : null;
+  const action = nextProposalAction(
+    location,
+    onBuild !== undefined,
+    saveAndBuild !== null,
+  );
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed";
   const blocked =
@@ -458,7 +614,7 @@ export function ProposalActionButton({
 
   const mainDisabled =
     action === "save"
-      ? saving
+      ? saving || (saveAndBuild !== null && code?.state === "building")
       : action === "build"
         ? build === null ||
           build.busy ||
@@ -466,7 +622,11 @@ export function ProposalActionButton({
         : location.publishBlockedBy !== null;
   const mainTone: Tone =
     action === "save"
-      ? blocked !== null || saveFailed
+      ? blocked !== null ||
+        saveFailed ||
+        (saveAndBuild !== null &&
+          location.unsaved === 0 &&
+          code?.state === "failed")
         ? "error"
         : "primary"
       : action === "build"
@@ -489,7 +649,14 @@ export function ProposalActionButton({
   return (
     <div ref={containerRef} className="relative h-8 shrink-0">
       <div className="inline-flex h-full items-stretch">
-        {action === "save" ? (
+        {action === "save" && saveAndBuild !== null ? (
+          <ProposalSaveAndBuildButton
+            location={location}
+            onSaveAndBuild={saveAndBuild}
+            blockedBy={saveBlockedBy}
+            className="rounded-r-none"
+          />
+        ) : action === "save" ? (
           <ProposalSaveButton
             location={location}
             onSave={onSave}
@@ -552,37 +719,51 @@ export function ProposalActionButton({
                 detail={
                   saveFailed && location.save.state === "failed"
                     ? `${location.save.error}. Press to try again.`
-                    : "Keep them in the proposal. Nothing reaches the site."
+                    : saveAndBuild !== null && buildIsDue(code)
+                      ? "Then builds the code, so the preview shows it. Nothing reaches the site."
+                      : "Keep them in the proposal. Nothing reaches the site."
                 }
               >
                 {saving
                   ? "Saving…"
-                  : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`}
+                  : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}${saveAndBuild !== null && buildIsDue(code) ? " and build" : ""}`}
               </MenuItem>
             ))}
-          {build !== null && onBuild !== undefined && (
-            <MenuItem
-              icon={
-                build.busy ? (
-                  <Spinner size={14} />
-                ) : build.failed ? (
-                  <AlertTriangle
-                    size={14}
-                    className="text-fg-error-on-surface"
-                  />
-                ) : (
-                  <Hammer size={14} />
-                )
-              }
-              onClick={choose(onBuild)}
-              disabled={
-                build.busy || (build.failed && isDependenciesCode(code))
-              }
-              detail={build.detail}
-            >
-              {build.label}
-            </MenuItem>
-          )}
+          {/*
+           * With Save building too, a build that is due is Save's: offered
+           * here on its own only while there is nothing to save first.
+           */}
+          {build !== null &&
+            onBuild !== undefined &&
+            (saveAndBuild === null ||
+              isDependenciesCode(code) ||
+              location.unsaved === 0) && (
+              <MenuItem
+                icon={
+                  build.busy ? (
+                    <Spinner size={14} />
+                  ) : build.failed ? (
+                    <AlertTriangle
+                      size={14}
+                      className="text-fg-error-on-surface"
+                    />
+                  ) : (
+                    <Hammer size={14} />
+                  )
+                }
+                onClick={choose(
+                  saveAndBuild !== null && !isDependenciesCode(code)
+                    ? saveAndBuild
+                    : onBuild,
+                )}
+                disabled={
+                  build.busy || (build.failed && isDependenciesCode(code))
+                }
+                detail={build.detail}
+              >
+                {build.label}
+              </MenuItem>
+            )}
           <MenuItem
             icon={<Upload size={14} />}
             onClick={choose(onPublish)}

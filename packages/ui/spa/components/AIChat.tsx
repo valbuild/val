@@ -375,6 +375,14 @@ export type AIChatProps = {
   ) => void;
   /** Called when the user cancels an ask_user_question tool call */
   onCancelToolQuestion?: (toolCallId: string) => void;
+  /**
+   * A `request_code_mode` card's button was pressed: turn code mode on (or,
+   * on the site, choose a proposal for it). The app answers the tool call and
+   * updates the activity's `codeModeRequest`. See `CodeModeRequestCard`.
+   */
+  onEnableCodeMode?: (toolCallId: string) => void;
+  /** Its "Not now". */
+  onDeclineCodeMode?: (toolCallId: string) => void;
   /** A chat several people work in: see `AIChatTogether`. */
   together?: AIChatTogether;
   /**
@@ -710,6 +718,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     isLoadingSession,
     onAnswerToolQuestions,
     onCancelToolQuestion,
+    onEnableCodeMode,
+    onDeclineCodeMode,
     initialMessages,
     initialShowSessions = false,
     together,
@@ -1698,6 +1708,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   recordCancelInState(msg.id, toolCallId);
                   onCancelToolQuestion?.(toolCallId);
                 }}
+                onEnableCodeMode={onEnableCodeMode}
+                onDeclineCodeMode={onDeclineCodeMode}
               />
             ))
           )}
@@ -2213,6 +2225,8 @@ function MessageBubble({
   onRetry,
   onSubmitToolAnswers,
   onCancelToolQuestion,
+  onEnableCodeMode,
+  onDeclineCodeMode,
 }: {
   message: ChatMessage;
   /** Who wrote it, in a chat several people write in. */
@@ -2223,6 +2237,8 @@ function MessageBubble({
     answers: AskUserQuestionAnswer[],
   ) => void;
   onCancelToolQuestion: (toolCallId: string) => void;
+  onEnableCodeMode?: (toolCallId: string) => void;
+  onDeclineCodeMode?: (toolCallId: string) => void;
 }) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
@@ -2230,7 +2246,10 @@ function MessageBubble({
   const activities = message.toolActivities ?? [];
   const hasPendingQuestion = activities.some(isPendingQuestion);
   const hasRunningTool = activities.some(
-    (a) => a.status === "pending" && a.questions === undefined,
+    (a) =>
+      a.status === "pending" &&
+      a.questions === undefined &&
+      a.codeModeRequest === undefined,
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
@@ -2280,6 +2299,8 @@ function MessageBubble({
           activities={activities}
           onSubmitAnswers={onSubmitToolAnswers}
           onCancel={onCancelToolQuestion}
+          onEnableCodeMode={onEnableCodeMode}
+          onDeclineCodeMode={onDeclineCodeMode}
         />
       )}
       {hasBubble && (

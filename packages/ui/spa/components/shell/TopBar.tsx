@@ -46,6 +46,10 @@ import {
   ProposalProgress,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import {
+  CodeModeButton,
+  type TopBarCodeMode,
+} from "../proposals/CodeModeButton";
 import { Spinner } from "../designSystem/spinner";
 
 /**
@@ -79,6 +83,18 @@ export type TopBarProposals = {
   saveBlockedBy?: { errors: number; onShow: () => void };
   /** Build the proposal's staged files, so its address shows them. */
   onBuild?: () => void;
+  /**
+   * Save, and build too: given, Save is enabled while there is a build to
+   * make even with nothing unsaved, and pressing it saves what there is and
+   * then builds. Build is no longer a step of its own. Absent leaves Save and
+   * Build as two steps. See `ProposalActionButton`.
+   */
+  onSaveAndBuild?: () => void;
+  /**
+   * The `</>` right of the switcher. Absent outside a hosted Studio, where
+   * code is changed in an editor. See `CodeModeButton`.
+   */
+  codeMode?: TopBarCodeMode;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
   /**
@@ -356,6 +372,7 @@ export function TopBar({
               location={proposalLocation}
               onSave={proposals.onSave}
               onBuild={proposals.onBuild}
+              onSaveAndBuild={proposals.onSaveAndBuild}
               onPublish={proposals.onPublish}
               saveBlockedBy={proposals.saveBlockedBy}
               defaultMenuOpen={proposals.defaultMenuOpen}
@@ -461,6 +478,17 @@ export function TopBar({
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
           {planStatus}
           {switcher}
+          {proposals?.codeMode !== undefined && (
+            <CodeModeButton
+              location={proposals.location}
+              proposals={proposals.open}
+              codeMode={proposals.codeMode}
+              disabled={
+                proposals.loading === true ||
+                (proposals.leaving ?? null) !== null
+              }
+            />
+          )}
           {inProposal?.progress}
         </div>
       )}

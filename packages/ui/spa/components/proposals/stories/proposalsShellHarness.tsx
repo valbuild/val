@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 import { themeCustomProperties } from "@valbuild/shared/internal";
@@ -25,6 +25,15 @@ import {
 } from "../PublishProposalDialog";
 import { UpgradeProposalNotice } from "../UpgradeProposalNotice";
 import type { ProposalSummary, StudioLocation } from "../types";
+import { buildIsDue } from "../ProposalBar";
+import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
+import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
+import {
+  FILES,
+  PROPOSAL,
+  SITE,
+} from "../../design/stories/designStoryFixtures";
+import { lineDiff } from "../../../design/lineDiff";
 
 /**
  * The whole Studio with proposals on, for the proposals stories: what
@@ -203,6 +212,38 @@ export type HarnessProps = {
   leaving?: string;
   /** The project's own proposal colour, from `theme.proposal`. */
   proposalColor?: string;
+  /**
+   * A hosted Studio: the `</>` beside the switcher. See `CodeModeButton`.
+   * Absent, as in local development, and there is none.
+   */
+  codeMode?: {
+    /** Code mode on from the start (in an open proposal). */
+    on?: boolean;
+    /** On the site: the `</>` menu, open. */
+    menuOpen?: boolean;
+    /** Whether the proposal changes any code yet. Default: it does. */
+    changed?: boolean;
+    view?: "preview" | "changes";
+  };
+  /** Save builds too: `onSaveAndBuild`. See `ProposalSaveAndBuildButton`. */
+  saveBuilds?: boolean;
+  /**
+   * The assistant, open from the start, docked beside code mode. A render
+   * prop, so the chat can turn code mode on and change the code.
+   */
+  renderChat?: (code: CodeModeControl) => ReactNode;
+};
+
+/** What a story's chat can do to code mode, as the app's tools would. */
+export type CodeModeControl = {
+  on: boolean;
+  /** Where the Studio is: code mode is turned on in a proposal. */
+  where: { kind: "proposal"; displayName: string } | { kind: "site" };
+  turnOn: () => void;
+  /** On the site: open the `</>` menu to choose a proposal. */
+  chooseProposal: () => void;
+  /** The assistant wrote code: there is a build due. */
+  stageCode: () => void;
 };
 
 /**
@@ -227,8 +268,11 @@ export function ProposalsShell({
   merged,
   noticesDismissed = false,
   loading = false,
-  leaving,
+  leaving: initialLeaving,
   proposalColor,
+  codeMode,
+  saveBuilds = false,
+  renderChat,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -240,6 +284,15 @@ export function ProposalsShell({
   const [publishState, setPublishState] = useState<PublishProposalState>(
     initialPublishState ?? { kind: "checking" },
   );
+  const [leaving, setLeaving] = useState(initialLeaving);
+  const [codeOn, setCodeOn] = useState(codeMode?.on ?? false);
+  const [codeChanged, setCodeChanged] = useState(codeMode?.changed ?? true);
+  // The `</>` menu, opened by a chat's "Choose a proposal…" on the site.
+  const [codeMenuRequests, setCodeMenuRequests] = useState(0);
+  // A proposal made from "New proposal in code mode…" opens in code mode.
+  const newInCodeMode = useRef(false);
+  const locationRef = useRef(location);
+  locationRef.current = location;
 
   // A save, as the app sees one: committing, then the address catching up,
   // then the render check.
@@ -322,6 +375,57 @@ export function ProposalsShell({
                 : "There is nothing to upgrade: the site is up to date.",
         }
       : location;
+  const inOpenProposal =
+    location.kind === "proposal" &&
+    location.proposal.status === "open" &&
+    location.proposal.upgrade !== true;
+  const codeModeOn = codeMode !== undefined && codeOn && inOpenProposal;
+
+  // A build, as the app runs one: a while, then served.
+  const build = () => {
+    setLocation((current) =>
+      current.kind === "proposal"
+        ? { ...current, code: { state: "building" } }
+        : current,
+    );
+    setTimeout(
+      () =>
+        setLocation((current) =>
+          current.kind === "proposal" ? { ...current, code: null } : current,
+        ),
+      2400,
+    );
+  };
+  const saveAndBuild = () => {
+    const here = locationRef.current;
+    if (here.kind !== "proposal") return;
+    const due = buildIsDue(here.code);
+    if (here.unsaved === 0) {
+      build();
+      return;
+    }
+    setLocation({ ...here, save: { state: "saving" } });
+    setTimeout(() => {
+      setLocation((current) =>
+        current.kind === "proposal"
+          ? { ...current, save: { state: "idle" }, unsaved: 0 }
+          : current,
+      );
+      if (due) build();
+    }, 900);
+  };
+  const openInCodeMode = (name: string) => {
+    const proposal = all.find((p) => p.name === name);
+    if (!proposal) return;
+    // To its address, with `?code` on: through sign-in, as the switcher goes.
+    setLeaving(`Opening “${proposal.displayName}” in code mode…`);
+    setTimeout(() => {
+      setLeaving(undefined);
+      goTo(name);
+      setCodeOn(true);
+    }, 1200);
+  };
+
   const handlers: TopBarProposals = {
     location: barLocation,
     loading,
@@ -361,6 +465,23 @@ export function ProposalsShell({
                 : current,
             ),
         }),
+    ...(saveBuilds && !isUpgrade ? { onSaveAndBuild: saveAndBuild } : {}),
+    ...(codeMode !== undefined
+      ? {
+          codeMode: {
+            on: codeModeOn,
+            onToggle: () => setCodeOn((on) => !on),
+            onOpenProposalInCodeMode: openInCodeMode,
+            onNewProposalInCodeMode: () => {
+              newInCodeMode.current = true;
+              setProblem(null);
+              setDialog("new");
+            },
+            defaultMenuOpen: codeMode.menuOpen,
+            openMenuRequests: codeMenuRequests,
+          },
+        }
+      : {}),
     onPublish: openPublish,
     onCompare: action("compare with the site"),
     onRename: () => setDialog("rename"),
@@ -410,10 +531,68 @@ export function ProposalsShell({
     });
   }
 
+  const codeBuild: CodeModeBuild =
+    location.kind !== "proposal" || !codeChanged
+      ? { state: "unchanged" }
+      : location.code === null
+        ? { state: "built", ago: "2 minutes ago" }
+        : location.code.state === "building"
+          ? { state: "building", step: "Building…" }
+          : location.code.state === "failed"
+            ? {
+                state: "failed",
+                error: location.code.error,
+                onAskAssistant: action("ask the assistant to fix the build"),
+              }
+            : { state: "due" };
+  const workspace = codeModeOn ? (
+    <CodeModeWorkspace
+      key={codeMode?.view ?? "preview"}
+      route="/"
+      pages={["/", "/about", "/products/knitwear", "/products/outerwear"]}
+      onRouteChange={action("open another page in the preview")}
+      onReload={action("reload the preview")}
+      preview={
+        <DesignSiteMock
+          testimonials={
+            codeChanged && codeBuild.state === "built" ? "cards" : "quote"
+          }
+        />
+      }
+      build={codeBuild}
+      files={codeChanged ? FILES : []}
+      diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
+      onExit={() => setCodeOn(false)}
+      initialView={codeMode?.view ?? "preview"}
+    />
+  ) : undefined;
+  const chat =
+    renderChat === undefined
+      ? undefined
+      : renderChat({
+          on: codeModeOn,
+          where:
+            location.kind === "proposal"
+              ? { kind: "proposal", displayName: location.proposal.displayName }
+              : { kind: "site" },
+          turnOn: () => setCodeOn(true),
+          chooseProposal: () => setCodeMenuRequests((count) => count + 1),
+          stageCode: () => {
+            setCodeChanged(true);
+            setLocation((current) =>
+              current.kind === "proposal"
+                ? { ...current, code: { state: "required" } }
+                : current,
+            );
+          },
+        });
+
   return (
     <>
       <Shell
-        initialPanel={panel ?? null}
+        initialPanel={panel ?? (chat !== undefined ? "ai" : null)}
+        {...(chat !== undefined ? { aiEnabled: true, aiSlot: chat } : {})}
+        {...(workspace !== undefined ? { workspaceOverride: workspace } : {})}
         initialSelectionId={selectionId ?? null}
         /*
          * In a proposal the status bar names its branch, as `useShellData`
@@ -507,6 +686,11 @@ export function ProposalsShell({
             };
             setAll((list) => [made, ...list]);
             setCreating(false);
+            if (newInCodeMode.current) {
+              newInCodeMode.current = false;
+              setCodeOn(true);
+              setCodeChanged(false);
+            }
             setDialog(null);
             setLocation(
               inProposal({

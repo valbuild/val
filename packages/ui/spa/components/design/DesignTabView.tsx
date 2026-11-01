@@ -1230,7 +1230,7 @@ const CHANGE_MARK: Record<FileChange, { letter: string; tone: string }> = {
   deleted: { letter: "D", tone: "text-fg-error-on-surface" },
 };
 
-function ChangeMark({ change }: { change: FileChange }) {
+export function ChangeMark({ change }: { change: FileChange }) {
   const mark = CHANGE_MARK[change];
   return (
     <span
@@ -1249,7 +1249,7 @@ function ChangeMark({ change }: { change: FileChange }) {
  * A file against the site's copy. Which files changed is this view's own
  * list, on its left, rather than a panel beside the preview.
  */
-function DiffArea({
+export function DiffArea({
   files,
   file,
   onSelect,
