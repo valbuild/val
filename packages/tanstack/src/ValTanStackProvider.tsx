@@ -33,7 +33,7 @@ import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
 import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
-import { shouldSafetyRefresh } from "./safetyRefresh";
+import { startRefreshLoop } from "./refreshLoop";
 import { isLiveSitePage, type ValDraft } from "./ValDraft";
 import type { ValAnalytics } from "./ValAnalytics";
 import { PlatformAnalytics, analyticsOfThisPage } from "./platformAnalytics";
@@ -41,42 +41,6 @@ import { PlatformAnalytics, analyticsOfThisPage } from "./platformAnalytics";
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
  */
-/**
- * The floor between server re-renders.
- *
- * `router.invalidate()` re-runs every loader of the current match tree — there
- * is no per-module invalidation — so this is about not queueing a round trip
- * per keystroke, not about batching for its own sake.
- */
-const REFRESH_INTERVAL_MS = 500;
-
-/**
- * How often the page re-reads the server on its own, without being told to.
- *
- * A safety net for a race no amount of care on this side can close. An edit is
- * applied to the client store immediately and saved to the server
- * asynchronously, so `router.invalidate()` fired on the edit can reach a server
- * that has not written the patch yet: the loaders come back with the old
- * content, the counter has already been cleared, and nothing schedules another
- * look. What you see is a canvas that flickered and did not change — which is
- * indistinguishable from an edit that did not work.
- *
- * The honest fix would be for the page to know when its patch has been
- * persisted, and it has no way to ask. So it asks again a little later instead.
- */
-const SAFETY_REFRESH_MS = 10_000;
-
-/**
- * How long after an edit the safety net keeps looking.
- *
- * The reason to stop is that this re-runs every loader on the page: in
- * development that is a server round trip and a recompile, and a preview
- * nobody is editing has nothing to catch up on. So the net is armed by editing
- * and disarms itself when the editing stops — long enough after the last
- * keystroke that any write still in flight has certainly landed.
- */
-const SAFETY_REFRESH_WINDOW_MS = 30_000;
-
 /**
  * Fired on this window when an edit has been applied to the client store.
  *
@@ -555,93 +519,37 @@ export const ValTanStackProvider = (props: {
     if (!mountOverlay || props.disableRefresh || props.demo) {
       return;
     }
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let lastRefreshAt = 0;
-    /** When an edit last landed here. 0 means this page has never been edited. */
-    let lastEditAt = 0;
-    /** Whether a safety tick was skipped because nobody was looking. */
-    let missedWhileHidden = false;
-    const refresh = () => {
-      rerenderCounterRef.current = 0;
-      lastRefreshAt = Date.now();
-      startTransition(() => {
-        /*
-         * Re-run the loaders of every match, then re-render.
-         *
-         * TanStack's equivalent of `router.refresh()`. `invalidate()` marks the
-         * current matches stale and re-runs their loaders — which is where a
-         * TanStack Start app reads Val content on the server — so this is the
-         * round trip that brings an edit across. It resolves when the loaders
-         * have settled, which is what keeps `isRefreshing` honest.
-         */
-        void router.invalidate();
-      });
-    };
-    const tick = () => {
-      timer = null;
-      if (rerenderCounterRef.current === 0) return;
-      const since = Date.now() - lastRefreshAt;
-      if (since >= REFRESH_INTERVAL_MS) {
-        refresh();
-      } else {
-        timer = setTimeout(tick, REFRESH_INTERVAL_MS - since);
-      }
-    };
-    const onEdit = () => {
-      lastEditAt = Date.now();
-      if (timer !== null) return;
-      timer = setTimeout(tick, 0);
-    };
+    const loop = startRefreshLoop({
+      pending: rerenderCounterRef,
+      refresh: () => {
+        startTransition(() => {
+          /*
+           * Re-run the loaders of every match, then re-render.
+           *
+           * TanStack's equivalent of `router.refresh()`. `invalidate()` marks
+           * the current matches stale and re-runs their loaders — which is
+           * where a TanStack Start app reads Val content on the server — so
+           * this is the round trip that brings an edit across. It resolves
+           * when the loaders have settled, which is what keeps `isRefreshing`
+           * honest.
+           */
+          void router.invalidate();
+        });
+      },
+      isRefreshing: () => isRefreshingRef.current,
+      isHidden: () => document.hidden,
+    });
+    const onEdit = () => loop.editLanded();
     window.addEventListener(VAL_EDIT_LANDED, onEdit);
-    // A backstop for the counter being bumped without the event — the two are
-    // incremented in the same places today, but the poll is what made this
-    // correct regardless of who bumped it.
-    const interval = setInterval(tick, REFRESH_INTERVAL_MS);
-
-    /**
-     * The safety net: look again, whether or not anything told us to.
-     *
-     * The reasons not to are in `shouldSafetyRefresh`, where they can be tested.
-     * `hidden` is the one this side has to remember something about: a skipped
-     * tick is worth one look when the tab comes back.
-     */
-    const safetyTick = () => {
-      if (document.hidden) {
-        missedWhileHidden = true;
-        return;
-      }
-      const go = shouldSafetyRefresh({
-        now: Date.now(),
-        lastEditAt,
-        lastRefreshAt,
-        hidden: false,
-        isRefreshing: isRefreshingRef.current,
-        windowMs: SAFETY_REFRESH_WINDOW_MS,
-        minIntervalMs: REFRESH_INTERVAL_MS,
-      });
-      if (go) refresh();
-    };
-    const safety = setInterval(safetyTick, SAFETY_REFRESH_MS);
-    /**
-     * Coming back to the tab is worth one look.
-     *
-     * Otherwise a background tab skips its ticks and then has to wait out a
-     * whole interval on return — which is exactly the moment someone is looking
-     * at the page to see whether their edit took.
-     */
     const onVisibilityChange = () => {
-      if (document.hidden || !missedWhileHidden) return;
-      missedWhileHidden = false;
-      safetyTick();
+      if (!document.hidden) loop.visible();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       window.removeEventListener(VAL_EDIT_LANDED, onEdit);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      clearInterval(interval);
-      clearInterval(safety);
-      if (timer !== null) clearTimeout(timer);
+      loop.stop();
     };
   }, [mountOverlay, props.disableRefresh, props.demo]);
 

@@ -2,6 +2,7 @@ import {
   Internal,
   type Json,
   type ModuleFilePath,
+  type PatchId,
   type SelectorSource,
   type SourcePath,
   type ValConfig,
@@ -9,9 +10,9 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import { createValClient } from "@valbuild/shared/internal";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   InMemoryPatchStore,
   initValContent,
@@ -38,6 +39,7 @@ import {
 import { stringFieldPatch } from "../../../packages/ui/spa/components/fields/stringFieldPatch";
 import { SchemaValidator } from "../../../packages/ui/spa/validation/validateModule";
 import type { System } from "../../../packages/ui/spa/stores/createSystem";
+import type { PublishResult } from "../../../packages/ui/spa/stores/PublishSeam";
 import { createNetwork, type Handler, type Network } from "./network";
 import {
   startOverlayRelay,
@@ -56,6 +58,10 @@ import {
 } from "../../../packages/tanstack/src/client/overlayRead";
 import type { ValExternalStore } from "../../../packages/tanstack/src/ValOverlayContext";
 import type { ValDraft } from "../../../packages/tanstack/src/ValDraft";
+import {
+  startRefreshLoop,
+  type RefreshLoop,
+} from "../../../packages/tanstack/src/refreshLoop";
 import { inRequest } from "./tanstackStart";
 import { createFrames, type Frames } from "./frames";
 import { startFakeClock, type Clock } from "./clock";
@@ -114,8 +120,18 @@ export type World = {
 export type Studio = {
   name: string;
   system: System;
-  /** What a string field writes when typing pauses, through the same path. */
-  edit(module: AnyModule, fieldPath: string[], value: string): Promise<void>;
+  /**
+   * What a string field writes when typing pauses, through the same path.
+   * Answers the new patch's id.
+   */
+  edit(module: AnyModule, fieldPath: string[], value: string): Promise<PatchId>;
+  /** Discard patches, as Review's "Discard" does (`System.discard`). */
+  discard(patchIds: PatchId[]): ReturnType<System["discard"]>;
+  /**
+   * Publish, as the Publish button does (`System.publish`): every patch in
+   * the chain when `patchIds` is not given.
+   */
+  publish(patchIds?: PatchId[]): Promise<PublishResult>;
   /** The Studio's `/stat` poll: what it last took in. */
   readonly stat: StatState;
   /**
@@ -146,8 +162,14 @@ export type PageLoadOptions = {
    * client code (a cached `/_app/app.js`).
    */
   clientModules?: AnyModule[];
-  /** What the page shows: a field of a module, each a surface. */
+  /** What the page shows through `useVal`: a field of a module, each a surface. */
   shows: Array<{ surface: string; module: AnyModule; field: string[] }>;
+  /**
+   * What the page shows from its LOADERS: a field read on the server with
+   * `fetchVal`, at the server render and again every time the page's refresh
+   * loop (`startRefreshLoop`, as `ValTanStackProvider` runs it) re-runs them.
+   */
+  loaderShows?: Array<{ surface: string; module: AnyModule; field: string[] }>;
 };
 
 export type LoadedPage = {
@@ -155,6 +177,8 @@ export type LoadedPage = {
   studio: Studio;
   /** Everything the overlay sent the page, in order. */
   events: OverlayEvent[];
+  /** How many times the refresh loop has re-run the loaders. */
+  readonly refreshes: number;
 };
 
 export type PageReaders = {
@@ -180,6 +204,12 @@ export type WorldOptions = {
    * http needs the mock content host, and is not here yet.
    */
   server: ServerMode;
+  /**
+   * The `.val.ts` text of modules, for what reads it: a publish rewrites it.
+   * Written into the project directory in fs mode and handed over as
+   * `sourceFiles` in memory mode, as an app's host would.
+   */
+  sourceText?: Record<string, string>;
 };
 
 export type ServerMode = "memory" | "fs";
@@ -194,16 +224,29 @@ type ServerHost =
     }
   | { mode: "fs"; root: string; restore: () => void };
 
-function hostFor(mode: ServerMode): ServerHost {
+function hostFor(
+  mode: ServerMode,
+  sourceText: Record<string, string>,
+): ServerHost {
   if (mode === "memory") {
     return {
       mode,
-      sourceFiles: {},
+      sourceFiles: Object.fromEntries(
+        Object.entries(sourceText).map(([path, text]) => [
+          path.replace(/^\//, ""),
+          text,
+        ]),
+      ),
       patchStore: new InMemoryPatchStore(),
       unsafelyAllowUnauthenticated: true,
     };
   }
   const root = mkdtempSync(join(tmpdir(), "val-scenario-"));
+  for (const [path, text] of Object.entries(sourceText)) {
+    const file = join(root, path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, text);
+  }
   const previous = process.cwd();
   process.chdir(root);
   return {
@@ -237,7 +280,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   let valModules = registryOf(options.modules);
   // One place for pending edits, shared by the API and the readers -- as an
   // app passes the same options to `initValServer` and `initValContent`.
-  const host = hostFor(options.server);
+  const host = hostFor(options.server, options.sourceText ?? {});
   const apiDraftMode = { on: true };
   const serverFor = (registry: ValModules) =>
     initValServer(registry, options.config, {
@@ -267,6 +310,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       draftMode: draftModeOf(draft),
     });
   const relays: Array<() => void> = [];
+  const refreshLoops: RefreshLoop[] = [];
   const frames = createFrames();
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
   const clock = startFakeClock();
@@ -367,6 +411,16 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         if (res.status !== "created") {
           throw new Error(`The edit was refused: ${res.message}`);
         }
+        return res.record.patchId;
+      },
+      discard(patchIds) {
+        return system.discard(patchIds);
+      },
+      publish(patchIds) {
+        return system.publish(
+          patchIds ??
+            system.patchStore.allRecords().map((record) => record.patchId),
+        );
       },
       get stat() {
         return stat;
@@ -435,6 +489,23 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           )(moduleId),
         );
       read(serverStore, serverModules);
+      // The page's loaders, read on the server: at the server render, and
+      // whenever the refresh loop re-runs them. One `initValContent` per page
+      // server, made again on a deploy, as the server module is.
+      let content = readersFor({ on: true });
+      pages.push(() => {
+        content = readersFor({ on: true });
+      });
+      const readLoaders = async () => {
+        for (const show of pageOptions.loaderShows ?? []) {
+          const value: unknown = await inRequest(request(), async () =>
+            raw(await content.fetchValStega(show.module)),
+          );
+          frames.record(show.surface, fieldOf(value, show.field));
+        }
+        if ((pageOptions.loaderShows ?? []).length > 0) frames.tick();
+      };
+      await readLoaders();
       // 2. The browser hydrates from the same draft, as loader data -- which
       //    is JSON on the way -- with its own client modules.
       const loaderData: ValDraft | null =
@@ -445,6 +516,24 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       //    with the base the page serves (`window.__VAL_BASE__`), and its
       //    relay hands the page's store what the Studio holds.
       const events: OverlayEvent[] = [];
+      // The provider's refresh loop: an edit landing in the page's store
+      // re-runs the loaders, at most every 500 ms, with the safety net behind.
+      const pending = { current: 0 };
+      let refreshing = false;
+      let refreshes = 0;
+      const loop = startRefreshLoop({
+        pending,
+        refresh: () => {
+          refreshing = true;
+          refreshes++;
+          void readLoaders().finally(() => {
+            refreshing = false;
+          });
+        },
+        isRefreshing: () => refreshing,
+        isHidden: () => false,
+      });
+      refreshLoops.push(loop);
       const studio = await startStudio(
         `overlay ${route}`,
         registryOf(clientModules),
@@ -457,13 +546,23 @@ export async function createWorld(options: WorldOptions): Promise<World> {
                 const outcome = applyValEvent(pageStore, event);
                 if (outcome.type === "updated" && outcome.changed) {
                   read(pageStore, clientModules);
+                  // Where the provider counts an edit and fires
+                  // VAL_EDIT_LANDED, which its loop listens for.
+                  pending.current++;
+                  loop.editLanded();
                 }
               }),
             );
           },
         },
       );
-      return { studio, events };
+      return {
+        studio,
+        events,
+        get refreshes() {
+          return refreshes;
+        },
+      };
     },
     page(route, pageOptions) {
       const draft = { on: pageOptions.draftMode };
@@ -534,6 +633,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     async dispose() {
       for (const stop of relays) stop();
+      for (const loop of refreshLoops) loop.stop();
       for (const { stop } of studios) stop();
       // A parked long poll ends when the server's own interval runs out.
       await clock.advance(LONG_POLL_MS);
@@ -592,7 +692,12 @@ function readField(
   field: string[],
   sourceOf: (moduleId: string) => Json | undefined,
 ): unknown {
-  let value: unknown = raw(readWithOverlay(module, sourceOf, null, false));
+  return fieldOf(raw(readWithOverlay(module, sourceOf, null, false)), field);
+}
+
+/** A field of a value read through a reader. */
+function fieldOf(read: unknown, field: string[]): unknown {
+  let value = read;
   for (const key of field) {
     value =
       typeof value === "object" && value !== null
