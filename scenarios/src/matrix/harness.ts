@@ -86,6 +86,13 @@ export type Shape = {
   sourceText?: Record<string, string>;
 };
 
+/** A failing test's name says why, by the reason's code ("F1: …" → "fails today: F1"). */
+function named(title: string, reason: string | undefined): string {
+  return reason === undefined
+    ? title
+    : `${title} (fails today: ${reason.split(":")[0]})`;
+}
+
 /** One cell's run: what each surface showed, and whether the frames went back. */
 type CellResult = {
   shown: Record<string, unknown>;
@@ -203,7 +210,10 @@ export function matrix(shape: Shape, cells: Cell[]): void {
               cell.failingIn?.[server]?.[surface.name] ??
               cell.failing?.[surface.name];
             (reason !== undefined ? test.failing : test)(
-              `M ${shape.name} · ${cell.operation} · ${surface.name}`,
+              named(
+                `M ${shape.name} · ${cell.operation} · ${surface.name}`,
+                reason,
+              ),
               () => {
                 if (result.failure !== null) throw result.failure;
                 expect({ [surface.name]: result.shown[surface.name] }).toEqual({
@@ -217,7 +227,10 @@ export function matrix(shape: Shape, cells: Cell[]): void {
             cell.failing?.["never goes back"];
           if (cell.neverGoesBack !== false) {
             (goesBackReason !== undefined ? test.failing : test)(
-              `M ${shape.name} · ${cell.operation} · never goes back`,
+              named(
+                `M ${shape.name} · ${cell.operation} · never goes back`,
+                goesBackReason,
+              ),
               () => {
                 if (result.failure !== null) throw result.failure;
                 expect(result.wentBack).toBeNull();
@@ -228,7 +241,10 @@ export function matrix(shape: Shape, cells: Cell[]): void {
             cell.failingIn?.[server]?.["no errors shown"] ??
             cell.failing?.["no errors shown"];
           (errorsReason !== undefined ? test.failing : test)(
-            `M ${shape.name} · ${cell.operation} · no errors shown`,
+            named(
+              `M ${shape.name} · ${cell.operation} · no errors shown`,
+              errorsReason,
+            ),
             () => {
               if (result.failure !== null) throw result.failure;
               expect(result.errors).toEqual([]);

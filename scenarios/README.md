@@ -106,6 +106,163 @@ the surface and the frames:
 | `readers.scenario.test.ts`           | S22 the loader, the hook and the Studio field agree; S23 draft at SSR with no flash of published content                                                                                                                                      | pass, memory and fs. S22 is the end state ("converges"); the stronger form, same version same value, needs versions on the wire (phase 1)                                                                                                                                                                                                                                                                                        |
 | `codeChanges.scenario.test.ts`       | S11 a schema change while the page shows an edit; S12 a module whose code throws is reported; S13 a removed module disappears; S14 edits that no longer fit a new schema are kept; S16 no schema dialog after a deploy the Studio has not got | S11 passes. **S12, S13, S14, S16 are skipped**, each with a running test pinning today's behaviour: a module whose `def` rejects is dropped from intake without a word (and kept only by the merge); `SchemaStore.receive` merges, so a removed module stays; an edit that no longer applies is deleted, on the server too; `SchemaFreshnessWatch` reports the schema out of date (by design today; the plan removes the dialog) |
 | `budgets.scenario.test.ts`           | B01 a keystroke applies its patch once, even after the echo; B02 another editor's keystroke costs one patch, not the module                                                                                                                   | pass, memory and fs, counted with the stores' `RecordingActivity` (`studio.expectWork`)                                                                                                                                                                                                                                                                                                                                          |
+| `matrix.*.scenario.test.ts`          | The content-shape matrix: shape × operation × surface, in memory and fs. See below                                                                                                                                                            | every surface that works passes; every one that does not is `test.failing`, named after its cause (`(fails today: F1)`)                                                                                                                                                                                                                                                                                                          |
+
+### The content-shape matrix
+
+"Do `.jsonValues()`, image, file and video libraries and plain media work as
+expected in every case?" is a grid, so it is tested as one:
+`matrix.jsonValues`, `matrix.libraries` and `matrix.media` (the harness is
+`src/matrix/harness.ts`). One CELL is one operation on one shape, run once in
+a world of its own; each SURFACE it names is then its own test, so a red cell
+says which reader is wrong. Every cell also checks "never goes back" and that
+no Studio showed an error. A surface that is wrong today is marked
+`test.failing` with its reason, and its test name ends `(fails today: <code>)`,
+so it turns red the day it is fixed and the mark has to come off.
+
+Every edit goes through the function the product's UI calls (test rule 3);
+these were extracted for it, and the components call them:
+
+| What the editor does                             | Function                                                                                                              |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| New entry / delete entry (record popovers)       | `recordAddPatch`, `recordRemovePatch` (`components/recordPatches.ts`)                                                 |
+| Rename a key                                     | `renameRecordEntry` (`components/useRenameRecordEntry.ts`)                                                            |
+| Upload into, alt text in, delete from a library  | `galleryRef`, `galleryUploadPatch`, `galleryAltPatch`, `galleryRemovePatch` (`fields/galleryPatches.ts`)              |
+| Pick from a library                              | `mediaPickPatch` (`fields/mediaPickPatch.ts`)                                                                         |
+| Upload into a plain image or file field          | `createFilePatch` (`fields/createFilePatch.ts`)                                                                       |
+| A video, a library video, a poster               | `createVideoPatch`, `createVideosetEntryPatch`, `createPosterPatch` (already plain functions)                         |
+| What `useVal` / `useValKey` / `useValRoute` read | `readSelectorWithOverlay`, `readEntryWithOverlay`, `readRouteEntryWithOverlay` (`tanstack/src/client/overlayRead.ts`) |
+
+The browser's own part -- `FileReader`, decoding an image, converting a
+video -- is the edge: the world hands over the data URL, its SHA-256 and the
+metadata that part would have read.
+
+The surfaces: `studio` is the editor's `SourceStore` at the field;
+`fetchVal*` is the page's server, read fresh once the world has settled;
+`useVal*` is the page's client half through the overlay; `GET … url` fetches
+the url that reader gave and compares the bytes; `file on disk` and `source
+text` are fs mode after a publish. Memory mode refuses to publish a local
+file, so the media publish cells run in fs only. `ok` passes, a code is
+`test.failing` for that cause, `—` is not a surface of that cell.
+
+#### jsonValues
+
+| Operation                                       | studio | fetchVal | fetchValKey | fetchValRoute | useVal | useValKey | useValRoute | fetchVal keys | useVal keys | entry file on disk | studio, opened after | never goes back, no errors |
+| ----------------------------------------------- | ------ | -------- | ----------- | ------------- | ------ | --------- | ----------- | ------------- | ----------- | ------------------ | -------------------- | -------------------------- |
+| edit an entry (/blog/a)                         | ok     | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | —             | —           | —                  | —                    | ok                         |
+| add an entry (/blog/c)                          | ok     | **F1**   | ok          | ok            | ok     | ok        | ok          | ok            | ok          | —                  | —                    | ok                         |
+| rename a key (/blog/z)                          | ok     | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | ok            | ok          | —                  | —                    | ok                         |
+| delete an entry (/blog/b)                       | ok     | ok       | ok          | ok            | ok     | ok        | ok          | ok            | ok          | —                  | —                    | ok                         |
+| discard an edit (/blog/a)                       | ok     | ok       | ok          | ok            | ok     | ok        | ok          | —             | —           | —                  | —                    | ok                         |
+| publish an edit (/blog/a)                       | ok     | **F3**   | **F3**      | **F3**        | **F3** | **F3**    | **F3**      | —             | —           | ok                 | —                    | ok                         |
+| another editor's edit, via /stat (/blog/a)      | ok     | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | —             | —           | —                  | —                    | ok                         |
+| a code change to the item schema (/blog/a)      | ok     | ok       | ok          | ok            | ok     | ok        | ok          | —             | —           | —                  | —                    | ok                         |
+| an edit to an entry nobody has loaded (/blog/a) | —      | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | —             | —           | —                  | **F2**               | ok                         |
+
+#### imagedir
+
+| Operation                              | studio field | fetchVal field | useVal field | studio entry new | fetchVal entry new | fetchVal library keys | GET fetchVal field url | GET useVal field url | studio entry A | fetchVal entry A | studio entry B | fetchVal entry B | file on disk | source text names the file | never goes back, no errors |
+| -------------------------------------- | ------------ | -------------- | ------------ | ---------------- | ------------------ | --------------------- | ---------------------- | -------------------- | -------------- | ---------------- | -------------- | ---------------- | ------------ | -------------------------- | -------------------------- |
+| upload and pick                        | ok           | **L1**         | ok           | ok               | ok                 | ok                    | **L1**                 | ok                   | —              | —                | —              | —                | —            | —                          | ok                         |
+| edit an entry's alt text               | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | ok             | ok               | —              | —                | —            | —                          | ok                         |
+| pick an entry                          | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
+| delete an unused entry                 | —            | —              | —            | —                | —                  | ok                    | —                      | —                    | —              | —                | ok             | ok               | —            | —                          | ok                         |
+| discard an upload                      | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
+| another editor's upload, via /stat     | ok           | **L1**         | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
+| a code change to the library's options | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
+| publish an upload                      | ok (fs)      | **F3** (fs)    | ok (fs)      | —                | —                  | **F3** (fs)           | —                      | —                    | —              | —                | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
+
+#### filedir
+
+| Operation                              | studio field | fetchVal field | useVal field | studio entry new | fetchVal entry new | fetchVal library keys | GET fetchVal field url | GET useVal field url | studio entry B | fetchVal entry B | file on disk | source text names the file | never goes back, no errors |
+| -------------------------------------- | ------------ | -------------- | ------------ | ---------------- | ------------------ | --------------------- | ---------------------- | -------------------- | -------------- | ---------------- | ------------ | -------------------------- | -------------------------- |
+| upload and pick                        | ok           | **L1**         | ok           | ok               | ok                 | ok                    | **L1**                 | ok                   | —              | —                | —            | —                          | ok                         |
+| pick an entry                          | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —            | —                          | ok                         |
+| delete an unused entry                 | —            | —              | —            | —                | —                  | ok                    | —                      | —                    | ok             | ok               | —            | —                          | ok                         |
+| discard an upload                      | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
+| another editor's upload, via /stat     | ok           | **L1**         | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
+| a code change to the library's options | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —            | —                          | ok                         |
+| publish an upload                      | ok (fs)      | **F3** (fs)    | ok (fs)      | —                | —                  | **F3** (fs)           | —                      | —                    | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
+
+#### plain s.image()
+
+| Operation                                            | studio field | fetchVal field | useVal field | GET fetchVal field url | GET useVal field url | file on disk | never goes back, no errors |
+| ---------------------------------------------------- | ------------ | -------------- | ------------ | ---------------------- | -------------------- | ------------ | -------------------------- |
+| upload                                               | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| discard an upload                                    | ok           | ok             | ok           | —                      | —                    | —            | ok                         |
+| another editor's upload, via /stat                   | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| a code change to the field's schema, after an upload | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| publish an upload                                    | ok (fs)      | **F3** (fs)    | **P1** (fs)  | —                      | **P1** (fs)          | ok (fs)      | ok (fs)                    |
+
+#### plain s.file()
+
+| Operation                                            | studio field | fetchVal field | useVal field | GET fetchVal field url | GET useVal field url | file on disk | never goes back, no errors |
+| ---------------------------------------------------- | ------------ | -------------- | ------------ | ---------------------- | -------------------- | ------------ | -------------------------- |
+| upload                                               | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| discard an upload                                    | ok           | ok             | ok           | —                      | —                    | —            | ok                         |
+| another editor's upload, via /stat                   | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| a code change to the field's schema, after an upload | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| publish an upload                                    | ok (fs)      | **F3** (fs)    | **P1** (fs)  | —                      | **P1** (fs)          | ok (fs)      | ok (fs)                    |
+
+#### plain s.video()
+
+| Operation                                            | studio field | fetchVal field | useVal field | GET fetchVal field url | GET useVal field url | file on disk | never goes back, no errors |
+| ---------------------------------------------------- | ------------ | -------------- | ------------ | ---------------------- | -------------------- | ------------ | -------------------------- |
+| upload                                               | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| discard an upload                                    | ok           | ok             | ok           | —                      | —                    | —            | ok                         |
+| another editor's upload, via /stat                   | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| a code change to the field's schema, after an upload | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
+| publish an upload                                    | ok (fs)      | **F3** (fs)    | **P1** (fs)  | —                      | **P1** (fs)          | ok (fs)      | ok (fs)                    |
+
+#### videodir
+
+| Operation                                         | studio field | fetchVal field | useVal field | GET fetchVal field url | GET useVal field url | fetchVal library keys | file on disk | never goes back, no errors |
+| ------------------------------------------------- | ------------ | -------------- | ------------ | ---------------------- | -------------------- | --------------------- | ------------ | -------------------------- |
+| the field's overrides over the library's defaults | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
+| upload and pick                                   | ok           | **L1**         | ok           | **L1**                 | ok                   | ok                    | —            | ok                         |
+| pick an entry                                     | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
+| a new default poster in the library               | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
+| discard an upload                                 | ok           | ok             | ok           | —                      | —                    | ok                    | —            | ok                         |
+| another editor's upload, via /stat                | ok           | **L1**         | ok           | **L1**                 | ok                   | ok                    | —            | ok                         |
+| a code change to the library's options            | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
+| publish an upload                                 | ok (fs)      | **F3** (fs)    | ok (fs)      | —                      | —                    | **F3** (fs)           | ok (fs)      | ok (fs)                    |
+
+#### The causes
+
+- **F1** (high confidence). A draft `fetchVal` of a WHOLE `.jsonValues()`
+  record fills its entries from the bundle's imports, not the pending edit;
+  `fetchValKey` and `fetchValRoute` of the same entry show the edit. Every
+  operation that changes an entry's content shows it: edit, add, rename,
+  another editor, an edit to an unloaded entry.
+- **F2** (high). A Studio that had not loaded the entry keeps the patch it
+  could not apply and never applies it once the entry loads. The overlay's
+  Studio then relays the committed entry to every hook, and the editor's own
+  field, opened after, shows "Page A" while the server has "Edited A".
+- **F3** (medium -- partly the world). After a publish the page's readers keep
+  the pre-publish content: their own server does not adopt the publish (only
+  the instance that handled `/save` does), and the bundle's entry imports
+  still hold the old content. In local development a reload of the rewritten
+  files would replace both; the world does not model that reload.
+- **L1** (high). The server render of a field that picked a library entry
+  uploaded in a pending patch gives the PUBLISHED url (no `patch_id`), and
+  GET of it answers 500 (image, file and video alike). The hook's
+  url is the draft one and serves the bytes. The same for another editor's
+  upload.
+- **P1** (medium -- may be F3's reload). After a publish, a PLAIN media
+  field's source in the Studio still carries the published patch's
+  `patch_id`, so the overlay hands the page `/api/val/files/…?patch_id=`,
+  which answers 404 now the patch is gone. A library-backed field is not
+  affected: its source is only `{ path }`.
+
+#### Not covered, and why
+
+- **Renaming a media file** (`useRenameMediaFile`): it reads the bytes back
+  with `fetch` and `FileReader` inside the hook; it needs extracting first.
+- **Captions** on a video, and an HLS stream: the conversion is the
+  browser's, and the poster cells already cover a library default that a
+  field partly overrides.
+- **Remote media** (`.remote()`): needs the content host, which is http
+  mode.
 
 ### Catalogue ids not built, and why
 
