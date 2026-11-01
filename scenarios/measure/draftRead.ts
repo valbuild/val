@@ -9,7 +9,8 @@
  *
  * Not a test: it prints. Run from `scenarios/`:
  *
- *   pnpm exec tsx measure/draftRead.ts all            # everything, a few minutes
+ *   pnpm exec tsx measure/draftRead.ts all              # everything, about an hour
+ *   pnpm exec tsx measure/draftRead.ts all --time-only  # times only, minutes
  *   pnpm exec tsx measure/draftRead.ts run synth:5 draft
  *
  * Heap: each (input, operation) is run in a child Node process with
@@ -322,8 +323,13 @@ async function main() {
     return;
   }
   if (mode !== "all") {
-    throw new Error("usage: draftRead.ts all | run <input> <op> [repeats]");
+    throw new Error(
+      "usage: draftRead.ts all [--time-only] | run <input> <op> [repeats]",
+    );
   }
+  // Times without the heap bisection: minutes rather than an hour, for a
+  // re-run on a quiet machine.
+  const timeOnly = inputArg === "--time-only";
   const rows = [];
   for (const input of INPUTS) {
     for (const op of OPERATIONS) {
@@ -339,7 +345,7 @@ async function main() {
       }
       const line = timed.stdout.trim().split("\n").at(-1) ?? "{}";
       const result = JSON.parse(line);
-      const heap = minimumHeap(input, op);
+      const heap = timeOnly ? null : minimumHeap(input, op);
       rows.push({ ...result, minHeapMB: heap });
       process.stderr.write(`${input} ${op}: ${JSON.stringify(rows.at(-1))}\n`);
     }
