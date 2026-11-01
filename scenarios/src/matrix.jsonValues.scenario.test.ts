@@ -190,8 +190,10 @@ function sourcePathOf() {
  * Why cells fail today. Each is a bug: the user expects every one of these to
  * work. Evidence and suspected cause are in the README's matrix section.
  */
-const R1 =
-  "R1: in memory mode, after a publish the page's readers keep the pre-publish content: initValContent's own server instance does not adopt the publish, only the API's instance that handled /save does (fs mode is right after the dev server reloads the rewritten files)";
+const R2 =
+  "R2: in memory mode, after a publish a whole-record fetchVal fills the published entry from the page's bundle, which still holds the content from before the publish, while fetchValKey and fetchValRoute read the entry the server adopted";
+const R3 =
+  "R3: in memory mode, after a publish the overlay relays the published module with its entries as placeholders (no pending patch names them, so it loads none), and the page fills them from its bundle, which still holds the content from before the publish";
 
 /** The page's hooks for one entry, all failing for `reason`. */
 function hooksFail(key: string, reason: string): Record<string, string> {
@@ -277,15 +279,17 @@ const cells: Cell[] = [
   },
   {
     operation: "publish an edit",
+    // R1 (the readers' own server instance never adopting the publish) is
+    // fixed: every server in the process shares one data layer
+    // (`sharedValOps`), so fetchValKey and fetchValRoute show the publish.
+    // What is left are two other causes, both about the page's BUNDLE, which a
+    // memory-mode publish does not rebuild: fs mode passes because the world
+    // reloads the rewritten files, as a dev server does.
     failingIn: {
       memory: {
-        "fetchVal /blog/a": R1,
-        "fetchValKey /blog/a": R1,
-        "fetchValRoute /blog/a": R1,
-        ...hooksFail("/blog/a", R1),
-        // The overlay shows the edit while it is pending, and the page's
-        // bundle -- the published content before the publish -- after it.
-        "never goes back": R1,
+        "fetchVal /blog/a": R2,
+        ...hooksFail("/blog/a", R3),
+        "never goes back": R3,
       },
     },
     surfaces: [

@@ -106,7 +106,7 @@ the surface and the frames:
 | `readers.scenario.test.ts`           | S22 the loader, the hook and the Studio field agree; S23 draft at SSR with no flash of published content                                                                                                                                      | pass, memory and fs. S22 is the end state ("converges"); the stronger form, same version same value, needs versions on the wire (phase 1)                                                                                                                                                                                                                                                                    |
 | `codeChanges.scenario.test.ts`       | S11 a schema change while the page shows an edit; S12 a module whose code throws is reported; S13 a removed module disappears; S14 edits that no longer fit a new schema are kept; S16 no schema dialog after a deploy the Studio has not got | S11, S12 and S13 pass (S12: a module whose code throws is kept as it was, and the editor is told which; S13: an intake replaces, so a removed module goes). **S14, S16 are skipped**, each with a running test pinning today's behaviour: an edit that no longer applies is deleted, on the server too; `SchemaFreshnessWatch` reports the schema out of date (by design today; the plan removes the dialog) |
 | `budgets.scenario.test.ts`           | B01 a keystroke applies its patch once, even after the echo; B02 another editor's keystroke costs one patch, not the module                                                                                                                   | pass, memory and fs, counted with the stores' `RecordingActivity` (`studio.expectWork`)                                                                                                                                                                                                                                                                                                                      |
-| `matrix.*.scenario.test.ts`          | The content-shape matrix: shape × operation × surface, in memory and fs. See below                                                                                                                                                            | every surface that works passes; every one that does not is `test.failing`, named after its cause (`(fails today: R1)`)                                                                                                                                                                                                                                                                                      |
+| `matrix.*.scenario.test.ts`          | The content-shape matrix: shape × operation × surface, in memory and fs. See below                                                                                                                                                            | every surface that works passes; every one that does not is `test.failing`, named after its cause (`(fails today: R2)`)                                                                                                                                                                                                                                                                                      |
 
 ### The content-shape matrix
 
@@ -147,17 +147,17 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 
 #### jsonValues
 
-| Operation                                       | studio | fetchVal                 | fetchValKey              | fetchValRoute            | useVal                   | useValKey                | useValRoute              | fetchVal keys | useVal keys | entry file on disk | studio, opened after | never goes back, no errors |
-| ----------------------------------------------- | ------ | ------------------------ | ------------------------ | ------------------------ | ------------------------ | ------------------------ | ------------------------ | ------------- | ----------- | ------------------ | -------------------- | -------------------------- |
-| edit an entry (/blog/a)                         | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
-| add an entry (/blog/c)                          | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
-| rename a key (/blog/z)                          | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
-| delete an entry (/blog/b)                       | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
-| discard an edit (/blog/a)                       | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
-| publish an edit (/blog/a)                       | ok     | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | —             | —           | ok                 | —                    | ok (fs), **R1** (memory)   |
-| another editor's edit, via /stat (/blog/a)      | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
-| a code change to the item schema (/blog/a)      | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
-| an edit to an entry nobody has loaded (/blog/a) | —      | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | ok                   | ok                         |
+| Operation                                       | studio | fetchVal                 | fetchValKey | fetchValRoute | useVal                   | useValKey                | useValRoute              | fetchVal keys | useVal keys | entry file on disk | studio, opened after | never goes back, no errors |
+| ----------------------------------------------- | ------ | ------------------------ | ----------- | ------------- | ------------------------ | ------------------------ | ------------------------ | ------------- | ----------- | ------------------ | -------------------- | -------------------------- |
+| edit an entry (/blog/a)                         | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
+| add an entry (/blog/c)                          | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
+| rename a key (/blog/z)                          | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
+| delete an entry (/blog/b)                       | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
+| discard an edit (/blog/a)                       | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
+| publish an edit (/blog/a)                       | ok     | ok (fs), **R2** (memory) | ok          | ok            | ok (fs), **R3** (memory) | ok (fs), **R3** (memory) | ok (fs), **R3** (memory) | —             | —           | ok                 | —                    | ok (fs), **R3** (memory)   |
+| another editor's edit, via /stat (/blog/a)      | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
+| a code change to the item schema (/blog/a)      | ok     | ok                       | ok          | ok            | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
+| an edit to an entry nobody has loaded (/blog/a) | —      | ok                       | ok          | ok            | ok                       | ok                       | ok                       | —             | —           | —                  | ok                   | ok                         |
 
 #### imagedir
 
@@ -229,11 +229,26 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 
 #### The causes
 
-- **R1** (high). In memory mode, after a publish the page's readers keep the
-  pre-publish content: `initValContent`'s own server instance does not adopt
-  the publish, only the API's instance that handled `/save` does. fs mode is
-  right once the dev server reloads the rewritten files (below). The plan's
-  one runtime per process (phase 6) removes the second instance.
+- **R1, fixed.** In memory mode, after a publish the page's readers kept the
+  pre-publish content: `initValContent` built its own server instance, and
+  only the API's instance that handled `/save` adopted the publish. Every Val
+  server in a process now shares one data layer per project
+  (`sharedValOps`, used by `nodePlatform.createOps` and by MCP), so
+  `fetchValKey` and `fetchValRoute` show the publish. Two cells of the same
+  publish still fail, for other reasons (R2, R3).
+- **R2** (high). In memory mode, after a publish a whole-record `fetchVal`
+  fills the published entry from the page's bundle, which still holds the
+  content from before the publish, while `fetchValKey` and `fetchValRoute`
+  read the entry the server adopted. F1's fix reads from the server only the
+  entries a PENDING patch touches; after a publish there is none.
+- **R3** (medium). In memory mode, after a publish the overlay relays the
+  published module with its entries as placeholders (no pending patch names
+  them, so the relay loads none), and the page fills them from its bundle,
+  which still holds the content from before the publish. fs mode passes
+  because the world reloads the rewritten files, as a dev server does; a
+  memory-mode host (the Val app) rebuilds after a publish, which the world
+  does not model, so how long a real page shows the old entry depends on
+  that rebuild.
 - **F1, fixed.** A draft `fetchVal` of a WHOLE `.jsonValues()` record filled
   its entries from the bundle's imports, so every operation that changed an
   entry's content showed the published entry there. In the draft tree an
@@ -251,7 +266,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
   a publish that only changes an entry moves no sha and reads like a discard
   (`forgetEntriesOf`). In memory mode the publish cell's hooks now show the
   edit while it is pending and the page's bundle after it, which "never goes
-  back" catches: that is R1.
+  back" catches: that is R3.
 - **L1, fixed.** The server render of a field that picked a library entry
   uploaded in a pending patch gave the PUBLISHED url (no `patch_id`), and
   GET of it answered 500 (image, file and video alike); the hook's url was

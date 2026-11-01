@@ -41,6 +41,7 @@ export type { ValContentVersion, ValProposal } from "./proposal";
 // while the Studio thinks it is in proxy mode reads different content from the
 // same project.
 export { initHandlerOptions, createValOps } from "./valServerConfig";
+export { sharedValOps } from "./sharedValOps";
 // Which credential talks to the content host about remote files: the app's api
 // key, else the developer's own `val login` token off disk. Exported for
 // `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api

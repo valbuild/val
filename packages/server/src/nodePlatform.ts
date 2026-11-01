@@ -1,9 +1,6 @@
 import type { ValServerPlatform } from "./platform";
-import {
-  createValOps,
-  readValLoginToken,
-  resolveRemoteFileAuth,
-} from "./valServerConfig";
+import { readValLoginToken, resolveRemoteFileAuth } from "./valServerConfig";
+import { sharedValOps } from "./sharedValOps";
 import {
   decodeJwtWithoutVerifying,
   encodeJwt,
@@ -15,7 +12,8 @@ import { checkModuleForStudio, fixForStudio } from "./studioValidation";
 
 /** The platform every server on Node runs with. See {@link ValServerPlatform}. */
 export const nodePlatform: ValServerPlatform = {
-  createOps: createValOps,
+  // One data layer per project in the process: see `sharedValOps`.
+  createOps: sharedValOps,
   probeUrl: (url) => probeUrl(url),
   jwt: { verifyJwt, decodeJwtWithoutVerifying, encodeJwt, getExpire },
   bytesToBase64: (bytes) =>

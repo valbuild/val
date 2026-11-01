@@ -244,6 +244,19 @@ export abstract class ValOps {
     Map<string, AdoptedJsonEntry>
   >();
 
+  /**
+   * Take a formatter for saves, when this instance was built without one.
+   *
+   * One instance serves every Val server in a process (`sharedValOps`), and
+   * the readers that build it first never save, so they pass no formatter;
+   * the API route that saves does. An instance that already has one keeps it.
+   */
+  adoptFormatter(formatter: NonNullable<ValOpsOptions["formatter"]>): void {
+    if (this.options !== undefined && this.options.formatter === undefined) {
+      this.options.formatter = formatter;
+    }
+  }
+
   constructor(
     private readonly valModules: ValModules,
     protected readonly options?: ValOpsOptions,

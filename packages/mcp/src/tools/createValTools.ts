@@ -1,7 +1,7 @@
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
 import {
-  createValOps,
+  sharedValOps,
   type ValOps,
   type ValServerConfig,
 } from "@valbuild/server";
@@ -178,7 +178,9 @@ function createOpsResolver(
   if (options.mode === "fs") {
     // One instance, built once: fs mode is a developer's own working tree, so
     // there is no credential to vary by and no reason to re-evaluate modules.
-    const ops = createValOps(valModules, options);
+    // And the SAME instance as the app's API and readers (`sharedValOps`), so
+    // a publish through any of them is seen by all.
+    const ops = sharedValOps(valModules, options);
     return (ctx) => {
       if (ctx.auth) {
         // Refused rather than ignored. A host that thinks it is passing a
@@ -246,7 +248,7 @@ function createOpsResolver(
       };
     }
     if (!sharedOps) {
-      sharedOps = createValOps(valModules, options);
+      sharedOps = sharedValOps(valModules, options);
     }
     return { status: "ok", ops: sharedOps };
   };
