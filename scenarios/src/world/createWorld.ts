@@ -44,6 +44,10 @@ import type { Patch } from "@valbuild/core/patch";
 import { SchemaValidator } from "../../../packages/ui/spa/validation/validateModule";
 import type { System } from "../../../packages/ui/spa/stores/createSystem";
 import type { PublishResult } from "../../../packages/ui/spa/stores/PublishSeam";
+import {
+  RecordingActivity,
+  type WorkKind,
+} from "../../../packages/ui/spa/stores/activity";
 import { createNetwork, type Handler, type Network } from "./network";
 import {
   startOverlayRelay,
@@ -156,11 +160,29 @@ export type Studio = {
    * `loadValModules`, then `HostStore.receive`.
    */
   receiveCode(modules: AnyModule[]): Promise<void>;
+  /**
+   * A registry reaches the Studio, as `<ValModulesClient>` registers one: for
+   * a registry whose modules are not all plain (a `def` that rejects, as a
+   * module whose code throws does). {@link receiveCode} is this, for modules.
+   */
+  receiveRegistry(registry: ValModules): Promise<void>;
   /** The messages the Studio is showing the editor (`StatusStore`). */
   errors(): string[];
+  /** The work the Studio's stores record (`activity.ts`), counted. */
+  work: RecordingActivity;
+  /**
+   * The work done since `since` (a `work.position()`), against a budget:
+   * a failure lists every kind that went over, with its count.
+   */
+  expectWork(since: number, budget: WorkBudget): void;
   /** A surface: the Studio's own value at a field, as a field reads it. */
   reads(surface: string, module: AnyModule, fieldPath: string[]): void;
 };
+
+/** At most, or exactly, this many of a kind of work. */
+export type WorkBudget = Partial<
+  Record<WorkKind, { atMost: number } | { exactly: number }>
+>;
 
 export type Page = {
   route: string;
@@ -368,7 +390,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       fetch: network.fetchFor(`studio:${name}`),
     });
     const validator = new SchemaValidator();
+    let seq = 0;
+    const work = new RecordingActivity(() => ++seq);
     const system = createValSystem(client, {
+      activity: work,
       writes: true,
       mode: "fs",
       uploadSettings: () => directFileUploadSettings(client),
@@ -457,6 +482,29 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       },
       async receiveCode(modules) {
         system.host.receive(await loadValModules(registryOf(modules)));
+      },
+      async receiveRegistry(registry) {
+        system.host.receive(await loadValModules(registry));
+      },
+      work,
+      expectWork(since, budget) {
+        const over: string[] = [];
+        for (const [kind, limit] of Object.entries(budget)) {
+          if (limit === undefined || !isWorkKind(kind)) continue;
+          const count = work.count(kind, { since });
+          const ok =
+            "atMost" in limit ? count <= limit.atMost : count === limit.exactly;
+          if (!ok) {
+            over.push(
+              `  ${kind}: ${count} (budget ${"atMost" in limit ? `at most ${limit.atMost}` : `exactly ${limit.exactly}`})`,
+            );
+          }
+        }
+        if (over.length > 0) {
+          throw new Error(
+            `✕ work over budget in studio "${name}":\n${over.join("\n")}\nAll work since: ${JSON.stringify(work.summary(since))}`,
+          );
+        }
       },
       errors() {
         return system.status.current().errors.map((error) => error.message);
@@ -686,6 +734,11 @@ const SETTLE_QUIET_ROUNDS = 3;
 const SETTLE_MAX_ROUNDS = 200;
 /** The server's long poll, plus a margin (`ValOpsFS` / `ValOpsMemory`). */
 const LONG_POLL_MS = 21_000;
+
+/** Narrows a budget's key, which `Object.entries` widens to string. */
+function isWorkKind(kind: string): kind is WorkKind {
+  return kind.includes(":");
+}
 
 function draftModeOf(flag: { on: boolean }) {
   return {

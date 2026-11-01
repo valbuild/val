@@ -4,6 +4,7 @@ import type { ValClient } from "@valbuild/shared/internal";
 import { statSnapshotOf } from "./statSnapshotOf";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
+import type { ActivitySink } from "../activity";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
 import type { RequestPublish } from "../PublishSeam";
@@ -72,6 +73,11 @@ export function createValSystem(
      * jest, and a test that had to stub `Worker` would be testing the stub.
      */
     schemaValidation?: SchemaValidationBridge;
+    /**
+     * Where the stores record the work they do (`activity.ts`). Nothing by
+     * default; the scenario harness passes a `RecordingActivity` to count it.
+     */
+    activity?: ActivitySink;
     /** A press of Publish as a publish job, for a managed project. See `RequestPublish`. */
     requestPublish?: RequestPublish;
     /**
@@ -148,6 +154,7 @@ export function createValSystem(
      */
     schemaValidation:
       options?.schemaValidation ?? createSchemaValidationBridge(),
+    ...(options?.activity !== undefined ? { activity: options.activity } : {}),
     ...(options?.uploadSettings !== undefined
       ? {
           /**

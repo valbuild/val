@@ -95,14 +95,47 @@ the surface and the frames:
 
 ## The scenarios
 
-| File                                 | What it asserts                                                                                                                                                                           | Today                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `smoke.scenario.test.ts`             | An edit in the Studio reaches a draft page's `fetchVal`; with draft mode off the page keeps the published content                                                                         | passes, memory and fs                                                                                                                                                                                                                                                                                                                                                                  |
-| `twoEditors.scenario.test.ts`        | An edit by one editor reaches the other editor's field through `/stat` and a fetch of the patch                                                                                           | passes, memory and fs                                                                                                                                                                                                                                                                                                                                                                  |
-| `addedField.scenario.test.ts`        | A field added to a schema can be typed into and kept, (a) when the server and the Studio both have the new code, (b) when the Studio gets it before the server                            | (a) passes; (b) **fails, marked `test.failing`**: the edit is discarded. See the test's comment                                                                                                                                                                                                                                                                                        |
-| `overlayAfterBuild.scenario.test.ts` | After a code change and a build, a draft page loaded with the overlay never shows the new content, then the old, then the new                                                             | Same build: passes, with and without a pending edit. **Two cases are skipped** (cause known, fix deferred while coverage is built out), each with a running test pinning why: (1) the overlay's `/stat` is answered by the previous build, so the Studio aligns to it and relays its content; (2) the browser runs the previous build's client code, so hydration reads the old bundle |
-| `sync.scenario.test.ts`              | S05 a refresh that lands before the write; S07 a discard in the middle of the chain reaches every reader; S08 the write after a discard; S09 a publish while a draft page is open         | S07, S08, S09 pass, memory and fs. **S05 is skipped**, with a running test pinning why: the edit reaches the page's store at once, which re-runs the loaders against a server that does not have the write yet; when it lands nothing tells the page, so the loader stays old until the 10 s safety net                                                                                |
-| `contentShapes.scenario.test.ts`     | S17 an edit inside an unloaded `.jsonValues()` entry; S18 an upload's `patch_id` reaches the page where the file lands (a video poster); S19 a gallery-backed field whose gallery changes | S18, S19 pass, memory and fs. **S17 is skipped**, two causes each pinned by a running test: the page's whole-record draft read fills entries from the bundle, not the pending edit; the overlay's Studio relays the entry it loaded without the edit it could not apply                                                                                                                |
+| File                                 | What it asserts                                                                                                                                                                                                                               | Today                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `smoke.scenario.test.ts`             | An edit in the Studio reaches a draft page's `fetchVal`; with draft mode off the page keeps the published content                                                                                                                             | passes, memory and fs                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `twoEditors.scenario.test.ts`        | An edit by one editor reaches the other editor's field through `/stat` and a fetch of the patch                                                                                                                                               | passes, memory and fs                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `addedField.scenario.test.ts`        | A field added to a schema can be typed into and kept, (a) when the server and the Studio both have the new code, (b) when the Studio gets it before the server                                                                                | (a) passes; (b) **fails, marked `test.failing`**: the edit is discarded. See the test's comment                                                                                                                                                                                                                                                                                                                                  |
+| `overlayAfterBuild.scenario.test.ts` | After a code change and a build, a draft page loaded with the overlay never shows the new content, then the old, then the new                                                                                                                 | Same build: passes, with and without a pending edit. **Two cases are skipped** (cause known, fix deferred while coverage is built out), each with a running test pinning why: (1) the overlay's `/stat` is answered by the previous build, so the Studio aligns to it and relays its content; (2) the browser runs the previous build's client code, so hydration reads the old bundle                                           |
+| `sync.scenario.test.ts`              | S05 a refresh that lands before the write; S07 a discard in the middle of the chain reaches every reader; S08 the write after a discard; S09 a publish while a draft page is open                                                             | S07, S08, S09 pass, memory and fs. **S05 is skipped**, with a running test pinning why: the edit reaches the page's store at once, which re-runs the loaders against a server that does not have the write yet; when it lands nothing tells the page, so the loader stays old until the 10 s safety net                                                                                                                          |
+| `contentShapes.scenario.test.ts`     | S17 an edit inside an unloaded `.jsonValues()` entry; S18 an upload's `patch_id` reaches the page where the file lands (a video poster); S19 a gallery-backed field whose gallery changes                                                     | S18, S19 pass, memory and fs. **S17 is skipped**, two causes each pinned by a running test: the page's whole-record draft read fills entries from the bundle, not the pending edit; the overlay's Studio relays the entry it loaded without the edit it could not apply                                                                                                                                                          |
+| `readers.scenario.test.ts`           | S22 the loader, the hook and the Studio field agree; S23 draft at SSR with no flash of published content                                                                                                                                      | pass, memory and fs. S22 is the end state ("converges"); the stronger form, same version same value, needs versions on the wire (phase 1)                                                                                                                                                                                                                                                                                        |
+| `codeChanges.scenario.test.ts`       | S11 a schema change while the page shows an edit; S12 a module whose code throws is reported; S13 a removed module disappears; S14 edits that no longer fit a new schema are kept; S16 no schema dialog after a deploy the Studio has not got | S11 passes. **S12, S13, S14, S16 are skipped**, each with a running test pinning today's behaviour: a module whose `def` rejects is dropped from intake without a word (and kept only by the merge); `SchemaStore.receive` merges, so a removed module stays; an edit that no longer applies is deleted, on the server too; `SchemaFreshnessWatch` reports the schema out of date (by design today; the plan removes the dialog) |
+| `budgets.scenario.test.ts`           | B01 a keystroke applies its patch once, even after the echo; B02 another editor's keystroke costs one patch, not the module                                                                                                                   | pass, memory and fs, counted with the stores' `RecordingActivity` (`studio.expectWork`)                                                                                                                                                                                                                                                                                                                                          |
+
+### Catalogue ids not built, and why
+
+- **S06** `/stat` answers out of order: in fs and memory a Studio has one
+  `/stat` in flight at a time and neither mode checks a write's parent
+  (`ValOpsFS`, `ValOpsMemory` ignore `parentRef`), so an out-of-order answer
+  has nothing to break. It matters in http mode (a websocket, `headVersion`),
+  which the world does not have.
+- **S15** a build with other `@valbuild/*` versions: one jest process runs
+  one Val.
+- **S20, S21** hosted layers (a content version newer than the bundle; a
+  proposal's overlay): `initValServer` in memory mode ignores `proposal` and
+  `contentVersion` (`initHandlerOptions` returns before reading them) while
+  `initValContent`'s readers apply them (`snapshotForReaders`) in any mode,
+  so modelling them without http mode would give the API and the readers two
+  different bases -- the world would invent a bug. They need http mode and a
+  content service that serves proposals; `e2e/mock-content-host` has none.
+- **S24** without `suspend`, nothing suspends: the three `suspend` gates are
+  still inside `useValStega` (React), not a plain function the world can
+  call.
+- **S25** a failed draft read never gives a visitor edit tags: the bug is in
+  the code (`initValRsc.ts:231`, `initValContent.ts:271` call `stegaEncode`
+  without `disabled` in the error fallback), but for a visitor the only throw
+  that reaches it is a `.jsonValues()` entry import that rejects, and then the
+  fallback drops every entry, so there is no string left to carry a tag. On
+  TanStack a proposal snapshot could carry one, which needs S21's layers.
+  A unit test of `fetchValStega` with a throwing reader is the right shape
+  for it, not a scenario.
+- **B03** a draft read in a 128 MB isolate: a benchmark in `workerd`, not a
+  jest scenario.
 
 ## Not there yet
 
@@ -127,14 +160,16 @@ path, and a scenario that depends on it would prove less than it looks:
   mode with the overlay on it, through the functions the provider and
   `useVal` call. Not there: React itself (hydration is a read of the store
   with the client's modules, which is what React would render), a page
-  without the `draft` prop, the `suspend` gates, `.jsonValues()` records in a
-  page read, the canvas (postMessage) relay, and the loaders re-running after
-  `VAL_EDIT_LANDED` (`router.invalidate`, the refresh loop is not extracted).
+  without the `draft` prop, the `suspend` gates, a HOOK reading a whole
+  `.jsonValues()` record (its entries are filled through `React.use`), and
+  the canvas (postMessage) relay. The loaders are there: `loaderShows` reads
+  with the real `fetchVal` at the server render and on every refresh of the
+  provider's own loop (`startRefreshLoop`).
 - **The clock.** Fake (`world/clock.ts`): jest's timers, with microtasks,
   `nextTick` and `setImmediate` left real. `world.settle()` moves it forward in
   300 ms steps until nothing changes for three in a row, so a parked long poll
-  costs nothing and a 20 s one is a few steps. Races are not scripted yet:
-  `network.hold` exists, and no scenario uses it.
+  costs nothing and a 20 s one is a few steps. `network.hold` scripts a write
+  that lands late (S05); reordering answers is not built (see S06).
 - **Code changes, hosted.** `world.deployCode` / `studio.receiveCode` are
   how new code arrives in LOCAL DEVELOPMENT: HMR evaluates the server module
   again (`initValServer`, `initValContent`) and `<ValModulesClient>` registers
@@ -149,8 +184,9 @@ path, and a scenario that depends on it would prove less than it looks:
   as quiet, so a scenario can end with a Studio still holding what the old
   server said. In `addedField` (b) this is why the field ends `(absent)`
   rather than back on the new base.
-- **Invariants.** "Converges" and "never goes back", on values
-  (`frames.expectNeverGoesBack()` alone where surfaces show different fields). The rest of
-  the plan's list (one version per render, parity, never with another schema,
-  events not timers, no schema dialog) and the counted budgets of work come as
-  the scenarios that need them do.
+- **Invariants.** "Converges" (each surface's last value) and "never goes
+  back", on values (`frames.expectNeverGoesBack()` alone where surfaces show
+  different fields), and counted work (`studio.expectWork`). One version per
+  render, parity at a version and never with another schema need versions in
+  the frames (phase 1); "events, not timers" and "no schema dialog" are
+  checked by the scenarios that need them (S05, S16).

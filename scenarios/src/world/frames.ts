@@ -70,13 +70,22 @@ export function createFrames(): Frames {
   };
 }
 
-/** 1. At the end, every surface shows the same value. */
+/**
+ * 1. At the end, every surface shows the same value: each surface's LAST
+ * frame, wherever it was recorded. (Comparing only the frames of the last
+ * observation missed a surface that stopped recording earlier -- a loader
+ * nothing re-ran -- which is exactly the surface that is behind.)
+ */
 function converges(all: readonly Frame[]): string[] {
-  const lastAt = Math.max(...all.map((f) => f.at));
-  const last = all.filter((f) => f.at === lastAt);
-  const values = new Set(last.map((f) => JSON.stringify(f.value)));
+  const last = new Map<string, Frame>();
+  for (const frame of all) last.set(frame.surface, frame);
+  const values = new Set(
+    [...last.values()].map((f) => JSON.stringify(f.value)),
+  );
   if (values.size <= 1) return [];
-  return [`✕ converges: the surfaces disagree at the end\n${describe(last)}`];
+  return [
+    `✕ converges: the surfaces disagree at the end\n${describe([...last.values()])}`,
+  ];
 }
 
 /** 2. No surface shows a value, then another, then the first again. */
