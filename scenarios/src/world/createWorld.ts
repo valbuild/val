@@ -61,9 +61,13 @@ import {
   isDraft,
 } from "../../../packages/tanstack/src/draftStore";
 import {
-  overlaySourceOf,
-  readWithOverlay,
+  readEntryWithOverlay,
+  readRouteEntryWithOverlay,
+  readSelectorWithOverlay,
+  type CommittedEntries,
+  type OverlayView,
 } from "../../../packages/tanstack/src/client/overlayRead";
+import { bundledJsonEntryImport } from "../../../packages/tanstack/src/routeFromVal";
 import type { ValExternalStore } from "../../../packages/tanstack/src/ValOverlayContext";
 import type { ValDraft } from "../../../packages/tanstack/src/ValDraft";
 import {
@@ -145,6 +149,12 @@ export type Studio = {
     patch: Patch,
     fileType?: "image" | "file",
   ): Promise<PatchId>;
+  /** {@link write}, to a module named by its path (`useAddModuleFilePatch`'s shape). */
+  writeAt(
+    moduleFilePath: ModuleFilePath,
+    patch: Patch,
+    fileType?: "image" | "file",
+  ): Promise<PatchId>;
   /** Discard patches, as Review's "Discard" does (`System.discard`). */
   discard(patchIds: PatchId[]): ReturnType<System["discard"]>;
   /**
@@ -200,14 +210,26 @@ export type PageLoadOptions = {
    * client code (a cached `/_app/app.js`).
    */
   clientModules?: AnyModule[];
-  /** What the page shows through `useVal`: a field of a module, each a surface. */
-  shows: Array<{ surface: string; module: AnyModule; field: string[] }>;
+  /**
+   * What the page shows through its hooks, each a surface: a field of what
+   * `useVal(module)` gives back, or of one `.jsonValues()` entry through
+   * `useValKey(module, key)`, or of a route's entry through
+   * `useValRoute(module, params)`.
+   */
+  shows: PageShow[];
   /**
    * What the page shows from its LOADERS: a field read on the server with
    * `fetchVal`, at the server render and again every time the page's refresh
    * loop (`startRefreshLoop`, as `ValTanStackProvider` runs it) re-runs them.
    */
   loaderShows?: Array<{ surface: string; module: AnyModule; field: string[] }>;
+};
+
+export type PageShow = {
+  surface: string;
+  module: AnyModule;
+  field: string[];
+  via?: { useValKey: string } | { useValRoute: Record<string, string> };
 };
 
 export type LoadedPage = {
@@ -224,6 +246,11 @@ export type PageReaders = {
   fetchVal<T extends Resolvable>(module: T): Promise<DecodeVal<ResolvedVal<T>>>;
   /** The real `fetchValKey`: one `.jsonValues()` entry. Edit tags removed. */
   fetchValKey(module: ResolvableModule, key: string): Promise<unknown>;
+  /** The real `fetchValRoute`: a router's entry for these params. Edit tags removed. */
+  fetchValRoute(
+    module: ResolvableModule,
+    params: Record<string, string>,
+  ): Promise<unknown>;
 };
 
 type AnyModule = ValModule<SelectorSource>;
@@ -460,7 +487,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         return res.record.patchId;
       },
       async write(module, patch, fileType) {
-        const res = await writePatch(system, moduleFilePathOf(module), patch, {
+        return studio.writeAt(moduleFilePathOf(module), patch, fileType);
+      },
+      async writeAt(moduleFilePath, patch, fileType) {
+        const res = await writePatch(system, moduleFilePath, patch, {
           ...(fileType !== undefined ? { fileType } : {}),
         });
         if (res.status === "error") {
@@ -540,14 +570,19 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       const request = () =>
         new Request(new URL(route, "http://localhost").href);
       const clientModules = pageOptions.clientModules ?? serverModules;
-      const record = (
-        modules: AnyModule[],
-        sourceOf: (moduleId: string) => Json | undefined,
-      ) => {
+      // The bundle's own entry imports, which a hook suspends on: resolved
+      // here, before reading, for each build's modules.
+      const committed = new Map<AnyModule[], CommittedEntries>();
+      for (const modules of [serverModules, clientModules]) {
+        committed.set(modules, await committedEntriesOf(modules));
+      }
+      const record = (modules: AnyModule[], view: OverlayView) => {
+        const entries = committed.get(modules);
+        if (entries === undefined) throw new Error("unresolved build");
         for (const show of pageOptions.shows) {
           frames.record(
             show.surface,
-            readField(moduleLike(modules, show.module), show.field, sourceOf),
+            readShow(moduleLike(modules, show.module), show, view, entries),
           );
         }
         frames.tick();
@@ -559,13 +594,11 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       );
       const serverStore = createDraftStore(draft);
       const read = (store: ValExternalStore, modules: AnyModule[]) =>
-        record(modules, (moduleId) =>
-          overlaySourceOf(
-            store.get(idsOf(modules)),
-            isDraft(draft) ? true : null,
-            draft?.snapshot,
-          )(moduleId),
-        );
+        record(modules, {
+          moduleMap: store.get(idsOf(modules)),
+          draftMode: isDraft(draft) ? true : null,
+          snapshot: draft?.snapshot,
+        });
       read(serverStore, serverModules);
       // The page's loaders, read on the server: at the server render, and
       // whenever the refresh loop re-runs them. One `initValContent` per page
@@ -659,6 +692,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         },
         async fetchValKey(module, key) {
           return raw(await content.fetchValKeyStega(module, key));
+        },
+        async fetchValRoute(module, params) {
+          return raw(await content.fetchValRouteStega(module, params));
         },
       };
       return {
@@ -773,13 +809,71 @@ function moduleLike(modules: AnyModule[], module: AnyModule): AnyModule {
   return found;
 }
 
-/** A field of what `useVal` gives back, read the way the hook reads it. */
-function readField(
+/**
+ * What a hook gives back for one show, read the way the hook reads it:
+ * `useVal`, `useValKey` or `useValRoute`'s pure part.
+ */
+function readShow(
   module: AnyModule,
-  field: string[],
-  sourceOf: (moduleId: string) => Json | undefined,
+  show: PageShow,
+  view: OverlayView,
+  entries: CommittedEntries,
 ): unknown {
-  return fieldOf(raw(readWithOverlay(module, sourceOf, null, false)), field);
+  const via = show.via;
+  if (via === undefined) {
+    return fieldOf(
+      raw(readSelectorWithOverlay(module, view, false, entries)),
+      show.field,
+    );
+  }
+  const modulePath = moduleFilePathOf(module);
+  const draftSource =
+    view.moduleMap && view.draftMode ? view.moduleMap[modulePath] : undefined;
+  const snapshotSource = view.snapshot?.[modulePath];
+  const one = (_: unknown, key: string) =>
+    entries(module, modulePath, [key])[0];
+  const value =
+    "useValKey" in via
+      ? readEntryWithOverlay(
+          module,
+          via.useValKey,
+          draftSource,
+          snapshotSource,
+          false,
+          one,
+        )
+      : readRouteEntryWithOverlay(
+          module,
+          via.useValRoute,
+          draftSource,
+          snapshotSource,
+          false,
+          one,
+        );
+  return fieldOf(raw(value), show.field);
+}
+
+/**
+ * The committed content of every `.jsonValues()` entry the modules bundle,
+ * resolved: what a hook's `React.use` would wait for, done before reading.
+ */
+async function committedEntriesOf(
+  modules: AnyModule[],
+): Promise<CommittedEntries> {
+  const loaded = new Map<string, unknown>();
+  for (const module of modules) {
+    const source = Internal.getSource(module);
+    if (typeof source !== "object" || source === null) continue;
+    const modulePath = moduleFilePathOf(module);
+    for (const key of Object.keys(source)) {
+      const thunk = bundledJsonEntryImport(module, key);
+      if (thunk !== undefined) {
+        loaded.set(`${modulePath} ${key}`, (await thunk()).default);
+      }
+    }
+  }
+  return (_module, modulePath, keys) =>
+    keys.map((key) => loaded.get(`${modulePath} ${key}`));
 }
 
 /** A field of a value read through a reader. */

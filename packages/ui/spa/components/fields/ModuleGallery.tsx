@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   galleryAltPatch,
+  galleryRef,
   galleryRemovePatch,
   galleryUploadPatch,
   type GalleryFileMetadata,
@@ -48,7 +49,6 @@ import { readImage, readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
-import { getFileExt } from "../../utils/getFileExt";
 import { fileMatchesAccept, inputAccept } from "../../utils/fileAccept";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useUploadRequest } from "../UploadRequest";
@@ -64,8 +64,6 @@ import {
 import { isPlaylistPath } from "../../utils/video/hlsPlaylist";
 import { readStream } from "../../utils/video/renameVideo";
 import { fetchStreamFile } from "../../utils/video/fetchStreamFile";
-
-const textEncoder = new TextEncoder();
 
 export function ModuleGallery({
   path,
@@ -589,77 +587,16 @@ export function ModuleGallery({
 
   const computeRef = React.useCallback(
     (
-      res: {
-        fileHash: string;
-        src: string;
-        filename?: string;
-      },
+      res: { fileHash: string; src: string; filename?: string },
       syntheticSchema: SerializedImageSchema | SerializedFileSchema,
       metadata: Record<string, unknown> | undefined,
-    ):
-      | {
-          status: "success";
-          ref: string;
-          isRemote: boolean;
-        }
-      | {
-          status: "error";
-          error: string;
-        } => {
-      const newFilename = Internal.createFilename(
-        res.src,
-        res.filename ?? null,
+    ) =>
+      galleryRef(
+        { directory, requireRemote, remoteData },
+        res,
+        syntheticSchema,
         metadata,
-        res.fileHash,
-      );
-      if (!newFilename) {
-        return {
-          status: "error",
-          error: "Failed to create filename for the uploaded file.",
-        };
-      }
-      const filePath = `${directory}/${newFilename}`;
-      let ref: string;
-      let isRemote: boolean;
-      if (requireRemote) {
-        if (!remoteData) {
-          return {
-            status: "error",
-            error:
-              "Remote uploads are not available. Please try again later. This could be a temporary issue with the Val server. If the problem persists, please contact support.",
-          };
-        }
-        const remoteFileHash = Internal.remote.hashToRemoteFileHash(
-          res.fileHash,
-        );
-        const validationHash = Internal.remote.getValidationHash(
-          remoteData.coreVersion,
-          syntheticSchema,
-          getFileExt(newFilename),
-          metadata,
-          remoteFileHash,
-          textEncoder,
-        );
-        ref = Internal.remote.createRemoteRef(remoteData.remoteHost, {
-          publicProjectId: remoteData.publicProjectId,
-          coreVersion: remoteData.coreVersion,
-          bucket: remoteData.bucket,
-          validationHash,
-          fileHash: remoteFileHash,
-          filePath:
-            `${directory.slice(1)}/${newFilename}` as `public/${string}`,
-        });
-        isRemote = true;
-      } else {
-        ref = filePath;
-        isRemote = false;
-      }
-      return {
-        status: "success",
-        ref,
-        isRemote,
-      };
-    },
+      ),
     [directory, requireRemote, remoteData],
   );
 

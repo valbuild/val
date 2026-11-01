@@ -1,9 +1,8 @@
 import {
   Internal,
-  type GenericSelector,
   type Json,
   type ModuleFilePath,
-  type SourceObject,
+  type SelectorSource,
   type ValModule,
 } from "@valbuild/core";
 import { stegaEncode, type Resolvable } from "@valbuild/react/stega";
@@ -191,16 +190,13 @@ export function draftOrSnapshotJsonEntry(
  * entry is gone -- falling back to the bundled entry would render content the
  * editor has just removed.
  */
-export function readEntryWithOverlay(
-  valModule: ValModule<GenericSelector<SourceObject>>,
+export function readEntryWithOverlay<M extends ValModule<SelectorSource>>(
+  valModule: M,
   key: string,
   draftSource: Json | undefined,
   snapshotSource: Json | undefined,
   encodes: boolean,
-  committed: (
-    valModule: ValModule<GenericSelector<SourceObject>>,
-    key: string,
-  ) => unknown,
+  committed: (valModule: M, key: string) => unknown,
 ) {
   const draft = draftOrSnapshotJsonEntry(draftSource, snapshotSource, key);
   if (draft.status === "absent") {
@@ -221,16 +217,13 @@ export function readEntryWithOverlay(
  * the entry's key, then {@link readEntryWithOverlay}'s rule. `null` when the
  * params name no route, or the draft view says the route is gone.
  */
-export function readRouteEntryWithOverlay(
-  valModule: ValModule<GenericSelector<SourceObject>>,
+export function readRouteEntryWithOverlay<M extends ValModule<SelectorSource>>(
+  valModule: M,
   params: Record<string, string | string[]>,
   draftSource: Json | undefined,
   snapshotSource: Json | undefined,
   encodes: boolean,
-  committed: (
-    valModule: ValModule<GenericSelector<SourceObject>>,
-    key: string,
-  ) => unknown,
+  committed: (valModule: M, key: string) => unknown,
 ) {
   const path = valModule && Internal.getValPath(valModule);
   const schema = valModule && Internal.getSchema(valModule);

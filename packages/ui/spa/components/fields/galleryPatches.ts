@@ -1,4 +1,10 @@
+import {
+  Internal,
+  type SerializedFileSchema,
+  type SerializedImageSchema,
+} from "@valbuild/core";
 import type { JSONValue, Patch } from "@valbuild/core/patch";
+import { getFileExt } from "../../utils/getFileExt";
 import type { array } from "@valbuild/core/fp";
 
 /**
@@ -106,4 +112,81 @@ export function galleryAltPatch(
       value: alt,
     },
   ];
+}
+
+const textEncoder = new TextEncoder();
+
+/**
+ * Where an upload to a library goes: `<directory>/<name>_<hash>.<ext>` for a
+ * local library, a remote ref for a remote one. `ModuleGallery`'s uploads
+ * name their files with this, and so does the scenario harness.
+ */
+export function galleryRef(
+  library: {
+    directory: string;
+    requireRemote: boolean | undefined;
+    remoteData: {
+      publicProjectId: string;
+      bucket: string;
+      coreVersion: string;
+      remoteHost: string;
+    } | null;
+  },
+  res: { fileHash: string; src: string; filename?: string },
+  syntheticSchema: SerializedImageSchema | SerializedFileSchema,
+  metadata: Record<string, unknown> | undefined,
+):
+  | { status: "success"; ref: string; isRemote: boolean }
+  | { status: "error"; error: string } {
+  const { directory, requireRemote, remoteData } = library;
+  const newFilename = Internal.createFilename(
+    res.src,
+    res.filename ?? null,
+    metadata,
+    res.fileHash,
+  );
+  if (!newFilename) {
+    return {
+      status: "error",
+      error: "Failed to create filename for the uploaded file.",
+    };
+  }
+  const filePath = `${directory}/${newFilename}`;
+  let ref: string;
+  let isRemote: boolean;
+  if (requireRemote) {
+    if (!remoteData) {
+      return {
+        status: "error",
+        error:
+          "Remote uploads are not available. Please try again later. This could be a temporary issue with the Val server. If the problem persists, please contact support.",
+      };
+    }
+    const remoteFileHash = Internal.remote.hashToRemoteFileHash(res.fileHash);
+    const validationHash = Internal.remote.getValidationHash(
+      remoteData.coreVersion,
+      syntheticSchema,
+      getFileExt(newFilename),
+      metadata,
+      remoteFileHash,
+      textEncoder,
+    );
+    ref = Internal.remote.createRemoteRef(remoteData.remoteHost, {
+      publicProjectId: remoteData.publicProjectId,
+      coreVersion: remoteData.coreVersion,
+      bucket: remoteData.bucket,
+      validationHash,
+      fileHash: remoteFileHash,
+      filePath: `${directory.slice(1)}/${newFilename}` as `public/${string}`,
+    });
+    isRemote = true;
+  } else {
+    ref = filePath;
+    isRemote = false;
+  }
+  return {
+    status: "success",
+    ref,
+    isRemote,
+  };
 }
