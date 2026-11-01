@@ -56,12 +56,8 @@ const { s, c, config } = initVal({});
 type AnyModule = ValModule<SelectorSource>;
 
 /** Why cells fail today. Evidence and suspected cause are in the README. */
-const F3 =
-  "F3: after a publish the page's server readers keep the pre-publish content: their own server does not adopt the publish (only the instance that handled /save does). In local development a reload of the rewritten files would replace it; the world does not model that reload";
 const L1 =
   "L1: the page's server render gives a field that picked a library entry uploaded in a pending patch the PUBLISHED url (no patch_id), so the server-rendered page names a file that does not exist yet; the overlay's hook gives the draft url";
-const P1 =
-  "P1: after a publish, a plain media field's source in the Studio (and so in the overlay's relay) still carries the published patch's patch_id, so the page is handed the draft url /api/val/files/...?patch_id= for a file that is now published, and GET of it answers 404 (the patch is gone). Possibly the reload F3 describes, which the world does not model";
 
 const PNG_1x1 = Uint8Array.from(
   atob(
@@ -339,11 +335,6 @@ function plainCells(p: Plain): Cell[] {
       only: {
         modes: ["fs"],
         why: "memory mode refuses to publish a local file (ValOpsMemory.uploadRemoteFiles); a hosted project's media is remote",
-      },
-      failing: {
-        "fetchVal field": F3,
-        "useVal field": P1,
-        "GET useVal field url": P1,
       },
       surfaces: [
         ...surfaces.filter((s) => s.kind !== "after"),
@@ -671,7 +662,6 @@ const videoLibraryCells: Cell[] = [
       modes: ["fs"],
       why: "memory mode refuses to publish a local file (ValOpsMemory.uploadRemoteFiles); a hosted project's media is remote",
     },
-    failing: { "fetchVal field": F3, "fetchVal library keys": F3 },
     surfaces: [
       ...clip.filter((s) => s.kind !== "after"),
       libraryKeys,

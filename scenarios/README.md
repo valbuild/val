@@ -147,17 +147,17 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 
 #### jsonValues
 
-| Operation                                       | studio | fetchVal | fetchValKey | fetchValRoute | useVal | useValKey | useValRoute | fetchVal keys | useVal keys | entry file on disk | studio, opened after | never goes back, no errors |
-| ----------------------------------------------- | ------ | -------- | ----------- | ------------- | ------ | --------- | ----------- | ------------- | ----------- | ------------------ | -------------------- | -------------------------- |
-| edit an entry (/blog/a)                         | ok     | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | —             | —           | —                  | —                    | ok                         |
-| add an entry (/blog/c)                          | ok     | **F1**   | ok          | ok            | ok     | ok        | ok          | ok            | ok          | —                  | —                    | ok                         |
-| rename a key (/blog/z)                          | ok     | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | ok            | ok          | —                  | —                    | ok                         |
-| delete an entry (/blog/b)                       | ok     | ok       | ok          | ok            | ok     | ok        | ok          | ok            | ok          | —                  | —                    | ok                         |
-| discard an edit (/blog/a)                       | ok     | ok       | ok          | ok            | ok     | ok        | ok          | —             | —           | —                  | —                    | ok                         |
-| publish an edit (/blog/a)                       | ok     | **F3**   | **F3**      | **F3**        | **F3** | **F3**    | **F3**      | —             | —           | ok                 | —                    | ok                         |
-| another editor's edit, via /stat (/blog/a)      | ok     | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | —             | —           | —                  | —                    | ok                         |
-| a code change to the item schema (/blog/a)      | ok     | ok       | ok          | ok            | ok     | ok        | ok          | —             | —           | —                  | —                    | ok                         |
-| an edit to an entry nobody has loaded (/blog/a) | —      | **F1**   | ok          | ok            | **F2** | **F2**    | **F2**      | —             | —           | —                  | **F2**               | ok                         |
+| Operation                                       | studio | fetchVal                 | fetchValKey              | fetchValRoute            | useVal                   | useValKey                | useValRoute              | fetchVal keys | useVal keys | entry file on disk | studio, opened after | never goes back, no errors |
+| ----------------------------------------------- | ------ | ------------------------ | ------------------------ | ------------------------ | ------------------------ | ------------------------ | ------------------------ | ------------- | ----------- | ------------------ | -------------------- | -------------------------- |
+| edit an entry (/blog/a)                         | ok     | **F1**                   | ok                       | ok                       | **F2**                   | **F2**                   | **F2**                   | —             | —           | —                  | —                    | ok                         |
+| add an entry (/blog/c)                          | ok     | **F1**                   | ok                       | ok                       | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
+| rename a key (/blog/z)                          | ok     | **F1**                   | ok                       | ok                       | **F2**                   | **F2**                   | **F2**                   | ok            | ok          | —                  | —                    | ok                         |
+| delete an entry (/blog/b)                       | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | ok            | ok          | —                  | —                    | ok                         |
+| discard an edit (/blog/a)                       | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
+| publish an edit (/blog/a)                       | ok     | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | ok (fs), **R1** (memory) | —             | —           | ok                 | —                    | ok                         |
+| another editor's edit, via /stat (/blog/a)      | ok     | **F1**                   | ok                       | ok                       | **F2**                   | **F2**                   | **F2**                   | —             | —           | —                  | —                    | ok                         |
+| a code change to the item schema (/blog/a)      | ok     | ok                       | ok                       | ok                       | ok                       | ok                       | ok                       | —             | —           | —                  | —                    | ok                         |
+| an edit to an entry nobody has loaded (/blog/a) | —      | **F1**                   | ok                       | ok                       | **F2**                   | **F2**                   | **F2**                   | —             | —           | —                  | **F2**               | ok                         |
 
 #### imagedir
 
@@ -170,7 +170,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | discard an upload                      | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
 | another editor's upload, via /stat     | ok           | **L1**         | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
 | a code change to the library's options | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
-| publish an upload                      | ok (fs)      | **F3** (fs)    | ok (fs)      | —                | —                  | **F3** (fs)           | —                      | —                    | —              | —                | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
+| publish an upload                      | ok (fs)      | ok (fs)        | ok (fs)      | —                | —                  | ok (fs)               | —                      | —                    | —              | —                | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
 
 #### filedir
 
@@ -182,7 +182,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | discard an upload                      | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
 | another editor's upload, via /stat     | ok           | **L1**         | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
 | a code change to the library's options | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —            | —                          | ok                         |
-| publish an upload                      | ok (fs)      | **F3** (fs)    | ok (fs)      | —                | —                  | **F3** (fs)           | —                      | —                    | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
+| publish an upload                      | ok (fs)      | ok (fs)        | ok (fs)      | —                | —                  | ok (fs)               | —                      | —                    | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
 
 #### plain s.image()
 
@@ -192,7 +192,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | discard an upload                                    | ok           | ok             | ok           | —                      | —                    | —            | ok                         |
 | another editor's upload, via /stat                   | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
 | a code change to the field's schema, after an upload | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
-| publish an upload                                    | ok (fs)      | **F3** (fs)    | **P1** (fs)  | —                      | **P1** (fs)          | ok (fs)      | ok (fs)                    |
+| publish an upload                                    | ok (fs)      | ok (fs)        | ok (fs)      | —                      | ok (fs)              | ok (fs)      | ok (fs)                    |
 
 #### plain s.file()
 
@@ -202,7 +202,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | discard an upload                                    | ok           | ok             | ok           | —                      | —                    | —            | ok                         |
 | another editor's upload, via /stat                   | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
 | a code change to the field's schema, after an upload | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
-| publish an upload                                    | ok (fs)      | **F3** (fs)    | **P1** (fs)  | —                      | **P1** (fs)          | ok (fs)      | ok (fs)                    |
+| publish an upload                                    | ok (fs)      | ok (fs)        | ok (fs)      | —                      | ok (fs)              | ok (fs)      | ok (fs)                    |
 
 #### plain s.video()
 
@@ -212,7 +212,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | discard an upload                                    | ok           | ok             | ok           | —                      | —                    | —            | ok                         |
 | another editor's upload, via /stat                   | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
 | a code change to the field's schema, after an upload | ok           | ok             | ok           | ok                     | ok                   | —            | ok                         |
-| publish an upload                                    | ok (fs)      | **F3** (fs)    | **P1** (fs)  | —                      | **P1** (fs)          | ok (fs)      | ok (fs)                    |
+| publish an upload                                    | ok (fs)      | ok (fs)        | ok (fs)      | —                      | ok (fs)              | ok (fs)      | ok (fs)                    |
 
 #### videodir
 
@@ -225,7 +225,7 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | discard an upload                                 | ok           | ok             | ok           | —                      | —                    | ok                    | —            | ok                         |
 | another editor's upload, via /stat                | ok           | **L1**         | ok           | **L1**                 | ok                   | ok                    | —            | ok                         |
 | a code change to the library's options            | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
-| publish an upload                                 | ok (fs)      | **F3** (fs)    | ok (fs)      | —                      | —                    | **F3** (fs)           | ok (fs)      | ok (fs)                    |
+| publish an upload                                 | ok (fs)      | ok (fs)        | ok (fs)      | —                      | —                    | ok (fs)               | ok (fs)      | ok (fs)                    |
 
 #### The causes
 
@@ -238,21 +238,23 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
   could not apply and never applies it once the entry loads. The overlay's
   Studio then relays the committed entry to every hook, and the editor's own
   field, opened after, shows "Page A" while the server has "Edited A".
-- **F3** (medium -- partly the world). After a publish the page's readers keep
-  the pre-publish content: their own server does not adopt the publish (only
-  the instance that handled `/save` does), and the bundle's entry imports
-  still hold the old content. In local development a reload of the rewritten
-  files would replace both; the world does not model that reload.
+- **R1** (high). In memory mode, after a publish the page's readers keep the
+  pre-publish content: `initValContent`'s own server instance does not adopt
+  the publish, only the API's instance that handled `/save` does. fs mode is
+  right once the dev server reloads the rewritten files (below). The plan's
+  one runtime per process (phase 6) removes the second instance.
 - **L1** (high). The server render of a field that picked a library entry
   uploaded in a pending patch gives the PUBLISHED url (no `patch_id`), and
   GET of it answers 500 (image, file and video alike). The hook's
   url is the draft one and serves the bytes. The same for another editor's
   upload.
-- **P1** (medium -- may be F3's reload). After a publish, a PLAIN media
-  field's source in the Studio still carries the published patch's
-  `patch_id`, so the overlay hands the page `/api/val/files/…?patch_id=`,
-  which answers 404 now the patch is gone. A library-backed field is not
-  affected: its source is only `{ path }`.
+- **F3 and P1 were the world, not the product.** They were gone once the
+  world modelled what a dev server does after a publish: the rewritten files
+  are evaluated again (Val's own `loadValModules`, what `val validate` runs)
+  and the app's server, the readers, the Studio and the page get the new
+  modules (`devReload` in `createWorld.ts`), and once a published file's url
+  was answered by the app's static files, as the framework serves `public/`
+  (`withStaticFiles`).
 
 #### Not covered, and why
 

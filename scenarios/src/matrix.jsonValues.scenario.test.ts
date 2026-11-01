@@ -194,8 +194,8 @@ const F1 =
   "F1: a draft fetchVal of the WHOLE record fills its entries from the bundle's imports, not from the pending edit (fetchValKey and fetchValRoute show it)";
 const F2 =
   "F2: a Studio that had not loaded the entry keeps the patch it could not apply and never applies it once the entry loads, so it shows (and the overlay relays) the committed entry";
-const F3 =
-  "F3: after a publish the page's readers keep the pre-publish content: their own server does not adopt the publish (only the instance that handled /save does) and the bundle's entry imports still hold the old content. In local development a reload of the rewritten files would replace both; the world does not model that reload";
+const R1 =
+  "R1: in memory mode, after a publish the page's readers keep the pre-publish content: initValContent's own server instance does not adopt the publish, only the API's instance that handled /save does (fs mode is right after the dev server reloads the rewritten files)";
 
 /** The page's hooks for one entry, all failing for `reason`. */
 function hooksFail(key: string, reason: string): Record<string, string> {
@@ -284,11 +284,13 @@ const cells: Cell[] = [
   },
   {
     operation: "publish an edit",
-    failing: {
-      "fetchVal /blog/a": F3,
-      "fetchValKey /blog/a": F3,
-      "fetchValRoute /blog/a": F3,
-      ...hooksFail("/blog/a", F3),
+    failingIn: {
+      memory: {
+        "fetchVal /blog/a": R1,
+        "fetchValKey /blog/a": R1,
+        "fetchValRoute /blog/a": R1,
+        ...hooksFail("/blog/a", R1),
+      },
     },
     surfaces: [
       ...A,

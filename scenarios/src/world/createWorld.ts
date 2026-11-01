@@ -11,9 +11,18 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import { createValClient } from "@valbuild/shared/internal";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { loadValModules as evaluateProject } from "@valbuild/server";
 import {
   InMemoryPatchStore,
   initValContent,
@@ -350,10 +359,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const host = hostFor(options.server, options.sourceText ?? {});
   const apiDraftMode = { on: true };
   const serverFor = (registry: ValModules) =>
-    initValServer(registry, options.config, {
-      ...hostOptions(host),
-      draftMode: draftModeOf(apiDraftMode),
-    }).valApiHandler;
+    withStaticFiles(
+      host,
+      initValServer(registry, options.config, {
+        ...hostOptions(host),
+        draftMode: draftModeOf(apiDraftMode),
+      }).valApiHandler,
+    );
   let serverModules = options.modules;
   let currentHandler = serverFor(valModules);
   const network = createNetwork(currentHandler);
@@ -370,6 +382,61 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     for (const reload of pages) reload();
     return { previous, current: currentHandler };
   };
+  /** Loaded pages that follow the server's code, re-read after a dev reload. */
+  const hotPages: Array<(modules: AnyModule[]) => Promise<void>> = [];
+  /**
+   * What the dev server does after a publish rewrote the project's files: the
+   * bundler sees them change and re-evaluates them, so the app's server and
+   * every page's readers (`deployCode`), the Studio (`receiveCode`, as
+   * `<ValModulesClient>` re-registers) and the page in the browser get modules
+   * evaluated from the NEW files.
+   *
+   * The bundler's hot reload is outside Val, an edge; the evaluation is Val's
+   * own evaluator of project files, `loadValModules` from `@valbuild/server`
+   * (what `val validate` runs), over the world's project directory. Only the
+   * modules the world has as files are re-evaluated; the rest keep their code,
+   * as files that did not change do in a dev server.
+   */
+  const devReload = async (): Promise<void> => {
+    if (host.mode !== "fs") return;
+    const textBacked = Object.keys(options.sourceText ?? {}).filter((path) =>
+      path.endsWith(".val.ts"),
+    );
+    if (textBacked.length === 0) return;
+    writeProjectShell(host.root, textBacked);
+    const registry = evaluateProject(host.root);
+    const evaluated = new Map<string, AnyModule>();
+    for (const entry of registry.modules) {
+      const module = (await entry.def()).default;
+      evaluated.set(String(Internal.getValPath(module)), module);
+    }
+    const next = serverModules.map(
+      (module) => evaluated.get(String(Internal.getValPath(module))) ?? module,
+    );
+    serverModules.forEach((module, i) => {
+      const replacement = next[i];
+      if (replacement === undefined || replacement === module) return;
+      reloadedAs.set(module, replacement);
+      // A module the scenario wrote may have been replaced before.
+      for (const [original, current] of reloadedAs) {
+        if (current === module) reloadedAs.set(original, replacement);
+      }
+    });
+    deployCode(next);
+    for (const { studio } of studios) {
+      await studio.receiveCode(next);
+    }
+    for (const reload of hotPages) {
+      await reload(next);
+    }
+  };
+  /**
+   * Which module object a dev reload put in place of which: the scenario
+   * names a module by the object it wrote, and after a reload the app's own
+   * (reloaded) code holds the new build's object for it.
+   */
+  const reloadedAs = new Map<unknown, AnyModule>();
+  const currentModule = <T>(module: T): T => sameModuleAs(reloadedAs, module);
   /** The readers a page's server uses, for the server's current code. */
   const readersFor = (draft: { on: boolean }) =>
     initValContent(options.config, valModules, {
@@ -501,11 +568,15 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       discard(patchIds) {
         return system.discard(patchIds);
       },
-      publish(patchIds) {
-        return system.publish(
+      async publish(patchIds) {
+        const result = await system.publish(
           patchIds ??
             system.patchStore.allRecords().map((record) => record.patchId),
         );
+        // A publish in local development rewrites the files, and the dev
+        // server reloads them.
+        if (result.status === "published") await devReload();
+        return result;
       },
       get stat() {
         return stat;
@@ -569,7 +640,11 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     async loadPage(route, pageOptions) {
       const request = () =>
         new Request(new URL(route, "http://localhost").href);
-      const clientModules = pageOptions.clientModules ?? serverModules;
+      // The page's browser bundle: the server's code unless the scenario gives
+      // it another build's, and then hot-reloaded with the server's when the
+      // project's files change (`devReload`).
+      let clientModules = pageOptions.clientModules ?? serverModules;
+      const followsServer = pageOptions.clientModules === undefined;
       // The bundle's own entry imports, which a hook suspends on: resolved
       // here, before reading, for each build's modules.
       const committed = new Map<AnyModule[], CommittedEntries>();
@@ -610,7 +685,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       const readLoaders = async () => {
         for (const show of pageOptions.loaderShows ?? []) {
           const value: unknown = await inRequest(request(), async () =>
-            raw(await content.fetchValStega(show.module)),
+            raw(await content.fetchValStega(currentModule(show.module))),
           );
           frames.record(show.surface, fieldOf(value, show.field));
         }
@@ -667,6 +742,15 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           },
         },
       );
+      if (followsServer) {
+        hotPages.push(async (modules) => {
+          clientModules = modules;
+          committed.set(modules, await committedEntriesOf(modules));
+          // The page re-renders with the new code.
+          read(pageStore, clientModules);
+          await readLoaders();
+        });
+      }
       return {
         studio,
         events,
@@ -686,15 +770,22 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       pages.push(() => {
         content = contentFor(valModules);
       });
+      // The app's code reads the modules of the build it runs: after a
+      // reload, the same module from the new build (`currentModule`).
       const readers: PageReaders = {
         async fetchVal(module) {
-          return raw(await content.fetchValStega(module));
+          const current: typeof module = currentModule(module);
+          return raw(await content.fetchValStega(current));
         },
         async fetchValKey(module, key) {
-          return raw(await content.fetchValKeyStega(module, key));
+          return raw(
+            await content.fetchValKeyStega(currentModule(module), key),
+          );
         },
         async fetchValRoute(module, params) {
-          return raw(await content.fetchValRouteStega(module, params));
+          return raw(
+            await content.fetchValRouteStega(currentModule(module), params),
+          );
         },
       };
       return {
@@ -918,4 +1009,92 @@ function patchTarget(
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePathOf(module, fieldPath));
   return [moduleFilePath, Internal.createPatchPath(modulePath)];
+}
+
+/**
+ * The files of a project that only its modules were written for: a
+ * `tsconfig.json`, a `val.config.ts` (as the scenarios' own `initVal({})`), a `val.modules.ts`
+ * naming the modules, and `@valbuild/core` where the project resolves its
+ * packages, which an app's install would put there. Written once.
+ */
+function writeProjectShell(root: string, modulePaths: string[]): void {
+  const config = join(root, "val.config.ts");
+  if (!existsSync(config)) {
+    writeFileSync(
+      config,
+      [
+        `import { initVal, Internal } from "@valbuild/core";`,
+        `export const { s, c, val, config } = initVal({});`,
+        `export const tanstackRouter = Internal.tanstackRouter;`,
+        ``,
+      ].join("\n"),
+    );
+  }
+  writeFileSync(
+    join(root, "val.modules.ts"),
+    [
+      `import { modules } from "@valbuild/core";`,
+      `import { config } from "./val.config";`,
+      `export default modules(config, [`,
+      ...modulePaths.map(
+        (path) => `  { def: () => import(".${path.replace(/\.ts$/, "")}") },`,
+      ),
+      `]);`,
+      ``,
+    ].join("\n"),
+  );
+  const tsconfig = join(root, "tsconfig.json");
+  if (!existsSync(tsconfig)) {
+    writeFileSync(
+      tsconfig,
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          module: "esnext",
+          moduleResolution: "bundler",
+          resolveJsonModule: true,
+        },
+      }),
+    );
+  }
+  const core = join(root, "node_modules", "@valbuild", "core");
+  if (!existsSync(core)) {
+    mkdirSync(dirname(core), { recursive: true });
+    symlinkSync(dirname(require.resolve("@valbuild/core/package.json")), core);
+  }
+}
+
+/**
+ * The app's own static files, beside Val's API: what the framework serves
+ * from `public/` (a published local file's url is its path without
+ * `/public`). An edge, like the network: it is the framework's, not Val's.
+ * Memory mode has no disk, and its published files are remote.
+ */
+function withStaticFiles(host: ServerHost, api: Handler): Handler {
+  if (host.mode !== "fs") return api;
+  return async (request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname.startsWith("/api/val") || request.method !== "GET") {
+      return api(request);
+    }
+    const file = join(host.root, "public", decodeURIComponent(pathname));
+    if (!file.startsWith(join(host.root, "public")) || !existsSync(file)) {
+      return new Response(null, { status: 404 });
+    }
+    return new Response(new Uint8Array(readFileSync(file)), { status: 200 });
+  };
+}
+
+/**
+ * The module object the app's code holds for `module`: what a dev reload put
+ * in its place, or `module` itself when nothing did. Typed as the caller's,
+ * because the reloaded object is the value the app's own reloaded code passes
+ * where the scenario's code names the one it was written against.
+ */
+function sameModuleAs<T>(reloadedAs: Map<unknown, AnyModule>, module: T): T;
+function sameModuleAs(
+  reloadedAs: Map<unknown, AnyModule>,
+  module: unknown,
+): unknown {
+  return reloadedAs.get(module) ?? module;
 }

@@ -60,8 +60,6 @@ type AnyModule = ValModule<SelectorSource>;
  */
 const L1 =
   "L1: the page's server render gives a field that picked a library entry uploaded in a pending patch the PUBLISHED url (no patch_id), so the server-rendered page names a file that does not exist yet; the overlay's hook gives the draft url";
-const F3 =
-  "F3: after a publish the page's server readers keep the pre-publish content: their own server does not adopt the publish (only the instance that handled /save does). In local development a reload of the rewritten files would replace it; the world does not model that reload";
 
 /** What a library shape needs: its modules, its upload, and its expectations. */
 type Library = {
@@ -495,7 +493,6 @@ function cellsFor(lib: Library): Cell[] {
     },
     {
       operation: "publish an upload",
-      failing: { "fetchVal field": F3, "fetchVal library keys": F3 },
       only: {
         modes: ["fs"],
         why: "memory mode refuses to publish a local file (ValOpsMemory.uploadRemoteFiles); a hosted project's media is remote",

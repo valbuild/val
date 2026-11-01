@@ -40,6 +40,12 @@ coverage" (valbuild/val#1006).
   calls (`.agent/rules.md`, test rule 3).
 - **The scenario catalogue**: see `scenarios/README.md`. Skipped scenarios are
   findings: each has a running test beside it pinning today's behaviour.
+- **The content-shape matrix** (`scenarios/src/matrix.*`): every shape
+  against every operation and reader, in memory and fs. After a publish in fs
+  mode the world re-evaluates the rewritten files with `loadValModules`, as a
+  dev server reloads them, and serves `public/` as the framework does; the
+  publish cells that failed before that (F3, P1) were the world, not the
+  product. R1 (memory mode's readers not adopting a publish) is open.
 - **Measurements** (`scenarios/measure/`): how to measure, and the first
   results.
 
