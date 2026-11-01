@@ -14,8 +14,11 @@ import type { TopBarProposals } from "./TopBar";
 import { DiscardAllQuickAction, reviewChangesLabel } from "./UtilityPanel";
 import { ShellBreakpoint } from "./types";
 import {
+  buildIsDue,
   describeDependencies,
   isDependenciesState,
+  previewUpdateOf,
+  type PreviewUpdate,
 } from "../proposals/ProposalBar";
 
 /**
@@ -53,6 +56,9 @@ export function ChangesSheet({
 }) {
   const here =
     proposals?.location.kind === "proposal" ? proposals.location : null;
+  // Save updates the preview too, where the app offers it.
+  const saveAndUpdate =
+    proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
   const choose = (action: () => void) => () => {
     onClose();
     action();
@@ -128,7 +134,7 @@ export function ChangesSheet({
                     ? `${here.save.error}. Press to try again.`
                     : undefined
                 }
-                onClick={choose(proposals.onSave)}
+                onClick={choose(saveAndUpdate ?? proposals.onSave)}
               >
                 {here.save.state === "saving" ? "Saving…" : "Save"}
               </SheetRow>
@@ -144,7 +150,25 @@ export function ChangesSheet({
             {reviewChangesLabel(pendingChanges, reviewCount)}
           </SheetRow>
         )}
-        {proposals?.onBuild !== undefined &&
+        {/*
+         * Save updates the preview too: one row for whatever that takes,
+         * offered on its own only while there is nothing to save first.
+         */}
+        {saveAndUpdate !== undefined &&
+          here !== null &&
+          here.unsaved === 0 &&
+          here.code !== null && (
+            <SheetRow
+              icon={<Hammer size={16} />}
+              disabled={!buildIsDue(here.code)}
+              detail={previewUpdateDetail(previewUpdateOf(here.code))}
+              onClick={choose(saveAndUpdate)}
+            >
+              {previewUpdateLabel(previewUpdateOf(here.code))}
+            </SheetRow>
+          )}
+        {saveAndUpdate === undefined &&
+          proposals?.onBuild !== undefined &&
           here !== null &&
           here.code !== null &&
           isDependenciesState(here.code) && (
@@ -160,7 +184,8 @@ export function ChangesSheet({
               {describeDependencies(here.code).label}
             </SheetRow>
           )}
-        {proposals?.onBuild !== undefined &&
+        {saveAndUpdate === undefined &&
+          proposals?.onBuild !== undefined &&
           here !== null &&
           here.code !== null &&
           !isDependenciesState(here.code) && (
@@ -213,4 +238,34 @@ export function ChangesSheet({
       </div>
     </FloatingPanel>
   );
+}
+
+function previewUpdateLabel(update: PreviewUpdate): string {
+  switch (update.state) {
+    case "updating":
+      return "Updating the preview…";
+    case "failed":
+      return update.canRetry
+        ? "Try updating the preview again"
+        : "Couldn't update the preview";
+    case "blocked":
+      return "Open the tab to update";
+    default:
+      return "Update the preview";
+  }
+}
+
+function previewUpdateDetail(update: PreviewUpdate): string {
+  switch (update.state) {
+    case "updating":
+      return "Showing the latest changes in the preview.";
+    case "failed":
+      return update.canRetry
+        ? "The preview couldn't be updated. Try again."
+        : "Trying again won't help. The assistant can fix it in code mode.";
+    case "blocked":
+      return "This browser updates the preview in a new tab, and did not let it open.";
+    default:
+      return "Show the latest changes in the preview.";
+  }
 }

@@ -5,7 +5,6 @@ import type { ToolActivity } from "../../AIChatToolActivities";
 import type { CodeModeRequest } from "../../CodeModeRequestCard";
 import { MESSAGES } from "../../design/stories/designStoryFixtures";
 import { mockSelectionIds } from "../../shell/mockShellData";
-import type { CodeModeStatusVariant } from "../CodeModeStatus";
 import {
   inProposal,
   inUpgrade,
@@ -22,10 +21,12 @@ import {
  * - **In a proposal** it is a toggle, and the ONLY switch: on, the workspace
  *   is the proposal's preview rather than the content editor, with the code's
  *   changes one tab away and the assistant docked beside it.
- * - **The preview's status** is in the reload button, and nothing else moves
- *   when it changes. Four ways to show it are in `Status options`; the
- *   screens use `reload`, and the `Status: …` stories show the others in the
- *   whole Studio. Press **Save** in any of them to watch it update.
+ * - **The preview's status** is two or three words in the reload button --
+ *   "Up to date", "Save to update", "Updating 42%", "Couldn't update" -- one
+ *   width in every state, so nothing else moves when it changes. Press
+ *   **Save** where it is behind to watch it update.
+ * - **Save does everything a preview takes**, the site's packages included:
+ *   there is no Build or Compute lockfile button any more.
  * - **No jargon.** Nobody editing a site needs "build" or "typecheck": the
  *   status, Save and the assistant's tool row talk about the preview and the
  *   code changing.
@@ -191,26 +192,51 @@ export const NotInAnUpgrade = shell({
   saveBuilds: true,
 });
 
-/*
- * The four ways to show the preview's status, each in the whole Studio while
- * it updates. Press Save to run an update from the start.
+/**
+ * The site's packages changed (its `package.json`): to the person this is
+ * the same as any other change -- "Save to update", and Save with the hammer.
+ * Press it: one update, one percentage, though the lockfile, the packages
+ * and the code each take their turn underneath.
  */
-const updating = (status: CodeModeStatusVariant) =>
-  shell({
-    location: inProposal({ unsaved: 1, code: { state: "required" } }),
-    codeMode: { on: true, status },
-    saveBuilds: true,
-    renderChat: codeChat(MESSAGES),
-  });
+export const PackagesChanged = shell({
+  location: inProposal({
+    unsaved: 0,
+    code: { state: "lockfile", computing: false, error: null },
+  }),
+  codeMode: { on: true },
+  saveBuilds: true,
+  renderChat: codeChat(MESSAGES),
+});
 
-/** `reload`: the arrow turns, the percentage beside it. Nothing else. */
-export const StatusReload = updating("reload");
-/** `label`: two or three words beside the arrow. */
-export const StatusLabel = updating("label");
-/** `ring`: a ring fills around the arrow; the percentage is in the tooltip. */
-export const StatusRing = updating("ring");
-/** `line`: a hairline fills along the foot of the toolbar. */
-export const StatusLine = updating("line");
+/** Updating, while the packages install: still just "Updating". */
+export const PackagesInstalling = shell({
+  location: inProposal({
+    unsaved: 0,
+    code: { state: "dependencies-building" },
+  }),
+  codeMode: { on: true, progress: 0.24 },
+  saveBuilds: true,
+  renderChat: codeChat(MESSAGES),
+});
+
+/**
+ * The packages could not be installed, and pressing again would only fail
+ * the same way: Save stays red and says so instead of offering a retry, and
+ * the reload button's "Couldn't update" offers the assistant to fix it.
+ */
+export const PackagesCouldNotInstall = shell({
+  location: inProposal({
+    unsaved: 0,
+    code: {
+      state: "dependencies-failed",
+      error:
+        "ERR_PNPM_NO_MATCHING_VERSION No matching version found for react-carousel-kit@^9.0.0",
+    },
+  }),
+  codeMode: { on: true },
+  saveBuilds: true,
+  renderChat: codeChat(MESSAGES),
+});
 
 // ---------------------------------------------------------------------------
 // The assistant asks for code mode

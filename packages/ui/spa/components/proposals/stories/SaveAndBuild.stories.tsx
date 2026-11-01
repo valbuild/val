@@ -12,6 +12,7 @@ type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
  * Save, when it builds too (`TopBarProposals.onSaveAndBuild`).
  *
  * Today a proposal whose code changed has two steps: Save, and then Build --
+ * three when its packages changed too, with Compute lockfile first --
  * and with nothing unsaved, Save is disabled and the main half of the button
  * becomes Build. Proposed: ONE step. Save is enabled whenever there is a
  * build to make, even with nothing unsaved, and pressing it saves what there
@@ -84,11 +85,30 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
     }),
   },
   {
-    label: "Dependencies changed",
-    detail: "Not a build of the code: its own step in both.",
+    label: "Packages changed",
+    detail: "Today: Compute lockfile. Proposed: just Save.",
     location: inProposal({
       unsaved: 0,
       code: { state: "lockfile", computing: false, error: null },
+    }),
+  },
+  {
+    label: "Packages installing",
+    detail: "Proposed: one \u201cUpdating\u201d for every step.",
+    location: inProposal({
+      unsaved: 0,
+      code: { state: "dependencies-building" },
+    }),
+  },
+  {
+    label: "Packages couldn't install",
+    detail: "Retrying cannot help: red, and not pressable, in both.",
+    location: inProposal({
+      unsaved: 0,
+      code: {
+        state: "dependencies-failed",
+        error: "No matching version found for react-carousel-kit@^9.0.0",
+      },
     }),
   },
   {

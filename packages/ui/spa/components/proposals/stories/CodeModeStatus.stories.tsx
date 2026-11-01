@@ -2,31 +2,19 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 import { useEffect, useState } from "react";
 import { Monitor, Smartphone, Tablet } from "lucide-react";
-import {
-  CODE_MODE_STATUS_VARIANTS,
-  CodeModeProgressLine,
-  CodeModeStatus,
-  type CodeModeBuild,
-  type CodeModeStatusVariant,
-} from "../CodeModeStatus";
+import { CodeModeStatus, type CodeModeBuild } from "../CodeModeStatus";
 
 /**
- * Four ways to show whether code mode's preview is up to date, to choose
- * between. All of them sit where the reload button is, at the end of the
- * code mode toolbar, and keep one width in every state -- so nothing in the
- * toolbar moves when the status changes. None says "build": the person sees
- * a preview, so the status is about the preview.
+ * Whether code mode's preview is up to date, in two or three words in the
+ * reload button at the end of the code mode toolbar: "Up to date", "Save to
+ * update", "Updating 42%", "Couldn't update". It keeps one width in every
+ * state, so nothing in the toolbar moves when the status changes, and it
+ * never says "build": the person sees a preview, so the status is about the
+ * preview. Every step that makes one -- the packages, the code -- is one
+ * "Updating", with one percentage.
  *
- * - `reload` -- the arrow turns while it updates, the percentage beside it;
- *   a dot when it is behind (amber) or could not update (red).
- * - `label` -- the same with words: "Up to date", "Updating 42%", "Save to
- *   update", "Couldn't update".
- * - `ring` -- no text: a ring fills around the arrow.
- * - `line` -- a hairline fills along the foot of the toolbar.
- *
- * Words are always in the tooltip, and read out to screen readers. When it
- * could not update, the button opens what happened, with the error under
- * Details and "Ask the assistant to fix it".
+ * When it could not update, the button opens what happened, with the error
+ * under Details and "Ask the assistant to fix it".
  */
 const meta: Meta = {
   title: "Proposals/Code mode status",
@@ -58,13 +46,7 @@ const STATES: { label: string; build: CodeModeBuild }[] = [
 ];
 
 /** The code mode toolbar, as it is in the Studio, with the status at its end. */
-function Toolbar({
-  build,
-  variant,
-}: {
-  build: CodeModeBuild;
-  variant: CodeModeStatusVariant;
-}) {
+function Toolbar({ build }: { build: CodeModeBuild }) {
   return (
     <div className="relative flex h-10 w-[34rem] items-center gap-2 rounded-t-lg border border-border-proposal bg-bg-float px-2">
       <div className="inline-flex h-7 items-center rounded-md border border-border-float p-0.5 text-xs">
@@ -90,12 +72,7 @@ function Toolbar({
         </span>
       </span>
       <div className="flex-1" />
-      <CodeModeStatus
-        build={build}
-        variant={variant}
-        onReload={action("reload the preview")}
-      />
-      {variant === "line" && <CodeModeProgressLine build={build} />}
+      <CodeModeStatus build={build} onReload={action("reload the preview")} />
     </div>
   );
 }
@@ -106,27 +83,14 @@ function Grid({ theme }: { theme: "dark" | "light" }) {
       data-mode={theme}
       className="min-h-screen bg-bg-canvas p-8 font-sans text-fg-primary"
     >
-      <div className="grid grid-cols-[10rem_repeat(2,auto)] items-center gap-x-8 gap-y-5">
-        {CODE_MODE_STATUS_VARIANTS.map((variant) => (
-          <Section key={variant} variant={variant} />
+      <div className="grid grid-cols-[10rem_auto] items-center gap-x-8 gap-y-5">
+        {STATES.map((state) => (
+          <Pair key={state.label} label={state.label}>
+            <Toolbar build={state.build} />
+          </Pair>
         ))}
       </div>
     </div>
-  );
-}
-
-function Section({ variant }: { variant: CodeModeStatusVariant }) {
-  return (
-    <>
-      <div className="col-span-3 mt-4 border-t border-border-float pt-4 font-mono text-sm font-medium">
-        {variant}
-      </div>
-      {STATES.map((state) => (
-        <Pair key={state.label} label={state.label}>
-          <Toolbar build={state.build} variant={variant} />
-        </Pair>
-      ))}
-    </>
   );
 }
 
@@ -140,24 +104,24 @@ function Pair({
   return (
     <>
       <div className="text-xs text-fg-secondary">{label}</div>
-      <div className="col-span-2">{children}</div>
+      <div>{children}</div>
     </>
   );
 }
 
-/** Every option, in every state. */
-export const AllOptions: StoryObj = {
+/** Every state. */
+export const AllStates: StoryObj = {
   render: () => <Grid theme="dark" />,
 };
 
-export const AllOptionsLight: StoryObj = {
+export const AllStatesLight: StoryObj = {
   render: () => <Grid theme="light" />,
 };
 
 /**
- * Every option at once, going round: up to date, behind, an update from 0 to
- * 100 %, up to date -- and every third round, one that could not update.
- * Watch the tabs and the page box: they never move.
+ * Going round: up to date, behind, an update from 0 to 100 %, up to date --
+ * and every third round, one that could not update. Watch the tabs and the
+ * page box: they never move.
  */
 function Live({ theme }: { theme: "dark" | "light" }) {
   const [tick, setTick] = useState(0);
@@ -182,14 +146,7 @@ function Live({ theme }: { theme: "dark" | "light" }) {
       data-mode={theme}
       className="flex min-h-screen flex-col gap-4 bg-bg-canvas p-8 font-sans text-fg-primary"
     >
-      {CODE_MODE_STATUS_VARIANTS.map((variant) => (
-        <div key={variant} className="flex items-center gap-6">
-          <div className="w-16 font-mono text-xs text-fg-secondary">
-            {variant}
-          </div>
-          <Toolbar build={build} variant={variant} />
-        </div>
-      ))}
+      <Toolbar build={build} />
     </div>
   );
 }

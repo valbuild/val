@@ -106,30 +106,77 @@ export function ProposalSaveButton({
 }
 
 /**
- * Whether the proposal has code its preview does not show yet that pressing
- * Save would build: staged and never built, a build that failed, or one this
- * browser could not open the tab for. Not while it builds, and not the
- * dependency states, which have steps of their own (see
- * {@link describeDependencies}).
+ * Where the proposal's preview is, in the words a person is shown, once Save
+ * updates it too (`onSaveAndBuild`). Every step that makes a preview -- the
+ * packages' lockfile, the packages, the code -- is one "update", because
+ * nobody editing a site needs to know there are steps.
+ *
+ * - `behind`: the code or the packages changed since the preview was made.
+ * - `updating`: any of the steps is running.
+ * - `blocked`: this browser makes the preview in a new tab, which did not
+ *   open (Safari).
+ * - `failed`: it could not be made. `canRetry` is false where pressing again
+ *   would fail the same way -- packages that could not be installed only
+ *   install once something in the code changes -- so nothing offers a retry.
+ */
+export type PreviewUpdate =
+  | { state: "up-to-date" }
+  | { state: "behind" }
+  | { state: "updating" }
+  | { state: "blocked" }
+  | { state: "failed"; error: string; canRetry: boolean };
+
+export function previewUpdateOf(code: ProposalCodeState | null): PreviewUpdate {
+  if (code === null) return { state: "up-to-date" };
+  switch (code.state) {
+    case "required":
+      return { state: "behind" };
+    case "building":
+    case "dependencies-building":
+      return { state: "updating" };
+    case "blocked":
+      return { state: "blocked" };
+    case "failed":
+      return { state: "failed", error: code.error, canRetry: true };
+    case "lockfile":
+      return code.computing
+        ? { state: "updating" }
+        : code.error !== null
+          ? { state: "failed", error: code.error, canRetry: true }
+          : { state: "behind" };
+    case "dependencies-failed":
+      return {
+        state: "failed",
+        error: code.error ?? "The site's packages could not be installed.",
+        canRetry: false,
+      };
+  }
+}
+
+/**
+ * Whether pressing Save, with nothing unsaved, would update the preview:
+ * it is behind, its last update failed in a way a retry can fix, or the tab
+ * it is made in has to be opened.
  */
 export function buildIsDue(code: ProposalCodeState | null): boolean {
+  const update = previewUpdateOf(code);
   return (
-    code !== null &&
-    (code.state === "required" ||
-      code.state === "failed" ||
-      code.state === "blocked")
+    update.state === "behind" ||
+    update.state === "blocked" ||
+    (update.state === "failed" && update.canRetry)
   );
 }
 
 /**
- * Save, when it builds too (`onSaveAndBuild`): ONE step where there were two.
+ * Save, when it updates the preview too (`onSaveAndBuild`): ONE step where
+ * there were three -- Save, Compute lockfile, Build.
  *
- * Enabled while there is something unsaved OR a build is due, and pressing it
- * saves what there is and then builds -- so a proposal whose code changed is
- * never "saved" with a preview that does not show it, and nobody has to learn
- * that Build is a second button. It reads "Save" throughout; the hammer beside
- * it says a build will follow, and the button itself says "Building…" while
- * one runs and "Build failed" when it did, which pressing builds again.
+ * Enabled while there is something unsaved OR the preview is behind, and
+ * pressing it saves what there is and then updates the preview, running
+ * whatever that takes. It reads "Save" throughout; the hammer beside it says
+ * the preview will be updated too. While that runs it says "Updating…", and
+ * when it could not, "Couldn't update" -- which pressing tries again, unless
+ * trying again cannot help, when it says so instead of offering it.
  */
 export function ProposalSaveAndBuildButton({
   location,
@@ -145,12 +192,12 @@ export function ProposalSaveAndBuildButton({
 }) {
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed" ? location.save : null;
-  const code = location.code;
-  const building = code?.state === "building";
-  const buildFailed =
-    location.unsaved === 0 && code?.state === "failed" ? code : null;
-  const tabBlocked = location.unsaved === 0 && code?.state === "blocked";
-  const due = buildIsDue(code);
+  const update = previewUpdateOf(location.code);
+  const updating = update.state === "updating";
+  const updateFailed =
+    location.unsaved === 0 && update.state === "failed" ? update : null;
+  const tabBlocked = location.unsaved === 0 && update.state === "blocked";
+  const due = buildIsDue(location.code);
   const blocked =
     !saving &&
     location.unsaved > 0 &&
@@ -158,10 +205,11 @@ export function ProposalSaveAndBuildButton({
     blockedBy.errors > 0
       ? blockedBy
       : null;
-  const busy = saving || building;
+  const busy = saving || updating;
   const canPress =
     !busy && (location.unsaved > 0 || due || saveFailed !== null);
-  const error = saveFailed !== null || buildFailed !== null || blocked !== null;
+  const error =
+    saveFailed !== null || updateFailed !== null || blocked !== null;
   const changes = `${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`;
   return (
     <button
@@ -173,10 +221,12 @@ export function ProposalSaveAndBuildButton({
           ? `${blocked.errors} validation ${blocked.errors === 1 ? "error" : "errors"} to fix before saving. Press to see ${blocked.errors === 1 ? "it" : "them"}.`
           : saveFailed !== null
             ? `${saveFailed.error}. Press to try again.`
-            : building
+            : updating
               ? "Updating the preview with the latest changes."
-              : buildFailed !== null
-                ? "The preview couldn't be updated. Press to try again."
+              : updateFailed !== null
+                ? updateFailed.canRetry
+                  ? "The preview couldn't be updated. Press to try again."
+                  : "The preview couldn't be updated, and trying again won't help: something in the code has to change first. The assistant can fix it in code mode."
                 : tabBlocked
                   ? "This browser updates the preview in a new tab, and did not let it open. Press to open it."
                   : location.unsaved > 0 && due
@@ -192,7 +242,10 @@ export function ProposalSaveAndBuildButton({
         error
           ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
           : "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
-        "disabled:bg-bg-disabled disabled:text-fg-disabled",
+        // A failure that a retry cannot fix stays red: it is not "nothing to do".
+        updateFailed !== null && !updateFailed.canRetry
+          ? "disabled:cursor-default"
+          : "disabled:bg-bg-disabled disabled:text-fg-disabled",
         busy && "disabled:cursor-progress",
         className,
       )}
@@ -209,13 +262,13 @@ export function ProposalSaveAndBuildButton({
       <span className="truncate">
         {saving
           ? "Saving…"
-          : building
+          : updating
             ? "Updating…"
             : blocked !== null
               ? `Fix ${blocked.errors > 9 ? "9+" : blocked.errors}`
               : saveFailed !== null
                 ? "Save failed"
-                : buildFailed !== null
+                : updateFailed !== null
                   ? "Couldn't update"
                   : tabBlocked
                     ? "Open the tab to update"
@@ -487,18 +540,14 @@ export function nextProposalAction(
   location: InProposal,
   canBuild: boolean,
   /**
-   * Save builds too (`onSaveAndBuild`): a build that is due, or running, is
-   * Save's, and only the dependency states are a Build step of their own.
+   * Save updates the preview too (`onSaveAndBuild`): until the preview is up
+   * to date -- whatever that takes, the packages included -- the next step
+   * is Save's, and there is no Build step at all.
    */
   saveBuilds = false,
 ): ProposalNextAction {
   if (location.unsaved > 0 || location.save.state !== "idle") return "save";
-  if (
-    saveBuilds &&
-    (buildIsDue(location.code) || location.code?.state === "building")
-  ) {
-    return "save";
-  }
+  if (saveBuilds && location.code !== null) return "save";
   if (location.code !== null && canBuild) return "build";
   return "publish";
 }
@@ -545,9 +594,9 @@ export function ProposalActionButton({
   /** Absent: this proposal is not built here (an upgrade, in Val Build). */
   onBuild?: () => void;
   /**
-   * Save, then build: given (with `onBuild`), Save is the one step for both
-   * -- see {@link ProposalSaveAndBuildButton} -- and Build is offered on its
-   * own only for the dependency states, which are not a build of the code.
+   * Save, then update the preview: given (with `onBuild`), Save is the one
+   * step for everything a preview takes, the packages included -- see
+   * {@link ProposalSaveAndBuildButton}.
    */
   onSaveAndBuild?: () => void;
   onPublish: () => void;
@@ -612,9 +661,11 @@ export function ProposalActionButton({
             failed: code.state === "failed",
           };
 
+  const update = previewUpdateOf(code);
   const mainDisabled =
     action === "save"
-      ? saving || (saveAndBuild !== null && code?.state === "building")
+      ? saving ||
+        (saveAndBuild !== null && location.unsaved === 0 && !buildIsDue(code))
       : action === "build"
         ? build === null ||
           build.busy ||
@@ -626,7 +677,7 @@ export function ProposalActionButton({
         saveFailed ||
         (saveAndBuild !== null &&
           location.unsaved === 0 &&
-          code?.state === "failed")
+          update.state === "failed")
         ? "error"
         : "primary"
       : action === "build"
@@ -634,7 +685,9 @@ export function ProposalActionButton({
           ? "error"
           : "outline"
         : "primary";
-  const caretTone: Tone = mainDisabled ? "muted" : mainTone;
+  // A failure nothing here can retry stays red, caret and all.
+  const caretTone: Tone =
+    mainDisabled && mainTone !== "error" ? "muted" : mainTone;
 
   const choose = (act: () => void) => () => {
     setIsOpen(false);
@@ -719,7 +772,7 @@ export function ProposalActionButton({
                 detail={
                   saveFailed && location.save.state === "failed"
                     ? `${location.save.error}. Press to try again.`
-                    : saveAndBuild !== null && buildIsDue(code)
+                    : saveAndBuild !== null && code !== null
                       ? "Then updates the preview. Nothing reaches the site."
                       : "Keep them in the proposal. Nothing reaches the site."
                 }
@@ -730,19 +783,17 @@ export function ProposalActionButton({
               </MenuItem>
             ))}
           {/*
-           * With Save building too, a build that is due is Save's: offered
-           * here on its own only while there is nothing to save first.
+           * With Save updating the preview, the update is offered here on
+           * its own only while there is nothing to save first.
            */}
-          {build !== null &&
-            onBuild !== undefined &&
-            (saveAndBuild === null ||
-              isDependenciesCode(code) ||
-              location.unsaved === 0) && (
+          {saveAndBuild !== null &&
+            location.unsaved === 0 &&
+            update.state !== "up-to-date" && (
               <MenuItem
                 icon={
-                  build.busy ? (
+                  update.state === "updating" ? (
                     <Spinner size={14} />
-                  ) : build.failed ? (
+                  ) : update.state === "failed" ? (
                     <AlertTriangle
                       size={14}
                       className="text-fg-error-on-surface"
@@ -751,31 +802,50 @@ export function ProposalActionButton({
                     <Hammer size={14} />
                   )
                 }
-                onClick={choose(
-                  saveAndBuild !== null && !isDependenciesCode(code)
-                    ? saveAndBuild
-                    : onBuild,
-                )}
-                disabled={
-                  build.busy || (build.failed && isDependenciesCode(code))
-                }
+                onClick={choose(saveAndBuild)}
+                disabled={!buildIsDue(code)}
                 detail={
-                  saveAndBuild !== null && !isDependenciesCode(code)
-                    ? build.failed
-                      ? "The preview couldn't be updated. Try again."
+                  update.state === "updating"
+                    ? "Showing the latest changes in the preview."
+                    : update.state === "failed"
+                      ? update.canRetry
+                        ? "The preview couldn't be updated. Try again."
+                        : "The preview couldn't be updated, and trying again won't help. The assistant can fix it in code mode."
                       : "Show the latest changes in the preview."
-                    : build.detail
                 }
               >
-                {saveAndBuild !== null && !isDependenciesCode(code)
-                  ? build.busy
-                    ? "Updating the preview…"
-                    : build.failed
+                {update.state === "updating"
+                  ? "Updating the preview…"
+                  : update.state === "failed"
+                    ? update.canRetry
                       ? "Try updating the preview again"
-                      : "Update the preview"
-                  : build.label}
+                      : "Couldn't update the preview"
+                    : "Update the preview"}
               </MenuItem>
             )}
+          {build !== null && onBuild !== undefined && saveAndBuild === null && (
+            <MenuItem
+              icon={
+                build.busy ? (
+                  <Spinner size={14} />
+                ) : build.failed ? (
+                  <AlertTriangle
+                    size={14}
+                    className="text-fg-error-on-surface"
+                  />
+                ) : (
+                  <Hammer size={14} />
+                )
+              }
+              onClick={choose(onBuild)}
+              disabled={
+                build.busy || (build.failed && isDependenciesCode(code))
+              }
+              detail={build.detail}
+            >
+              {build.label}
+            </MenuItem>
+          )}
           <MenuItem
             icon={<Upload size={14} />}
             onClick={choose(onPublish)}

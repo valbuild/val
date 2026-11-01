@@ -4,14 +4,9 @@ import { cn } from "../designSystem/cn";
 import type { ChangedFile } from "../../design/changedFiles";
 import type { DiffLine } from "../../design/lineDiff";
 import { DiffArea } from "../design/DesignTabView";
-import {
-  CodeModeProgressLine,
-  CodeModeStatus,
-  type CodeModeBuild,
-  type CodeModeStatusVariant,
-} from "./CodeModeStatus";
+import { CodeModeStatus, type CodeModeBuild } from "./CodeModeStatus";
 
-export type { CodeModeBuild, CodeModeStatusVariant } from "./CodeModeStatus";
+export type { CodeModeBuild } from "./CodeModeStatus";
 
 export type CodeModeDevice = "desktop" | "tablet" | "mobile";
 
@@ -44,7 +39,6 @@ export function CodeModeWorkspace({
   onReload,
   preview,
   build,
-  statusVariant = "reload",
   files,
   diffOf,
   initialView = "preview",
@@ -59,8 +53,6 @@ export function CodeModeWorkspace({
   /** The proposal's page, at `route`. */
   preview: ReactNode;
   build: CodeModeBuild;
-  /** How the status is shown: see `CodeModeStatusVariant`. */
-  statusVariant?: CodeModeStatusVariant;
   /** What the proposal changes of the site's files. */
   files: ChangedFile[];
   diffOf: (path: string) => DiffLine[];
@@ -141,12 +133,7 @@ export function CodeModeWorkspace({
         )}
         <div className="flex-1" />
         {/* At the end of the bar, in both views: the one thing that changes. */}
-        <CodeModeStatus
-          build={build}
-          variant={statusVariant}
-          onReload={onReload}
-        />
-        {statusVariant === "line" && <CodeModeProgressLine build={build} />}
+        <CodeModeStatus build={build} onReload={onReload} />
       </div>
       {view === "preview" ? (
         <div className="flex min-h-0 flex-1 justify-center overflow-hidden bg-bg-canvas p-3">

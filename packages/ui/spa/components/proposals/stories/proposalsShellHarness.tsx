@@ -25,12 +25,12 @@ import {
 } from "../PublishProposalDialog";
 import { UpgradeProposalNotice } from "../UpgradeProposalNotice";
 import type { ProposalSummary, StudioLocation } from "../types";
-import { buildIsDue } from "../ProposalBar";
 import {
-  CodeModeWorkspace,
-  type CodeModeBuild,
-  type CodeModeStatusVariant,
-} from "../CodeModeWorkspace";
+  buildIsDue,
+  previewUpdateOf,
+  type PreviewUpdate,
+} from "../ProposalBar";
+import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
 import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
 import {
   FILES,
@@ -228,8 +228,6 @@ export type HarnessProps = {
     /** Whether the proposal changes any code yet. Default: it does. */
     changed?: boolean;
     view?: "preview" | "changes";
-    /** How the preview's status is shown. See `CodeModeStatusVariant`. */
-    status?: CodeModeStatusVariant;
     /** While it updates from the start: how far, 0 to 1. */
     progress?: number | null;
   };
@@ -394,22 +392,41 @@ export function ProposalsShell({
   const [progress, setProgress] = useState<number | null>(
     codeMode?.progress ?? null,
   );
+  /*
+   * An update of the preview, as the app runs one: when the packages changed
+   * the lockfile first, then the packages, then the code -- one rising
+   * percentage across all of it, because to the person it is one thing.
+   */
   const build = () => {
-    setLocation((current) =>
-      current.kind === "proposal"
-        ? { ...current, code: { state: "building" } }
-        : current,
-    );
-    const steps = [0, 0.04, 0.12, 0.2, 0.31, 0.38, 0.55, 0.71, 0.83, 0.92, 1];
+    const here = locationRef.current;
+    const packages =
+      here.kind === "proposal" &&
+      (here.code?.state === "lockfile" ||
+        here.code?.state === "dependencies-building");
+    const setCode = (code: InProposal["code"]) =>
+      setLocation((current) =>
+        current.kind === "proposal" ? { ...current, code } : current,
+      );
+    const steps = packages
+      ? [
+          0, 0.03, 0.07, 0.12, 0.18, 0.24, 0.3, 0.38, 0.46, 0.55, 0.63, 0.71,
+          0.8, 0.88, 0.95, 1,
+        ]
+      : [0, 0.04, 0.12, 0.2, 0.31, 0.38, 0.55, 0.71, 0.83, 0.92, 1];
+    if (packages) {
+      setCode({ state: "lockfile", computing: true, error: null });
+      setTimeout(() => setCode({ state: "dependencies-building" }), 3 * 450);
+      setTimeout(() => setCode({ state: "building" }), 7 * 450);
+    } else {
+      setCode({ state: "building" });
+    }
     steps.forEach((step, index) =>
       setTimeout(() => setProgress(step), index * 450),
     );
     setTimeout(
       () => {
         setProgress(null);
-        setLocation((current) =>
-          current.kind === "proposal" ? { ...current, code: null } : current,
-        );
+        setCode(null);
       },
       steps.length * 450 + 200,
     );
@@ -549,17 +566,22 @@ export function ProposalsShell({
     });
   }
 
+  // The preview's status, from the same rule Save follows.
+  const update: PreviewUpdate =
+    location.kind === "proposal"
+      ? previewUpdateOf(location.code)
+      : { state: "up-to-date" };
   const codeBuild: CodeModeBuild =
-    location.kind !== "proposal" || location.code === null
-      ? { state: "up-to-date" }
-      : location.code.state === "building"
-        ? { state: "updating", progress }
-        : location.code.state === "failed"
-          ? {
-              state: "failed",
-              error: location.code.error,
-              onAskAssistant: action("ask the assistant to fix the preview"),
-            }
+    update.state === "updating"
+      ? { state: "updating", progress }
+      : update.state === "failed"
+        ? {
+            state: "failed",
+            error: update.error,
+            onAskAssistant: action("ask the assistant to fix the preview"),
+          }
+        : update.state === "up-to-date"
+          ? { state: "up-to-date" }
           : { state: "behind" };
   const workspace = codeModeOn ? (
     <CodeModeWorkspace
@@ -578,7 +600,6 @@ export function ProposalsShell({
       build={codeBuild}
       files={codeChanged ? FILES : []}
       diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
-      statusVariant={codeMode?.status ?? "reload"}
       initialView={codeMode?.view ?? "preview"}
     />
   ) : undefined;

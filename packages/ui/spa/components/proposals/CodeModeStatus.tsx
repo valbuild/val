@@ -20,29 +20,6 @@ export type CodeModeBuild =
   | { state: "updating"; progress: number | null }
   | { state: "failed"; error: string; onAskAssistant?: () => void };
 
-/**
- * Four ways to show it, for choosing between. Every one sits in the reload
- * button's place and keeps ONE width in every state, so nothing in the
- * toolbar moves when the status changes.
- *
- * - `reload` -- the reload button alone: it turns while the preview updates,
- *   with the percentage beside the arrow; a dot when it is behind or failed.
- * - `label` -- the same, with two or three words: "Up to date", "Updating
- *   42%", "Save to update", "Couldn't update".
- * - `ring` -- no text at all: a ring around the reload arrow fills as it
- *   updates. The percentage is in the tooltip.
- * - `line` -- a hairline along the foot of the toolbar fills as it updates;
- *   the reload button only carries the dot.
- */
-export type CodeModeStatusVariant = "reload" | "label" | "ring" | "line";
-
-export const CODE_MODE_STATUS_VARIANTS: CodeModeStatusVariant[] = [
-  "reload",
-  "label",
-  "ring",
-  "line",
-];
-
 /** The tooltip, and what a screen reader hears. */
 export function codeModeStatusText(build: CodeModeBuild): string {
   switch (build.state) {
@@ -79,17 +56,19 @@ function percent(progress: number): string {
 }
 
 /**
- * The reload button, carrying the preview's status. Pressing it reloads the
- * preview -- except when the preview could not be updated, where it opens
- * what happened and what to do about it, Reload among them.
+ * The reload button, carrying the preview's status in two or three words:
+ * "Up to date", "Save to update", "Updating 42%", "Couldn't update". One
+ * width in every state, so nothing beside it moves when the status changes.
+ *
+ * Pressing it reloads the preview -- except when the preview could not be
+ * updated, where it opens what happened and what to do about it, Reload
+ * among them.
  */
 export function CodeModeStatus({
   build,
-  variant,
   onReload,
 }: {
   build: CodeModeBuild;
-  variant: CodeModeStatusVariant;
   onReload: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -111,12 +90,6 @@ export function CodeModeStatus({
   const failed = build.state === "failed" ? build : null;
   const updating = build.state === "updating" ? build : null;
   const text = codeModeStatusText(build);
-  const dot =
-    build.state === "failed"
-      ? "bg-bg-error-primary"
-      : build.state === "behind"
-        ? "bg-fg-warning-primary"
-        : null;
 
   return (
     <div ref={containerRef} className="relative shrink-0">
@@ -134,53 +107,25 @@ export function CodeModeStatus({
         className={cn(
           "relative inline-flex h-7 items-center gap-1.5 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
           // One width in every state: nothing beside it moves.
-          variant === "reload" && "w-14 justify-end pr-2",
-          variant === "label" && "w-[7.75rem] px-2",
-          (variant === "ring" || variant === "line") && "w-7 justify-center",
+          "w-[7.75rem] px-2",
           isOpen && "bg-bg-float-raised text-fg-primary",
         )}
       >
-        {/*
-         * `reload`: the percentage BEFORE the arrow, in a slot that is always
-         * there, so the arrow never moves when it appears.
-         */}
-        {variant === "reload" && (
-          <span className="w-8 text-right tabular-nums">
-            {updating !== null && updating.progress !== null
-              ? percent(updating.progress)
-              : ""}
-          </span>
-        )}
-        {variant === "ring" ? (
-          <Ring progress={updating?.progress ?? null} active={!!updating} />
-        ) : (
-          <RotateCw
-            size={13}
-            className={cn(
-              "shrink-0",
-              updating !== null && "animate-spin [animation-duration:1.4s]",
-            )}
-          />
-        )}
-        {variant === "label" && (
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-left tabular-nums",
-              failed !== null && "text-fg-error-on-surface",
-            )}
-          >
-            {shortText(build)}
-          </span>
-        )}
-        {dot !== null && variant !== "label" && (
-          <span
-            aria-hidden
-            className={cn(
-              "absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ring-2 ring-bg-float",
-              dot,
-            )}
-          />
-        )}
+        <RotateCw
+          size={13}
+          className={cn(
+            "shrink-0",
+            updating !== null && "animate-spin [animation-duration:1.4s]",
+          )}
+        />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-left tabular-nums",
+            failed !== null && "text-fg-error-on-surface",
+          )}
+        >
+          {shortText(build)}
+        </span>
       </button>
       {/* Screen readers hear changes; nothing is drawn for them. */}
       <span role="status" className="sr-only">
@@ -235,84 +180,5 @@ export function CodeModeStatus({
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * A ring that fills as the preview updates, around the reload arrow. With no
- * percentage to show, a quarter of it turns instead.
- */
-function Ring({
-  progress,
-  active,
-}: {
-  progress: number | null;
-  active: boolean;
-}) {
-  const r = 9;
-  const length = 2 * Math.PI * r;
-  const filled = progress === null ? 0.25 : Math.min(1, Math.max(0, progress));
-  return (
-    <span className="relative grid h-[22px] w-[22px] place-items-center">
-      {active && (
-        <svg
-          aria-hidden
-          viewBox="0 0 22 22"
-          className={cn(
-            "absolute inset-0 -rotate-90",
-            progress === null && "animate-spin",
-          )}
-        >
-          <circle
-            cx="11"
-            cy="11"
-            r={r}
-            fill="none"
-            strokeWidth="2"
-            className="stroke-border-float"
-          />
-          <circle
-            cx="11"
-            cy="11"
-            r={r}
-            fill="none"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeDasharray={length}
-            strokeDashoffset={length * (1 - filled)}
-            className="stroke-bg-proposal transition-[stroke-dashoffset] duration-300"
-          />
-        </svg>
-      )}
-      <RotateCw size={11} className="shrink-0" />
-    </span>
-  );
-}
-
-/**
- * The `line` variant's hairline, along the foot of the toolbar and drawn over
- * its border, so it takes no room. Rendered by the toolbar (which is
- * `relative`), not by the button, so it spans the toolbar's width.
- */
-export function CodeModeProgressLine({ build }: { build: CodeModeBuild }) {
-  if (build.state !== "updating") return null;
-  const progress = build.progress;
-  return (
-    <span
-      aria-hidden
-      className="pointer-events-none absolute inset-x-0 -bottom-px z-10 h-0.5 overflow-hidden"
-    >
-      <span
-        className={cn(
-          "block h-full bg-bg-proposal transition-[width] duration-300",
-          progress === null && "w-1/3 animate-pulse",
-        )}
-        style={
-          progress === null
-            ? undefined
-            : { width: `${Math.round(progress * 100)}%` }
-        }
-      />
-    </span>
   );
 }
