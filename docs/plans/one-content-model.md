@@ -1,17 +1,9 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 started.** The scenario harness
-> (`scenarios/`, see its README) runs in memory and fs mode, with the
-> Studio's real `/stat` long poll on a fake clock. Scenarios: an edit reaches
-> a draft page's `fetchVal`; an edit reaches a second editor; and "a field
-> the assistant added reverts", reproduced in local development when the
-> Studio gets new code before the server (marked `test.failing` until fixed);
-> and the flicker of a draft page loaded with the overlay after a build (new,
-> old, new), reproduced two ways: the overlay aligning to the previous build
-> that still answers its `/stat`, and the browser running the previous
-> build's client code (both `test.failing`, each with a test pinning why).
-> Until this plan is agreed, every "decided" below is a proposal. A session
-> that changes the design updates this file in the same PR as the change.
+> **Status: proposed 2026-11-01; phase 0 nearly done.** See
+> [Where we are](#where-we-are) for what is built, what runs, and what comes
+> next. A session that changes the design updates this file in the same PR as
+> the change.
 
 Content is read in about fifty places (listed in
 [The inventory](#appendix-the-inventory)): the app's readers in and out of
@@ -31,6 +23,57 @@ And it makes the result testable: a scenario sets up the world it runs in
 (server mode, Studio, page, draft mode, network, clock, code) and is checked
 against the same invariants as every other scenario, so adding an edge case is
 a few lines and a broken invariant is caught by name.
+
+## Where we are
+
+As of 2026-11-01, on the PR "Simplify content retrieval and improve test
+coverage" (valbuild/val#1006).
+
+**Built:**
+
+- **The scenario world** (`scenarios/`, phase 0): Val's real server in memory
+  and fs mode, Studios with the real `/stat` long poll on one fake clock, a
+  page's server and client halves, the overlay relay, the refresh loop,
+  uploads, two builds answering at once, and code changes. Every scenario is
+  checked against shared invariants and counted work. About ten pieces of
+  product code moved out of components into plain functions the product now
+  calls (`.agent/rules.md`, test rule 3).
+- **The scenario catalogue**: see `scenarios/README.md`. Skipped scenarios are
+  findings: each has a running test beside it pinning today's behaviour.
+- **Measurements** (`scenarios/measure/`): how to measure, and the first
+  results.
+
+**Decided on 2026-11-01**, beyond what the sections below say:
+
+1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
+   server in http mode against the e2e mock content host for patches, with
+   the same content version and proposal snapshot handed to the server and
+   to the page, as the platform hands them over. The mock host gets proposal
+   WRITES (saves, stagings) only when wiring code mode needs them. The mock
+   host is made callable in-process for this (it only listens on a port today).
+2. **The findings that are plain bugs are fixed now**, not left to the
+   phases: a whole `.jsonValues()` record read in draft mode showing published
+   entries (S17), the overlay leaving out another editor's entry edit (S17), a
+   module whose code throws disappearing silently (S12), the error fallback
+   giving visitors edit tags (S25), and a removed module staying in the Studio
+   (S13). They are fixed on this branch, where the scenarios that pin them
+   live.
+3. **Code mode can be turned off, and turning it off discards nothing**: see
+   "Code mode", below.
+4. **Code mode is shared; the view is each person's**: see "Code mode", below.
+5. **The Node heap cap is enough for now**; one probe on a deployed loader
+   comes before phase 6 fixes the head's budget.
+
+**Next, in order:**
+
+1. Finish phase 0: the content-shape grid (`.jsonValues()`, image, file and
+   video libraries, plain media fields, against every operation and reader),
+   the draft-read numbers, S24 and S25, and the hosted layers (decision 1).
+2. Fix the plain bugs (decision 2), and then the grid's failing cells, after
+   they have been discussed.
+3. Wire code mode onto the UI #1010 added (see "Code mode", below). S10b
+   turns green.
+4. Phases 1 to 9.
 
 ## The goal
 
@@ -844,11 +887,19 @@ branch"); home's `docs/proposals.md` changes with it.
      it changed), then commit on top. Home already plans this ("adopting a
      developer's push", not built yet).
 
-### Still open
-
-- Can code mode be turned off, and what does turning it off do (another save,
-  nothing)?
-- Where code mode is shown to the other editors in the proposal.
+5. **Code mode can be turned off, and turning it off discards nothing.** It
+   stops the save before each code write, and the code tools refuse. Code
+   already written stays in the proposal; content edits are pending again
+   until the next save. Turning it back on saves everything first, so the
+   mismatch cannot come back. An assistant in the middle of a turn gets a
+   clear refusal from its next code tool, naming who turned code mode off.
+6. **The mode is shared; the view is each person's.** The proposal's mode
+   (saves before code writes, code tools allowed) is the same for everyone in
+   it. Whether a person sees the code mode workspace or the content editor is
+   theirs: an editor fixing text can stay in the content editor while someone
+   else's assistant changes code, and their edits are saved before each code
+   write. Everyone sees the `</>` pressed, and a line in the proposal's menu:
+   "Code mode on: turned on by Kari, 10 minutes ago".
 
 ### Tests
 
