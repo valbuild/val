@@ -11,6 +11,7 @@ import { Preview } from "../../components/Preview";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 import { FieldNull } from "../../components/FieldNull";
+import { InlineObjectPreview } from "./InlineObjectPreview";
 
 export function ObjectFields({
   path,
@@ -161,6 +162,9 @@ export function ObjectPreview({
  * fix for a list that reads badly is a `.preview()` on the item, which this
  * does not try to replace.
  *
+ * A field that is itself an object takes one line too, rather than a field
+ * list of its own inside this one's value cell: see {@link InlineObjectPreview}.
+ *
  * `minmax(0,1fr)`, not `1fr`: a bare `1fr` track is at least as wide as its
  * content, so one unbreakable value (a URL) widened the whole card past its
  * pane rather than truncating.
@@ -189,12 +193,17 @@ export function ObjectLikePreview({
         size === "compact" ? "max-h-[60px] overflow-hidden" : ""
       }`}
     >
-      {shown.map(([key]) => {
+      {shown.map(([key, itemSchema]) => {
         const subPath = sourcePathOfItem(path, key);
         return (
           <PreviewField key={key} label={key}>
             <div className="min-w-0 truncate">
-              <Preview path={subPath} size={size} />
+              {itemSchema.type === "object" ||
+              itemSchema.type === "discriminated-union" ? (
+                <InlineObjectPreview path={subPath} schema={itemSchema} />
+              ) : (
+                <Preview path={subPath} size={size} />
+              )}
             </div>
           </PreviewField>
         );
