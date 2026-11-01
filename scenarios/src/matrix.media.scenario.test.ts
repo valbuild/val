@@ -56,8 +56,6 @@ const { s, c, config } = initVal({});
 type AnyModule = ValModule<SelectorSource>;
 
 /** Why cells fail today. Evidence and suspected cause are in the README. */
-const L1 =
-  "L1: the page's server render gives a field that picked a library entry uploaded in a pending patch the PUBLISHED url (no patch_id), so the server-rendered page names a file that does not exist yet; the overlay's hook gives the draft url";
 
 const PNG_1x1 = Uint8Array.from(
   atob(
@@ -544,7 +542,6 @@ const videoLibraryCells: Cell[] = [
   {
     operation: "upload and pick",
     surfaces: [...clip, libraryKeys],
-    failing: { "fetchVal field": L1, "GET fetchVal field url": L1 },
     run: async (ctx) => {
       const { ref, patchId } = await uploadVideoAndPick(ctx.editor);
       ctx.kept["ref"] = ref;
@@ -690,7 +687,6 @@ const videoLibraryCells: Cell[] = [
   {
     operation: "another editor's upload, via /stat",
     surfaces: [...clip, libraryKeys],
-    failing: { "fetchVal field": L1, "GET fetchVal field url": L1 },
     run: async (ctx) => {
       const { ref, patchId } = await uploadVideoAndPick(await ctx.other());
       ctx.kept["ref"] = ref;

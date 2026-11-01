@@ -163,12 +163,12 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 
 | Operation                              | studio field | fetchVal field | useVal field | studio entry new | fetchVal entry new | fetchVal library keys | GET fetchVal field url | GET useVal field url | studio entry A | fetchVal entry A | studio entry B | fetchVal entry B | file on disk | source text names the file | never goes back, no errors |
 | -------------------------------------- | ------------ | -------------- | ------------ | ---------------- | ------------------ | --------------------- | ---------------------- | -------------------- | -------------- | ---------------- | -------------- | ---------------- | ------------ | -------------------------- | -------------------------- |
-| upload and pick                        | ok           | **L1**         | ok           | ok               | ok                 | ok                    | **L1**                 | ok                   | —              | —                | —              | —                | —            | —                          | ok                         |
+| upload and pick                        | ok           | ok             | ok           | ok               | ok                 | ok                    | ok                     | ok                   | —              | —                | —              | —                | —            | —                          | ok                         |
 | edit an entry's alt text               | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | ok             | ok               | —              | —                | —            | —                          | ok                         |
 | pick an entry                          | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
 | delete an unused entry                 | —            | —              | —            | —                | —                  | ok                    | —                      | —                    | —              | —                | ok             | ok               | —            | —                          | ok                         |
 | discard an upload                      | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
-| another editor's upload, via /stat     | ok           | **L1**         | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
+| another editor's upload, via /stat     | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
 | a code change to the library's options | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —              | —                | —            | —                          | ok                         |
 | publish an upload                      | ok (fs)      | ok (fs)        | ok (fs)      | —                | —                  | ok (fs)               | —                      | —                    | —              | —                | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
 
@@ -176,11 +176,11 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 
 | Operation                              | studio field | fetchVal field | useVal field | studio entry new | fetchVal entry new | fetchVal library keys | GET fetchVal field url | GET useVal field url | studio entry B | fetchVal entry B | file on disk | source text names the file | never goes back, no errors |
 | -------------------------------------- | ------------ | -------------- | ------------ | ---------------- | ------------------ | --------------------- | ---------------------- | -------------------- | -------------- | ---------------- | ------------ | -------------------------- | -------------------------- |
-| upload and pick                        | ok           | **L1**         | ok           | ok               | ok                 | ok                    | **L1**                 | ok                   | —              | —                | —            | —                          | ok                         |
+| upload and pick                        | ok           | ok             | ok           | ok               | ok                 | ok                    | ok                     | ok                   | —              | —                | —            | —                          | ok                         |
 | pick an entry                          | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —            | —                          | ok                         |
 | delete an unused entry                 | —            | —              | —            | —                | —                  | ok                    | —                      | —                    | ok             | ok               | —            | —                          | ok                         |
 | discard an upload                      | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
-| another editor's upload, via /stat     | ok           | **L1**         | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
+| another editor's upload, via /stat     | ok           | ok             | ok           | —                | —                  | ok                    | —                      | —                    | —              | —                | —            | —                          | ok                         |
 | a code change to the library's options | ok           | ok             | ok           | —                | —                  | —                     | —                      | —                    | —              | —                | —            | —                          | ok                         |
 | publish an upload                      | ok (fs)      | ok (fs)        | ok (fs)      | —                | —                  | ok (fs)               | —                      | —                    | —              | —                | ok (fs)      | ok (fs)                    | ok (fs)                    |
 
@@ -219,11 +219,11 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 | Operation                                         | studio field | fetchVal field | useVal field | GET fetchVal field url | GET useVal field url | fetchVal library keys | file on disk | never goes back, no errors |
 | ------------------------------------------------- | ------------ | -------------- | ------------ | ---------------------- | -------------------- | --------------------- | ------------ | -------------------------- |
 | the field's overrides over the library's defaults | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
-| upload and pick                                   | ok           | **L1**         | ok           | **L1**                 | ok                   | ok                    | —            | ok                         |
+| upload and pick                                   | ok           | ok             | ok           | ok                     | ok                   | ok                    | —            | ok                         |
 | pick an entry                                     | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
 | a new default poster in the library               | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
 | discard an upload                                 | ok           | ok             | ok           | —                      | —                    | ok                    | —            | ok                         |
-| another editor's upload, via /stat                | ok           | **L1**         | ok           | **L1**                 | ok                   | ok                    | —            | ok                         |
+| another editor's upload, via /stat                | ok           | ok             | ok           | ok                     | ok                   | ok                    | —            | ok                         |
 | a code change to the library's options            | ok           | ok             | ok           | —                      | —                    | —                     | —            | ok                         |
 | publish an upload                                 | ok (fs)      | ok (fs)        | ok (fs)      | —                      | —                    | ok (fs)               | ok (fs)      | ok (fs)                    |
 
@@ -234,11 +234,6 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
   the publish, only the API's instance that handled `/save` does. fs mode is
   right once the dev server reloads the rewritten files (below). The plan's
   one runtime per process (phase 6) removes the second instance.
-- **L1** (high). The server render of a field that picked a library entry
-  uploaded in a pending patch gives the PUBLISHED url (no `patch_id`), and
-  GET of it answers 500 (image, file and video alike). The hook's
-  url is the draft one and serves the bytes. The same for another editor's
-  upload.
 - **F1, fixed.** A draft `fetchVal` of a WHOLE `.jsonValues()` record filled
   its entries from the bundle's imports, so every operation that changed an
   entry's content showed the published entry there. In the draft tree an
@@ -257,6 +252,13 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
   (`forgetEntriesOf`). In memory mode the publish cell's hooks now show the
   edit while it is pending and the page's bundle after it, which "never goes
   back" catches: that is R1.
+- **L1, fixed.** The server render of a field that picked a library entry
+  uploaded in a pending patch gave the PUBLISHED url (no `patch_id`), and
+  GET of it answered 500 (image, file and video alike); the hook's url was
+  the draft one. Val's server stamps `patch_id` on the library entry, where
+  the file op is, and `fillFromGallery` -- the one merge of a field with its
+  library entry, for all three -- did not carry it to the field. It does now,
+  unless the field has its own.
 - **F3 and P1 were the world, not the product.** They were gone once the
   world modelled what a dev server does after a publish: the rewritten files
   are evaluated again (Val's own `loadValModules`, what `val validate` runs)

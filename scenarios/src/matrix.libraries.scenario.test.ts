@@ -58,8 +58,6 @@ type AnyModule = ValModule<SelectorSource>;
  * Why cells fail today. Each is a bug: the user expects every one of these to
  * work. Evidence and suspected cause are in the README's matrix section.
  */
-const L1 =
-  "L1: the page's server render gives a field that picked a library entry uploaded in a pending patch the PUBLISHED url (no patch_id), so the server-rendered page names a file that does not exist yet; the overlay's hook gives the draft url";
 
 /** What a library shape needs: its modules, its upload, and its expectations. */
 type Library = {
@@ -354,7 +352,6 @@ function cellsFor(lib: Library): Cell[] {
   return [
     {
       operation: "upload and pick",
-      failing: { "fetchVal field": L1, "GET fetchVal field url": L1 },
       surfaces: [
         ...field,
         ...entry("new", () => uploaded.ref),
@@ -554,7 +551,6 @@ function cellsFor(lib: Library): Cell[] {
     },
     {
       operation: "another editor's upload, via /stat",
-      failing: { "fetchVal field": L1 },
       surfaces: [...field, ...keys],
       run: async (ctx) => {
         const other = await ctx.other();
