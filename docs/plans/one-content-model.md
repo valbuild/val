@@ -675,17 +675,18 @@ pulling makes collaboration more expensive than it is today.
 Each phase ships on its own and leaves everything working. Each adds the
 scenarios it makes pass.
 
-| #   | Phase                                                                                                                                                                                                                                                                                                                | Repos     |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| 0   | **The harness and the first scenario.** `packages/scenarios`; `createWorld` in memory and fs; `createSourceRelay` and `createRefreshLoop` extracted; the invariants and counted budgets; the refresh-race scenario (red). Measure today's draft read and a prototype head in `workerd` at 128 MB.                    | val       |
-| 1   | **Versions on the wire.** `ModuleVersion` (`schema`, `base`, `chain`) and `ProjectVersion` (`build`, `seq`); per-module SHAs; `seq` in fs and memory; the manifest with its ETag; every answer and frame carries a version. No behaviour changes.                                                                    | val       |
-| 2   | **One engine, server side.** `applyPatchRecord` in shared, copy-on-write; `getSources`, `getSourcesWithPatchesApplied` and `prepare`'s `moduleVersions` switched over; conformance cases pass on both engines.                                                                                                       | val       |
-| 3   | **The readers on sources.** `ContentSource`, `layered` (with the schema rule), `planOf`, `resolveVal`; the bundle, snapshot, overlay and seeded sources; `fetchVal`, `useVal` and the key and route readers of both frameworks on them; the relay sends reads. Removes the duplicated copies and the error-path bug. | val       |
-| 4   | **The page converges.** Overlay first; "confirmed up to this version" triggers the refresh; the page reports its bases and the Studio sends what differs; Next seeds hooks at SSR and TanStack gets `draft` by default; the safety refresh goes. The first scenario turns green.                                     | val       |
-| 5   | **The Studio on the view.** `withLocalEdits` over `chainSource` (today's behaviour as a source); `SourceStore` on top, reference-stable by key; `substitutedSource` and `withFilePatchIds` go.                                                                                                                       | val       |
-| 6   | **The store, the runtime and the head.** `tiered`, `memoryTier`, `bundleTier`; `valRuntime` per process; the head in the store; `serverDraftSource`; `GET /modules` with deltas; validation and previews leave the read path; a cheap `seq` in http mode. Within 128 MB.                                             | val, home |
-| 7   | **The Studio loads from one place.** `manifestSource` and `originTier` replace `chainSource`; BaseAlignment and `__VAL_BASE__` go; the code tools' `projectSource` keyed by version; staged schemas (`staged:<hash>`) in code mode.                                                                                  | val, home |
-| 8   | **Clean up and document.** Delete what phases 2–7 replaced; `architecture/content-versions.md`; `stores.md` and `quirks.md` updated.                                                                                                                                                                                 | val       |
+| #   | Phase                                                                                                                                                                                                                                                                                                                                                                    | Repos     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| 0   | **The harness and the first scenario.** `packages/scenarios`; `createWorld` in memory and fs; `createSourceRelay` and `createRefreshLoop` extracted; the invariants and counted budgets; the refresh-race scenario (red). Measure today's draft read and a prototype head in `workerd` at 128 MB.                                                                        | val       |
+| 1   | **Versions on the wire.** `ModuleVersion` (`schema`, `base`, `chain`) and `ProjectVersion` (`build`, `seq`); per-module SHAs; `seq` in fs and memory; the manifest with its ETag; every answer and frame carries a version. No behaviour changes.                                                                                                                        | val       |
+| 2   | **One engine, server side.** `applyPatchRecord` in shared, copy-on-write; `getSources`, `getSourcesWithPatchesApplied` and `prepare`'s `moduleVersions` switched over; conformance cases pass on both engines.                                                                                                                                                           | val       |
+| 3   | **The readers on sources.** `ContentSource`, `layered` (with the schema rule), `planOf`, `resolveVal`; the bundle, snapshot, overlay and seeded sources; `fetchVal`, `useVal` and the key and route readers of both frameworks on them; the relay sends reads. Removes the duplicated copies and the error-path bug.                                                     | val       |
+| 4   | **The page converges.** Overlay first; "confirmed up to this version" triggers the refresh; the page reports its bases and the Studio sends what differs; Next seeds hooks at SSR and TanStack gets `draft` by default; the safety refresh goes. The first scenario turns green.                                                                                         | val       |
+| 5   | **The Studio on the view.** `withLocalEdits` over `chainSource` (today's behaviour as a source); `SourceStore` on top, reference-stable by key; `substitutedSource` and `withFilePatchIds` go.                                                                                                                                                                           | val       |
+| 6   | **The store, the runtime and the head.** `tiered`, `memoryTier`, `bundleTier`; `valRuntime` per process; the head in the store; `serverDraftSource`; `GET /modules` with deltas; validation and previews leave the read path; a cheap `seq` in http mode. Within 128 MB.                                                                                                 | val, home |
+| 7   | **The Studio loads from one place.** `manifestSource` and `originTier` replace `chainSource`; BaseAlignment and `__VAL_BASE__` go; the code tools' `projectSource` keyed by version; staged schemas (`staged:<hash>`) in code mode.                                                                                                                                      | val, home |
+| 8   | **Clean up and document.** Delete what phases 2–7 replaced; `architecture/content-versions.md`; `stores.md` and `quirks.md` updated.                                                                                                                                                                                                                                     | val       |
+| 9   | **Reloading the schema while the Studio runs.** See [the section below](#reloading-the-schema-while-the-studio-runs): one `reloadCode(registry)` for HMR and for a new build; a registry entry per build, named in the manifest; replaced, not merged; a registry that does not load leaves the Studio on the old one; edits that no longer apply are held, not deleted. | val, home |
 
 Phase 2 can run beside phases 3 and 4. Phase 6 moves ahead of 2–5 if phase 0
 shows today's draft read already crosses 128 MB. http mode joins
@@ -707,6 +708,111 @@ shows today's draft read already crosses 128 MB. http mode joins
 - **React in the harness.** `useVal` is thin enough to render with
   `renderHook`; whether hydration scenarios (phase 4) live in the same package
   is open.
+
+## Reloading the schema while the Studio runs
+
+The schema a reader uses is an INSTANCE from the bundle: it carries the
+author's closures (`validate`, `preview`, `render`), so it cannot come from the
+server as data. The version tells the Studio that a module's schema changed
+(section 7); something then has to put the new instance in place without
+reloading the page, or code mode reloads the Studio after every build and
+takes the chat, the unsaved edits and the navigation with it.
+
+### What exists today
+
+- **In dev, HMR swaps the registry.** `<ValModulesClient>` sets
+  `window.__VAL_MODULES__` and dispatches `val-modules-updated`;
+  `useValModules` hands the new registry to `HostStore.receive`, which
+  serializes the new schemas and keeps the new instances.
+- **But it merges.** `SchemaStore.receive` does
+  `{ ...this.schemas, ...schemas }`, so a module removed from `val.modules`
+  stays in the Studio until a reload. According to the inventory, search and
+  references are not marked stale on `schema:init` either (to confirm).
+- **When hosted, the only answer is a full reload.** `SchemaFreshnessWatch`
+  compares the schema this page runs with the server's, and shows a one-way
+  dialog that reloads the page.
+
+### What it should be
+
+**One function, whatever brought the new code:**
+
+```ts
+// packages/ui/spa/stores/HostStore.ts
+type CodeReload =
+  | { status: "reloaded"; changed: ModuleFilePath[]; removed: ModuleFilePath[] }
+  | { status: "kept"; reason: "does-not-load" | "other-val-version" | "not-the-manifest's"; details: string };
+
+/**
+ * Replaces the schema instances in one turn: serialized schemas, instances,
+ * and the per-module schema versions the sources compare against. Only the
+ * modules whose schema version moved are touched; a module no longer in the
+ * registry is removed, not kept.
+ */
+reloadCode(registry: ValModules, expected: Manifest): Promise<CodeReload>;
+```
+
+**Where the new registry comes from:**
+
+- **Dev:** HMR, as today. `val-modules-updated` calls `reloadCode` instead of
+  `receive`.
+- **A new build, hosted** (a publish with code, or a proposal built in code
+  mode): every build emits its `val.modules` registry as an entry of its own,
+  `/_val/modules/<build>.js`, an ES module whose default export is the
+  registry, importing the build's own chunks. The manifest names it
+  (`project.modulesEntry`), and the Studio `import()`s it when `build` moves
+  and a module's `schema` moved with it. The build step is
+  `@valbuild/tanstack-build` (and the Next plugin), which is where the
+  platform's builds come from.
+- **A build whose `@valbuild/*` versions differ from the Studio's own** (an
+  upgrade proposal) is the one case that reloads the page: the Studio's code is
+  part of what changed, so swapping only the registry would run old stores
+  against a new core. `reloadCode` answers `other-val-version`, and the
+  existing dialog takes over.
+
+**What a reload does to the stores, for the changed modules only:**
+
+- `SchemaStore` replaces their serialized schemas and removes the modules that
+  are gone; `HostStore` replaces the instances.
+- Previews, validation, search and references are marked stale for those
+  modules, and recompute on demand (marks and demand, as `stores.md` says).
+- `layered`'s schema rule now matches, so the reads that were `pending`
+  ("another schema") resolve, through the same path as any other change.
+- The page in the canvas has the old build's code: its frame reloads. The
+  Studio around it does not.
+
+**What must not happen:**
+
+- **A registry that does not load must not take the Studio down.** In code
+  mode the assistant can break a `.val.ts`, and the Studio is what it fixes it
+  from. `reloadCode` evaluates the new registry before it touches anything; if
+  it throws, the Studio keeps the old instances, answers `does-not-load` with
+  the error, and the modules whose schema moved stay `pending` with that error
+  shown and an action to send it to the assistant. This is the guarantee the
+  design tab got by running on the site's build, kept without a second tab.
+- **A registry must not be adopted against the wrong manifest.** The versions
+  `reloadCode` computes from the registry have to equal the manifest's;
+  otherwise (a registry from a build newer or older than the manifest the
+  Studio holds) it answers `not-the-manifest's` and waits for the next one.
+- **Edits must not be lost because the schema moved.** Today a patch that
+  cannot be applied is deleted (`stores.md`), which is right when nothing
+  could ever apply it. After a schema change it is wrong: an edit to a field
+  that was renamed fails, and deleting it deletes the editor's work. Patches
+  that fail right after a code reload are held and shown ("These edits do not
+  fit the new schema"), with the choice to discard them or to have the
+  assistant move them.
+
+### Tests
+
+- `world.changeCode` drives `reloadCode` in the Studio, through the same
+  `val-modules-updated` path in dev and through the manifest's entry for a
+  build, so both are covered by every code-change scenario.
+- Scenarios: a schema change with unsaved edits (they are kept, and the ones
+  that no longer fit are held, not deleted); a new build whose `val.modules`
+  throws (the Studio keeps running on the old schema and says why); a module
+  removed (it disappears from the Studio); a build with other `@valbuild/*`
+  versions (the dialog, and nothing swapped).
+- Budget: a code change that touches one module re-serializes, re-validates,
+  re-previews and re-indexes that module and nothing else.
 
 ## Appendix: the inventory
 
