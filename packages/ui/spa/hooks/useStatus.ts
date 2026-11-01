@@ -386,16 +386,7 @@ export function useStatus(client: ValClient) {
       if (stat.status === "error") {
         Internal.log.debug("Stat error", stat.status, "error:", stat.error);
       }
-      // Never wait longer than a publish that has not reached the site yet can
-      // afford: `/stat` is the only thing that reports which commit the site
-      // actually serves.
-      const wait =
-        refreshRef.current && stat.status !== "error"
-          ? 0
-          : Math.min(
-              stat.wait,
-              awaitingDeploymentInterval(stat.data, Date.now()),
-            );
+      const wait = statWait(stat, refreshRef.current, Date.now()) ?? 0;
       if (wait === 0) {
         refreshRef.current = false;
         Internal.log.debug(
@@ -690,6 +681,112 @@ export function statRequestBody(data: StatData | undefined) {
   };
 }
 
+/**
+ * Ask `/stat`, saying what the Studio already knows ({@link statRequestBody}).
+ *
+ * One function for what the poll in {@link useStatus} sends and what the
+ * scenario harness (`scenarios/`) sends, so the two cannot ask differently.
+ */
+export function requestStat(client: ValClient, stat: StatState) {
+  return client("/stat", "POST", {
+    body: statRequestBody("data" in stat ? stat.data : undefined),
+  });
+}
+
+/** An answer to {@link requestStat}. */
+export type StatAnswer = Awaited<ReturnType<typeof requestStat>>;
+
+/**
+ * How long the poll waits before asking `/stat` again, or `null` while it is
+ * not waiting (it has not asked yet, or a request is out).
+ *
+ * Never longer than a publish that has not reached the site yet can afford:
+ * `/stat` is the only thing that reports which commit the site actually
+ * serves. A refresh asked for (see `refresh` in {@link useStatus}) is now,
+ * unless the last answer was an error, which keeps its back-off.
+ */
+export function statWait(
+  stat: StatState,
+  refreshAsked: boolean,
+  now: number,
+): number | null {
+  if (
+    stat.status !== "updated-request-again" &&
+    stat.status !== "error" &&
+    stat.status !== "ws-message-received"
+  ) {
+    return null;
+  }
+  if (refreshAsked && stat.status !== "error") {
+    return 0;
+  }
+  return Math.min(stat.wait, awaitingDeploymentInterval(stat.data, now));
+}
+
+/**
+ * The state an answer to `/stat` leaves the poll in, or `null` when the answer
+ * does not move it: signed out (the session is the hook's business), or a 200
+ * of a kind the poll does not know.
+ *
+ * - **Long polling** (fs and memory mode, no socket): ask again at once -- the
+ *   server holds the request until something changes, so waiting here would
+ *   only add to it.
+ * - **With a socket**: the socket brings the changes, and `/stat` is asked
+ *   again only every {@link WebSocketStatInterval}.
+ * - **503**: the last answer stands, as it does for every other error
+ *   ({@link createError}): an outage is not news that a publish ended, and
+ *   dropping the data released every change content had said a running
+ *   publish holds.
+ *
+ * One function for the hook and the scenario harness (`scenarios/`).
+ */
+export function statStateAfterAnswer(
+  prev: StatState,
+  res: StatAnswer,
+  hasSocket: boolean,
+  now: number,
+): StatState | null {
+  if (res.status === 401) {
+    return null;
+  }
+  if (res.status === 503) {
+    return {
+      status: "error",
+      error: "Service unavailable",
+      data: "data" in prev ? prev.data : undefined,
+      retries: ("retries" in prev ? prev.retries : 0) + 1,
+      waitStart: now,
+      wait: 5000,
+    };
+  }
+  if (res.status !== 200) {
+    return createError(prev, res.json.message);
+  }
+  if (
+    res.json.type === "did-change" ||
+    res.json.type === "no-change" ||
+    res.json.type === "request-again"
+  ) {
+    return {
+      status: "updated-request-again",
+      data: res.json,
+      waitStart: now,
+      wait: hasSocket ? WebSocketStatInterval : 0,
+    };
+  }
+  if (res.json.type === "use-websocket") {
+    // Whole: see `ContentHolds` for why only the holds prefer the socket.
+    return {
+      ...prev,
+      status: "updated-request-again",
+      data: res.json,
+      waitStart: now,
+      wait: WebSocketStatInterval,
+    };
+  }
+  return null;
+}
+
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
@@ -707,12 +804,9 @@ async function execStat(
   const id = ++statIdRef.current;
   const socketPatchesAtRequest = socketPatchesRef.current;
   const requestedAt = Date.now();
-  const body = statRequestBody("data" in stat ? stat.data : undefined);
 
   setAuthenticationLoadingIfNotAuthenticated();
-  return client("/stat", "POST", {
-    body: body,
-  })
+  return requestStat(client, stat)
     .then((res) => {
       if (res.status === 401) {
         setIsAuthenticated("login-required");
@@ -722,26 +816,19 @@ async function execStat(
       }
       if (res.status === 503) {
         setServiceUnavailable(true);
-        setStat((prev) => ({
-          status: "error",
-          error: "Service unavailable",
-          /*
-           * The last answer stands, as it does for every other error
-           * (`createError`): an outage is not news that a publish ended, and
-           * dropping the data released every change content had said a
-           * running publish holds.
-           */
-          data: "data" in prev ? prev.data : undefined,
-          retries: ("retries" in prev ? prev.retries : 0) + 1,
-          waitStart: Date.now(),
-          wait: 5000,
-        }));
+        const now = Date.now();
+        setStat((prev) => statStateAfterAnswer(prev, res, false, now) ?? prev);
         return;
       }
       setServiceUnavailable(false);
       if (statIdRef.current !== 0 && statIdRef.current !== id) {
         return;
       }
+      const hasSocket = webSocketRef.current !== null;
+      const now = Date.now();
+      setStat(
+        (prev) => statStateAfterAnswer(prev, res, hasSocket, now) ?? prev,
+      );
       if (res.status === 200) {
         if (
           // we could have less types on json, but these are supposed to be more descriptive
@@ -749,12 +836,6 @@ async function execStat(
           res.json.type === "no-change" ||
           res.json.type === "request-again"
         ) {
-          setStat({
-            status: "updated-request-again",
-            data: res.json,
-            waitStart: Date.now(),
-            wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
-          });
           const answer = res.json;
           setHolds(
             (prev) =>
@@ -767,14 +848,6 @@ async function execStat(
           );
         } else if (res.json.type === "use-websocket") {
           const answer = res.json;
-          // Whole: see `ContentHolds` for why only the holds prefer the socket.
-          setStat((prev) => ({
-            ...prev,
-            status: "updated-request-again",
-            data: answer,
-            waitStart: Date.now(),
-            wait: WebSocketStatInterval,
-          }));
           setHolds(
             (prev) =>
               holdsOfAnswer(
@@ -951,8 +1024,6 @@ async function execStat(
             );
           };
         }
-      } else {
-        setStat((prev) => createError(prev, res.json.message));
       }
     })
     .catch((err) => {

@@ -27,13 +27,19 @@ import {
 import { createValSystem } from "../../../packages/ui/spa/stores/react/createValSystem";
 import { loadValModules } from "../../../packages/ui/spa/stores/react/loadValModules";
 import { statSnapshotOf } from "../../../packages/ui/spa/stores/react/statSnapshotOf";
-import { statRequestBody } from "../../../packages/ui/spa/hooks/useStatus";
+import {
+  requestStat,
+  statStateAfterAnswer,
+  statWait,
+  type StatState,
+} from "../../../packages/ui/spa/hooks/useStatus";
 import { stringFieldPatch } from "../../../packages/ui/spa/components/fields/stringFieldPatch";
 import { SchemaValidator } from "../../../packages/ui/spa/validation/validateModule";
 import type { System } from "../../../packages/ui/spa/stores/createSystem";
 import { createNetwork, type Network } from "./network";
 import { inRequest } from "./tanstackStart";
 import { createFrames, type Frames } from "./frames";
+import { startFakeClock, type Clock } from "./clock";
 
 /**
  * A world a scenario runs in: Val's real server behind a network the test
@@ -53,10 +59,18 @@ export type World = {
   page(route: string, options: { draftMode: boolean }): Page;
   /** Every surface reads what it reads, and the answers become frames. */
   observe(): Promise<void>;
+  /**
+   * Let the world run until it is quiet: every Studio sends what it has not
+   * saved, every poll that has news takes it, and time moves forward in steps
+   * until nothing changes for a while. Parked long polls are quiet.
+   */
+  settle(): Promise<void>;
+  /** The world's fake clock. See `clock.ts`. */
+  clock: Clock;
   /** The invariants every scenario is held to. See `frames.ts`. */
   expectInvariants(): void;
   /** Stops what the world started, and puts the working directory back. */
-  dispose(): void;
+  dispose(): Promise<void>;
 };
 
 export type Studio = {
@@ -64,8 +78,8 @@ export type Studio = {
   system: System;
   /** What a string field writes when typing pauses, through the same path. */
   edit(module: AnyModule, fieldPath: string[], value: string): Promise<void>;
-  /** Send everything unsaved and wait until the server has it. */
-  settle(): Promise<void>;
+  /** The Studio's `/stat` poll: what it last took in. */
+  readonly stat: StatState;
   /** A surface: the Studio's own value at a field, as a field reads it. */
   reads(surface: string, module: AnyModule, fieldPath: string[]): void;
 };
@@ -164,6 +178,22 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const network = createNetwork(valApiHandler);
   const frames = createFrames();
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
+  const clock = startFakeClock();
+  const studios: Array<{
+    studio: Studio;
+    stop: () => void;
+    polling: Promise<void>;
+  }> = [];
+
+  /** What has to stay the same for the world to count as quiet. */
+  const signature = () =>
+    JSON.stringify([
+      network.log.map((exchange) => exchange.status),
+      studios.map(({ studio }) => [
+        "data" in studio.stat ? studio.stat.data?.patches : null,
+        studio.system.patchSync.currentState().status,
+      ]),
+    ]);
 
   return {
     server:
@@ -190,13 +220,42 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       });
       // Intake, then /stat: the order `ValStoreProvider` uses.
       system.host.receive(await loadValModules(valModules));
-      const stat = await client("/stat", "POST", {
-        body: statRequestBody(undefined),
-      });
-      if (stat.status !== 200 || !("baseSha" in stat.json)) {
-        throw new Error(`/stat answered ${stat.status}`);
-      }
-      system.stat.receiveStat(statSnapshotOf(stat.json));
+
+      // The Studio's /stat poll: what is asked (`requestStat`), what an answer
+      // does to it (`statStateAfterAnswer`) and when it asks again
+      // (`statWait`) are the hook's own functions; the answer reaches the
+      // stores through `statSnapshotOf`, as `ValStoreProvider` hands it on.
+      // What is left here is only the loop that strings them together, which
+      // in the Studio is a React effect. No socket: fs and memory long-poll.
+      let stat: StatState = { status: "not-asked" };
+      let stopped = false;
+      const ask = async () => {
+        const res = await requestStat(client, stat);
+        const next = statStateAfterAnswer(stat, res, false, Date.now());
+        if (next === null) {
+          throw new Error(`/stat answered ${res.status}`);
+        }
+        stat = next;
+        if ("data" in stat && stat.data) {
+          system.stat.receiveStat(statSnapshotOf(stat.data));
+        }
+      };
+      await ask();
+      const polling = (async () => {
+        while (!stopped) {
+          const wait = statWait(stat, false, Date.now());
+          if (wait === null) return;
+          if (wait > 0) {
+            await new Promise((resolve) => setTimeout(resolve, wait));
+          }
+          if (stopped) return;
+          try {
+            await ask();
+          } catch (error) {
+            if (!stopped) throw error;
+          }
+        }
+      })();
 
       const studio: Studio = {
         name,
@@ -213,9 +272,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             throw new Error(`The edit was refused: ${res.message}`);
           }
         },
-        async settle() {
-          await system.patchSync.flush();
-          await network.idle();
+        get stat() {
+          return stat;
         },
         reads(surface, module, fieldPath) {
           const path = sourcePathOf(module, fieldPath);
@@ -228,6 +286,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           });
         },
       };
+      studios.push({
+        studio,
+        stop: () => {
+          stopped = true;
+        },
+        polling,
+      });
       return studio;
     },
     page(route, pageOptions) {
@@ -264,11 +329,46 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     expectInvariants() {
       frames.expectInvariants();
     },
-    dispose() {
+    clock,
+    async settle() {
+      let quiet = 0;
+      for (let round = 0; round < SETTLE_MAX_ROUNDS; round++) {
+        const before = signature();
+        // What the save loop does by itself after an edit; started rather
+        // than awaited, because a retry waits on the clock this loop moves.
+        for (const { studio } of studios) {
+          void studio.system.patchSync.flush();
+        }
+        await clock.advance(SETTLE_STEP_MS);
+        quiet = signature() === before ? quiet + 1 : 0;
+        if (quiet >= SETTLE_QUIET_ROUNDS) return;
+      }
+      throw new Error(
+        `The world did not settle in ${(SETTLE_MAX_ROUNDS * SETTLE_STEP_MS) / 1000}s of its time. Last requests:\n${network.log
+          .slice(-10)
+          .map((e) => `  ${e.from} ${e.method} ${e.path} ${e.status}`)
+          .join("\n")}`,
+      );
+    },
+    async dispose() {
+      for (const { stop } of studios) stop();
+      // A parked long poll ends when the server's own interval runs out.
+      await clock.advance(LONG_POLL_MS);
+      await Promise.all(studios.map(({ polling }) => polling));
+      clock.stop();
       if (host.mode === "fs") host.restore();
     },
   };
 }
+
+/** One step of `settle`: longer than fs mode's 250 ms look at the patch log. */
+const SETTLE_STEP_MS = 300;
+/** Quiet for this many steps in a row is quiet. */
+const SETTLE_QUIET_ROUNDS = 3;
+/** A minute of the world's time, past which something is spinning. */
+const SETTLE_MAX_ROUNDS = 200;
+/** The server's long poll, plus a margin (`ValOpsFS` / `ValOpsMemory`). */
+const LONG_POLL_MS = 21_000;
 
 function draftModeOf(flag: { on: boolean }) {
   return {

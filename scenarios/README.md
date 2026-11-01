@@ -64,11 +64,11 @@ test("an edit reaches the page", async () => {
   page.reads("loader", async (val) => (await val.fetchVal(homeVal)).title);
 
   await studio.edit(homeVal, ["title"], "Hello world");
-  await studio.settle();
+  await world.settle();
   await world.observe();
 
   world.expectInvariants();
-  world.dispose(); // in an afterEach, so a failing test cleans up too
+  await world.dispose(); // in an afterEach, so a failing test cleans up too
 });
 ```
 
@@ -84,12 +84,12 @@ the surface and the frames:
 
 ## What each part is
 
-| Part              | The product code it runs                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Server            | `initValServer` from `@valbuild/tanstack/server`: the route handler an app mounts, in memory or fs mode                         |
-| Studio            | `createValSystem`; modules in through `loadValModules`; `/stat` asked with `statRequestBody` and taken in with `statSnapshotOf` |
-| An edit           | `stringFieldPatch` and `patchStore.createPatch`, what a string field calls                                                      |
-| Page, server half | `initValContent`'s `fetchValStega`, with the same patch store as the API, as an app passes it                                   |
+| Part              | The product code it runs                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Server            | `initValServer` from `@valbuild/tanstack/server`: the route handler an app mounts, in memory or fs mode                                                                  |
+| Studio            | `createValSystem`; modules in through `loadValModules`; a `/stat` long poll through `requestStat`, `statStateAfterAnswer` and `statWait`, taken in with `statSnapshotOf` |
+| An edit           | `stringFieldPatch` and `patchStore.createPatch`, what a string field calls                                                                                               |
+| Page, server half | `initValContent`'s `fetchValStega`, with the same patch store as the API, as an app passes it                                                                            |
 
 ## Not there yet
 
@@ -101,18 +101,22 @@ path, and a scenario that depends on it would prove less than it looks:
   mode's project is `process.cwd()` (`initHandlerOptions`); `world.dispose()`
   puts the old one back and removes the directory. http needs
   `e2e/mock-content-host` started in-process.
-- **The Studio's `/stat` loop.** What is asked and how the answer is taken in
-  are the product's functions, but WHEN the Studio asks (the long poll, the
-  websocket) is still inside the `useStatus` hook. The world asks once, when a
-  Studio starts. `ValStoreProvider` also maps a stat into `receiveStat` with
-  its own copy of what `statSnapshotOf` does; the two should be one.
+- **The Studio's `/stat` loop.** Real, except for the loop itself: what is
+  asked (`requestStat`), what an answer does (`statStateAfterAnswer`), when the
+  next ask goes out (`statWait`) and how the answer reaches the stores
+  (`statSnapshotOf`) are the functions `useStatus` and `ValStoreProvider` call;
+  the dozen lines that string them together are a React effect in the Studio
+  and a `while` loop here. No websocket: fs and memory long-poll, and http
+  (which uses one) is not in the world yet.
 - **Typing.** `studio.edit` writes what a string field writes once typing
   pauses. The debounce itself (`useDebouncedFieldWrite`) is not exercised.
 - **The page's client half.** `useVal`, the overlay store and the relay from
   the Studio are not in the world yet.
-- **The clock.** Real timers. `studio.settle()` waits for the save loop to
-  drain (`patchSync.flush()`) and the network to go quiet; a fake clock across
-  the server, the Studio and the page comes with the first race scenario.
+- **The clock.** Fake (`world/clock.ts`): jest's timers, with microtasks,
+  `nextTick` and `setImmediate` left real. `world.settle()` moves it forward in
+  300 ms steps until nothing changes for three in a row, so a parked long poll
+  costs nothing and a 20 s one is a few steps. Races are not scripted yet:
+  `network.hold` exists, and no scenario uses it.
 - **Invariants.** "Converges" and "never goes back", on values. The rest of
   the plan's list (one version per render, parity, never with another schema,
   events not timers, no schema dialog) and the counted budgets of work come as

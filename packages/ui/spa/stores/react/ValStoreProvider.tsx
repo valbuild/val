@@ -3,6 +3,7 @@ import type { PatchId, ValModules } from "@valbuild/core";
 import type { System } from "../createSystem";
 import { ValSystemProvider } from "./SystemContext";
 import { loadValModules } from "./loadValModules";
+import { statSnapshotOf } from "./statSnapshotOf";
 
 /**
  * Put the store system in context, take the project in, and feed it `/stat`.
@@ -119,24 +120,7 @@ export function ValStoreProvider({
     if (stat === null || !received) {
       return;
     }
-    system.stat.receiveStat({
-      patches: stat.patches,
-      baseSha: stat.baseSha,
-      removed: stat.removed,
-      // Which of them have shipped, so a record this client already holds
-      // learns that somebody else's publish committed it. See
-      // `PatchStore.receiveApplied`.
-      appliedPatches: stat.appliedPatches,
-      headCommitSha: stat.headCommitSha,
-      // What the next write names as its parent. See `PatchSync`.
-      headPatchId: stat.headPatchId,
-      headVersion: stat.headVersion,
-      // Which build answered, so a chain from a build other than the bundle's
-      // is put on that build's base. See `BaseAlignment`.
-      sourcesSha: stat.sourcesSha,
-      // Which schema that build runs. See `SchemaFreshnessWatch`.
-      schemaSha: stat.schemaSha,
-    });
+    system.stat.receiveStat(statSnapshotOf(stat));
   }, [system, stat, received]);
 
   /*

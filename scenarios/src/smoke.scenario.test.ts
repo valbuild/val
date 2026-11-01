@@ -26,8 +26,8 @@ const homeVal = c.define(
 
 describe.each(["memory", "fs"] as const)("smoke, on %s", (server) => {
   let world: World | null = null;
-  afterEach(() => {
-    world?.dispose();
+  afterEach(async () => {
+    await world?.dispose();
     world = null;
   });
 
@@ -42,7 +42,7 @@ describe.each(["memory", "fs"] as const)("smoke, on %s", (server) => {
     await world.observe();
     await studio.edit(homeVal, ["title"], "Hello world");
     await world.observe(); // the Studio has it; the server may not yet
-    await studio.settle();
+    await world.settle();
     await world.observe();
 
     world.expectInvariants();
@@ -63,7 +63,7 @@ describe.each(["memory", "fs"] as const)("smoke, on %s", (server) => {
     page.reads("loader", async (val) => (await val.fetchVal(homeVal)).title);
 
     await studio.edit(homeVal, ["title"], "Hello world");
-    await studio.settle();
+    await world.settle();
     await world.observe();
 
     expect(world.frames.last("loader")).toBe("Hello");
