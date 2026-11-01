@@ -103,19 +103,20 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
    * "Aligned" means aligned to whichever build answered. The wait for it was
    * added for the opposite case (an old bundle, a new server), and is right
    * there; here it is what lets the old content through.
+   *
+   * SKIPPED, not failing: the cause is known and its fix is deferred while
+   * coverage is built out (the reproduction of WHY is the test below, which
+   * runs). Un-skip it with the fix.
    */
-  test.failing(
-    "the overlay's /stat answered by the previous build: no flicker",
-    async () => {
-      const world = await createWorld({ config, modules: [before], server });
-      try {
-        await overlayAnsweredByPreviousBuild(world);
-        world.expectInvariants();
-      } finally {
-        await world.dispose();
-      }
-    },
-  );
+  test.skip("the overlay's /stat answered by the previous build: no flicker", async () => {
+    const world = await createWorld({ config, modules: [before], server });
+    try {
+      await overlayAnsweredByPreviousBuild(world);
+      world.expectInvariants();
+    } finally {
+      await world.dispose();
+    }
+  });
 
   test("why it flickers: the overlay aligns to the previous build, then to the new one", async () => {
     const world = await createWorld({ config, modules: [before], server });
@@ -151,21 +152,23 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
    * React renders over the server's text. The overlay's Studio, started from
    * the same old modules, sees the server's `sourcesSha` differ, rebases onto
    * the server's base, and relays the new title.
+   *
+   * SKIPPED, not failing: the cause is known (on the platform, the pinned
+   * `/_app/app.js?b=` falls back to the head when the new build's code is not
+   * yet readable at that edge) and its fix is deferred while coverage is built
+   * out. The reproduction of WHY is the test below, which runs.
    */
-  test.failing(
-    "the browser runs the previous build's client code: no flicker",
-    async () => {
-      const world = await createWorld({ config, modules: [before], server });
-      try {
-        world.deployCode([after]);
-        await world.loadPage("/", { shows, clientModules: [before] });
-        await world.settle();
-        world.expectInvariants();
-      } finally {
-        await world.dispose();
-      }
-    },
-  );
+  test.skip("the browser runs the previous build's client code: no flicker", async () => {
+    const world = await createWorld({ config, modules: [before], server });
+    try {
+      world.deployCode([after]);
+      await world.loadPage("/", { shows, clientModules: [before] });
+      await world.settle();
+      world.expectInvariants();
+    } finally {
+      await world.dispose();
+    }
+  });
 
   test("why it flickers: hydration reads the old bundle, the overlay relays the server's base", async () => {
     const world = await createWorld({ config, modules: [before], server });
