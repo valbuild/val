@@ -24,7 +24,7 @@ const homeVal = c.define(
   { title: "Hello" },
 );
 
-describe.each(["memory", "fs"] as const)("smoke, on %s", (server) => {
+describe.each(["memory", "fs", "http"] as const)("smoke, on %s", (server) => {
   let world: World | null = null;
   afterEach(async () => {
     await world?.dispose();

@@ -44,7 +44,7 @@ const after = c.define(
   { title: "Hello", button: { label: "Buy" } },
 );
 
-describe.each(["fs", "memory"] as const)(
+describe.each(["fs", "memory", "http"] as const)(
   "a field the assistant added, on %s",
   (server) => {
     let world: World | null = null;

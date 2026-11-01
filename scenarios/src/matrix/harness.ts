@@ -14,7 +14,7 @@ import {
 } from "../world/createWorld";
 
 /**
- * The content-shape matrix: shape × operation × surface, in memory and fs.
+ * The content-shape matrix: shape × operation × surface, in memory, fs and http.
  *
  * One CELL is one operation on one shape. It runs once, in a world of its own
  * (`beforeAll`), and records what every surface shows when the world has
@@ -186,9 +186,9 @@ async function runCell(
   }
 }
 
-/** The matrix for one shape: every cell, in memory and fs. */
+/** The matrix for one shape: every cell, in memory, fs and http. */
 export function matrix(shape: Shape, cells: Cell[]): void {
-  describe.each<ServerMode>(["memory", "fs"])(
+  describe.each<ServerMode>(["memory", "fs", "http"])(
     `M ${shape.name} on %s`,
     (server) => {
       for (const cell of cells) {

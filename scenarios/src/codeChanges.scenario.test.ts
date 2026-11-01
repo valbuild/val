@@ -45,7 +45,7 @@ const footer = c.define(
   { text: "Footer" },
 );
 
-describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
+describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   let world: World | null = null;
   afterEach(async () => {
     await world?.dispose();
@@ -187,13 +187,19 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
     expect(editor.system.status.current().schema).toBe("current");
   });
 
-  test("S16 why: SchemaFreshnessWatch reports the schema out of date", async () => {
-    world = await createWorld({ config, modules: [home], server });
-    const editor = await world.studio("editor");
-    expect(editor.system.status.current().schema).toBe("current");
-    await deployAndWaitOutTheGrace(world);
-    expect(editor.system.status.current().schema).toBe("out-of-date");
-  });
+  // Not on http, for the reason in `overlayAfterBuild`'s "why it flickers":
+  // a hosted Studio hears of a deploy through the socket, which the world's
+  // `deployCode` does not tell.
+  (server === "http" ? test.skip : test)(
+    "S16 why: SchemaFreshnessWatch reports the schema out of date",
+    async () => {
+      world = await createWorld({ config, modules: [home], server });
+      const editor = await world.studio("editor");
+      expect(editor.system.status.current().schema).toBe("current");
+      await deployAndWaitOutTheGrace(world);
+      expect(editor.system.status.current().schema).toBe("out-of-date");
+    },
+  );
 });
 
 function registryWithThrowingFooter(): ValModules {

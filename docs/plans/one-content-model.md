@@ -31,8 +31,10 @@ coverage" (valbuild/val#1006).
 
 **Built:**
 
-- **The scenario world** (`scenarios/`, phase 0): Val's real server in memory
-  and fs mode, Studios with the real `/stat` long poll on one fake clock, a
+- **The scenario world** (`scenarios/`, phase 0): Val's real server in memory,
+  fs and http mode (http against `e2e/mock-content-host`, imported into the
+  test's process, with the content service's socket), Studios with the real
+  `/stat` loop on one fake clock, a
   page's server and client halves, the overlay relay, the refresh loop,
   uploads, two builds answering at once, and code changes. Every scenario is
   checked against shared invariants and counted work. About ten pieces of
@@ -41,11 +43,18 @@ coverage" (valbuild/val#1006).
 - **The scenario catalogue**: see `scenarios/README.md`. Skipped scenarios are
   findings: each has a running test beside it pinning today's behaviour.
 - **The content-shape matrix** (`scenarios/src/matrix.*`): every shape
-  against every operation and reader, in memory and fs. After a publish in fs
+  against every operation and reader, in memory, fs and http. After a publish in fs
   mode the world re-evaluates the rewritten files with `loadValModules`, as a
   dev server reloads them, and serves `public/` as the framework does; the
   publish cells that failed before that (F3, P1) were the world, not the
-  product. R1 (memory mode's readers not adopting a publish) is open.
+  product. R1 (memory mode's readers not adopting a publish) is fixed: every
+  Val server in a process shares one data layer per project
+  (`sharedValOps`). Two memory-mode publish cells remain (R2, R3, the page's
+  bundle). Every http cell passes.
+- **The hosted layers** (S06, S20, S21, decision 1 below): a content version
+  and a proposal snapshot handed to the API and the readers alike, and a
+  `/stat` answer delivered after a later write. All pass; the mock's proposal
+  routes (writes) are still not there.
 - **Measurements** (`scenarios/measure/`): how to measure, and the first
   results.
 

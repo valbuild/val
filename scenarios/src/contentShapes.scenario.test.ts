@@ -54,7 +54,7 @@ const heroVal = c.define(
   { hero: { path: IMAGE } },
 );
 
-describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
+describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   let world: World | null = null;
   afterEach(async () => {
     await world?.dispose();

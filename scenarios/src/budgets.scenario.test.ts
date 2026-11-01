@@ -24,7 +24,7 @@ const homeVal = c.define(
   { title: "Hello", subtitle: "Sub" },
 );
 
-describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
+describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   let world: World | null = null;
   afterEach(async () => {
     await world?.dispose();

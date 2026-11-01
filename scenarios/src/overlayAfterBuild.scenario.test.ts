@@ -50,7 +50,7 @@ const shows = [{ surface: "title", module: after, field: ["title"] }];
 const titles = (world: Awaited<ReturnType<typeof createWorld>>) =>
   world.frames.of("title").map((frame) => frame.value);
 
-describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
+describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   test("the page and its overlay run the same build: no flicker", async () => {
     const world = await createWorld({ config, modules: [before], server });
     try {
@@ -118,28 +118,35 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
     }
   });
 
-  test("why it flickers: the overlay aligns to the previous build, then to the new one", async () => {
-    const world = await createWorld({ config, modules: [before], server });
-    try {
-      await overlayAnsweredByPreviousBuild(world);
-      expect(titles(world)).toEqual([
-        "New title", // the server render (new build)
-        "New title", // hydration
-        "Old title", // the overlay, aligned to the previous build
-        "New title", // the overlay, aligned to the new build
-      ]);
-      const overlay = world.network.log
-        .filter((e) => e.from.startsWith("studio:overlay"))
-        .map((e) => `${e.method} ${e.path.replace("/api/val", "")} ${e.to}`);
-      expect(overlay.slice(0, 2)).toEqual([
-        "POST /stat build 1",
-        "PUT /sources/~ build 1",
-      ]);
-      expect(overlay).toContain("POST /stat build 2");
-    } finally {
-      await world.dispose();
-    }
-  });
+  // Not on http: the realignment comes from a later `/stat`, and a hosted
+  // Studio asks it every twenty minutes, sooner only while the socket says a
+  // deployment is running -- which the world's `deployCode` does not tell the
+  // content service. Until it does, http would pin the world, not Val.
+  (server === "http" ? test.skip : test)(
+    "why it flickers: the overlay aligns to the previous build, then to the new one",
+    async () => {
+      const world = await createWorld({ config, modules: [before], server });
+      try {
+        await overlayAnsweredByPreviousBuild(world);
+        expect(titles(world)).toEqual([
+          "New title", // the server render (new build)
+          "New title", // hydration
+          "Old title", // the overlay, aligned to the previous build
+          "New title", // the overlay, aligned to the new build
+        ]);
+        const overlay = world.network.log
+          .filter((e) => e.from.startsWith("studio:overlay"))
+          .map((e) => `${e.method} ${e.path.replace("/api/val", "")} ${e.to}`);
+        expect(overlay.slice(0, 2)).toEqual([
+          "POST /stat build 1",
+          "PUT /sources/~ build 1",
+        ]);
+        expect(overlay).toContain("POST /stat build 2");
+      } finally {
+        await world.dispose();
+      }
+    },
+  );
 
   /**
    * Mechanism 2: the browser runs the previous build's CLIENT code.

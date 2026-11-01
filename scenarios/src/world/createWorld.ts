@@ -21,8 +21,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { setTimeout as realSleep } from "node:timers/promises";
 import { dirname, join } from "node:path";
-import { loadValModules as evaluateProject } from "@valbuild/server";
+import {
+  encodeJwt,
+  getExpire,
+  loadValModules as evaluateProject,
+  type ValContentVersion,
+  type ValProposal,
+} from "@valbuild/server";
 import {
   InMemoryPatchStore,
   initValContent,
@@ -41,11 +48,15 @@ import { createValSystem } from "../../../packages/ui/spa/stores/react/createVal
 import { loadValModules } from "../../../packages/ui/spa/stores/react/loadValModules";
 import { statSnapshotOf } from "../../../packages/ui/spa/stores/react/statSnapshotOf";
 import {
+  parseSocketMessage,
   requestStat,
   statStateAfterAnswer,
+  statStateAfterSocketMessage,
   statWait,
   type StatState,
 } from "../../../packages/ui/spa/hooks/useStatus";
+import { randomUUID } from "node:crypto";
+import { WebSocket } from "ws";
 import { stringFieldPatch } from "../../../packages/ui/spa/components/fields/stringFieldPatch";
 import { writePatch } from "../../../packages/ui/spa/stores/react/writePatch";
 import { directFileUploadSettings } from "../../../packages/ui/spa/stores/react/directFileUploadSettings";
@@ -87,6 +98,7 @@ import { inRequest } from "./tanstackStart";
 import { createFrames, type Frames } from "./frames";
 import { startFakeClock, type Clock } from "./clock";
 import { installXmlHttpRequest } from "./xmlHttpRequest";
+import { startContentHost, type ContentHost } from "./contentHost";
 
 /**
  * A world a scenario runs in: Val's real server behind a network the test
@@ -98,8 +110,14 @@ import { installXmlHttpRequest } from "./xmlHttpRequest";
  * product calls the extracted one too -- never a second copy here.
  */
 export type World = {
-  /** Which mode the server runs in, and for fs, the project directory. */
-  server: { mode: "memory" } | { mode: "fs"; root: string };
+  /**
+   * Which mode the server runs in: for fs, the project directory; for http,
+   * where the content service is.
+   */
+  server:
+    | { mode: "memory" }
+    | { mode: "fs"; root: string }
+    | { mode: "http"; contentUrl: string };
   network: Network;
   frames: Frames;
   studio(name: string): Promise<Studio>;
@@ -276,10 +294,25 @@ export type WorldOptions = {
    *   fresh temporary directory and works in it for its lifetime; patches
    *   land in its `.val/patches`, where both the API and the readers find
    *   them, as in an app.
-   *
-   * http needs the mock content host, and is not here yet.
+   * - `http`: a deployed app. Patches live on Val's content service, here the
+   *   mock content host in this process (`contentHost.ts`), reached over
+   *   real HTTP; the API and the readers are given the same `http` options
+   *   (credentials, `valContentUrl`, the content version and the proposal),
+   *   as an app passes one `ValHttpMode` to both. Every request carries a
+   *   signed session cookie, as a signed-in editor's browser does.
    */
   server: ServerMode;
+  /**
+   * http only: the content version the platform hands the build
+   * (`VAL_CONTENT`, read by `contentFromEnv`): the site's content when it is
+   * newer than what the bundle holds.
+   */
+  contentVersion?: ValContentVersion;
+  /**
+   * http only: the proposal whose address the build serves (`VAL_PROPOSAL`,
+   * `VAL_BRANCH`, `VAL_OVERLAY`, read by `proposalFromEnv`).
+   */
+  proposal?: ValProposal;
   /**
    * The `.val.ts` text of modules, for what reads it: a publish rewrites it.
    * Written into the project directory in fs mode and handed over as
@@ -288,7 +321,7 @@ export type WorldOptions = {
   sourceText?: Record<string, string>;
 };
 
-export type ServerMode = "memory" | "fs";
+export type ServerMode = "memory" | "fs" | "http";
 
 /** What an app passes to both `initValServer` and `initValContent` for a mode. */
 type ServerHost =
@@ -298,12 +331,69 @@ type ServerHost =
       patchStore: InMemoryPatchStore;
       unsafelyAllowUnauthenticated: true;
     }
-  | { mode: "fs"; root: string; restore: () => void };
+  | { mode: "fs"; root: string; restore: () => void }
+  | {
+      mode: "http";
+      contentHost: ContentHost;
+      http: HttpOptions;
+      /** The `val_session` cookie a signed-in editor's browser sends. */
+      cookie: string;
+    };
 
-function hostFor(
-  mode: ServerMode,
+/** `ValHttpMode`, as `initValServer` and `initValContent` both take it. */
+type HttpOptions = {
+  apiKey: string;
+  valSecret: string;
+  gitCommit: string;
+  gitBranch: string;
+  valContentUrl: string;
+  contentVersion?: ValContentVersion;
+  proposal?: ValProposal;
+};
+
+/** What session cookies are signed with: the app's `VAL_SECRET`. */
+const VAL_SECRET = "scenario-secret";
+
+async function hostFor(
+  options: WorldOptions,
   sourceText: Record<string, string>,
-): ServerHost {
+): Promise<ServerHost> {
+  const mode = options.server;
+  if (mode === "http") {
+    const contentHost = await startContentHost(sourceText);
+    const [org, project] = contentHost.project.split("/");
+    // As `e2e/http/httpMode.ts` mints one: the login round trip goes to
+    // admin.val.build, which is not what these scenarios are about. The
+    // profile is one the mock knows, so a patch has an author.
+    const token = encodeJwt(
+      {
+        sub: "profile-ada",
+        exp: getExpire(),
+        token: "scenario-val-build-token",
+        org,
+        project,
+      },
+      VAL_SECRET,
+    );
+    return {
+      mode,
+      contentHost,
+      cookie: `${Internal.VAL_SESSION_COOKIE}=${encodeURIComponent(token)}`,
+      http: {
+        apiKey: contentHost.apiKey,
+        valSecret: VAL_SECRET,
+        gitCommit: contentHost.initialCommit,
+        gitBranch: contentHost.branch,
+        valContentUrl: contentHost.url,
+        ...(options.contentVersion !== undefined
+          ? { contentVersion: options.contentVersion }
+          : {}),
+        ...(options.proposal !== undefined
+          ? { proposal: options.proposal }
+          : {}),
+      },
+    };
+  }
   if (mode === "memory") {
     return {
       mode,
@@ -336,14 +426,81 @@ function hostFor(
 }
 
 /** The options both server-side entry points get, for the host's mode. */
-function hostOptions(host: ServerHost) {
-  return host.mode === "memory"
-    ? {
-        sourceFiles: host.sourceFiles,
-        patchStore: host.patchStore,
-        unsafelyAllowUnauthenticated: host.unsafelyAllowUnauthenticated,
-      }
-    : {};
+function hostOptions(host: ServerHost): {
+  sourceFiles?: Record<string, string>;
+  patchStore?: InMemoryPatchStore;
+  unsafelyAllowUnauthenticated?: boolean;
+  http?: HttpOptions;
+} {
+  if (host.mode === "memory") {
+    return {
+      sourceFiles: host.sourceFiles,
+      patchStore: host.patchStore,
+      unsafelyAllowUnauthenticated: host.unsafelyAllowUnauthenticated,
+    };
+  }
+  if (host.mode === "http") {
+    // The SAME object for both, as the bindings ask.
+    return { http: host.http };
+  }
+  return {};
+}
+
+/**
+ * The config the app's server is given: in http mode it names the project,
+ * as `val.config.ts`'s `project` does in a deployed app.
+ */
+function hostConfig(host: ServerHost, config: ValConfig): ValConfig {
+  return host.mode === "http"
+    ? { ...config, project: host.contentHost.project }
+    : config;
+}
+
+/** A browser's `fetch`, sending the session cookie it holds (http mode). */
+function withSession(
+  host: ServerHost,
+  send: (input: string, init: RequestInit) => Promise<Response>,
+): (input: string, init: RequestInit) => Promise<Response> {
+  if (host.mode !== "http") return send;
+  return (input, init) => {
+    const headers = new Headers(init.headers);
+    headers.set("cookie", host.cookie);
+    return send(input, { ...init, headers });
+  };
+}
+
+/**
+ * The browser's upload, which in http mode goes straight to the content
+ * service (`direct-file-upload-settings` answers its url, with a nonce), not
+ * through the app: over real HTTP to the mock, as the browser would.
+ */
+function toContentHost(
+  host: ServerHost,
+  send: (input: string, init: RequestInit) => Promise<Response>,
+): (input: string, init: RequestInit) => Promise<Response> {
+  if (host.mode !== "http") return send;
+  const origin = host.contentHost.url;
+  return (input, init) =>
+    input.startsWith(origin) ? fetch(input, init) : send(input, init);
+}
+
+/**
+ * The socket's url, on the port this world's content host listens on: the
+ * mock names the port it was imported with, and listens on a new one per
+ * world (see `contentHost.ts`).
+ */
+function socketUrl(host: ServerHost, url: string): string {
+  if (host.mode !== "http") return url;
+  const target = new URL(url);
+  target.host = new URL(host.contentHost.url).host;
+  return target.href;
+}
+
+/** A request for a page, as the browser sends it: with its cookies. */
+function pageRequest(host: ServerHost, route: string): Request {
+  return new Request(new URL(route, "http://localhost").href, {
+    headers: host.mode === "http" ? { cookie: host.cookie } : {},
+  });
 }
 
 export async function createWorld(options: WorldOptions): Promise<World> {
@@ -356,12 +513,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   let valModules = registryOf(options.modules);
   // One place for pending edits, shared by the API and the readers -- as an
   // app passes the same options to `initValServer` and `initValContent`.
-  const host = hostFor(options.server, options.sourceText ?? {});
+  const host = await hostFor(options, options.sourceText ?? {});
+  const serverConfig = hostConfig(host, options.config);
   const apiDraftMode = { on: true };
   const serverFor = (registry: ValModules) =>
     withStaticFiles(
       host,
-      initValServer(registry, options.config, {
+      initValServer(registry, serverConfig, {
         ...hostOptions(host),
         draftMode: draftModeOf(apiDraftMode),
       }).valApiHandler,
@@ -439,7 +597,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const currentModule = <T>(module: T): T => sameModuleAs(reloadedAs, module);
   /** The readers a page's server uses, for the server's current code. */
   const readersFor = (draft: { on: boolean }) =>
-    initValContent(options.config, valModules, {
+    initValContent(serverConfig, valModules, {
       ...hostOptions(host),
       draftMode: draftModeOf(draft),
     });
@@ -449,20 +607,25 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
   const clock = startFakeClock();
   // The browser's upload: through the same network as everything else.
-  const uninstallXhr = installXmlHttpRequest(network.fetchFor("browser:xhr"));
+  const uninstallXhr = installXmlHttpRequest(
+    toContentHost(host, withSession(host, network.fetchFor("browser:xhr"))),
+  );
   const studios: Array<{
     studio: Studio;
     stop: () => void;
     polling: Promise<void>;
+    /** Messages its socket has brought (http mode), for `settle`. */
+    socketMessages: () => number;
   }> = [];
 
   /** What has to stay the same for the world to count as quiet. */
   const signature = () =>
     JSON.stringify([
       network.log.map((exchange) => exchange.status),
-      studios.map(({ studio }) => [
+      studios.map(({ studio, socketMessages }) => [
         "data" in studio.stat ? studio.stat.data?.patches : null,
         studio.system.patchSync.currentState().status,
+        socketMessages(),
       ]),
     ]);
 
@@ -481,7 +644,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     } = {},
   ): Promise<Studio> => {
     const client = createValClient("/api/val", null, {
-      fetch: network.fetchFor(`studio:${name}`),
+      fetch: withSession(host, network.fetchFor(`studio:${name}`)),
     });
     const validator = new SchemaValidator();
     let seq = 0;
@@ -489,7 +652,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     const system = createValSystem(client, {
       activity: work,
       writes: true,
-      mode: "fs",
+      mode: host.mode === "http" ? "http" : "fs",
       uploadSettings: () => directFileUploadSettings(client),
       schemaValidation: {
         validate: async (moduleFilePath, source, serializedSchema, version) =>
@@ -506,12 +669,50 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     // (`statWait`) are the hook's own functions; the answer reaches the
     // stores through `statSnapshotOf`, as `ValStoreProvider` hands it on.
     // What is left here is only the loop that strings them together, which
-    // in the Studio is a React effect. No socket: fs and memory long-poll.
+    // in the Studio is a React effect. fs and memory long-poll; http answers
+    // `use-websocket`, and the Studio opens the content service's socket.
     let stat: StatState = { status: "not-asked" };
+    let socket: WebSocket | null = null;
+    let socketMessages = 0;
+    const connectionId = randomUUID();
+    // What `execStat` does with a `use-websocket` answer: open the socket,
+    // subscribe with the nonce, and take each message in through the hook's
+    // own `parseSocketMessage` and `statStateAfterSocketMessage`.
+    let subscribed: Promise<void> | null = null;
+    const openSocket = (url: string, nonce: string) => {
+      socket?.close();
+      const opened = new WebSocket(socketUrl(host, url));
+      socket = opened;
+      subscribed = new Promise<void>((resolve) => {
+        opened.on("message", (data) => {
+          if (parseSocketMessage(String(data))?.type === "subscribed") {
+            resolve();
+          }
+        });
+      });
+      opened.on("open", () => {
+        opened.send(JSON.stringify({ nonce, type: "subscribe", connectionId }));
+      });
+      opened.on("message", (data) => {
+        const message = parseSocketMessage(String(data));
+        if (message === null) return;
+        socketMessages++;
+        const next = statStateAfterSocketMessage(stat, message, Date.now());
+        if (next === null) return;
+        stat = next;
+        if ("data" in stat && stat.data) {
+          system.stat.receiveStat(statSnapshotOf(stat.data));
+        }
+      });
+    };
     let stopped = false;
+    // Wakes the poll's wait when the Studio stops: with a socket's interval
+    // (http mode) that wait is twenty minutes, as the hook's timer is until
+    // the component unmounts.
+    let wake: (() => void) | null = null;
     const ask = async () => {
       const res = await requestStat(client, stat);
-      const next = statStateAfterAnswer(stat, res, false, Date.now());
+      const next = statStateAfterAnswer(stat, res, socket !== null, Date.now());
       if (next === null) {
         throw new Error(`/stat answered ${res.status}`);
       }
@@ -519,14 +720,44 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       if ("data" in stat && stat.data) {
         system.stat.receiveStat(statSnapshotOf(stat.data));
       }
+      if (res.status === 200 && res.json.type === "use-websocket") {
+        openSocket(res.json.url, res.json.nonce);
+      }
     };
     await ask();
+    // A Studio is ready once its socket is subscribed: the content service
+    // sends a change only to the sockets subscribed when it happens, so an
+    // edit made before that is not heard until the next `/stat`, twenty
+    // minutes on. The Playwright harness waits for the same thing
+    // (`openHttpStudio`). Real I/O, so a real-time bound.
+    if (subscribed !== null) {
+      const bound = new AbortController();
+      try {
+        await Promise.race([
+          subscribed,
+          realSleep(SUBSCRIBE_MAX_MS, undefined, { signal: bound.signal }).then(
+            () => {
+              throw new Error(`studio ${name}: its socket never subscribed`);
+            },
+          ),
+        ]);
+      } finally {
+        bound.abort();
+      }
+    }
     const polling = (async () => {
       while (!stopped) {
         const wait = statWait(stat, false, Date.now());
         if (wait === null) return;
         if (wait > 0) {
-          await new Promise((resolve) => setTimeout(resolve, wait));
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, wait);
+            wake = () => {
+              clearTimeout(timer);
+              resolve();
+            };
+          });
+          wake = null;
         }
         if (stopped) return;
         try {
@@ -625,7 +856,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       studio,
       stop: () => {
         stopped = true;
+        wake?.();
+        socket?.close();
       },
+      socketMessages: () => socketMessages,
       polling,
     });
     return studio;
@@ -633,13 +867,16 @@ export async function createWorld(options: WorldOptions): Promise<World> {
 
   return {
     server:
-      host.mode === "fs" ? { mode: "fs", root: host.root } : { mode: "memory" },
+      host.mode === "fs"
+        ? { mode: "fs", root: host.root }
+        : host.mode === "http"
+          ? { mode: "http", contentUrl: host.contentHost.url }
+          : { mode: "memory" },
     network,
     frames,
     studio: (name) => startStudio(name, valModules),
     async loadPage(route, pageOptions) {
-      const request = () =>
-        new Request(new URL(route, "http://localhost").href);
+      const request = () => pageRequest(host, route);
       // The page's browser bundle: the server's code unless the scenario gives
       // it another build's, and then hot-reloaded with the server's when the
       // project's files change (`devReload`).
@@ -762,7 +999,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     page(route, pageOptions) {
       const draft = { on: pageOptions.draftMode };
       const contentFor = (registry: ValModules) =>
-        initValContent(options.config, registry, {
+        initValContent(serverConfig, registry, {
           ...hostOptions(host),
           draftMode: draftModeOf(draft),
         });
@@ -794,10 +1031,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           surfaces.push({
             name: surface,
             read: () =>
-              inRequest(
-                new Request(new URL(route, "http://localhost").href),
-                () => read(readers),
-              ),
+              inRequest(pageRequest(host, route), () => read(readers)),
           });
         },
       };
@@ -829,6 +1063,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           void studio.system.patchSync.flush();
         }
         await clock.advance(SETTLE_STEP_MS);
+        if (host.mode === "http") await drained(host.contentHost);
         quiet = signature() === before ? quiet + 1 : 0;
         if (quiet >= SETTLE_QUIET_ROUNDS) return;
       }
@@ -840,6 +1075,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       );
     },
     async dispose() {
+      // What a test held and did not let go of would hold the Studio's poll.
+      network.release();
       for (const stop of relays) stop();
       for (const loop of refreshLoops) loop.stop();
       for (const { stop } of studios) stop();
@@ -849,6 +1086,12 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       clock.stop();
       uninstallXhr();
       if (host.mode === "fs") host.restore();
+      if (host.mode === "http") {
+        // Whatever is still on its way to the app finishes first: its answer
+        // needs the content service.
+        await network.idle();
+        await host.contentHost.stop();
+      }
     },
   };
 }
@@ -861,6 +1104,25 @@ const SETTLE_QUIET_ROUNDS = 3;
 const SETTLE_MAX_ROUNDS = 200;
 /** The server's long poll, plus a margin (`ValOpsFS` / `ValOpsMemory`). */
 const LONG_POLL_MS = 21_000;
+
+/**
+ * Until the app's server has had every call to the content service answered,
+ * and has made no new one for a few real milliseconds: those calls are real
+ * HTTP, so they finish in real time, not when the fake clock moves.
+ */
+async function drained(contentHost: ContentHost): Promise<void> {
+  let idle = 0;
+  for (let i = 0; i < DRAIN_MAX_MS && idle < 3; i++) {
+    await realSleep(1);
+    idle = contentHost.inFlight() === 0 ? idle + 1 : 0;
+  }
+}
+
+/** Real time a Studio's socket has to subscribe in. */
+const SUBSCRIBE_MAX_MS = 5000;
+
+/** A real second: past it, a call to the content host is not coming back. */
+const DRAIN_MAX_MS = 1000;
 
 /** Narrows a budget's key, which `Object.entries` widens to string. */
 function isWorkKind(kind: string): kind is WorkKind {

@@ -3104,10 +3104,21 @@ server.on("upgrade", (req, socket, head) => {
   socket.destroy();
 });
 
-server.listen(PORT, () => {
-  console.log(
-    `[mock-content-host] listening on http://localhost:${PORT} for project ${PROJECT}`,
-  );
-});
+/*
+ * Standalone (Playwright's `webServer`, `homeWireContract.test.ts`), it
+ * listens on its port. In-process (the scenario world's `contentHost.ts`), the
+ * importer sets `MOCK_CONTENT_NO_LISTEN=1` and listens on `server` itself, so
+ * it decides when the host starts and stops.
+ */
+if (process.env.MOCK_CONTENT_NO_LISTEN !== "1") {
+  server.listen(PORT, () => {
+    console.log(
+      `[mock-content-host] listening on http://localhost:${PORT} for project ${PROJECT}`,
+    );
+  });
+}
+
+/** The host's http server, for an importer that listens itself. */
+export { server, handle };
 
 // #endregion

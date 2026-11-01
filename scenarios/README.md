@@ -86,8 +86,8 @@ the surface and the frames:
 
 | Part              | The product code it runs                                                                                                                                                                                                                                                                                      |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server            | `initValServer` from `@valbuild/tanstack/server`: the route handler an app mounts, in memory or fs mode                                                                                                                                                                                                       |
-| Studio            | `createValSystem`; modules in through `loadValModules`; a `/stat` long poll through `requestStat`, `statStateAfterAnswer` and `statWait`, taken in with `statSnapshotOf`                                                                                                                                      |
+| Server            | `initValServer` from `@valbuild/tanstack/server`: the route handler an app mounts, in memory, fs or http mode. http talks to the mock content host (`e2e/mock-content-host`) in the test's process, over real HTTP (`world/contentHost.ts`), with a signed session cookie on every request                    |
+| Studio            | `createValSystem`; modules in through `loadValModules`; a `/stat` long poll through `requestStat`, `statStateAfterAnswer` and `statWait`, taken in with `statSnapshotOf`; in http mode the content service's socket too, read with `parseSocketMessage` and `statStateAfterSocketMessage`                     |
 | An edit           | `stringFieldPatch` and `patchStore.createPatch`, what a string field calls                                                                                                                                                                                                                                    |
 | Page, server half | `initValContent`'s `fetchValStega`, with the same patch store as the API, as an app passes it                                                                                                                                                                                                                 |
 | A page load       | `world.loadPage`: `fetchValDraft` (the server render), `createDraftStore` (the server's and the browser's store), the overlay's Studio from the page's client modules and `window.__VAL_BASE__`, `startOverlayRelay` → `applyValEvent`, read with `overlaySourceOf` / `readWithOverlay` (what `useVal` reads) |
@@ -95,18 +95,20 @@ the surface and the frames:
 
 ## The scenarios
 
-| File                                 | What it asserts                                                                                                                                                                                                                               | Today                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `smoke.scenario.test.ts`             | An edit in the Studio reaches a draft page's `fetchVal`; with draft mode off the page keeps the published content                                                                                                                             | passes, memory and fs                                                                                                                                                                                                                                                                                                                                                                                        |
-| `twoEditors.scenario.test.ts`        | An edit by one editor reaches the other editor's field through `/stat` and a fetch of the patch                                                                                                                                               | passes, memory and fs                                                                                                                                                                                                                                                                                                                                                                                        |
-| `addedField.scenario.test.ts`        | A field added to a schema can be typed into and kept, (a) when the server and the Studio both have the new code, (b) when the Studio gets it before the server                                                                                | (a) passes; (b) **fails, marked `test.failing`**: the edit is discarded. See the test's comment                                                                                                                                                                                                                                                                                                              |
-| `overlayAfterBuild.scenario.test.ts` | After a code change and a build, a draft page loaded with the overlay never shows the new content, then the old, then the new                                                                                                                 | Same build: passes, with and without a pending edit. **Two cases are skipped** (cause known, fix deferred while coverage is built out), each with a running test pinning why: (1) the overlay's `/stat` is answered by the previous build, so the Studio aligns to it and relays its content; (2) the browser runs the previous build's client code, so hydration reads the old bundle                       |
-| `sync.scenario.test.ts`              | S05 a refresh that lands before the write; S07 a discard in the middle of the chain reaches every reader; S08 the write after a discard; S09 a publish while a draft page is open                                                             | S07, S08, S09 pass, memory and fs. **S05 is skipped**, with a running test pinning why: the edit reaches the page's store at once, which re-runs the loaders against a server that does not have the write yet; when it lands nothing tells the page, so the loader stays old until the 10 s safety net                                                                                                      |
-| `contentShapes.scenario.test.ts`     | S17 an edit inside an unloaded `.jsonValues()` entry; S18 an upload's `patch_id` reaches the page where the file lands (a video poster); S19 a gallery-backed field whose gallery changes                                                     | S18, S19 pass, memory and fs. S17 passes too, since F1 and F2 were fixed                                                                                                                                                                                                                                                                                                                                     |
-| `readers.scenario.test.ts`           | S22 the loader, the hook and the Studio field agree; S23 draft at SSR with no flash of published content                                                                                                                                      | pass, memory and fs. S22 is the end state ("converges"); the stronger form, same version same value, needs versions on the wire (phase 1)                                                                                                                                                                                                                                                                    |
-| `codeChanges.scenario.test.ts`       | S11 a schema change while the page shows an edit; S12 a module whose code throws is reported; S13 a removed module disappears; S14 edits that no longer fit a new schema are kept; S16 no schema dialog after a deploy the Studio has not got | S11, S12 and S13 pass (S12: a module whose code throws is kept as it was, and the editor is told which; S13: an intake replaces, so a removed module goes). **S14, S16 are skipped**, each with a running test pinning today's behaviour: an edit that no longer applies is deleted, on the server too; `SchemaFreshnessWatch` reports the schema out of date (by design today; the plan removes the dialog) |
-| `budgets.scenario.test.ts`           | B01 a keystroke applies its patch once, even after the echo; B02 another editor's keystroke costs one patch, not the module                                                                                                                   | pass, memory and fs, counted with the stores' `RecordingActivity` (`studio.expectWork`)                                                                                                                                                                                                                                                                                                                      |
-| `matrix.*.scenario.test.ts`          | The content-shape matrix: shape × operation × surface, in memory and fs. See below                                                                                                                                                            | every surface that works passes; every one that does not is `test.failing`, named after its cause (`(fails today: R2)`)                                                                                                                                                                                                                                                                                      |
+| File                                 | What it asserts                                                                                                                                                                                                                                           | Today                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `smoke.scenario.test.ts`             | An edit in the Studio reaches a draft page's `fetchVal`; with draft mode off the page keeps the published content                                                                                                                                         | passes, memory, fs and http                                                                                                                                                                                                                                                                                                                                                                                  |
+| `twoEditors.scenario.test.ts`        | An edit by one editor reaches the other editor's field through `/stat` and a fetch of the patch                                                                                                                                                           | passes, memory, fs and http                                                                                                                                                                                                                                                                                                                                                                                  |
+| `addedField.scenario.test.ts`        | A field added to a schema can be typed into and kept, (a) when the server and the Studio both have the new code, (b) when the Studio gets it before the server                                                                                            | (a) passes; (b) **fails, marked `test.failing`**: the edit is discarded. See the test's comment                                                                                                                                                                                                                                                                                                              |
+| `overlayAfterBuild.scenario.test.ts` | After a code change and a build, a draft page loaded with the overlay never shows the new content, then the old, then the new                                                                                                                             | Same build: passes, with and without a pending edit. **Two cases are skipped** (cause known, fix deferred while coverage is built out), each with a running test pinning why: (1) the overlay's `/stat` is answered by the previous build, so the Studio aligns to it and relays its content; (2) the browser runs the previous build's client code, so hydration reads the old bundle                       |
+| `sync.scenario.test.ts`              | S05 a refresh that lands before the write; S07 a discard in the middle of the chain reaches every reader; S08 the write after a discard; S09 a publish while a draft page is open                                                                         | S07, S08, S09 pass, memory, fs and http. **S05 is skipped**, with a running test pinning why: the edit reaches the page's store at once, which re-runs the loaders against a server that does not have the write yet; when it lands nothing tells the page, so the loader stays old until the 10 s safety net                                                                                                |
+| `contentShapes.scenario.test.ts`     | S17 an edit inside an unloaded `.jsonValues()` entry; S18 an upload's `patch_id` reaches the page where the file lands (a video poster); S19 a gallery-backed field whose gallery changes                                                                 | S18, S19 pass, memory, fs and http. S17 passes too, since F1 and F2 were fixed                                                                                                                                                                                                                                                                                                                               |
+| `readers.scenario.test.ts`           | S22 the loader, the hook and the Studio field agree; S23 draft at SSR with no flash of published content                                                                                                                                                  | pass, memory, fs and http. S22 is the end state ("converges"); the stronger form, same version same value, needs versions on the wire (phase 1)                                                                                                                                                                                                                                                              |
+| `codeChanges.scenario.test.ts`       | S11 a schema change while the page shows an edit; S12 a module whose code throws is reported; S13 a removed module disappears; S14 edits that no longer fit a new schema are kept; S16 no schema dialog after a deploy the Studio has not got             | S11, S12 and S13 pass (S12: a module whose code throws is kept as it was, and the editor is told which; S13: an intake replaces, so a removed module goes). **S14, S16 are skipped**, each with a running test pinning today's behaviour: an edit that no longer applies is deleted, on the server too; `SchemaFreshnessWatch` reports the schema out of date (by design today; the plan removes the dialog) |
+| `budgets.scenario.test.ts`           | B01 a keystroke applies its patch once, even after the echo; B02 another editor's keystroke costs one patch, not the module                                                                                                                               | pass, memory, fs and http, counted with the stores' `RecordingActivity` (`studio.expectWork`)                                                                                                                                                                                                                                                                                                                |
+| `hosted.scenario.test.ts`            | S20 a content version newer than the bundle, with an unedited module; S21 a proposal's address: its saves over the base content. Every reader: the overlay's Studio, a `/val` Studio (no `__VAL_BASE__`), a draft and a visitor `fetchVal`, and the hooks | pass, http (the only mode with hosted layers)                                                                                                                                                                                                                                                                                                                                                                |
+| `statOrder.scenario.test.ts`         | S06 a `/stat` answer computed before an edit and delivered after it (`network.hold` with `at: "answer"`)                                                                                                                                                  | passes, http: the only mode where it can happen. In fs and memory a Studio's one `/stat` is a long poll, answered when something changes, so there is no early answer to deliver late                                                                                                                                                                                                                        |
+| `matrix.*.scenario.test.ts`          | The content-shape matrix: shape × operation × surface, in memory, fs and http. See below                                                                                                                                                                  | every surface that works passes; every one that does not is `test.failing`, named after its cause (`(fails today: R2)`)                                                                                                                                                                                                                                                                                      |
 
 ### The content-shape matrix
 
@@ -289,25 +291,14 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 - **Captions** on a video, and an HLS stream: the conversion is the
   browser's, and the poster cells already cover a library default that a
   field partly overrides.
-- **Remote media** (`.remote()`): needs the content host, which is http
-  mode.
+- **Remote media** (`.remote()`): needs the project's remote-file settings
+  and a bucket from the content host. The world has an http mode now; the
+  mock answers `/settings`, but the remote cells are not written yet.
 
 ### Catalogue ids not built, and why
 
-- **S06** `/stat` answers out of order: in fs and memory a Studio has one
-  `/stat` in flight at a time and neither mode checks a write's parent
-  (`ValOpsFS`, `ValOpsMemory` ignore `parentRef`), so an out-of-order answer
-  has nothing to break. It matters in http mode (a websocket, `headVersion`),
-  which the world does not have.
 - **S15** a build with other `@valbuild/*` versions: one jest process runs
   one Val.
-- **S20, S21** hosted layers (a content version newer than the bundle; a
-  proposal's overlay): `initValServer` in memory mode ignores `proposal` and
-  `contentVersion` (`initHandlerOptions` returns before reading them) while
-  `initValContent`'s readers apply them (`snapshotForReaders`) in any mode,
-  so modelling them without http mode would give the API and the readers two
-  different bases -- the world would invent a bug. They need http mode and a
-  content service that serves proposals; `e2e/mock-content-host` has none.
 - **S24** without `suspend`, nothing suspends: the three `suspend` gates are
   still inside `useValStega` (React), not a plain function the world can
   call.
@@ -322,23 +313,64 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 - **B03** a draft read in a 128 MB isolate: a benchmark in `workerd`, not a
   jest scenario.
 
+## http mode: how faithful it is
+
+`createWorld({ server: "http" })` runs Val's server in http mode, the mode a
+deployed app runs, against `e2e/mock-content-host` -- the stand-in for
+valbuild/home that `homeWireContract.test.ts` and the `chromium-http` specs
+already hold to home's wire contract -- imported into the test's process
+(`world/contentHost.ts`; the mock skips its own `listen` under
+`MOCK_CONTENT_NO_LISTEN=1` and exports its `server`).
+
+What is real: `ValOpsHttp` and every call it makes, over real HTTP with the
+global `fetch`; the API and the page's readers given ONE `http` options
+object (credentials, `valContentUrl`, `gitCommit`, the content version and
+the proposal), as the bindings ask; a signed `val_session` cookie on the
+Studio's, the upload's and the page's requests (`encodeJwt`, as
+`e2e/http/httpMode.ts` mints one); direct uploads, which go from the
+"browser" straight to the content host; the socket. The project's files are
+written where the mock reads the repository (`MOCK_CONTENT_REPO_ROOT`), so a
+publish patches real text.
+
+What is not:
+
+- **The mock is not home.** It keeps ONE chain and ignores `branch`, so at a
+  proposal's address the proposal's patches and the site's are the same
+  chain, and it has no proposal routes (saves, stagings, merges). S21 covers
+  what a proposal's address READS; a proposal's own writes need those.
+- **Its port.** One mock per jest worker (its state is a module's), reset
+  between worlds and listening on a new port for each, because `fetch` keeps
+  connections open and a closed server answers the next world with a dead
+  socket. The socket url it hands out names the port it was imported with,
+  so the world points it at the current one (`socketUrl`).
+- **A deploy** does not reach the content service, so no `deployment`
+  message (see "Code changes, hosted").
+- **Real I/O on a fake clock.** Calls to the content host finish in real
+  time, so `settle()` also waits until the host has answered everything
+  (`drained`), and a Studio's start waits, in real time, for its socket.
+
 ## Not there yet
 
 Each of these is a place where a scenario does NOT yet cover the product's
 path, and a scenario that depends on it would prove less than it looks:
 
-- **Server modes.** memory and fs. fs works in a fresh temporary directory
-  that the world makes its working directory for its lifetime, because fs
-  mode's project is `process.cwd()` (`initHandlerOptions`); `world.dispose()`
-  puts the old one back and removes the directory. http needs
-  `e2e/mock-content-host` started in-process.
+- **Server modes.** memory, fs and http. fs works in a fresh temporary
+  directory that the world makes its working directory for its lifetime,
+  because fs mode's project is `process.cwd()` (`initHandlerOptions`);
+  `world.dispose()` puts the old one back and removes the directory. http is
+  below.
 - **The Studio's `/stat` loop.** Real, except for the loop itself: what is
   asked (`requestStat`), what an answer does (`statStateAfterAnswer`), when the
   next ask goes out (`statWait`) and how the answer reaches the stores
   (`statSnapshotOf`) are the functions `useStatus` and `ValStoreProvider` call;
   the dozen lines that string them together are a React effect in the Studio
-  and a `while` loop here. No websocket: fs and memory long-poll, and http
-  (which uses one) is not in the world yet.
+  and a `while` loop here. fs and memory long-poll; in http the Studio opens
+  the content service's socket when `/stat` says `use-websocket`, waits for
+  `subscribed` (as the Playwright harness does: the service sends a change
+  only to the sockets subscribed when it happens) and takes each message in
+  through the hook's own `parseSocketMessage` and
+  `statStateAfterSocketMessage`. Its `/stat` is then asked every twenty
+  minutes.
 - **Typing.** `studio.edit` writes what a string field writes once typing
   pauses. The debounce itself (`useDebouncedFieldWrite`) is not exercised.
 - **The page's client half.** `world.loadPage` runs a TanStack page in draft
@@ -354,13 +386,19 @@ path, and a scenario that depends on it would prove less than it looks:
   `nextTick` and `setImmediate` left real. `world.settle()` moves it forward in
   300 ms steps until nothing changes for three in a row, so a parked long poll
   costs nothing and a 20 s one is a few steps. `network.hold` scripts a write
-  that lands late (S05); reordering answers is not built (see S06).
+  that lands late (S05), and with `at: "answer"` an answer computed early and
+  delivered late (S06).
 - **Code changes, hosted.** `world.deployCode` / `studio.receiveCode` are
   how new code arrives in LOCAL DEVELOPMENT: HMR evaluates the server module
   again (`initValServer`, `initValContent`) and `<ValModulesClient>` registers
-  the new registry (`loadValModules`, `HostStore.receive`). The hosted
-  proposal is not expressed: the content version and overlay the platform
-  hands a build, `__VAL_BASE__`, stagings by the assistant's `write_files`.
+  the new registry (`loadValModules`, `HostStore.receive`). Hosted, the
+  content version and a proposal's snapshot the platform hands a build are
+  expressed (`contentVersion`, `proposal` in `WorldOptions`; S20, S21), and so
+  is `__VAL_BASE__` on a page. Not expressed: a deploy reaching an open
+  hosted Studio (the platform's `deployment` message on the socket, which
+  `deployCode` does not send -- so the two "why" pins about a deploy,
+  `overlayAfterBuild`'s "why it flickers" and S16's, are skipped on http),
+  and stagings by the assistant's `write_files`.
   The bug the `addedField` scenario reproduces in development is reported for
   the hosted one, where those layers are the likelier cause.
 - **A long poll parked on the old server.** After `deployCode`, a `/stat`

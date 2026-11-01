@@ -57,12 +57,18 @@ export function getRequestHeaders(): Headers {
   return headers;
 }
 
+/**
+ * A cookie's value, decoded as the framework decodes it (h3 parses the
+ * header with `cookie-es`, which percent-decodes each value): Val's server
+ * writes `val_session` with `encodeURIComponent`, and a signature routinely
+ * holds `+` and `/`.
+ */
 export function getCookie(name: string): string | undefined {
   const header = getRequest().headers.get("cookie");
   if (header === null) return undefined;
   for (const part of header.split(";")) {
     const [key, ...value] = part.trim().split("=");
-    if (key === name) return value.join("=");
+    if (key === name) return decodeURIComponent(value.join("="));
   }
   return undefined;
 }
