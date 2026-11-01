@@ -131,9 +131,9 @@ export const CodeModeChanges = shell({
 });
 
 /**
- * The code changed since the preview was made: a dot on the reload button
- * (its tooltip says "Save to update"), and Save -- with nothing unsaved -- is
- * enabled, marked with the hammer. Press it and watch the reload button.
+ * The code changed since the preview was made: the reload button says "Save
+ * to update", and Save -- with nothing unsaved -- is enabled, with a hammer
+ * for its icon. Press it and watch the reload button.
  */
 export const PreviewBehind = shell({
   location: inProposal({ unsaved: 0, code: { state: "required" } }),
@@ -194,7 +194,7 @@ export const NotInAnUpgrade = shell({
 
 /**
  * The site's packages changed (its `package.json`): to the person this is
- * the same as any other change -- "Save to update", and Save with the hammer.
+ * the same as any other change -- "Save to update", and Save with the hammer for its icon.
  * Press it: one update, one percentage, though the lockfile, the packages
  * and the code each take their turn underneath.
  */
@@ -383,7 +383,7 @@ function AskingChat({ code }: { code: CodeModeControl }) {
  * do. The assistant's `write_files` is refused, so it asks for code mode with
  * a card in the chat. Press **Turn on code mode**: the `</>` is pressed, the
  * workspace becomes the preview, and the assistant makes the change -- then
- * Save, marked with the hammer, updates the preview.
+ * Save, with the hammer for its icon, updates the preview.
  */
 export const AssistantAsksForCodeMode = shell({
   location: inProposal({ unsaved: 0 }),

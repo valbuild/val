@@ -16,8 +16,8 @@ type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
  * and with nothing unsaved, Save is disabled and the main half of the button
  * becomes Build. Proposed: ONE step. Save is enabled whenever there is a
  * build to make, even with nothing unsaved, and pressing it saves what there
- * is and then updates the preview. The hammer beside "Save" says the
- * preview will be updated too. No "build" in the words: the person sees a
+ * is and then updates the preview. Then its icon is a hammer instead of the
+ * disk -- one icon, not two -- and its tooltip says so. No "build" in the words: the person sees a
  * preview, so Save talks about the preview.
  *
  * Each row is one state of the proposal, as the top bar's split button shows
@@ -42,7 +42,8 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
   },
   {
     label: "Code changed, all saved",
-    detail: "Today: Build. Proposed: Save, enabled, with the hammer.",
+    detail:
+      "Today: Build. Proposed: Save, enabled, with a hammer for its icon.",
     location: inProposal({ unsaved: 0, code: { state: "required" } }),
   },
   {

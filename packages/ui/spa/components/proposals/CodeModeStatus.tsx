@@ -58,7 +58,8 @@ function percent(progress: number): string {
 /**
  * The reload button, carrying the preview's status in two or three words:
  * "Up to date", "Save to update", "Updating 42%", "Couldn't update". One
- * width in every state, so nothing beside it moves when the status changes.
+ * width in every state, so nothing beside it moves when the status changes,
+ * and the arrow is at its end, so the arrow does not move either.
  *
  * Pressing it reloads the preview -- except when the preview could not be
  * updated, where it opens what happened and what to do about it, Reload
@@ -111,6 +112,19 @@ export function CodeModeStatus({
           isOpen && "bg-bg-float-raised text-fg-primary",
         )}
       >
+        {/*
+         * The words BEFORE the arrow, right-aligned against it: the arrow is
+         * pinned to the button's end, and as the words change they grow and
+         * shrink into the empty space on the left, where nothing is.
+         */}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-right tabular-nums",
+            failed !== null && "text-fg-error-on-surface",
+          )}
+        >
+          {shortText(build)}
+        </span>
         <RotateCw
           size={13}
           className={cn(
@@ -118,14 +132,6 @@ export function CodeModeStatus({
             updating !== null && "animate-spin [animation-duration:1.4s]",
           )}
         />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-left tabular-nums",
-            failed !== null && "text-fg-error-on-surface",
-          )}
-        >
-          {shortText(build)}
-        </span>
       </button>
       {/* Screen readers hear changes; nothing is drawn for them. */}
       <span role="status" className="sr-only">

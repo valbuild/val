@@ -173,8 +173,9 @@ export function buildIsDue(code: ProposalCodeState | null): boolean {
  *
  * Enabled while there is something unsaved OR the preview is behind, and
  * pressing it saves what there is and then updates the preview, running
- * whatever that takes. It reads "Save" throughout; the hammer beside it says
- * the preview will be updated too. While that runs it says "Updating…", and
+ * whatever that takes. It reads "Save" throughout; when the preview will be
+ * updated too its icon is a hammer instead of the disk, and the tooltip says
+ * so. While that runs it says "Updating…", and
  * when it could not, "Couldn't update" -- which pressing tries again, unless
  * trying again cannot help, when it says so instead of offering it.
  */
@@ -256,6 +257,10 @@ export function ProposalSaveAndBuildButton({
         <AlertTriangle size={14} className="shrink-0" />
       ) : tabBlocked ? (
         <ExternalLink size={14} className="shrink-0" />
+      ) : due ? (
+        // One icon, not two: the hammer says the preview is updated too, and
+        // the tooltip says it in words.
+        <Hammer size={14} className="shrink-0" />
       ) : (
         <Save size={14} className="shrink-0" />
       )}
@@ -276,13 +281,6 @@ export function ProposalSaveAndBuildButton({
       </span>
       {!busy && !error && !tabBlocked && location.unsaved > 0 && (
         <span className="tabular-nums opacity-80">{location.unsaved}</span>
-      )}
-      {!busy && !error && !tabBlocked && due && (
-        <Hammer
-          size={12}
-          aria-label="and update the preview"
-          className="shrink-0 opacity-80"
-        />
       )}
     </button>
   );
