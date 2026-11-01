@@ -37,23 +37,40 @@ export class SchemaStore {
 
   constructor(private readonly activity: ActivitySink = noopActivity) {}
 
+  /**
+   * The project's schemas: ALL of them. A module that is not among them is
+   * gone, and goes from here too.
+   *
+   * It used to merge, so a module removed from `val.modules` stayed in the
+   * Studio -- in the nav, validated, previewed -- until a reload. Every caller
+   * hands over the whole project: `HostStore.receive`, which is an intake,
+   * and `readOnlySystem`, which has the whole set to give.
+   *
+   * A removed module is announced in `schema:init` with the rest, because its
+   * schema changed too (to none): validation and previews drop what they had
+   * for it on that event.
+   */
   receive(schemas: Record<ModuleFilePath, SerializedSchema>): void {
     this.activity.work(
       "schema:receive",
       undefined,
       Object.keys(schemas).length,
     );
-    this.schemas = { ...this.schemas, ...schemas };
-    for (const moduleFilePath of Object.keys(schemas) as ModuleFilePath[]) {
+    const removed = (Object.keys(this.schemas) as ModuleFilePath[]).filter(
+      (moduleFilePath) => schemas[moduleFilePath] === undefined,
+    );
+    this.schemas = { ...schemas };
+    const changed = [...(Object.keys(schemas) as ModuleFilePath[]), ...removed];
+    for (const moduleFilePath of changed) {
       this.versions.set(
         moduleFilePath,
         (this.versions.get(moduleFilePath) ?? 0) + 1,
       );
     }
-    this.events.emit({
-      type: "schema:init",
-      modules: Object.keys(schemas) as ModuleFilePath[],
-    });
+    for (const moduleFilePath of removed) {
+      this.previewDeclared.delete(moduleFilePath);
+    }
+    this.events.emit({ type: "schema:init", modules: changed });
   }
 
   /** Synchronous: same realm as every caller. See {@link StoreBus}. */

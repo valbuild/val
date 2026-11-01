@@ -234,6 +234,27 @@ export class HostStore implements HostBridge {
         });
       }
     }
+    /*
+     * And a module that could not be SERIALIZED this time keeps what it was,
+     * for the same reason a module whose code throws does: it is mid-edit, not
+     * removed. Before intake replaced the schemas, the merge kept it.
+     */
+    for (const failure of failures) {
+      if (failure.moduleFilePath === null || failure.kept) continue;
+      const index = this.adoptedAt.findIndex(
+        (previous) => previous?.moduleFilePath === failure.moduleFilePath,
+      );
+      const kept = this.adoptedAt[index];
+      if (kept === undefined) continue;
+      const moduleFilePath = kept.moduleFilePath;
+      if (serializedSchemas[moduleFilePath] !== undefined) continue;
+      serializedSchemas[moduleFilePath] = kept.serializedSchema;
+      sources[moduleFilePath] = kept.source;
+      this.instances[moduleFilePath] = kept.instance;
+      adopted.push(moduleFilePath);
+      adoptedAt[index] ??= kept;
+      failure.kept = true;
+    }
     this.moduleFailures = failures;
     this.adoptedAt = adoptedAt;
 
@@ -247,7 +268,17 @@ export class HostStore implements HostBridge {
     // Schemas before source: `SourceStore.get` refuses to answer `absent` for a
     // module whose schema is unknown, so the other order would make the first
     // read after intake say `module-loading`.
+    // A module the last intake had and this one does not was removed from
+    // `val.modules`: it goes, with its source (and, through `schema:init`,
+    // its validation and previews). It used to stay until a reload.
+    const removed = (Object.keys(this.instances) as ModuleFilePath[]).filter(
+      (moduleFilePath) => serializedSchemas[moduleFilePath] === undefined,
+    );
+    for (const moduleFilePath of removed) {
+      delete this.instances[moduleFilePath];
+    }
     this.schemaStore.receive(serializedSchemas);
+    this.sourceStore.forget(removed);
     this.sourceStore.receive(sources);
     this.bundle = {
       sourcesSha: computeSourcesSha(

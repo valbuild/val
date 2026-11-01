@@ -1,6 +1,7 @@
 import { initVal, type ValModules } from "@valbuild/core";
 import { createSystem } from "./createSystem";
 import { loadValModules } from "./react/loadValModules";
+import { mfp } from "./testSystem";
 
 /**
  * A module whose code throws, mid-edit.
@@ -93,6 +94,49 @@ describe("a module whose code throws", () => {
       },
     ]);
     expect(Object.keys(system.schemaStore.all())).toEqual(["/home.val.ts"]);
+    system.dispose();
+  });
+});
+
+/**
+ * A module removed from `val.modules` leaves the Studio.
+ *
+ * `SchemaStore.receive` merged, so it stayed -- in the nav, validated,
+ * previewed -- until a reload.
+ */
+describe("a module removed from val.modules", () => {
+  it("goes, with its source", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
+    system.host.receive(await loadValModules(registry(ok(home), ok(footer))));
+
+    system.host.receive(await loadValModules(registry(ok(home))));
+
+    expect(Object.keys(system.schemaStore.all())).toEqual(["/home.val.ts"]);
+    expect(system.sourceStore.moduleSource(mfp("/footer.val.ts"))).toBe(
+      undefined,
+    );
+    expect(system.host.failures()).toEqual([]);
+    system.dispose();
+  });
+
+  it("comes back when it is added again", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
+    system.host.receive(await loadValModules(registry(ok(home), ok(footer))));
+    system.host.receive(await loadValModules(registry(ok(home))));
+
+    system.host.receive(await loadValModules(registry(ok(home), ok(footer))));
+
+    expect(Object.keys(system.schemaStore.all()).sort()).toEqual([
+      "/footer.val.ts",
+      "/home.val.ts",
+    ]);
+    expect(system.sourceStore.moduleSource(mfp("/footer.val.ts"))).toEqual({
+      text: "Footer",
+    });
     system.dispose();
   });
 });

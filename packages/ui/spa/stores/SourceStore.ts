@@ -1982,6 +1982,31 @@ export class SourceStore {
     }
   }
 
+  /**
+   * These modules left the project: their source goes, base and loaded
+   * entries with it. Their chains stay -- a change to a module that is not in
+   * the project is the editor's to discard, and the file may come back -- and
+   * the next {@link receive} reports them as `withoutModule`.
+   *
+   * Its own method rather than {@link receive} replacing: `receive` also takes
+   * a PART of the project (`rebase`), where a module left out keeps its base.
+   */
+  forget(modules: readonly ModuleFilePath[]): void {
+    for (const moduleFilePath of modules) {
+      if (this.baseSources[moduleFilePath] === undefined) continue;
+      delete this.sources[moduleFilePath];
+      delete this.baseSources[moduleFilePath];
+      delete this.publishedSources[moduleFilePath];
+      this.publishedFrom.delete(moduleFilePath);
+      this.jsonEntries.delete(moduleFilePath);
+      this.baseJsonEntries.delete(moduleFilePath);
+      this.publishedJsonEntries.delete(moduleFilePath);
+      this.clearEntryFailures(moduleFilePath);
+      this.bumpBase(moduleFilePath);
+      this.bump(moduleFilePath);
+    }
+  }
+
   receive(sources: Record<ModuleFilePath, Json>): void {
     this.intakeSeen = true;
     // Cloned so the caller cannot keep a handle on what the store now owns and

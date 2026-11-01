@@ -264,7 +264,9 @@ describe("a module joining or leaving the set of routers reaches route fields", 
 
     // Same keys, so nothing about the SOURCE moved; the route resolves against
     // routers only, and this record has just left that set.
-    await rig.sourceStore.testReceive([asPlainRecord()]);
+    // The whole project, as every intake is: one carrying only the changed
+    // module now removes the others (S13).
+    await rig.sourceStore.testReceive([asPlainRecord(), linksModule()]);
 
     expect(rig.validationStore.peek(LINKS)).not.toBe(before);
     // With no router left, the resolver reports the route as unverifiable
@@ -284,7 +286,9 @@ describe("a module joining or leaving the set of routers reaches route fields", 
 
     // The dependent never saw this module as a router, so no stored keys can
     // register the change; it is the router SET that moved.
-    await rig.sourceStore.testReceive([asRouter()]);
+    // The whole project, as every intake is: one carrying only the changed
+    // module now removes the others (S13).
+    await rig.sourceStore.testReceive([asRouter(), linksModule()]);
 
     expect(rig.validationStore.peek(LINKS)).not.toBe(before);
     expect(await surfaced(rig, LINKS)).toEqual({});
@@ -302,7 +306,9 @@ describe("a change to a referenced module's schema reaches the referrer", () => 
     // The referenced module arrives again — an HMR round, a reload. Its keys
     // are the same, so a key comparison sees nothing; its schema is what a
     // resolution reads the record's type from, and that is now a new object.
-    await rig.sourceStore.testReceive([pagesModule()]);
+    // The whole project, as every intake is: one carrying only the changed
+    // module now removes the others (S13).
+    await rig.sourceStore.testReceive([pagesModule(), navModule()]);
 
     expect(rig.validationStore.peek(NAV)).not.toBe(before);
     expect(await surfaced(rig, NAV)).toEqual({});

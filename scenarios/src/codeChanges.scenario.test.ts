@@ -117,24 +117,15 @@ describe.each<ServerMode>(["memory", "fs"])("on %s", (server) => {
    * when the code removes one from val.modules,
    * then the Studio no longer has it.
    *
-   * SKIPPED: `SchemaStore.receive` merges (`{ ...this.schemas, ...schemas }`),
-   * so a removed module stays until a reload. Pinned below. Plan: phase 9
-   * ("replaced, not merged").
+   * It was skipped: `SchemaStore.receive` merged, so a removed module stayed
+   * until a reload. An intake now replaces: the module goes, with its source,
+   * validation and previews.
    */
-  test.skip("S13 a removed module disappears from the Studio", async () => {
+  test("S13 a removed module disappears from the Studio", async () => {
     world = await createWorld({ config, modules: [home, footer], server });
     const editor = await world.studio("editor");
     await world.changeCode([home]);
     expect(Object.keys(editor.system.schemaStore.all())).not.toContain(
-      "/content/footer.val.ts",
-    );
-  });
-
-  test("S13 why: SchemaStore.receive merges, so the removed module stays", async () => {
-    world = await createWorld({ config, modules: [home, footer], server });
-    const editor = await world.studio("editor");
-    await world.changeCode([home]);
-    expect(Object.keys(editor.system.schemaStore.all())).toContain(
       "/content/footer.val.ts",
     );
   });
