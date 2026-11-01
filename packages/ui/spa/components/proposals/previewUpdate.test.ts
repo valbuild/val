@@ -1,5 +1,7 @@
 import type { ProposalCodeState, StudioLocation } from "./types";
 import { buildIsDue, nextProposalAction, previewUpdateOf } from "./ProposalBar";
+import { isWaitingOnPerson, type ToolActivity } from "../AIChatToolActivities";
+import type { CodeModeRequest } from "../CodeModeRequestCard";
 
 type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 
@@ -97,5 +99,28 @@ describe("nextProposalAction, when Save updates the preview", () => {
         true,
       ),
     ).toBe("build");
+  });
+});
+
+describe("isWaitingOnPerson", () => {
+  test("a code-mode card still asking holds the turn, as a question does", () => {
+    const card = (state: CodeModeRequest["state"]): ToolActivity => ({
+      toolCallId: "t",
+      name: "request_code_mode",
+      status:
+        state === "asking" || state === "turning-on" ? "pending" : "complete",
+      codeModeRequest: { reason: "r", where: { kind: "site" }, state },
+    });
+    expect(isWaitingOnPerson(card("asking"))).toBe(true);
+    expect(isWaitingOnPerson(card("turning-on"))).toBe(true);
+    expect(isWaitingOnPerson(card("on"))).toBe(false);
+    expect(isWaitingOnPerson(card("declined"))).toBe(false);
+    expect(
+      isWaitingOnPerson({
+        toolCallId: "x",
+        name: "write_files",
+        status: "pending",
+      }),
+    ).toBe(false);
   });
 });

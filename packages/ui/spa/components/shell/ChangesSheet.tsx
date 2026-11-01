@@ -59,6 +59,8 @@ export function ChangesSheet({
   // Save updates the preview too, where the app offers it.
   const saveAndUpdate =
     proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
+  const update: PreviewUpdate = previewUpdateOf(here?.code ?? null);
+  const updateDue = buildIsDue(here?.code ?? null);
   const choose = (action: () => void) => () => {
     onClose();
     action();
@@ -157,15 +159,14 @@ export function ChangesSheet({
         {saveAndUpdate !== undefined &&
           here !== null &&
           here.unsaved === 0 &&
-          (buildIsDue(here.code) ||
-            previewUpdateOf(here.code).state === "updating") && (
+          (updateDue || update.state === "updating") && (
             <SheetRow
               icon={<Hammer size={16} />}
-              disabled={!buildIsDue(here.code)}
-              detail={previewUpdateDetail(previewUpdateOf(here.code))}
+              disabled={!updateDue}
+              detail={previewUpdateDetail(update)}
               onClick={choose(saveAndUpdate)}
             >
-              {previewUpdateLabel(previewUpdateOf(here.code))}
+              {previewUpdateLabel(update)}
             </SheetRow>
           )}
         {saveAndUpdate === undefined &&

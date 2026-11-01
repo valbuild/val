@@ -62,10 +62,22 @@ export function CodeModeButton({
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setIsOpen(false), []);
   useDismissOnOutsidePointer(containerRef, isOpen, close);
+  /*
+   * Opens on a NEW request only, and only on the site, where there is a
+   * menu: the count seen at mount is not a request, nor is one that arrived
+   * in a proposal, so a remount or a return to the site never opens it.
+   */
   const requests = codeMode.openMenuRequests ?? 0;
+  const seenRequests = useRef(requests);
+  const onSite = location.kind === "site";
   useEffect(() => {
-    if (requests > 0) setIsOpen(true);
-  }, [requests]);
+    if (requests === seenRequests.current) return;
+    seenRequests.current = requests;
+    if (onSite) setIsOpen(true);
+  }, [requests, onSite]);
+  useEffect(() => {
+    if (!onSite) setIsOpen(false);
+  }, [onSite]);
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {

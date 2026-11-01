@@ -755,7 +755,7 @@ export function ProposalActionButton({
                 detail={
                   saveFailed && location.save.state === "failed"
                     ? `${location.save.error}. Press to try again.`
-                    : saveAndBuild !== null && code !== null
+                    : saveAndBuild !== null && buildIsDue(code)
                       ? "Then updates the preview. Nothing reaches the site."
                       : "Keep them in the proposal. Nothing reaches the site."
                 }

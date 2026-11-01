@@ -86,6 +86,21 @@ export function isPendingQuestion(activity: ToolActivity): boolean {
   );
 }
 
+/**
+ * True while the turn is blocked on the person: an open question card, or a
+ * `request_code_mode` card still asking. Both are tool calls the server waits
+ * on with no timeout, so the client must pause its own clock for either.
+ */
+export function isWaitingOnPerson(activity: ToolActivity): boolean {
+  return (
+    isPendingQuestion(activity) ||
+    (activity.codeModeRequest !== undefined &&
+      activity.status === "pending" &&
+      (activity.codeModeRequest.state === "asking" ||
+        activity.codeModeRequest.state === "turning-on"))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tool activity display
 // ---------------------------------------------------------------------------

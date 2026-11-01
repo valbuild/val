@@ -52,7 +52,11 @@ import {
   chatDocumentToPlainText,
   collectImageKeysFromDoc,
 } from "./AIChatEditor";
-import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
+import {
+  ToolActivities,
+  isPendingQuestion,
+  isWaitingOnPerson,
+} from "./AIChatToolActivities";
 import { decideBubble } from "./aiChatBubble";
 import { TurnStatsLine } from "./AIChatTurnStats";
 import {
@@ -789,7 +793,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   // so the client must not time out either.
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
-  ).some(isPendingQuestion);
+  ).some(isWaitingOnPerson);
 
   /**
    * Move the in-progress message into the finished list. Exactly once.
@@ -2245,6 +2249,8 @@ function MessageBubble({
   const isStreamingMsg = message.status === "streaming";
   const activities = message.toolActivities ?? [];
   const hasPendingQuestion = activities.some(isPendingQuestion);
+  // A question or a code-mode card: either way the turn waits on the person.
+  const waitingOnPerson = activities.some(isWaitingOnPerson);
   const hasRunningTool = activities.some(
     (a) =>
       a.status === "pending" &&
@@ -2442,7 +2448,7 @@ function MessageBubble({
           phase={turnPhaseOf({
             status: message.status,
             stopped: turnStats.stopped,
-            waitingOnUser: hasPendingQuestion,
+            waitingOnUser: waitingOnPerson,
             hasRunningTool,
             hasText: textContent.length > 0,
           })}
@@ -2453,8 +2459,8 @@ function MessageBubble({
 }
 
 /**
- * Pause the turn's clock while a question card is open, and resume it once
- * the card is answered or cancelled — applied after every change to a
+ * Pause the turn's clock while a question or code-mode card is open, and
+ * resume it once the card is answered — applied after every change to a
  * message's tools, so no caller has to track the transition itself.
  */
 function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
@@ -2463,7 +2469,7 @@ function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
     ...message,
     turnStats: syncPause(
       message.turnStats,
-      (message.toolActivities ?? []).some(isPendingQuestion),
+      (message.toolActivities ?? []).some(isWaitingOnPerson),
       now,
     ),
   };

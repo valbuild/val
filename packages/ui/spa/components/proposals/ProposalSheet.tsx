@@ -282,14 +282,15 @@ function ownerLabel(proposal: ProposalSummary): string {
 function SheetSwitch({ on }: { on: boolean }) {
   return (
     <span
-      aria-hidden
       className={
         on
           ? "flex h-5 w-9 items-center justify-end rounded-full bg-bg-proposal p-0.5"
           : "flex h-5 w-9 items-center justify-start rounded-full bg-bg-float-raised p-0.5 ring-1 ring-inset ring-border-float"
       }
     >
-      <span className="h-4 w-4 rounded-full bg-white shadow-sm" />
+      <span aria-hidden className="h-4 w-4 rounded-full bg-white shadow-sm" />
+      {/* What a screen reader says: the drawn switch says nothing. */}
+      <span className="sr-only">{on ? "On" : "Off"}</span>
     </span>
   );
 }
