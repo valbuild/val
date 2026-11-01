@@ -13,7 +13,8 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
 
 /**
  * Readers: the page's loader, the page's hook and the Studio's field agreeing.
- * Catalogue ids S22, S23. (S24 and S25 are not built: see the README.)
+ * Catalogue ids S22, S23. (S24 is not built, and S25 is a unit test: see
+ * the README.)
  */
 
 const { s, c, config } = initVal({});

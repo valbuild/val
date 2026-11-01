@@ -296,14 +296,14 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
 - **S24** without `suspend`, nothing suspends: the three `suspend` gates are
   still inside `useValStega` (React), not a plain function the world can
   call.
-- **S25** a failed draft read never gives a visitor edit tags: the bug is in
-  the code (`initValRsc.ts:231`, `initValContent.ts:271` call `stegaEncode`
-  without `disabled` in the error fallback), but for a visitor the only throw
-  that reaches it is a `.jsonValues()` entry import that rejects, and then the
-  fallback drops every entry, so there is no string left to carry a tag. On
-  TanStack a proposal snapshot could carry one, which needs S21's layers.
-  A unit test of `fetchValStega` with a throwing reader is the right shape
-  for it, not a scenario.
+- **S25** a failed draft read never gives a visitor edit tags: fixed, and
+  pinned by a unit test rather than a scenario
+  (`initValContent.wholeRecord.test.ts`, "fetchVal for a visitor whose read
+  throws"). The error fallback of `fetchValStega` called `stegaEncode`
+  without `disabled`, in both bindings. For a visitor the only throw that
+  reaches it is a `.jsonValues()` entry import that rejects; on TanStack a
+  proposal snapshot then carried the tagged strings, which is what the test
+  drives. Next.js has no snapshot, so its fallback had no string to tag.
 - **B03** a draft read in a 128 MB isolate: a benchmark in `workerd`, not a
   jest scenario.
 

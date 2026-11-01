@@ -1,5 +1,5 @@
 import { initVal, type ModuleFilePath } from "@valbuild/core";
-import { raw } from "@valbuild/react/stega";
+import { raw, stegaDecodeStrings } from "@valbuild/react/stega";
 import { PatchId, type RequestScopedMemo } from "@valbuild/shared/internal";
 import {
   initFetchValKeyStega,
@@ -211,6 +211,42 @@ describe("fetchVal on a .jsonValues() record", () => {
     });
     expect(imports.a).not.toHaveBeenCalled();
     expect(imports.b).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * S25: a visitor never gets edit tags, not even from the fallback a failed
+ * read takes. The fallback called `stegaEncode` without `disabled`, so a
+ * visitor whose read threw got the snapshot's strings with tags in them.
+ */
+describe("fetchVal for a visitor whose read throws", () => {
+  test("gives the content without edit tags", async () => {
+    const path = "/server-notes-visitor-throws.val.ts" as ModuleFilePath;
+    const module = c.define(
+      path,
+      s.record(s.object({ title: s.string() })).jsonValues(),
+      {
+        a: c.json(() => Promise.resolve({ default: { title: "Note A" } })),
+        b: c.json(
+          (): Promise<{ default: { title: string } }> =>
+            Promise.reject(new Error("the entry's file is gone")),
+        ),
+      },
+    );
+    const fetchVal = initFetchValStega(
+      { project: "test" },
+      "/api/val",
+      draftServer("/unused.val.ts" as ModuleFilePath, {}),
+      async () => false,
+      headers,
+      cookies,
+      scope,
+      // A proposal's saves have entry a; b is read from the bundle, and throws.
+      { [path]: { a: { title: "Saved A" }, b: { _type: "json" } } },
+    );
+    const text = JSON.stringify(await fetchVal(module));
+    expect(text).toContain('"title":"Saved A"');
+    expect(stegaDecodeStrings(text)).toBeUndefined();
   });
 });
 

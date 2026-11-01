@@ -162,8 +162,11 @@ export const initFetchValStega =
     getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   <T extends Resolvable>(selector: T): Promise<ResolvedVal<T>> => {
+    // Outside `exec`, so the fallback below knows it too: false until draft
+    // mode is known to be on, so a read that threw before it was known is a
+    // visitor's.
+    let enabled = false;
     const exec = async (): Promise<ResolvedVal<T>> => {
-      let enabled = false;
       try {
         enabled = await isEnabled();
       } catch (err) {
@@ -245,6 +248,9 @@ export const initFetchValStega =
     return exec().catch(async (err) => {
       Internal.log.error("failed to fetch ", err);
       return stegaEncode(selector, {
+        // A visitor gets no edit tags from the fallback either (S25): without
+        // this, a visitor whose read threw got the content tagged.
+        disabled: !enabled,
         getModule: await withJsonValuesEntries(selector, () => []).catch(
           () => () => undefined,
         ),
