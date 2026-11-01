@@ -187,56 +187,58 @@ type ToolDisplay = { label: string; icon: React.ReactNode };
 /**
  * The code tools (`CODE_TOOLS` in `proposals/proposalCode.ts`), which every
  * hosted Studio's assistant has and which act only in code mode, and
- * `request_code_mode`. Not in `toolNames`, which is the content tools the
+ * `request_code_mode`. Named for what the person sees happen -- the code
+ * changing, the preview updating -- never "build", "lint" or "typecheck",
+ * which mean nothing to someone editing a site. Not in `toolNames`, which is the content tools the
  * MCP server shares, so not checked for completeness by `TOOL_DISPLAY`.
  */
 const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
   list_files: {
-    label: "Listing files",
+    label: "Looking through the code",
     icon: <FolderTree className="h-3 w-3" />,
   },
   read_file: {
-    label: "Reading code",
+    label: "Reading the code",
     icon: <FileCode className="h-3 w-3" />,
   },
   search_code: {
-    label: "Searching code",
+    label: "Searching the code",
     icon: <Search className="h-3 w-3" />,
   },
   write_files: {
-    label: "Changing code",
+    label: "Changing the code",
     icon: <CodeXml className="h-3 w-3" />,
   },
   format_files: {
-    label: "Formatting code",
+    label: "Tidying the code",
     icon: <Paintbrush className="h-3 w-3" />,
   },
   lint: {
-    label: "Linting",
+    label: "Checking the code",
     icon: <ListChecks className="h-3 w-3" />,
   },
   typecheck: {
-    label: "Checking types",
+    label: "Checking the code",
     icon: <ShieldCheck className="h-3 w-3" />,
   },
   typecheck_status: {
-    label: "Checking types",
+    label: "Checking the code",
     icon: <ShieldCheck className="h-3 w-3" />,
   },
   build_proposal: {
-    label: "Building",
+    label: "Updating the preview",
     icon: <Hammer className="h-3 w-3" />,
   },
   build_status: {
-    label: "Checking the build",
+    label: "Updating the preview",
     icon: <Hammer className="h-3 w-3" />,
   },
   cancel_build: {
-    label: "Stopping the build",
+    label: "Stopping the preview update",
     icon: <Hammer className="h-3 w-3" />,
   },
   wait: {
-    label: "Waiting for the build",
+    label: "Waiting for the preview",
     icon: <Hourglass className="h-3 w-3" />,
   },
   request_code_mode: {

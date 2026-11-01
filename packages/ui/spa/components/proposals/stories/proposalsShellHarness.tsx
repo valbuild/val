@@ -26,7 +26,11 @@ import {
 import { UpgradeProposalNotice } from "../UpgradeProposalNotice";
 import type { ProposalSummary, StudioLocation } from "../types";
 import { buildIsDue } from "../ProposalBar";
-import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
+import {
+  CodeModeWorkspace,
+  type CodeModeBuild,
+  type CodeModeStatusVariant,
+} from "../CodeModeWorkspace";
 import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
 import {
   FILES,
@@ -224,6 +228,10 @@ export type HarnessProps = {
     /** Whether the proposal changes any code yet. Default: it does. */
     changed?: boolean;
     view?: "preview" | "changes";
+    /** How the preview's status is shown. See `CodeModeStatusVariant`. */
+    status?: CodeModeStatusVariant;
+    /** While it updates from the start: how far, 0 to 1. */
+    progress?: number | null;
   };
   /** Save builds too: `onSaveAndBuild`. See `ProposalSaveAndBuildButton`. */
   saveBuilds?: boolean;
@@ -382,18 +390,28 @@ export function ProposalsShell({
   const codeModeOn = codeMode !== undefined && codeOn && inOpenProposal;
 
   // A build, as the app runs one: a while, then served.
+  // How far the preview's update is: uneven steps, as a real one moves.
+  const [progress, setProgress] = useState<number | null>(
+    codeMode?.progress ?? null,
+  );
   const build = () => {
     setLocation((current) =>
       current.kind === "proposal"
         ? { ...current, code: { state: "building" } }
         : current,
     );
+    const steps = [0, 0.04, 0.12, 0.2, 0.31, 0.38, 0.55, 0.71, 0.83, 0.92, 1];
+    steps.forEach((step, index) =>
+      setTimeout(() => setProgress(step), index * 450),
+    );
     setTimeout(
-      () =>
+      () => {
+        setProgress(null);
         setLocation((current) =>
           current.kind === "proposal" ? { ...current, code: null } : current,
-        ),
-      2400,
+        );
+      },
+      steps.length * 450 + 200,
     );
   };
   const saveAndBuild = () => {
@@ -532,19 +550,17 @@ export function ProposalsShell({
   }
 
   const codeBuild: CodeModeBuild =
-    location.kind !== "proposal" || !codeChanged
-      ? { state: "unchanged" }
-      : location.code === null
-        ? { state: "built", ago: "2 minutes ago" }
-        : location.code.state === "building"
-          ? { state: "building", step: "Building…" }
-          : location.code.state === "failed"
-            ? {
-                state: "failed",
-                error: location.code.error,
-                onAskAssistant: action("ask the assistant to fix the build"),
-              }
-            : { state: "due" };
+    location.kind !== "proposal" || location.code === null
+      ? { state: "up-to-date" }
+      : location.code.state === "building"
+        ? { state: "updating", progress }
+        : location.code.state === "failed"
+          ? {
+              state: "failed",
+              error: location.code.error,
+              onAskAssistant: action("ask the assistant to fix the preview"),
+            }
+          : { state: "behind" };
   const workspace = codeModeOn ? (
     <CodeModeWorkspace
       key={codeMode?.view ?? "preview"}
@@ -555,14 +571,14 @@ export function ProposalsShell({
       preview={
         <DesignSiteMock
           testimonials={
-            codeChanged && codeBuild.state === "built" ? "cards" : "quote"
+            codeChanged && codeBuild.state === "up-to-date" ? "cards" : "quote"
           }
         />
       }
       build={codeBuild}
       files={codeChanged ? FILES : []}
       diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
-      onExit={() => setCodeOn(false)}
+      statusVariant={codeMode?.status ?? "reload"}
       initialView={codeMode?.view ?? "preview"}
     />
   ) : undefined;

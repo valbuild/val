@@ -15,7 +15,9 @@ type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
  * and with nothing unsaved, Save is disabled and the main half of the button
  * becomes Build. Proposed: ONE step. Save is enabled whenever there is a
  * build to make, even with nothing unsaved, and pressing it saves what there
- * is and then builds. The hammer beside "Save" says a build will follow.
+ * is and then updates the preview. The hammer beside "Save" says the
+ * preview will be updated too. No "build" in the words: the person sees a
+ * preview, so Save talks about the preview.
  *
  * Each row is one state of the proposal, as the top bar's split button shows
  * it today and as it would. The caret opens the menu in both.
@@ -34,7 +36,7 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
   },
   {
     label: "Content edited, code changed",
-    detail: "Proposed: one press saves the 3, then builds.",
+    detail: "Proposed: one press saves the 3, then updates the preview.",
     location: inProposal({ unsaved: 3, code: { state: "required" } }),
   },
   {
@@ -52,13 +54,13 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
     }),
   },
   {
-    label: "Building",
+    label: "Updating the preview",
     detail: "Proposed: still the Save button, saying so.",
     location: inProposal({ unsaved: 0, code: { state: "building" } }),
   },
   {
-    label: "Build failed",
-    detail: "Proposed: pressing it builds again.",
+    label: "Preview couldn't update",
+    detail: "Proposed: pressing it tries again.",
     location: inProposal({
       unsaved: 0,
       code: {
@@ -68,7 +70,7 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
     }),
   },
   {
-    label: "Build tab blocked (Safari)",
+    label: "Update tab blocked (Safari)",
     detail: "",
     location: inProposal({ unsaved: 0, code: { state: "blocked" } }),
   },
@@ -90,7 +92,7 @@ const ROWS: { label: string; detail: string; location: InProposal }[] = [
     }),
   },
   {
-    label: "Saved and built",
+    label: "Saved, preview up to date",
     detail: "Nothing left but Publish, in both.",
     location: inProposal({ unsaved: 0 }),
   },
@@ -164,7 +166,8 @@ export const TodayAndProposedLight: StoryObj = {
 
 /**
  * Pressable: the code changed and 2 content edits are unsaved. Save saves
- * them, then builds; when the build is served, the button is Publish.
+ * them, then updates the preview; when it is up to date, the button is
+ * Publish.
  */
 function Live({ theme }: { theme: "dark" | "light" }) {
   const [location, setLocation] = useState<InProposal>(
@@ -229,7 +232,7 @@ export const InTheStudio = shell({
   codeMode: {},
 });
 
-/** Its menu: Save and build together, Publish below. */
+/** Its menu: Save (which updates the preview too), Publish below. */
 export const InTheStudioMenuOpen = shell({
   location: inProposal({ unsaved: 2, code: { state: "required" } }),
   selectionId: mockSelectionIds.home,

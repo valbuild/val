@@ -83,7 +83,7 @@ export function CodeModeRequestCard({
             <span className="font-medium text-fg-primary">
               {inProposal.displayName}
             </span>
-            , and the preview shows its build. The site changes only when the
+            , and you see it in the preview. The site changes only when the
             proposal is published.
           </>
         ) : (

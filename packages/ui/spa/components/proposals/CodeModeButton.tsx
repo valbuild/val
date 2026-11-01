@@ -94,8 +94,8 @@ export function CodeModeButton({
         aria-label={on ? "Code mode is on. Turn it off" : "Turn on code mode"}
         title={
           on
-            ? "Code mode is on: the assistant can change this proposal's code, and the preview shows its build. Press to go back to editing content."
-            : "Code mode: let the assistant change this proposal's code, and see its build in the preview."
+            ? "Code mode is on: the assistant can change this proposal's code, and you see it in the preview. Press to go back to editing content."
+            : "Code mode: let the assistant change this proposal's code, and see it in the preview."
         }
         disabled={disabled}
         onClick={codeMode.onToggle}

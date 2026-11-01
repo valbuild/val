@@ -5,6 +5,7 @@ import type { ToolActivity } from "../../AIChatToolActivities";
 import type { CodeModeRequest } from "../../CodeModeRequestCard";
 import { MESSAGES } from "../../design/stories/designStoryFixtures";
 import { mockSelectionIds } from "../../shell/mockShellData";
+import type { CodeModeStatusVariant } from "../CodeModeStatus";
 import {
   inProposal,
   inUpgrade,
@@ -18,16 +19,20 @@ import {
  * - **On the site** the `</>` opens a menu of the open proposals. Choosing one
  *   goes to its address with code mode on (a query parameter, `?code`), the
  *   way the switcher goes to one -- "Opening … in code mode…", then there.
- * - **In a proposal** it is a toggle. On, the workspace is the proposal's
- *   BUILD rather than the content editor and the canvas, with the code's
- *   changes one tab away, and the assistant docked beside it.
+ * - **In a proposal** it is a toggle, and the ONLY switch: on, the workspace
+ *   is the proposal's preview rather than the content editor, with the code's
+ *   changes one tab away and the assistant docked beside it.
+ * - **The preview's status** is in the reload button, and nothing else moves
+ *   when it changes. Four ways to show it are in `Status options`; the
+ *   screens use `reload`, and the `Status: …` stories show the others in the
+ *   whole Studio. Press **Save** in any of them to watch it update.
+ * - **No jargon.** Nobody editing a site needs "build" or "typecheck": the
+ *   status, Save and the assistant's tool row talk about the preview and the
+ *   code changing.
  * - **The assistant** has the code tools everywhere in a hosted Studio, as
  *   well as the content tools it always had. With code mode off they refuse,
  *   and it asks for code mode with a button that turns it on (see
  *   `Components/AIChat/CodeModeRequest`).
- * - **Save builds too** in these screens: with code changed, Save is enabled
- *   even with nothing unsaved, and pressing it builds (see
- *   `Proposals/Save and build`).
  *
  * Presentational: where the data comes from is being worked out separately.
  */
@@ -97,9 +102,9 @@ const codeChat = (messages: ChatMessage[]) => () => (
 );
 
 /**
- * Code mode on: the `</>` is pressed, the workspace is the proposal's build,
- * and the assistant is docked beside it, changing the code. Press the `</>`
- * or "Back to content" to edit content again.
+ * Code mode on: the `</>` is pressed, the workspace is the proposal's
+ * preview, and the assistant is docked beside it. Press the `</>` again to
+ * edit content.
  */
 export const CodeModeOn = shell({
   location: inProposal({ unsaved: 0 }),
@@ -125,37 +130,39 @@ export const CodeModeChanges = shell({
 });
 
 /**
- * Code changed since the last build: the preview says it is behind, and Save
- * -- with nothing unsaved -- is enabled, marked with the hammer. Press it.
+ * The code changed since the preview was made: a dot on the reload button
+ * (its tooltip says "Save to update"), and Save -- with nothing unsaved -- is
+ * enabled, marked with the hammer. Press it and watch the reload button.
  */
-export const CodeModeBuildDue = shell({
+export const PreviewBehind = shell({
   location: inProposal({ unsaved: 0, code: { state: "required" } }),
   codeMode: { on: true },
   saveBuilds: true,
   renderChat: codeChat(MESSAGES),
 });
 
-/** Content edited too: Save saves the 2 changes, then builds. */
-export const CodeModeBuildDueWithUnsaved = shell({
+/** Content edited too: Save saves the 2 changes, then updates the preview. */
+export const PreviewBehindWithUnsaved = shell({
   location: inProposal({ unsaved: 2, code: { state: "required" } }),
   codeMode: { on: true },
   saveBuilds: true,
   renderChat: codeChat(MESSAGES),
 });
 
-/** Building: the preview keeps the last build until this one is served. */
-export const CodeModeBuilding = shell({
+/** Updating: the reload arrow turns, with how far it is beside it. */
+export const PreviewUpdating = shell({
   location: inProposal({ unsaved: 0, code: { state: "building" } }),
-  codeMode: { on: true },
+  codeMode: { on: true, progress: 0.42 },
   saveBuilds: true,
   renderChat: codeChat(MESSAGES),
 });
 
 /**
- * The build failed: said above the preview with the error under Details,
- * the assistant offered to fix it, and Save builds again.
+ * It could not be updated: a red dot on the reload button, which opens what
+ * happened (the error under Details) and offers the assistant to fix it.
+ * Save says "Couldn't update", and tries again.
  */
-export const CodeModeBuildFailed = shell({
+export const PreviewCouldNotUpdate = shell({
   location: inProposal({
     unsaved: 0,
     code: {
@@ -169,7 +176,7 @@ export const CodeModeBuildFailed = shell({
   renderChat: codeChat(MESSAGES),
 });
 
-/** A proposal that changes no code yet: the site's code, and nothing to show. */
+/** A proposal that changes no code yet: nothing under Changes. */
 export const CodeModeNothingChanged = shell({
   location: inProposal({ unsaved: 0 }),
   codeMode: { on: true, changed: false, view: "changes" },
@@ -183,6 +190,27 @@ export const NotInAnUpgrade = shell({
   codeMode: {},
   saveBuilds: true,
 });
+
+/*
+ * The four ways to show the preview's status, each in the whole Studio while
+ * it updates. Press Save to run an update from the start.
+ */
+const updating = (status: CodeModeStatusVariant) =>
+  shell({
+    location: inProposal({ unsaved: 1, code: { state: "required" } }),
+    codeMode: { on: true, status },
+    saveBuilds: true,
+    renderChat: codeChat(MESSAGES),
+  });
+
+/** `reload`: the arrow turns, the percentage beside it. Nothing else. */
+export const StatusReload = updating("reload");
+/** `label`: two or three words beside the arrow. */
+export const StatusLabel = updating("label");
+/** `ring`: a ring fills around the arrow; the percentage is in the tooltip. */
+export const StatusRing = updating("ring");
+/** `line`: a hairline fills along the foot of the toolbar. */
+export const StatusLine = updating("line");
 
 // ---------------------------------------------------------------------------
 // The assistant asks for code mode
@@ -277,7 +305,7 @@ function useScriptedAsk(code: CodeModeControl) {
       codeRef.current.stageCode();
       handle.appendAssistantChunk(
         "a2",
-        "Done. I added a **Testimonials** section (`src/components/sections/Testimonials.tsx`) with its own schema, put it on the front page where the quote was, and removed the Quote section, which nothing else used.\n\nPress **Save** to build it, and the preview shows it. Nothing on the site changes until the proposal is published.",
+        "Done. I added a **Testimonials** section (`src/components/sections/Testimonials.tsx`) with its own schema, put it on the front page where the quote was, and removed the Quote section, which nothing else used.\n\nPress **Save**, and you see it in the preview. Nothing on the site changes until the proposal is published.",
       );
       handle.completeAssistantMessage("a2");
     }, at + 200);
@@ -328,8 +356,8 @@ function AskingChat({ code }: { code: CodeModeControl }) {
  * In a proposal with code mode off, someone asks for something only code can
  * do. The assistant's `write_files` is refused, so it asks for code mode with
  * a card in the chat. Press **Turn on code mode**: the `</>` is pressed, the
- * workspace becomes the build, and the assistant makes the change -- then
- * Save, marked with the hammer, builds it.
+ * workspace becomes the preview, and the assistant makes the change -- then
+ * Save, marked with the hammer, updates the preview.
  */
 export const AssistantAsksForCodeMode = shell({
   location: inProposal({ unsaved: 0 }),
@@ -350,4 +378,44 @@ export const AssistantAsksOnTheSite = shell({
   codeMode: { changed: false },
   saveBuilds: true,
   renderChat: (code) => <AskingChat code={code} />,
+});
+
+/*
+ * ON A PHONE. The shell reads the viewport, so these are at 390px: open them
+ * with Storybook's mobile viewport. There is no `</>` in a phone's top bar;
+ * code mode is in the sheet behind the location chip.
+ */
+
+/** In a proposal: code mode is a switch at the top of its sheet. */
+export const PhoneProposalSheet = shell({
+  location: inProposal({ unsaved: 0 }),
+  panel: "proposals",
+  codeMode: {},
+  saveBuilds: true,
+});
+
+/** Switched on, in the sheet. */
+export const PhoneProposalSheetCodeOn = shell({
+  location: inProposal({ unsaved: 0 }),
+  panel: "proposals",
+  codeMode: { on: true },
+  saveBuilds: true,
+});
+
+/**
+ * On the site: "Code mode…" unfolds into the proposals to open in it. Press
+ * it to see them.
+ */
+export const PhoneSiteSheet = shell({
+  location: { kind: "site" },
+  panel: "proposals",
+  codeMode: {},
+  saveBuilds: true,
+});
+
+/** Code mode on a phone: the preview, with Save at the foot. */
+export const PhoneCodeModeOn = shell({
+  location: inProposal({ unsaved: 0, code: { state: "required" } }),
+  codeMode: { on: true },
+  saveBuilds: true,
 });

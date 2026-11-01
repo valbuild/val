@@ -174,18 +174,18 @@ export function ProposalSaveAndBuildButton({
           : saveFailed !== null
             ? `${saveFailed.error}. Press to try again.`
             : building
-              ? "Building the proposal's code, so its preview shows it."
+              ? "Updating the preview with the latest changes."
               : buildFailed !== null
-                ? `The build failed: ${buildFailed.error}. Press to build again.`
+                ? "The preview couldn't be updated. Press to try again."
                 : tabBlocked
-                  ? "This browser builds the proposal in a new tab, and did not let it open. Press to open it."
+                  ? "This browser updates the preview in a new tab, and did not let it open. Press to open it."
                   : location.unsaved > 0 && due
-                    ? `Saves ${changes}, then builds the code so the preview shows it.`
+                    ? `Saves ${changes}, then updates the preview.`
                     : location.unsaved > 0
                       ? `Saves ${changes} in the proposal. Nothing reaches the site.`
                       : due
-                        ? "Code changed in this proposal. Press to build it, so the preview shows it."
-                        : "Everything is saved and built."
+                        ? "The preview is behind the latest changes. Press to update it."
+                        : "Everything is saved, and the preview is up to date."
       }
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
@@ -210,15 +210,15 @@ export function ProposalSaveAndBuildButton({
         {saving
           ? "Saving…"
           : building
-            ? "Building…"
+            ? "Updating…"
             : blocked !== null
               ? `Fix ${blocked.errors > 9 ? "9+" : blocked.errors}`
               : saveFailed !== null
                 ? "Save failed"
                 : buildFailed !== null
-                  ? "Build failed"
+                  ? "Couldn't update"
                   : tabBlocked
-                    ? "Open the tab to build"
+                    ? "Open the tab to update"
                     : "Save"}
       </span>
       {!busy && !error && !tabBlocked && location.unsaved > 0 && (
@@ -227,7 +227,7 @@ export function ProposalSaveAndBuildButton({
       {!busy && !error && !tabBlocked && due && (
         <Hammer
           size={12}
-          aria-label="and build"
+          aria-label="and update the preview"
           className="shrink-0 opacity-80"
         />
       )}
@@ -720,13 +720,13 @@ export function ProposalActionButton({
                   saveFailed && location.save.state === "failed"
                     ? `${location.save.error}. Press to try again.`
                     : saveAndBuild !== null && buildIsDue(code)
-                      ? "Then builds the code, so the preview shows it. Nothing reaches the site."
+                      ? "Then updates the preview. Nothing reaches the site."
                       : "Keep them in the proposal. Nothing reaches the site."
                 }
               >
                 {saving
                   ? "Saving…"
-                  : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}${saveAndBuild !== null && buildIsDue(code) ? " and build" : ""}`}
+                  : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`}
               </MenuItem>
             ))}
           {/*
@@ -759,9 +759,21 @@ export function ProposalActionButton({
                 disabled={
                   build.busy || (build.failed && isDependenciesCode(code))
                 }
-                detail={build.detail}
+                detail={
+                  saveAndBuild !== null && !isDependenciesCode(code)
+                    ? build.failed
+                      ? "The preview couldn't be updated. Try again."
+                      : "Show the latest changes in the preview."
+                    : build.detail
+                }
               >
-                {build.label}
+                {saveAndBuild !== null && !isDependenciesCode(code)
+                  ? build.busy
+                    ? "Updating the preview…"
+                    : build.failed
+                      ? "Try updating the preview again"
+                      : "Update the preview"
+                  : build.label}
               </MenuItem>
             )}
           <MenuItem
