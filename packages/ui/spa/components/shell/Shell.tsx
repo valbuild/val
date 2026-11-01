@@ -68,6 +68,7 @@ import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import {
   ProposalBuildButton,
   ProposalPublishButton,
+  ProposalSaveAndBuildButton,
   ProposalSaveButton,
   nextProposalAction,
 } from "../proposals/ProposalBar";
@@ -1333,18 +1334,35 @@ export function Shell({
    */
   const phoneProposal =
     proposals?.location.kind === "proposal" ? proposals.location : null;
+  // Save updates the preview too, where the app offers it: see
+  // `TopBarProposals.onSaveAndBuild`.
+  const phoneSaveAndBuild =
+    proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
+  const phoneAction =
+    proposals !== undefined && phoneProposal !== null
+      ? nextProposalAction(
+          phoneProposal,
+          proposals.onBuild !== undefined,
+          phoneSaveAndBuild !== undefined,
+        )
+      : null;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
-      nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
-      "save" ? (
+      phoneAction === "save" && phoneSaveAndBuild !== undefined ? (
+        <ProposalSaveAndBuildButton
+          location={phoneProposal}
+          onSaveAndBuild={phoneSaveAndBuild}
+          blockedBy={proposals.saveBlockedBy}
+          className="h-9 min-w-[5.5rem]"
+        />
+      ) : phoneAction === "save" ? (
         <ProposalSaveButton
           location={phoneProposal}
           onSave={proposals.onSave}
           blockedBy={proposals.saveBlockedBy}
           className="h-9 min-w-[5.5rem]"
         />
-      ) : nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
-          "build" && proposals.onBuild !== undefined ? (
+      ) : phoneAction === "build" && proposals.onBuild !== undefined ? (
         <ProposalBuildButton
           location={phoneProposal}
           onBuild={proposals.onBuild}

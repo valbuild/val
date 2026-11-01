@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 import { themeCustomProperties } from "@valbuild/shared/internal";
@@ -25,6 +25,20 @@ import {
 } from "../PublishProposalDialog";
 import { UpgradeProposalNotice } from "../UpgradeProposalNotice";
 import type { ProposalSummary, StudioLocation } from "../types";
+import {
+  buildIsDue,
+  previewUpdateOf,
+  type PreviewUpdate,
+} from "../ProposalBar";
+import type { PreviewProblem } from "../PreviewProblemCard";
+import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
+import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
+import {
+  FILES,
+  PROPOSAL,
+  SITE,
+} from "../../design/stories/designStoryFixtures";
+import { lineDiff } from "../../../design/lineDiff";
 
 /**
  * The whole Studio with proposals on, for the proposals stories: what
@@ -203,6 +217,45 @@ export type HarnessProps = {
   leaving?: string;
   /** The project's own proposal colour, from `theme.proposal`. */
   proposalColor?: string;
+  /**
+   * A hosted Studio: the `</>` beside the switcher. See `CodeModeButton`.
+   * Absent, as in local development, and there is none.
+   */
+  codeMode?: {
+    /** Code mode on from the start (in an open proposal). */
+    on?: boolean;
+    /** On the site: the `</>` menu, open. */
+    menuOpen?: boolean;
+    /** Whether the proposal changes any code yet. Default: it does. */
+    changed?: boolean;
+    view?: "preview" | "changes";
+    /** While it updates from the start: how far, 0 to 1. */
+    progress?: number | null;
+  };
+  /** Save builds too: `onSaveAndBuild`. See `ProposalSaveAndBuildButton`. */
+  saveBuilds?: boolean;
+  /**
+   * When the preview could not be updated, whose change it followed: someone
+   * else's assistant (the usual case), the person's own, or unknown.
+   */
+  problemBy?: "someone" | "viewer" | "unknown";
+  /**
+   * The assistant, open from the start, docked beside code mode. A render
+   * prop, so the chat can turn code mode on and change the code.
+   */
+  renderChat?: (code: CodeModeControl) => ReactNode;
+};
+
+/** What a story's chat can do to code mode, as the app's tools would. */
+export type CodeModeControl = {
+  on: boolean;
+  /** Where the Studio is: code mode is turned on in a proposal. */
+  where: { kind: "proposal"; displayName: string } | { kind: "site" };
+  turnOn: () => void;
+  /** On the site: open the `</>` menu to choose a proposal. */
+  chooseProposal: () => void;
+  /** The assistant wrote code: there is a build due. */
+  stageCode: () => void;
 };
 
 /**
@@ -227,8 +280,12 @@ export function ProposalsShell({
   merged,
   noticesDismissed = false,
   loading = false,
-  leaving,
+  leaving: initialLeaving,
   proposalColor,
+  codeMode,
+  saveBuilds = false,
+  problemBy = "someone",
+  renderChat,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -240,6 +297,15 @@ export function ProposalsShell({
   const [publishState, setPublishState] = useState<PublishProposalState>(
     initialPublishState ?? { kind: "checking" },
   );
+  const [leaving, setLeaving] = useState(initialLeaving);
+  const [codeOn, setCodeOn] = useState(codeMode?.on ?? false);
+  const [codeChanged, setCodeChanged] = useState(codeMode?.changed ?? true);
+  // The `</>` menu, opened by a chat's "Choose a proposal…" on the site.
+  const [codeMenuRequests, setCodeMenuRequests] = useState(0);
+  // A proposal made from "New proposal in code mode…" opens in code mode.
+  const newInCodeMode = useRef(false);
+  const locationRef = useRef(location);
+  locationRef.current = location;
 
   // A save, as the app sees one: committing, then the address catching up,
   // then the render check.
@@ -307,23 +373,152 @@ export function ProposalsShell({
    * Publish is refused while the upgrade is not staged, as
    * `publishBlockedByUpgrade` in `useProposalsBar` refuses it.
    */
+  // The preview's state, from the same rule Save follows.
+  const update: PreviewUpdate =
+    location.kind === "proposal"
+      ? previewUpdateOf(location.code)
+      : { state: "up-to-date" };
+  /*
+   * A failed update, as the app would describe it: whose change it followed,
+   * and the ways on. Usually someone else's assistant.
+   */
+  const previewProblem: PreviewProblem | null =
+    update.state !== "failed"
+      ? null
+      : {
+          error: update.error,
+          cause:
+            problemBy === "unknown"
+              ? null
+              : problemBy === "viewer"
+                ? {
+                    who: { name: "Fredrik Ekholdt" },
+                    isViewer: true,
+                    byAssistant: true,
+                    ago: "2 minutes ago",
+                  }
+                : {
+                    who: { name: "Kari Nordmann" },
+                    isViewer: false,
+                    byAssistant: true,
+                    ago: "5 minutes ago",
+                  },
+          onAskAssistant: () => {
+            action("ask the assistant to fix the preview")();
+            setCodeOn(true);
+          },
+          ...(problemBy === "someone"
+            ? { onOpenChat: action("open Kari's chat") }
+            : {}),
+          ...(update.canRetry ? { onRetry: () => build() } : {}),
+        };
   const barLocation: StudioLocation =
     location.kind === "proposal" &&
-    upgrade !== undefined &&
-    upgrade.state !== "staged" &&
+    previewProblem !== null &&
     location.publishBlockedBy === null
       ? {
           ...location,
+          // The app's call; this is what it might say.
           publishBlockedBy:
-            upgrade.state === "computing"
-              ? "Val Build is still working out this upgrade. It can be published once it is checked."
-              : upgrade.state === "failed"
-                ? "This upgrade could not be worked out. Val Build has the details."
-                : "There is nothing to upgrade: the site is up to date.",
+            "The latest code couldn't be shown in the preview. Fix that before publishing.",
         }
-      : location;
+      : location.kind === "proposal" &&
+          upgrade !== undefined &&
+          upgrade.state !== "staged" &&
+          location.publishBlockedBy === null
+        ? {
+            ...location,
+            publishBlockedBy:
+              upgrade.state === "computing"
+                ? "Val Build is still working out this upgrade. It can be published once it is checked."
+                : upgrade.state === "failed"
+                  ? "This upgrade could not be worked out. Val Build has the details."
+                  : "There is nothing to upgrade: the site is up to date.",
+          }
+        : location;
+  const inOpenProposal =
+    location.kind === "proposal" &&
+    location.proposal.status === "open" &&
+    location.proposal.upgrade !== true;
+  const codeModeOn = codeMode !== undefined && codeOn && inOpenProposal;
+
+  // A build, as the app runs one: a while, then served.
+  // How far the preview's update is: uneven steps, as a real one moves.
+  const [progress, setProgress] = useState<number | null>(
+    codeMode?.progress ?? null,
+  );
+  /*
+   * An update of the preview, as the app runs one: when the packages changed
+   * the lockfile first, then the packages, then the code -- one rising
+   * percentage across all of it, because to the person it is one thing.
+   */
+  const build = () => {
+    const here = locationRef.current;
+    const packages =
+      here.kind === "proposal" &&
+      (here.code?.state === "lockfile" ||
+        here.code?.state === "dependencies-building");
+    const setCode = (code: InProposal["code"]) =>
+      setLocation((current) =>
+        current.kind === "proposal" ? { ...current, code } : current,
+      );
+    const steps = packages
+      ? [
+          0, 0.03, 0.07, 0.12, 0.18, 0.24, 0.3, 0.38, 0.46, 0.55, 0.63, 0.71,
+          0.8, 0.88, 0.95, 1,
+        ]
+      : [0, 0.04, 0.12, 0.2, 0.31, 0.38, 0.55, 0.71, 0.83, 0.92, 1];
+    if (packages) {
+      setCode({ state: "lockfile", computing: true, error: null });
+      setTimeout(() => setCode({ state: "dependencies-building" }), 3 * 450);
+      setTimeout(() => setCode({ state: "building" }), 7 * 450);
+    } else {
+      setCode({ state: "building" });
+    }
+    steps.forEach((step, index) =>
+      setTimeout(() => setProgress(step), index * 450),
+    );
+    setTimeout(
+      () => {
+        setProgress(null);
+        setCode(null);
+      },
+      steps.length * 450 + 200,
+    );
+  };
+  const saveAndBuild = () => {
+    const here = locationRef.current;
+    if (here.kind !== "proposal") return;
+    const due = buildIsDue(here.code);
+    if (here.unsaved === 0) {
+      build();
+      return;
+    }
+    setLocation({ ...here, save: { state: "saving" } });
+    setTimeout(() => {
+      setLocation((current) =>
+        current.kind === "proposal"
+          ? { ...current, save: { state: "idle" }, unsaved: 0 }
+          : current,
+      );
+      if (due) build();
+    }, 900);
+  };
+  const openInCodeMode = (name: string) => {
+    const proposal = all.find((p) => p.name === name);
+    if (!proposal) return;
+    // To its address, with `?code` on: through sign-in, as the switcher goes.
+    setLeaving(`Opening “${proposal.displayName}” in code mode…`);
+    setTimeout(() => {
+      setLeaving(undefined);
+      goTo(name);
+      setCodeOn(true);
+    }, 1200);
+  };
+
   const handlers: TopBarProposals = {
     location: barLocation,
+    previewProblem,
     loading,
     leaving: leaving ?? null,
     ...(validationErrors > 0
@@ -361,6 +556,23 @@ export function ProposalsShell({
                 : current,
             ),
         }),
+    ...(saveBuilds && !isUpgrade ? { onSaveAndBuild: saveAndBuild } : {}),
+    ...(codeMode !== undefined
+      ? {
+          codeMode: {
+            on: codeModeOn,
+            onToggle: () => setCodeOn((on) => !on),
+            onOpenProposalInCodeMode: openInCodeMode,
+            onNewProposalInCodeMode: () => {
+              newInCodeMode.current = true;
+              setProblem(null);
+              setDialog("new");
+            },
+            defaultMenuOpen: codeMode.menuOpen,
+            openMenuRequests: codeMenuRequests,
+          },
+        }
+      : {}),
     onPublish: openPublish,
     onCompare: action("compare with the site"),
     onRename: () => setDialog("rename"),
@@ -410,10 +622,61 @@ export function ProposalsShell({
     });
   }
 
+  const codeBuild: CodeModeBuild =
+    update.state === "updating"
+      ? { state: "updating", progress }
+      : previewProblem !== null
+        ? { state: "failed", problem: previewProblem }
+        : update.state === "up-to-date" || update.state === "failed"
+          ? { state: "up-to-date" }
+          : { state: "behind" };
+  const workspace = codeModeOn ? (
+    <CodeModeWorkspace
+      key={codeMode?.view ?? "preview"}
+      route="/"
+      pages={["/", "/about", "/products/knitwear", "/products/outerwear"]}
+      onRouteChange={action("open another page in the preview")}
+      onReload={action("reload the preview")}
+      preview={
+        <DesignSiteMock
+          testimonials={
+            codeChanged && codeBuild.state === "up-to-date" ? "cards" : "quote"
+          }
+        />
+      }
+      build={codeBuild}
+      files={codeChanged ? FILES : []}
+      diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
+      initialView={codeMode?.view ?? "preview"}
+    />
+  ) : undefined;
+  const chat =
+    renderChat === undefined
+      ? undefined
+      : renderChat({
+          on: codeModeOn,
+          where:
+            location.kind === "proposal"
+              ? { kind: "proposal", displayName: location.proposal.displayName }
+              : { kind: "site" },
+          turnOn: () => setCodeOn(true),
+          chooseProposal: () => setCodeMenuRequests((count) => count + 1),
+          stageCode: () => {
+            setCodeChanged(true);
+            setLocation((current) =>
+              current.kind === "proposal"
+                ? { ...current, code: { state: "required" } }
+                : current,
+            );
+          },
+        });
+
   return (
     <>
       <Shell
-        initialPanel={panel ?? null}
+        initialPanel={panel ?? (chat !== undefined ? "ai" : null)}
+        {...(chat !== undefined ? { aiEnabled: true, aiSlot: chat } : {})}
+        {...(workspace !== undefined ? { workspaceOverride: workspace } : {})}
         initialSelectionId={selectionId ?? null}
         /*
          * In a proposal the status bar names its branch, as `useShellData`
@@ -507,6 +770,11 @@ export function ProposalsShell({
             };
             setAll((list) => [made, ...list]);
             setCreating(false);
+            if (newInCodeMode.current) {
+              newInCodeMode.current = false;
+              setCodeOn(true);
+              setCodeChanged(false);
+            }
             setDialog(null);
             setLocation(
               inProposal({

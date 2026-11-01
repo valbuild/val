@@ -52,7 +52,11 @@ import {
   chatDocumentToPlainText,
   collectImageKeysFromDoc,
 } from "./AIChatEditor";
-import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
+import {
+  ToolActivities,
+  isPendingQuestion,
+  isWaitingOnPerson,
+} from "./AIChatToolActivities";
 import { decideBubble } from "./aiChatBubble";
 import { TurnStatsLine } from "./AIChatTurnStats";
 import {
@@ -375,6 +379,14 @@ export type AIChatProps = {
   ) => void;
   /** Called when the user cancels an ask_user_question tool call */
   onCancelToolQuestion?: (toolCallId: string) => void;
+  /**
+   * A `request_code_mode` card's button was pressed: turn code mode on (or,
+   * on the site, choose a proposal for it). The app answers the tool call and
+   * updates the activity's `codeModeRequest`. See `CodeModeRequestCard`.
+   */
+  onEnableCodeMode?: (toolCallId: string) => void;
+  /** Its "Not now". */
+  onDeclineCodeMode?: (toolCallId: string) => void;
   /** A chat several people work in: see `AIChatTogether`. */
   together?: AIChatTogether;
   /**
@@ -710,6 +722,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     isLoadingSession,
     onAnswerToolQuestions,
     onCancelToolQuestion,
+    onEnableCodeMode,
+    onDeclineCodeMode,
     initialMessages,
     initialShowSessions = false,
     together,
@@ -779,7 +793,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   // so the client must not time out either.
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
-  ).some(isPendingQuestion);
+  ).some(isWaitingOnPerson);
 
   /**
    * Move the in-progress message into the finished list. Exactly once.
@@ -1698,6 +1712,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   recordCancelInState(msg.id, toolCallId);
                   onCancelToolQuestion?.(toolCallId);
                 }}
+                onEnableCodeMode={onEnableCodeMode}
+                onDeclineCodeMode={onDeclineCodeMode}
               />
             ))
           )}
@@ -2213,6 +2229,8 @@ function MessageBubble({
   onRetry,
   onSubmitToolAnswers,
   onCancelToolQuestion,
+  onEnableCodeMode,
+  onDeclineCodeMode,
 }: {
   message: ChatMessage;
   /** Who wrote it, in a chat several people write in. */
@@ -2223,14 +2241,21 @@ function MessageBubble({
     answers: AskUserQuestionAnswer[],
   ) => void;
   onCancelToolQuestion: (toolCallId: string) => void;
+  onEnableCodeMode?: (toolCallId: string) => void;
+  onDeclineCodeMode?: (toolCallId: string) => void;
 }) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
   const activities = message.toolActivities ?? [];
   const hasPendingQuestion = activities.some(isPendingQuestion);
+  // A question or a code-mode card: either way the turn waits on the person.
+  const waitingOnPerson = activities.some(isWaitingOnPerson);
   const hasRunningTool = activities.some(
-    (a) => a.status === "pending" && a.questions === undefined,
+    (a) =>
+      a.status === "pending" &&
+      a.questions === undefined &&
+      a.codeModeRequest === undefined,
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
@@ -2280,6 +2305,8 @@ function MessageBubble({
           activities={activities}
           onSubmitAnswers={onSubmitToolAnswers}
           onCancel={onCancelToolQuestion}
+          onEnableCodeMode={onEnableCodeMode}
+          onDeclineCodeMode={onDeclineCodeMode}
         />
       )}
       {hasBubble && (
@@ -2421,7 +2448,7 @@ function MessageBubble({
           phase={turnPhaseOf({
             status: message.status,
             stopped: turnStats.stopped,
-            waitingOnUser: hasPendingQuestion,
+            waitingOnUser: waitingOnPerson,
             hasRunningTool,
             hasText: textContent.length > 0,
           })}
@@ -2432,8 +2459,8 @@ function MessageBubble({
 }
 
 /**
- * Pause the turn's clock while a question card is open, and resume it once
- * the card is answered or cancelled — applied after every change to a
+ * Pause the turn's clock while a question or code-mode card is open, and
+ * resume it once the card is answered — applied after every change to a
  * message's tools, so no caller has to track the transition itself.
  */
 function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
@@ -2442,7 +2469,7 @@ function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
     ...message,
     turnStats: syncPause(
       message.turnStats,
-      (message.toolActivities ?? []).some(isPendingQuestion),
+      (message.toolActivities ?? []).some(isWaitingOnPerson),
       now,
     ),
   };
