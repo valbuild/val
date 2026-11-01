@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import {
   MOCK_API_KEY,
   MOCK_CONTENT_PORT,
@@ -11,8 +11,38 @@ import {
 import { TANSTACK_APP_PORT } from "./e2e/tanstack/config";
 import { TANSTACK_APP_URL } from "./e2e/apps";
 
-const PREINSTALLED_CHROMIUM =
-  "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+/**
+ * A Chromium installed on the machine rather than by `playwright install`, if
+ * there is one: the cloud containers agents run in, and CI images built the
+ * same way, ship one under `/opt/pw-browsers`.
+ *
+ * Found, not named. This was a fixed `chromium-1194/chrome-linux/chrome`, and a
+ * container with another build (`chromium-1243`, whose binary is under
+ * `chrome-linux64/`) failed before running a single test: the path did not
+ * exist, so Playwright looked for its own pinned build, which was not there
+ * either. The version-free `chromium` link comes first, then the newest
+ * `chromium-<build>`; with none, `undefined` leaves Playwright to its own.
+ */
+const PREINSTALLED_CHROMIUM = findPreinstalledChromium("/opt/pw-browsers");
+
+function findPreinstalledChromium(root: string): string | undefined {
+  if (existsSync(`${root}/chromium`)) return `${root}/chromium`;
+  let builds: string[];
+  try {
+    builds = readdirSync(root).filter((name) => /^chromium-\d+$/.test(name));
+  } catch {
+    return undefined;
+  }
+  const buildNumber = (name: string) => Number(name.slice("chromium-".length));
+  builds.sort((a, b) => buildNumber(b) - buildNumber(a));
+  for (const build of builds) {
+    for (const dir of ["chrome-linux64", "chrome-linux"]) {
+      const binary = `${root}/${build}/${dir}/chrome`;
+      if (existsSync(binary)) return binary;
+    }
+  }
+  return undefined;
+}
 
 /**
  * The projects named with `--project`, or none for "all of them".
@@ -182,7 +212,7 @@ export default defineConfig({
       testMatch: "warmup.setup.ts",
       use: {
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -198,7 +228,7 @@ export default defineConfig({
       use: {
         baseURL: TANSTACK_APP_URL,
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -243,7 +273,7 @@ export default defineConfig({
            * runner, and leaving it out made it unrunnable in the sandbox — so it
            * is used when it exists and Playwright resolves its own otherwise.
            */
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -267,7 +297,7 @@ export default defineConfig({
       use: {
         baseURL: `http://localhost:${HTTP_APP_PORT}`,
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -282,7 +312,7 @@ export default defineConfig({
       use: {
         baseURL: `http://localhost:${TANSTACK_APP_PORT}`,
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -303,7 +333,7 @@ export default defineConfig({
       use: {
         baseURL: `http://localhost:${TANSTACK_APP_PORT}`,
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -318,7 +348,7 @@ export default defineConfig({
       use: {
         baseURL: `http://localhost:${HTTP_APP_PORT}`,
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -340,7 +370,7 @@ export default defineConfig({
       use: {
         baseURL: `http://localhost:${HTTP_APP_PORT}`,
         launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
+          ...(PREINSTALLED_CHROMIUM !== undefined
             ? { executablePath: PREINSTALLED_CHROMIUM }
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -410,7 +440,7 @@ export default defineConfig({
             testMatch: "screens.spec.ts",
             use: {
               launchOptions: {
-                ...(existsSync(PREINSTALLED_CHROMIUM)
+                ...(PREINSTALLED_CHROMIUM !== undefined
                   ? { executablePath: PREINSTALLED_CHROMIUM }
                   : {}),
                 args: ["--no-sandbox", "--disable-dev-shm-usage"],
