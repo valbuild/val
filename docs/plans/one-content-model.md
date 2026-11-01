@@ -769,6 +769,66 @@ shows today's draft read already crosses 128 MB. http mode joins
   `renderHook`; whether hydration scenarios (phase 4) live in the same package
   is open.
 
+## Code mode: content is saved before code changes
+
+**Decided 2026-11-01 (the user):** in a proposal in code mode, content and
+code are never in two places when code changes.
+
+1. **Entering code mode saves every pending content change** into the
+   proposal (an ordinary proposal save).
+2. **Before each code write** (the assistant's `write_files`), the content
+   changes made since are saved first, so the `.val.ts` text the assistant
+   reads and edits is the current content.
+3. **Content changed in code goes with the code.** By the time code changes,
+   the content is in the file text, so there are no pending patches left on a
+   base the code change can move. That removes the class of bug behind the
+   reverting field (S10b): an edit applied to an older base, or deleted
+   because it no longer fits.
+
+**Saves stop being commits in git (connected projects).** Today every save,
+and every staging, queues the proposal's `push` job in a connected project,
+which pushes a commit to `val/p/<name>` in the background (`postProposalSave`
+and `proposalCode.ts` in valbuild/home; home's `docs/proposals.md`, "Saving
+pushes to git"). With a save before every code write, that would be a commit
+per write. Instead:
+
+- **Saves and stagings do not push.** They stay commits on the proposal's
+  content line in the content service: the proposal's history and its
+  checkpoints, as today.
+- **A Commit action in the menu beside Save**, the way Preview has its menu,
+  in connected projects only: it pushes the proposal as it stands, as one
+  commit on `val/p/<name>`, so a developer finds it in git.
+- **Publish commits and merges**: it pushes what is not yet on the branch,
+  then merges, as one step.
+
+This reverses home's 2026-10-07 decision ("a save pushes to the proposal's git
+branch"); home's `docs/proposals.md` changes with it.
+
+### To decide
+
+- **A save the content's validation refuses.** Today Save reads "Fix N" while
+  errors would refuse it. If entering code mode or a code write must save
+  first, does an invalid pending edit block the code write, or is it saved
+  anyway (a proposal is not the site) with the errors still shown?
+- **Whose changes a save takes.** A proposal is shared: a save takes every
+  pending change in it, other editors' included. That is what Save does today,
+  but here it happens without anyone pressing it.
+- **The commit message** for Commit and Publish: the Studio's
+  `studio.commitMessage` setting already exists for publishes.
+- **A developer's push to `val/p/<name>`** (not adopted yet, today): with
+  fewer pushes from Val, a developer's own push is likelier to be the tip.
+  Commit must then say what to do rather than fail ("Somebody else pushed").
+
+### Tests
+
+- Scenarios: entering code mode with pending edits saves them; an edit, then
+  a code write, saves the edit first and the write sees it in the text; a code
+  write that changes content keeps it through a save and a reload; S10b goes
+  green on this route.
+- The push behaviour is home's (the `push` job), so its tests are in home;
+  the world can model "a save does not queue a push" only once it has the
+  content service (see S20 and S21).
+
 ## Public API
 
 **The aim is no change to the public API**, and the plan as written has
