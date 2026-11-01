@@ -805,20 +805,50 @@ per write. Instead:
 This reverses home's 2026-10-07 decision ("a save pushes to the proposal's git
 branch"); home's `docs/proposals.md` changes with it.
 
-### To decide
+### Decided (2026-11-01)
 
-- **A save the content's validation refuses.** Today Save reads "Fix N" while
-  errors would refuse it. If entering code mode or a code write must save
-  first, does an invalid pending edit block the code write, or is it saved
-  anyway (a proposal is not the site) with the errors still shown?
-- **Whose changes a save takes.** A proposal is shared: a save takes every
-  pending change in it, other editors' included. That is what Save does today,
-  but here it happens without anyone pressing it.
-- **The commit message** for Commit and Publish: the Studio's
-  `studio.commitMessage` setting already exists for publishes.
-- **A developer's push to `val/p/<name>`** (not adopted yet, today): with
-  fewer pushes from Val, a developer's own push is likelier to be the tip.
-  Commit must then say what to do rather than fail ("Somebody else pushed").
+1. **A code write saves even when content is invalid.** A proposal is not the
+   site, and errors stay visible. The assistant is expected to leave content
+   valid. Today its `create_patch` is tried against a copy before it is
+   written (`validateSpeculative`) and it is told to call `validate_content`
+   after every change, but a CODE write that changes a schema is not checked
+   against the content at all: typecheck and lint only. Evaluating code after
+   a write (see that section) closes this by reporting each module's errors to
+   the assistant.
+   - **No "Fix N" in code mode.** Save is the only main button, disabled when
+     there is nothing to save or build. The UI for showing errors in code mode
+     comes later.
+   - **Publish is refused while there are errors**, as today (the publish
+     gate), and only a person can publish: the assistant has no publish tool,
+     and must not get one.
+2. **A save takes every pending change in the proposal, other editors'
+   included.** That is what a proposal is.
+   - **Code mode is a state of the PROPOSAL, kept by the backend**, not a
+     setting of one tab: every Studio in the proposal sees it. Entering it is
+     one call to Val's server, which saves the pending changes and records the
+     state with the content service.
+   - **The save before a code write happens in the server's write path**, not
+     in the Studio, so every writer gets it: the assistant in the Studio, and
+     later the same code tools over MCP.
+   - What the original request's query parameter does with this: it opens the
+     proposal and, if code mode is off, turns it on.
+3. **Commit and Publish use the commit settings that exist**
+   (`studio.commitMessage`).
+4. **Commit is refused if the branch is not where Val last left it**, that is,
+   someone else pushed to `val/p/<name>`. Expected to be rare.
+   - **What the person is offered has to work.** Refreshing alone would lead to
+     the same refusal, because the content service's state does not include
+     the other push. So, first: the refusal names who pushed and when, links
+     to their commit, and says Val will not commit over it.
+   - **Better, later:** bring their commit into the proposal (stage the files
+     it changed), then commit on top. Home already plans this ("adopting a
+     developer's push", not built yet).
+
+### Still open
+
+- Can code mode be turned off, and what does turning it off do (another save,
+  nothing)?
+- Where code mode is shown to the other editors in the proposal.
 
 ### Tests
 
