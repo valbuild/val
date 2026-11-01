@@ -795,11 +795,12 @@ per write. Instead:
 - **Saves and stagings do not push.** They stay commits on the proposal's
   content line in the content service: the proposal's history and its
   checkpoints, as today.
-- **A Commit action in the menu beside Save**, the way Preview has its menu,
-  in connected projects only: it pushes the proposal as it stands, as one
-  commit on `val/p/<name>`, so a developer finds it in git.
-- **Publish commits and merges**: it pushes what is not yet on the branch,
-  then merges, as one step.
+- **Save stays the button; the caret on its right opens a menu with Commit
+  and Publish.** The split-button shape `ProposalActionButton` already has
+  (a main half and a caret menu), with Save as the main half.
+  - **Commit** (connected projects only) pushes the proposal as it stands, as
+    one commit on `val/p/<name>`, so a developer finds it in git.
+  - **Publish** commits what is not yet on the branch and merges, as one step.
 
 This reverses home's 2026-10-07 decision ("a save pushes to the proposal's git
 branch"); home's `docs/proposals.md` changes with it.
