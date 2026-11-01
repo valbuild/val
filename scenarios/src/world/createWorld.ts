@@ -3,6 +3,7 @@ import {
   type Json,
   type ModuleFilePath,
   type PatchId,
+  type ResolvableModule,
   type SelectorSource,
   type SourcePath,
   type ValConfig,
@@ -37,6 +38,9 @@ import {
   type StatState,
 } from "../../../packages/ui/spa/hooks/useStatus";
 import { stringFieldPatch } from "../../../packages/ui/spa/components/fields/stringFieldPatch";
+import { writePatch } from "../../../packages/ui/spa/stores/react/writePatch";
+import { directFileUploadSettings } from "../../../packages/ui/spa/stores/react/directFileUploadSettings";
+import type { Patch } from "@valbuild/core/patch";
 import { SchemaValidator } from "../../../packages/ui/spa/validation/validateModule";
 import type { System } from "../../../packages/ui/spa/stores/createSystem";
 import type { PublishResult } from "../../../packages/ui/spa/stores/PublishSeam";
@@ -65,6 +69,7 @@ import {
 import { inRequest } from "./tanstackStart";
 import { createFrames, type Frames } from "./frames";
 import { startFakeClock, type Clock } from "./clock";
+import { installXmlHttpRequest } from "./xmlHttpRequest";
 
 /**
  * A world a scenario runs in: Val's real server behind a network the test
@@ -125,6 +130,17 @@ export type Studio = {
    * Answers the new patch's id.
    */
   edit(module: AnyModule, fieldPath: string[], value: string): Promise<PatchId>;
+  /**
+   * Any patch, written the way a field writes it (`writePatch`, what
+   * `useAddPatch` calls): one with `file` ops uploads its bytes first, through
+   * the Studio's own upload (`XMLHttpRequest`, to where
+   * `directFileUploadSettings` says). Answers the patch's id.
+   */
+  write(
+    module: AnyModule,
+    patch: Patch,
+    fileType?: "image" | "file",
+  ): Promise<PatchId>;
   /** Discard patches, as Review's "Discard" does (`System.discard`). */
   discard(patchIds: PatchId[]): ReturnType<System["discard"]>;
   /**
@@ -184,6 +200,8 @@ export type LoadedPage = {
 export type PageReaders = {
   /** The real `fetchVal` of `@valbuild/tanstack/server`, with edit tags removed. */
   fetchVal<T extends Resolvable>(module: T): Promise<DecodeVal<ResolvedVal<T>>>;
+  /** The real `fetchValKey`: one `.jsonValues()` entry. Edit tags removed. */
+  fetchValKey(module: ResolvableModule, key: string): Promise<unknown>;
 };
 
 type AnyModule = ValModule<SelectorSource>;
@@ -314,6 +332,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const frames = createFrames();
   const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
   const clock = startFakeClock();
+  // The browser's upload: through the same network as everything else.
+  const uninstallXhr = installXmlHttpRequest(network.fetchFor("browser:xhr"));
   const studios: Array<{
     studio: Studio;
     stop: () => void;
@@ -351,6 +371,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     const system = createValSystem(client, {
       writes: true,
       mode: "fs",
+      uploadSettings: () => directFileUploadSettings(client),
       schemaValidation: {
         validate: async (moduleFilePath, source, serializedSchema, version) =>
           validator.validate(moduleFilePath, source, serializedSchema, version),
@@ -412,6 +433,15 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           throw new Error(`The edit was refused: ${res.message}`);
         }
         return res.record.patchId;
+      },
+      async write(module, patch, fileType) {
+        const res = await writePatch(system, moduleFilePathOf(module), patch, {
+          ...(fileType !== undefined ? { fileType } : {}),
+        });
+        if (res.status === "error") {
+          throw new Error(`The patch was refused: ${res.message}`);
+        }
+        return res.patchId;
       },
       discard(patchIds) {
         return system.discard(patchIds);
@@ -579,6 +609,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         async fetchVal(module) {
           return raw(await content.fetchValStega(module));
         },
+        async fetchValKey(module, key) {
+          return raw(await content.fetchValKeyStega(module, key));
+        },
       };
       return {
         route,
@@ -639,6 +672,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       await clock.advance(LONG_POLL_MS);
       await Promise.all(studios.map(({ polling }) => polling));
       clock.stop();
+      uninstallXhr();
       if (host.mode === "fs") host.restore();
     },
   };
@@ -719,6 +753,14 @@ function sourcePathOf(module: AnyModule, fieldPath: string[]): SourcePath {
     );
   }
   return path;
+}
+
+/** A module's file path. */
+function moduleFilePathOf(module: AnyModule): ModuleFilePath {
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
+    sourcePathOf(module, []),
+  );
+  return moduleFilePath;
 }
 
 /** Where a field's edit goes: its module, and its patch path, as `useAddPatch` computes it. */

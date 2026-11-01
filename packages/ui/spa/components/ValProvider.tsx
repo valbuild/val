@@ -118,6 +118,7 @@ import {
   type UseSiteHandoff,
 } from "../publish/useSiteHandoff";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
+import { directFileUploadSettings } from "../stores/react/directFileUploadSettings";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
@@ -731,24 +732,7 @@ export function ValProvider({
         error: string;
       }
   > => {
-    let res = await client("/direct-file-upload-settings", "POST", {});
-    let retries = 0;
-    while (res.status === null && retries < 5) {
-      Internal.log.debug(
-        "Failed to get direct file upload settings, retrying...",
-        res,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
-      res = await client("/direct-file-upload-settings", "POST", {});
-      retries++;
-    }
-    if (res.status === 200) {
-      return { status: "success", data: res.json };
-    }
-    return {
-      status: "error",
-      error: "Could not get direct file upload settings",
-    };
+    return directFileUploadSettings(client);
   }, [client]);
 
   /**

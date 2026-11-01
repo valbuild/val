@@ -24,6 +24,7 @@ import {
 } from "@valbuild/core";
 import { useRemoteHost } from "./ValRemoteProvider";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
+import { writePatch as writeFieldPatch } from "../stores/react/writePatch";
 import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
 import { Patch } from "@valbuild/core/patch";
@@ -462,20 +463,11 @@ export function useAddPatch(
             "Cannot write: no store system is mounted. The edit was dropped.",
         };
       }
-      const res = await val.system.patchStore.createPatch(
-        target,
-        patch,
-        undefined,
+      return writeFieldPatch(val.system, target, patch, {
         creatorId,
         onProgress,
-        undefined,
-        undefined,
         fileType,
-      );
-      if (res.status !== "created") {
-        return { status: "error", message: res.message };
-      }
-      return { status: "ok", patchId: res.record.patchId };
+      });
     },
     [val, creatorId],
   );
