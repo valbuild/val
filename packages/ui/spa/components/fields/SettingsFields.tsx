@@ -126,9 +126,12 @@ export function SettingsFields({
 export function SettingsPreview({
   path,
   size,
+  maxFields,
 }: {
   path: SourcePath;
   size?: "compact";
+  /** See `ObjectLikePreview`. */
+  maxFields?: number;
 }) {
   const type = "settings";
   const schemaAtPath = useSchemaAtPath(path);
@@ -153,6 +156,11 @@ export function SettingsPreview({
     );
   }
   return (
-    <ObjectLikePreview path={path} schema={schemaAtPath.data} size={size} />
+    <ObjectLikePreview
+      path={path}
+      schema={schemaAtPath.data}
+      size={size}
+      maxFields={maxFields}
+    />
   );
 }

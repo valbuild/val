@@ -20,12 +20,15 @@ export function RefPreview({
   className,
   size,
   nullLabel,
+  maxFields,
 }: {
   path: SourcePath;
   className?: string;
   size?: "compact";
   /** What an unwritten value is called here — see `PreviewNull`. */
   nullLabel?: string;
+  /** Only for the fallback field dump — see `ObjectLikePreview`. */
+  maxFields?: number;
 }) {
   const preview = useRefPreview(path);
 
@@ -48,8 +51,13 @@ export function RefPreview({
     );
   }
   return (
-    <div className={cn("p-2", className)}>
-      <Preview path={path} size={size} nullLabel={nullLabel} />
+    <div className={cn("p-2 min-w-0", className)}>
+      <Preview
+        path={path}
+        size={size}
+        nullLabel={nullLabel}
+        maxFields={maxFields}
+      />
     </div>
   );
 }
