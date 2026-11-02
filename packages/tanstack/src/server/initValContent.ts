@@ -4,6 +4,7 @@ import {
   type ResolvedVal,
   type RouteValueOf,
   SET_AUTO_TAG_JSX_ENABLED,
+  getModuleIds,
   stegaEncode,
 } from "@valbuild/react/stega";
 import {
@@ -31,6 +32,7 @@ import {
   type ValPatchStore,
 } from "@valbuild/server";
 import { VERSION } from "../version";
+import { reportModuleReads, type ModuleRead } from "./readObserver";
 import {
   bundledJsonEntryImport,
   fillJsonValuesRecord,
@@ -178,6 +180,23 @@ async function loadDraftSources(
   throw Error(JSON.stringify(treeRes.json, null, 2));
 }
 
+/** The modules a read of `selector` reads, for `reportModuleReads`. */
+function moduleIdsOf(selector: unknown): ModuleFilePath[] {
+  return getModuleIds(selector).map((id) => id as ModuleFilePath);
+}
+
+/** A module read from published content: a snapshot's, else the bundle's. */
+function publishedRead(
+  moduleFilePath: ModuleFilePath,
+  snapshot: Snapshot | undefined,
+): ModuleRead {
+  return {
+    moduleFilePath,
+    from: snapshot?.[moduleFilePath] !== undefined ? "snapshot" : "bundle",
+    version: null,
+  };
+}
+
 export const initFetchValStega =
   (
     config: ValConfig,
@@ -264,6 +283,17 @@ export const initFetchValStega =
               valServerPromise,
               sessionCookie,
             );
+            reportModuleReads(() =>
+              moduleIdsOf(selector).map((moduleFilePath) =>
+                modules[moduleFilePath] !== undefined
+                  ? {
+                      moduleFilePath,
+                      from: "server-draft",
+                      version: modules[moduleFilePath]?.version ?? null,
+                    }
+                  : publishedRead(moduleFilePath, snapshot),
+              ),
+            );
             return stegaEncode(selector, {
               disabled: !enabled,
               getModule: await withJsonValuesEntries(selector, (path) => [
@@ -275,6 +305,11 @@ export const initFetchValStega =
         }
       }
       // At a proposal's address, its saved Source rather than the bundle's.
+      reportModuleReads(() =>
+        moduleIdsOf(selector).map((moduleFilePath) =>
+          publishedRead(moduleFilePath, snapshot),
+        ),
+      );
       return stegaEncode(selector, {
         disabled: !enabled,
         getModule: await withJsonValuesEntries(selector, (path) => [
@@ -495,6 +530,13 @@ export const initFetchValDraft =
           sources[path as ModuleFilePath] = source;
         }
       }
+      reportModuleReads(() =>
+        Object.keys(sources).map((path) => ({
+          moduleFilePath: path as ModuleFilePath,
+          from: "server-draft",
+          version: modules[path as ModuleFilePath]?.version ?? null,
+        })),
+      );
       return {
         sources,
         ...(snapshot !== undefined ? { snapshot } : {}),

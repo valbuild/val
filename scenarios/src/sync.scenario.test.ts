@@ -82,10 +82,13 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * fields,
    * when the title edit is discarded -- the newest patch stays the
    * subtitle's,
-   * then every surface shows the original title and the new subtitle.
+   * then every surface shows the original title and the new subtitle, and
+   * none of them went back.
    *
-   * "Never goes back" does not apply: the title really does go back. Until
-   * frames carry versions (phase 1), the end state is what is checked.
+   * The title's VALUE goes back, and that is not going back: it comes back
+   * at a chain no surface has shown (the subtitle's patch alone), which the
+   * frames' versions say (phase 1). Before them only the end state could be
+   * checked.
    */
   test("S07 a discard in the middle of the chain reaches every reader", async () => {
     world = await createWorld({ config, modules: [homeVal], server });
@@ -125,6 +128,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     expect(
       lastOf(world, "hook subtitle", "loader subtitle", "field subtitle"),
     ).toEqual(["New sub", "New sub", "New sub"]);
+    world.frames.expectNeverGoesBack();
   });
 
   /**

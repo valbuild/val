@@ -3,6 +3,7 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
+  ProjectVersionSchema,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -255,6 +256,14 @@ export const StatData = z.object({
   commits: z.array(ValCommit).optional(),
   deployments: z.array(ValDeployment).optional(),
   mode: z.union([z.literal("fs"), z.literal("http")]),
+  /**
+   * The project version this answer is relative to (`build`, `seq`); see
+   * `ProjectVersion` in `@valbuild/shared/internal`. Nothing in the Studio
+   * reads it yet (the manifest does, from phase 7 of
+   * `docs/plans/one-content-model.md`); declared so the type says what the
+   * wire carries. Absent from a server that predates it.
+   */
+  version: ProjectVersionSchema.optional(),
 });
 export type StatData = z.infer<typeof StatData>;
 

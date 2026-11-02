@@ -13,8 +13,9 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
 
 /**
  * Budgets: work counted with the stores' own activity channel
- * (`RecordingActivity`), not timed, so CI can hold them. Catalogue ids B01,
- * B02. (B03, a draft read in a 128 MB isolate, is a benchmark, not here.)
+ * (`RecordingActivity`), and versions hashed with `versionHashCount`, not
+ * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05. (B03, a draft
+ * read in a 128 MB isolate, is a benchmark, not here.)
  */
 
 const { s, c, config } = initVal({});
@@ -88,5 +89,61 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       .map((e) => `${e.method} ${e.path}`);
     expect(bos.filter((r) => r === "GET /api/val/patches")).toHaveLength(1);
     expect(bos).not.toContain("PUT /api/val/sources/~");
+  });
+
+  /**
+   * B04 Reading hashes no version.
+   *
+   * Given a module with pending edits, read once since they landed,
+   * when a draft page's loader reads it, the editor's Studio asks /stat, and
+   * the manifest is asked twice,
+   * then no version is hashed: every one was computed when the content
+   * changed (risk 3 in the plan, `version:hash` per read = 0).
+   */
+  test("B04 reading hashes no version", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    editor.reads("field", homeVal, ["title"]);
+    const page = world.page("/", { draftMode: true });
+    page.reads("loader", async (val) => (await val.fetchVal(homeVal)).title);
+    await editor.edit(homeVal, ["title"], "One");
+    await editor.edit(homeVal, ["subtitle"], "Two");
+    await world.settle();
+    await world.observe();
+    const since = world.workPosition();
+
+    await world.observe();
+    await world.manifest();
+    await world.manifest();
+    await world.clock.advance(25_000); // the Studio's next /stat, at least
+    await world.settle();
+
+    world.expectWork(since, { "version:hash": { exactly: 0 } });
+  });
+
+  /**
+   * B05 A keystroke costs one link of the chain.
+   *
+   * Given a Studio on a module, read once,
+   * when the editor types once and everything reads it again,
+   * then one version is hashed: the module's chain extended by the new
+   * patch, once for every reader in the process (they share one data layer,
+   * `sharedValOps`). Nothing else moved: not a schema, not a base.
+   */
+  test("B05 a keystroke costs one link of the chain", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    const page = world.page("/", { draftMode: true });
+    page.reads("loader", async (val) => (await val.fetchVal(homeVal)).title);
+    await world.settle();
+    await world.observe();
+    const since = world.workPosition();
+
+    await editor.edit(homeVal, ["title"], "Typed");
+    await world.settle();
+    await world.observe();
+    await world.manifest();
+
+    world.expectWork(since, { "version:hash": { exactly: 1 } });
   });
 });

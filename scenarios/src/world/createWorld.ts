@@ -10,7 +10,16 @@ import {
   type ValModule,
   type ValModules,
 } from "@valbuild/core";
-import { createValClient } from "@valbuild/shared/internal";
+import {
+  EMPTY_CHAIN,
+  baseVersionOf,
+  chainOf,
+  createValClient,
+  schemaVersionOf,
+  versionHashCount,
+  type ModuleVersion,
+  type ProjectVersion,
+} from "@valbuild/shared/internal";
 import {
   existsSync,
   mkdirSync,
@@ -95,7 +104,18 @@ import {
   type RefreshLoop,
 } from "../../../packages/tanstack/src/refreshLoop";
 import { inRequest } from "./tanstackStart";
-import { createFrames, type Frames } from "./frames";
+import {
+  createFrames,
+  type FrameVersion,
+  type FrameVersions,
+  type Frames,
+} from "./frames";
+// What the page's server readers read, module by module, with the version
+// their source carried: not exported from the package (see the file).
+import {
+  observeModuleReads,
+  type ModuleRead,
+} from "../../../packages/tanstack/src/server/readObserver";
 import { startFakeClock, type Clock } from "./clock";
 import { installXmlHttpRequest } from "./xmlHttpRequest";
 import { startContentHost, type ContentHost } from "./contentHost";
@@ -188,8 +208,39 @@ export type World = {
   ): Promise<void>;
   /** The invariants every scenario is held to. See `frames.ts`. */
   expectInvariants(): void;
+  /**
+   * The server's manifest (`GET /manifest`, through the network, as an
+   * editor's browser asks it): every module's version and the project's.
+   */
+  manifest(): Promise<Manifest>;
+  /**
+   * Where the world's counted work stands now, for {@link expectWork}: work
+   * done by Val's own code anywhere in the world (server, readers, Studios),
+   * never the world's own observing.
+   */
+  workPosition(): WorldWorkPosition;
+  /**
+   * The work Val's code did since `since`, against a budget. `version:hash`:
+   * how many times a version was hashed (risk 3 in the plan: versions are
+   * computed when content changes, never when it is read).
+   */
+  expectWork(since: WorldWorkPosition, budget: WorldWorkBudget): void;
   /** Stops what the world started, and puts the working directory back. */
   dispose(): Promise<void>;
+};
+
+/** What `GET /manifest` answers. */
+export type Manifest = {
+  project: ProjectVersion;
+  modules: Partial<Record<ModuleFilePath, ModuleVersion>>;
+};
+
+/** See {@link World.workPosition}. */
+export type WorldWorkPosition = { versionHashes: number };
+
+/** See {@link World.expectWork}. */
+export type WorldWorkBudget = {
+  "version:hash"?: { atMost: number } | { exactly: number };
 };
 
 /**
@@ -758,6 +809,14 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   network.name(currentHandler, `build ${builds}`);
   const pages: Array<() => void> = [];
   const deployCode = (modules: AnyModule[]): Deployment => {
+    // The app's own code is evaluated again too: where a scenario names a
+    // module by the object it wrote, the app now holds the new build's
+    // object at that path (`currentModule`).
+    for (const module of modules) {
+      const previous = moduleAt(serverModules, moduleFilePathOf(module));
+      if (previous !== null && previous !== module)
+        replaceModule(previous, module);
+    }
     serverModules = modules;
     valModules = registryOf(modules);
     const previous = currentHandler;
@@ -798,15 +857,6 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     const next = serverModules.map(
       (module) => evaluated.get(String(Internal.getValPath(module))) ?? module,
     );
-    serverModules.forEach((module, i) => {
-      const replacement = next[i];
-      if (replacement === undefined || replacement === module) return;
-      reloadedAs.set(module, replacement);
-      // A module the scenario wrote may have been replaced before.
-      for (const [original, current] of reloadedAs) {
-        if (current === module) reloadedAs.set(original, replacement);
-      }
-    });
     deployCode(next);
     for (const { studio } of studios) {
       await studio.receiveCode(next);
@@ -821,6 +871,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
    * (reloaded) code holds the new build's object for it.
    */
   const reloadedAs = new Map<unknown, AnyModule>();
+  const replaceModule = (module: AnyModule, replacement: AnyModule) => {
+    reloadedAs.set(module, replacement);
+    // A module the scenario wrote may have been replaced before.
+    for (const [original, current] of reloadedAs) {
+      if (current === module) reloadedAs.set(original, replacement);
+    }
+  };
   const currentModule = <T>(module: T): T => sameModuleAs(reloadedAs, module);
   /** The readers a page's server uses, for the server's current code. */
   const readersFor = (draft: { on: boolean }) =>
@@ -831,7 +888,63 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const relays: Array<() => void> = [];
   const refreshLoops: RefreshLoop[] = [];
   const frames = createFrames();
-  const surfaces: Array<{ name: string; read: () => Promise<unknown> }> = [];
+  const surfaces: Array<{
+    name: string;
+    read: () => Promise<{ value: unknown; versions?: FrameVersions }>;
+  }> = [];
+  /*
+   * Versions the WORLD hashes to observe (a Studio's version, a bundle's),
+   * kept apart from what Val's code hashes, which is what a budget counts.
+   */
+  const versioning = createVersioning();
+  /*
+   * What the page's server readers read during one page read: requests do
+   * not nest (`inRequest`), so one list at a time is enough.
+   */
+  let collecting: ModuleRead[] | null = null;
+  const stopObservingReads = observeModuleReads((reads) => {
+    collecting?.push(...reads);
+  });
+  const withReads = async <T>(
+    fn: () => Promise<T>,
+  ): Promise<{ value: T; reads: ModuleRead[] }> => {
+    const reads: ModuleRead[] = [];
+    const outer = collecting;
+    collecting = reads;
+    try {
+      return { value: await fn(), reads };
+    } finally {
+      collecting = outer;
+    }
+  };
+  /**
+   * What a page's server read shows each module at: the version its source
+   * carried, the bundle's (the world hashes the module the server runs), or
+   * none for a snapshot. `readWith` is the schema of the module object the
+   * app's code passed, else the server's.
+   */
+  const versionsOfReads = (
+    reads: readonly ModuleRead[],
+    passed: ReadonlyMap<ModuleFilePath, AnyModule>,
+  ): FrameVersions => {
+    const versions: FrameVersions = {};
+    for (const read of reads) {
+      const own =
+        passed.get(read.moduleFilePath) ??
+        moduleAt(serverModules, read.moduleFilePath);
+      versions[read.moduleFilePath] = {
+        from: read.from,
+        version:
+          read.from === "server-draft"
+            ? read.version
+            : read.from === "bundle" && own !== null
+              ? versioning.bundle(own)
+              : null,
+        readWith: own === null ? null : versioning.schemaOfModule(own),
+      };
+    }
+    return versions;
+  };
   const clock = startFakeClock();
   // The browser's upload: through the same network as everything else.
   const uninstallXhr = installXmlHttpRequest(
@@ -995,6 +1108,18 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       }
     })();
 
+    /** The version this Studio shows a module at, with the seq of its last stat. */
+    const studioFrameVersion = (
+      moduleFilePath: ModuleFilePath,
+    ): FrameVersion => {
+      const seq = "data" in stat ? stat.data?.version?.seq : undefined;
+      return {
+        from: "studio",
+        version: versioning.studio(system, moduleFilePath),
+        readWith: null,
+        ...(seq !== undefined ? { seq } : {}),
+      };
+    };
     const studio: Studio = {
       name,
       system,
@@ -1070,11 +1195,17 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       },
       reads(surface, module, fieldPath) {
         const path = sourcePathOf(module, fieldPath);
+        const moduleFilePath = moduleFilePathOf(module);
         surfaces.push({
           name: surface,
           read: async () => {
             const read = await system.sourceStore.get(path, null);
-            return "data" in read ? read.data : `(${read.status})`;
+            return {
+              value: "data" in read ? read.data : `(${read.status})`,
+              versions: {
+                [moduleFilePath]: studioFrameVersion(moduleFilePath),
+              },
+            };
           },
         });
       },
@@ -1186,22 +1317,54 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       for (const modules of [serverModules, clientModules]) {
         committed.set(modules, await committedEntriesOf(modules));
       }
+      /**
+       * What the page's store holds each module at: the server's draft as it
+       * rendered, then what the overlay relayed. A module in neither is the
+       * page's bundle (or a snapshot over it).
+       */
+      const held = new Map<ModuleFilePath, FrameVersion>();
       const record = (modules: AnyModule[], view: OverlayView) => {
         const entries = committed.get(modules);
         if (entries === undefined) throw new Error("unresolved build");
         for (const show of pageOptions.shows) {
+          const module = moduleLike(modules, show.module);
+          const versions: FrameVersions = {};
+          for (const path of idsOf([module])) {
+            const own = moduleAt(modules, path);
+            const readWith =
+              own === null ? null : versioning.schemaOfModule(own);
+            const kept = held.get(path);
+            versions[path] =
+              kept !== undefined
+                ? { ...kept, readWith }
+                : view.snapshot?.[path] !== undefined
+                  ? { from: "snapshot", version: null, readWith }
+                  : {
+                      from: "bundle",
+                      version: own === null ? null : versioning.bundle(own),
+                      readWith,
+                    };
+          }
           frames.record(
             show.surface,
-            readShow(moduleLike(modules, show.module), show, view, entries),
+            readShow(module, show, view, entries),
+            versions,
           );
         }
         frames.tick();
       };
       // 1. The server renders the page: the layout's loader reads the draft
       //    (`fetchValDraft`) and the provider seeds its store from it.
-      const draft = await inRequest(request(), () =>
-        readersFor({ on: true }).fetchValDraft(),
+      const { value: draft, reads: draftReads } = await withReads(() =>
+        inRequest(request(), () => readersFor({ on: true }).fetchValDraft()),
       );
+      for (const read of draftReads) {
+        held.set(read.moduleFilePath, {
+          from: read.from,
+          version: read.version,
+          readWith: null,
+        });
+      }
       const serverStore = createDraftStore(draft);
       const read = (store: ValExternalStore, modules: AnyModule[]) =>
         record(modules, {
@@ -1219,10 +1382,20 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       });
       const readLoaders = async () => {
         for (const show of pageOptions.loaderShows ?? []) {
-          const value: unknown = await inRequest(request(), async () =>
-            raw(await content.fetchValStega(currentModule(show.module))),
+          const module = currentModule(show.module);
+          const { value, reads } = await withReads(() =>
+            inRequest(request(), async () =>
+              raw(await content.fetchValStega(module)),
+            ),
           );
-          frames.record(show.surface, fieldOf(value, show.field));
+          frames.record(
+            show.surface,
+            fieldOf(value, show.field),
+            versionsOfReads(
+              reads,
+              new Map([[moduleFilePathOf(module), module]]),
+            ),
+          );
         }
         if ((pageOptions.loaderShows ?? []).length > 0) frames.tick();
       };
@@ -1264,6 +1437,15 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             relays.push(
               startOverlayRelay(system, (event) => {
                 events.push(event);
+                if (event.type === "source-update") {
+                  // What the overlay's Studio holds the module at, as it
+                  // hands it over.
+                  held.set(event.moduleFilePath, {
+                    from: "overlay",
+                    version: versioning.studio(system, event.moduleFilePath),
+                    readWith: null,
+                  });
+                }
                 const outcome = applyValEvent(pageStore, event);
                 if (outcome.type === "updated" && outcome.changed) {
                   read(pageStore, clientModules);
@@ -1326,11 +1508,20 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       pages.push(() => {
         content = contentFor(valModules);
       });
+      /** The module objects the app's code passed, by path, in this read. */
+      const passed = new Map<ModuleFilePath, AnyModule>();
       // The app's code reads the modules of the build it runs: after a
       // reload, the same module from the new build (`currentModule`).
       const readers: PageReaders = {
         async fetchVal(module) {
           const current: typeof module = currentModule(module);
+          // A module itself, not a field of one: its schema is the module's.
+          if (
+            Internal.isValModule(current) &&
+            String(Internal.getValPath(current)) === moduleFilePathOf(current)
+          ) {
+            passed.set(moduleFilePathOf(current), current);
+          }
           return raw(await content.fetchValStega(current));
         },
         async fetchValKey(module, key) {
@@ -1351,7 +1542,11 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             name: surface,
             read: async () => {
               await refreshSite();
-              return inRequest(pageRequest(host, route), () => read(readers));
+              passed.clear();
+              const { value, reads } = await withReads(() =>
+                inRequest(pageRequest(host, route), () => read(readers)),
+              );
+              return { value, versions: versionsOfReads(reads, passed) };
             },
           });
         },
@@ -1359,12 +1554,45 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     async observe() {
       for (const surface of surfaces) {
-        frames.record(surface.name, await surface.read());
+        const { value, versions } = await surface.read();
+        frames.record(surface.name, value, versions);
       }
       frames.tick();
     },
     expectInvariants() {
       frames.expectInvariants();
+    },
+    async manifest() {
+      const client = createValClient("/api/val", null, {
+        fetch: withSession(host, network.fetchFor("world:manifest")),
+      });
+      const res = await client("/manifest", "GET", {
+        headers: { "if-none-match": undefined },
+      });
+      if (res.status !== 200) {
+        throw new Error(`GET /manifest answered ${res.status}`);
+      }
+      return res.json;
+    },
+    workPosition() {
+      return { versionHashes: versioning.productHashes() };
+    },
+    expectWork(since, budget) {
+      const over: string[] = [];
+      const limit = budget["version:hash"];
+      if (limit !== undefined) {
+        const count = versioning.productHashes() - since.versionHashes;
+        const ok =
+          "atMost" in limit ? count <= limit.atMost : count === limit.exactly;
+        if (!ok) {
+          over.push(
+            `  version:hash: ${count} (budget ${"atMost" in limit ? `at most ${limit.atMost}` : `exactly ${limit.exactly}`})`,
+          );
+        }
+      }
+      if (over.length > 0) {
+        throw new Error(`✕ work over budget in the world:\n${over.join("\n")}`);
+      }
     },
     clock,
     deployCode,
@@ -1414,6 +1642,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       );
     },
     async dispose() {
+      stopObservingReads();
       // What a test held and did not let go of would hold the Studio's poll.
       network.release();
       for (const stop of relays) stop();
@@ -1595,7 +1824,7 @@ function sourcePathOf(module: AnyModule, fieldPath: string[]): SourcePath {
 }
 
 /** A module's file path. */
-function moduleFilePathOf(module: AnyModule): ModuleFilePath {
+export function moduleFilePathOf(module: AnyModule): ModuleFilePath {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
     sourcePathOf(module, []),
   );
@@ -1698,4 +1927,107 @@ function sameModuleAs(
   module: unknown,
 ): unknown {
   return reloadedAs.get(module) ?? module;
+}
+
+/** The module in `modules` at a path, or `null`: the same module in a build. */
+function moduleAt(
+  modules: readonly AnyModule[],
+  path: ModuleFilePath,
+): AnyModule | null {
+  return (
+    modules.find((module) => String(Internal.getValPath(module)) === path) ??
+    null
+  );
+}
+
+/**
+ * The versions the world computes to OBSERVE what a surface shows: a Studio's
+ * (from what it holds), a bundle's (from the module the reader runs), and the
+ * schema a reader's own code has. With the product's own functions
+ * (`schemaVersionOf`, `baseVersionOf`, `chainOf`), memoised by object so an
+ * observation does not hash what it hashed before, and counted apart from
+ * Val's own hashing, which is what `world.expectWork` budgets.
+ */
+function createVersioning() {
+  let ownHashes = 0;
+  const own = <T>(fn: () => T): T => {
+    const before = versionHashCount();
+    try {
+      return fn();
+    } finally {
+      ownHashes += versionHashCount() - before;
+    }
+  };
+  const schemas = new WeakMap<object, string>();
+  const bases = new WeakMap<object, string>();
+  const bundles = new WeakMap<object, ModuleVersion | null>();
+  const schemaOf = (serialized: object): string => {
+    const known = schemas.get(serialized);
+    if (known !== undefined) return known;
+    const version = own(() => schemaVersionOf(serialized));
+    schemas.set(serialized, version);
+    return version;
+  };
+  const baseOf = (source: unknown): string => {
+    if (typeof source !== "object" || source === null) {
+      return own(() => baseVersionOf(source));
+    }
+    const known = bases.get(source);
+    if (known !== undefined) return known;
+    const version = own(() => baseVersionOf(source));
+    bases.set(source, version);
+    return version;
+  };
+  const schemaOfModule = (module: AnyModule): string | null => {
+    const schema = Internal.getSchema(module);
+    if (schema === undefined) return null;
+    const known = schemas.get(module);
+    if (known !== undefined) return known;
+    const version = own(() => schemaVersionOf(schema["executeSerialize"]()));
+    schemas.set(module, version);
+    return version;
+  };
+  return {
+    /** How many hashes Val's own code did: all of them, less the world's. */
+    productHashes: () => versionHashCount() - ownHashes,
+    schemaOfModule,
+    /** The version of a module as its bundle has it: no chain. */
+    bundle(module: AnyModule): ModuleVersion | null {
+      if (bundles.has(module)) return bundles.get(module) ?? null;
+      const schema = schemaOfModule(module);
+      const version =
+        schema === null
+          ? null
+          : {
+              schema,
+              base: baseOf(Internal.getSource(module)),
+              chain: EMPTY_CHAIN,
+            };
+      bundles.set(module, version);
+      return version;
+    },
+    /**
+     * The version a Studio shows a module at: the schema it holds, the base
+     * its store starts from, and the chain of the patches it holds for the
+     * module, unconfirmed ones included -- the Studio's own optimistic
+     * content, which is the same version as the server's once confirmed.
+     */
+    studio(
+      system: System,
+      moduleFilePath: ModuleFilePath,
+    ): ModuleVersion | null {
+      const serialized = system.schemaStore.get(moduleFilePath);
+      const base = system.sourceStore.baseSourceOf(moduleFilePath);
+      if (serialized === undefined || base === undefined) return null;
+      const ids = system.patchStore
+        .chainRecords()
+        .filter((record) => record.moduleFilePath === moduleFilePath)
+        .map((record) => record.patchId);
+      return {
+        schema: schemaOf(serialized),
+        base: baseOf(base),
+        chain: own(() => chainOf(ids)),
+      };
+    },
+  };
 }

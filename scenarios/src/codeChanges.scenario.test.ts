@@ -1,5 +1,10 @@
 import { initVal, type ValModules } from "@valbuild/core";
-import { createWorld, type ServerMode, type World } from "./world/createWorld";
+import {
+  createWorld,
+  moduleFilePathOf,
+  type ServerMode,
+  type World,
+} from "./world/createWorld";
 
 // See `smoke.scenario.test.ts` and the README for these two.
 jest.mock(
@@ -57,14 +62,17 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    *
    * Given a pending edit to the title, shown on a draft page,
    * when the code adds a field to the module (server and Studio both get it),
-   * then the edit is still shown by the Studio and the page, and nothing is
-   * discarded.
+   * then the edit is still shown by the Studio and the page, nothing is
+   * discarded, nothing is read with the old schema, and only that module's
+   * version moves: its `schema` and `base`, never another module's, and
+   * never its chain (the edit is the same edit).
    *
-   * The plan's stronger form -- only that module is refetched, and nothing is
-   * read with the old schema -- needs versions on the wire (phase 1).
+   * "Only that module is REFETCHED" is the Studio loading by version, which
+   * is phase 7; what phase 1 can say is that only that module's version
+   * moved, which is what a refetch will key on.
    */
   test("S11 a schema change while the page shows an edit", async () => {
-    world = await createWorld({ config, modules: [home], server });
+    world = await createWorld({ config, modules: [home, footer], server });
     const editor = await world.studio("editor");
     editor.reads("field", home, ["title"]);
     const page = world.page("/", { draftMode: true });
@@ -74,8 +82,9 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     );
     await editor.edit(home, ["title"], "Edited");
     await world.settle();
+    const before = await world.manifest();
 
-    await world.changeCode([homeWithCta]);
+    await world.changeCode([homeWithCta, footer]);
     await world.settle();
     await world.observe();
 
@@ -83,7 +92,55 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     expect(world.frames.last("loader")).toBe("Edited");
     expect(editor.errors()).toEqual([]);
     expect(world.network.log.filter((e) => e.method === "DELETE")).toEqual([]);
+    // Never read with another schema; and both at the new one, as the server is.
+    world.expectInvariants();
+    const after = await world.manifest();
+    const homePath = moduleFilePathOf(home);
+    const footerPath = moduleFilePathOf(footer);
+    expect(after.modules[footerPath]).toEqual(before.modules[footerPath]);
+    expect(after.modules[homePath]?.schema).not.toBe(
+      before.modules[homePath]?.schema,
+    );
+    expect(after.modules[homePath]?.chain).toBe(
+      before.modules[homePath]?.chain,
+    );
+    for (const surface of ["field", "loader"]) {
+      expect(world.frames.lastVersion(surface, homePath)).toEqual(
+        after.modules[homePath],
+      );
+    }
   });
+
+  /**
+   * S11 (versions) A new build is counted.
+   *
+   * Given a server answering at some `seq`,
+   * when a new build replaces it (local development's HMR here),
+   * then its answers name the new build and order after the old one's: `seq`
+   * moved, with no write in between ("bumped by every write, delete, publish
+   * and new build", `ProjectVersion`).
+   *
+   * FAILS on http, and that is a finding for valbuild/home: there `seq` is
+   * the content service's `headVersion`, which moves with writes, deletes
+   * and commits but not with a deployment, so two builds answering during a
+   * rollout cannot be told apart by `seq` -- only by `build`. fs and memory
+   * count a new build themselves (once, under the patch lock in fs).
+   */
+  (server === "http" ? test.failing : test)(
+    "S11 a new build is counted: its answers order after the last build's",
+    async () => {
+      world = await createWorld({ config, modules: [home, footer], server });
+      await world.studio("editor");
+      const before = await world.manifest();
+
+      await world.changeCode([homeWithCta, footer]);
+      await world.settle();
+
+      const after = await world.manifest();
+      expect(after.project.build).not.toBe(before.project.build);
+      expect(after.project.seq).toBeGreaterThan(before.project.seq);
+    },
+  );
 
   /**
    * S12 A module whose code throws, after a change, leaves the Studio running

@@ -1,5 +1,10 @@
 import { Internal, initVal, type SerializedSchema } from "@valbuild/core";
-import { createWorld, type ServerMode, type World } from "./world/createWorld";
+import {
+  createWorld,
+  moduleFilePathOf,
+  type ServerMode,
+  type World,
+} from "./world/createWorld";
 import { createPosterPatch } from "../../packages/ui/spa/utils/video/createVideoPatch";
 
 // See `smoke.scenario.test.ts` and the README for these two.
@@ -163,12 +168,10 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * Given an image field that picks from a gallery, carrying only the path,
    * shown on a draft page with the overlay through a hook and a loader,
    * when the editor changes the gallery entry's alt text,
-   * then the field still resolves, and both readers show the gallery's new
-   * alt (the field has none of its own).
-   *
-   * The plan's point -- the field's schema version must not move, because
-   * its schema names the gallery by path -- needs versions on the wire
-   * (phase 1) and is not checked yet.
+   * then the field still resolves, both readers show the gallery's new
+   * alt (the field has none of its own), and the field's module keeps its
+   * version: its schema names the gallery by path, so a change to the
+   * gallery's content moves the gallery's chain and nothing of the field's.
    */
   test("S19 a gallery-backed field whose gallery changes", async () => {
     world = await createWorld({
@@ -183,12 +186,22 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
         { surface: "loader", module: heroVal, field: ["hero", "alt"] },
       ],
     });
+    const before = await world.manifest();
     await editor.edit(imagesVal, [IMAGE, "alt"], "New alt");
     await world.settle();
 
     expect(world.frames.last("hook")).toBe("New alt");
     expect(world.frames.last("loader")).toBe("New alt");
     expect(editor.errors()).toEqual([]);
+    const after = await world.manifest();
+    const hero = moduleFilePathOf(heroVal);
+    const images = moduleFilePathOf(imagesVal);
+    expect(after.modules[hero]).toEqual(before.modules[hero]);
+    expect(after.modules[images]?.schema).toBe(before.modules[images]?.schema);
+    expect(after.modules[images]?.chain).not.toBe(
+      before.modules[images]?.chain,
+    );
+    world.expectInvariants();
   });
 });
 

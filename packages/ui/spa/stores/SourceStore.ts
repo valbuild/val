@@ -2259,6 +2259,16 @@ export class SourceStore {
    * only read, and they are all in this file's tree — the boundary that has to
    * be defended is the one to the main thread, and that is `get()`.
    */
+  /**
+   * The module's BASE source as this store holds it: what the chain applies
+   * to, `.jsonValues()` entries as markers and nothing substituted. What the
+   * module's base version is a hash of (`baseVersionOf`), the same as the
+   * server's for the same base. A reference into the store; do not mutate.
+   */
+  baseSourceOf(moduleFilePath: ModuleFilePath): Json | undefined {
+    return this.baseSources[moduleFilePath];
+  }
+
   moduleSource(moduleFilePath: ModuleFilePath): Json | undefined {
     const source = this.sources[moduleFilePath];
     if (source === undefined) return undefined;

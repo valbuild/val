@@ -1,5 +1,10 @@
 import { initVal } from "@valbuild/core";
-import { createWorld, type ServerMode, type World } from "./world/createWorld";
+import {
+  createWorld,
+  moduleFilePathOf,
+  type ServerMode,
+  type World,
+} from "./world/createWorld";
 
 // See `smoke.scenario.test.ts` and the README for these two.
 jest.mock(
@@ -38,11 +43,13 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * Given a draft page with the overlay, reading the title through a loader
    * and a hook, and the overlay's Studio field on the same title,
    * when edits arrive (two, from the overlay's own Studio),
-   * then once the world is quiet all three show the same value.
+   * then whenever two of them are at the same VERSION they show the same
+   * value, and once the world is quiet all three show the same value at the
+   * server's version.
    *
-   * The plan's stronger form -- whenever two surfaces are at the same
-   * VERSION they show the same value -- needs versions in the frames (phase
-   * 1). Until then this is the end state, which is "converges".
+   * Every frame carries the version it was read at (phase 1): the loader's
+   * from the server's answer, the hook's from what the server rendered and
+   * then what the overlay relayed, the field's from what the Studio holds.
    */
   test("S22 the loader, the hook and the Studio field agree", async () => {
     world = await createWorld({ config, modules: [homeVal], server });
@@ -66,6 +73,14 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       world.frames.last("loader"),
       world.frames.last("field"),
     ]).toEqual(["Two", "Two", "Two"]);
+    // Same version, same value, over every frame; and the end is one version.
+    world.expectInvariants();
+    const home = moduleFilePathOf(homeVal);
+    const atServer = (await world.manifest()).modules[home];
+    expect(atServer?.chain).not.toBe("");
+    for (const surface of ["hook", "loader", "field"]) {
+      expect(world.frames.lastVersion(surface, home)).toEqual(atServer);
+    }
   });
 
   /**
