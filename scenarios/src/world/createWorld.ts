@@ -46,9 +46,20 @@ import {
   initValServer,
 } from "@valbuild/tanstack/server";
 import {
+  ValExternalStore,
+  applyValEvent,
+  awaitResolved,
   getModuleIds,
   raw,
+  readWork,
+  readsOfFetchVal,
+  resolveModuleEntry,
+  resolveVal,
   type DecodeVal,
+  type ReadEnv,
+  type ReadOf,
+  type Ready,
+  type Resolution,
   type Resolvable,
   type ResolvedVal,
 } from "@valbuild/react/stega";
@@ -83,22 +94,19 @@ import {
   startOverlayRelay,
   type OverlayEvent,
 } from "../../../packages/ui/spa/stores/react/sourceRelay";
-// The page's own code, by path: TanStack's draft store and how `useVal`
-// reads it, which the package does not export.
+// The page's own code, by path: TanStack's draft store, and what its hooks
+// read with (the env their provider's state makes, and a route's read),
+// which the package does not export.
 import {
-  applyValEvent,
   createDraftStore,
   isDraft,
 } from "../../../packages/tanstack/src/draftStore";
 import {
-  readEntryWithOverlay,
-  readRouteEntryWithOverlay,
-  readSelectorWithOverlay,
-  type CommittedEntries,
-  type OverlayView,
-} from "../../../packages/tanstack/src/client/overlayRead";
-import { bundledJsonEntryImport } from "../../../packages/tanstack/src/routeFromVal";
-import type { ValExternalStore } from "../../../packages/tanstack/src/ValOverlayContext";
+  moduleRouteRead,
+  pageReadEnv,
+  type PageReadState,
+} from "../../../packages/tanstack/src/client/initValClient";
+import { readsOfFetchValDraft } from "../../../packages/tanstack/src/server/initValContent";
 import type { ValDraft } from "../../../packages/tanstack/src/ValDraft";
 import {
   startRefreshLoop,
@@ -111,12 +119,6 @@ import {
   type FrameVersions,
   type Frames,
 } from "./frames";
-// What the page's server readers read, module by module, with the version
-// their source carried: not exported from the package (see the file).
-import {
-  observeModuleReads,
-  type ModuleRead,
-} from "../../../packages/tanstack/src/server/readObserver";
 import { startFakeClock, type Clock } from "./clock";
 import { installXmlHttpRequest } from "./xmlHttpRequest";
 import { startContentHost, type ContentHost } from "./contentHost";
@@ -235,6 +237,10 @@ export type World = {
    * `engine:apply-patch`: patches the engine applied (`applyPatchRecord`).
    * `engine:clone-bytes`: what it copied doing so, 8 bytes a reference
    * (risk 4: copy-on-write, so a patch costs its path, not its module).
+   * `read:resolve`: how many times a reader resolved (`resolveVal`,
+   * `resolveValEntry`): once per read, plus once per wait it met.
+   * `read:encode`: how many of those encoded a value (risk 6: `stegaEncode`
+   * once per read, never once per wait).
    */
   expectWork(since: WorldWorkPosition, budget: WorldWorkBudget): void;
   /** Stops what the world started, and puts the working directory back. */
@@ -252,6 +258,8 @@ export type WorldWorkPosition = {
   versionHashes: number;
   engineApplies: number;
   engineCloneBytes: number;
+  readResolves: number;
+  readEncodes: number;
 };
 
 /** See {@link World.expectWork}. */
@@ -259,6 +267,8 @@ export type WorldWorkBudget = {
   "version:hash"?: { atMost: number } | { exactly: number };
   "engine:apply-patch"?: { atMost: number } | { exactly: number };
   "engine:clone-bytes"?: { atMost: number } | { exactly: number };
+  "read:resolve"?: { atMost: number } | { exactly: number };
+  "read:encode"?: { atMost: number } | { exactly: number };
 };
 
 /**
@@ -416,7 +426,18 @@ export type PageLoadOptions = {
    * loop (`startRefreshLoop`, as `ValTanStackProvider` runs it) re-runs them.
    */
   loaderShows?: Array<{ surface: string; module: AnyModule; field: string[] }>;
+  /**
+   * Whether the page passes `<ValProvider draft>` (TanStack's server-read
+   * draft). Default `true`; without it the server renders and the browser
+   * hydrates the bundle, and draft mode is unknown until `/draft/stat`.
+   */
+  draftProp?: boolean;
+  /** `<ValProvider suspend>`: the hooks may wait for the draft (S24). */
+  suspend?: boolean;
 };
+
+/** A read a hook suspended on, instead of showing a value. */
+export type PageSuspension = { surface: string; step: string };
 
 export type PageShow = {
   surface: string;
@@ -432,6 +453,12 @@ export type LoadedPage = {
   events: OverlayEvent[];
   /** How many times the refresh loop has re-run the loaders. */
   readonly refreshes: number;
+  /**
+   * Every read a hook suspended on, at the step of the page's load it was
+   * at: `server render`, `hydration`, `overlay mounted`, `draft mode known`,
+   * `synced`, `relayed`, `hot reload`.
+   */
+  readonly suspensions: readonly PageSuspension[];
 };
 
 export type PageReaders = {
@@ -970,16 +997,37 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const versioning = createVersioning();
   /*
    * What the page's server readers read during one page read: requests do
-   * not nest (`inRequest`), so one list at a time is enough.
+   * not nest (`inRequest`), so one list at a time is enough. Each reader the
+   * world calls says what it read itself (`readsOfFetchVal`: the read behind
+   * the public `fetchVal`, which only drops them).
    */
-  let collecting: ModuleRead[] | null = null;
-  const stopObservingReads = observeModuleReads((reads) => {
+  let collecting: ReadOf[] | null = null;
+  const fetchValReading = async <T extends Resolvable>(
+    content: { fetchValStega: object },
+    module: T,
+  ): Promise<ResolvedVal<T>> => {
+    const withReads = readsOfFetchVal(content.fetchValStega);
+    if (withReads === null) {
+      throw new Error("This fetchVal does not say what it read.");
+    }
+    const { value, reads } = await withReads(module);
     collecting?.push(...reads);
-  });
+    return value;
+  };
+  /** `fetchValDraft`, with what it read: `readsOfFetchValDraft`. */
+  const fetchValDraftReading = (content: {
+    fetchValDraft: object;
+  }): Promise<Ready<ValDraft | null>> => {
+    const withReads = readsOfFetchValDraft(content.fetchValDraft);
+    if (withReads === null) {
+      throw new Error("This fetchValDraft does not say what it read.");
+    }
+    return withReads();
+  };
   const withReads = async <T>(
     fn: () => Promise<T>,
-  ): Promise<{ value: T; reads: ModuleRead[] }> => {
-    const reads: ModuleRead[] = [];
+  ): Promise<{ value: T; reads: ReadOf[] }> => {
+    const reads: ReadOf[] = [];
     const outer = collecting;
     collecting = reads;
     try {
@@ -995,15 +1043,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
    * app's code passed, else the server's.
    */
   const versionsOfReads = (
-    reads: readonly ModuleRead[],
+    reads: readonly ReadOf[],
     passed: ReadonlyMap<ModuleFilePath, AnyModule>,
   ): FrameVersions => {
     const versions: FrameVersions = {};
     for (const read of reads) {
-      const own =
-        passed.get(read.moduleFilePath) ??
-        moduleAt(serverModules, read.moduleFilePath);
-      versions[read.moduleFilePath] = {
+      const own = passed.get(read.path) ?? moduleAt(serverModules, read.path);
+      versions[read.path] = {
         from: read.from,
         version:
           read.from === "server-draft"
@@ -1406,11 +1452,11 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       // project's files change (`devReload`).
       let clientModules = pageOptions.clientModules ?? serverModules;
       const followsServer = pageOptions.clientModules === undefined;
-      // The bundle's own entry imports, which a hook suspends on: resolved
-      // here, before reading, for each build's modules.
-      const committed = new Map<AnyModule[], CommittedEntries>();
+      // The bundle's own entry imports, which a hook suspends on: started and
+      // waited for here, before reading, for each build's modules -- what the
+      // hook's first `React.use` of each would have waited for.
       for (const modules of [serverModules, clientModules]) {
-        committed.set(modules, await committedEntriesOf(modules));
+        await loadBundledEntries(modules);
       }
       /**
        * What the page's store holds each module at: the server's draft as it
@@ -1418,21 +1464,40 @@ export async function createWorld(options: WorldOptions): Promise<World> {
        * page's bundle (or a snapshot over it).
        */
       const held = new Map<ModuleFilePath, FrameVersion>();
-      const record = (modules: AnyModule[], view: OverlayView) => {
-        const entries = committed.get(modules);
-        if (entries === undefined) throw new Error("unresolved build");
+      const suspensions: PageSuspension[] = [];
+      /**
+       * The provider's state, which is what the hooks read with
+       * (`pageReadEnv`): `ValTanStackProvider` moves it through the steps
+       * below, and a hook renders again when it moves (React re-renders a
+       * context's readers when its value changes, and only then).
+       */
+      let state: PageReadState;
+      let store: ValExternalStore;
+      let modulesNow: AnyModule[];
+      let step = "server render";
+      const record = () => {
+        const env = pageReadEnv({ ...state, store }, false);
         for (const show of pageOptions.shows) {
-          const module = moduleLike(modules, show.module);
+          const module = moduleLike(modulesNow, show.module);
+          const read = readShow(module, show, env);
+          if (read.status === "pending") {
+            // The component suspends: it shows its boundary's fallback, not
+            // a value.
+            suspensions.push({ surface: show.surface, step });
+            continue;
+          }
           const versions: FrameVersions = {};
           for (const path of idsOf([module])) {
-            const own = moduleAt(modules, path);
+            const own = moduleAt(modulesNow, path);
             const readWith =
               own === null ? null : versioning.schemaOfModule(own);
+            const from =
+              read.reads.find((r) => r.path === path)?.from ?? "bundle";
             const kept = held.get(path);
             versions[path] =
-              kept !== undefined
+              (from === "overlay" || from === "seeded") && kept !== undefined
                 ? { ...kept, readWith }
-                : view.snapshot?.[path] !== undefined
+                : from === "snapshot"
                   ? { from: "snapshot", version: null, readWith }
                   : {
                       from: "bundle",
@@ -1440,34 +1505,48 @@ export async function createWorld(options: WorldOptions): Promise<World> {
                       readWith,
                     };
           }
-          frames.record(
-            show.surface,
-            readShow(module, show, view, entries),
-            versions,
-          );
+          frames.record(show.surface, read.value, versions);
         }
         frames.tick();
       };
+      /** The provider's next state: the hooks render again if it moved. */
+      const moveTo = (next: PageReadState, at: string) => {
+        const moved = (Object.keys(next) as (keyof PageReadState)[]).some(
+          (key) => next[key] !== state[key],
+        );
+        state = next;
+        step = at;
+        if (moved) record();
+      };
       // 1. The server renders the page: the layout's loader reads the draft
-      //    (`fetchValDraft`) and the provider seeds its store from it.
-      const { value: draft, reads: draftReads } = await withReads(() =>
-        inRequest(request(), () => readersFor({ on: true }).fetchValDraft()),
-      );
+      //    (`fetchValDraft`) when the page passes the `draft` prop, and the
+      //    provider seeds its store from it. Without it, draft mode is
+      //    unknown until the browser asks.
+      const withDraftProp = pageOptions.draftProp !== false;
+      const { value: draft, reads: draftReads } = withDraftProp
+        ? await inRequest(request(), () =>
+            fetchValDraftReading(readersFor({ on: true })),
+          )
+        : { value: null, reads: [] };
       for (const read of draftReads) {
-        held.set(read.moduleFilePath, {
+        held.set(read.path, {
           from: read.from,
           version: read.version,
           readWith: null,
         });
       }
-      const serverStore = createDraftStore(draft);
-      const read = (store: ValExternalStore, modules: AnyModule[]) =>
-        record(modules, {
-          moduleMap: store.get(idsOf(modules)),
-          draftMode: isDraft(draft) ? true : null,
-          snapshot: draft?.snapshot,
-        });
-      read(serverStore, serverModules);
+      const initialState = (loaded: ValDraft | null): PageReadState => ({
+        draftMode: isDraft(loaded) ? true : null,
+        // `suspend` is switched on after hydration, never before.
+        suspend: false,
+        draftModeReady: undefined,
+        draftSourcesSynced: isDraft(loaded),
+        snapshot: loaded?.snapshot,
+      });
+      state = initialState(draft);
+      store = createDraftStore(draft);
+      modulesNow = serverModules;
+      record();
       // The page's loaders, read on the server: at the server render, and
       // whenever the refresh loop re-runs them. One `initValContent` per page
       // server, made again on a deploy, as the server module is.
@@ -1480,7 +1559,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           const module = currentModule(show.module);
           const { value, reads } = await withReads(() =>
             inRequest(request(), async () =>
-              raw(await content.fetchValStega(module)),
+              raw(await fetchValReading(content, module)),
             ),
           );
           frames.record(
@@ -1499,11 +1578,30 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       //    is JSON on the way -- with its own client modules.
       const loaderData: ValDraft | null =
         draft === null ? null : JSON.parse(JSON.stringify(draft));
-      const pageStore = createDraftStore(loaderData);
-      read(pageStore, clientModules);
-      // 3. The overlay mounts: its Studio takes in the page's client modules
-      //    with the base the page serves (`window.__VAL_BASE__`), and its
-      //    relay hands the page's store what the Studio holds.
+      store = createDraftStore(loaderData);
+      modulesNow = clientModules;
+      state = initialState(loaderData);
+      step = "hydration";
+      record();
+      // 3. The overlay mounts (the Val Enable cookie is there): the provider
+      //    switches `suspend` on, if the page asked for it, with a promise
+      //    for draft mode becoming known; then `/draft/stat` answers.
+      let draftModeKnown = () => {};
+      const draftModeReady =
+        pageOptions.suspend === true
+          ? new Promise<void>((resolve) => {
+              draftModeKnown = resolve;
+            })
+          : undefined;
+      moveTo(
+        { ...state, suspend: pageOptions.suspend === true, draftModeReady },
+        "overlay mounted",
+      );
+      draftModeKnown();
+      moveTo({ ...state, draftMode: true }, "draft mode known");
+      // 4. The overlay's Studio takes in the page's client modules with the
+      //    base the page serves (`window.__VAL_BASE__`), and its relay hands
+      //    the page's store what the Studio holds.
       const events: OverlayEvent[] = [];
       // The provider's refresh loop: an edit landing in the page's store
       // re-runs the loaders, at most every 500 ms, with the safety net behind.
@@ -1541,9 +1639,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
                     readWith: null,
                   });
                 }
-                const outcome = applyValEvent(pageStore, event);
+                const outcome = applyValEvent(store, event);
+                if (outcome.type === "synced") {
+                  moveTo({ ...state, draftSourcesSynced: true }, "synced");
+                }
                 if (outcome.type === "updated" && outcome.changed) {
-                  read(pageStore, clientModules);
+                  step = "relayed";
+                  record();
                   // Where the provider counts an edit and fires
                   // VAL_EDIT_LANDED, which its loop listens for.
                   pending.current++;
@@ -1557,15 +1659,18 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       if (followsServer) {
         hotPages.push(async (modules) => {
           clientModules = modules;
-          committed.set(modules, await committedEntriesOf(modules));
+          await loadBundledEntries(modules);
           // The page re-renders with the new code.
-          read(pageStore, clientModules);
+          modulesNow = modules;
+          step = "hot reload";
+          record();
           await readLoaders();
         });
       }
       return {
         studio,
         events,
+        suspensions,
         get refreshes() {
           return refreshes;
         },
@@ -1617,7 +1722,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           ) {
             passed.set(moduleFilePathOf(current), current);
           }
-          return raw(await content.fetchValStega(current));
+          return raw(await fetchValReading(content, current));
         },
         async fetchValKey(module, key) {
           return raw(
@@ -1672,24 +1777,32 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     workPosition() {
       const engine = engineWork();
+      const reads = readWork();
       return {
         versionHashes: versioning.productHashes(),
         engineApplies: engine.applyPatch,
         engineCloneBytes: engine.cloneBytes,
+        readResolves: reads.resolve,
+        readEncodes: reads.encode,
       };
     },
     expectWork(since, budget) {
       const over: string[] = [];
       const engine = engineWork();
+      const reads = readWork();
       const counts: Record<keyof WorldWorkBudget, number> = {
         "version:hash": versioning.productHashes() - since.versionHashes,
         "engine:apply-patch": engine.applyPatch - since.engineApplies,
         "engine:clone-bytes": engine.cloneBytes - since.engineCloneBytes,
+        "read:resolve": reads.resolve - since.readResolves,
+        "read:encode": reads.encode - since.readEncodes,
       };
       const kinds: (keyof WorldWorkBudget)[] = [
         "version:hash",
         "engine:apply-patch",
         "engine:clone-bytes",
+        "read:resolve",
+        "read:encode",
       ];
       for (const kind of kinds) {
         const limit = budget[kind];
@@ -1757,7 +1870,6 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       );
     },
     async dispose() {
-      stopObservingReads();
       // What a test held and did not let go of would hold the Studio's poll.
       network.release();
       for (const stop of relays) stop();
@@ -1846,70 +1958,44 @@ function moduleLike(modules: AnyModule[], module: AnyModule): AnyModule {
 }
 
 /**
- * What a hook gives back for one show, read the way the hook reads it:
- * `useVal`, `useValKey` or `useValRoute`'s pure part.
+ * What a hook gives back for one show, read the way the hook reads it --
+ * `useVal`, `useValKey` or `useValRoute` -- with the page's env: the field
+ * the show names, edit tags removed, or the wait the hook suspends on.
  */
 function readShow(
   module: AnyModule,
   show: PageShow,
-  view: OverlayView,
-  entries: CommittedEntries,
-): unknown {
+  env: ReadEnv,
+): Resolution<unknown> {
   const via = show.via;
-  if (via === undefined) {
-    return fieldOf(
-      raw(readSelectorWithOverlay(module, view, false, entries)),
-      show.field,
-    );
-  }
-  const modulePath = moduleFilePathOf(module);
-  const draftSource =
-    view.moduleMap && view.draftMode ? view.moduleMap[modulePath] : undefined;
-  const snapshotSource = view.snapshot?.[modulePath];
-  const one = (_: unknown, key: string) =>
-    entries(module, modulePath, [key])[0];
-  const value =
-    "useValKey" in via
-      ? readEntryWithOverlay(
-          module,
-          via.useValKey,
-          draftSource,
-          snapshotSource,
-          false,
-          one,
-        )
-      : readRouteEntryWithOverlay(
-          module,
-          via.useValRoute,
-          draftSource,
-          snapshotSource,
-          false,
-          one,
-        );
-  return fieldOf(raw(value), show.field);
+  const read: Resolution<unknown> =
+    via === undefined
+      ? resolveVal(module, env)
+      : "useValKey" in via
+        ? resolveModuleEntry(module, via.useValKey, env)
+        : moduleRouteRead(module, via.useValRoute, env);
+  return read.status === "ready"
+    ? { ...read, value: fieldOf(raw(read.value), show.field) }
+    : read;
 }
 
 /**
- * The committed content of every `.jsonValues()` entry the modules bundle,
- * resolved: what a hook's `React.use` would wait for, done before reading.
+ * Every `.jsonValues()` entry the modules bundle, imported: what a hook's
+ * `React.use` would wait for, done before reading, through the bundle's own
+ * source (which keeps them, by build), so a read finds them there.
  */
-async function committedEntriesOf(
-  modules: AnyModule[],
-): Promise<CommittedEntries> {
-  const loaded = new Map<string, unknown>();
+async function loadBundledEntries(modules: AnyModule[]): Promise<void> {
+  const env: ReadEnv = { sources: [], encode: false };
   for (const module of modules) {
     const source = Internal.getSource(module);
     if (typeof source !== "object" || source === null) continue;
-    const modulePath = moduleFilePathOf(module);
-    for (const key of Object.keys(source)) {
-      const thunk = bundledJsonEntryImport(module, key);
-      if (thunk !== undefined) {
-        loaded.set(`${modulePath} ${key}`, (await thunk()).default);
-      }
+    for (const [key, entry] of Object.entries(source)) {
+      if (!Internal.isJson(entry)) continue;
+      await awaitResolved((settled) =>
+        resolveModuleEntry(module, key, env, { settled }),
+      ).catch(() => undefined);
     }
   }
-  return (_module, modulePath, keys) =>
-    keys.map((key) => loaded.get(`${modulePath} ${key}`));
 }
 
 /** A field of a value read through a reader. */

@@ -15,7 +15,8 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  * Budgets: work counted with the stores' own activity channel
  * (`RecordingActivity`), and versions hashed with `versionHashCount`, not
  * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05, and the
- * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`). (B03, a draft
+ * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`), and the
+ * readers' B07 (`read:resolve`, `read:encode`). (B03, a draft
  * read in a 128 MB isolate, is a benchmark, not here.)
  */
 
@@ -212,5 +213,47 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       "engine:apply-patch": { exactly: reads * 2 },
       "engine:clone-bytes": { exactly: reads * (rootBytes + itemBytes) },
     });
+  });
+
+  /**
+   * B07 A read resolves once per wait, and encodes once.
+   *
+   * Given a module with a pending edit,
+   * when a draft page's loader reads it (`fetchVal`), and a visitor's does,
+   * then the draft read resolves twice -- once to find the draft is loading,
+   * once when it is in -- and the visitor's once, with nothing to wait for;
+   * and each encodes its value exactly once (risk 6 in the plan: edit tags
+   * are woven in once per read, never once per wait). Every reader of both
+   * frameworks resolves through `resolveVal`, so this is all of them.
+   */
+  test("B07 a read resolves once per wait, and encodes once", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    const draft = world.page("/", { draftMode: true });
+    draft.reads("draft", async (val) => (await val.fetchVal(homeVal)).title);
+    await editor.edit(homeVal, ["title"], "Typed");
+    await world.settle();
+
+    const beforeDraft = world.workPosition();
+    await world.observe();
+    world.expectWork(beforeDraft, {
+      "read:resolve": { exactly: 2 },
+      "read:encode": { exactly: 1 },
+    });
+    expect(world.frames.last("draft")).toBe("Typed");
+
+    const visitor = world.page("/", { draftMode: false });
+    visitor.reads(
+      "visitor",
+      async (val) => (await val.fetchVal(homeVal)).title,
+    );
+    const beforeVisitor = world.workPosition();
+    await world.observe();
+    // The draft page reads again (2 and 1), and the visitor once.
+    world.expectWork(beforeVisitor, {
+      "read:resolve": { exactly: 2 + 1 },
+      "read:encode": { exactly: 1 + 1 },
+    });
+    expect(world.frames.last("visitor")).toBe("Hello");
   });
 });

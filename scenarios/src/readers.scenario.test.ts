@@ -1,4 +1,5 @@
-import { initVal } from "@valbuild/core";
+import { Internal, initVal } from "@valbuild/core";
+import { recordAddPatch } from "../../packages/ui/spa/components/recordPatches";
 import {
   createWorld,
   moduleFilePathOf,
@@ -17,8 +18,8 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
 );
 
 /**
- * Readers: the page's loader, the page's hook and the Studio's field agreeing.
- * Catalogue ids S22, S23. (S24 is not built, and S25 is a unit test: see
+ * Readers: the page's loader, the page's hook and the Studio's field agreeing,
+ * and the hooks' waits. Catalogue ids S22, S23, S24. (S25 is a unit test: see
  * the README.)
  */
 
@@ -29,6 +30,12 @@ const homeVal = c.define(
   { title: "Hello" },
 );
 const title = { module: homeVal, field: ["title"] };
+/** A router, for a page that exists only in a pending patch. */
+const notesVal = c.define(
+  "/src/routes/notes.$note.val.ts",
+  s.router(Internal.tanstackRouter, s.object({ title: s.string() })),
+  { "/notes/first": { title: "First" } },
+);
 
 describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   let world: World | null = null;
@@ -108,5 +115,152 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     expect(hook[0]).toBe("Draft title"); // the server render
     expect(hook).not.toContain("Hello");
     expect(world.frames.of("loader")[0]?.value).toBe("Draft title");
+  });
+
+  /**
+   * S24 `suspend` is three waits, and nothing else suspends.
+   *
+   * The waits are the overlay source's states (`overlaySource`, in
+   * `@valbuild/react`): draft mode unknown, the Studio not done sending, and
+   * no wait at all until the provider switches `suspend` on after hydrating
+   * (`architecture/quirks.md`, "`suspend` is three waits"). A plain function
+   * now, so the page's hooks are read here as they read: every step of the
+   * load, each a frame or -- for a read that waits -- a suspension.
+   */
+  describe("S24", () => {
+    const pendingEdit = async (w: World) => {
+      const editor = await w.studio("editor");
+      await editor.edit(homeVal, ["title"], "Draft title");
+      await w.settle();
+    };
+
+    test.each([true, false])(
+      "S24 without suspend, nothing suspends (draft prop: %s)",
+      async (draftProp) => {
+        world = await createWorld({ config, modules: [homeVal], server });
+        await pendingEdit(world);
+        const page = await world.loadPage("/", {
+          shows: [{ surface: "hook", ...title }],
+          draftProp,
+        });
+        await world.settle();
+
+        expect(page.suspensions).toEqual([]);
+        expect(world.frames.last("hook")).toBe("Draft title");
+        world.expectInvariants();
+      },
+    );
+
+    /*
+     * With `suspend`, once the overlay is up the hooks wait -- for draft mode,
+     * then for the Studio -- rather than show the published title, and then
+     * show the draft. The server render and hydration still show it: the
+     * gate is off on the render that decides (the third wait), which is the
+     * next test.
+     *
+     * FINDING (fails today, every mode): the waits work, and end too early.
+     * The overlay's relay says `sources-synced` before it has sent the module
+     * with the pending edit: when the Studio's base aligns, its chain's
+     * records have not been fetched yet, so `sendPendingSources` finds no
+     * patch to send and the page is told it has everything. The hooks stop
+     * waiting and render the published title, and the draft follows on the
+     * next relay (`["sources-synced", "source-update", ...]`, frames
+     * `Hello, Hello, Hello, Draft title`). For a route that only exists in
+     * the patch, that published render is a `notFound()`. The fix is the
+     * relay's (`startOverlayRelay`): `sources-synced` only once the chain the
+     * Studio aligned to is in its store. `S24 ... nothing suspends` and the
+     * `draft` prop are unaffected.
+     */
+    test.failing(
+      "S24 with suspend, the hooks wait for draft mode and the Studio, then show the draft (fails today: synced before the chain is in)",
+      async () => {
+        world = await createWorld({ config, modules: [homeVal], server });
+        await pendingEdit(world);
+        const page = await world.loadPage("/", {
+          shows: [{ surface: "hook", ...title }],
+          draftProp: false,
+          suspend: true,
+        });
+        await world.settle();
+
+        expect(page.suspensions.map((s) => s.step)).toEqual([
+          "overlay mounted",
+          "draft mode known",
+        ]);
+        const shown = world.frames.of("hook").map((frame) => frame.value);
+        // The server render and hydration (no gate yet), then the draft.
+        expect(shown).toEqual(["Hello", "Hello", "Draft title"]);
+        world.expectInvariants();
+      },
+    );
+
+    /*
+     * A route that exists only in a pending patch. `useValRoute` returns
+     * `null` for it on the server render and on hydration -- the render the
+     * page turns into `notFound()`, which nothing later undoes -- because the
+     * gate is not on yet for either (wait 3). Fixed on TanStack by the
+     * `draft` prop (below); without it, and on Next, still open: the server
+     * would have to know Val is enabled, which costs every visitor a dynamic
+     * render. Kept failing, as the finding. (After hydration it also meets
+     * the early `sources-synced` above: one more render without the route.)
+     */
+    test.failing(
+      "S24 with suspend, a route only in a pending patch is found on the render that decides, without the draft prop (fails today: wait 3)",
+      async () => {
+        world = await createWorld({ config, modules: [notesVal], server });
+        const editor = await world.studio("editor");
+        await editor.write(
+          notesVal,
+          recordAddPatch([], "/notes/new", { title: "New note" }),
+        );
+        await world.settle();
+        await world.loadPage("/notes/new", {
+          shows: [
+            {
+              surface: "route",
+              module: notesVal,
+              field: ["title"],
+              via: { useValRoute: { note: "new" } },
+            },
+          ],
+          draftProp: false,
+          suspend: true,
+        });
+        await world.settle();
+
+        const shown = world.frames.of("route").map((frame) => frame.value);
+        expect(shown.length).toBeGreaterThan(0);
+        // Not found is no value: on the server render and on hydration,
+        // today. (`toStrictEqual`: `toEqual` would not see an `undefined`.)
+        expect(shown).toStrictEqual(shown.map(() => "New note"));
+      },
+    );
+
+    test("S24 with suspend and the draft prop, the route is found on every render", async () => {
+      world = await createWorld({ config, modules: [notesVal], server });
+      const editor = await world.studio("editor");
+      await editor.write(
+        notesVal,
+        recordAddPatch([], "/notes/new", { title: "New note" }),
+      );
+      await world.settle();
+      const page = await world.loadPage("/notes/new", {
+        shows: [
+          {
+            surface: "route",
+            module: notesVal,
+            field: ["title"],
+            via: { useValRoute: { note: "new" } },
+          },
+        ],
+        suspend: true,
+      });
+      await world.settle();
+
+      const shown = world.frames.of("route").map((frame) => frame.value);
+      expect(shown.length).toBeGreaterThan(0);
+      expect(shown).toStrictEqual(shown.map(() => "New note"));
+      expect(page.suspensions).toEqual([]);
+    });
   });
 });
