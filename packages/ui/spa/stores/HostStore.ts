@@ -69,6 +69,8 @@ type Adopted = {
   serializedSchema: SerializedSchema;
   source: Json;
   instance: Schema<SelectorSource>;
+  /** `source` when it is the bundle's own, not a served one. */
+  bundleSource?: Json;
 };
 
 export class HostStore implements HostBridge {
@@ -207,18 +209,43 @@ export class HostStore implements HostBridge {
           });
           continue;
         }
+        /**
+         * The same module as last time -- the very instance, which is what an
+         * HMR round leaves every file it did not re-evaluate -- hands over the
+         * very objects it handed over last time. That is how the stores
+         * downstream tell a module that changed from one that came along with
+         * it: `SchemaStore.receive` and `SourceStore.receive` compare what
+         * they are given with what they were given, and only a changed module
+         * invalidates anything. It is the instance and not a comparison of the
+         * serialized form because an instance carries closures (`validate`,
+         * `preview`) that the serialized form does not: a module whose only
+         * change is its `validate` must still be validated again.
+         */
+        const previous = this.adoptedAt[index];
+        const same =
+          previous !== undefined &&
+          previous.moduleFilePath === moduleFilePath &&
+          previous.instance === schema
+            ? previous
+            : undefined;
         // Bracket access, never `instanceof Schema`: this object came from the
         // HOST's copy of @valbuild/core, so the class identity differs from ours.
         // See the bundle-seam note in `bridges.ts`.
-        this.activity.work("host:serialize-schema", moduleFilePath);
-        serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
+        if (same !== undefined) {
+          serializedSchemas[moduleFilePath] = same.serializedSchema;
+        } else {
+          this.activity.work("host:serialize-schema", moduleFilePath);
+          serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
+        }
         // JSON round-trip so what crosses is provably clone-safe — no instance
         // can leak downstream by being reachable from a source value.
         const servedSource = served?.[moduleFilePath];
-        sources[moduleFilePath] =
+        const bundleSource =
           servedSource !== undefined
-            ? servedSource
-            : (JSON.parse(JSON.stringify(Internal.getSource(module))) as Json);
+            ? undefined
+            : (same?.bundleSource ??
+              (JSON.parse(JSON.stringify(Internal.getSource(module))) as Json));
+        sources[moduleFilePath] = servedSource ?? bundleSource ?? null;
         this.instances[moduleFilePath] = schema;
         adopted.push(moduleFilePath);
         adoptedAt[index] = {
@@ -226,6 +253,7 @@ export class HostStore implements HostBridge {
           serializedSchema: serializedSchemas[moduleFilePath],
           source: sources[moduleFilePath],
           instance: schema,
+          ...(bundleSource !== undefined ? { bundleSource } : {}),
         };
       } catch (error) {
         failures.push({

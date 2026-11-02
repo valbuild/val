@@ -59,8 +59,30 @@ export class SchemaStore {
     const removed = (Object.keys(this.schemas) as ModuleFilePath[]).filter(
       (moduleFilePath) => schemas[moduleFilePath] === undefined,
     );
+    /**
+     * Only the modules whose schema is not the one this store holds --
+     * compared, not tracked. Every caller hands over the whole project, so
+     * bumping all of them made every intake (an HMR round of one file)
+     * invalidate every module's validation and previews, and nothing
+     * downstream could tell the module that changed from the ones that came
+     * along with it.
+     *
+     * By identity. `HostStore` hands back the very object it serialized last
+     * time for a module whose instance has not changed, and a new object for
+     * one that has -- even when the two serialize the same, because an
+     * instance's closures (`validate`, `preview`) are not in its serialized
+     * form, and a new `validate` has to reach validation. A caller with no
+     * such continuity (a schema fetched again) hands over new objects, and
+     * every module counts as changed, as it always did.
+     */
+    const changed: ModuleFilePath[] = [
+      ...(Object.keys(schemas) as ModuleFilePath[]).filter(
+        (moduleFilePath) =>
+          this.schemas[moduleFilePath] !== schemas[moduleFilePath],
+      ),
+      ...removed,
+    ];
     this.schemas = { ...schemas };
-    const changed = [...(Object.keys(schemas) as ModuleFilePath[]), ...removed];
     for (const moduleFilePath of changed) {
       this.versions.set(
         moduleFilePath,
@@ -83,7 +105,7 @@ export class SchemaStore {
   }
 
   /**
-   * Bumped every time a module's schema is received. Stands in for the
+   * Bumped every time a module's schema is received changed. Stands in for the
    * `schemaSha` that `SchemaValidator` caches on: the only question either
    * answers is "is my deserialized schema still the right one", and a counter
    * answers it without hashing. It is per-session only, which is all a cache

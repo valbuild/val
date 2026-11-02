@@ -329,14 +329,15 @@ describe("a full intake: the referrer is invalidated by what it depends on, not 
    * referrer's validation result should be kept, because nothing it depends
    * on moved.
    *
-   * FAILS TODAY (X1): `SchemaStore.receive` bumps the version of EVERY module
-   * an intake carries, changed or not, so every intake invalidates every
-   * module. That also makes the two tests below unable to tell the
-   * dependency path from the referrer's own re-intake, which is why this
-   * control exists. Turns green when an intake bumps only the modules whose
-   * instance (or serialized schema) changed.
+   * X1, fixed: `SchemaStore.receive` and `SourceStore.receive` bumped EVERY
+   * module an intake carries, changed or not, so every intake invalidated
+   * every module -- and the two tests below could not tell the dependency
+   * path from the referrer's own re-intake, which is why this control
+   * exists. Both now compare what they are handed with what they were
+   * handed, and `HostStore` hands back the same objects for a module whose
+   * instance did not change.
    */
-  it.failing("keeps the referrer's result when nothing changed", async () => {
+  it("keeps the referrer's result when nothing changed", async () => {
     const rig = initTestSystem();
     const pages = pagesModule();
     const nav = navModule();

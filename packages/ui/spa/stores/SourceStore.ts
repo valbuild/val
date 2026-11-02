@@ -262,6 +262,16 @@ export class SourceStore {
   private baseSources: Record<ModuleFilePath, Json> = {};
 
   /**
+   * What {@link receive} was last handed for each module, as given (not the
+   * clone it keeps), and the base's revision once it had it: how the next
+   * intake tells a module that came along unchanged from one that moved.
+   */
+  private receivedSources = new Map<
+    ModuleFilePath,
+    { source: Json; baseRevision: number | undefined }
+  >();
+
+  /**
    * Every patch this store has seen for a module, in order, whether or not it
    * applied.
    *
@@ -1998,6 +2008,7 @@ export class SourceStore {
       delete this.baseSources[moduleFilePath];
       delete this.publishedSources[moduleFilePath];
       this.publishedFrom.delete(moduleFilePath);
+      this.receivedSources.delete(moduleFilePath);
       this.jsonEntries.delete(moduleFilePath);
       this.baseJsonEntries.delete(moduleFilePath);
       this.publishedJsonEntries.delete(moduleFilePath);
@@ -2013,9 +2024,32 @@ export class SourceStore {
     // mutate it from outside.
     for (const [moduleFilePath, source] of Object.entries(sources)) {
       this.activity.work("source:clone-module", moduleFilePath);
+      /*
+       * The very object received last time is the same module, so no reader
+       * is holding anything that moved: `HostStore` hands one back for a
+       * module whose instance an HMR round did not re-create (see
+       * `SchemaStore.receive` for why identity). Compared, not tracked;
+       * without it every intake invalidated every module's readers and
+       * validation. A base from the server is a new object every time, and
+       * bumps as it always did -- and so does a base that moved some other
+       * way since (a publish promoted, an entry loaded), which the base's own
+       * revision says.
+       */
+      const received = this.receivedSources.get(
+        moduleFilePath as ModuleFilePath,
+      );
+      const unchanged =
+        received !== undefined &&
+        received.source === source &&
+        received.baseRevision ===
+          this.baseRevisions.get(moduleFilePath as ModuleFilePath);
       const base = deepClone(source as JSONValue);
       this.baseSources[moduleFilePath as ModuleFilePath] = base;
       this.bumpBase(moduleFilePath as ModuleFilePath);
+      this.receivedSources.set(moduleFilePath as ModuleFilePath, {
+        source,
+        baseRevision: this.baseRevisions.get(moduleFilePath as ModuleFilePath),
+      });
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
       /*
        * And the entry content back to base, as a rebuild does.
@@ -2047,10 +2081,14 @@ export class SourceStore {
        * server mid-restart, a network blip) would stay failed for the life of
        * the tab, because nothing else asks again.
        */
-      this.clearEntryFailures(moduleFilePath as ModuleFilePath);
+      const clearedFailures = this.clearEntryFailures(
+        moduleFilePath as ModuleFilePath,
+      );
       // The base was replaced, so every reader of this module is holding
       // something that may no longer be right — whatever the patch chain did.
-      this.bump(moduleFilePath as ModuleFilePath);
+      if (!unchanged || clearedFailures) {
+        this.bump(moduleFilePath as ModuleFilePath);
+      }
     }
     this.events.emit({
       type: "source:init",
