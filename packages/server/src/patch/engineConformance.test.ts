@@ -349,10 +349,10 @@ const cases: Case[] = [
       [{ op: "test", path: [], value: null }],
     ],
     differs: {
-      why: 'The old loop asked `if (!patchedSources[path])` to find a module\'s first patch, so a module whose content had become null, "", 0 or false was put back to its base before its next patch: a nullable module set to null came back as soon as anything else touched it.',
+      why: 'The old loop asked `if (!patchedSources[path])` to find a module\'s first patch, so a module whose content had become null, "", 0 or false was put back to its base before its next patch: a nullable module set to null came back as soon as anything else touched it. Here the next patch tests for the null, so the old engine fails it: it is testing "text".',
       legacy: {
         source: "text",
-        failed: null,
+        failed: { patch: 1, message: "Test failed" },
         skipped: [],
         entries: {},
         patchesUnchanged: true,
@@ -360,12 +360,36 @@ const cases: Case[] = [
     },
   },
   {
-    name: "a test op never fails (as core's applyPatch, which the commit uses too)",
+    name: "a test op that matches, deeply, lets the patch through",
+    schema: page,
+    source: pageSource,
+    patches: [
+      [
+        { op: "test", path: ["title"], value: "Hello" },
+        { op: "test", path: ["tags"], value: ["a", "b", "c"] },
+        { op: "test", path: ["nested"], value: { deep: { value: 1 } } },
+        { op: "replace", path: ["title"], value: "after the test" },
+      ],
+    ],
+  },
+  {
+    name: "a test op whose value differs fails the patch",
     schema: page,
     source: pageSource,
     patches: [
       [
         { op: "test", path: ["title"], value: "not the title" },
+        { op: "replace", path: ["title"], value: "after the test" },
+      ],
+      [{ op: "replace", path: ["title"], value: "skipped" }],
+    ],
+  },
+  {
+    name: "a test op on a path that does not exist fails the patch",
+    schema: page,
+    source: pageSource,
+    patches: [
+      [
         { op: "test", path: ["no", "such", "path"], value: 1 },
         { op: "replace", path: ["title"], value: "after the test" },
       ],
@@ -826,10 +850,52 @@ describe("the engine's conformance cases", () => {
         message: "Cannot 'move' between different jsonValues entries",
       },
     });
+    expect(run("a module whose content became null")).toMatchObject({
+      source: null,
+      failed: null,
+    });
     expect(run("a nullable record replaced by null").entries).toEqual({
       "/a": "missing",
       "/b": "missing",
     });
+  });
+});
+
+/*
+ * A `test` op fails its patch when the path is missing or the value there is
+ * not deeply equal (RFC 6902, 4.6). Both engines agree on that, as they must,
+ * so it is not a `differs`: it is written out here because both used to
+ * answer that a `test` never fails, and the cases alone would not say which.
+ */
+test("a test op's answers", () => {
+  const run = (name: string) => {
+    const c = cases.find((c) => c.name === name);
+    if (c === undefined) throw new Error(`no case ${name}`);
+    return runNew(structuredClone(c));
+  };
+  expect(
+    run("a test op that matches, deeply, lets the patch through"),
+  ).toMatchObject({
+    source: {
+      title: "after the test",
+      tags: ["a", "b", "c"],
+      hero: null,
+      nested: { deep: { value: 1 } },
+    },
+    failed: null,
+  });
+  expect(run("a test op whose value differs fails the patch")).toEqual({
+    source: pageSource,
+    failed: { patch: 0, message: "Test failed" },
+    skipped: [1],
+    entries: {},
+    patchesUnchanged: true,
+  });
+  expect(
+    run("a test op on a path that does not exist fails the patch"),
+  ).toMatchObject({
+    source: pageSource,
+    failed: { patch: 0, message: "Path refers to non-existing object/array" },
   });
 });
 

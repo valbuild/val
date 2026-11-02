@@ -2,6 +2,7 @@ import { Internal, VAL_EXTENSION, type PatchId } from "@valbuild/core";
 import type { SerializedSchema } from "@valbuild/core";
 import { result, type array } from "@valbuild/core/fp";
 import {
+  deepEqual,
   parseAndValidateArrayIndex,
   PatchError,
   type Operation,
@@ -736,16 +737,16 @@ function applyOp(doc: Doc, op: Operation): Res<Doc> {
       if (result.isErr(value)) return value;
       return addAt(doc, op.path, value.value);
     }
-    case "test":
-      /*
-       * Never fails, as `applyPatch` in `@valbuild/core/patch` never fails
-       * one (it tests the truthiness of a Result, which is always an
-       * object). Wrong by RFC 6902, and kept: the commit applies `.val.ts`
-       * text through that same `applyPatch`, and a read that refused a patch
-       * the commit accepts is worse than both accepting it. Fixed in core,
-       * for both, or not at all.
-       */
+    case "test": {
+      // As `applyPatch` in `@valbuild/core/patch`, which the commit applies
+      // `.val.ts` text through: a path that does not exist, or a value there
+      // that is not deeply equal, fails the patch (RFC 6902, 4.6). The two
+      // have to agree, or a draft shows a patch Publish refuses.
+      const value = getAt(doc, op.path);
+      if (result.isErr(value)) return value;
+      if (!deepEqual(op.value, value.value)) return patchError("Test failed");
       return result.ok(doc);
+    }
     case "file":
       return patchError("Cannot apply a file patch here");
   }

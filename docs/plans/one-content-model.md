@@ -170,10 +170,13 @@ coverage" (valbuild/val#1006).
      third is refused, so the destination does not exist.
   6. A replaced (nullable) `.jsonValues()` record kept answering its entries.
      Fixed: they go with it.
-  7. Kept, not fixed: a `test` op never fails, because core's `applyPatch`
-     tests a Result's truthiness. The commit applies the `.val.ts` text with
-     the same `applyPatch`, so the engine keeps it a no-op rather than refuse
-     on read what the commit accepts; fix it in core, for both.
+  7. A `test` op never failed, because core's `applyPatch` tested a
+     Result's truthiness, and the engine kept it a no-op so as not to refuse
+     on read what the commit (the same `applyPatch`) accepted. Fixed in core
+     and in the engine together: a missing path or a value that is not
+     deeply equal fails the patch on both. No producer relied on the no-op:
+     nothing in Val writes a `test` op; the MCP `create_patch` tool passes
+     one through from its caller.
 
 **Decided on 2026-11-01**, beyond what the sections below say:
 
