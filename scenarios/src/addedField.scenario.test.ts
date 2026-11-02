@@ -104,6 +104,19 @@ describe.each(["fs", "memory", "http"] as const)(
      * schema, and an edit that does not fit after a code change is held, not
      * deleted), so it is not made here. When it is, this test fails because it
      * passes: remove `.failing`.
+     *
+     * Code mode's save before each code write does NOT fix this one, and was
+     * not expected to: nothing here is a code write through Val's server.
+     * This is local development, where the code arrives by HMR, and the bug is
+     * the ORDER it arrives in -- the Studio's schema has the field before the
+     * server's does, so the edit is written against a base without it. A save
+     * before a write orders content against code where the write goes through
+     * the server (a proposal's `write_files`); HMR never does. The hosted form
+     * of the bug, which code mode is for, passes: C5 in
+     * `codeMode.scenario.test.ts`, where the assistant adds the field through
+     * `write_files` and the editor fills it in. What makes THIS one pass is the
+     * schema rule (an edit to a module whose schema the server does not have
+     * yet is held, not deleted): phase 1 of the plan.
      */
     test.failing(
       "is kept when the Studio has the new code before the server does",

@@ -65,6 +65,15 @@ coverage" (valbuild/val#1006).
   share it, a staged `.val.ts` (through `write_files`) is its Source, and
   Publish merges it into the site. The new routes are pinned in
   `homeWireContract.test.ts`. All pass.
+- **Code mode, wired** (C1-C6, `codeMode.scenario.test.ts`): the `</>` and
+  Save's Commit and Publish on content's code-mode contract (valbuild/home
+  8689c94). Val's server saves every pending change before turning code mode
+  on and before each code write (`beforeProposalCodeWrite` in `ValServer`),
+  and refuses a code write while it is off; the Studio's code tools refuse
+  too, naming who turned it off, and the assistant asks with
+  `request_code_mode`. The view is each person's (`codeMode.ts`). S10b's
+  hosted form passes (C5); its local-development form stays failing, because
+  HMR is no write through the server (see `addedField.scenario.test.ts`).
 - **Measurements** (`scenarios/measure/`): how to measure, and the first
   results.
 
@@ -99,8 +108,8 @@ coverage" (valbuild/val#1006).
    the draft-read numbers, S24 and S25, and the hosted layers (decision 1).
 2. Fix the plain bugs (decision 2), and then the grid's failing cells, after
    they have been discussed.
-3. Wire code mode onto the UI #1010 added (see "Code mode", below). S10b
-   turns green.
+3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
+   local form waits for the schema rule (phase 1).
 4. Phases 1 to 9.
 
 ## The goal

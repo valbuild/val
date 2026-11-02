@@ -111,6 +111,11 @@ import {
   createStudioJobClient,
   type StudioJobClient,
 } from "@valbuild/shared/publish";
+import { readCodeMode } from "../../../packages/ui/spa/proposals/codeMode";
+import {
+  commitProposal,
+  type CommitOutcome,
+} from "../../../packages/ui/spa/proposals/commitProposal";
 
 /**
  * A world a scenario runs in: Val's real server behind a network the test
@@ -169,8 +174,18 @@ export type World = {
    * and at every store change, so a value that comes and goes is caught.
    */
   loadPage(route: string, options: PageLoadOptions): Promise<LoadedPage>;
-  /** {@link deployCode}, then every Studio's {@link Studio.receiveCode}. */
-  changeCode(modules: AnyModule[]): Promise<void>;
+  /**
+   * New code. In local development: {@link deployCode}, then every Studio's
+   * {@link Studio.receiveCode}. At a proposal's address it is the assistant
+   * changing the proposal's code: `files` (the `.val.ts` text of `modules`,
+   * by repository path) are staged through its `write_files`
+   * ({@link ProposalAt.stage}), and the build the platform makes of them is
+   * served and reaches every Studio. A staging that is refused throws.
+   */
+  changeCode(
+    modules: AnyModule[],
+    files?: Record<string, string | null>,
+  ): Promise<void>;
   /** The invariants every scenario is held to. See `frames.ts`. */
   expectInvariants(): void;
   /** Stops what the world started, and puts the working directory back. */
@@ -199,7 +214,20 @@ export type ProposalAt = {
    */
   redeploy(): Promise<void>;
   /** Publish in the proposal: the press the Studio makes (`pressMerge`). */
-  merge(): ReturnType<StudioJobClient["pressMerge"]>;
+  merge(commitMessage?: string): ReturnType<StudioJobClient["pressMerge"]>;
+  /**
+   * Turn code mode on or off, as the `</>` and the assistant's
+   * `request_code_mode` card do (`ProposalsClient.setCodeMode`): at the
+   * proposal's address, Val's server saves every pending change first.
+   */
+  codeMode(on: boolean): ReturnType<ProposalsClient["setCodeMode"]>;
+  /** Commit, as the Studio's Commit does after saving (`commitProposal`). */
+  commit(message: string): Promise<CommitOutcome>;
+  /**
+   * Somebody else pushes to the proposal's git branch, as a developer does
+   * from a laptop: the content host's control plane. Val has not seen it.
+   */
+  someonePushes(push: { author: string; message: string }): Promise<void>;
   /** The product's client for content's proposals API, through the app. */
   client: ProposalsClient;
 };
@@ -1095,8 +1123,25 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             },
             typecheck: notWriteFiles,
             offerProposal: notWriteFiles,
+            // As the Studio's assistant asks it (`useAI`): no names here.
+            codeMode: () => readCodeMode(client, name, () => null),
           },
         ),
+      codeMode: (on) => client.setCodeMode(name, on),
+      commit: (message) => commitProposal(client, name, message),
+      async someonePushes(push) {
+        const res = await fetch(
+          `${host.contentHost.url}/__test__/proposals/${name}/push`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              author: { name: push.author },
+              message: push.message,
+            }),
+          },
+        );
+        if (!res.ok) throw new Error(`Could not push: ${res.status}`);
+      },
       async redeploy() {
         const res = await fetch(
           `${host.contentHost.url}/__test__/proposals/${name}/overlay`,
@@ -1106,14 +1151,17 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         host.http = { ...host.http, proposal: overlay };
         deployCode(serverModules);
       },
-      merge: () =>
+      merge: (commitMessage) =>
         createStudioJobClient({ api: "/api/val", fetchImpl: send }).pressMerge(
           name,
           randomUUID(),
           "scenario-tab",
+          undefined,
+          commitMessage,
         ),
     };
   };
+  const proposal = proposalAt();
   return {
     server:
       host.mode === "fs"
@@ -1124,7 +1172,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     network,
     frames,
     studio: (name) => startStudio(name, valModules),
-    proposal: proposalAt(),
+    proposal,
     async loadPage(route, pageOptions) {
       const request = () => pageRequest(host, route);
       // The page's browser bundle: the server's code unless the scenario gives
@@ -1320,8 +1368,26 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     clock,
     deployCode,
-    async changeCode(modules) {
-      deployCode(modules);
+    async changeCode(modules, files) {
+      const at = proposal;
+      if (at !== null) {
+        if (files === undefined) {
+          throw new Error(
+            "At a proposal's address code changes by a staging: give changeCode the files it writes.",
+          );
+        }
+        const staged = await at.stage(files, "Change the code");
+        if (staged.isError) {
+          throw new Error(
+            `write_files was refused: ${JSON.stringify(staged.result)}`,
+          );
+        }
+        // The platform builds what is staged and serves it at the address.
+        serverModules = modules;
+        await at.redeploy();
+      } else {
+        deployCode(modules);
+      }
       for (const { studio } of studios) {
         await studio.receiveCode(modules);
       }

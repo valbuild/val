@@ -148,6 +148,8 @@ describe("a proposal, on http", () => {
     await editor.edit(homeVal, ["title"], "Spring");
     await world.settle();
     expect((await editor.publish()).status).toBe("published");
+    // The assistant changes code only in code mode: see `codeMode`.
+    await proposal.codeMode(true);
 
     const staged = await proposal.stage(
       { "content/home.val.ts": homeText("Staged in code") },
