@@ -15,6 +15,7 @@ import {
   type CellContext,
   type Surface,
 } from "./matrix/harness";
+import { createWorld } from "./world/createWorld";
 
 // See `smoke.scenario.test.ts` and the README for these two.
 jest.mock(
@@ -347,3 +348,46 @@ const cells: Cell[] = [
 ];
 
 matrix({ name: "jsonValues", config, modules: [blogVal], sourceText }, cells);
+
+/**
+ * The matrix opens its page before the cell runs, so the Studio feeding the
+ * page's overlay already had the published entry loaded, from the edit. A page
+ * opened AFTER the publish has a Studio that never saw the edit: what it gets
+ * from the server is the published module, whose entries are markers, and the
+ * page has the bundle, which on a host that does not rebuild (memory mode)
+ * still has the entry from before the publish.
+ */
+describe.each(["memory", "fs", "http"] as const)(
+  "jsonValues on %s, a page opened after a publish",
+  (server) => {
+    test("shows the published entry, and never the bundle's", async () => {
+      const world = await createWorld({
+        config,
+        modules: [blogVal],
+        server,
+        sourceText,
+      });
+      try {
+        const editor = await world.studio("editor");
+        await editor.edit(blogVal, ["/blog/a", "title"], "Edited A");
+        await world.settle();
+        const published = await editor.publish();
+        expect(published.status).toBe("published");
+        await world.settle();
+        const surface = "useVal /blog/a";
+        await world.loadPage("/", {
+          shows: [{ surface, module: blogVal, field: ["/blog/a", "title"] }],
+        });
+        await world.settle();
+        await world.observe();
+        world.frames.expectNeverGoesBack();
+        expect(world.frames.of(surface).map((f) => f.value)).not.toContain(
+          "Page A",
+        );
+        expect(world.frames.last(surface)).toBe("Edited A");
+      } finally {
+        await world.dispose();
+      }
+    });
+  },
+);

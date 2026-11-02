@@ -143,6 +143,8 @@ export function emitModuleSource(
   system: System,
   moduleFilePath: ModuleFilePath,
   onUpdate: SourceUpdate,
+  /** Set once the entries this waited for have been read: see below. */
+  afterLoad: boolean = false,
 ): void {
   const source = system.sourceStore.moduleSource(moduleFilePath);
   if (source === undefined) {
@@ -170,8 +172,41 @@ export function emitModuleSource(
       if (typeof from === "string") keys.add(from);
     }
   }
-  if (keys.size > 0) {
-    void system.sourceStore.loadEntries(moduleFilePath, [...keys]);
+  /**
+   * And the entries whose marker says the receiver's bundle does not have
+   * them (`Internal.isJsonFromServer`): ones a publish wrote, on a host that
+   * has not rebuilt since. No pending patch names them any more, so without
+   * this the receiver filled them from its bundle -- the content from before
+   * the publish.
+   */
+  let fromServer = false;
+  if (isJsonObject(source)) {
+    for (const [key, value] of Object.entries(source)) {
+      if (!Internal.isJsonFromServer(value)) continue;
+      keys.add(key);
+      fromServer = true;
+    }
+  }
+  const loading =
+    keys.size > 0
+      ? system.sourceStore.loadEntries(moduleFilePath, [...keys])
+      : null;
+  /**
+   * Held back until those entries are here. The page already shows them: its
+   * server render read them from the server too (`withDraftJsonEntries`), and
+   * a marker handed over now would REPLACE that with the bundle's copy until
+   * the content followed -- the published entry, then the one from before
+   * the publish, then the published one again.
+   *
+   * Sent once the read is over whatever it found: an entry that loaded is in
+   * the source by then, and one that failed is a marker the page can only
+   * fill from its bundle, which is no worse than sending it now.
+   */
+  if (fromServer && loading !== null && !afterLoad) {
+    void loading.then(() =>
+      emitModuleSource(system, moduleFilePath, onUpdate, true),
+    );
+    return;
   }
   // The store's own object, unless a pending upload means it has to be copied
   // to carry a `patch_id`. The receiver is a different bundle reading it, never

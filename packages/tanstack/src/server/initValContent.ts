@@ -476,7 +476,12 @@ export const initFetchValDraft =
       }
       const sources: ValDraft["sources"] = {};
       for (const [path, module] of Object.entries(modules)) {
-        if (module.patches === undefined) {
+        // A module no patch touches is the bundle's -- unless a publish
+        // wrote some of its entries and the host has not rebuilt since.
+        if (
+          module.patches === undefined &&
+          !hasJsonEntriesFromServer(module.source)
+        ) {
           continue;
         }
         const source = await withDraftJsonEntries(
@@ -484,7 +489,7 @@ export const initFetchValDraft =
           sessionCookie,
           path as ModuleFilePath,
           module.source,
-          module.patches.applied,
+          module.patches?.applied ?? [],
         );
         if (source !== undefined) {
           sources[path as ModuleFilePath] = source;
@@ -611,6 +616,15 @@ async function withDraftJsonEntries(
     }
   }
   return draft;
+}
+
+/** Whether `source` is a record holding an entry {@link withDraftJsonEntries} reads from the server without a patch naming it. */
+function hasJsonEntriesFromServer(source: Json | undefined): boolean {
+  return (
+    source !== undefined &&
+    isRecordOfJsonMarkers(source) &&
+    Object.values(source).some((value) => Internal.isJsonFromServer(value))
+  );
 }
 
 function isRecordOfJsonMarkers(source: Json): source is Record<string, Json> {

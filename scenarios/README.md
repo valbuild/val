@@ -252,12 +252,19 @@ file, so the media publish cells run in fs only. `ok` passes, a code is
   for an entry a pending patch added. The matrix's R3 cells passed with the
   same change: the editor's Studio already holds the entry, and its base now
   agrees with the server's, so it is not dropped as stale.
-- **R3** (medium). In memory mode, after a publish the overlay relays the
-  published module with its entries as placeholders (no pending patch names
-  them, so the relay loads none), and the page fills them from its bundle,
-  which still holds the content from before the publish. The matrix cells
-  pass since R2's fix; a page opened AFTER the publish, whose Studio never
-  had the entry, still shows the bundle's.
+- **R3, fixed.** In memory mode, after a publish the overlay relayed the
+  published module with its entries as placeholders (no pending patch named
+  them, so the relay loaded none), and the page filled them from its bundle,
+  which still held the content from before the publish. The matrix cells
+  passed with R2's fix, because the editor's Studio already held the entry;
+  a page opened AFTER the publish, whose Studio never had it, still showed
+  the bundle's (`jsonValues on memory, a page opened after a publish`, in
+  `matrix.jsonValues.scenario.test.ts`). Two places: the TanStack server
+  render's draft (`initFetchValDraft`) left out a module no patch touches,
+  and now keeps one holding an entry marked by a publish; and the relay
+  (`emitModuleSource`) now loads every marked entry, and holds the module
+  back until they are read -- handed over as markers first, they replaced
+  the server render's entry with the bundle's, then put it back.
 - **F1, fixed.** A draft `fetchVal` of a WHOLE `.jsonValues()` record filled
   its entries from the bundle's imports, so every operation that changed an
   entry's content showed the published entry there. In the draft tree an
