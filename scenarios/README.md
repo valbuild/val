@@ -349,8 +349,11 @@ publish patches real text.
 
 What is not:
 
-- **The mock is not home, and its proposals least of all.** It keeps a
-  chain per branch, opens proposals, saves and stages into them as commits
+- **The mock is not home, and its proposals least of all.** Proposals
+  are off until a world turns them on (`/__test__/proposals-enabled`), as
+  in home, where every proposals route answers 404 until they are: a site
+  Studio that finds them on does things differently (a restore opens a
+  proposal). It keeps a chain per branch, opens proposals, saves and stages into them as commits
   on their branch, keeps the saved state the platform serves an address
   from (`/__test__/proposals/:name/overlay`, what `home`'s overlay step
   writes, re-read by `world.proposal.redeploy()`), records the Source a

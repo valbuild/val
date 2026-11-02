@@ -396,6 +396,13 @@ type State = {
   /** Proposals, by name: see the proposals region. */
   proposals: Map<string, MockProposal>;
   /**
+   * Whether this project has proposals turned on. OFF by default, as in
+   * `home`, where every proposals route answers 404 until they are: a
+   * Studio that finds them on offers to open one, which every spec but the
+   * proposal ones was written without.
+   */
+  proposalsEnabled: boolean;
+  /**
    * Uploaded bytes, keyed by patch id and then by file path.
    *
    * Kept apart from the patch records because the client uploads a patch's files
@@ -489,6 +496,7 @@ function emptyState(): State {
   return {
     patches: new Map(),
     proposals: new Map(),
+    proposalsEnabled: false,
     patchFiles: new Map(),
     commits: [],
     deployments: [],
@@ -2996,6 +3004,10 @@ async function proposalsRoute(
   res: ServerResponse,
   rest: string,
 ): Promise<void> {
+  if (!state.proposalsEnabled) {
+    json(res, 404, { message: "Proposals are not turned on for this project" });
+    return;
+  }
   const profile = req.headers["x-val-profile-id"];
   const owner = typeof profile === "string" ? profile : null;
   if (rest === "/proposals") {
@@ -3238,6 +3250,13 @@ const controlPlane: Handler = async (req, res, url) => {
     json(res, 200, { ok: true, enabled: state.publishJobsEnabled });
     return;
   }
+  if (action === "proposals-enabled" && req.method === "POST") {
+    // Turn proposals on for this project, as a project setting does in home.
+    const body = await readJsonBody<{ enabled?: boolean }>(req);
+    state.proposalsEnabled = body?.enabled !== false;
+    json(res, 200, { ok: true, enabled: state.proposalsEnabled });
+    return;
+  }
   if (action === "proposals" && req.method === "POST") {
     /*
      * A proposal that already exists on content, with what its saves left:
@@ -3260,6 +3279,7 @@ const controlPlane: Handler = async (req, res, url) => {
     }
     const now = nowIso();
     const commit = body.commit ?? null;
+    state.proposalsEnabled = true;
     state.proposals.set(body.name, {
       name: body.name,
       branch: body.branch,

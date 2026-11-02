@@ -686,6 +686,11 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     options.proposal !== undefined &&
     "open" in options.proposal
   ) {
+    // A project with proposals turned on: a setting on content, off by default.
+    await fetch(`${host.contentHost.url}/__test__/proposals-enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled: true }),
+    });
     // New proposal, pressed in a Studio on the site: through the site's build.
     const site = initValServer(valModules, serverConfig, {
       http: host.http,
