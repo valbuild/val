@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -224,6 +224,34 @@ function ArrayBlockList({
   const activeItem =
     activeId !== null ? items.find((item) => item.id === activeId) : undefined;
 
+  const emptyOf = useEmptyOf();
+  const containerRef = useRef<HTMLDivElement>(null);
+  /**
+   * The index of an item just inserted, to move focus into once its row is
+   * on screen. Focus follows the insert so the keyboard path is: grip, Tab to
+   * the bar above it, Enter, and you are typing in the new item.
+   */
+  const pendingFocus = useRef<number | null>(null);
+  useEffect(() => {
+    const index = pendingFocus.current;
+    if (index === null || sourcePaths === null || index >= sourcePaths.length) {
+      return;
+    }
+    pendingFocus.current = null;
+    // After paint: the row for the new index re-renders with its new content
+    // in the same commit this effect runs after, but its fields mount lazily.
+    requestAnimationFrame(() => {
+      const row = containerRef.current?.querySelector(
+        `[data-block-index="${index}"]`,
+      );
+      const target =
+        row?.querySelector<HTMLElement>(
+          "[data-block-body] :is(input, textarea, [contenteditable='true'], [role='combobox'])",
+        ) ?? row?.querySelector<HTMLElement>("[data-block-grip]");
+      target?.focus();
+    });
+  }, [sourcePaths]);
+
   const onMove = useCallback(
     (from: number, to: number) => {
       addPatch(
@@ -265,11 +293,36 @@ function ArrayBlockList({
     return null;
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
+  const insertAt = (index: number) => {
+    pendingFocus.current = index;
+    addPatch(
+      [
+        {
+          op: "add",
+          path: patchPath.concat(index.toString()),
+          value: emptyOf(schema.item) as JSONValue,
+        },
+      ],
+      type,
+    );
+  };
 
-  const renderRow = (item: { path: SourcePath; id: number }, index: number) => (
+  const renderRow = (
+    item: { path: SourcePath; id: number },
+    index: number,
+    isOverlay: boolean,
+  ) => (
     <LocaleFiltered key={item.id} path={item.path}>
       <SortableBlockRow
         id={item.id}
+        onInsertAbove={
+          readonly || isOverlay ? undefined : () => insertAt(index)
+        }
+        onInsertBelow={
+          readonly || isOverlay || index !== items.length - 1
+            ? undefined
+            : () => insertAt(index + 1)
+        }
         path={item.path}
         label={{ kind: "index", index }}
         itemSchema={schema.item}
@@ -322,7 +375,15 @@ function ArrayBlockList({
   );
 
   return (
-    <div id={path} className={cn("w-full", { [DENSE_FIELDS]: depth === 0 })}>
+    <div
+      id={path}
+      ref={containerRef}
+      className={cn("w-full", {
+        [DENSE_FIELDS]: depth === 0,
+        // Nothing to insert between while a row is in the air.
+        "[&_[data-insert-bar]]:invisible": activeId !== null,
+      })}
+    >
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -335,7 +396,15 @@ function ArrayBlockList({
           strategy={verticalListSortingStrategy}
           disabled={readonly}
         >
-          <div className="flex flex-col gap-1 w-full">
+          {/* The gaps are the insert bars' room: each row draws the bar
+              above itself in the gap over it (and the last row the one below
+              it too), so a gap is exactly one bar tall. */}
+          <div
+            className={cn("flex flex-col w-full", {
+              "gap-3 py-3": !readonly && items.length > 0,
+              "gap-1": readonly,
+            })}
+          >
             {/* `empty:hidden` — see `SortableList`, same wrapper, same reason. */}
             {items.map((item, index) => (
               <div
@@ -343,7 +412,7 @@ function ArrayBlockList({
                 className="empty:hidden"
                 style={{ opacity: item.id === activeId ? 0.3 : undefined }}
               >
-                {renderRow(item, index)}
+                {renderRow(item, index, false)}
               </div>
             ))}
           </div>
@@ -352,10 +421,16 @@ function ArrayBlockList({
             renders a positional path, and the content at that path changes the
             moment the patch lands. */}
         <DragOverlay dropAnimation={null}>
-          {activeItem ? renderRow(activeItem, items.indexOf(activeItem)) : null}
+          {activeItem
+            ? renderRow(activeItem, items.indexOf(activeItem), true)
+            : null}
         </DragOverlay>
       </DndContext>
-      {showAdd && !readonly && <ListAddButton path={path} />}
+      {/* With rows, the bar under the last one is the Add. An empty list has
+          no bars, so it keeps the button. */}
+      {showAdd && !readonly && items.length === 0 && (
+        <ListAddButton path={path} />
+      )}
     </div>
   );
 }
@@ -471,6 +546,8 @@ function BlockRow({
   onNavigate,
   menu,
   sortable,
+  onInsertAbove,
+  onInsertBelow,
 }: {
   path: SourcePath;
   /** An array row is numbered, a record row is named by its key. */
@@ -488,6 +565,10 @@ function BlockRow({
     setNodeRef: (node: HTMLElement | null) => void;
     style: React.CSSProperties;
   };
+  /** Draws the insert bar in the gap above the row. */
+  onInsertAbove?: () => void;
+  /** Draws one below it too — the last row's, which is the list's Add. */
+  onInsertBelow?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = useValidationErrors(path);
@@ -502,20 +583,34 @@ function BlockRow({
     isInline &&
     (itemSchema.type === "object" || itemSchema.type === "discriminated-union");
 
-  // No grip at all when there is nothing to drag: a readonly list cannot be
-  // reordered, and a faded grip still reads as a control.
-  const grip =
+  // The gutter: the row's whole left edge is the drag handle, which is a
+  // bigger target than the grip icon alone, and brand-coloured on hover or
+  // keyboard focus so it says "this moves".
+  //
+  // No gutter at all when there is nothing to drag: a readonly list cannot be
+  // reordered, and a record has no order.
+  const rowNumber = label.kind === "index" ? label.index + 1 : undefined;
+  const gutter =
     sortable && !readonly ? (
       <button
         {...sortable.handleProps}
-        aria-label="Drag to reorder"
+        data-block-grip=""
+        aria-label={
+          rowNumber !== undefined ? `Move item ${rowNumber}` : "Move item"
+        }
         className={cn(
-          "shrink-0 cursor-grab text-fg-secondary-alt hover:text-fg-primary",
+          // The insert bar above this row is the next sibling, and shows its
+          // plus while this has keyboard focus — it is also the next Tab
+          // stop, so the plus says where Tab goes. See `InsertBar`.
+          "flex w-3 shrink-0 cursor-grab items-start justify-center self-stretch pt-2.5",
+          "bg-bg-secondary text-fg-secondary-alt outline-none transition-colors",
+          "hover:bg-bg-brand-primary hover:text-fg-brand-primary",
+          "focus-visible:bg-bg-brand-primary focus-visible:text-fg-brand-primary",
           // See `DRAG_HANDLE_TOUCH`.
           DRAG_HANDLE_TOUCH,
         )}
       >
-        <GripVertical size={14} />
+        <GripVertical size={12} />
       </button>
     ) : null;
 
@@ -525,112 +620,196 @@ function BlockRow({
          goes through `Field`, so without this a navigation to a path in this
          list has nothing to scroll to (see `scrollToStudioPath`). */
       data-val-studio-path={path}
+      data-block-index={label.kind === "index" ? label.index : undefined}
       ref={sortable?.setNodeRef}
       style={sortable?.style}
       className={cn(
-        "rounded-md border bg-bg-primary",
+        "relative flex",
         // See `SORTABLE_ROW_TOUCH`.
         { [SORTABLE_ROW_TOUCH]: sortable !== undefined },
-        {
-          "border-border-primary": validationErrors.length === 0,
-          "border-bg-warning-secondary": validationErrors.length > 0,
-        },
       )}
     >
-      {headered && (
-        <div className="flex items-center gap-1 h-7 px-1.5">
-          {grip}
-          <button
-            className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((prev) => !prev)}
-          >
-            <ChevronRight
-              size={12}
-              className={cn(
-                "shrink-0 text-fg-secondary-alt transition-transform",
-                { "rotate-90": !collapsed },
-              )}
-            />
-            <RowLabelText label={label} />
-            <RowSummary
-              path={path}
-              unionKey={
-                itemSchema.type === "discriminated-union"
-                  ? itemSchema.key
-                  : undefined
-              }
-            />
-          </button>
-          <ContentViewsBadge path={path} />
-          {menu}
-        </div>
+      {gutter}
+      {onInsertAbove && (
+        <InsertBar
+          position="above"
+          label={
+            rowNumber !== undefined
+              ? `Add item above item ${rowNumber}`
+              : "Add item above"
+          }
+          onClick={onInsertAbove}
+        />
       )}
-      {headered && !collapsed && (
-        // The fields carry their own small left inset (see
-        // `InlineObjectBody`), so the body only pads the right and bottom.
-        <div className="pr-1.5 pb-1.5">
-          {itemSchema.type === "discriminated-union" ? (
-            <InlineDiscriminatedUnionBody
-              path={path}
-              itemSchema={itemSchema}
-              depth={depth}
-              readonly={readonly}
-            />
-          ) : (
-            <InlineObjectBody
-              path={path}
-              itemSchema={itemSchema}
-              depth={depth}
-              readonly={readonly}
-            />
-          )}
-        </div>
-      )}
-      {isInline && !headered && (
-        <div className="flex items-start gap-1.5 px-1.5 py-1">
-          {/* `h-7`, the height of a dense input, so the grip, a key and the
-              menu line up with the first line of the field however tall the
-              field grows. */}
-          {grip && <div className="flex items-center h-7">{grip}</div>}
-          {label.kind === "key" && (
-            <div className="flex items-center h-7 max-w-[40%] shrink-0">
+      {/* The card. The gutter is OUTSIDE its border, so the gutters and the
+          bars' stubs between rows make one unbroken rail down the list. */}
+      <div
+        className={cn("flex-1 min-w-0 border bg-bg-primary", {
+          "rounded-md": gutter === null,
+          "rounded-r-md": gutter !== null,
+          "border-border-primary": validationErrors.length === 0,
+          "border-bg-warning-secondary": validationErrors.length > 0,
+        })}
+      >
+        {headered && (
+          <div className="flex items-center gap-1 h-7 px-1.5">
+            <button
+              className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed((prev) => !prev)}
+            >
+              <ChevronRight
+                size={12}
+                className={cn(
+                  "shrink-0 text-fg-secondary-alt transition-transform",
+                  { "rotate-90": !collapsed },
+                )}
+              />
               <RowLabelText label={label} />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <AnyField
-              path={path}
-              schema={itemSchema}
-              readonly={readonly === true || itemSchema.readonly === true}
-              compact
-              errorDisplay="none"
-            />
+              <RowSummary
+                path={path}
+                unionKey={
+                  itemSchema.type === "discriminated-union"
+                    ? itemSchema.key
+                    : undefined
+                }
+              />
+            </button>
+            <ContentViewsBadge path={path} />
+            {menu}
           </div>
-          <ContentViewsBadge path={path} />
-          {menu && <div className="flex items-center h-7">{menu}</div>}
-        </div>
-      )}
-      {!isInline && (
-        <div className="flex items-center gap-1.5 px-1.5 py-1">
-          {grip}
-          <button
-            className="flex-1 min-w-0 overflow-y-clip rounded text-left text-xs hover:bg-bg-secondary-hover"
-            style={{ maxHeight: 96 }}
-            onClick={() => onNavigate(path)}
+        )}
+        {headered && !collapsed && (
+          // The fields carry their own small left inset (see
+          // `InlineObjectBody`), so the body only pads the right and bottom.
+          <div data-block-body="" className="pr-1.5 pb-1.5">
+            {itemSchema.type === "discriminated-union" ? (
+              <InlineDiscriminatedUnionBody
+                path={path}
+                itemSchema={itemSchema}
+                depth={depth}
+                readonly={readonly}
+              />
+            ) : (
+              <InlineObjectBody
+                path={path}
+                itemSchema={itemSchema}
+                depth={depth}
+                readonly={readonly}
+              />
+            )}
+          </div>
+        )}
+        {isInline && !headered && (
+          <div
+            data-block-body=""
+            className="flex items-start gap-1.5 px-1.5 py-1"
           >
-            <RefPreview path={path} className="w-full" />
-          </button>
-          <ContentViewsBadge path={path} />
-          {menu}
-        </div>
-      )}
-      {validationErrors.length > 0 && (
-        <div className="px-2.5 pb-1.5">
-          <FieldValidationError validationErrors={validationErrors} />
-        </div>
+            {/* `h-7`, the height of a dense input, so a key and the menu line
+              up with the first line of the field however tall it grows. */}
+            {label.kind === "key" && (
+              <div className="flex items-center h-7 max-w-[40%] shrink-0">
+                <RowLabelText label={label} />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <AnyField
+                path={path}
+                schema={itemSchema}
+                readonly={readonly === true || itemSchema.readonly === true}
+                compact
+                errorDisplay="none"
+              />
+            </div>
+            <ContentViewsBadge path={path} />
+            {menu && <div className="flex items-center h-7">{menu}</div>}
+          </div>
+        )}
+        {!isInline && (
+          <div className="flex items-center gap-1.5 px-1.5 py-1">
+            <button
+              className="flex-1 min-w-0 overflow-y-clip rounded text-left text-xs hover:bg-bg-secondary-hover"
+              style={{ maxHeight: 96 }}
+              onClick={() => onNavigate(path)}
+            >
+              <RefPreview path={path} className="w-full" />
+            </button>
+            <ContentViewsBadge path={path} />
+            {menu}
+          </div>
+        )}
+        {validationErrors.length > 0 && (
+          <div className="px-2.5 pb-1.5">
+            <FieldValidationError validationErrors={validationErrors} />
+          </div>
+        )}
+      </div>
+      {onInsertBelow && (
+        <InsertBar
+          position="below"
+          label="Add item at the end"
+          onClick={onInsertBelow}
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * The bar in the gap between two rows: an insert there. At rest only its
+ * gutter-wide stub shows, which joins the rows' gutters into one rail down
+ * the list; on hover or focus it fills the gap in brand colour with a plus.
+ *
+ * Absolutely placed in the gap the list leaves for it, but in the DOM it sits
+ * inside the row — "above" right after the row's grip, "below" after the
+ * row's content — so Tab reaches it from the grip, which is the order it is
+ * read in.
+ */
+function InsertBar({
+  position,
+  label,
+  onClick,
+}: {
+  position: "above" | "below";
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-insert-bar=""
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        // Exactly the gap the list leaves between rows.
+        "group/insert absolute left-0 right-0 flex h-3 items-center outline-none",
+        position === "above" ? "-top-3" : "-bottom-3",
+        "hover:bg-bg-brand-primary focus-visible:bg-bg-brand-primary",
+        // Shown while the grip before it has keyboard focus: see the gutter.
+        // `+` and `>`, never `~` or a descendant selector: the grip lights
+        // the bar right after it (its own row's "above"), not the row's
+        // "below" bar or any bar nested inside the row.
+        "[[data-block-grip]:focus-visible+&]:bg-bg-brand-primary",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-full w-3 items-center justify-center bg-bg-secondary text-fg-brand-primary",
+          "group-hover/insert:bg-transparent group-focus-visible/insert:bg-transparent",
+          "[[data-block-grip]:focus-visible+[data-insert-bar]>&]:bg-transparent",
+        )}
+      >
+        <Plus
+          size={10}
+          strokeWidth={3}
+          className={cn(
+            "opacity-0 group-hover/insert:opacity-100 group-focus-visible/insert:opacity-100",
+            "[[data-block-grip]:focus-visible+[data-insert-bar]>span>&]:opacity-100",
+          )}
+        />
+      </span>
+    </button>
   );
 }
 
