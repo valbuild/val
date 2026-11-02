@@ -56,7 +56,7 @@ coverage" (valbuild/val#1006).
 - **The hosted layers** (S06, S20, S21, decision 1 below): a content version
   and a proposal snapshot handed to the API and the readers alike, and a
   `/stat` answer delivered after a later write. All pass.
-- **Proposals, written** (S26-S30, `proposals.scenario.test.ts`): the mock
+- **Proposals, written** (P1-P5, `proposals.scenario.test.ts`): the mock
   content host keeps a chain per branch, opens proposals, saves and stages
   into them, keeps the overlay the platform serves an address from, and
   merges (sealed at the press: no publish job, no build -- the README lists

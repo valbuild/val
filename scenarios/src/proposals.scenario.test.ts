@@ -64,7 +64,7 @@ describe("a proposal, on http", () => {
     return { world, proposal };
   };
 
-  test("S26 an edit in a proposal is not on the site", async () => {
+  test("P1 an edit in a proposal is not on the site", async () => {
     const { world, proposal } = await open();
     const editor = await world.studio("editor");
     editor.reads("studio", homeVal, ["title"]);
@@ -85,7 +85,7 @@ describe("a proposal, on http", () => {
     expect(files.files).toEqual({});
   });
 
-  test("S27 a save makes it the proposal's, and leaves the site", async () => {
+  test("P2 a save makes it the proposal's, and leaves the site", async () => {
     const { world, proposal } = await open();
     const editor = await world.studio("editor");
     world.page("/", { draftMode: false }).reads("proposal", title);
@@ -108,7 +108,7 @@ describe("a proposal, on http", () => {
     expect(editor.errors()).toEqual([]);
   });
 
-  test("S28 two editors in one proposal see each other's edits and one save", async () => {
+  test("P3 two editors in one proposal see each other's edits and one save", async () => {
     const { world, proposal } = await open();
     const ada = await world.studio("editor");
     const bo = await world.studio("other");
@@ -138,7 +138,7 @@ describe("a proposal, on http", () => {
     expect([...ada.errors(), ...bo.errors()]).toEqual([]);
   });
 
-  test("S29 a staged .val.ts change is the proposal's Source, through write_files", async () => {
+  test("P4 a staged .val.ts change is the proposal's Source, through write_files", async () => {
     const { world, proposal } = await open();
     const editor = await world.studio("editor");
     world.page("/", { draftMode: false }).reads("proposal", title);
@@ -168,7 +168,7 @@ describe("a proposal, on http", () => {
     expect(world.frames.last("site")).toBe("Hello");
   });
 
-  test("S30 publish in a proposal merges it into the site", async () => {
+  test("P5 publish in a proposal merges it into the site", async () => {
     const { world, proposal } = await open();
     const editor = await world.studio("editor");
     world.page("/", { draftMode: false, at: "site" }).reads("site", title);
