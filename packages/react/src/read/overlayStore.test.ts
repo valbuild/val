@@ -1,5 +1,5 @@
 import { ModuleFilePath } from "@valbuild/core";
-import { ValExternalStore, applyValEvent } from "./overlayStore";
+import { ValExternalStore, applyValEvent, type HeldRead } from "./overlayStore";
 
 describe("ValExternalStore.waitForLoad", () => {
   const path = "/content/page.val.ts" as ModuleFilePath;
@@ -167,5 +167,39 @@ describe("applyValEvent: confirmed", () => {
     expect(applyValEvent(store, { type: "confirmed", seq: "4" }).type).toBe(
       "invalid",
     );
+  });
+});
+
+describe("ValExternalStore.receive, with the Studio's versions", () => {
+  const path = "/content/page.val.ts" as ModuleFilePath;
+  const at = (chain: string) => ({ schema: "s", base: "b", chain });
+  const read = (
+    source: Record<string, string>,
+    chain: string | null,
+  ): HeldRead => ({
+    status: "ready",
+    source,
+    from: "overlay",
+    version: chain === null ? null : at(chain),
+  });
+
+  it("moves for another version, and not for the same content again", () => {
+    const store = new ValExternalStore();
+    expect(store.receive(path, read({ title: "A" }, "c1"))).toBe(true);
+    // A relay of the same module at the same version: the same content.
+    expect(store.receive(path, read({ title: "A" }, "c1"))).toBe(false);
+    expect(store.receive(path, read({ title: "B" }, "c2"))).toBe(true);
+  });
+
+  it("compares content at one version: the entries the Studio has read are not in it", () => {
+    const store = new ValExternalStore();
+    store.receive(path, read({ "/a": "marker" }, "c1"));
+    expect(store.receive(path, read({ "/a": "content" }, "c1"))).toBe(true);
+  });
+
+  it("compares content against a draft the page was rendered with, which has no version", () => {
+    const store = new ValExternalStore();
+    store.receive(path, { ...read({ title: "A" }, null), from: "seeded" });
+    expect(store.receive(path, read({ title: "A" }, "c1"))).toBe(false);
   });
 });

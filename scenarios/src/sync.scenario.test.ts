@@ -1,4 +1,4 @@
-import { initVal } from "@valbuild/core";
+import { Internal, initVal } from "@valbuild/core";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createWorld, type ServerMode, type World } from "./world/createWorld";
@@ -34,6 +34,19 @@ export default c.define(
   { title: "Hello", subtitle: "Sub" },
 );
 `;
+
+/** A `.jsonValues()` record: each entry's content in a file of its own. */
+const BLOG = "/src/routes/_site.blog.$slug.val.ts";
+const blogVal = c.define(
+  BLOG,
+  s
+    .router(Internal.tanstackRouter, s.object({ title: s.string() }))
+    .jsonValues(),
+  {
+    "/blog/a": c.json(() => Promise.resolve({ default: { title: "Page A" } })),
+    "/blog/b": c.json(() => Promise.resolve({ default: { title: "Page B" } })),
+  },
+);
 
 const title = { module: homeVal, field: ["title"] };
 const subtitle = { module: homeVal, field: ["subtitle"] };
@@ -202,6 +215,55 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     expect(world.frames.last("hook")).toBe("Hello");
     expect(world.frames.last("loader")).toBe("Hello");
     expect(page.refreshes).toBe(1);
+    world.frames.expectNeverGoesBack();
+  });
+
+  /**
+   * S28 The same for an edit inside a `.jsonValues()` entry.
+   *
+   * Given a pending edit inside an entry, and a draft page rendered with it
+   * (its server read filled that entry from the server) and showing it,
+   * when the edit is discarded before the page's overlay has connected,
+   * then the page ends on the published entry.
+   *
+   * Until phase 5 the catch-up left a held module out whose entries the
+   * overlay's Studio had not read: sent as markers, the page would fill them
+   * from its bundle, over entries its server read filled from the server, and
+   * the Studio could not say which those were. Its view says now (the engine's
+   * entry states, and the markers a publish wrote: `entriesToRelay`), and
+   * holds the module back until those are read -- here there are none, so
+   * every entry is a marker on both sides, and the page fills `/blog/a` from
+   * its bundle, which is the published entry.
+   */
+  test("S28 a draft entry discarded before the overlay connects leaves the page", async () => {
+    world = await createWorld({ config, modules: [blogVal], server });
+    const editor = await world.studio("editor");
+    const edit = await editor.write(blogVal, [
+      { op: "replace", path: ["/blog/a", "title"], value: "Discarded A" },
+    ]);
+    await world.settle();
+    await world.loadPage("/blog/a", {
+      shows: [
+        {
+          surface: "hook",
+          module: blogVal,
+          field: ["title"],
+          via: { useValKey: "/blog/a" },
+        },
+      ],
+      loaderShows: [
+        { surface: "loader", module: blogVal, field: ["/blog/a", "title"] },
+      ],
+      beforeOverlay: async () => {
+        expect(await editor.discard([edit])).toEqual({ status: "discarded" });
+        await world?.settle();
+      },
+    });
+    await world.settle();
+
+    expect(world.frames.of("hook")[0]?.value).toBe("Discarded A");
+    expect(world.frames.last("hook")).toBe("Page A");
+    expect(world.frames.last("loader")).toBe("Page A");
     world.frames.expectNeverGoesBack();
   });
 

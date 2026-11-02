@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { ModuleFilePath } from "@valbuild/core";
+import type { ModuleVersion } from "@valbuild/shared/internal";
 import { useValSystem } from "./SystemContext";
 import {
   startCatchUp,
@@ -10,8 +11,7 @@ import {
 } from "./sourceRelay";
 
 // The relay's rules live in `sourceRelay.ts`, as plain functions; these are
-// the React bindings. Re-exported for the tests that import it from here.
-export { withFilePatchIds } from "./sourceRelay";
+// the React bindings.
 
 /**
  * Subscribe to module sources moving, debounced and made whole.
@@ -24,7 +24,11 @@ export { withFilePatchIds } from "./sourceRelay";
  */
 export function useValSourceUpdates(
   enabled: boolean,
-  onUpdate: (moduleFilePath: ModuleFilePath, source: unknown) => void,
+  onUpdate: (
+    moduleFilePath: ModuleFilePath,
+    source: unknown,
+    version: ModuleVersion | null,
+  ) => void,
 ): void {
   const val = useValSystem();
   // Held in a ref so a caller can pass an inline function without the
@@ -36,8 +40,8 @@ export function useValSourceUpdates(
     if (!enabled || val === null) {
       return;
     }
-    return subscribeSourceUpdates(val.system, (path, source) =>
-      onUpdateRef.current(path, source),
+    return subscribeSourceUpdates(val.system, (path, source, version) =>
+      onUpdateRef.current(path, source, version),
     );
   }, [val, enabled]);
 }
@@ -82,7 +86,8 @@ export function useValCatchUp(
     }
     return startCatchUp(val.system, {
       update: relays
-        ? (path, source) => pageRef.current.update?.(path, source)
+        ? (path, source, version) =>
+            pageRef.current.update?.(path, source, version)
         : null,
       holds: () => pageRef.current.holds(),
       synced: () => pageRef.current.synced(),

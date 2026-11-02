@@ -98,10 +98,12 @@ export function createDraftStore(
  * rendered with a draft of. The Studio sends each of them in its catch-up,
  * pending or not (`sendPendingSources` in `@valbuild/ui`), so a draft that
  * stopped being the draft before the Studio was there -- discarded,
- * published -- is replaced rather than kept. Paths, not versions: the
- * relay's reads carry no version until the Studio computes its own (phase 5
- * of `docs/plans/one-content-model.md`), so the page compares content
- * (`ValExternalStore.receive`) and a module that did not move costs nothing.
+ * published -- is replaced rather than kept. Paths, not versions: the draft
+ * the page was rendered with carries none (`ValDraft` has no versions; the
+ * relay's reads have carried the Studio's since phase 5 of
+ * `docs/plans/one-content-model.md`), so the page compares what it is sent
+ * with what it holds (`ValExternalStore.receive`) and a module that did not
+ * move costs nothing.
  */
 export function draftHolds(
   draft: ValDraft | null | undefined,

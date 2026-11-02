@@ -94,8 +94,7 @@ export class ValExternalStore {
   receive(path: ModuleFilePath, read: HeldRead): boolean {
     // A miss means this page has never been given this module.
     const before = this.reads.get(path);
-    const changed =
-      before === undefined || !deepEqual(before.source, read.source);
+    const changed = before === undefined || !sameContent(before, read);
     this.reads.set(path, read);
     if (!changed) {
       // Nothing downstream to do: every subscriber's snapshot still answers
@@ -234,6 +233,33 @@ export class ValExternalStore {
     this.loadPromises.set(subscriberId, promise);
     return promise;
   };
+}
+
+/**
+ * Whether two reads of a module hold the same content: the same object, or
+ * -- unless their versions say they are different content -- the same JSON.
+ *
+ * The versions settle "moved" without walking the module: the Studio relays
+ * each module with the version it computed (phase 5 of
+ * `docs/plans/one-content-model.md`), so two relays of a module at two
+ * versions are two contents, however large the module (risk 8 in the plan).
+ * The same version is still compared: a version names a module's source and
+ * chain, not which of its `.jsonValues()` entries the Studio had read when it
+ * sent it (entries get versions of their own in phase 6), and the draft the
+ * page was rendered with carries none (`ValDraft` has no versions).
+ */
+function sameContent(a: HeldRead, b: HeldRead): boolean {
+  if (a.source === b.source) return true;
+  if (
+    a.version !== null &&
+    b.version !== null &&
+    (a.version.schema !== b.version.schema ||
+      a.version.base !== b.version.base ||
+      a.version.chain !== b.version.chain)
+  ) {
+    return false;
+  }
+  return deepEqual(a.source, b.source);
 }
 
 type SubscriberId = string & {

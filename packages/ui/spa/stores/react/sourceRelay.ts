@@ -1,6 +1,6 @@
 import { Internal } from "@valbuild/core";
-import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
-import type { ModuleRead } from "@valbuild/shared/internal";
+import type { Json, ModuleFilePath } from "@valbuild/core";
+import type { ModuleRead, ModuleVersion } from "@valbuild/shared/internal";
 import type { System } from "../createSystem";
 
 /**
@@ -11,69 +11,26 @@ import type { System } from "../createSystem";
  * the same code -- nothing here touches React or `window`.
  */
 
-/** One module's source, handed to a page. */
+/**
+ * One module, handed to a page: its source as the editor's view holds it, and
+ * the version of it the Studio computed (`SourceStore.versionOf`).
+ *
+ * The source carries a `patch_id` wherever a file of it is still in a patch:
+ * the engine marks it where the file lands, as Val's server does on the
+ * sources IT serves, so a page that resolves media from what it is sent
+ * (`Internal.mediaUrl`) reaches for `/api/val/files/...?patch_id=` instead of a
+ * `/public` path with nothing behind it yet. (That was `withFilePatchIds`, a
+ * second rule of the Studio's own about where the mark goes, stamped here on
+ * every relay until phase 5.)
+ */
 export type SourceUpdate = (
   moduleFilePath: ModuleFilePath,
   source: unknown,
+  version: ModuleVersion | null,
 ) => void;
 
-/**
- * Stamp `patch_id` onto media whose bytes are still in a patch.
- *
- * The host page turns a media source into a URL with `Internal.mediaUrl`, and
- * that needs `patch_id` to reach for `/api/val/files/...?patch_id=` instead of
- * the committed `/public` path. The server sets it on the sources IT serves;
- * the Studio's own store never carries it — the editor's fields get it from
- * `patchStore.filePatchIds()` separately. So a page that resolves media from
- * what this emitter sends was pointing every freshly uploaded image at a path
- * with no file behind it yet, and the image silently did not load.
- *
- * Which values are media is normally the SCHEMA's answer, never the value's.
- * The test here is neither: `filePatchIds` is keyed by the `filePath` of a real
- * `file` op, so a `path` that is a key in it is a file this session has
- * uploaded and not yet published. A non-media object would have to hold that
- * exact string to be touched, and would gain an unread sibling if it did.
- *
- * Structurally shared: an unchanged subtree comes back by reference, so a
- * module with no pending files is the same object it was, and
- * `ValExternalStore`'s equality check on the receiving side still short-circuits.
- */
-export function withFilePatchIds(
-  value: Json,
-  filePatchIds: ReadonlyMap<string, PatchId>,
-): Json {
-  if (Array.isArray(value)) {
-    let changed = false;
-    const next = value.map((item) => {
-      const mapped = withFilePatchIds(item, filePatchIds);
-      if (mapped !== item) changed = true;
-      return mapped;
-    });
-    return changed ? next : value;
-  }
-  if (!isJsonObject(value)) {
-    return value;
-  }
-  let changed = false;
-  const next: { [key: string]: Json } = {};
-  for (const [key, item] of Object.entries(value)) {
-    const mapped = withFilePatchIds(item, filePatchIds);
-    if (mapped !== item) changed = true;
-    next[key] = mapped;
-  }
-  const path = value["path"];
-  if (typeof path === "string") {
-    const patchId = filePatchIds.get(path);
-    if (patchId !== undefined && value["patch_id"] !== patchId) {
-      next["patch_id"] = patchId;
-      changed = true;
-    }
-  }
-  return changed ? next : value;
-}
-
 /** Whether any of `keys` is an entry `source` holds only as a marker. */
-function hasMarkerAt(source: Json, keys: ReadonlySet<string>): boolean {
+function hasMarkerAt(source: Json, keys: readonly string[]): boolean {
   if (!isJsonObject(source)) return false;
   for (const key of keys) {
     if (
@@ -211,79 +168,41 @@ export function emitModuleSource(
     return Promise.resolve();
   }
   /**
-   * Ask for the entries this module's own patches touch; when they land the
-   * module changes again and the subscription runs with real content.
-   *
-   * Derived from the patch ops rather than tracked: the first segment of an op
-   * path IS the record key, so the set of entries an edit could have touched is
-   * exactly what the chain says.
+   * The entries whose content in the editor's view is not what the
+   * receiver's bundle has (`SourceStore.entriesToRelay`): every entry the
+   * chain wrote or edited -- the engine knows which, renames included -- and
+   * every one whose marker says a publish wrote it, on a host that has not
+   * rebuilt since (`Internal.isJsonFromServer`). The same entries the server's
+   * draft read fills for a page. The ones still a marker are asked for; when
+   * they land the module changes again and the subscription runs with real
+   * content.
    */
-  const keys = new Set<string>();
-  for (const record of system.patchStore.allRecords()) {
-    if (record.moduleFilePath !== moduleFilePath) continue;
-    for (const op of record.patch) {
-      const key = op.path[0];
-      if (typeof key === "string") keys.add(key);
-      // And where a rename takes the entry FROM: its content has to be here
-      // for the move to carry it, or the new key is a marker for an entry
-      // the page's bundle does not have.
-      const from =
-        op.op === "move" || op.op === "copy" ? op.from[0] : undefined;
-      if (typeof from === "string") keys.add(from);
-    }
-  }
+  const keys = system.sourceStore.entriesToRelay(moduleFilePath);
   /**
-   * And the entries whose marker says the receiver's bundle does not have
-   * them (`Internal.isJsonFromServer`): ones a publish wrote, on a host that
-   * has not rebuilt since. No pending patch names them any more, so without
-   * this the receiver filled them from its bundle -- the content from before
-   * the publish.
-   */
-  let fromServer = false;
-  if (isJsonObject(source)) {
-    for (const [key, value] of Object.entries(source)) {
-      if (!Internal.isJsonFromServer(value)) continue;
-      keys.add(key);
-      fromServer = true;
-    }
-  }
-  const loading =
-    keys.size > 0
-      ? system.sourceStore.loadEntries(moduleFilePath, [...keys])
-      : null;
-  /**
-   * Held back until those entries are here, if any of them is still a
-   * marker. The page already shows them: its server render read them from
-   * the server too (`serverDraftSource`), and a marker handed over now would
-   * REPLACE that with the bundle's copy until the content followed -- the
-   * published entry, then the one from before the publish, then the
-   * published one again; or, for an entry a pending patch edits, the entry
-   * without the edit and then with it. (The catch-up used to go out before
-   * the chain's records were in, so it never named such an entry and the
-   * markers only went with the changes after it; see `onceInStep`.)
+   * Held back until those entries are here. The page already shows them: its
+   * server render read them from the server too (`serverDraftSource`), and a
+   * marker handed over now would REPLACE that with the bundle's copy until the
+   * content followed -- the published entry, then the one from before the
+   * publish, then the published one again; or, for an entry a pending patch
+   * edits, the entry without the edit and then with it.
    *
    * Sent once the read is over whatever it found: an entry that loaded is in
    * the source by then, and one that failed is a marker the page can only
-   * fill from its bundle, which is no worse than sending it now. An entry
-   * already loaded holds nothing back.
+   * fill from its bundle, which is no worse than sending it now.
    */
-  if (
-    loading !== null &&
-    !afterLoad &&
-    (fromServer || hasMarkerAt(source, keys))
-  ) {
+  if (keys.length > 0 && !afterLoad && hasMarkerAt(source, keys)) {
+    const loading = system.sourceStore.loadEntries(moduleFilePath, keys);
     return loading.then(
       () => emitModuleSource(system, moduleFilePath, onUpdate, true),
       () => emitModuleSource(system, moduleFilePath, onUpdate, true),
     );
   }
-  // The store's own object, unless a pending upload means it has to be copied
-  // to carry a `patch_id`. The receiver is a different bundle reading it, never
-  // writing it — and cloning a whole module per burst is the cost the debounce
-  // exists to avoid paying more than once.
+  // The store's own object. The receiver is a different bundle reading it,
+  // never writing it.
   onUpdate(
     moduleFilePath,
-    withFilePatchIds(source, system.patchStore.filePatchIds()),
+    source,
+    system.sourceStore.versionOf(moduleFilePath) ?? null,
   );
   return Promise.resolve();
 }
@@ -337,8 +256,15 @@ export function subscribeSourceUpdates(
  * is no longer the draft (discarded, or published, before the page's Studio
  * was there to see it) is replaced with what the editor holds rather than
  * kept for good. The page compares what it is sent with what it holds, so a
- * module that has not moved costs it nothing. (Not yet a held module with
- * `.jsonValues()` entries the store has not loaded: see below.)
+ * module that has not moved costs it nothing.
+ *
+ * A held `.jsonValues()` module goes too, whatever of its entries the store
+ * has read: `emitModuleSource` holds it back until the entries the page's
+ * server read filled from the server are here (the ones the chain touches and
+ * the ones a publish wrote: `SourceStore.entriesToRelay`), and every other
+ * entry is a marker on both sides, which the page fills from its bundle, as
+ * its server render did. Until phase 5 the store could not say which entries
+ * its chain touched, so such a module stayed as the page was rendered.
  *
  * Resolves once every one of them has been handed over, including a module
  * held back for its entries (`emitModuleSource`): `sources-synced` follows
@@ -357,16 +283,6 @@ export async function sendPendingSources(
     moduleFilePaths.add(moduleFilePath);
   }
   for (const moduleFilePath of holds) {
-    if (moduleFilePaths.has(moduleFilePath)) continue;
-    /*
-     * Not one whose `.jsonValues()` entries the store has not all loaded: it
-     * would go as markers, which the page fills from its BUNDLE -- over
-     * entries its server read filled from the server (one a publish wrote,
-     * say), the content from before. Telling the two apart takes the page's
-     * versions, which the relay has from phase 5; until then such a module
-     * stays as the page was rendered.
-     */
-    if (system.sourceStore.hasUnloadedEntries(moduleFilePath)) continue;
     moduleFilePaths.add(moduleFilePath);
   }
   await Promise.all(
@@ -472,12 +388,14 @@ export function startCatchUp(system: System, page: CatchUp): () => void {
  * A module, as the Studio hands it to a page: a READ (`ModuleRead` in
  * `@valbuild/shared/internal`), which the page's `overlaySource` keeps as it
  * is (`docs/plans/one-content-model.md`, "The relay sends the page exactly
- * what the view answered"). Its version is `null` until the Studio computes
- * its own (phase 5).
+ * what the view answered"), with the version the Studio computed for it.
  */
-export function relayedRead(source: unknown): ModuleRead | null {
+export function relayedRead(
+  source: unknown,
+  version: ModuleVersion | null,
+): ModuleRead | null {
   return isRelayable(source)
-    ? { status: "ready", source, from: "overlay", version: null }
+    ? { status: "ready", source, from: "overlay", version }
     : null;
 }
 
@@ -526,8 +444,8 @@ export function startOverlayRelay(
   send: (event: OverlayEvent) => void,
   page: PageReport = NOTHING_HELD,
 ): () => void {
-  const update: SourceUpdate = (moduleFilePath, source) => {
-    const read = relayedRead(source);
+  const update: SourceUpdate = (moduleFilePath, source, version) => {
+    const read = relayedRead(source, version);
     if (read !== null) {
       send({ type: "source-update", moduleFilePath, read, source });
     }

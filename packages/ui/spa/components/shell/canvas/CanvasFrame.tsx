@@ -25,6 +25,7 @@ import {
   useValSourceUpdates,
 } from "../../../stores/react/ValOverlayEmitter";
 import { relayedRead } from "../../../stores/react/sourceRelay";
+import type { ModuleVersion } from "@valbuild/shared/internal";
 
 /**
  * How the frame is currently doing.
@@ -646,8 +647,12 @@ export function CanvasFrame({
    */
   const isLive = state.status === "ready" && state.draftMode;
   const sendSourceUpdate = useCallback(
-    (moduleFilePath: ModuleFilePath, source: unknown) => {
-      const read = relayedRead(source);
+    (
+      moduleFilePath: ModuleFilePath,
+      source: unknown,
+      version: ModuleVersion | null,
+    ) => {
+      const read = relayedRead(source, version);
       if (read === null) return;
       send({
         val: VAL_CANVAS_MESSAGE,

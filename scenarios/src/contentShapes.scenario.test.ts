@@ -107,9 +107,11 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * then both the hook and the loader name the poster with the upload's
    * `patch_id`, and the draft file can be fetched at that URL.
    *
-   * Why it matters: the server stamps `patch_id` where the file lands (the
-   * video's path plus `nestedFilePath`), the Studio stamps it in the relay
-   * (`withFilePatchIds`, keyed by the file's path) -- two implementations.
+   * Why it matters: where the file's `patch_id` lands (the video's path
+   * plus `nestedFilePath`) is the engine's rule (`applyPatchRecord`), and
+   * since phase 5 the Studio reads through it as the server does. Before, the
+   * Studio stamped it in the relay (`withFilePatchIds`, keyed by the file's
+   * path) -- a second implementation, which this held to the first.
    */
   test("S18 an upload's patch_id reaches the page where the file lands", async () => {
     world = await createWorld({ config, modules: [videoVal], server });
