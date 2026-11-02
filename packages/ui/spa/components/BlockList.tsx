@@ -23,7 +23,6 @@ import {
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
   ChevronDown,
-  ChevronRight,
   Copy,
   GripVertical,
   Pencil,
@@ -111,27 +110,28 @@ import { ContentViewsBadge } from "../analytics/ContentViewsBadge";
  * moment the move patch applies, or the move is applied twice and cancels out.
  */
 /**
- * A density pass over the stock field controls, scoped to the list so nothing
- * outside it changes: the design-system `Input` is `h-10 m-1` and the rich text
- * editor `p-4`, which alone put a three-level tree far past one laptop screen.
+ * A light density pass over the stock field controls, scoped to the list so
+ * nothing outside it changes. It takes away the design-system `Input`'s outer
+ * `m-1` and a little of its height, and the rich text editor's resting
+ * padding — and leaves the TYPE alone: a value reads the same size here as in
+ * the normal field view, which is what makes the two look like one Studio.
  *
  * Descendant overrides, which is the part that should not last: these want to
  * be proper `compact` variants on the controls themselves. Until they are, a
  * control that changes its metrics changes them here too, silently.
  */
 const DENSE_FIELDS = cn(
-  "[&_input]:h-7 [&_input]:m-0 [&_input]:w-full [&_input]:px-2 [&_input]:py-1 [&_input]:text-[13px]",
+  "[&_input]:h-9 [&_input]:m-0 [&_input]:w-full [&_input]:py-1.5",
   // The auto-growing textarea's height comes from its invisible ghost twin, so
   // the ghost needs the same metrics or the box stays sized for the old ones.
   // `field-sizing: content` stops the textarea's default `rows=2` from setting
   // the grid row's intrinsic height (Chromium; elsewhere it stays two rows).
-  "[&_textarea]:min-h-0 [&_textarea]:m-0 [&_textarea]:px-2 [&_textarea]:py-1 [&_textarea]:text-[13px] [&_textarea]:leading-5 [&_textarea]:[field-sizing:content]",
-  "[&_[data-testid=auto-growing-textarea-ghost]]:m-0 [&_[data-testid=auto-growing-textarea-ghost]]:px-2 [&_[data-testid=auto-growing-textarea-ghost]]:py-1 [&_[data-testid=auto-growing-textarea-ghost]]:text-[13px] [&_[data-testid=auto-growing-textarea-ghost]]:leading-5",
+  "[&_textarea]:min-h-0 [&_textarea]:m-0 [&_textarea]:py-1.5 [&_textarea]:[field-sizing:content]",
+  "[&_[data-testid=auto-growing-textarea-ghost]]:m-0 [&_[data-testid=auto-growing-textarea-ghost]]:py-1.5",
   // The rich text editor keeps its fixed toolbar (and the padding reserving
   // room for it) only while focused; at rest it is one tight paragraph box.
-  "[&_.rich-text-editor:not(:focus-within)_.prose-editor]:p-2 [&_.rich-text-editor:not(:focus-within)_.prose-editor]:min-h-0",
+  "[&_.rich-text-editor:not(:focus-within)_.prose-editor]:p-3 [&_.rich-text-editor:not(:focus-within)_.prose-editor]:min-h-0",
   "[&_.rich-text-editor:not(:focus-within)>.absolute]:hidden",
-  "[&_.prose-editor]:text-[13px]",
 );
 
 export function BlockList({
@@ -656,6 +656,7 @@ function BlockRow({
     !readonly && (sortable || menuItems) ? (
       <RowHandle
         label={label}
+        alignTo={headered ? "header" : "field"}
         handleProps={sortable?.handleProps}
         menuItems={menuItems}
       />
@@ -720,12 +721,12 @@ function BlockRow({
                 muted={label.kind === "key"}
               />
               <ContentViewsBadge path={path} />
+              {/* `Field`'s compact chevron: down when closed, up when open. */}
               <ChevronDown
-                size={16}
-                className={cn(
-                  "shrink-0 text-fg-secondary transition-transform",
-                  { "rotate-180": !collapsed },
-                )}
+                size={14}
+                className={cn("shrink-0 transition-transform", {
+                  "rotate-180": !collapsed,
+                })}
               />
             </button>
           </div>
@@ -756,10 +757,10 @@ function BlockRow({
             data-block-body=""
             className="flex items-start gap-1.5 px-1.5 py-1"
           >
-            {/* `h-7`, the height of a dense input, so a number or key lines up
+            {/* `h-9`, the height of an input here, so a number or key lines up
               with the first line of the field however tall it grows. */}
             <div
-              className={cn("flex items-center h-7 shrink-0", {
+              className={cn("flex items-center h-9 shrink-0", {
                 "max-w-[40%]": label.kind === "key",
               })}
             >
@@ -896,7 +897,7 @@ function RowLabelText({ label }: { label: RowLabel }) {
   // A key is data, not a field name, so it is shown as written — never
   // title-cased the way `FieldLabel` treats a schema's own keys.
   return (
-    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-base font-medium text-fg-primary">
+    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-base text-fg-primary">
       {label.key}
     </span>
   );
@@ -1018,7 +1019,7 @@ function InlineDiscriminatedUnionBody({
         <DiscriminatedUnionTagSelect
           state={state}
           readonly={readonly}
-          className="h-7 w-auto min-w-24 self-start px-2 py-1 text-[13px]"
+          className="m-0 h-9 w-auto min-w-28 self-start"
         />
       </div>
       <InlineObjectBody
@@ -1079,27 +1080,31 @@ export function InlineObjectBody({
           const hidden = hiddenLists[key] === true;
           return (
             <div key={key} className="flex flex-col gap-1">
-              <div className="flex items-center gap-1 pl-2 min-h-6">
+              {/* Laid out like a `Field` header: the label on the left, the
+                  list's tools then the collapse chevron on the right. */}
+              <div className="flex items-center gap-1.5 pl-2 min-h-7">
+                <div className="flex-1 min-w-0">
+                  <FieldLabel label={key} />
+                </div>
+                {!hidden && !fieldReadonly && (
+                  <ListAddButton path={fieldPath} label={key} iconOnly />
+                )}
                 <button
-                  className="flex items-center gap-1 min-w-0 text-left"
+                  type="button"
+                  className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-bg-secondary-hover"
                   aria-expanded={!hidden}
+                  aria-label={`${hidden ? "Show" : "Hide"} ${fromCamelToTitleCase(key)}`}
                   onClick={() =>
                     setHiddenLists((prev) => ({ ...prev, [key]: !hidden }))
                   }
                 >
-                  <ChevronRight
-                    size={10}
-                    className={cn(
-                      "shrink-0 text-fg-secondary-alt transition-transform",
-                      { "rotate-90": !hidden },
-                    )}
+                  <ChevronDown
+                    size={14}
+                    className={cn("transition-transform", {
+                      "rotate-180": !hidden,
+                    })}
                   />
-                  <FieldLabel label={key} />
                 </button>
-                <div className="flex-1" />
-                {!hidden && !fieldReadonly && (
-                  <ListAddButton path={fieldPath} />
-                )}
               </div>
               {fieldSchema.description && (
                 <FieldDescription description={fieldSchema.description} inset />
@@ -1137,10 +1142,11 @@ export function InlineObjectBody({
   );
 }
 
-/** A schema key, title-cased the way `Field` labels the same key elsewhere. */
+/** A schema key, drawn the way `Field` labels the same key elsewhere:
+ * title-cased, 14px, regular weight, primary colour. */
 function FieldLabel({ label }: { label: string }) {
   return (
-    <span className="truncate text-sm font-medium text-fg-secondary">
+    <span className="truncate text-sm text-fg-primary">
       {fromCamelToTitleCase(label)}
     </span>
   );
@@ -1226,9 +1232,7 @@ function RowSummary({
           "flex-1 min-w-0 truncate",
           // The row's title, a step above the field labels under it. Beside
           // a record's key it is second, so it stays at body size.
-          muted
-            ? "text-sm text-fg-secondary"
-            : "text-base font-medium text-fg-primary",
+          muted ? "text-sm text-fg-secondary" : "text-base text-fg-primary",
         )}
       >
         {summary ?? ""}
@@ -1280,6 +1284,8 @@ function firstStringOf(source: Json, unionKey?: string): string | null {
 
 const MENU_ITEM =
   "flex h-7 w-full items-center justify-start gap-2 rounded px-2 text-sm font-normal text-fg-primary hover:bg-bg-secondary-hover";
+const ICON_ADD_BUTTON =
+  "flex size-6 shrink-0 items-center justify-center rounded p-0 text-fg-primary hover:bg-bg-secondary-hover";
 const ADD_BUTTON =
   "flex h-6 items-center gap-1 rounded px-1 text-xs font-normal text-fg-tertiary hover:bg-transparent hover:text-fg-primary";
 
@@ -1296,10 +1302,13 @@ const ADD_BUTTON =
  */
 function RowHandle({
   label,
+  alignTo,
   handleProps,
   menuItems,
 }: {
   label: RowLabel;
+  /** Line the grip up with the row's header, or with a leaf row's field. */
+  alignTo: "header" | "field";
   /** Absent for a record: it cannot be dragged, only opened. */
   handleProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
   menuItems?: (close: () => void) => React.ReactNode;
@@ -1318,7 +1327,8 @@ function RowHandle({
           : `Actions for ${name}`
       }
       className={cn(
-        "flex w-4 shrink-0 items-start justify-center self-stretch rounded-sm pt-3",
+        "flex w-4 shrink-0 items-start justify-center self-stretch rounded-sm",
+        alignTo === "header" ? "pt-3" : "pt-4",
         handleProps ? "cursor-grab" : "cursor-pointer",
         "text-fg-secondary-alt outline-none transition-colors",
         // Quiet at rest: just the grip icon. The strip appears while its
@@ -1486,26 +1496,63 @@ function RecordMenuItems({
  * label row of a nested one. An array appends an empty item in place; a record
  * first needs a key, so it opens the same key form as the module header's +.
  */
-function ListAddButton({ path }: { path: SourcePath }) {
+function ListAddButton({
+  path,
+  label,
+  iconOnly,
+}: {
+  path: SourcePath;
+  /** The list's field name, for the icon-only button's accessible name. */
+  label?: string;
+  /** A `+` on a header row, like `Field`'s, instead of "+ Add" under a list. */
+  iconOnly?: boolean;
+}) {
   const schemaAtPath = useSchemaAtPath(path);
   if (schemaAtPath.status !== "success") {
     return null;
   }
+  const look: AddLook = iconOnly
+    ? {
+        className: ICON_ADD_BUTTON,
+        children: <Plus size={14} />,
+        name: label ? `Add to ${fromCamelToTitleCase(label)}` : "Add",
+      }
+    : {
+        className: ADD_BUTTON,
+        children: (
+          <>
+            <Plus size={12} />
+            <span>Add</span>
+          </>
+        ),
+        name: undefined,
+      };
   if (schemaAtPath.data.type === "record") {
-    return <RecordAddButton path={path} />;
+    return <RecordAddButton path={path} look={look} />;
   }
   if (schemaAtPath.data.type === "array") {
-    return <ArrayAddButton path={path} schema={schemaAtPath.data} />;
+    return (
+      <ArrayAddButton path={path} schema={schemaAtPath.data} look={look} />
+    );
   }
   return null;
 }
 
+type AddLook = {
+  className: string;
+  children: React.ReactNode;
+  /** An accessible name, when the children are only an icon. */
+  name: string | undefined;
+};
+
 function ArrayAddButton({
   path,
   schema,
+  look,
 }: {
   path: SourcePath;
   schema: SerializedArraySchema;
+  look: AddLook;
 }) {
   const emptyOf = useEmptyOf();
   const { addPatch, patchPath } = useAddPatch(path);
@@ -1516,7 +1563,9 @@ function ArrayAddButton({
   const length = shallowSourceAtPath.data.length;
   return (
     <button
-      className={ADD_BUTTON}
+      className={look.className}
+      aria-label={look.name}
+      title={look.name}
       onClick={() => {
         addPatch(
           [
@@ -1530,13 +1579,12 @@ function ArrayAddButton({
         );
       }}
     >
-      <Plus size={12} />
-      <span>Add</span>
+      {look.children}
     </button>
   );
 }
 
-function RecordAddButton({ path }: { path: SourcePath }) {
+function RecordAddButton({ path, look }: { path: SourcePath; look: AddLook }) {
   const { add } = useArrayAndRecordTools(path);
   if (add === null || !add.canAdd) {
     return null;
@@ -1546,12 +1594,18 @@ function RecordAddButton({ path }: { path: SourcePath }) {
       path={path}
       variant="ghost"
       size="sm"
-      className={ADD_BUTTON}
+      className={look.className}
       routePattern={add.routePattern}
       keyDescription={add.keyDescription}
     >
-      <Plus size={12} />
-      <span>Add</span>
+      {look.name ? (
+        <>
+          {look.children}
+          <span className="sr-only">{look.name}</span>
+        </>
+      ) : (
+        look.children
+      )}
     </AddRecordPopover>
   );
 }
