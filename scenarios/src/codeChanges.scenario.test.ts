@@ -120,30 +120,29 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * moved, with no write in between ("bumped by every write, delete, publish
    * and new build", `ProjectVersion`).
    *
-   * FAILS on http, and that is a finding for valbuild/home: there `seq` is
-   * the content service's `headVersion`, which moves with writes, deletes
-   * and commits but not with a deployment, so two builds answering during a
-   * rollout cannot be told apart by `seq` -- only by `build`. fs and memory
-   * count a new build themselves (once, under the patch lock in fs).
+   * fs and memory count a new build themselves (once, under the patch lock
+   * in fs). On http `seq` is the content service's `headVersion`, which a
+   * new build does not move by itself: the platform (or GitHub) reports the
+   * build live, and the service moves the branch's chain version once for it
+   * (valbuild/home, `patches.countDeploymentLive`; here the mock content
+   * host, told by the world as the platform would tell it). It was
+   * `test.failing` on http until the service did.
    */
-  (server === "http" ? test.failing : test)(
-    "S11 a new build is counted: its answers order after the last build's",
-    async () => {
-      world = await createWorld({ config, modules: [home, footer], server });
-      const editor = await world.studio("editor");
-      // An edit, so fs mode has a `.val` to count in: a read never makes one.
-      await editor.edit(home, ["title"], "Edited");
-      await world.settle();
-      const before = await world.manifest();
+  test("S11 a new build is counted: its answers order after the last build's", async () => {
+    world = await createWorld({ config, modules: [home, footer], server });
+    const editor = await world.studio("editor");
+    // An edit, so fs mode has a `.val` to count in: a read never makes one.
+    await editor.edit(home, ["title"], "Edited");
+    await world.settle();
+    const before = await world.manifest();
 
-      await world.changeCode([homeWithCta, footer]);
-      await world.settle();
+    await world.changeCode([homeWithCta, footer]);
+    await world.settle();
 
-      const after = await world.manifest();
-      expect(after.project.build).not.toBe(before.project.build);
-      expect(after.project.seq).toBeGreaterThan(before.project.seq);
-    },
-  );
+    const after = await world.manifest();
+    expect(after.project.build).not.toBe(before.project.build);
+    expect(after.project.seq).toBeGreaterThan(before.project.seq);
+  });
 
   /**
    * S12 A module whose code throws, after a change, leaves the Studio running
@@ -248,8 +247,9 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   });
 
   // Not on http, for the reason in `overlayAfterBuild`'s "why it flickers":
-  // a hosted Studio hears of a deploy through the socket, which the world's
-  // `deployCode` does not tell.
+  // a hosted Studio hears of a deploy through the socket, and the world's
+  // `deployCode` tells it only that the build went live, never that one was
+  // building.
   (server === "http" ? test.skip : test)(
     "S16 why: SchemaFreshnessWatch reports the schema out of date",
     async () => {

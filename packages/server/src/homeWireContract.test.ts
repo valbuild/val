@@ -747,6 +747,57 @@ test("an older content server, which reports no head, leaves it absent", async (
   }
 });
 
+/**
+ * `home` — the same `/applicable/patches` once a deployment of the branch went
+ * live: the chain as it was, at a higher version, with the deployment in the
+ * feed. `home` moves the branch's chain version once for each build that
+ * starts serving it (`patches.countDeploymentLive`), because a version orders
+ * answers and a new build's answers are newer. The e2e mock does the same
+ * (`countDeploymentLive` in `e2e/mock-content-host/server.ts`), and
+ * `scenarios/src/codeChanges.scenario.test.ts` ("S11 a new build is counted")
+ * drives it through the scenario world.
+ */
+const HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT = {
+  ...HOME_APPLICABLE_PATCHES,
+  headVersion: 43,
+  deployments: [
+    {
+      deploymentId: "4711",
+      commitSha: "a".repeat(40),
+      deploymentState: "success",
+      createdAt: "2026-11-02T10:00:00.000Z",
+      updatedAt: "2026-11-02T10:01:00.000Z",
+      commitMessage: "Move the pricing table into its own component",
+    },
+  ],
+};
+
+test("a deployment going live is the same chain at a higher version, and the project's seq follows it", async () => {
+  const before = opsAnswering(HOME_APPLICABLE_PATCHES);
+  let read: Awaited<ReturnType<typeof before.ops.fetchPatches>>;
+  let seqBefore: number;
+  try {
+    read = await before.ops.fetchPatches({ excludePatchOps: true });
+    seqBefore = (await before.ops.projectVersion(read.headVersion)).seq;
+  } finally {
+    before.restore();
+  }
+  const after = opsAnswering(HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT);
+  try {
+    const res = await after.ops.fetchPatches({ excludePatchOps: true });
+
+    // Nothing in the chain moved: no patch, no head.
+    expect(res.patches).toEqual(read.patches);
+    expect(res.headPatchId).toBe(read.headPatchId);
+    // Only its version, which is what orders the two answers.
+    expect(res.headVersion).toBe(43);
+    expect(seqBefore).toBe(42);
+    expect((await after.ops.projectVersion(res.headVersion)).seq).toBe(43);
+  } finally {
+    after.restore();
+  }
+});
+
 /** `home` — `Api["/patches"]["DELETE"]["res"]`, keyed by branch. */
 const HOME_DELETE = {
   deleted: ["44444444-4444-4444-8444-444444444444"],

@@ -120,8 +120,10 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
 
   // Not on http: the realignment comes from a later `/stat`, and a hosted
   // Studio asks it every twenty minutes, sooner only while the socket says a
-  // deployment is running -- which the world's `deployCode` does not tell the
-  // content service. Until it does, http would pin the world, not Val.
+  // deployment is RUNNING -- and the world's `deployCode` tells the content
+  // service only that the build went live (a `success`, which moves `seq`;
+  // S11), never that one was building. Until it does, http would pin the
+  // world, not Val. (Tried with the `success` alone: still fails.)
   (server === "http" ? test.skip : test)(
     "why it flickers: the overlay aligns to the previous build, then to the new one",
     async () => {

@@ -109,10 +109,18 @@ coverage" (valbuild/val#1006).
   (S22), never read with another schema (S11, every matrix cell), never
   goes back unless the content moved on (S07), the field's version kept
   when its gallery changes (S19), and reads that hash nothing (B04, B05).
-  One finding: in http mode `seq` does not move with a new build, because
-  `headVersion` does not move with a deployment (see the open question on
-  the http-mode `seq`); S11's "a new build is counted" is `test.failing` on
-  http for it.
+  One finding: in http mode `seq` did not move with a new build, because
+  `headVersion` did not move with a deployment, so two builds answering
+  during a rollout had the same `seq` until somebody wrote. Fixed on
+  2026-11-02 in valbuild/home: a deployment going live moves its branch's
+  chain version once (`patches.countDeploymentLive`, deduplicated in
+  `val_chain_deployments`; a GitHub `success`, a publish job's build put
+  live, a CI promote, a proposal's address serving another build), with
+  nothing in the chain changed and a `patch_change` so open Studios learn
+  it. The mock content host does the same, the scenario world reports each
+  new build live to it as the platform would, and S11's "a new build is
+  counted" passes on http (it was `test.failing`). The window that is left
+  is between a build serving and the service hearing of it.
 
 **Decided on 2026-11-01**, beyond what the sections below say:
 
@@ -877,13 +885,12 @@ shows today's draft read already crosses 128 MB. http mode joins
 
 - **The http-mode `seq`.** A new content-service endpoint, or pushed over the
   WebSocket? The endpoint is simpler; the WebSocket is open in the Studio but
-  not in a page's server. And phase 1 found that `headVersion` is not bumped
-  by a deployment, so two builds answering during a rollout have the same
-  `seq` until somebody writes, and only `build` tells their answers apart.
-  `ProjectVersion` says a new build bumps `seq`; in http that needs the
-  content service to bump `headVersion` when a deployment goes live (or to
-  hand Val a build-aware counter). Pinned by S11's "a new build is counted",
-  `test.failing` on http.
+  not in a page's server. (Phase 1 found that `headVersion` was not bumped
+  by a deployment; valbuild/home now bumps it once per deployment going
+  live, and S11's "a new build is counted" passes on http. Left open: a new
+  build answers at the old `seq` until the service hears it went live --
+  seconds for the platform's own builds, a webhook's delay for GitHub's --
+  and only `build` tells those answers apart.)
 - **Next's server components** only change on a refresh. "Confirmed up to this
   version" covers the edit; does it also need to cover another editor's
   change, or is that the next refresh's job?

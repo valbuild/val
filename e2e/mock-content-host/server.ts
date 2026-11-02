@@ -647,10 +647,34 @@ function patchesOn(branch: string): MockPatch[] {
  */
 /**
  * The chain's version, as `home` keeps it in `val_patch_chains`: bumped by
- * every write and every delete, and reported with the head. Never reset, so it
- * only ever goes up across `/__test__/reset` too — as a real one would.
+ * every write and every delete, and reported with the head -- and once by each
+ * deployment that goes live (see {@link countDeploymentLive}). Never reset, so
+ * it only ever goes up across `/__test__/reset` too — as a real one would.
  */
 let chainVersion = 0;
+/**
+ * The deployments that moved {@link chainVersion}, by branch and id: `home`'s
+ * `val_chain_deployments`, which only a deployment's first `success` inserts
+ * into. Emptied with the rest of the state on reset: a test names its own
+ * deployments, and a project made afresh has counted none.
+ */
+let countedDeployments = new Set<string>();
+
+/**
+ * A deployment went live for `branch`: what `home`'s `writeDeployment` does
+ * with a `success` (`patches.countDeploymentLive`). The chain version moves
+ * once per deployment, however many times it is reported, with nothing in
+ * the chain changed -- a new build's answers are newer than the last build's,
+ * and the version is what orders answers (Val's `ProjectVersion.seq` in http
+ * mode). Says whether it moved.
+ */
+function countDeploymentLive(branch: string, deploymentId: string): boolean {
+  const key = `${branch}\0github:${deploymentId}`;
+  if (countedDeployments.has(key)) return false;
+  countedDeployments.add(key);
+  chainVersion += 1;
+  return true;
+}
 /** The version each save made, so a retried save answers with its own. */
 const versionOfPatch = new Map<string, number>();
 
@@ -3937,6 +3961,7 @@ const controlPlane: Handler = async (req, res, url) => {
   const action = url.pathname.slice("/__test__/".length);
   if (action === "reset" && req.method === "POST") {
     state = emptyState();
+    countedDeployments = new Set();
     json(res, 200, { ok: true });
     return;
   }
@@ -4221,10 +4246,16 @@ const controlPlane: Handler = async (req, res, url) => {
        * `/stat`. A test can say so with this.
        */
       broadcast?: boolean;
+      /**
+       * The branch it deployed, as `home` asks GitHub for it: the branch
+       * whose chain version a `success` moves. The project's by default.
+       */
+      branch?: string;
     }>(req);
     const deploymentId = body?.deploymentId ?? randomUUID();
     const commitSha = body?.commitSha ?? state.headCommitSha;
     const deploymentState = body?.deploymentState ?? "pending";
+    const branch = body?.branch ?? PROJECT_BRANCH;
     const existing = state.deployments.find(
       (d) => d.deploymentId === deploymentId,
     );
@@ -4243,7 +4274,18 @@ const controlPlane: Handler = async (req, res, url) => {
     if (body?.broadcast !== false) {
       broadcast({ type: "deployment", deployment: record });
     }
-    json(res, 200, { deployment: record });
+    // Live: a new build answers for the branch. After the deployment's own
+    // message, as `home`'s two notifications commit in that order.
+    const moved =
+      deploymentState === "success" &&
+      countDeploymentLive(branch, deploymentId);
+    if (moved && body?.broadcast !== false) {
+      broadcastChain(branch);
+    }
+    json(res, 200, {
+      deployment: record,
+      ...(moved ? { headVersion: chainVersion } : {}),
+    });
     return;
   }
   if (action === "commit" && req.method === "POST") {

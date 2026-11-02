@@ -188,6 +188,8 @@ export type World = {
    * module is evaluated again, so `initValServer` and every page's
    * `initValContent` are called again with the new registry. Pending edits
    * stay where they are (fs: `.val/patches`; memory: the same patch store).
+   * In http mode the new build is also reported live to the content service,
+   * as the platform does, which moves the chain version once for it.
    */
   deployCode(modules: AnyModule[]): Deployment;
   /**
@@ -836,6 +838,36 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   let builds = 1;
   network.name(currentHandler, `build ${builds}`);
   const pages: Array<() => void> = [];
+  /**
+   * http: the new builds the platform has reported live to the content
+   * service and the service has not answered yet. A deployed app's build
+   * does not count itself (`seq` is the content service's `headVersion`):
+   * the platform, or GitHub, tells the service that it went live, and the
+   * service moves the branch's chain version once for it (valbuild/home,
+   * `patches.countDeploymentLive`). An edge, so it is the world that reports
+   * it, as the platform would; waited for by {@link changeCode},
+   * {@link settle} and {@link manifest}.
+   */
+  let reportingLive: Promise<void> = Promise.resolve();
+  const reportLive = (build: string) => {
+    if (host.mode !== "http") return;
+    const url = `${host.contentHost.url}/__test__/deployment`;
+    // At a proposal's address the build serves the proposal's branch.
+    const branch = host.http.proposal?.branch ?? host.contentHost.branch;
+    reportingLive = reportingLive.then(async () => {
+      const res = await fetch(url, {
+        method: "POST",
+        body: JSON.stringify({
+          deploymentId: build,
+          deploymentState: "success",
+          branch,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`The content host refused ${build}: ${res.status}`);
+      }
+    });
+  };
   const deployCode = (modules: AnyModule[]): Deployment => {
     // The app's own code is evaluated again too: where a scenario names a
     // module by the object it wrote, the app now holds the new build's
@@ -851,6 +883,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     currentHandler = serverFor(valModules);
     network.name(currentHandler, `build ${++builds}`);
     network.route(currentHandler);
+    reportLive(`build ${builds}`);
     for (const reload of pages) reload();
     return { previous, current: currentHandler };
   };
@@ -1615,6 +1648,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       frames.expectInvariants();
     },
     async manifest() {
+      await reportingLive;
       const client = createValClient("/api/val", null, {
         fetch: withSession(host, network.fetchFor("world:manifest")),
       });
@@ -1668,11 +1702,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       } else {
         deployCode(modules);
       }
+      await reportingLive;
       for (const { studio } of studios) {
         await studio.receiveCode(modules);
       }
     },
     async settle() {
+      await reportingLive;
       let quiet = 0;
       for (let round = 0; round < SETTLE_MAX_ROUNDS; round++) {
         const before = signature();
