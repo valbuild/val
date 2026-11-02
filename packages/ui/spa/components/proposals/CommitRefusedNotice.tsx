@@ -62,8 +62,9 @@ export type BuildOnPushState =
       message: string;
       /**
        * What helps, and only what does: press it again (the proposal or
-       * GitHub was busy), sign in again, or -- with nothing left to bring in
-       * -- Commit or Publish again. `null`: nothing here can help, and the
+       * GitHub was busy), sign in again, the organization's Billing (the
+       * plan refuses writes), or -- with nothing left to bring in -- Commit
+       * or Publish again. `null`: nothing here can help, and the
        * message says what can.
        */
       offer: BuildOnPushOffer | null;
@@ -85,6 +86,8 @@ export type BuildOnPushOffer =
   | { kind: "retry" }
   /** Signing in comes back to `url`'s `redirect_to`: this page. */
   | { kind: "sign-in"; url: string }
+  /** The project's plan refuses writes: the organization's Billing. */
+  | { kind: "billing"; url: string }
   | { kind: "again" };
 
 export function CommitRefusedNotice({
@@ -256,6 +259,16 @@ export function CommitRefusedNotice({
             {state.kind === "failed" && state.offer?.kind === "sign-in" && (
               <a href={state.offer.url} className={PRIMARY}>
                 <LogIn size={12} /> Sign in
+              </a>
+            )}
+            {state.kind === "failed" && state.offer?.kind === "billing" && (
+              <a
+                href={state.offer.url}
+                target="_blank"
+                rel="noreferrer"
+                className={PRIMARY}
+              >
+                <ExternalLink size={12} /> Open Billing
               </a>
             )}
             <a

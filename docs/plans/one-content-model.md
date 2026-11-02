@@ -983,8 +983,9 @@ branch"); home's `docs/proposals.md` changes with it.
      push moved again, the press is refused with a `someone-pushed` of its
      own, and the notice moves to the newer commit. Every other refusal
      offers only what can work: Try again (busy, GitHub down, no answer),
-     Sign in, Commit/Publish again (nothing left to take), or nothing but
-     their commit (too many files, unreadable, a plan refusal). The notice is
+     Sign in, Billing (the plan's 403, which a save gets too),
+     Commit/Publish again (nothing left to take), or nothing but their
+     commit (too many files, unreadable). The notice is
      `CommitRefusedNotice`; the press is `buildOnTheirPush`, which C7-C10
      drive.
 

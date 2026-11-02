@@ -832,11 +832,9 @@ export function useProposalsBar({
           kind: "failed",
           message: outcome.message,
           offer:
-            outcome.offer === "retry"
-              ? { kind: "retry" }
-              : outcome.offer === "sign-in"
-                ? { kind: "sign-in", url: signInUrl() }
-                : null,
+            outcome.offer?.kind === "sign-in"
+              ? { kind: "sign-in", url: signInUrl() }
+              : outcome.offer,
         });
         return;
     }

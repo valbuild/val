@@ -18,9 +18,10 @@ links to their commit, and offers **Build on their push**:
   right away, on top of their commit; Publish waits for the rebuild and says
   so.
 - If they push again in the meantime, the notice moves to their newer commit.
-  If GitHub cannot be reached, or the session ran out, it offers Try again
-  or Sign in. When nothing can help from here (their push is too large to
-  bring in, say), it says so and offers only their commit.
+  If GitHub cannot be reached, the session ran out, or the project's plan
+  does not allow changes, it offers Try again, Sign in or Billing. When
+  nothing can help from here (their push is too large to bring in, say), it
+  says so and offers only their commit.
 
 Publish refused the same way now shows the same notice inside the Publish
 dialog, rather than a Try again that would fail again. When GitHub refuses

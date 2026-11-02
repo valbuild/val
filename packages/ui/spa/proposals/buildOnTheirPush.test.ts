@@ -1,5 +1,6 @@
 import { buildOnTheirPush } from "./buildOnTheirPush";
 import { ProposalsApiError, type ProposalsClient } from "./proposalsClient";
+import { onPlanRefusal } from "../utils/planRefusal";
 
 /*
  * Every way content refuses taking in a push (valbuild/home's take-push
@@ -72,7 +73,7 @@ describe("buildOnTheirPush", () => {
   ])("%s: Try again", async (_, error) => {
     expect(await buildOnTheirPush(refusing(error), NAME, SHA)).toMatchObject({
       status: "failed",
-      offer: "retry",
+      offer: { kind: "retry" },
     });
   });
 
@@ -82,15 +83,49 @@ describe("buildOnTheirPush", () => {
   ])("%s: Sign in", async (_, error) => {
     expect(await buildOnTheirPush(refusing(error), NAME, SHA)).toMatchObject({
       status: "failed",
-      offer: "sign-in",
+      offer: { kind: "sign-in" },
     });
+  });
+
+  /*
+   * The plan's refusal is a 403 too (take-push contract v2, 9), with the body
+   * a save gets: Billing, not Sign in, which would lead to the same refusal.
+   */
+  test("the plan refuses writes: Billing, and the shell is told as for a save", async () => {
+    const told: string[] = [];
+    const stop = onPlanRefusal((refusal) => told.push(refusal.code));
+    try {
+      const outcome = await buildOnTheirPush(
+        refusing(
+          new ProposalsApiError(403, "The trial has ended.", {
+            statusCode: 403,
+            message: "The trial has ended.",
+            error: {
+              code: "trial-over",
+              fix: "add-card",
+              billingUrl: "https://admin.val.build/acme/billing",
+            },
+          }),
+        ),
+        NAME,
+        SHA,
+      );
+      expect(outcome).toEqual({
+        status: "failed",
+        message: "Their push was not brought in: The trial has ended.",
+        offer: { kind: "billing", url: "https://admin.val.build/acme/billing" },
+      });
+      expect(told).toEqual(["trial-over"]);
+    } finally {
+      stop();
+    }
   });
 
   test.each([
     ["too many files", 409, { code: "too-many-files", count: 1204 }],
     ["unreadable", 409, { code: "unreadable", reason: "too large" }],
     ["not open", 409, { code: "not-open", status: "merged" }],
-    ["a plan refusal", 402, undefined],
+    ["a body that is not a sha", 400, undefined],
   ])(
     "%s: nothing a press here can change, so nothing is offered",
     async (_, status, details) => {

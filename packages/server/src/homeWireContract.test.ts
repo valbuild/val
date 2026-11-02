@@ -1333,7 +1333,7 @@ test("taking in a push that moved again is refused naming the newer one, as home
   }
 });
 
-test("a take-in refused because there is nothing to take, or GitHub is down, comes back with its code", async () => {
+test("a take-in refused -- nothing to take, GitHub down, the plan -- comes back as home said it", async () => {
   const refusals: [number, unknown][] = [
     [
       409,
@@ -1352,6 +1352,19 @@ test("a take-in refused because there is nothing to take, or GitHub is down, com
         statusCode: 502,
         message: "GitHub could not be reached. Nothing was taken in.",
         details: { code: "github-unavailable", reason: "ETIMEDOUT" },
+      },
+    ],
+    [
+      // The plan's refusal: the body a save or a staging gets (v2, 9).
+      403,
+      {
+        statusCode: 403,
+        message: "The trial has ended. Add a card to keep changing content.",
+        error: {
+          code: "trial-over",
+          fix: "add-card",
+          billingUrl: "https://admin.val.build/acme/billing",
+        },
       },
     ],
   ];

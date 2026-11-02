@@ -653,3 +653,19 @@ export const CommitBuildOnTheirPushSignedOut = shell({
     offer: { kind: "sign-in", url: "#sign-in" },
   },
 });
+
+/**
+ * The project's plan refuses writes (a trial that ended): Billing, where it
+ * is fixed -- not Sign in, which would be refused the same way.
+ */
+export const CommitBuildOnTheirPushPlanRefused = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "Their push was not brought in: The trial has ended. Add a card to keep changing content.",
+    offer: { kind: "billing", url: "#billing" },
+  },
+});

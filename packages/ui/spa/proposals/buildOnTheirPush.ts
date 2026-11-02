@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { someonePushedOf, type CommitOutcome } from "./commitProposal";
+import { parsePlanRefusal, reportPlanRefusal } from "../utils/planRefusal";
 import {
   commitRefusalOf,
   ProposalsApiError,
@@ -54,10 +55,15 @@ export type BuildOnPushOutcome =
       message: string;
       /**
        * What can help, and only that: press it again (the proposal or GitHub
-       * was busy, or Val could not be reached), or sign in again. `null`:
-       * nothing here can; the message says what can.
+       * was busy, or Val could not be reached), sign in again, or the
+       * organization's Billing (the plan refuses writes, as it refuses a
+       * save). `null`: nothing here can; the message says what can.
        */
-      offer: "retry" | "sign-in" | null;
+      offer:
+        | { kind: "retry" }
+        | { kind: "sign-in" }
+        | { kind: "billing"; url: string }
+        | null;
     };
 
 const Refusal = z.object({ details: z.object({ code: z.string() }) });
@@ -86,18 +92,34 @@ export async function buildOnTheirPush(
       return {
         status: "failed",
         message: `Val could not be reached, so their push was not brought in. Nothing changed in the proposal. (${message})`,
-        offer: "retry",
+        offer: { kind: "retry" },
       };
     }
     const moved = commitRefusalOf(error);
     if (moved?.kind === "someone-pushed") {
       return someonePushedOf(moved.message, moved.pushed);
     }
+    /*
+     * The plan's refusal is a 403 with the body a save gets: said as the
+     * shell says every refused write, and Billing offered here.
+     */
+    const plan = error.status === 403 ? parsePlanRefusal(error.body) : null;
+    if (plan !== null) {
+      reportPlanRefusal(error.body);
+      return {
+        status: "failed",
+        message: `Their push was not brought in: ${plan.message ?? "the project's plan does not allow changes now."}`,
+        offer:
+          plan.billingUrl !== null
+            ? { kind: "billing", url: plan.billingUrl }
+            : null,
+      };
+    }
     if (error.status === 401 || error.status === 403) {
       return {
         status: "failed",
         message: "Your session has run out, so their push was not brought in.",
-        offer: "sign-in",
+        offer: { kind: "sign-in" },
       };
     }
     const refusal = Refusal.safeParse(error.body);
@@ -113,7 +135,7 @@ export async function buildOnTheirPush(
         code === "github-unavailable" ||
         // Content's own failure, not a refusal: asking again can help.
         (code === null && error.status >= 500)
-          ? "retry"
+          ? { kind: "retry" }
           : null,
     };
   }
