@@ -14,6 +14,9 @@ export * from "./ApiRoutes";
 export * from "./schema/compatibility";
 export * from "./newestCommitSha";
 export * from "./chainHead";
+// What a module's content and a project answer ARE: see
+// `docs/plans/one-content-model.md`, "A version, per module".
+export * from "./content/version";
 export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";

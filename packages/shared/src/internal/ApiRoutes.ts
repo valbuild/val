@@ -14,6 +14,7 @@ import { SourcePath } from "./zod/SourcePath";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
 import { ValDeployment } from "./zod/ValDeployment";
+import { ModuleVersionSchema, ProjectVersionSchema } from "./content/version";
 import {
   HistoricalCommit,
   HistoricalModule,
@@ -803,6 +804,50 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * What each module IS, right now: its version (`schema`, `base`, `chain`),
+   * and the project version that is relative to. What `/stat` answers, per
+   * module; see `docs/plans/one-content-model.md`, "The Studio loads
+   * everything from one place".
+   *
+   * It has its own ETag, so a client that sends it back (`If-None-Match`)
+   * gets a 304 and no body while nothing has moved. Computed from versions
+   * kept as content changes: answering it hashes nothing.
+   */
+  "/manifest": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+        headers: {
+          "if-none-match": z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            project: ProjectVersionSchema,
+            modules: z.record(ModuleFilePath, ModuleVersionSchema),
+          }),
+        }),
+        /*
+         * Nothing moved since the ETag the client sent. No body on the wire;
+         * the client reads it as `json: null`.
+         */
+        z.object({
+          status: z.literal(304),
+          json: z.null().optional(),
+        }),
+      ]),
+    },
+  },
   "/stat": {
     POST: {
       req: {
@@ -948,6 +993,13 @@ export const Api = {
                * Absent where there is no history to show.
                */
               historyBranch: z.string().optional(),
+              /**
+               * What this answer is relative to: the build that served it
+               * and how far along the project's changes it is (`seq`). Of two
+               * answers, the higher `seq` is the newer. Optional: a server
+               * that predates versions sends none.
+               */
+              version: ProjectVersionSchema.optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -1079,6 +1131,13 @@ export const Api = {
                * Absent where there is no history to show.
                */
               historyBranch: z.string().optional(),
+              /**
+               * What this answer is relative to: the build that served it
+               * and how far along the project's changes it is (`seq`). Of two
+               * answers, the higher `seq` is the newer. Optional: a server
+               * that predates versions sends none.
+               */
+              version: ProjectVersionSchema.optional(),
             }),
           ]),
         }),
@@ -1567,6 +1626,8 @@ export const Api = {
             baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
+            /** The project version these patches were read at. See `/stat`. */
+            version: ProjectVersionSchema.optional(),
           }),
         }),
       ]),
@@ -1666,8 +1727,17 @@ export const Api = {
                 validationErrors: z
                   .record(z.string(), z.array(ValidationError))
                   .optional(),
+                /**
+                 * The version of `source` as answered: with the chain the
+                 * server applied, or the empty chain when it applied none
+                 * (`apply_patches=false`). Optional: an older server sends
+                 * none.
+                 */
+                version: ModuleVersionSchema.optional(),
               }),
             ),
+            /** The project version this tree was read at. See `/stat`. */
+            project: ProjectVersionSchema.optional(),
           }),
         }),
       ]),
@@ -2441,6 +2511,13 @@ export const Api = {
             key: z.string(),
             // The entry's JSON content (or null if the entry has no value).
             content: z.any(),
+            /**
+             * The version of the record module the entry was read from, with
+             * the chain that was applied (the empty chain without
+             * `apply_patches`). An entry's own version comes with entries
+             * stored as modules of their own.
+             */
+            version: ModuleVersionSchema.optional(),
           }),
         }),
         // Shapes (2) and (3): `keys` or `offset`+`limit`.
@@ -2463,6 +2540,8 @@ export const Api = {
             offset: z.number().optional(),
             limit: z.number().optional(),
             total: z.number().optional(),
+            /** As for a single `key`. */
+            version: ModuleVersionSchema.optional(),
           }),
         }),
         z.object({

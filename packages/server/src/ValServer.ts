@@ -43,6 +43,8 @@ import {
   parseJob,
   AnalyticsBeacon,
   AIToolCallSummaries,
+  type ModuleVersion,
+  type ProjectVersion,
 } from "@valbuild/shared/internal";
 import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
@@ -347,6 +349,24 @@ export const ValServer = (
     ),
   });
   const serverOps = platform.createOps(valModules, options);
+  /**
+   * A read of the chain, with the project version it was read at: the
+   * store's own `seq` taken BEFORE the read (fs, memory), so the answer is
+   * never behind the `seq` it carries, or the content service's
+   * `headVersion` from the read itself (http).
+   */
+  const readAtVersion = async <T extends { headVersion?: number }>(
+    read: () => Promise<T>,
+  ): Promise<[T, ProjectVersion]> => {
+    const before = await serverOps.projectVersion();
+    const value = await read();
+    return [
+      value,
+      value.headVersion !== undefined
+        ? { build: before.build, seq: value.headVersion }
+        : before,
+    ];
+  };
   const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
@@ -1944,6 +1964,43 @@ export const ValServer = (
       },
     },
 
+    //#region manifest
+    /*
+     * What each module is, right now. Every version in it was kept as
+     * content changed, so answering hashes nothing; the ETag is the build,
+     * the base fold, `seq` and the chain fold's epoch, concatenated. Read
+     * through `readAtVersion`, like every answer that carries the chain.
+     */
+    "/manifest": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (isHttpOps(serverOps) && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const [patchOps, project] = await readAtVersion(() =>
+          serverOps.fetchPatches({
+            patchIds: undefined,
+            excludePatchOps: true,
+          }),
+        );
+        if (patchOps.error) {
+          return { status: 500, json: { message: patchOps.error.message } };
+        }
+        const modules = await serverOps.moduleVersions(
+          draftOverlay(patchOps.patches, patchOps.commits),
+        );
+        const etag = await serverOps.manifestTag(project);
+        const headers = { ETag: etag, "Cache-Control": "no-cache" };
+        if (req.headers["if-none-match"] === etag) {
+          return { status: 304, headers };
+        }
+        return { status: 200, headers, json: { project, modules } };
+      },
+    },
+
     //#region stat
     "/stat": {
       POST: async (req) => {
@@ -1966,6 +2023,9 @@ export const ValServer = (
           };
         }
         const profileId = "id" in auth ? (auth.id as AuthorId) : undefined;
+        // Before the stat: a new build counts itself here, once, so the
+        // `seq` the stat reads is already past it.
+        const versionBefore = await serverOps.projectVersion();
         const currentStat = await serverOps.getStat({
           ...req.body,
           profileId,
@@ -2039,10 +2099,30 @@ export const ValServer = (
           gitBranch: config.gitBranch ?? null,
           projectBranch: serverOps.projectBranch(),
         });
+        /*
+         * What the answer is relative to: the store's own `seq` as the stat
+         * read it (fs, memory), or the content service's `headVersion`
+         * (http). Not spread from the stat, which carries `seq` only to be
+         * read here.
+         */
+        const { seq: statSeq, ...stat } =
+          "seq" in currentStat
+            ? currentStat
+            : { ...currentStat, seq: undefined };
+        const version: ProjectVersion = {
+          build: versionBefore.build,
+          seq:
+            statSeq ??
+            ("headVersion" in currentStat
+              ? currentStat.headVersion
+              : undefined) ??
+            versionBefore.seq,
+        };
         return {
           status: 200,
           json: {
-            ...currentStat,
+            ...stat,
+            version,
             profileId: profileId ?? null,
             mode,
             ...(publishRefusal ? { publishRefusal } : {}),
@@ -2580,10 +2660,12 @@ export const ValServer = (
           };
         }
         const excludePatchOps = query.exclude_patch_ops === true;
-        const fetchedPatchesRes = await serverOps.fetchPatches({
-          patchIds: query.patch_id as PatchId[] | undefined,
-          excludePatchOps: excludePatchOps,
-        });
+        const [fetchedPatchesRes, version] = await readAtVersion(() =>
+          serverOps.fetchPatches({
+            patchIds: query.patch_id as PatchId[] | undefined,
+            excludePatchOps: excludePatchOps,
+          }),
+        );
         if (fetchedPatchesRes.error) {
           // Error is singular
           Internal.log.error("Failed to get patches", fetchedPatchesRes.error);
@@ -2634,6 +2716,7 @@ export const ValServer = (
           json: {
             patches,
             baseSha: await serverOps.getBaseSha(),
+            version,
           },
         };
       },
@@ -2805,6 +2888,7 @@ export const ValServer = (
         if (key !== undefined) {
           const res = await serverOps.getJsonEntry(moduleFilePath, key, {
             applyPatches,
+            withVersion: true,
           });
           if (res.status === "unauthorized") {
             return { status: 401, json: { message: res.message } };
@@ -2817,7 +2901,12 @@ export const ValServer = (
           }
           return {
             status: 200,
-            json: { path: moduleFilePath, key, content: res.content },
+            json: {
+              path: moduleFilePath,
+              key,
+              content: res.content,
+              ...(res.version !== undefined ? { version: res.version } : {}),
+            },
           };
         }
         const res = await serverOps.getJsonEntries(
@@ -2825,7 +2914,7 @@ export const ValServer = (
           keys !== undefined
             ? { keys }
             : { offset: offset as number, limit: limit as number },
-          { applyPatches },
+          { applyPatches, withVersion: true },
         );
         if (res.status === "unauthorized") {
           return { status: 401, json: { message: res.message } };
@@ -2846,6 +2935,7 @@ export const ValServer = (
             ...(res.offset !== undefined ? { offset: res.offset } : {}),
             ...(res.limit !== undefined ? { limit: res.limit } : {}),
             total: res.total,
+            ...(res.version !== undefined ? { version: res.version } : {}),
           },
         };
       },
@@ -2890,11 +2980,14 @@ export const ValServer = (
         let patchOps: OrderedPatches = {
           patches: [],
         };
+        let project = await serverOps.projectVersion();
         if (query.exclude_patches !== true) {
-          patchOps = await serverOps.fetchPatches({
-            patchIds: undefined,
-            excludePatchOps: false,
-          });
+          [patchOps, project] = await readAtVersion(() =>
+            serverOps.fetchPatches({
+              patchIds: undefined,
+              excludePatchOps: false,
+            }),
+          );
         }
         // We check authorization here, because it is the first call to the backend
         if (patchOps.error && patchOps.unauthorized) {
@@ -2993,11 +3086,24 @@ export const ValServer = (
         }
 
         const schemaSha = await serverOps.getSchemaSha();
+        /*
+         * The version of each module as answered: the chain the server
+         * applied, or none. Kept as content changed, so nothing is hashed
+         * here (`ChainFold`). A module whose chain stopped at a failing patch
+         * still names the whole chain: where it stops is the engine's (phase
+         * 2), and until then the Studio, which drops such a patch, simply
+         * holds a different version.
+         */
+        const versions = await serverOps.moduleVersions(
+          patchOps.patches,
+          applyPatches,
+        );
         const modules: Record<
           ModuleFilePath,
           {
             source: Json;
             baseSource?: Json;
+            version?: ModuleVersion;
             preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
@@ -3059,6 +3165,9 @@ export const ValServer = (
                   : undefined,
               validationErrors:
                 sourcesValidation.errors[moduleFilePath]?.validations,
+              ...(versions[moduleFilePath] !== undefined
+                ? { version: versions[moduleFilePath] }
+                : {}),
             };
           }
         }
@@ -3069,6 +3178,7 @@ export const ValServer = (
             schemaSha,
             sourcesSha,
             modules,
+            project,
           },
         };
         return res;

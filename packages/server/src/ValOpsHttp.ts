@@ -664,6 +664,18 @@ export class ValOpsHttp extends ValOps {
     this.publishBuild =
       this.contentVersion === null ? (options?.publishBuild ?? null) : null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
+    this.buildName = options?.publishBuild ?? git?.commit ?? null;
+  }
+
+  /**
+   * The platform's name for the build (`VAL_BUILD`), else the commit it was
+   * built from. Part of `ProjectVersion.build`; `seq` is the content
+   * service's `headVersion`, so this store keeps no counter of its own.
+   */
+  private readonly buildName: string | null;
+
+  protected override hostBuild(): string | null {
+    return this.buildName;
   }
   /**
    * A deployment that cannot mirror a project which expects to be mirrored.

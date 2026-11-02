@@ -74,6 +74,12 @@ import {
   resolveSchemaSourceFixForError,
   isSchemaSourceFixError,
   type SchemaSourceSnapshot,
+  ChainFold,
+  EMPTY_CHAIN,
+  baseVersionOf,
+  schemaVersionOf,
+  type ModuleVersion,
+  type ProjectVersion,
 } from "@valbuild/shared/internal";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 
@@ -245,6 +251,24 @@ export abstract class ValOps {
   >();
 
   /**
+   * Each module's `schema` and `base` version: hashed when the modules are
+   * evaluated and when a base is adopted (a snapshot, a publish), never when
+   * they are read. See `ModuleVersion` in `@valbuild/shared/internal`.
+   */
+  private baseVersions: Map<
+    ModuleFilePath,
+    Pick<ModuleVersion, "schema" | "base">
+  > | null = null;
+  /**
+   * The build this instance serves, as {@link ProjectVersion.build} names it:
+   * the fold of what the modules evaluated to, frozen at evaluation (a publish
+   * moves the base, not the build), unless the host names its build.
+   */
+  private buildVersion: string | null = null;
+  /** Every module's `chain`, folded as the chain grows. See `ChainFold`. */
+  private readonly chainFold = new ChainFold();
+
+  /**
    * Take a formatter for saves, when this instance was built without one.
    *
    * One instance serves every Val server in a process (`sharedValOps`), and
@@ -319,6 +343,11 @@ export abstract class ValOps {
         removed?: { patchId: PatchId; reason: string }[];
         /** FS mode only — see the `params` counterpart. */
         jsonEntriesSha?: string;
+        /**
+         * The store's own `seq` (fs, memory), read before the patches it
+         * answers with. See `ProjectVersion` and {@link projectVersion}.
+         */
+        seq?: number;
       }
     | {
         type: "use-websocket";
@@ -378,6 +407,22 @@ export abstract class ValOps {
       this.modulesErrors = moduleErrors;
       this.shaEntries = extracted.shaEntries;
       this.shaModuleErrors = extracted.moduleErrors;
+      // The host's name for its build, where it has one, with the fold of
+      // what this build evaluated to: two builds of one commit can differ.
+      const hostBuild = this.hostBuild();
+      this.buildVersion =
+        hostBuild !== null
+          ? `${hostBuild}.${extracted.baseSha}`
+          : extracted.baseSha;
+      this.baseVersions = new Map(
+        extracted.shaEntries.map((entry) => [
+          entry.path,
+          {
+            schema: schemaVersionOf(entry.serializedSchema),
+            base: baseVersionOf(entry.source),
+          },
+        ]),
+      );
       /*
        * The snapshot, over what the modules evaluated to. Through the same
        * door a save uses, so the SHAs move with it: they describe the Source
@@ -613,6 +658,19 @@ export abstract class ValOps {
       const source = bySource.get(entry.path);
       return source === undefined ? entry : { ...entry, source };
     });
+    // The base versions move with them, for the adopted modules only.
+    if (this.baseVersions !== null) {
+      this.baseVersions = new Map(this.baseVersions);
+      for (const [moduleFilePath, source] of adopt) {
+        const known = this.baseVersions.get(moduleFilePath);
+        if (known !== undefined) {
+          this.baseVersions.set(moduleFilePath, {
+            schema: known.schema,
+            base: baseVersionOf(source),
+          });
+        }
+      }
+    }
     const shas = computeValModuleShas(
       this.valModules.config,
       this.shaEntries,
@@ -627,6 +685,86 @@ export abstract class ValOps {
   async init(): Promise<void> {
     const { baseSha, schemaSha } = await this.initSources();
     await this.onInit(baseSha, schemaSha);
+  }
+
+  // #region versions
+  /**
+   * Every module's version, for the patches a draft applies (in chain order:
+   * `draftOverlay`'s), or with the empty chain when `applied` is false -- an
+   * answer whose source has no patches applied (`apply_patches=false`).
+   *
+   * Nothing here hashes on a read: `schema` and `base` were hashed when the
+   * modules were evaluated or a base adopted, and the chains are extended
+   * only by the patches they gained since the last call (`ChainFold`).
+   */
+  async moduleVersions(
+    patches: readonly { patchId: PatchId; path: ModuleFilePath }[],
+    applied: boolean = true,
+  ): Promise<Record<ModuleFilePath, ModuleVersion>> {
+    await this.initSources();
+    const versions: Record<ModuleFilePath, ModuleVersion> = {};
+    const chains = applied ? this.chainFold.chainsOf(patches) : null;
+    for (const [moduleFilePath, version] of this.baseVersions ?? []) {
+      versions[moduleFilePath] = {
+        schema: version.schema,
+        base: version.base,
+        chain: chains?.get(moduleFilePath) ?? EMPTY_CHAIN,
+      };
+    }
+    return versions;
+  }
+
+  /** One module's version: {@link moduleVersions}, for one path. */
+  async moduleVersion(
+    moduleFilePath: ModuleFilePath,
+    patches: readonly { patchId: PatchId; path: ModuleFilePath }[],
+    applied: boolean = true,
+  ): Promise<ModuleVersion | undefined> {
+    await this.initSources();
+    const version = this.baseVersions?.get(moduleFilePath);
+    if (version === undefined) return undefined;
+    const chain = applied
+      ? (this.chainFold.chainsOf(patches).get(moduleFilePath) ?? EMPTY_CHAIN)
+      : EMPTY_CHAIN;
+    return { schema: version.schema, base: version.base, chain };
+  }
+
+  /**
+   * The project version an answer is relative to. `headVersion` is the
+   * content service's, for a store that keeps no counter of its own (http);
+   * fs and memory count their own writes ({@link ownSeq}).
+   */
+  async projectVersion(headVersion?: number): Promise<ProjectVersion> {
+    await this.initSources();
+    const build = this.buildVersion ?? "";
+    const own = await this.ownSeq(build);
+    return { build, seq: own ?? headVersion ?? 0 };
+  }
+
+  /**
+   * A cheap identity for "the manifest has not moved": the build, the base
+   * fold, the seq and the chain fold's epoch. Concatenated, never hashed.
+   */
+  async manifestTag(project: ProjectVersion): Promise<string> {
+    const { baseSha } = await this.initSources();
+    return `"${project.build.slice(0, 16)}.${baseSha.slice(0, 16)}.${project.seq}.${this.chainFold.epoch()}"`;
+  }
+
+  /**
+   * The host's own name for the build it runs, when it has one (a platform's
+   * build, a commit). `null`: the fold of what the modules evaluated to.
+   */
+  protected hostBuild(): string | null {
+    return null;
+  }
+
+  /**
+   * This store's own `seq`, or `null` for a store whose changes are counted
+   * by someone else (the content service's `headVersion`). Given the build,
+   * because a new build bumps it once.
+   */
+  protected async ownSeq(_build: string): Promise<number | null> {
+    return null;
   }
 
   async getBaseSources(): Promise<Sources> {
@@ -649,9 +787,9 @@ export abstract class ValOps {
     moduleFilePath: ModuleFilePath,
     entryKey: string,
     /** Passed straight through — see {@link getJsonEntries}. */
-    opts?: { applyPatches?: boolean },
+    opts?: { applyPatches?: boolean; withVersion?: boolean },
   ): Promise<
-    | { status: "success"; content: JSONValue | null }
+    | { status: "success"; content: JSONValue | null; version?: ModuleVersion }
     | { status: "not-found"; message: string }
     | { status: "error"; message: string }
     | { status: "unauthorized"; message: string }
@@ -666,7 +804,11 @@ export abstract class ValOps {
     }
     const entry = res.entries[0];
     if (entry !== undefined) {
-      return { status: "success", content: entry.content };
+      return {
+        status: "success",
+        content: entry.content,
+        ...(res.version !== undefined ? { version: res.version } : {}),
+      };
     }
     const error = res.errors[0];
     if (error !== undefined) {
@@ -701,6 +843,8 @@ export abstract class ValOps {
     selector: { keys: string[] } | { offset: number; limit: number },
     opts?: {
       applyPatches?: boolean;
+      /** Answer the record module's version too (`/json` does). */
+      withVersion?: boolean;
     },
   ): Promise<
     | {
@@ -711,6 +855,8 @@ export abstract class ValOps {
         total: number;
         offset?: number;
         limit?: number;
+        /** See `version` on `/json`. */
+        version?: ModuleVersion;
       }
     | { status: "not-found"; message: string }
     | { status: "error"; message: string }
@@ -748,6 +894,10 @@ export abstract class ValOps {
     // Fetched once for the whole batch, not per entry.
     let modulePatches: { patchId: PatchId; patch: Patch }[] = [];
     let serializedSchema: SerializedSchema | undefined = undefined;
+    /** The record module's version, with the chain the entries were read at. */
+    let version: ModuleVersion | undefined = applyPatches
+      ? undefined
+      : await this.moduleVersion(moduleFilePath, [], false);
     if (applyPatches) {
       const patchOps = await this.fetchPatches({ excludePatchOps: false });
       if (patchOps.error) {
@@ -764,6 +914,10 @@ export abstract class ValOps {
         moduleFilePath,
         patchOps.commits,
       ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
+      version = await this.moduleVersion(
+        moduleFilePath,
+        draftOverlay(patchOps.patches, patchOps.commits),
+      );
       try {
         serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
       } catch {
@@ -915,6 +1069,9 @@ export abstract class ValOps {
       errors,
       total: allKeys.length,
       ...(isWindow ? { offset: selector.offset, limit: selector.limit } : {}),
+      ...(opts?.withVersion === true && version !== undefined
+        ? { version }
+        : {}),
     };
   }
   async getSchemas(): Promise<Schemas> {

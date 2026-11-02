@@ -86,6 +86,31 @@ export type StoredFile = {
  * order held in the patches themselves lets a client working from a stale view
  * strand every patch behind a parent that never landed.
  */
+/**
+ * Memory mode's `seq` (`ProjectVersion` in `@valbuild/shared/internal`), per
+ * patch store: bumped beside `announceChange` by every write and delete, and
+ * once by each new build. Kept by the STORE rather than the instance, because
+ * a new build is a new `ValOpsMemory` on the same store (hot reload), and a
+ * counter that started again from zero would make its answers read as older
+ * than the last build's.
+ *
+ * A store shared between isolates (a Durable Object) is counted per isolate:
+ * a write in another one is not seen until this one writes.
+ */
+const seqs = new WeakMap<
+  ValPatchStore,
+  { seq: number; build: string | null }
+>();
+
+function seqOf(store: ValPatchStore): { seq: number; build: string | null } {
+  let counter = seqs.get(store);
+  if (counter === undefined) {
+    counter = { seq: 0, build: null };
+    seqs.set(store, counter);
+  }
+  return counter;
+}
+
 export interface ValPatchStore {
   list(): Promise<PatchId[]>;
   get(patchId: PatchId): Promise<StoredPatch | null>;
@@ -357,6 +382,7 @@ export class ValOpsMemory extends ValOps {
   /** Wake every parked `getStat`. Called by this instance's own writes. */
   private announceChange(): void {
     this.changeCount += 1;
+    seqOf(this.store).seq += 1;
     const waiting = this.statWaiters;
     this.statWaiters = [];
     for (const wake of waiting) {
@@ -369,13 +395,33 @@ export class ValOpsMemory extends ValOps {
     schemaSha: SchemaSha;
     sourcesSha: SourcesSha;
     patches: PatchId[];
+    seq: number;
   }> {
+    const baseSha = await this.getBaseSha();
+    const schemaSha = await this.getSchemaSha();
+    const sourcesSha = await this.getSourcesSha();
+    // Before the list, so the answer is never behind the `seq` it carries.
+    const seq = seqOf(this.store).seq;
     return {
-      baseSha: await this.getBaseSha(),
-      schemaSha: await this.getSchemaSha(),
-      sourcesSha: await this.getSourcesSha(),
+      baseSha,
+      schemaSha,
+      sourcesSha,
       patches: await this.store.list(),
+      seq,
     };
+  }
+
+  /**
+   * The `seq` of this store: see {@link seqOf}. A new build counts itself
+   * once, when it first answers.
+   */
+  protected override async ownSeq(build: string): Promise<number> {
+    const counter = seqOf(this.store);
+    if (counter.build !== build) {
+      counter.build = build;
+      counter.seq += 1;
+    }
+    return counter.seq;
   }
 
   override async getStat(
@@ -390,6 +436,7 @@ export class ValOpsMemory extends ValOps {
     schemaSha: SchemaSha;
     sourcesSha: SourcesSha;
     patches: PatchId[];
+    seq: number;
   }> {
     /*
      * A long poll, and it has to be one -- but parked on a SIGNAL rather than a
