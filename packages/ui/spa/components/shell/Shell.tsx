@@ -1338,13 +1338,13 @@ export function Shell({
   // `TopBarProposals.onSaveAndBuild`.
   const phoneSaveAndBuild =
     proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
+  // Save that updates the preview stays the main action for good, as it is
+  // in `ProposalActionButton`: Commit and Publish are behind the caret.
   const phoneAction =
     proposals !== undefined && phoneProposal !== null
-      ? nextProposalAction(
-          phoneProposal,
-          proposals.onBuild !== undefined,
-          phoneSaveAndBuild !== undefined,
-        )
+      ? phoneSaveAndBuild !== undefined
+        ? "save"
+        : nextProposalAction(phoneProposal, proposals.onBuild !== undefined)
       : null;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
@@ -1352,7 +1352,12 @@ export function Shell({
         <ProposalSaveAndBuildButton
           location={phoneProposal}
           onSaveAndBuild={phoneSaveAndBuild}
-          blockedBy={proposals.saveBlockedBy}
+          // No "Fix N" in code mode: see `ProposalActionButton`.
+          blockedBy={
+            proposals.codeMode?.on === true
+              ? undefined
+              : proposals.saveBlockedBy
+          }
           className="h-9 min-w-[5.5rem]"
         />
       ) : phoneAction === "save" ? (

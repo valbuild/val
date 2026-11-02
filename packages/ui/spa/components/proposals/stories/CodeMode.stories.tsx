@@ -504,3 +504,62 @@ export const PhoneCodeModeOn = shell({
   codeMode: { on: true },
   saveBuilds: true,
 });
+
+/**
+ * Code mode on, by someone else: the `</>` is pressed for everyone in the
+ * proposal, and the switcher's menu says who turned it on and when. This
+ * person stays in the content editor -- the view is each person's -- and
+ * their edits are saved before each of the assistant's code writes.
+ */
+export const OnBySomeoneElseInTheEditor = shell({
+  location: inProposal({ unsaved: 2 }),
+  selectionId: mockSelectionIds.home,
+  codeMode: { on: true, contentView: true, turnedOnBy: "Kari Nordmann" },
+  saveBuilds: true,
+  switcherOpen: true,
+});
+
+/**
+ * The `</>` pressed while code mode is on: who turned it on, which view this
+ * person sees, and Turn off -- for everyone, discarding nothing.
+ */
+export const CodeModeMenu = shell({
+  location: inProposal({ unsaved: 0 }),
+  codeMode: { on: true, turnedOnBy: "you", menuOpen: true },
+  saveBuilds: true,
+  renderChat: codeChat(MESSAGES),
+});
+
+/**
+ * Save is the one main button; its menu holds Commit (a project connected to
+ * git) and Publish. In code mode there is no "Fix N": Save saves invalid
+ * content too, and Publish is refused until it is fixed.
+ */
+export const SaveMenuWithCommit = shell({
+  location: inProposal({ unsaved: 2 }),
+  codeMode: { on: true, contentView: true },
+  saveBuilds: true,
+  commit: {},
+  validationErrors: 2,
+  menuOpen: true,
+});
+
+/** Nothing saved since the last Commit: Commit says so, and waits. */
+export const SaveMenuCommitted = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: { upToDate: true },
+  menuOpen: true,
+});
+
+/**
+ * Commit refused: somebody else pushed to the proposal's branch. Who, when,
+ * and a link to their commit; no Try again, since pressing again would be
+ * refused the same way.
+ */
+export const CommitRefusedSomeonePushed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: true,
+});

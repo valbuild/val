@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
+  GitCommit,
   Hammer,
   Package,
   Save,
@@ -510,6 +511,22 @@ export function ProposalPublishButton({
   );
 }
 
+/**
+ * Commit, in a project connected to git (valbuild/home `docs/proposals.md`):
+ * saves are commits on the proposal's content line, and only this -- or
+ * Publish -- pushes the proposal as one commit to its git branch, where a
+ * developer finds it. Commit and Publish use the project's commit message
+ * setting (`studio.commitMessage`).
+ */
+export type ProposalCommit = {
+  onCommit: () => void;
+  state: "idle" | "committing";
+  /** Its git branch: `val/p/<name>`. */
+  branch: string;
+  /** Everything saved is on the branch already: nothing to commit. */
+  upToDate?: boolean;
+};
+
 /** What a proposal's one primary action is: whichever step comes next. */
 export type ProposalNextAction = "save" | "build" | "publish";
 
@@ -576,6 +593,8 @@ export function ProposalActionButton({
   onSaveAndBuild,
   onPublish,
   saveBlockedBy,
+  codeMode = false,
+  commit,
   defaultMenuOpen = false,
 }: {
   location: InProposal;
@@ -590,6 +609,14 @@ export function ProposalActionButton({
   onSaveAndBuild?: () => void;
   onPublish: () => void;
   saveBlockedBy?: { errors: number; onShow: () => void };
+  /**
+   * The proposal is in code mode: Save saves whatever there is, invalid
+   * content too, because a proposal is not the site and the errors stay
+   * shown -- so there is no "Fix N". Publish is still refused with errors.
+   */
+  codeMode?: boolean;
+  /** Commit, in a project connected to git. See {@link ProposalCommit}. */
+  commit?: ProposalCommit;
   defaultMenuOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultMenuOpen);
@@ -612,19 +639,23 @@ export function ProposalActionButton({
     onSaveAndBuild !== undefined && onBuild !== undefined
       ? onSaveAndBuild
       : null;
-  const action = nextProposalAction(
-    location,
-    onBuild !== undefined,
-    saveAndBuild !== null,
-  );
+  /*
+   * Save that updates the preview is the main half for good: it is disabled
+   * when there is nothing to save or update, and Commit and Publish are in
+   * its menu. Without it, the main half is whichever step comes next.
+   */
+  const action: ProposalNextAction =
+    saveAndBuild !== null
+      ? "save"
+      : nextProposalAction(location, onBuild !== undefined, false);
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed";
-  const blocked =
-    location.unsaved > 0 &&
-    saveBlockedBy !== undefined &&
-    saveBlockedBy.errors > 0
+  const errors =
+    saveBlockedBy !== undefined && saveBlockedBy.errors > 0
       ? saveBlockedBy
       : null;
+  // In code mode a save is never refused for the content: see `codeMode`.
+  const blocked = !codeMode && location.unsaved > 0 ? errors : null;
   const code = location.code;
   const build =
     code === null || onBuild === undefined
@@ -650,11 +681,13 @@ export function ProposalActionButton({
             failed: code.state === "failed",
           };
 
-  const update = previewUpdateOf(code);
   const mainDisabled =
     action === "save"
       ? saving ||
-        (saveAndBuild !== null && location.unsaved === 0 && !buildIsDue(code))
+        (saveAndBuild !== null &&
+          location.unsaved === 0 &&
+          !buildIsDue(code) &&
+          !saveFailed)
       : action === "build"
         ? build === null ||
           build.busy ||
@@ -678,9 +711,12 @@ export function ProposalActionButton({
   };
   const publishRefusedBy =
     location.publishBlockedBy ??
-    (blocked !== null
-      ? "Fix the validation errors first: publishing saves the changes."
-      : null);
+    (errors !== null && (codeMode || saveAndBuild !== null)
+      ? `Fix the ${errors.errors === 1 ? "validation error" : `${errors.errors} validation errors`} first: only valid content is published.`
+      : blocked !== null
+        ? "Fix the validation errors first: publishing saves the changes."
+        : null);
+  const committing = commit?.state === "committing";
 
   return (
     <div ref={containerRef} className="relative h-8 shrink-0">
@@ -689,7 +725,7 @@ export function ProposalActionButton({
           <ProposalSaveAndBuildButton
             location={location}
             onSaveAndBuild={saveAndBuild}
-            blockedBy={saveBlockedBy}
+            blockedBy={codeMode ? undefined : saveBlockedBy}
             className="rounded-r-none"
           />
         ) : action === "save" ? (
@@ -733,7 +769,8 @@ export function ProposalActionButton({
           role="menu"
           className="absolute right-0 top-full z-full mt-1 w-64 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
         >
-          {location.unsaved > 0 &&
+          {saveAndBuild === null &&
+            location.unsaved > 0 &&
             (blocked !== null ? (
               <MenuItem
                 icon={
@@ -765,34 +802,41 @@ export function ProposalActionButton({
                   : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`}
               </MenuItem>
             ))}
-          {/*
-           * With Save updating the preview, the update is offered here on
-           * its own only while there is nothing to save first.
-           */}
-          {saveAndBuild !== null &&
-            location.unsaved === 0 &&
-            (buildIsDue(code) || update.state === "updating") && (
-              <MenuItem
-                icon={
-                  update.state === "updating" ? (
-                    <Spinner size={14} />
-                  ) : (
-                    <Hammer size={14} />
-                  )
-                }
-                onClick={choose(saveAndBuild)}
-                disabled={update.state === "updating"}
-                detail={
-                  update.state === "updating"
-                    ? "Showing the latest changes in the preview."
-                    : "Show the latest changes in the preview."
-                }
-              >
-                {update.state === "updating"
-                  ? "Updating the preview…"
-                  : "Update the preview"}
-              </MenuItem>
-            )}
+          {saveAndBuild !== null && errors !== null && (
+            <MenuItem
+              icon={
+                <AlertTriangle size={14} className="text-fg-error-on-surface" />
+              }
+              onClick={choose(errors.onShow)}
+              detail={
+                codeMode
+                  ? "Saved as they are. They have to be fixed before the proposal is published."
+                  : "They have to be fixed before the proposal can be saved"
+              }
+            >
+              {`Show ${errors.errors} validation ${errors.errors === 1 ? "error" : "errors"}`}
+            </MenuItem>
+          )}
+          {commit !== undefined && (
+            <MenuItem
+              icon={
+                committing ? <Spinner size={14} /> : <GitCommit size={14} />
+              }
+              onClick={choose(commit.onCommit)}
+              disabled={committing || commit.upToDate === true}
+              detail={
+                committing
+                  ? "Committing the proposal to its branch…"
+                  : commit.upToDate === true
+                    ? `Everything saved is committed to ${commit.branch}.`
+                    : location.unsaved > 0
+                      ? `Saves the changes, then commits the proposal to ${commit.branch}, for developers to find in git.`
+                      : `Commits the proposal as it stands to ${commit.branch}, for developers to find in git.`
+              }
+            >
+              {committing ? "Committing…" : "Commit"}
+            </MenuItem>
+          )}
           {build !== null && onBuild !== undefined && saveAndBuild === null && (
             <MenuItem
               icon={
@@ -823,8 +867,12 @@ export function ProposalActionButton({
             detail={
               publishRefusedBy ??
               (location.unsaved > 0
-                ? "Saves the changes first, then publishes the proposal"
-                : "Merges the proposal into the site, as one change")
+                ? commit !== undefined
+                  ? "Saves the changes, commits them, then merges the proposal into the site"
+                  : "Saves the changes first, then publishes the proposal"
+                : commit !== undefined
+                  ? "Commits what is not on the branch yet, then merges the proposal into the site"
+                  : "Merges the proposal into the site, as one change")
             }
           >
             Publish to the site

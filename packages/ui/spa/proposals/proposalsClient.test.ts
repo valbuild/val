@@ -396,3 +396,70 @@ test("going somewhere keeps the Studio page you are on", () => {
     `https://${NAME}.valstart.dev/val/~/app/page.val.ts?p=1#field`,
   );
 });
+
+/*
+ * Code mode and Commit, as home answers them (its code-mode contract): the
+ * same answers `homeWireContract.test.ts` pins on the server's side.
+ */
+describe("code mode and Commit", () => {
+  const read = {
+    ...json(),
+    codeMode: {
+      on: true,
+      changedBy: "ada",
+      changedAt: "2026-11-02T10:00:00.000Z",
+    },
+    git: {
+      branch: `val/p/${NAME}`,
+      branchUrl: `https://github.com/acme/site/tree/val/p/${NAME}`,
+      committed: null,
+      head: "save1",
+      uncommitted: true,
+    },
+  };
+
+  test("turning it on is `/code-mode`, and the proposal comes back with it", async () => {
+    const { sent, fetchImpl } = fakeFetch([
+      { status: 200, body: { proposal: read } },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    const answer = await client.setCodeMode(NAME, true);
+    expect(sent[0]).toEqual({
+      url: `/api/val/proposals-api/${NAME}/code-mode`,
+      method: "POST",
+      body: { on: true },
+    });
+    expect(answer.codeMode?.on).toBe(true);
+    expect(answer.git?.uncommitted).toBe(true);
+  });
+
+  test("Commit is `/commit` with the message, answered with the commit", async () => {
+    const { sent, fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          commit: {
+            sha: "2b3c4d5",
+            url: "https://github.com/acme/site/commit/2b3c4d5",
+            save: "save1",
+            pushed: true,
+          },
+          proposal: { ...read, git: { ...read.git, uncommitted: false } },
+        },
+      },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    const answer = await client.commit(NAME, { message: "Spring" });
+    expect(sent[0]?.url).toBe(`/api/val/proposals-api/${NAME}/commit`);
+    expect(sent[0]?.body).toEqual({ message: "Spring" });
+    expect(answer.commit.pushed).toBe(true);
+  });
+
+  test("content without code mode reads as none, not as a failure to read", async () => {
+    const { fetchImpl } = fakeFetch([
+      { status: 200, body: { proposal: json() } },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    expect((await client.get(NAME)).codeMode).toBeUndefined();
+  });
+});

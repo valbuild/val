@@ -48,6 +48,7 @@ import {
   useCurrentProfile,
   useCurrentProposal,
   useProfilesByAuthorId,
+  useValMode,
   useAIContext,
   useClient,
   type AIMessagesResponse,
@@ -76,6 +77,7 @@ import {
 } from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
 import { randomUUID } from "../utils/randomUUID";
+import { toast } from "../components/designSystem/sonner";
 import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -124,6 +126,7 @@ import {
   DESIGN_QUICK_PREVIEW_TOOL,
   DESIGN_READ_PAGE_TOOL,
   isCodeTool,
+  REQUEST_CODE_MODE_TOOL,
   runCodeTool,
   runQuickPreviewTool,
   runReadPage,
@@ -146,6 +149,13 @@ import {
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
+import {
+  codeModeState,
+  readCodeMode,
+  requestCodeModeMenu,
+  turnOnCodeMode,
+} from "../proposals/codeMode";
+import type { CodeModeRequest } from "../components/CodeModeRequestCard";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
@@ -1051,6 +1061,16 @@ export function useAI(
   const { navigate, currentSourcePath } = useNavigation();
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
+  /** Names for the code tools' refusals: "Kari turned code mode off". */
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
+  /*
+   * The code tools, and asking for code mode, only where code is changed in
+   * proposals: a hosted Studio. Local development changes code in an editor.
+   */
+  const valMode = useValMode();
+  const hostedRef = useRef(valMode === "http");
+  hostedRef.current = valMode === "http";
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   // Read by the image tools when they run, through a ref so a bucket being
   // picked does not re-subscribe the tool handler.
@@ -1215,6 +1235,8 @@ export function useAI(
   // assistant message that opened the card. Needed to reject them on session
   // change, and to fail that specific turn if the result cannot be delivered.
   const pendingQuestionsRef = useRef<Map<string, string>>(new Map());
+  // The `request_code_mode` cards shown, by tool call: what each asked.
+  const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
@@ -1379,6 +1401,53 @@ export function useAI(
             isError: true,
           });
           chatRef.current?.errorToolCall(message.id, message.toolCallId);
+        } else if (message.name === "request_code_mode") {
+          const reason = z
+            .object({ reason: z.string() })
+            .safeParse(message.arguments);
+          const inProposal = codeModeState().proposal;
+          if (inProposal?.on === true) {
+            // Nothing to ask: it is on already.
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: true,
+                note: "Code mode is already on in this proposal: change its code.",
+              },
+            });
+            chatRef.current?.completeToolCall(message.id, message.toolCallId);
+          } else if (!chatRef.current) {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: false,
+                error:
+                  "The chat UI is not available to show the request. Ask the person in plain text to turn on code mode with the </> beside the proposal's name.",
+              },
+              isError: true,
+            });
+          } else {
+            const request: CodeModeRequest = {
+              reason: reason.success
+                ? reason.data.reason
+                : "The assistant needs to change the code for this.",
+              where:
+                inProposal !== null
+                  ? { kind: "proposal", displayName: inProposal.displayName }
+                  : { kind: "site" },
+              state: "asking",
+            };
+            chatRef.current.setCodeModeRequest(
+              message.id,
+              message.toolCallId,
+              request,
+            );
+            codeModeRequestsRef.current.set(message.toolCallId, request);
+            // Waits on the person, as a question does: answered by the card.
+            pendingQuestionsRef.current.set(message.toolCallId, message.id);
+          }
         } else if (message.name === "ask_user_question") {
           pendingQuestionsRef.current.set(message.toolCallId, message.id);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
@@ -2356,6 +2425,17 @@ export function useAI(
             },
             offerProposal: requestProposal,
             design: designRef.current !== null,
+            // The design tab's code is the tab's own: no code mode there.
+            ...(designRef.current === null && proposalName !== null
+              ? {
+                  codeMode: () =>
+                    readCodeMode(
+                      codeClients.proposals,
+                      proposalName,
+                      (id) => profilesRef.current[id]?.fullName ?? null,
+                    ),
+                }
+              : {}),
           }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
@@ -3193,18 +3273,25 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
                     valReads.getAssistantSettings(),
-                  )}${codeToolsPromptSection(
-                    currentProposalRef.current !== null
-                      ? { kind: "proposal" }
-                      : { kind: "site" },
-                  )}`,
+                  )}${
+                    hostedRef.current
+                      ? codeToolsPromptSection(
+                          currentProposalRef.current !== null
+                            ? { kind: "proposal" }
+                            : { kind: "site" },
+                        )
+                      : ""
+                  }`,
             tools:
               designRef.current !== null
                 ? [...DESIGN_TOOLS, ...CODE_TOOLS]
                 : [
                     ...ALL_TOOLS,
                     ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-                    ...CODE_TOOLS,
+                    // Hosted only: see `hostedRef`.
+                    ...(hostedRef.current
+                      ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                      : []),
                   ],
           },
         ],
@@ -3315,6 +3402,92 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
     },
     [sendWsMessage, failUndeliveredQuestion],
+  );
+
+  /** Answer a `request_code_mode` card, and move it on. */
+  const answerCodeModeRequest = useCallback(
+    (
+      toolCallId: string,
+      next: CodeModeRequest["state"],
+      result: { success: boolean; note?: string; error?: string },
+    ) => {
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      const request = codeModeRequestsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      if (messageId === undefined || request === undefined) return;
+      const moved: CodeModeRequest = { ...request, state: next };
+      codeModeRequestsRef.current.set(toolCallId, moved);
+      chatRef.current?.setCodeModeRequest(messageId, toolCallId, moved);
+      const sent = sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result,
+        ...(result.success ? {} : { isError: true }),
+      });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+        return;
+      }
+      if (result.success) {
+        chatRef.current?.completeToolCall(messageId, toolCallId);
+      } else {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+    },
+    [chatRef, sendWsMessage, failUndeliveredQuestion],
+  );
+
+  /**
+   * The card's button. In a proposal it turns code mode on -- the same call
+   * as the `</>` -- and the turn goes on once it is. On the site it opens
+   * the `</>` menu, and the turn ends here: the change is made in the
+   * proposal chosen, whose Studio opens in code mode.
+   */
+  const enableCodeMode = useCallback(
+    (toolCallId: string) => {
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      const request = codeModeRequestsRef.current.get(toolCallId);
+      if (messageId === undefined || request === undefined) return;
+      if (request.where.kind === "site") {
+        requestCodeModeMenu();
+        answerCodeModeRequest(toolCallId, "asking", {
+          success: false,
+          note: "The person was shown the proposals to open in code mode. The change is made in the one they choose, whose Studio opens with code mode on. Tell them that, and stop here.",
+        });
+        return;
+      }
+      const turning: CodeModeRequest = { ...request, state: "turning-on" };
+      codeModeRequestsRef.current.set(toolCallId, turning);
+      chatRef.current?.setCodeModeRequest(messageId, toolCallId, turning);
+      void turnOnCodeMode().then((refused) => {
+        if (refused === null) {
+          answerCodeModeRequest(toolCallId, "on", {
+            success: true,
+            note: "Code mode is on: everything pending was saved, and you can change the proposal's code now.",
+          });
+          return;
+        }
+        // Not answered: the card asks again, and its button is the retry.
+        const back: CodeModeRequest = { ...request, state: "asking" };
+        codeModeRequestsRef.current.set(toolCallId, back);
+        chatRef.current?.setCodeModeRequest(messageId, toolCallId, back);
+        toast.error("Code mode could not be turned on", {
+          description: refused,
+        });
+      });
+    },
+    [chatRef, answerCodeModeRequest],
+  );
+
+  const declineCodeMode = useCallback(
+    (toolCallId: string) => {
+      answerCodeModeRequest(toolCallId, "declined", {
+        success: false,
+        error:
+          "The person chose not to turn on code mode now. Do not change code: say what the change would need, and do what content alone can.",
+      });
+    },
+    [answerCodeModeRequest],
   );
 
   // Reject any pending ask_user_question tool calls. ask_user_question sets
@@ -3566,6 +3739,9 @@ Do not describe what you will do unless you do it for clarification — just do 
     loadSession,
     answerToolQuestions,
     cancelToolQuestion,
+    /** A `request_code_mode` card's buttons. See `CodeModeRequestCard`. */
+    enableCodeMode,
+    declineCodeMode,
     /** In a proposal: who is in the chat, and whose turn runs. See Flow H. */
     shared,
     /**

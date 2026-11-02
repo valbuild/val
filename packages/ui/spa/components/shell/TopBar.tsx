@@ -44,10 +44,12 @@ import {
 import {
   ProposalActionButton,
   ProposalProgress,
+  type ProposalCommit,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
 import {
   CodeModeButton,
+  codeModeOnLine,
   type TopBarCodeMode,
 } from "../proposals/CodeModeButton";
 import type { PreviewProblem } from "../proposals/PreviewProblemCard";
@@ -102,6 +104,11 @@ export type TopBarProposals = {
    * code is changed in an editor. See `CodeModeButton`.
    */
   codeMode?: TopBarCodeMode;
+  /**
+   * Commit, beside Publish in Save's menu: only in a project connected to
+   * git. See `ProposalCommit`.
+   */
+  commit?: ProposalCommit;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
   /**
@@ -368,6 +375,11 @@ export function TopBar({
       loading={proposals.loading}
       leaving={proposals.leaving ?? null}
       problem={proposals.previewProblem ?? null}
+      codeModeLine={
+        proposals.codeMode?.on === true
+          ? codeModeOnLine(proposals.codeMode.turnedOn ?? null)
+          : null
+      }
       defaultOpen={proposals.defaultSwitcherOpen}
     />
   );
@@ -383,6 +395,8 @@ export function TopBar({
               onSaveAndBuild={proposals.onSaveAndBuild}
               onPublish={proposals.onPublish}
               saveBlockedBy={proposals.saveBlockedBy}
+              codeMode={proposals.codeMode?.on === true}
+              commit={proposals.commit}
               defaultMenuOpen={proposals.defaultMenuOpen}
             />
           ),

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 import { themeCustomProperties } from "@valbuild/shared/internal";
-import { ArrowUpCircle } from "lucide-react";
+import { ArrowUpCircle, GitCommit } from "lucide-react";
 import type { FloatingNoticeItem } from "../../shell/FloatingNotices";
 import { Shell } from "../../shell/Shell";
 import { mockShellData } from "../../shell/mockShellData";
@@ -32,6 +32,8 @@ import {
 } from "../ProposalBar";
 import type { PreviewProblem } from "../PreviewProblemCard";
 import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
+import type { CodeModeView } from "../CodeModeButton";
+import { CommitRefusedNotice } from "../CommitRefusedNotice";
 import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
 import {
   FILES,
@@ -231,7 +233,21 @@ export type HarnessProps = {
     view?: "preview" | "changes";
     /** While it updates from the start: how far, 0 to 1. */
     progress?: number | null;
+    /** Who turned it on: "you", or a name. Default: Kari Nordmann. */
+    turnedOnBy?: string;
+    /**
+     * This person stays in the content editor while code mode is on
+     * (`CodeModeView`): someone else's assistant is changing the code.
+     */
+    contentView?: boolean;
   };
+  /**
+   * A project connected to git: Commit beside Publish in Save's menu.
+   * `upToDate`: nothing saved since the last Commit.
+   */
+  commit?: { upToDate?: boolean };
+  /** A Commit was refused: somebody else pushed to the branch. */
+  commitRefused?: boolean;
   /** Save builds too: `onSaveAndBuild`. See `ProposalSaveAndBuildButton`. */
   saveBuilds?: boolean;
   /**
@@ -286,6 +302,8 @@ export function ProposalsShell({
   saveBuilds = false,
   problemBy = "someone",
   renderChat,
+  commit,
+  commitRefused = false,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -299,6 +317,11 @@ export function ProposalsShell({
   );
   const [leaving, setLeaving] = useState(initialLeaving);
   const [codeOn, setCodeOn] = useState(codeMode?.on ?? false);
+  const [codeView, setCodeView] = useState<CodeModeView>(
+    codeMode?.contentView === true ? "content" : "code",
+  );
+  const [committing, setCommitting] = useState(false);
+  const [refusedShown, setRefusedShown] = useState(commitRefused);
   const [codeChanged, setCodeChanged] = useState(codeMode?.changed ?? true);
   // The `</>` menu, opened by a chat's "Choose a proposal…" on the site.
   const [codeMenuRequests, setCodeMenuRequests] = useState(0);
@@ -561,7 +584,16 @@ export function ProposalsShell({
       ? {
           codeMode: {
             on: codeModeOn,
-            onToggle: () => setCodeOn((on) => !on),
+            onToggle: () => {
+              setCodeOn((on) => !on);
+              setCodeView("code");
+            },
+            turnedOn: {
+              by: codeMode.turnedOnBy ?? "Kari Nordmann",
+              ago: "10 minutes ago",
+            },
+            view: codeView,
+            onViewChange: setCodeView,
             onOpenProposalInCodeMode: openInCodeMode,
             onNewProposalInCodeMode: () => {
               newInCodeMode.current = true;
@@ -574,6 +606,19 @@ export function ProposalsShell({
         }
       : {}),
     onPublish: openPublish,
+    ...(commit !== undefined && current !== null
+      ? {
+          commit: {
+            onCommit: () => {
+              setCommitting(true);
+              setTimeout(() => setCommitting(false), 1200);
+            },
+            state: committing ? "committing" : "idle",
+            branch: `val/p/${current.name}`,
+            upToDate: commit.upToDate === true,
+          },
+        }
+      : {}),
     onCompare: action("compare with the site"),
     onRename: () => setDialog("rename"),
     onCopyLink: action("copy link"),
@@ -630,26 +675,53 @@ export function ProposalsShell({
         : update.state === "up-to-date" || update.state === "failed"
           ? { state: "up-to-date" }
           : { state: "behind" };
-  const workspace = codeModeOn ? (
-    <CodeModeWorkspace
-      key={codeMode?.view ?? "preview"}
-      route="/"
-      pages={["/", "/about", "/products/knitwear", "/products/outerwear"]}
-      onRouteChange={action("open another page in the preview")}
-      onReload={action("reload the preview")}
-      preview={
-        <DesignSiteMock
-          testimonials={
-            codeChanged && codeBuild.state === "up-to-date" ? "cards" : "quote"
-          }
+  if (refusedShown && current !== null) {
+    floatingNotices.push({
+      id: "commit-refused",
+      label: "Not committed",
+      icon: <GitCommit size={13} />,
+      content: (
+        <CommitRefusedNotice
+          refused={{
+            branch: `val/p/${current.name}`,
+            branchUrl: "#branch",
+            who: "Ada Lovelace",
+            ago: "5 minutes ago",
+            commit: {
+              sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+              url: "#their-commit",
+              message: "Fix the hero's spacing\n\nThe gap was 2rem.",
+            },
+            during: "commit",
+          }}
+          onDismiss={() => setRefusedShown(false)}
         />
-      }
-      build={codeBuild}
-      files={codeChanged ? FILES : []}
-      diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
-      initialView={codeMode?.view ?? "preview"}
-    />
-  ) : undefined;
+      ),
+    });
+  }
+  const workspace =
+    codeModeOn && codeView === "code" ? (
+      <CodeModeWorkspace
+        key={codeMode?.view ?? "preview"}
+        route="/"
+        pages={["/", "/about", "/products/knitwear", "/products/outerwear"]}
+        onRouteChange={action("open another page in the preview")}
+        onReload={action("reload the preview")}
+        preview={
+          <DesignSiteMock
+            testimonials={
+              codeChanged && codeBuild.state === "up-to-date"
+                ? "cards"
+                : "quote"
+            }
+          />
+        }
+        build={codeBuild}
+        files={codeChanged ? FILES : []}
+        diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
+        initialView={codeMode?.view ?? "preview"}
+      />
+    ) : undefined;
   const chat =
     renderChat === undefined
       ? undefined

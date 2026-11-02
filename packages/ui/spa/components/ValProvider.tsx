@@ -1,4 +1,5 @@
 import { createRequestPublish } from "../publish/requestPublish";
+import { useCodeModeState } from "../proposals/codeMode";
 import {
   createStudioJobClient,
   isTransientPublishError,
@@ -1709,7 +1710,13 @@ function StudioOutOfDateGate() {
  */
 function SchemaOutOfDateGate() {
   const status = useValStatus();
-  if (status.schema !== "out-of-date") return null;
+  /*
+   * Not in code mode, where a schema changes with every build: a modal that
+   * stops the editor and reloads the page cannot be how that arrives
+   * (`docs/plans/one-content-model.md`, "The dialog goes").
+   */
+  const inCodeMode = useCodeModeState().proposal?.on === true;
+  if (status.schema !== "out-of-date" || inCodeMode) return null;
   return <SchemaOutOfDateDialog />;
 }
 
@@ -3075,7 +3082,11 @@ export function usePublishSummary() {
     val === null ||
     pendingNeedsBuild(val.system.patchStore);
   const publish = useCallback(
-    async (summary: string): Promise<PagePublishResult> => {
+    async (
+      summary: string,
+      /** See `PublishOptions.invalidAllowed`: a save in code mode. */
+      saveOptions?: { invalidAllowed?: boolean },
+    ): Promise<PagePublishResult> => {
       /*
        * A page that cannot build hands the publish to a Studio tab. The press
        * that opened the summary normally prepared it already -- that is the
@@ -3146,7 +3157,12 @@ export function usePublishSummary() {
        * job"). A connected project on a host of its own commits, and its host
        * picks the commit up.
        */
-      const publishOptions = publishesAsJobs ? { request: true } : undefined;
+      const publishOptions = {
+        ...(publishesAsJobs ? { request: true } : {}),
+        ...(saveOptions?.invalidAllowed === true
+          ? { invalidAllowed: true }
+          : {}),
+      };
       /**
        * One retry for `chain-moved`, and no more.
        *
@@ -3264,7 +3280,9 @@ export function usePublishSummary() {
        * One that needs a build after all asks for the tab with another tap
        * (`onNeedsBuilder`).
        */
-      options: { needsBuild: boolean } = { needsBuild: true },
+      options: { needsBuild: boolean; commitMessage?: string } = {
+        needsBuild: true,
+      },
     ): Promise<ProposalPublishPress> => {
       /*
        * Not `buildsInTab`: this address's own saves are commits, and build
@@ -3289,6 +3307,8 @@ export function usePublishSummary() {
             proposalName,
             requestId,
             PUBLISH_TAB_ID,
+            undefined,
+            options.commitMessage,
           );
           publishJobs.track({
             requestId,

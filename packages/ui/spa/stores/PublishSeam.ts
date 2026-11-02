@@ -93,6 +93,13 @@ export type PublishOptions = {
    */
   pressAs?: PressAs;
   exact?: boolean;
+  /**
+   * Save even with validation errors: a save in a proposal in code mode
+   * (`docs/plans/one-content-model.md`, "Code mode"). A proposal is not the
+   * site and its errors stay shown; publishing it to the site is still
+   * refused with them.
+   */
+  invalidAllowed?: boolean;
 };
 
 /**

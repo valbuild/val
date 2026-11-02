@@ -143,6 +143,7 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
+import { CodeModeWorkspaceConnected } from "../proposals/CodeModeWorkspaceConnected";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -1354,6 +1355,7 @@ function ValShellBody({
     upgrade,
     upgradeSettings,
     siteUrl: proposalSiteUrl,
+    codeWorkspace,
   } = useProposalsBar({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
@@ -1541,7 +1543,21 @@ function ValShellBody({
         <Shell
           sketchpad={sketchpads.sketchpad}
           onSketchPage={sketchpads.onSketchPage}
-          workspaceOverride={sketchpads.workspaceOverride}
+          /*
+           * The Sketchpad when it is open; otherwise code mode's workspace,
+           * for the person whose view it is (`CodeModeView`).
+           */
+          workspaceOverride={
+            sketchpads.workspaceOverride ??
+            (codeWorkspace !== null ? (
+              <CodeModeWorkspaceConnected
+                name={codeWorkspace.name}
+                build={codeWorkspace.build}
+                pages={canvasRoutes}
+                initialRoute={canvasUrl ?? "/"}
+              />
+            ) : undefined)
+          }
           renderHistory={renderHistory}
           data={data}
           theme={resolvedTheme}

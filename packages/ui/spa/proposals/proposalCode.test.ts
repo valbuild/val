@@ -828,6 +828,49 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
     });
   });
 
+  test("with code mode off, the tools that change code refuse, naming who turned it off, and write nothing", async () => {
+    const d = deps({
+      codeMode: async () => ({
+        on: false,
+        by: "Kari Nordmann",
+        ago: "5 minutes ago",
+      }),
+    });
+    const written = await runCodeTool(
+      "write_files",
+      { files: { "src/a.ts": "a" } },
+      d,
+    );
+    expect(written).toEqual({
+      isError: true,
+      result: {
+        success: false,
+        error: expect.stringMatching(
+          /^Code mode is off in this proposal: Kari Nordmann turned it off 5 minutes ago, so its code cannot be changed now\. .*request_code_mode/,
+        ),
+      },
+    });
+    expect((await runCodeTool("format_files", {}, d)).isError).toBe(true);
+    expect((await runCodeTool("lint", { fix: true }, d)).isError).toBe(true);
+    expect(d.staged).toEqual([]);
+    // Reading the code changes nothing, and is not refused.
+    expect(
+      (await runCodeTool("read_file", { path: "src/components/Hero.tsx" }, d))
+        .isError,
+    ).toBe(false);
+  });
+
+  test("with code mode on, write_files stages", async () => {
+    const d = deps({ codeMode: async () => ({ on: true }) });
+    const written = await runCodeTool(
+      "write_files",
+      { files: { "src/a.ts": "a" } },
+      d,
+    );
+    expect(written.isError).toBe(false);
+    expect(d.staged).toHaveLength(1);
+  });
+
   test("ON THE SITE, NOTHING IS WRITTEN OR BUILT, and the person is offered a proposal", async () => {
     const d = deps({ proposal: null });
     const written = await runCodeTool(

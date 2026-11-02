@@ -1455,7 +1455,10 @@ export function createSystem(options: SystemOptions): System {
          */
         const chainAt = patchStore.chainVersion();
         const invalid: ModuleFilePath[] = [];
-        for (const moduleFilePath of affected) {
+        // A save that may be invalid checks nothing: see `invalidAllowed`.
+        for (const moduleFilePath of publishOptions?.invalidAllowed === true
+          ? []
+          : affected) {
           const result = await validationStore.validate(moduleFilePath);
           if (result.status !== "validated" || result.errors === false) {
             continue;

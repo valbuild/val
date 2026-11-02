@@ -93,6 +93,37 @@ const TypecheckJson = z.object({
 });
 export type ProposalTypecheck = z.infer<typeof TypecheckJson>;
 
+const CodeModeJson = z.object({
+  on: z.boolean(),
+  /** Profile id of who last turned it on or off. */
+  changedBy: z.string().nullable(),
+  /** ISO time of that. */
+  changedAt: z.string().nullable(),
+});
+/** Code mode, as content keeps it on a proposal. */
+export type ProposalCodeModeJson = z.infer<typeof CodeModeJson>;
+
+const GitJson = z.object({
+  /** `val/p/<name>`. */
+  branch: z.string(),
+  branchUrl: z.string(),
+  /** The last Commit Val made to the branch; `null` before the first. */
+  committed: z
+    .object({
+      sha: z.string(),
+      url: z.string(),
+      save: z.string().nullable(),
+      by: z.string().nullable(),
+      at: z.string().nullable(),
+    })
+    .nullable(),
+  /** Its last save or staging; `null` before the first. */
+  head: z.string().nullable(),
+  /** Saved or staged since the last Commit: Commit has something to push. */
+  uncommitted: z.boolean(),
+});
+export type ProposalGitJson = z.infer<typeof GitJson>;
+
 const ProposalJson = z.object({
   name: z.string(),
   branch: z.string(),
@@ -156,6 +187,17 @@ const ProposalJson = z.object({
   upgrade: UpgradeJson.optional(),
   /** The last typecheck reported for it. Only on a read of one. */
   typecheck: TypecheckJson.nullable().optional(),
+  /**
+   * Code mode: the proposal's, shared by everyone in it. Who last turned it
+   * on or off, and when. Absent from older content, which has none.
+   */
+  codeMode: CodeModeJson.optional().catch(undefined),
+  /**
+   * Its git branch, in a connected project: what Val last committed there,
+   * and whether anything was saved since. `null` in a project with no
+   * repository. Only on a read of one, and absent from older content.
+   */
+  git: GitJson.nullable().optional().catch(undefined),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
 
@@ -351,6 +393,102 @@ export function needsCodeUpdate(error: unknown): boolean {
   );
 }
 
+const CommitAnswer = z.object({
+  commit: z.object({
+    sha: z.string(),
+    url: z.string(),
+    save: z.string(),
+    /** `false`: nothing was saved since the last Commit, and nothing was pushed. */
+    pushed: z.boolean(),
+  }),
+  proposal: ProposalJson,
+});
+export type ProposalCommitAnswer = z.infer<typeof CommitAnswer>;
+
+/**
+ * Somebody else pushed to the proposal's branch since Val last did, so Val
+ * will not commit over it (content's 409 `someone-pushed`): who, when, and
+ * their commit.
+ */
+const SomeonePushed = z.object({
+  code: z.literal("someone-pushed"),
+  branch: z.string(),
+  branchUrl: z.string(),
+  theirs: z.object({
+    sha: z.string(),
+    url: z.string(),
+    message: z.string().nullable().catch(null),
+    author: z
+      .object({
+        name: z.string().nullable().catch(null),
+        login: z.string().nullable().catch(null),
+        avatarUrl: z.string().nullable().catch(null),
+      })
+      .nullable()
+      .catch(null),
+    at: z.string().nullable().catch(null),
+  }),
+});
+export type ProposalSomeonePushed = z.infer<typeof SomeonePushed>;
+
+/**
+ * Why content refused a Commit (or the Commit a Publish makes first), by its
+ * `details.code`, for the Studio to offer what helps: their commit to open
+ * when someone else pushed, Try again only where trying again can work.
+ * `null` for an answer that is not a refused commit.
+ */
+export function commitRefusalOf(error: unknown):
+  | { kind: "someone-pushed"; message: string; pushed: ProposalSomeonePushed }
+  | {
+      kind:
+        | "committing"
+        | "github-unavailable"
+        | "repository-refused"
+        | "no-git-root"
+        | "nothing-saved"
+        | "saved-since"
+        | "other";
+      message: string;
+      branchUrl: string | null;
+    }
+  | null {
+  if (!(error instanceof ProposalsApiError)) return null;
+  if (error.status !== 409 && error.status !== 502) return null;
+  const details = z
+    .object({ details: z.object({ code: z.string() }).passthrough() })
+    .safeParse(error.body);
+  if (!details.success) return null;
+  const pushed = SomeonePushed.safeParse(details.data.details);
+  if (pushed.success) {
+    return {
+      kind: "someone-pushed",
+      message: error.message,
+      pushed: pushed.data,
+    };
+  }
+  const code = details.data.details.code;
+  const branchUrl = z
+    .object({ branchUrl: z.string() })
+    .safeParse(details.data.details);
+  return {
+    kind:
+      code === "committing" ||
+      code === "github-unavailable" ||
+      code === "repository-refused" ||
+      code === "no-git-root" ||
+      code === "nothing-saved" ||
+      code === "saved-since"
+        ? code
+        : "other",
+    message: error.message,
+    // Home sends "" when it does not know the repository.
+    branchUrl:
+      branchUrl.success && branchUrl.data.branchUrl !== ""
+        ? branchUrl.data.branchUrl
+        : null,
+  };
+}
+
 export type ProposalsClient = {
   list(): Promise<{ proposals: ProposalJson[]; siteUrl: string | null }>;
   get(name: string): Promise<ProposalJson>;
@@ -377,6 +515,22 @@ export type ProposalsClient = {
     upgrade?: { path: "cves" | "latest" | "majors"; skip?: string[] };
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
+  /**
+   * Turn code mode on or off, for everyone in the proposal. At the
+   * proposal's own address, Val's server saves every pending change first
+   * when it is turned on. Nothing is discarded when it is turned off.
+   */
+  setCodeMode(name: string, on: boolean): Promise<ProposalJson>;
+  /**
+   * Commit the proposal as it was last saved to its git branch, as one
+   * commit, in a connected project. `save`: the last save the person saw
+   * (`git.head`); refused when there is a newer one. See
+   * {@link commitRefusalOf} for why it can be refused.
+   */
+  commit(
+    name: string,
+    input: { message: string; save?: string },
+  ): Promise<ProposalCommitAnswer>;
   close(name: string): Promise<ProposalJson>;
   reopen(name: string): Promise<ProposalJson>;
   retrySetup(name: string): Promise<ProposalJson>;
@@ -570,6 +724,9 @@ export function createProposalsClient(options: {
     get: (name) => one(at(name), "GET"),
     create: (input) => one("", "POST", input),
     rename: (name, displayName) => one(at(name), "PATCH", { displayName }),
+    setCodeMode: (name, on) => one(`${at(name)}/code-mode`, "POST", { on }),
+    commit: async (name, input) =>
+      CommitAnswer.parse(await call(`${at(name)}/commit`, "POST", input)),
     close: (name) => one(`${at(name)}/close`, "POST", {}),
     reopen: (name) => one(`${at(name)}/reopen`, "POST", {}),
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
