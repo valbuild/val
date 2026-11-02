@@ -1,5 +1,6 @@
 import { Internal } from "@valbuild/core";
 import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
+import type { ModuleRead } from "@valbuild/shared/internal";
 import type { System } from "../createSystem";
 
 /**
@@ -280,9 +281,40 @@ export function sendPendingSources(
   }
 }
 
+/**
+ * A module, as the Studio hands it to a page: a READ (`ModuleRead` in
+ * `@valbuild/shared/internal`), which the page's `overlaySource` keeps as it
+ * is (`docs/plans/one-content-model.md`, "The relay sends the page exactly
+ * what the view answered"). Its version is `null` until the Studio computes
+ * its own (phase 5).
+ */
+export function relayedRead(source: unknown): ModuleRead | null {
+  return isRelayable(source)
+    ? { status: "ready", source, from: "overlay", version: null }
+    : null;
+}
+
+/**
+ * What the Studio's store holds is JSON: it came from the bundle, the server
+ * or a patch. `undefined` is the one thing that is not, and is not sent.
+ */
+function isRelayable(source: unknown): source is Json {
+  return source !== undefined;
+}
+
 /** What the overlay tells the page behind the Studio. */
 export type OverlayEvent =
-  | { type: "source-update"; moduleFilePath: ModuleFilePath; source: unknown }
+  | {
+      type: "source-update";
+      moduleFilePath: ModuleFilePath;
+      read: ModuleRead;
+      /**
+       * The same source as `read`, for a page from the release before,
+       * which reads this (a deploy rolling out). Goes when that release
+       * does: see "Each phase deletes" in the plan.
+       */
+      source: unknown;
+    }
   | { type: "sources-synced" };
 
 /**
@@ -295,8 +327,12 @@ export function startOverlayRelay(
   system: System,
   send: (event: OverlayEvent) => void,
 ): () => void {
-  const update: SourceUpdate = (moduleFilePath, source) =>
-    send({ type: "source-update", moduleFilePath, source });
+  const update: SourceUpdate = (moduleFilePath, source) => {
+    const read = relayedRead(source);
+    if (read !== null) {
+      send({ type: "source-update", moduleFilePath, read, source });
+    }
+  };
   const offUpdates = subscribeSourceUpdates(system, update);
   let stopped = false;
   const offSnapshot = onceBaseAligned(system, () => {

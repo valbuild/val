@@ -429,6 +429,8 @@ export function ValCanvasBridge({
               type: "source-update",
               moduleFilePath: message.moduleFilePath,
               source: message.source,
+              // Absent from a Studio of the release before.
+              ...(message.read !== undefined ? { read: message.read } : {}),
             },
           }),
         );

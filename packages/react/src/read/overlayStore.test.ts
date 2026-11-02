@@ -1,5 +1,5 @@
 import { ModuleFilePath } from "@valbuild/core";
-import { ValExternalStore } from "./ValOverlayContext";
+import { ValExternalStore } from "./overlayStore";
 
 describe("ValExternalStore.waitForLoad", () => {
   const path = "/content/page.val.ts" as ModuleFilePath;
@@ -94,7 +94,7 @@ describe("ValExternalStore.get", () => {
 /**
  * Whether an update actually MOVED the value.
  *
- * `ValTanStackProvider` arms its `router.invalidate()` loop on this, and it has to,
+ * The providers arm their refresh loop (`router.refresh()`, `router.invalidate()`) on this, and they have to,
  * because the same source arrives more than once by design: the editor sends a
  * catch-up snapshot of everything it holds every time the page becomes a new
  * document — a reload, or the one `next dev` does when a publish rewrites the

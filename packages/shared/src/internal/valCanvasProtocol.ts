@@ -267,6 +267,11 @@ export type ValCanvasStudioMessage =
        * ones that give it meaning; nothing in between should be interpreting it.
        */
       source: unknown;
+      /**
+       * The same module as a read (`ModuleRead`), which the page keeps as it
+       * is. Optional: a Studio from the release before sends `source` alone.
+       */
+      read?: unknown;
     }
   | {
       /**

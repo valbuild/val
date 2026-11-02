@@ -18,9 +18,10 @@ import { useRouter, useRouterState } from "@tanstack/react-router";
 import React, { useEffect } from "react";
 import { ValScript } from "./ValScript";
 import { ValOverlayProvider } from "./ValOverlayContext";
-import { applyValEvent, createDraftStore, isDraft } from "./draftStore";
+import { createDraftStore, isDraft } from "./draftStore";
 import {
   SET_AUTO_TAG_JSX_ENABLED,
+  applyValEvent,
   isReactDevelopmentBuild,
   stegaLeakMessage,
   watchStegaLeaks,
@@ -476,7 +477,7 @@ export const ValTanStackProvider = (props: {
     // suspends — no fallback flash — and the swap to draft data commits as a
     // normal update instead of a hydration mismatch. Never deactivated:
     // components must not stop suspending across renders (the draft-mode-off
-    // release valve lives in useValStega instead).
+    // release valve lives in `overlaySource` instead).
     /*
      * Gated on `mountOverlay`, not on the cookie directly — the ORDER is the
      * point.

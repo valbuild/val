@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  DEFAULT_CONTENT_HOST,
-  ModuleFilePath,
-  ValConfig,
-  Internal,
-} from "@valbuild/core";
+import { DEFAULT_CONTENT_HOST, ValConfig, Internal } from "@valbuild/core";
 import {
   VAL_APP_PATH,
   VAL_OVERLAY_ID,
@@ -15,7 +10,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Script from "next/script";
 import React, { useEffect } from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
-import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
+import { SET_AUTO_TAG_JSX_ENABLED, applyValEvent } from "@valbuild/react/stega";
 import type { ValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
@@ -279,7 +274,7 @@ export const ValNextProvider = (props: {
     // suspends — no fallback flash — and the swap to draft data commits as a
     // normal update instead of a hydration mismatch. Never deactivated:
     // components must not stop suspending across renders (the draft-mode-off
-    // release valve lives in useValStega instead).
+    // release valve lives in `overlaySource` instead).
     if (props.suspend && shouldEnableVal()) {
       startTransition(() => {
         setSuspendActive(true);
@@ -566,49 +561,40 @@ export const ValNextProvider = (props: {
       if (draftMode) {
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
-          if (event instanceof CustomEvent) {
-            if (event.detail?.type === "sources-synced") {
-              setDraftSourcesSynced(true);
-              return;
-            }
-            if (event.detail?.type === "source-update") {
-              const moduleFilePath = event.detail?.moduleFilePath;
-              const source = event.detail?.source;
-              if (typeof moduleFilePath === "string" && source !== undefined) {
-                const changed = valStore.update(
-                  moduleFilePath as ModuleFilePath,
-                  source,
-                );
-                /**
-                 * Armed by a CHANGE, not by a message.
-                 *
-                 * The editor re-sends everything it holds whenever this page
-                 * becomes a new document — a reload, or the one `next dev` does
-                 * when a publish rewrites the `.val.ts` files — and most of that
-                 * snapshot is content this page already has. Counting those
-                 * bought a whole-route request per publish whether or not the
-                 * page was out of date, which with auto-save on is one per pause
-                 * in typing.
-                 *
-                 * The catch-up that MATTERS still refreshes: a page whose server
-                 * render predates the write has no value for that module, so the
-                 * first arrival counts as a change.
-                 */
-                if (changed && !props.disableRefresh) {
-                  rerenderCounterRef.current++;
-                  window.dispatchEvent(new Event(VAL_EDIT_LANDED));
-                }
-              } else {
-                Internal.log.error("invalid event detail", event.detail);
-              }
-            } else {
-              Internal.log.error(
-                "invalid custom event details (val-event)",
-                event.detail,
-              );
-            }
-          } else {
+          if (!(event instanceof CustomEvent)) {
             Internal.log.error("invalid custom event (val-event)", event);
+            return;
+          }
+          const outcome = applyValEvent(valStore, event.detail);
+          if (outcome.type === "synced") {
+            setDraftSourcesSynced(true);
+            return;
+          }
+          if (outcome.type === "invalid") {
+            Internal.log.error(
+              "invalid custom event details (val-event)",
+              outcome.detail,
+            );
+            return;
+          }
+          /**
+           * Armed by a CHANGE, not by a message.
+           *
+           * The editor re-sends everything it holds whenever this page
+           * becomes a new document — a reload, or the one `next dev` does
+           * when a publish rewrites the `.val.ts` files — and most of that
+           * snapshot is content this page already has. Counting those
+           * bought a whole-route request per publish whether or not the
+           * page was out of date, which with auto-save on is one per pause
+           * in typing.
+           *
+           * The catch-up that MATTERS still refreshes: a page whose server
+           * render predates the write has no value for that module, so the
+           * first arrival counts as a change.
+           */
+          if (outcome.changed && !props.disableRefresh) {
+            rerenderCounterRef.current++;
+            window.dispatchEvent(new Event(VAL_EDIT_LANDED));
           }
         };
         window.addEventListener(

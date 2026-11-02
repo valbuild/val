@@ -1,11 +1,6 @@
 import { initVal, type ModuleFilePath } from "@valbuild/core";
 import { raw } from "@valbuild/react/stega";
-import {
-  initFetchValKeyStega,
-  resolveDraftOrCommittedEntry,
-  type DraftJsonEntry,
-  type JsonEntryValServer,
-} from "./initValRsc";
+import { initFetchValKeyStega, type JsonEntryValServer } from "./initValRsc";
 
 const { s, c } = initVal();
 
@@ -134,42 +129,5 @@ describe("fetchValKey draft state", () => {
 
     expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("committed A");
     expect(calls).toEqual([]);
-  });
-});
-
-describe("resolveDraftOrCommittedEntry", () => {
-  const committed = () => Promise.resolve({ title: "committed" });
-  const noCommitted = () => Promise.resolve(undefined);
-
-  test("draft content wins", async () => {
-    const draft: DraftJsonEntry = { status: "content", content: { a: 1 } };
-    expect(await resolveDraftOrCommittedEntry(draft, committed)).toEqual({
-      a: 1,
-    });
-  });
-
-  test("absent means absent — the committed entry is not consulted", async () => {
-    let consulted = false;
-    const result = await resolveDraftOrCommittedEntry(
-      { status: "absent" },
-      async () => {
-        consulted = true;
-        return { title: "committed" };
-      },
-    );
-    expect(result).toBeUndefined();
-    expect(consulted).toBe(false);
-  });
-
-  test("unavailable falls back", async () => {
-    expect(
-      await resolveDraftOrCommittedEntry({ status: "unavailable" }, committed),
-    ).toEqual({ title: "committed" });
-    expect(
-      await resolveDraftOrCommittedEntry(
-        { status: "unavailable" },
-        noCommitted,
-      ),
-    ).toBeUndefined();
   });
 });
