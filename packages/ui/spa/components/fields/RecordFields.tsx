@@ -41,6 +41,7 @@ import { AnyField } from "../../components/AnyField";
 import { LocaleFiltered } from "../LocaleFilterProvider";
 import { FieldNull } from "../../components/FieldNull";
 import { ContentViewsBadge } from "../../analytics/ContentViewsBadge";
+import { BlockList } from "../../components/BlockList";
 
 export function RecordFields({
   path,
@@ -151,12 +152,24 @@ export function RecordFields({
     (schema.key !== undefined && isLocaleSchema(schema.key)) ||
     hasLocaleRouteParam(schema);
 
-  // Entries are rendered in place either because the caller asked for it
-  // (`inline` prop) or because the record itself declares
-  // `.render({ as: "inline" })` — the record counterpart of the inline rows in
-  // `SortableList`. Records are unordered, so there is nothing to sort; the key
-  // is the row's label.
-  if (inline || isInlineRender(schema)) {
+  // The record's own render picks the list, before the `inline` prop — the
+  // same order as `ArrayFields`, and for the same reason: an inline record and
+  // an inline array are the same block list, so they look the same. The key is
+  // the row's label where an array has its index.
+  if (isInlineRender(schema)) {
+    return (
+      <div className="relative w-full">
+        {previewAtPath?.status === "error" && (
+          <PreviewError error={previewAtPath.message} path={path} />
+        )}
+        <BlockList path={path} readonly={readonly} />
+      </div>
+    );
+  }
+  // Entries rendered in place because the CALLER asked for it (`inline`
+  // prop). Records are unordered, so there is nothing to sort; the key is the
+  // row's label.
+  if (inline) {
     return (
       <div id={path}>
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>

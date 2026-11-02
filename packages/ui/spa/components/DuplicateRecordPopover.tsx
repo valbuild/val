@@ -40,6 +40,7 @@ export function DuplicateRecordPopover({
   routePattern,
   keyDescription,
   onComplete,
+  className,
 }: {
   parentPath: SourcePath | ModuleFilePath;
   /** The key of the entry being duplicated. */
@@ -50,6 +51,8 @@ export function DuplicateRecordPopover({
   routePattern?: RoutePattern[] | null;
   keyDescription?: string;
   onComplete?: () => void;
+  /** For the trigger: lets a menu draw it as one of its items. */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const portalContainer = useValPortal();
@@ -95,7 +98,7 @@ export function DuplicateRecordPopover({
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button asChild size={size} variant={variant}>
+          <Button asChild size={size} variant={variant} className={className}>
             <PopoverTrigger
               /*
                * Named here, because the trigger is an icon and a Radix tooltip

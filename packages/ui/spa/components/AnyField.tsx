@@ -1,5 +1,6 @@
 import { SourcePath, SerializedSchema } from "@valbuild/core";
 import { ArrayFields } from "./fields/ArrayFields";
+import { InlineObjectBody } from "./BlockList";
 import { BooleanField } from "./fields/BooleanField";
 import { ImageField } from "./fields/ImageField";
 import { KeyOfField } from "./fields/KeyOfField";
@@ -39,6 +40,7 @@ export function AnyField({
   hideUpload,
   errorDisplay = "default",
   ignoreHidden,
+  dense,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
@@ -57,6 +59,14 @@ export function AnyField({
    * of hiding anything. Set by `Module`, and nowhere else.
    */
   ignoreHidden?: boolean;
+  /**
+   * Lay an OBJECT out the way an inline row lays out its own fields: small
+   * labels over the inputs, no card per field. For content shown in place
+   * inside a row — an inline keyOf's referenced entry — so it does not jump
+   * back to full-size cards in the middle of a dense list. Other types ignore
+   * it.
+   */
+  dense?: boolean;
 }) {
   // Before the guard: a hook below an early return is a hook-order trap — see
   // `architecture/quirks.md`.
@@ -96,6 +106,15 @@ export function AnyField({
         path={path}
         {...leafProps}
         hideUpload={hideUpload}
+      />
+    );
+  } else if (schema.type === "object" && dense) {
+    return (
+      <InlineObjectBody
+        key={path}
+        path={path}
+        itemSchema={schema}
+        readonly={effectiveReadonly}
       />
     );
   } else if (schema.type === "object") {

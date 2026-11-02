@@ -29,6 +29,7 @@ export function ChangeRecordPopover({
   children,
   onComplete,
   keyDescription,
+  className,
 }: {
   defaultValue: string;
   parentPath: SourcePath | ModuleFilePath;
@@ -44,6 +45,8 @@ export function ChangeRecordPopover({
   routePattern?: RoutePattern[] | null;
   onComplete?: () => void;
   keyDescription?: string;
+  /** For the trigger: lets a menu draw it as one of its items. */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const portalContainer = useValPortal();
@@ -121,7 +124,7 @@ export function ChangeRecordPopover({
     <Popover open={open}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button asChild size={size} variant={variant}>
+          <Button asChild size={size} variant={variant} className={className}>
             <PopoverTrigger
               onClick={() => {
                 setOpen(true);

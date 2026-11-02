@@ -40,6 +40,7 @@ export function AddRecordPopover({
   defaultOpen,
   routePattern,
   keyDescription,
+  className,
 }: {
   path: SourcePath | ModuleFilePath;
   size: "default" | "sm" | "lg" | "icon";
@@ -50,6 +51,8 @@ export function AddRecordPopover({
   defaultOpen?: boolean;
   routePattern?: RoutePattern[] | null;
   keyDescription?: string;
+  /** For the trigger, which is otherwise a plain button of `size`. */
+  className?: string;
 }) {
   const shallowSourceAtPath = useShallowSourceAtPath(path, "record");
   const schemaAtPath = useSchemaAtPath(path);
@@ -144,7 +147,7 @@ export function AddRecordPopover({
             }}
             asChild
           >
-            <Button size={size} variant={variant}>
+            <Button size={size} variant={variant} className={className}>
               {children}
             </Button>
           </PopoverTrigger>

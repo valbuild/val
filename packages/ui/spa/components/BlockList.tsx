@@ -23,20 +23,30 @@ import {
   Copy,
   EllipsisVertical,
   GripVertical,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
 import {
+  Internal,
   Json,
   SerializedSchema,
   SerializedArraySchema,
   SerializedDiscriminatedUnionSchema,
+  SerializedRecordSchema,
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
+import { hasLocaleRouteParam, isLocaleSchema } from "@valbuild/shared/internal";
 import { array } from "@valbuild/core/fp";
 import { JSONValue } from "@valbuild/core/patch";
-import { useSourceAtPath, useValField } from "./ValFieldProvider";
+import {
+  useAddPatch,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSourceAtPath,
+  useValField,
+} from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { AnyField } from "./AnyField";
 import {
@@ -58,25 +68,39 @@ import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { FieldValidationError } from "./FieldValidationError";
 import { useEmptyOf } from "../hooks/useEmptyOf";
-import { LocaleFiltered } from "./LocaleFilterProvider";
+import {
+  LocaleFiltered,
+  useLocaleFilterPredicate,
+} from "./LocaleFilterProvider";
+import { useArrayAndRecordTools } from "./ArrayAndRecordTools";
+import { ChangeRecordPopover } from "./ChangeRecordPopover";
+import { DuplicateRecordPopover } from "./DuplicateRecordPopover";
+import { DeleteRecordPopover } from "./DeleteRecordPopover";
+import { AddRecordPopover } from "./AddRecordPopover";
+import { fromCamelToTitleCase } from "../utils/prettifyText";
 import { ContentViewsBadge } from "../analytics/ContentViewsBadge";
 
 /**
- * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
- * lists of inline objects nested three levels deep — fits on a laptop screen.
+ * The inline list: an array or a record whose items are edited in place, dense
+ * enough that a page-builder tree — lists of inline objects nested three
+ * levels deep — fits on a laptop screen.
  *
- * `ArrayFields` renders this whenever the list declares
- * `.render({ as: "inline" })` (see `isInlineRender`) and `SortableList`
- * otherwise, so a list of preview rows is untouched by any of this.
+ * `ArrayFields` and `RecordFields` render this whenever the container
+ * declares `.render({ as: "inline" })` (see `isInlineRender`), so an array
+ * and a record that both say "inline" look the same: one row per item, the
+ * index or the key as its label, a menu for what can be done to it. Lists of
+ * preview rows (`SortableList`, the record list) are untouched by any of this.
  *
  * What it does differently from `SortableList`:
  * - Each item is EDITED IN PLACE inside its (sortable) row, because the list
  *   said so. The decision reads straight off the serialized ARRAY schema —
  *   the item has no say.
- * - Object items get a compact header (grip, index, summary, collapse) and lay
- *   their fields out tightly; nested inline lists recurse with a thin
- *   indentation rail instead of another card-in-card.
- * - Leaf items (string, number, ...) are a single row: grip, the field, menu.
+ * - Object items get a compact header (grip, index or key, summary, collapse)
+ *   and lay their fields out tightly; a nested inline list is indented to its
+ *   label and carries its Add on that label's row.
+ * - Leaf items (string, number, ...) are a single row: grip or key, the field,
+ *   menu.
+ * - A record's rows have no grip: a record has no order.
  *
  * The optimistic-permutation-reset in the dnd wiring is the same doctrine as
  * `SortableContainer` (see the long comment there): an array item's path is
@@ -111,15 +135,60 @@ export function BlockList({
   path,
   readonly,
   depth = 0,
+  showAdd = true,
 }: {
   path: SourcePath;
   readonly?: boolean;
-  /** Nesting level, used only for layout (rail indentation). */
+  /** Nesting level, used only for layout. */
   depth?: number;
+  /**
+   * Whether the list draws its own "Add" under the last row. A nested list
+   * does not: its Add sits on the label row above it, where it is one line
+   * instead of a stack of Adds closing every level at once.
+   */
+  showAdd?: boolean;
+}) {
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status !== "success") {
+    return null;
+  }
+  if (schemaAtPath.data.type === "record") {
+    return (
+      <RecordBlockList
+        path={path}
+        schema={schemaAtPath.data}
+        readonly={readonly}
+        depth={depth}
+        showAdd={showAdd}
+      />
+    );
+  }
+  if (schemaAtPath.data.type === "array") {
+    return (
+      <ArrayBlockList
+        path={path}
+        readonly={readonly}
+        depth={depth}
+        showAdd={showAdd}
+      />
+    );
+  }
+  return null;
+}
+
+function ArrayBlockList({
+  path,
+  readonly,
+  depth,
+  showAdd,
+}: {
+  path: SourcePath;
+  readonly?: boolean;
+  depth: number;
+  showAdd: boolean;
 }) {
   const type = "array";
   const { navigate } = useNavigation();
-  const emptyOf = useEmptyOf();
   const sourceAtPath = useSourceAtPath(path);
   const {
     source: shallowSourceAtPath,
@@ -199,46 +268,55 @@ export function BlockList({
 
   const renderRow = (item: { path: SourcePath; id: number }, index: number) => (
     <LocaleFiltered key={item.id} path={item.path}>
-      <BlockRow
+      <SortableBlockRow
         id={item.id}
-        index={index}
         path={item.path}
+        label={{ kind: "index", index }}
         itemSchema={schema.item}
         isInline={isInlineRender(schema)}
         depth={depth}
         readonly={readonly}
         onNavigate={(p) => navigate(p)}
-        onDelete={() => {
-          addPatch(
-            [
-              {
-                op: "remove",
-                path: patchPath.concat(
-                  index.toString(),
-                ) as array.NonEmptyArray<string>,
-              },
-            ],
-            type,
-          );
-        }}
-        onDuplicate={() => {
-          if (
-            "data" in sourceAtPath &&
-            sourceAtPath.data &&
-            Array.isArray(sourceAtPath.data)
-          ) {
-            addPatch(
-              [
-                {
-                  op: "add",
-                  path: patchPath.concat(index.toString()),
-                  value: (sourceAtPath.data[index] ?? null) as JSONValue,
-                },
-              ],
-              type,
-            );
-          }
-        }}
+        menu={
+          // Readonly means readonly: with the menu still rendered, Delete and
+          // Duplicate stayed live and wrote patches even though the grip and
+          // every field were disabled.
+          readonly ? null : (
+            <ArrayRowMenu
+              onDelete={() => {
+                addPatch(
+                  [
+                    {
+                      op: "remove",
+                      path: patchPath.concat(
+                        index.toString(),
+                      ) as array.NonEmptyArray<string>,
+                    },
+                  ],
+                  type,
+                );
+              }}
+              onDuplicate={() => {
+                if (
+                  "data" in sourceAtPath &&
+                  sourceAtPath.data &&
+                  Array.isArray(sourceAtPath.data)
+                ) {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        path: patchPath.concat(index.toString()),
+                        value: (sourceAtPath.data[index] ?? null) as JSONValue,
+                      },
+                    ],
+                    type,
+                  );
+                }
+              }}
+            />
+          )
+        }
       />
     </LocaleFiltered>
   );
@@ -277,60 +355,143 @@ export function BlockList({
           {activeItem ? renderRow(activeItem, items.indexOf(activeItem)) : null}
         </DragOverlay>
       </DndContext>
-      {!readonly && (
-        <button
-          className="flex items-center gap-1 h-6 mt-0.5 px-1 text-xs text-fg-tertiary hover:text-fg-primary"
-          onClick={() => {
-            addPatch(
-              [
-                {
-                  op: "add",
-                  path: patchPath.concat(items.length.toString()),
-                  value: emptyOf(schema.item) as JSONValue,
-                },
-              ],
-              type,
-            );
-          }}
-        >
-          <Plus size={12} />
-          <span>Add</span>
-        </button>
-      )}
+      {showAdd && !readonly && <ListAddButton path={path} />}
     </div>
   );
 }
 
-function BlockRow({
-  id,
-  index,
+/**
+ * An inline RECORD, drawn with the same rows as an inline array so the two
+ * read as one thing: the key is the row's label where an array has its index,
+ * and the row menu holds what a record can do to an entry (rename, duplicate,
+ * delete) where an array's holds duplicate and delete.
+ *
+ * There is no grip, because a record is not ordered — there is nowhere to
+ * drag an entry to.
+ */
+function RecordBlockList({
   path,
+  schema,
+  readonly,
+  depth,
+  showAdd,
+}: {
+  path: SourcePath;
+  schema: SerializedRecordSchema;
+  readonly?: boolean;
+  depth: number;
+  showAdd: boolean;
+}) {
+  const { navigate } = useNavigation();
+  const matchesLocale = useLocaleFilterPredicate();
+  const sourceAtPath = useShallowSourceAtPath(path, "record");
+  if (!("data" in sourceAtPath) || !sourceAtPath.data) {
+    return null;
+  }
+  const source = sourceAtPath.data;
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const router =
+    schema.router !== undefined ? { schema, moduleFilePath } : undefined;
+  // The same two rules as `RecordFields`: a locale-keyed record (or a router
+  // whose routes name their language) is filtered on the KEY, every other
+  // record by asking each entry.
+  const keyDecidesLocale =
+    (schema.key !== undefined && isLocaleSchema(schema.key)) ||
+    hasLocaleRouteParam(schema);
+  const entries = schema.item.hidden
+    ? []
+    : Object.entries(source).filter(([key, itemPath]) =>
+        matchesLocale({
+          key,
+          keySchema: schema.key,
+          router,
+          path: itemPath,
+        }),
+      );
+  const itemReadonly = readonly === true || schema.item.readonly === true;
+  return (
+    <div id={path} className={cn("w-full", { [DENSE_FIELDS]: depth === 0 })}>
+      <div className="flex flex-col gap-1 w-full">
+        {entries.map(([key, itemPath]) => {
+          const row = (
+            <BlockRow
+              path={itemPath}
+              label={{ kind: "key", key }}
+              itemSchema={schema.item}
+              isInline={true}
+              depth={depth}
+              readonly={itemReadonly}
+              onNavigate={(p) => navigate(p)}
+              menu={readonly ? null : <RecordRowMenu path={itemPath} />}
+            />
+          );
+          return keyDecidesLocale ? (
+            <div key={itemPath}>{row}</div>
+          ) : (
+            <LocaleFiltered key={itemPath} path={itemPath}>
+              {row}
+            </LocaleFiltered>
+          );
+        })}
+      </div>
+      {showAdd && !readonly && <ListAddButton path={path} />}
+    </div>
+  );
+}
+
+type RowLabel = { kind: "index"; index: number } | { kind: "key"; key: string };
+
+function SortableBlockRow({
+  id,
+  readonly,
+  ...props
+}: Omit<Parameters<typeof BlockRow>[0], "sortable"> & { id: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id, disabled: readonly === true });
+  return (
+    <BlockRow
+      {...props}
+      readonly={readonly}
+      sortable={{
+        handleProps: { ...attributes, ...listeners },
+        setNodeRef,
+        style: { transform: CSS.Transform.toString(transform), transition },
+      }}
+    />
+  );
+}
+
+function BlockRow({
+  path,
+  label,
   itemSchema,
   isInline,
   depth,
   readonly,
   onNavigate,
-  onDelete,
-  onDuplicate,
+  menu,
+  sortable,
 }: {
-  id: number;
-  index: number;
   path: SourcePath;
+  /** An array row is numbered, a record row is named by its key. */
+  label: RowLabel;
   itemSchema: SerializedSchema;
   /** The LIST's render, not the item's: see `isInlineRender`. */
   isInline: boolean;
   depth: number;
   readonly?: boolean;
   onNavigate: (path: SourcePath) => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
+  menu: React.ReactNode;
+  /** Absent for a record: its entries have no order to change. */
+  sortable?: {
+    handleProps: React.ButtonHTMLAttributes<HTMLButtonElement>;
+    setNodeRef: (node: HTMLElement | null) => void;
+    style: React.CSSProperties;
+  };
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id, disabled: readonly === true });
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = useValidationErrors(path);
-  const style = { transform: CSS.Transform.toString(transform), transition };
-  // An inline object gets a header row (index, summary, collapse) above its
+  // An inline object gets a header row (label, summary, collapse) above its
   // fields; an inline leaf is a single line with the editor in it.
   //
   // A discriminated union is headered too: it is an object once the tag is
@@ -341,27 +502,22 @@ function BlockRow({
     isInline &&
     (itemSchema.type === "object" || itemSchema.type === "discriminated-union");
 
-  const grip = (
-    <button
-      {...attributes}
-      {...listeners}
-      className={cn(
-        "cursor-grab text-fg-secondary-alt hover:text-fg-primary",
-        // See `DRAG_HANDLE_TOUCH`.
-        DRAG_HANDLE_TOUCH,
-        { "opacity-30": readonly },
-      )}
-      disabled={readonly}
-    >
-      <GripVertical size={14} />
-    </button>
-  );
-  // Readonly means readonly: with the menu still rendered, Delete and
-  // Duplicate stayed live and wrote patches even though the grip and every
-  // field were disabled.
-  const menu = readonly ? null : (
-    <RowMenu onDelete={onDelete} onDuplicate={onDuplicate} />
-  );
+  // No grip at all when there is nothing to drag: a readonly list cannot be
+  // reordered, and a faded grip still reads as a control.
+  const grip =
+    sortable && !readonly ? (
+      <button
+        {...sortable.handleProps}
+        aria-label="Drag to reorder"
+        className={cn(
+          "shrink-0 cursor-grab text-fg-secondary-alt hover:text-fg-primary",
+          // See `DRAG_HANDLE_TOUCH`.
+          DRAG_HANDLE_TOUCH,
+        )}
+      >
+        <GripVertical size={14} />
+      </button>
+    ) : null;
 
   return (
     <div
@@ -369,17 +525,12 @@ function BlockRow({
          goes through `Field`, so without this a navigation to a path in this
          list has nothing to scroll to (see `scrollToStudioPath`). */
       data-val-studio-path={path}
-      ref={setNodeRef}
-      style={style}
+      ref={sortable?.setNodeRef}
+      style={sortable?.style}
       className={cn(
-        "border bg-bg-primary",
+        "rounded-md border bg-bg-primary",
         // See `SORTABLE_ROW_TOUCH`.
-        SORTABLE_ROW_TOUCH,
-        // A nested row shares its parent row's LEFT border instead of drawing
-        // its own: the parent's body has no left padding, so the child sits
-        // flush against that edge — one border line, and the horizontal room
-        // that a second border + padding used to cost comes back as content.
-        depth === 0 ? "rounded-md" : "rounded-r-md border-l-0",
+        { [SORTABLE_ROW_TOUCH]: sortable !== undefined },
         {
           "border-border-primary": validationErrors.length === 0,
           "border-bg-warning-secondary": validationErrors.length > 0,
@@ -390,7 +541,8 @@ function BlockRow({
         <div className="flex items-center gap-1 h-7 px-1.5">
           {grip}
           <button
-            className="flex items-center gap-1 flex-1 min-w-0 text-left"
+            className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
+            aria-expanded={!collapsed}
             onClick={() => setCollapsed((prev) => !prev)}
           >
             <ChevronRight
@@ -400,19 +552,24 @@ function BlockRow({
                 { "rotate-90": !collapsed },
               )}
             />
-            <span className="w-4 shrink-0 text-[10px] text-fg-secondary-alt">
-              {index + 1}
-            </span>
-            <RowSummary path={path} />
+            <RowLabelText label={label} />
+            <RowSummary
+              path={path}
+              unionKey={
+                itemSchema.type === "discriminated-union"
+                  ? itemSchema.key
+                  : undefined
+              }
+            />
           </button>
           <ContentViewsBadge path={path} />
           {menu}
         </div>
       )}
       {headered && !collapsed && (
-        // Right padding only: nested lists reach the left border (see the row
-        // class above); leaf fields add their own small left inset.
-        <div className="pr-1.5 pb-1.5 pt-0.5">
+        // The fields carry their own small left inset (see
+        // `InlineObjectBody`), so the body only pads the right and bottom.
+        <div className="pr-1.5 pb-1.5">
           {itemSchema.type === "discriminated-union" ? (
             <InlineDiscriminatedUnionBody
               path={path}
@@ -432,7 +589,15 @@ function BlockRow({
       )}
       {isInline && !headered && (
         <div className="flex items-start gap-1.5 px-1.5 py-1">
-          <div className="pt-2">{grip}</div>
+          {/* `h-7`, the height of a dense input, so the grip, a key and the
+              menu line up with the first line of the field however tall the
+              field grows. */}
+          {grip && <div className="flex items-center h-7">{grip}</div>}
+          {label.kind === "key" && (
+            <div className="flex items-center h-7 max-w-[40%] shrink-0">
+              <RowLabelText label={label} />
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <AnyField
               path={path}
@@ -443,7 +608,7 @@ function BlockRow({
             />
           </div>
           <ContentViewsBadge path={path} />
-          {menu}
+          {menu && <div className="flex items-center h-7">{menu}</div>}
         </div>
       )}
       {!isInline && (
@@ -466,6 +631,23 @@ function BlockRow({
         </div>
       )}
     </div>
+  );
+}
+
+function RowLabelText({ label }: { label: RowLabel }) {
+  if (label.kind === "index") {
+    return (
+      <span className="min-w-4 shrink-0 text-[10px] tabular-nums text-fg-secondary-alt">
+        {label.index + 1}
+      </span>
+    );
+  }
+  // A key is data, not a field name, so it is shown as written — never
+  // title-cased the way `FieldLabel` treats a schema's own keys.
+  return (
+    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-xs text-fg-secondary">
+      {label.key}
+    </span>
   );
 }
 
@@ -496,11 +678,14 @@ function InlineDiscriminatedUnionBody({
   }
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="pl-2">
+      {/* Labelled like every other field: it is the discriminator, which is
+          a field of the value even though it is drawn as the variant picker. */}
+      <div className="flex flex-col gap-0.5 pl-2">
+        <FieldLabel label={itemSchema.key} />
         <DiscriminatedUnionTagSelect
           state={state}
           readonly={readonly}
-          className="h-7 w-auto min-w-24 px-2 py-1 text-[13px]"
+          className="h-7 w-auto min-w-24 self-start px-2 py-1 text-[13px]"
         />
       </div>
       <InlineObjectBody
@@ -515,28 +700,31 @@ function InlineDiscriminatedUnionBody({
 }
 
 /**
- * The fields of one inline object item, laid out tightly. A field that is
- * itself an array of inline items recurses into a nested `BlockList` behind a
- * thin rail, instead of another card-in-card — that rail is most of what buys
- * the third level on a laptop.
+ * The fields of one inline object, laid out tightly: a small label (with the
+ * field's description under it — it is being entered here, so it gets its
+ * input help), then the field. A field that is itself an inline array or
+ * record recurses into a nested `BlockList`, indented to line up with the
+ * labels, with its Add on the label row.
+ *
+ * Exported for `KeyOfField`, whose inline render shows the referenced entry
+ * the same way a row shows its own.
  */
-function InlineObjectBody({
+export function InlineObjectBody({
   path,
   itemSchema,
-  depth,
+  depth = 0,
   readonly,
   omitKeys,
 }: {
   path: SourcePath;
   itemSchema: SerializedSchema;
-  depth: number;
+  depth?: number;
   readonly?: boolean;
   /** Fields the row draws elsewhere — a union's discriminator, which is the
    * tag selector above rather than a field of its own. */
   omitKeys?: string[];
 }) {
-  // Which nested lists are folded away. Hiding fields is what buys clearance
-  // on the left once the rows themselves stopped indenting.
+  // Which nested lists are folded away.
   const [hiddenLists, setHiddenLists] = useState<Record<string, boolean>>({});
   if (itemSchema.type !== "object") {
     return null;
@@ -550,31 +738,48 @@ function InlineObjectBody({
         const fieldPath = sourcePathOfItem(path, key);
         const fieldReadonly =
           readonly === true || fieldSchema.readonly === true;
-        if (fieldSchema.type === "array" && isInlineRender(fieldSchema)) {
+        const isNestedList =
+          isInlineRender(fieldSchema) &&
+          // A media directory is a gallery, not a list of rows.
+          !(fieldSchema.type === "record" && fieldSchema.mediaType);
+        if (isNestedList) {
           const hidden = hiddenLists[key] === true;
           return (
             <div key={key} className="flex flex-col gap-1">
-              <button
-                className="flex items-center gap-1 pl-2 text-left"
-                onClick={() =>
-                  setHiddenLists((prev) => ({ ...prev, [key]: !hidden }))
-                }
-              >
-                <ChevronRight
-                  size={10}
-                  className={cn(
-                    "shrink-0 text-fg-secondary-alt transition-transform",
-                    { "rotate-90": !hidden },
-                  )}
-                />
-                <FieldLabel label={key} />
-              </button>
+              <div className="flex items-center gap-1 pl-2 min-h-6">
+                <button
+                  className="flex items-center gap-1 min-w-0 text-left"
+                  aria-expanded={!hidden}
+                  onClick={() =>
+                    setHiddenLists((prev) => ({ ...prev, [key]: !hidden }))
+                  }
+                >
+                  <ChevronRight
+                    size={10}
+                    className={cn(
+                      "shrink-0 text-fg-secondary-alt transition-transform",
+                      { "rotate-90": !hidden },
+                    )}
+                  />
+                  <FieldLabel label={key} />
+                </button>
+                <div className="flex-1" />
+                {!hidden && !fieldReadonly && (
+                  <ListAddButton path={fieldPath} />
+                )}
+              </div>
+              {fieldSchema.description && (
+                <FieldDescription description={fieldSchema.description} inset />
+              )}
               {!hidden && (
-                <BlockList
-                  path={fieldPath}
-                  depth={depth + 1}
-                  readonly={fieldReadonly}
-                />
+                <div className="pl-2">
+                  <BlockList
+                    path={fieldPath}
+                    depth={depth + 1}
+                    readonly={fieldReadonly}
+                    showAdd={false}
+                  />
+                </div>
               )}
             </div>
           );
@@ -582,6 +787,9 @@ function InlineObjectBody({
         return (
           <div key={key} className="flex flex-col gap-0.5 pl-2">
             <FieldLabel label={key} />
+            {fieldSchema.description && (
+              <FieldDescription description={fieldSchema.description} />
+            )}
             <AnyField
               path={fieldPath}
               schema={fieldSchema}
@@ -596,9 +804,31 @@ function InlineObjectBody({
   );
 }
 
+/** A schema key, title-cased the way `Field` labels the same key elsewhere. */
 function FieldLabel({ label }: { label: string }) {
   return (
-    <span className="text-[11px] leading-4 text-fg-tertiary">{label}</span>
+    <span className="truncate text-xs font-medium leading-4 text-fg-secondary">
+      {fromCamelToTitleCase(label)}
+    </span>
+  );
+}
+
+function FieldDescription({
+  description,
+  inset,
+}: {
+  description: string;
+  /** Line it up with a label that has its own inset (a nested list's). */
+  inset?: boolean;
+}) {
+  return (
+    <span
+      className={cn("text-[11px] leading-4 text-fg-tertiary", {
+        "pl-2": inset,
+      })}
+    >
+      {description}
+    </span>
   );
 }
 
@@ -610,33 +840,65 @@ function FieldLabel({ label }: { label: string }) {
  * what a header that can collapse the editor away needs. It never decides how
  * the row is EDITED — that is the render, and inline wins it outright. Without
  * a declared preview, the first string in the value stands in.
+ *
+ * A union row also shows which variant it is, because that is the first thing
+ * you need to know about a collapsed block.
  */
-function RowSummary({ path }: { path: SourcePath }) {
+function RowSummary({
+  path,
+  unionKey,
+}: {
+  path: SourcePath;
+  unionKey?: string;
+}) {
   const preview = useRefPreview(path);
   const sourceAtPath = useSourceAtPath(path);
+  const source =
+    "data" in sourceAtPath && sourceAtPath.data !== undefined
+      ? sourceAtPath.data
+      : undefined;
+  const tag = useMemo(() => {
+    if (
+      unionKey === undefined ||
+      source === undefined ||
+      source === null ||
+      typeof source !== "object"
+    ) {
+      return null;
+    }
+    const value = Object.entries(source).find(([key]) => key === unionKey);
+    return typeof value?.[1] === "string" ? value[1] : null;
+  }, [source, unionKey]);
   const summary = useMemo(() => {
     if (preview?.title) {
       return preview.title;
     }
-    if ("data" in sourceAtPath && sourceAtPath.data !== undefined) {
-      return firstStringOf(sourceAtPath.data);
+    if (source !== undefined) {
+      return firstStringOf(source, unionKey);
     }
     return null;
-  }, [preview, sourceAtPath]);
+  }, [preview, source, unionKey]);
   return (
-    <span className="flex-1 min-w-0 truncate text-xs text-fg-tertiary">
-      {summary ?? ""}
-    </span>
+    <>
+      {tag !== null && (
+        <span className="shrink-0 rounded bg-bg-secondary px-1 text-[10px] leading-4 text-fg-secondary">
+          {tag}
+        </span>
+      )}
+      <span className="flex-1 min-w-0 truncate text-xs text-fg-tertiary">
+        {summary ?? ""}
+      </span>
+    </>
   );
 }
 
 /**
  * Depth-first first string in a source — a cheap stand-in for a title when the
  * schema has no `preview`. Skips the keys that are structure rather than
- * content: a union's discriminator, and a rich text node's `tag`, which would
- * otherwise title a whole text block "p".
+ * content: a union's discriminator (whatever it is called), and a rich text
+ * node's `tag`, which would otherwise title a whole text block "p".
  */
-function firstStringOf(source: Json): string | null {
+function firstStringOf(source: Json, unionKey?: string): string | null {
   if (typeof source === "string") {
     return source;
   }
@@ -651,7 +913,12 @@ function firstStringOf(source: Json): string | null {
   }
   if (source !== null && typeof source === "object") {
     for (const [key, value] of Object.entries(source)) {
-      if (key === "type" || key === "_type" || key === "tag") {
+      if (
+        key === "type" ||
+        key === "_type" ||
+        key === "tag" ||
+        key === unionKey
+      ) {
         continue;
       }
       if (value === undefined) {
@@ -666,7 +933,14 @@ function firstStringOf(source: Json): string | null {
   return null;
 }
 
-function RowMenu({
+const MENU_TRIGGER =
+  "shrink-0 rounded px-0.5 py-1 text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-secondary-hover";
+const MENU_ITEM =
+  "flex h-7 w-full items-center justify-start gap-2 rounded px-2 text-sm font-normal text-fg-primary hover:bg-bg-secondary-hover";
+const ADD_BUTTON =
+  "flex h-6 items-center gap-1 rounded px-1 text-xs font-normal text-fg-tertiary hover:bg-transparent hover:text-fg-primary";
+
+function ArrayRowMenu({
   onDelete,
   onDuplicate,
 }: {
@@ -676,29 +950,179 @@ function RowMenu({
   const portalContainer = useValPortal();
   return (
     <Popover>
-      <PopoverTrigger className="shrink-0 rounded px-0.5 py-1 text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-secondary-hover">
+      <PopoverTrigger className={MENU_TRIGGER} aria-label="Row actions">
         <EllipsisVertical size={14} />
       </PopoverTrigger>
       <PopoverContent
-        className="p-2 w-auto"
+        className="flex w-auto flex-col p-1"
         container={portalContainer}
         side="top"
       >
-        <button
-          className="flex items-center gap-x-2 text-sm"
-          onClick={onDelete}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>Delete</span>
-        </button>
-        <button
-          className="flex items-center gap-x-2 text-sm"
-          onClick={onDuplicate}
-        >
+        <button className={MENU_ITEM} onClick={onDuplicate}>
           <Copy className="w-3.5 h-3.5" />
           <span>Duplicate</span>
         </button>
+        <button className={MENU_ITEM} onClick={onDelete}>
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Delete</span>
+        </button>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * A record entry's menu. The actions are the record popovers the module
+ * header uses, each asking for the key it needs; what is ALLOWED (a fixed
+ * route cannot be renamed, a referenced entry cannot be deleted) is
+ * `useArrayAndRecordTools`'s, so this menu and the header cannot disagree.
+ */
+function RecordRowMenu({ path }: { path: SourcePath }) {
+  const portalContainer = useValPortal();
+  const [open, setOpen] = useState(false);
+  const { entry } = useArrayAndRecordTools(path);
+  if (
+    entry === null ||
+    !(entry.canChange || entry.canDuplicate || entry.canDelete)
+  ) {
+    return null;
+  }
+  const close = () => setOpen(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        className={MENU_TRIGGER}
+        aria-label={`Actions for ${entry.key}`}
+      >
+        <EllipsisVertical size={14} />
+      </PopoverTrigger>
+      <PopoverContent
+        className="flex w-auto flex-col p-1"
+        container={portalContainer}
+        side="top"
+      >
+        {entry.canChange && (
+          <ChangeRecordPopover
+            defaultValue={entry.key}
+            parentPath={entry.parentPath}
+            variant="ghost"
+            size="sm"
+            className={MENU_ITEM}
+            routePattern={entry.routePattern}
+            references={entry.references}
+            keyDescription={entry.keyDescription}
+            onComplete={close}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            <span>{entry.routePattern ? "Change URL" : "Rename"}</span>
+          </ChangeRecordPopover>
+        )}
+        {entry.canDuplicate && (
+          <DuplicateRecordPopover
+            defaultValue={entry.key}
+            parentPath={entry.parentPath}
+            variant="ghost"
+            size="sm"
+            className={MENU_ITEM}
+            routePattern={entry.routePattern}
+            keyDescription={entry.keyDescription}
+            onComplete={close}
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Duplicate</span>
+          </DuplicateRecordPopover>
+        )}
+        {entry.canDelete && (
+          <DeleteRecordPopover
+            path={path}
+            parentPath={entry.parentPath}
+            variant="ghost"
+            size="sm"
+            className={MENU_ITEM}
+            references={entry.references}
+            confirmationMessage={`This will delete the ${entry.key} record.`}
+            onComplete={close}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete</span>
+          </DeleteRecordPopover>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * The Add for a list, wherever it is drawn: under a top-level list, or on the
+ * label row of a nested one. An array appends an empty item in place; a record
+ * first needs a key, so it opens the same key form as the module header's +.
+ */
+function ListAddButton({ path }: { path: SourcePath }) {
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status !== "success") {
+    return null;
+  }
+  if (schemaAtPath.data.type === "record") {
+    return <RecordAddButton path={path} />;
+  }
+  if (schemaAtPath.data.type === "array") {
+    return <ArrayAddButton path={path} schema={schemaAtPath.data} />;
+  }
+  return null;
+}
+
+function ArrayAddButton({
+  path,
+  schema,
+}: {
+  path: SourcePath;
+  schema: SerializedArraySchema;
+}) {
+  const emptyOf = useEmptyOf();
+  const { addPatch, patchPath } = useAddPatch(path);
+  const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
+  if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
+    return null;
+  }
+  const length = shallowSourceAtPath.data.length;
+  return (
+    <button
+      className={ADD_BUTTON}
+      onClick={() => {
+        addPatch(
+          [
+            {
+              op: "add",
+              path: patchPath.concat(length.toString()),
+              value: emptyOf(schema.item) as JSONValue,
+            },
+          ],
+          "array",
+        );
+      }}
+    >
+      <Plus size={12} />
+      <span>Add</span>
+    </button>
+  );
+}
+
+function RecordAddButton({ path }: { path: SourcePath }) {
+  const { add } = useArrayAndRecordTools(path);
+  if (add === null || !add.canAdd) {
+    return null;
+  }
+  return (
+    <AddRecordPopover
+      path={path}
+      variant="ghost"
+      size="sm"
+      className={ADD_BUTTON}
+      routePattern={add.routePattern}
+      keyDescription={add.keyDescription}
+    >
+      <Plus size={12} />
+      <span>Add</span>
+    </AddRecordPopover>
   );
 }
