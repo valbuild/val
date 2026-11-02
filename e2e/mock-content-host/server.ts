@@ -2698,9 +2698,12 @@ async function publishApi(
  * saved state the platform serves its address from.
  *
  * What the mock does NOT do, and `scenarios/README.md` lists: no builds (a
- * staging is recorded, never built, so `buildRequired` stays true), no render
- * check, no repository (Commit is recorded, not pushed), no moves of the site's changes at a merge, and a merge
- * sealed at the press -- no publish job, no tab, no merge-prepare.
+ * staging is recorded, never built, so `buildRequired` stays true until a
+ * build made elsewhere is handed in with `POST /build`), no render check, no
+ * repository (Commit is recorded, not pushed; somebody's push is the control
+ * plane's, and taking it in reads the files it was handed), no moves of the
+ * site's changes at a merge, and a merge sealed at the press -- no publish
+ * job, no tab, no merge-prepare.
  */
 type MockProposal = {
   name: string;
@@ -2769,8 +2772,49 @@ type MockProposal = {
         avatarUrl: string | null;
       } | null;
       at: string | null;
+      /**
+       * What their push changed, as project paths (`null`: deleted): what
+       * taking it in stages. Kept here, never sent: home reads it from
+       * GitHub's compare of `expected` and their tip.
+       */
+      files: Record<string, string | null>;
+    } | null;
+    /**
+     * The last push of somebody else's that was taken in, and the lists its
+     * answer gave (`already` answers them again). `building` until a build of
+     * what the proposal holds is served.
+     */
+    takenIn: {
+      sha: string;
+      url: string;
+      by: string | null;
+      at: string | null;
+      building: boolean;
+      answer: TakePushLists;
+      /**
+       * The text each file had when it was taken in: a file still holding it
+       * was not changed by the proposal, so their next push takes it again
+       * rather than keeping it (contract v2, 3).
+       */
+      files: Record<string, string | null>;
     } | null;
   };
+  /** The build its address serves, once one is (`POST /build`). */
+  built: { hash: string; inputs: string } | null;
+};
+
+/** What a take-in lists: home's `ProposalTakePushJson`, without the proposal. */
+type TakePushLists = {
+  commit: string | null;
+  taken: {
+    path: string;
+    change: "added" | "modified" | "deleted";
+    binary: boolean;
+  }[];
+  keptOurs: { path: string; reason: "both-changed" | "val-content" }[];
+  notTaken: { path: string; reason: string }[];
+  rewritten: boolean;
+  merges: string[];
 };
 
 type MockProposalEvent =
@@ -2785,17 +2829,24 @@ type MockProposalEvent =
       actorId: string;
       at: string;
       data: { gitSha: string; save: string; message: string; publish: boolean };
+    }
+  | {
+      kind: "push-taken";
+      actorId: string;
+      at: string;
+      data: { gitSha: string } & TakePushLists;
     };
 
 /** A new proposal's code mode and git, before anything happened to either. */
 function freshProposalState(): Pick<
   MockProposal,
-  "codeMode" | "events" | "git"
+  "codeMode" | "events" | "git" | "built"
 > {
   return {
     codeMode: { on: false, changedBy: null, changedAt: null },
     events: [],
-    git: { committed: null, theirs: null },
+    git: { committed: null, theirs: null, takenIn: null },
+    built: null,
   };
 }
 
@@ -2816,18 +2867,20 @@ function savesUpTo(proposal: MockProposal, commit: string): Set<string> {
 }
 
 function stagedJson(proposal: MockProposal) {
+  const inputs =
+    proposal.staged.length === 0
+      ? null
+      : sha(
+          JSON.stringify(
+            proposal.staged.map((path) => [path, proposal.saved.files[path]]),
+          ),
+        ).slice(0, 40);
   return {
     files: proposal.staged,
-    inputs:
-      proposal.staged.length === 0
-        ? null
-        : sha(
-            JSON.stringify(
-              proposal.staged.map((path) => [path, proposal.saved.files[path]]),
-            ),
-          ).slice(0, 40),
-    // Nothing here builds, so what is staged is never served yet.
-    buildRequired: proposal.staged.length > 0,
+    inputs,
+    // Nothing here builds: what is staged is served only once a build of
+    // exactly these inputs is handed in (`POST /build`).
+    buildRequired: inputs !== null && proposal.built?.inputs !== inputs,
   };
 }
 
@@ -2847,6 +2900,7 @@ function proposalJson(proposal: MockProposal, read = false) {
       .length,
     kind: "editor",
     codeMode: proposal.codeMode,
+    built: proposal.built,
     pushedGitSha: proposal.git.committed?.sha ?? null,
     ...(read
       ? { staged: stagedJson(proposal), git: proposalGitJson(proposal) }
@@ -2863,12 +2917,52 @@ function proposalGitJson(proposal: MockProposal) {
   if (SOURCE_MODE === "managed") return null;
   const head = proposal.saved.commit;
   const committed = proposal.git.committed;
+  const takenIn = proposal.git.takenIn;
   return {
     branch: proposal.branch,
     branchUrl: `${MOCK_REPO_URL}/tree/${proposal.branch}`,
     committed,
     head,
     uncommitted: head !== null && committed?.save !== head,
+    takenIn:
+      takenIn === null
+        ? null
+        : {
+            sha: takenIn.sha,
+            url: takenIn.url,
+            by: takenIn.by,
+            at: takenIn.at,
+            building: takenIn.building,
+          },
+  };
+}
+
+/** Their commit as home sends it: `theirs` without what the mock keeps of it. */
+function theirsJson(theirs: NonNullable<MockProposal["git"]["theirs"]>) {
+  const { files: _files, ...json } = theirs;
+  return json;
+}
+
+/** As `commitRefusal` in home's `proposalGit.ts` words someone's push. */
+function someonePushedRefusal(
+  proposal: MockProposal,
+  theirs: NonNullable<MockProposal["git"]["theirs"]>,
+): { status: number; message: string; details: Record<string, unknown> } {
+  const who = theirs.author?.name ?? theirs.author?.login ?? "Somebody";
+  const at =
+    theirs.at === null || Number.isNaN(new Date(theirs.at).getTime())
+      ? null
+      : `${new Date(theirs.at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return {
+    status: 409,
+    message: `${who} pushed to ${proposal.branch} (${theirs.sha.slice(0, 7)})${at !== null ? ` at ${at}` : ""}. Val does not commit over a push it has not seen.`,
+    details: {
+      code: "someone-pushed",
+      branch: proposal.branch,
+      branchUrl: `${MOCK_REPO_URL}/tree/${proposal.branch}`,
+      expected: proposal.git.committed?.sha ?? proposal.base,
+      theirs: theirsJson(theirs),
+    },
   };
 }
 
@@ -2940,23 +3034,8 @@ function commitProposal(
   }
   const theirs = proposal.git.theirs;
   if (theirs !== null) {
-    // As `commitRefusal` in home's `proposalGit.ts` words it.
-    const who = theirs.author?.name ?? theirs.author?.login ?? "Somebody";
-    const at =
-      theirs.at === null || Number.isNaN(new Date(theirs.at).getTime())
-        ? null
-        : `${new Date(theirs.at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
-    return refuse(
-      409,
-      `${who} pushed to ${proposal.branch} (${theirs.sha.slice(0, 7)})${at !== null ? ` at ${at}` : ""}. Val does not commit over a push it has not seen.`,
-      {
-        code: "someone-pushed",
-        branch: proposal.branch,
-        branchUrl: `${MOCK_REPO_URL}/tree/${proposal.branch}`,
-        expected: proposal.git.committed?.sha ?? proposal.base,
-        theirs,
-      },
-    );
+    const pushed = someonePushedRefusal(proposal, theirs);
+    return refuse(pushed.status, pushed.message, pushed.details);
   }
   const committed = proposal.git.committed;
   if (committed !== null && committed.save === head) {
@@ -3001,6 +3080,248 @@ function commitProposal(
       pushed: true,
     },
   };
+}
+
+/** Paths a proposal cannot hold, as home's take-in sorts them. */
+const NOT_PROJECT_SOURCE =
+  /^(node_modules|\.git|\.val|dist|\.output|\.vinxi)\//;
+
+/**
+ * `POST /proposals/:name/take-push` (home's take-push contract): somebody's
+ * push to the proposal's branch brought in. Their changed files are staged
+ * where the proposal did not change them; where it did, its version stays
+ * (`keptOurs`). Their commit becomes what Val expects at the branch, so the
+ * next Commit goes on top of it. Content does not build: the Studio does, and
+ * `git.takenIn.building` -- which Publish waits for -- stays until a build of
+ * what the proposal holds is handed in (`POST /build`).
+ *
+ * The mock does not model `too-many-files` beyond counting, `unreadable`,
+ * `github-unavailable`, `committing`, `no-git-root`, rewritten history,
+ * merge commits, binary files, or plan refusals.
+ */
+async function proposalTakePush(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proposal: MockProposal,
+  owner: string | null,
+): Promise<void> {
+  const body = await readJsonBody<{ sha?: unknown }>(req);
+  const theirSha = body?.sha;
+  if (typeof theirSha !== "string" || !/^[0-9a-f]{40}$/.test(theirSha)) {
+    json(res, 400, { message: "The body must be { sha } with a 40-hex sha." });
+    return;
+  }
+  if (owner === null) {
+    json(res, 403, {
+      message: "Proposals are changed by people: this credential names nobody",
+    });
+    return;
+  }
+  const refuse = (
+    status: number,
+    message: string,
+    details: Record<string, unknown>,
+  ) => json(res, status, { statusCode: status, message, details });
+  if (proposal.status !== "open") {
+    refuse(409, `The proposal is ${proposal.status}.`, {
+      code: "not-open",
+      status: proposal.status,
+    });
+    return;
+  }
+  if (SOURCE_MODE === "managed") {
+    refuse(
+      409,
+      "This project has no repository: there is no push to take in.",
+      {
+        code: "no-repository",
+      },
+    );
+    return;
+  }
+  const answerOf = (lists: TakePushLists, already: boolean) => {
+    const takenIn = proposal.git.takenIn;
+    return {
+      theirs: {
+        sha: takenIn?.sha ?? theirSha,
+        url: takenIn?.url ?? `${MOCK_REPO_URL}/commit/${theirSha}`,
+        message: null,
+        author: null,
+        at: takenIn?.at ?? null,
+      },
+      ...lists,
+      already,
+      proposal: proposalJson(proposal, true),
+    };
+  };
+  const theirs = proposal.git.theirs;
+  // Taken in already, by an earlier press, and still the tip: the same lists.
+  const takenIn = proposal.git.takenIn;
+  if (
+    theirs === null &&
+    takenIn?.sha === theirSha &&
+    proposal.git.committed?.sha === theirSha
+  ) {
+    json(res, 200, answerOf(takenIn.answer, true));
+    return;
+  }
+  if (theirs === null) {
+    const tip = proposal.git.committed?.sha ?? proposal.base;
+    refuse(
+      409,
+      `There is nothing to take in: ${proposal.branch} is where Val left it (${tip.slice(0, 7)}).`,
+      { code: "nothing-to-take", tip },
+    );
+    return;
+  }
+  if (theirs.sha !== theirSha) {
+    // Their push moved again: the new tip, to take in instead.
+    const pushed = someonePushedRefusal(proposal, theirs);
+    refuse(pushed.status, pushed.message, pushed.details);
+    return;
+  }
+  const changed = Object.entries(theirs.files);
+  if (changed.length > 1000) {
+    refuse(
+      409,
+      `Their push changes ${changed.length} files, and Val takes in at most 1000 at a time.`,
+      { code: "too-many-files", count: changed.length, max: 1000 },
+    );
+    return;
+  }
+  const lists: TakePushLists = {
+    commit: null,
+    taken: [],
+    keptOurs: [],
+    notTaken: [],
+    rewritten: false,
+    merges: [],
+  };
+  const toStage: Record<string, string | null> = {};
+  for (const [filePath, text] of changed) {
+    if (NOT_PROJECT_SOURCE.test(filePath)) {
+      lists.notTaken.push({ path: filePath, reason: "not-project-source" });
+      continue;
+    }
+    const ours = proposal.saved.files[filePath];
+    // Changed by the proposal since their push started: not a file it holds
+    // only because an earlier push of theirs was taken in.
+    const oursChanged =
+      ours !== undefined &&
+      !(
+        takenIn !== null &&
+        filePath in takenIn.files &&
+        takenIn.files[filePath] === ours
+      );
+    if (oursChanged && ours !== text) {
+      // The proposal changed it too: Val's wins.
+      const isContent =
+        filePath.endsWith(".val.ts") &&
+        `/${filePath}` in proposal.saved.modules;
+      lists.keptOurs.push({
+        path: filePath,
+        reason: isContent ? "val-content" : "both-changed",
+      });
+      continue;
+    }
+    const onSite = await readRepoFile("/", filePath);
+    lists.taken.push({
+      path: filePath,
+      change:
+        text === null ? "deleted" : "value" in onSite ? "modified" : "added",
+      binary: false,
+    });
+    if (ours !== text) toStage[filePath] = text;
+  }
+  const headBefore = proposal.saved.commit;
+  const allCommitted =
+    headBefore === null || proposal.git.committed?.save === headBefore;
+  if (Object.keys(toStage).length > 0) {
+    lists.commit = proposalCommit(
+      proposal,
+      owner,
+      `Their push (${theirSha.slice(0, 7)})`,
+    );
+    for (const [filePath, text] of Object.entries(toStage)) {
+      proposal.saved.files[filePath] = text;
+      if (!proposal.staged.includes(filePath)) proposal.staged.push(filePath);
+    }
+  }
+  const at = nowIso();
+  // Their commit is the next Commit's parent. The branch holds exactly what
+  // the proposal does only when nothing was kept or left out.
+  const exact =
+    lists.keptOurs.length === 0 && lists.notTaken.length === 0 && allCommitted;
+  proposal.git.committed = {
+    sha: theirs.sha,
+    url: theirs.url,
+    save: exact ? proposal.saved.commit : null,
+    by: null,
+    at: theirs.at,
+  };
+  proposal.git.theirs = null;
+  proposal.git.takenIn = {
+    sha: theirs.sha,
+    url: theirs.url,
+    by: owner,
+    at,
+    building: stagedJson(proposal).buildRequired,
+    answer: lists,
+    files: {
+      ...(takenIn?.files ?? {}),
+      ...Object.fromEntries(
+        lists.taken.map((file) => [file.path, theirs.files[file.path] ?? null]),
+      ),
+    },
+  };
+  proposal.events.push({
+    kind: "push-taken",
+    actorId: owner,
+    at,
+    data: { gitSha: theirs.sha, ...lists },
+  });
+  proposal.updatedAt = at;
+  json(res, 200, {
+    ...answerOf(lists, false),
+    theirs: theirsJson(theirs),
+  });
+}
+
+/**
+ * `POST /proposals/:name/build` with `{ publishId, inputs }`: a build of its
+ * staged files, uploaded, served at its address. The mock builds and serves
+ * nothing: it records that a build of these inputs is served, which is what
+ * a taken-in push waits for. Any other body (Val Build's own build) is not
+ * modeled.
+ */
+async function proposalServeBuild(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proposal: MockProposal,
+): Promise<void> {
+  const body = await readJsonBody<{ publishId?: unknown; inputs?: unknown }>(
+    req,
+  );
+  if (typeof body?.publishId !== "string" || typeof body.inputs !== "string") {
+    json(res, 404, {
+      message:
+        "Not modeled by this mock: POST /proposals/:name/build without a publishId",
+    });
+    return;
+  }
+  const inputs = stagedJson(proposal).inputs;
+  if (inputs !== body.inputs) {
+    json(res, 409, {
+      statusCode: 409,
+      message:
+        "The proposal's files changed since this build was made. Build it again.",
+    });
+    return;
+  }
+  proposal.built = { hash: sha(body.publishId).slice(0, 12), inputs };
+  if (proposal.git.takenIn !== null) proposal.git.takenIn.building = false;
+  proposal.updatedAt = nowIso();
+  json(res, 200, { proposal: proposalJson(proposal, true) });
 }
 
 /** A commit on a proposal's branch: a save, or a staging. */
@@ -3130,6 +3451,10 @@ async function proposalStage(
     proposal.saved.files[at] = text;
     if (!proposal.staged.includes(at)) proposal.staged.push(at);
   }
+  // A taken-in push waits for a build of what the proposal holds NOW.
+  if (proposal.git.takenIn !== null && stagedJson(proposal).buildRequired) {
+    proposal.git.takenIn.building = true;
+  }
   /*
    * The Source each staged `.val.ts` declares, recorded as the module's
    * version at the staging (`stagedModuleRows` in home), so the address
@@ -3149,6 +3474,61 @@ async function proposalStage(
     proposal.saved.modules[moduleFilePath] = source;
   }
   json(res, 200, { commit: commitSha, staged: stagedJson(proposal) });
+}
+
+/**
+ * `GET /proposals/:name/merge-checks`, as the mock models them: open, saved,
+ * and -- once somebody's push was taken in -- whether the proposal's build
+ * has their code (`taken-push`, home's take-push contract).
+ */
+type MockMergeCheck = {
+  id: string;
+  ok: boolean;
+  message: string;
+  action?: "build";
+};
+
+function proposalMergeChecks(proposal: MockProposal): MockMergeCheck[] {
+  const unsaved = patchesOn(proposal.branch).filter(
+    (patch) => !patch.applied,
+  ).length;
+  const checks: MockMergeCheck[] = [
+    {
+      id: "open",
+      ok: proposal.status === "open",
+      message:
+        proposal.status === "open"
+          ? "It is open."
+          : `It is ${proposal.status}.`,
+    },
+    {
+      id: "saved",
+      ok: unsaved === 0,
+      message:
+        unsaved === 0
+          ? "Everything in it is saved."
+          : `${unsaved} change(s) in it are not saved.`,
+    },
+  ];
+  const takenIn = proposal.git.takenIn;
+  if (takenIn !== null) {
+    const short = takenIn.sha.slice(0, 7);
+    checks.push(
+      takenIn.building
+        ? {
+            id: "taken-push",
+            ok: false,
+            message: `Their push (${short}) is not in the proposal's build yet: build the proposal, then publish`,
+            action: "build",
+          }
+        : {
+            id: "taken-push",
+            ok: true,
+            message: `The proposal's build includes their push (${short})`,
+          },
+    );
+  }
+  return checks;
 }
 
 /**
@@ -3181,6 +3561,21 @@ async function proposalMerge(
   }
   if (proposal.status !== "open") {
     json(res, 409, { message: `The proposal is ${proposal.status}.` });
+    return;
+  }
+  /*
+   * A failing merge check refuses the press, as home's does. Only the
+   * taken-in push's is enforced here: the mock's other checks were never
+   * enforced at the press, and scenarios press with changes unsaved.
+   */
+  const checks = proposalMergeChecks(proposal);
+  if (checks.some((check) => check.id === "taken-push" && !check.ok)) {
+    const failing = checks.filter((check) => !check.ok);
+    json(res, 409, {
+      statusCode: 409,
+      message: failing.map((check) => check.message).join(". "),
+      details: { checks },
+    });
     return;
   }
   if (proposal.saved.commit === null) {
@@ -3457,32 +3852,18 @@ async function proposalsRoute(
       await proposalStage(req, res, proposal);
       return;
     case "GET /merge-checks": {
-      const unsaved = patchesOn(proposal.branch).filter(
-        (patch) => !patch.applied,
-      ).length;
-      const checks = [
-        {
-          id: "open",
-          ok: proposal.status === "open",
-          message:
-            proposal.status === "open"
-              ? "It is open."
-              : `It is ${proposal.status}.`,
-        },
-        {
-          id: "saved",
-          ok: unsaved === 0,
-          message:
-            unsaved === 0
-              ? "Everything in it is saved."
-              : `${unsaved} change(s) in it are not saved.`,
-        },
-      ];
+      const checks = proposalMergeChecks(proposal);
       json(res, 200, { checks, canMerge: checks.every((check) => check.ok) });
       return;
     }
     case "POST /merge":
       await proposalMerge(req, res, proposal);
+      return;
+    case "POST /take-push":
+      await proposalTakePush(req, res, proposal, owner);
+      return;
+    case "POST /build":
+      await proposalServeBuild(req, res, proposal);
       return;
     case "POST /close":
     case "POST /reopen":
@@ -3623,7 +4004,10 @@ const controlPlane: Handler = async (req, res, url) => {
     /*
      * Somebody else pushes to the proposal's branch, as a developer does from
      * a laptop: Val has not seen it, so its next Commit is refused
-     * (`someone-pushed`). `{ clear: true }` takes it back.
+     * (`someone-pushed`). `files`: what the push changes (project paths,
+     * `null` deletes), which taking it in stages. A second push before it is
+     * taken in moves the tip on top of the first: both pushes' files are
+     * what is taken in. `{ clear: true }` takes it back.
      */
     const proposal = state.proposals.get(pushed[1]);
     if (proposal === undefined) {
@@ -3635,13 +4019,17 @@ const controlPlane: Handler = async (req, res, url) => {
       message?: string;
       author?: { name?: string; login?: string };
       at?: string;
+      files?: Record<string, string | null>;
     }>(req);
     if (body?.clear === true) {
       proposal.git.theirs = null;
       json(res, 200, { ok: true });
       return;
     }
-    const theirSha = sha(`theirs:${proposal.branch}:${nowIso()}`).slice(0, 40);
+    const before = proposal.git.theirs;
+    const theirSha = sha(
+      `theirs:${proposal.branch}:${before?.sha ?? ""}:${nowIso()}`,
+    ).slice(0, 40);
     proposal.git.theirs = {
       sha: theirSha,
       url: `${MOCK_REPO_URL}/commit/${theirSha}`,
@@ -3653,6 +4041,7 @@ const controlPlane: Handler = async (req, res, url) => {
         avatarUrl: null,
       },
       at: body?.at ?? nowIso(),
+      files: { ...(before?.files ?? {}), ...(body?.files ?? {}) },
     };
     json(res, 200, { ok: true, sha: theirSha });
     return;

@@ -1218,10 +1218,165 @@ test("a Commit refused because someone pushed comes back as home said it", async
   }
 });
 
-test("the site's server neither turns a proposal's code mode nor commits it", async () => {
+/**
+ * Build on their push (valbuild/home's take-push contract, v2): somebody's
+ * push to `val/p/<name>` brought into the proposal, at its own address. The
+ * e2e mock implements the same, and `codeMode.scenario.test.ts` (C7-C10)
+ * drives it through the Studio's `buildOnTheirPush`.
+ */
+const THEIRS = {
+  sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+  url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+  message: "Fix the hero's spacing\n\nThe gap above the heading was 2rem.",
+  author: {
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    login: "ada",
+    avatarUrl: null,
+  },
+  at: "2026-11-02T14:03:00.000Z",
+};
+
+test("taking in their push is `/proposals/:name/take-push`, and home's answer comes back", async () => {
+  const HOME_TAKEN = {
+    theirs: THEIRS,
+    commit: "save3",
+    taken: [
+      {
+        path: "src/components/Hero.tsx",
+        change: "modified",
+        binary: false,
+      },
+      { path: "public/hero.png", change: "added", binary: true },
+    ],
+    keptOurs: [{ path: "content/home.val.ts", reason: "val-content" }],
+    notTaken: [{ path: ".github/workflows/ci.yml", reason: "outside-project" }],
+    rewritten: false,
+    merges: [],
+    already: false,
+    proposal: {
+      ...HOME_PROPOSAL_IN_CODE_MODE.proposal,
+      pushedGitSha: THEIRS.sha,
+      git: {
+        ...HOME_PROPOSAL_IN_CODE_MODE.proposal.git,
+        committed: {
+          sha: THEIRS.sha,
+          url: THEIRS.url,
+          save: null,
+          by: null,
+          at: THEIRS.at,
+        },
+        head: "save3",
+        uncommitted: true,
+        takenIn: {
+          sha: THEIRS.sha,
+          url: THEIRS.url,
+          by: PROFILE,
+          at: "2026-11-02T14:10:00.000Z",
+          building: true,
+        },
+      },
+    },
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_TAKEN, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/take-push`,
+      { method: "POST", body: JSON.stringify({ sha: THEIRS.sha }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_TAKEN);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/take-push`,
+    );
+    expect(sent[0]?.body).toEqual({ sha: THEIRS.sha });
+    expect(sent[0]?.headers["x-val-profile-id"]).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("taking in a push that moved again is refused naming the newer one, as home said it", async () => {
+  const NEWER = {
+    ...THEIRS,
+    sha: "4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b3c",
+    url: "https://github.com/acme/site/commit/4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b3c",
+    message: "And a footer",
+  };
+  const HOME_MOVED_AGAIN = {
+    statusCode: 409,
+    message: `Ada Lovelace pushed to ${PROPOSAL.branch} (4d5e6f7) at 2026-11-02 14:20 UTC. Val does not commit over a push it has not seen.`,
+    details: {
+      code: "someone-pushed",
+      branch: PROPOSAL.branch,
+      branchUrl: `https://github.com/acme/site/tree/${PROPOSAL.branch}`,
+      expected: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+      theirs: NEWER,
+    },
+  };
+  const { ops, restore } = opsAnswering(HOME_MOVED_AGAIN, 409, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/take-push`,
+      { method: "POST", body: JSON.stringify({ sha: THEIRS.sha }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(409);
+    expect(JSON.parse(answer.body)).toEqual(HOME_MOVED_AGAIN);
+  } finally {
+    restore();
+  }
+});
+
+test("a take-in refused because there is nothing to take, or GitHub is down, comes back with its code", async () => {
+  const refusals: [number, unknown][] = [
+    [
+      409,
+      {
+        statusCode: 409,
+        message: `There is nothing to take in: ${PROPOSAL.branch} is where Val left it.`,
+        details: {
+          code: "nothing-to-take",
+          tip: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+        },
+      },
+    ],
+    [
+      502,
+      {
+        statusCode: 502,
+        message: "GitHub could not be reached. Nothing was taken in.",
+        details: { code: "github-unavailable", reason: "ETIMEDOUT" },
+      },
+    ],
+  ];
+  for (const [status, refusal] of refusals) {
+    const { ops, restore } = opsAnswering(refusal, status, {
+      proposal: PROPOSAL,
+    });
+    try {
+      const answer = await ops.proposalsApi(
+        `/${PROPOSAL.name}/take-push`,
+        { method: "POST", body: JSON.stringify({ sha: THEIRS.sha }) },
+        PROFILE,
+      );
+      expect(answer.status).toBe(status);
+      expect(JSON.parse(answer.body)).toEqual(refusal);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("the site's server neither turns a proposal's code mode, commits it, nor takes a push into it", async () => {
   const { ops, sent, restore } = opsAnswering(HOME_PROPOSAL_IN_CODE_MODE);
   try {
-    for (const write of ["code-mode", "commit"]) {
+    for (const write of ["code-mode", "commit", "take-push"]) {
       const answer = await ops.proposalsApi(
         `/${PROPOSAL.name}/${write}`,
         { method: "POST", body: JSON.stringify({ on: true }) },

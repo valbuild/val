@@ -1286,6 +1286,8 @@ export const ValServer = (
    * the server's write path, so every writer gets it. A write while code mode
    * is off is refused, naming who turned it off. A save here commits invalid
    * content too: a proposal is not the site, and its errors stay shown.
+   * Building on somebody's push to the proposal's branch (`take-push`) saves
+   * first too, whether code mode is on or not.
    *
    * `null`: go on and hand the call to content. Anything else is the answer.
    */
@@ -1295,11 +1297,33 @@ export const ValServer = (
     body: unknown,
     profileId: string | null,
   ): Promise<{ status: number; json: unknown } | null> => {
-    const write = /^\/([0-9a-f]{20})\/(code-mode|files)$/.exec(path);
+    const write = /^\/([0-9a-f]{20})\/(code-mode|files|take-push)$/.exec(path);
     if (write === null) return null;
     const [, name, kind] = write;
     // Only the proposal's own address holds its pending changes.
     if (serverOps.currentProposal()?.name !== name) return null;
+    /*
+     * Build on their push (valbuild/home's take-push contract): their files
+     * come in where the proposal did not change them, and the proposal's
+     * version is kept where it did -- so "the proposal's version" has to be
+     * everything the person sees, saved first. Code mode or not: their push
+     * is a developer's code, not the assistant's.
+     */
+    if (kind === "take-push") {
+      const saved = await saveBeforeCode(
+        cookies,
+        "Saved before their push was brought in",
+      );
+      return saved === null
+        ? null
+        : {
+            status: saved.status,
+            json: {
+              message: `Their push was not brought in, because the changes waiting to be saved could not be saved first: ${saved.message}`,
+              details: { code: "save-failed" },
+            },
+          };
+    }
     if (kind === "code-mode") {
       const turning = z.object({ on: z.literal(true) }).safeParse(body);
       if (!turning.success) return null;
