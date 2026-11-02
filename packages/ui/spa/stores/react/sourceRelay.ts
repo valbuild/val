@@ -424,7 +424,7 @@ export type CatchUp = {
    * The server holds the editor's changes up to `seq` (see
    * {@link subscribeConfirmed}): once after `synced`, with what the store
    * was in step with (`null` from a server that reports no version), then
-   * every time it moves forward.
+   * every time it moves forward. Never with `update: null`.
    */
   confirmed(seq: number | null): void;
 };
@@ -446,6 +446,10 @@ export function startCatchUp(system: System, page: CatchUp): () => void {
     void sent.then(() => {
       if (stopped) return;
       page.synced();
+      // A page this Studio relays nothing to (a proposal's, reading its own
+      // drafts) is not refreshed by what this Studio's server confirms:
+      // that is about other content.
+      if (page.update === null) return;
       let told = system.stat.currentSeq() ?? null;
       page.confirmed(told);
       offConfirmed = subscribeConfirmed(system, (seq) => {

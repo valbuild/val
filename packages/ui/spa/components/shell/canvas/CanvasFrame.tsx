@@ -72,7 +72,8 @@ export type CanvasFrameProps = {
    * Whether this Studio's edits are relayed into the page. Off when the page is
    * not this Studio's content: a proposal's page reads its own drafts, and the
    * site's would be the wrong ones. The page is still told when there is
-   * nothing to wait for (`sourcesSynced`).
+   * nothing to wait for (`sourcesSynced`), and not what this Studio's server
+   * confirms (`confirmed`), which is about other content.
    */
   relaySources?: boolean;
   /**
