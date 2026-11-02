@@ -108,12 +108,10 @@ export function CommitRefusedNotice({
   onRebuild?: () => void;
   onDismiss: () => void;
 }) {
-  const who = refused.who ?? "Someone";
-  const verb = refused.movedAgain === true ? "pushed again to" : "pushed to";
   const title =
     state.kind === "built"
-      ? `${who}'s push is in the proposal`
-      : `${who} ${verb} ${refused.branch}${refused.ago !== null ? ` ${refused.ago}` : ""}`;
+      ? `${refused.who ?? "Someone"}'s push is in the proposal`
+      : pushedTitle(refused);
   const subject = refused.commit.message?.split("\n")[0] ?? null;
   const again = refused.during === "commit" ? "Commit" : "Publish";
   const good = state.kind === "built" || state.kind === "building";
@@ -284,6 +282,90 @@ export function CommitRefusedNotice({
                 Dismiss
               </button>
             )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** "Ada Lovelace pushed to val/p/… 5 minutes ago". */
+function pushedTitle(refused: CommitRefused): string {
+  const who = refused.who ?? "Someone";
+  const verb = refused.movedAgain === true ? "pushed again to" : "pushed to";
+  return `${who} ${verb} ${refused.branch}${refused.ago !== null ? ` ${refused.ago}` : ""}`;
+}
+
+/**
+ * The same refusal, of a Publish pressed on the SITE (the design tab). Build
+ * on their push cannot be pressed there -- only the proposal's own address
+ * may take a push in -- and Publish again would be refused the same way, so
+ * there is no Try again: the notice says who pushed and when, links their
+ * commit, and offers **Open the proposal**, its own Studio, where Publish
+ * offers Build on their push.
+ */
+export function CommitRefusedOnSiteNotice({
+  refused,
+  proposalStudio,
+  onDismiss,
+}: {
+  refused: CommitRefused;
+  /** The proposal's own Studio; `null` while its address is not known. */
+  proposalStudio: string | null;
+  onDismiss: () => void;
+}) {
+  const title = pushedTitle(refused);
+  const subject = refused.commit.message?.split("\n")[0] ?? null;
+  return (
+    <section
+      role="alert"
+      aria-label={title}
+      className="relative rounded-lg border border-border-error-primary bg-bg-tertiary p-4"
+    >
+      <div className="flex gap-3">
+        <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 text-fg-error-primary">
+          <GitCommit size={16} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg-primary">{title}</p>
+          <p className="mt-1 text-xs text-fg-secondary">
+            {subject !== null && (
+              <>
+                <span className="font-mono text-fg-primary">
+                  {refused.commit.sha.slice(0, 7)}
+                </span>{" "}
+                {subject}
+                <br />
+              </>
+            )}
+            Val does not commit over a push it has not seen, so nothing was
+            committed or published. Everything is still in the proposal.{" "}
+            {proposalStudio !== null
+              ? "Open the proposal and press Publish there: it offers Build on their push, which brings their changes in, and then publishes on top of them."
+              : "Open the proposal's own Studio and press Publish there: it offers Build on their push, which brings their changes in, and then publishes on top of them."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {proposalStudio !== null && (
+              <a
+                href={proposalStudio}
+                target="_blank"
+                rel="noreferrer"
+                className={PRIMARY}
+              >
+                <ExternalLink size={12} /> Open the proposal
+              </a>
+            )}
+            <a
+              href={refused.commit.url}
+              target="_blank"
+              rel="noreferrer"
+              className={SECONDARY}
+            >
+              <ExternalLink size={12} /> Open their commit
+            </a>
+            <button type="button" onClick={onDismiss} className={SECONDARY}>
+              Dismiss
+            </button>
           </div>
         </div>
       </div>

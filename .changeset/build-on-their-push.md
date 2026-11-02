@@ -29,3 +29,10 @@ Publish's commit for good (a protected branch), the dialog links the branch
 instead of offering Try again. On a phone, where Publish is finished in a new
 tab, the commit message you typed now goes with it, and a refusal there
 comes back to the dialog with the same offer.
+
+Publish pressed from the design tab, on the site, is refused the same way
+when someone has pushed to the proposal's branch. Build on their push can
+only be done in the proposal's own Studio, so the dialog says who pushed and
+when, links their commit, and offers **Open the proposal**, where Publish
+offers Build on their push. It no longer offers a Try again that would fail
+again, and a branch GitHub refuses for good links the branch there too.

@@ -24,6 +24,7 @@ import { conflictKey, UpdateConflicts } from "./UpdateConflicts";
 import { Spinner } from "../designSystem/spinner";
 import {
   CommitRefusedNotice,
+  CommitRefusedOnSiteNotice,
   type BuildOnPushState,
   type CommitRefused,
 } from "./CommitRefusedNotice";
@@ -130,6 +131,18 @@ export type PublishProposalState =
       kind: "someone-pushed";
       refused: CommitRefused;
       buildOn: BuildOnPushState;
+    }
+  /**
+   * The same refusal, of a Publish pressed on the SITE -- the design tab --
+   * where Build on their push cannot be pressed: only the proposal's own
+   * address may take a push in. So the dialog offers what can, **Open the
+   * proposal**: `proposalStudio`, where Publish offers Build on their push.
+   * `null` while the proposal's address is not known.
+   */
+  | {
+      kind: "someone-pushed-on-site";
+      refused: CommitRefused;
+      proposalStudio: string | null;
     }
   | {
       kind: "error";
@@ -492,6 +505,14 @@ export function PublishProposalDialog({
             />
           )}
 
+          {state.kind === "someone-pushed-on-site" && (
+            <CommitRefusedOnSiteNotice
+              refused={state.refused}
+              proposalStudio={state.proposalStudio}
+              onDismiss={() => onOpenChange(false)}
+            />
+          )}
+
           {(state.kind === "failed" || state.kind === "error") && (
             <div
               role="alert"
@@ -562,7 +583,8 @@ export function PublishProposalDialog({
               >
                 Cancel
               </button>
-              {state.kind === "someone-pushed" ? null : state.kind ===
+              {state.kind === "someone-pushed" ||
+              state.kind === "someone-pushed-on-site" ? null : state.kind ===
                   "failed" && state.seeWhy !== undefined ? (
                 <a
                   href={state.seeWhy.url}

@@ -360,6 +360,19 @@ export const BuildOnTheirPushFailed = at({
   },
 });
 
+/**
+ * The same refusal, of a Publish pressed on the site -- the design tab --
+ * where Build on their push cannot be pressed (only the proposal's own
+ * address may take a push in). Who, when, their commit, and Open the
+ * proposal: its Studio, where Publish offers Build on their push. No Try
+ * again, which would be refused the same way.
+ */
+export const RefusedSomeonePushedOnSite = at({
+  kind: "someone-pushed-on-site",
+  refused: ADA_PUSHED,
+  proposalStudio: "https://0123456789abcdef0123--acme.valstart.dev/val",
+});
+
 /** The checks did not answer: Try again. */
 export const ChecksDidNotAnswer = at({
   kind: "error",
