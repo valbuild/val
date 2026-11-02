@@ -1,7 +1,7 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1, 2, 3 and 4
-> built (2026-11-02).** See
+> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 to 5 built
+> (2026-11-02).** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
 > the change.
@@ -380,6 +380,107 @@ coverage" (valbuild/val#1006).
     what it does not know (a page then refreshes for nothing, so the two
     have to be the same release -- they are served by the same app).
 
+- **The Studio on the view** (phase 5, 2026-11-02). The Studio reads
+  through THE engine (`applyPatchRecord`, phase 2's), at a version it
+  computes itself. The pieces:
+  - `packages/ui/spa/stores/studioView.ts`: `chainSource` (the base the
+    Studio holds -- bundle, `__VAL_BASE__` or BaseAlignment's -- with the
+    part of the chain the server has, replayed with the engine) and
+    `withLocalEdits` over it (what this Studio wrote that the server has not
+    confirmed: `PatchStore.isPending`). Both keep their results in a
+    `VersionRing`, the last two versions per module, by the ids they were
+    computed for: a keystroke extends the newest by its one patch, a
+    confirmation finds the same version kept (the confirmed chain is the
+    optimistic one), and a discard of the newest patch is the version before
+    it. `viewOf` is the module as a field reads it: the engine's source with
+    each `.jsonValues()` entry whose content is known in place of its marker
+    (an entry the chain wrote; one it edited, whose held ops are resolved on
+    the base entry once it is read, by the newest held op so typing into an
+    entry costs one op per keystroke; one it never touched, from the base).
+  - `SourceStore` on top keeps its API and its rules about fields (`peek` and
+    `get`, wake-ups per path, a field never woken by its own edit). It holds
+    the base, the base entries read and the chain, and one view per module,
+    made in ONE place (`refresh`). `peek` is reference-stable BY KEY (the
+    view, the schema, the revision and the entry fetches: each replaced in
+    one place), not by recompute-and-compare. After a recompute (a drop, an
+    intake, an entry read, a publish) readers are woken where their read
+    moved, by `===` (risk 5); a patch applied still wakes by its paths. Its
+    version is `SourceStore.versionOf`: hashed when a schema or a base
+    arrives and once per patch applied, never on a read.
+  - Three choices that differ from the plan's sketch, each for a reason:
+    (1) a patch that does not apply is PASSED OVER and the rest apply, where
+    the server's `applyChain` stops -- every such patch is discarded by the
+    Studio (`discardUnapplicable`), so the two agree once the discard lands,
+    and stopping would hold every later edit behind it; the version names
+    what applied. (2) The engine reads the schema only for where
+    `.jsonValues()` records are (`engineSchemaKey`), so a kept version is
+    reused across a code change that does not move them, under the new
+    schema's version: the content's objects stay, nothing repaints, nothing
+    is relayed. Without it the Studio relayed every module again after a
+    code change, stamped with a schema the page's (old) code does not have,
+    which the matrix's "a code change after an upload" cells caught as
+    "never with another schema". (3) A publish (`promotePublished`) bakes
+    the published patches into the base WITHOUT their `file` ops: the files
+    are where their paths say now, and a `patch_id` left in the base would
+    point a field's URL at a patch that is gone. When everything shipped and
+    carried no file the base IS the shown content, so nothing repaints (the
+    revision does not move, as before).
+  - **The file patch ids come from the one model.** The engine marks
+    `patch_id` where a file lands, in the Studio's source as in the
+    server's, so the relay sends the store's own object.
+    `useFilePatchIds` (`PatchStore.filePatchIds`) and `Internal.mediaUrl` are
+    unchanged; a field that picked a library entry uploaded in a pending
+    patch gets it through `fillFromGallery` from the library's entry, where
+    the engine put it (L1).
+  - **Versions on the relay.** `source-update`'s `read` (and the canvas's
+    `sourceUpdate`) carries the Studio's `ModuleVersion` instead of `null`.
+    The page's store compares by it (`ValExternalStore.receive`): two reads
+    at different versions moved, without walking the module (risk 8); the
+    same version is still compared by content, because a version names a
+    module's source and chain and not which of its entries the Studio had
+    read, and the draft a page was rendered with carries no version
+    (`ValDraft` has none). The world reads a Studio's version and a relayed
+    one from the product now, so "same version, same value" holds the
+    Studio's versions to the server's: B01 asserts the version a Studio
+    shows an edit at before the server has it is the one `GET /manifest`
+    answers after.
+  - **Phase 4's leftover, fixed:** a held `.jsonValues()` module whose
+    entries the Studio has not read is sent in the catch-up. The Studio's
+    view knows exactly which entries differ from a page's bundle -- the ones
+    the chain touched (the engine's entry states, renames included) and the
+    ones a publish marked (`Internal.isJsonFromServer`), the same set the
+    server's draft read fills (`withDraftJsonEntries`) -- and the relay holds
+    the module back until those are read (`SourceStore.entriesToRelay`);
+    every other entry is a marker on both sides. S28's `.jsonValues()` form
+    (`sync`) failed before the change.
+  - **Deleted:** `SourceStore`'s own patch rules (`applyPatch(deepClone(...))`
+    in `applyEntries`, `storePatched`, `replayChain`, `chainTouchesEntry`,
+    `unloadedEntriesOf`, the published realm's own apply loop),
+    `substitutedSource` and `substituteJsonEntries`, the patched realm's
+    `sources` and `jsonEntries` maps, `withFilePatchIds` and its test,
+    `samePeek` (peek stability by recompute-and-compare), the
+    `source:substitute-json-entries` work kind, and `discardUnapplicable`'s
+    "uncertain" branch, which kept a patch into an unloaded entry because it
+    failed against the marker -- the engine holds such an edit instead.
+  - **Budgets** (`budgets.scenario.test.ts`): B01 and B02 in the Studio, one
+    engine apply per keystroke (risk 2), no module cloned (it was one per
+    patch), the root's two references copied (`engine:clone-bytes`), one
+    version hashed; B06 the same in the Studio as on the server (the title's
+    root, then one item of 200 copying its path); B04 no hash in the Studio
+    on a read either; B05 one link on the server and one in the Studio; B09
+    (new) a Studio keeps two versions of a module after forty keystrokes
+    (the heap guard, risk 9) and a discard of the newest edit applies
+    nothing. `world.expectWork` counts the server's work, each Studio
+    reports its own through its activity channel (`version:hash`,
+    `engine:clone-bytes`), since both run in one process.
+  - **Measured** (`scenarios/measure/results.md`, "Phase 5"): a keystroke in
+    a 5 MB module went from about 100 ms to about 19 ms, linear in the
+    module's ROOT now (the engine copies the root of a record of 40,000
+    entries), not in its size.
+  - **Public API:** unchanged. The relay's `read.version` is between Val's
+    own packages, and optional both ways (a page of the release before reads
+    `source`; a Studio of the release before sends `null`).
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -413,12 +514,20 @@ coverage" (valbuild/val#1006).
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
-4. Phases 5 to 9 (2, 3 and 4 are built). Left from phase 4: a
+4. Phases 6 to 9 (2 to 5 are built). Left from phase 5: the draft a page
+   is rendered with carries no versions (`ValDraft`), so a page's first
+   relay of each module is still compared by content and the page reports
+   the modules it holds by path, not by version -- a `versions` field on
+   `ValDraft` would close both and is an addition to a public type, so it
+   waits for a decision; entries have no versions of their own (phase 6),
+   so two relays at one version are compared by content too; `entriesStatus`
+   and `allEntriesProgress` are still stable by recompute-and-compare (they
+   are not `peek`, and are cheap); the confirmed boundary between
+   `chainSource` and `withLocalEdits` decides nothing yet but which kept
+   version is extended -- it matters in phase 7, when `chainSource` becomes
+   the server's answer. Left from phase 4: a
    `fetchValDraft` for Next to fill its new `draft` prop (a public API
-   addition, waiting for a decision); the page reports paths, so a held
-   `.jsonValues()` module with entries the Studio has not loaded is not
-   re-sent until the relay carries versions (phase 5); the relay's reads
-   still have `version: null`. Left from phase 3: `fetchValDraft` still
+   addition, waiting for a decision). Left from phase 3: `fetchValDraft` still
    reads the tree and the entries itself (through the same functions as
    `serverDraftSource`), until phase 6's head. Left from phase 2: `/stat` and the manifest
    still name a module's whole chain where `/sources/~` names where it
@@ -472,7 +581,9 @@ Each reason is still true, and the design keeps serving it:
   single-entry readers (`withJsonValuesEntries`, `draftJsonEntry`,
   `useDraftModuleSource`, `jsonEntryPromiseCache`).
 - **Patches are applied by four implementations**: `SourceStore.applyEntries`,
-  `ValOps.getSources`, MCP's `loadState` and `/save`'s `prepare`. The first two
+  `ValOps.getSources`, MCP's `loadState` and `/save`'s `prepare`. (Since
+  phases 2 and 5 every read applies them with one engine; `/save`'s rewrite
+  of the `.val.ts` text stays its own, by design.) The first two
   already disagree: the server skips an edit inside a `.jsonValues()` entry and
   writes `patch_id` into the source where a file lands; the Studio applies
   entry edits to the substituted module and stamps `patch_id` later, in the
@@ -848,6 +959,14 @@ Until the head and the module endpoint exist (phase 6), the Studio runs
 today's behaviour as a source, `chainSource` (the bundle plus the whole chain,
 replayed in the browser with the engine), so its consumers move onto the view
 early and the later switch is one line.
+
+As built in phase 5 (see "Built"): `chainSource` and `withLocalEdits` are
+functions over the store's base and chain in `stores/studioView.ts`, not
+`ContentSource`s yet -- the Studio has one source until phase 7, and nothing
+reads the layering but the memo of versions (`VersionRing`) both share. The
+memory tier's "last N per module" is that ring, N = 2. `SourceStore` is the
+`peek` / `get` on top, and the relay hands the page its view's source with
+its version.
 
 ### 6. One runtime per process, and the head
 

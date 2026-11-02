@@ -126,3 +126,35 @@ readers moved onto `resolveVal`. Medians:
 - What phase 3 changes is counted, not timed (B07): a draft `fetchVal`
   resolves twice and encodes once. `draftRead.perf.test.ts` (Next) printed
   39 ms per three-read render with the memo, 79 ms without, after.
+
+## Phase 5: the Studio on the engine, before and after
+
+2026-11-02, same container, quiet (load 0.2-0.4, nothing else running),
+`pnpm exec tsx measure/keystroke.ts` three times before and three times
+after `SourceStore` moved onto the engine (`studioView.ts`). The median of
+each run's median, with the range of the three:
+
+| Module   | Before            | After             |
+| -------- | ----------------- | ----------------- |
+| 9 KB     | 0.24 (0.23-0.38)  | 0.26 (0.22-0.27)  |
+| 91 KB    | 1.16 (1.16-1.26)  | 0.59 (0.57-0.62)  |
+| 471 KB   | 6.99 (6.43-7.23)  | 1.73 (1.67-1.80)  |
+| 971 KB   | 17.20 (17.1-17.5) | 3.23 (3.00-3.42)  |
+| 1,978 KB | 35.92 (33.4-36.4) | 6.40 (6.33-6.70)  |
+| 5,026 KB | 101.6 (97-109)    | 19.13 (18.1-19.9) |
+
+- **About five times faster from 0.5 MB up, and no size slower.** Before,
+  every patch cloned the whole module (`applyPatch(deepClone(module))`).
+  Now a keystroke is one engine apply on the version before it (B01, B09),
+  copying the module's ROOT and the edited entry: what is left grows with
+  the root's key count (40,000 entries at 5 MB), not with the content
+  under it. A module whose root is small pays nothing for its size.
+- **That root copy is the floor of copy-on-write for a flat record**, and the
+  server's engine pays the same per apply. A spread of the root was tried
+  and is about half the speed in V8 for an object this size (dictionary
+  mode): 33 ms at 5 MB instead of 19. Getting under it needs a structure
+  that shares within a node (a persistent map), not part of this plan.
+- Not measured here: a `.jsonValues()` record. A keystroke inside a loaded
+  entry costs the entry's path and one copy of the record's root for the
+  view (`viewOf`); before, it cloned the module with every loaded entry in
+  it.

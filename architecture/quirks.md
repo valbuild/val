@@ -1489,17 +1489,22 @@ is wrapped in a `try`. It is not only a display value: it goes into every remote
 file ref, and proxy mode refuses to start without it. Every `version.ts` now
 uses a static JSON import, which preconstruct inlines at build time.
 
-**A page that reads media from the client store shows draft images at their
-published URL.** The Studio's own store never carries `patch_id` — the server
+**A page that reads media from the client store showed draft images at their
+published URL.** The Studio's own store did not carry `patch_id` — the server
 sets it on the sources IT serves, and the editor's fields get it from
-`patchStore.filePatchIds()` separately — so the source the overlay emitter hands
+`patchStore.filePatchIds()` separately — so the source the overlay emitter handed
 the host page had a freshly uploaded image pointing at `/public/...`, where
 nothing is written until publish. The image then fails to load with no error at
 all: in a TanStack app `/val/...` is the Studio route, so the request 200s with
-the Studio's HTML and the `<img>` simply decodes nothing. `withFilePatchIds` in
-`ValOverlayEmitter` stamps it now. Next hides this because its pages usually read
-through `fetchVal` in an RSC, which reads `/sources/~` server-side where the
-stamp is already there.
+the Studio's HTML and the `<img>` simply decodes nothing. Next hid this because
+its pages usually read through `fetchVal` in an RSC, which reads `/sources/~`
+server-side where the stamp is already there. `withFilePatchIds` in the relay
+stamped it for a while; since phase 5 of `docs/plans/one-content-model.md` the
+Studio reads through the server's engine (`applyPatchRecord`), which puts
+`patch_id` where the file lands, so the store carries it like the server's
+sources do -- and a publish takes it out again (`promotePublished` bakes the
+published patches into the base without their `file` ops: the file is where its
+path says now).
 
 **`notFound()` thrown from a COMPONENT is not caught by
 `defaultNotFoundComponent`.** It escapes to the error boundary instead: the

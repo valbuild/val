@@ -33,15 +33,61 @@ is what asks for work.
 
 `peek` is **reference-stable** — the same object back for an unchanged answer —
 in the source, validation and render stores. It has to be: a `useSyncExternalStore`
-snapshot that changes identity every call re-renders forever. Stability is by
-**recompute-and-compare**, never an invalidation list: a list of call sites has to
-stay complete forever and fails silently when it does not.
+snapshot that changes identity every call re-renders forever. Never by an
+invalidation list: a list of call sites has to stay complete forever and fails
+silently when it does not.
+
+- **The source store's `peek` is stable by key**: the module's view, its schema,
+  its revision and its entry fetches. The answer is worked out once per key and
+  handed back while the key holds, and each part of the key is replaced in ONE
+  place -- the view where a module is computed (`SourceStore.refresh`), the
+  revision in `bump`, the fetches in `fetchMoved`, the schema in `SchemaStore`
+  -- so a new way for source to change has to go through one of them.
+- The validation and render stores, and `entriesStatus`, are stable by
+  **recompute-and-compare**: the answer is computed again and the old object
+  kept when it is the same answer.
 
 > The two worst bugs on this branch were both this rule broken. `substituteJsonEntries`
-> is copy-on-write, so one loaded `.jsonValues()` entry made `peek` of the module
+> was copy-on-write, so one loaded `.jsonValues()` entry made `peek` of the module
 > root return a fresh object per call — and the page died with "Maximum update
 > depth exceeded" from inside a Radix ref callback that mentions nothing about
 > source.
+
+## What a field reads: the engine, at a version
+
+Since phase 5 of [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md)
+the source store holds each module's **base**, the base content of the
+`.jsonValues()` entries it has read, and the **chain**, and everything a field
+reads is the Studio's VIEW of those (`stores/studioView.ts`): `withLocalEdits`
+(what this Studio wrote that the server has not confirmed) over `chainSource`
+(the base with the part of the chain the server has), through THE engine --
+`applyPatchRecord` in `@valbuild/shared`, the one Val's server applies patches
+with. So where a file's `patch_id` lands, what an edit inside an entry does and
+what a whole entry added does are the server's rules, and the Studio's source
+carries `patch_id` where the server's does (the relay stamped it with
+`withFilePatchIds` before).
+
+- **A version per module, computed by the Studio** (`SourceStore.versionOf`):
+  the schema it holds, the base its chain is applied to, and the chain of the
+  patches that applied, unconfirmed ones included. Hashed when content changes
+  (a schema or base arriving, a patch applied), never on a read. Once the server
+  has the chain, it is the server's version for it: confirming is not a change.
+- **The last two versions per module are kept** (`VersionRing`), by the ids
+  they were computed for: a keystroke extends the newest by its one patch (one
+  engine apply, its path copied, whatever the module's size), and discarding the
+  newest patch is the version before it, applied again by nothing.
+- **A patch that does not apply is passed over** and the rest still apply; the
+  version names what applied. The server stops at the first failing patch
+  instead -- the two agree once the Studio's discard of it lands, which is what
+  happens to every patch that does not apply (`discardUnapplicable`).
+- **The engine reads only where `.jsonValues()` records are in the schema**
+  (`engineSchemaKey`), so a code change that does not move them changes a
+  module's version and not one object of its content: nothing repaints, and
+  nothing is relayed.
+- **Waking after a recompute is by `===`**: a drop, an intake, an entry read and
+  a publish wake the listeners whose read moved, compared with the view before
+  -- the engine shares what it did not touch. A patch applied still wakes by its
+  paths, so a field's own edit can leave it asleep.
 
 ## Waking: per path, and never yourself
 
@@ -115,7 +161,8 @@ combination, over time, sampled at the end of each turn.
 | ------------------------------------------ | ------------------------------------------------- |
 | the read hooks a field uses                | `packages/ui/spa/components/ValFieldProvider.tsx` |
 | how a patch gets INTO source               | `SourceStore.intake` and `PatchIntake`            |
-| source, patch application, `.jsonValues()` | `stores/SourceStore.ts`                           |
+| source, versions, `.jsonValues()`          | `stores/SourceStore.ts`                           |
+| the view: the engine over base and chain   | `stores/studioView.ts`                            |
 | the chain, `/stat` reconciliation, uploads | `stores/PatchStore.ts`, `stores/PatchSync.ts`     |
 | wiring, publish, discard                   | `stores/createSystem.ts`                          |
 | a fake server to test against              | `stores/testSystem.ts`                            |

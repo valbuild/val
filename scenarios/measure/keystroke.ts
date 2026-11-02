@@ -4,8 +4,9 @@
  *
  * Measured through the product's own path: `patchStore.createPatch` (what a
  * field's `useAddPatch` calls), which applies the patch to the module in
- * `SourceStore` -- `applyPatch(deepClone(module))`, the clone the plan's
- * copy-on-write engine is meant to remove.
+ * `SourceStore`. Until phase 5 that was `applyPatch(deepClone(module))`;
+ * since, it is THE engine (`applyPatchRecord`), extending the version before
+ * the keystroke by its one patch and copying along its path.
  *
  * Not a test: it prints. Run from `scenarios/`:
  *
