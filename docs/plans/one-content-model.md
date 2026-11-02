@@ -1,6 +1,7 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 nearly done.** See
+> **Status: proposed 2026-11-01; phase 0 nearly done; phase 1 built
+> (2026-11-02).** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
 > the change.
@@ -76,6 +77,33 @@ coverage" (valbuild/val#1006).
   HMR is no write through the server (see `addedField.scenario.test.ts`).
 - **Measurements** (`scenarios/measure/`): how to measure, and the first
   results.
+- **Versions on the wire** (phase 1, 2026-11-02). `ModuleVersion` and
+  `ProjectVersion` are in `@valbuild/shared/internal`
+  (`content/version.ts`), with `extendChain`, `moduleKey` and the functions
+  that hash a schema and a base. Val's server keeps every module's `schema`
+  and `base` from when the modules are evaluated or a base is adopted (a
+  snapshot, a publish), and every chain in a `ChainFold` that is extended
+  only by the patches it gained; nothing is hashed on a read, and every hash
+  is counted (`versionHashCount`, `version:hash`). `seq`: fs in
+  `.val/patches.seq` (beside the lock, not inside `.val/patches/`: delete-all
+  and reset rename that directory away), bumped under the lock by every
+  write, delete and repair and once per new build; memory per patch store,
+  beside `announceChange`; http the content service's `headVersion`.
+  `GET /manifest` answers every module's version with its own ETag (304
+  while nothing moved; "since `seq` N" is left for phase 7, its first
+  reader). `/stat`, `PUT /sources/~`, `GET /patches` and `GET /json` carry
+  the version of what they answer. No public API changed and nothing reads
+  the versions yet, except the scenario world: every frame records the
+  version beside the value (a loader's from the server's answer, through a
+  reader-side observer that phase 3 removes; a Studio's from what it holds),
+  and the invariants got their stronger forms -- same version same value
+  (S22), never read with another schema (S11, every matrix cell), never
+  goes back unless the content moved on (S07), the field's version kept
+  when its gallery changes (S19), and reads that hash nothing (B04, B05).
+  One finding: in http mode `seq` does not move with a new build, because
+  `headVersion` does not move with a deployment (see the open question on
+  the http-mode `seq`); S11's "a new build is counted" is `test.failing` on
+  http for it.
 
 **Decided on 2026-11-01**, beyond what the sections below say:
 
@@ -110,7 +138,7 @@ coverage" (valbuild/val#1006).
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
-4. Phases 1 to 9.
+4. Phases 2 to 9.
 
 ## The goal
 
@@ -242,9 +270,10 @@ export function moduleKey(path: ModuleFilePath, v: ModuleVersion): string {
 Three questions, three answers: _is this the same content?_ is `moduleKey`;
 _is this answer newer?_ is `seq` (the content service already bumps
 `headVersion` on every write, delete and commit; fs mode gets a counter in
-`.val/patches/seq` under the existing `patches.lock`, memory mode one beside
-`announceChange`); _what does my next write name as its parent?_ stays
-`headPatchId`.
+`.val/patches.seq` under the existing `patches.lock` -- beside the lock, not
+in `.val/patches/`, which delete-all and reset rename away -- and memory mode
+one beside `announceChange`); _what does my next write name as its parent?_
+stays `headPatchId`.
 
 The Studio can compute the version of its own optimistic content, because
 `chain` is a fold of ids it holds. When the server confirms the same chain the
@@ -708,8 +737,11 @@ A failure names the invariant, the surface, the source and the frames:
     700 ms  "Hello"        from server-draft  chain k0   ← older chain, after k1 was shown
 ```
 
-Until phase 1, frames carry values only and the invariants compare values,
-which is weaker but enough for the first scenario.
+Until phase 1, frames carried values only and the invariants compared
+values. Since phase 1 every frame carries, per module it read, the source
+that answered, its version and the schema of the code that read it, and the
+invariants use them (`scenarios/src/world/frames.ts`); "one version per
+render" is the one still unchecked, because a frame is one field.
 
 ### Budgets of work, counted
 
@@ -836,7 +868,13 @@ shows today's draft read already crosses 128 MB. http mode joins
 
 - **The http-mode `seq`.** A new content-service endpoint, or pushed over the
   WebSocket? The endpoint is simpler; the WebSocket is open in the Studio but
-  not in a page's server.
+  not in a page's server. And phase 1 found that `headVersion` is not bumped
+  by a deployment, so two builds answering during a rollout have the same
+  `seq` until somebody writes, and only `build` tells their answers apart.
+  `ProjectVersion` says a new build bumps `seq`; in http that needs the
+  content service to bump `headVersion` when a deployment goes live (or to
+  hand Val a build-aware counter). Pinned by S11's "a new build is counted",
+  `test.failing` on http.
 - **Next's server components** only change on a refresh. "Confirmed up to this
   version" covers the edit; does it also need to cover another editor's
   change, or is that the next refresh's job?

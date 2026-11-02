@@ -8,6 +8,7 @@ applies to it.
 
 ```
 .val/patches.lock             held while the store is being changed
+.val/patches.seq              how far along the changes are: the project's `seq`
 .val/patches/
     patches.log               the ORDER, and the only place it lives
     patches.repair.log        what repair has done, and when
@@ -157,6 +158,15 @@ edit a round trip.
 **Deleting is dropping lines from a list.** The log is flat, so removing an entry
 cannot orphan the entries after it. This is why repair can run unattended, which
 re-parenting a chain never safely could.
+
+**`seq` counts changes, beside the lock.** `ProjectVersion.seq` (see
+`docs/plans/one-content-model.md`, phase 1) orders answers: every write, delete
+and repair bumps it under the lock, after the change is on disk, and a reader
+takes it BEFORE it reads the store, so an answer is never behind the `seq` it
+carries. A new build bumps it once (the file records which build last did).
+It lives in `.val/patches.seq` rather than in `.val/patches/` because
+delete-all and reset rename that directory away, and a counter that went with
+it would start again from zero. See `patchSeq.ts`.
 
 ## Failure handling: report, repair, reset
 
