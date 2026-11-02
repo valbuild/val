@@ -68,10 +68,8 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await page.studio.edit(homeVal, ["title"], "One");
     await world.settle();
     await page.studio.edit(homeVal, ["title"], "Two");
-    await world.settle();
-    // The loader catches up with an edit only on a refresh after the write
-    // has landed (S05), so give the page's safety net its tick.
-    await world.clock.advance(10_000);
+    // The loader catches up with an edit on the refresh the Studio's
+    // `confirmed` sends once the server has the write (S05): no timer.
     await world.settle();
     await world.observe();
 
@@ -158,41 +156,47 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
      * gate is off on the render that decides (the third wait), which is the
      * next test.
      *
-     * FINDING (fails today, every mode): the waits work, and end too early.
-     * The overlay's relay says `sources-synced` before it has sent the module
-     * with the pending edit: when the Studio's base aligns, its chain's
-     * records have not been fetched yet, so `sendPendingSources` finds no
-     * patch to send and the page is told it has everything. The hooks stop
-     * waiting and render the published title, and the draft follows on the
-     * next relay (`["sources-synced", "source-update", ...]`, frames
-     * `Hello, Hello, Hello, Draft title`). For a route that only exists in
-     * the patch, that published render is a `notFound()`. The fix is the
-     * relay's (`startOverlayRelay`): `sources-synced` only once the chain the
-     * Studio aligned to is in its store. `S24 ... nothing suspends` and the
-     * `draft` prop are unaffected.
+     * S24b, fixed in phase 4: the waits worked and ended too early. The
+     * overlay's relay said `sources-synced` before it had sent the module
+     * with the pending edit -- when the Studio's base aligns, its chain's
+     * records have not been fetched yet, so `sendPendingSources` found no
+     * patch to send and the page was told it had everything. The hooks
+     * stopped waiting and rendered the published title, and the draft
+     * followed on the next relay (`["sources-synced", "source-update", ...]`,
+     * frames `Hello, Hello, Hello, Draft title`); for a route that only
+     * exists in the patch, that published render was a `notFound()`. Now
+     * `sources-synced` waits until the chain the Studio aligned to is in its
+     * store (`onceInStep`) and every module of the catch-up has been handed
+     * over.
      */
-    test.failing(
-      "S24 with suspend, the hooks wait for draft mode and the Studio, then show the draft (fails today: synced before the chain is in)",
-      async () => {
-        world = await createWorld({ config, modules: [homeVal], server });
-        await pendingEdit(world);
-        const page = await world.loadPage("/", {
-          shows: [{ surface: "hook", ...title }],
-          draftProp: false,
-          suspend: true,
-        });
-        await world.settle();
+    test("S24b with suspend, the hooks wait for draft mode and the Studio, then show the draft", async () => {
+      world = await createWorld({ config, modules: [homeVal], server });
+      await pendingEdit(world);
+      const page = await world.loadPage("/", {
+        shows: [{ surface: "hook", ...title }],
+        draftProp: false,
+        suspend: true,
+      });
+      await world.settle();
 
-        expect(page.suspensions.map((s) => s.step)).toEqual([
-          "overlay mounted",
-          "draft mode known",
-        ]);
-        const shown = world.frames.of("hook").map((frame) => frame.value);
-        // The server render and hydration (no gate yet), then the draft.
-        expect(shown).toEqual(["Hello", "Hello", "Draft title"]);
-        world.expectInvariants();
-      },
-    );
+      expect(page.suspensions.map((s) => s.step)).toEqual([
+        "overlay mounted",
+        "draft mode known",
+      ]);
+      // The module with the edit is handed over before the page is told it
+      // has everything.
+      const types = page.events.map((event) => event.type);
+      expect(types.indexOf("source-update")).toBeGreaterThanOrEqual(0);
+      expect(types.indexOf("source-update")).toBeLessThan(
+        types.indexOf("sources-synced"),
+      );
+      const shown = world.frames.of("hook").map((frame) => frame.value);
+      // The server render and hydration (no gate yet), then the draft: when
+      // it is relayed, and again as `sources-synced` moves the provider's
+      // state -- never the published title once the hooks have waited.
+      expect(shown).toEqual(["Hello", "Hello", "Draft title", "Draft title"]);
+      world.expectInvariants();
+    });
 
     /*
      * A route that exists only in a pending patch. `useValRoute` returns

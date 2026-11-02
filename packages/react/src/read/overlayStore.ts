@@ -84,12 +84,12 @@ export class ValExternalStore {
    * does when a publish rewrites the `.val.ts` files — and most of that
    * snapshot is content this page already has.
    *
-   * Without the answer, the provider armed its refresh loop on the arrival
-   * rather than on the change, so every publish bought a whole-route request
-   * whether or not the page was out of date. With auto-save on that is one
-   * per pause in typing, which in development is a re-render (and sometimes a
-   * recompile) of the page — and it is what leaves the canvas looking
-   * permanently busy.
+   * The answer tells the page's refresh loop whether the Studio's catch-up
+   * found the page behind (`startRefreshLoop`'s `changed`): a re-sent module
+   * the page already shows is no reason to re-read its server, and with
+   * auto-save on, counting arrivals was a whole-route request per pause in
+   * typing -- in development a re-render (and sometimes a recompile) of the
+   * page, and what left the canvas looking permanently busy.
    */
   receive(path: ModuleFilePath, read: HeldRead): boolean {
     // A miss means this page has never been given this module.
@@ -254,13 +254,23 @@ function includesPath(subscriberId: SubscriberId, path: ModuleFilePath) {
 /** What one `val-event` from the overlay did to the page's store. */
 export type ValEventOutcome =
   | { type: "synced" }
-  /** `changed`: the store holds something new, which arms a refresh. */
+  /**
+   * The server holds the editor's changes up to `seq`: what the page
+   * re-reads its server-rendered content on (`startRefreshLoop`).
+   */
+  | { type: "confirmed"; seq: number | null }
+  /**
+   * `changed`: the store holds something new. Not a reason to refresh on its
+   * own -- the server may not have it yet -- only, before the first
+   * `confirmed`, that the page's render is behind the Studio's.
+   */
   | { type: "updated"; changed: boolean }
   | { type: "invalid"; detail: unknown };
 
 /**
  * Apply one overlay event (`detail` of a `val-event`) to the page's store.
- * `sources-synced` says the editor has sent everything it holds; a
+ * `sources-synced` says the editor has sent everything it holds;
+ * `confirmed` how far the server holds the editor's changes; a
  * `source-update` hands over one module's read, which the store keeps as it
  * is (`read`). A Studio from the release before sent the bare `source`
  * instead, and a page newer than the Studio it is open in -- a deploy rolling
@@ -278,6 +288,13 @@ export function applyValEvent(
   }
   if (detail.type === "sources-synced") {
     return { type: "synced" };
+  }
+  if (detail.type === "confirmed") {
+    const seq = "seq" in detail ? detail.seq : undefined;
+    if (seq === null || typeof seq === "number") {
+      return { type: "confirmed", seq };
+    }
+    return { type: "invalid", detail };
   }
   if (detail.type === "source-update") {
     const moduleFilePath =

@@ -21,8 +21,7 @@ import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
 import { CanvasPoint } from "./types";
 import {
-  useValBaseAligned,
-  useValPendingSourceSnapshot,
+  useValCatchUp,
   useValSourceUpdates,
 } from "../../../stores/react/ValOverlayEmitter";
 import { relayedRead } from "../../../stores/react/sourceRelay";
@@ -38,7 +37,12 @@ import { relayedRead } from "../../../stores/react/sourceRelay";
  */
 type FrameState =
   | { status: "waiting" }
-  | { status: "ready"; draftMode: boolean }
+  | {
+      status: "ready";
+      draftMode: boolean;
+      /** What the page said it holds a draft of: see `ready` in the protocol. */
+      holds: readonly ModuleFilePath[];
+    }
   | { status: "no-answer" };
 
 /**
@@ -49,6 +53,8 @@ type FrameState =
  * it is telling someone to enable a mode that is already on.
  */
 export const ANSWER_TIMEOUT_MS = 8000;
+
+const NO_HOLDS: readonly ModuleFilePath[] = [];
 
 export type CanvasFrameProps = {
   /** The page's own URL, e.g. `/blogs/blog1`; absolute when `origin` is another. */
@@ -315,7 +321,11 @@ export function CanvasFrame({
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
-        setState({ status: "ready", draftMode: message.draftMode });
+        setState({
+          status: "ready",
+          draftMode: message.draftMode,
+          holds: message.holds ?? [],
+        });
         // The page may be a newer build than this Studio -- a proposal
         // built since it loaded -- and its paths name fields this Studio
         // has not got: ask the server now, so the editor is told to reload
@@ -651,7 +661,8 @@ export function CanvasFrame({
   useValSourceUpdates(isLive && relaySources, sendSourceUpdate);
 
   /**
-   * And catch the page up the moment it is listening.
+   * And catch the page up the moment it is listening, then say how far the
+   * server has confirmed the editor's changes (`useValCatchUp`).
    *
    * The relay above only carries a *change*, which is nothing at all for a page
    * that has just loaded: whatever it got from the server is what it shows, and
@@ -662,38 +673,28 @@ export function CanvasFrame({
    * Keyed on {@link documentEpoch} rather than on `reloadKey`: every new
    * document has this problem, not only the ones the studio asked for, and the
    * page announcing itself is the one signal that covers both.
+   *
+   * Then `sourcesSynced`: only modules with changes are ever sent — an
+   * unedited module has no draft to send — so a page waiting for draft sources
+   * cannot tell "not sent yet" from "nothing to send". Left to work it out, it
+   * waited out its own ten second timeout once per unedited module it reads,
+   * which is what left a newly created page sitting on its loading fallback
+   * long enough to look broken. After this the page knows a module it has not
+   * been given has no draft, and renders committed source for it immediately.
+   *
+   * And then `confirmed`, each time the server takes more of the editor's
+   * changes: what makes the page re-read what its server rendered (a loader,
+   * a server component), once the server has the edit rather than when it is
+   * typed.
    */
-  const sendPendingSources = useValPendingSourceSnapshot();
-  /*
-   * Not before the store's base is the server's: until then it can hold the
-   * build from before a publish, and the page -- rendered with what came
-   * after -- would show the old text until the base caught up.
-   */
-  const baseAligned = useValBaseAligned(isLive);
-  useEffect(() => {
-    if (!isLive || !baseAligned) return;
-    if (relaySources) sendPendingSources(sendSourceUpdate);
-    /**
-     * And say that was all of it.
-     *
-     * Only modules with patches are ever sent — an unedited module has no draft
-     * to send — so a page waiting for draft sources cannot tell "not sent yet"
-     * from "nothing to send". Left to work it out, it waited out its own ten
-     * second timeout once per unedited module it reads, which is what left a
-     * newly created page sitting on its loading fallback long enough to look
-     * broken. After this the page knows a module it has not been given has no
-     * draft, and renders committed source for it immediately.
-     */
-    send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
-  }, [
-    isLive,
-    baseAligned,
-    relaySources,
-    documentEpoch,
-    sendPendingSources,
-    sendSourceUpdate,
-    send,
-  ]);
+  const holds = state.status === "ready" ? state.holds : NO_HOLDS;
+  useValCatchUp(isLive, documentEpoch, {
+    update: relaySources ? sendSourceUpdate : null,
+    holds: () => holds,
+    synced: () => send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" }),
+    confirmed: (seq) =>
+      send({ val: VAL_CANVAS_MESSAGE, type: "confirmed", seq }),
+  });
 
   /**
    * Turn preview mode on when asked from outside.

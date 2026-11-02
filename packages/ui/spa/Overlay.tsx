@@ -14,7 +14,11 @@ import { useEffect, useState } from "react";
 import { ValProvider } from "./components/ValProvider";
 import { Themes } from "./components/ValThemeProvider";
 import { Fonts } from "./Fonts";
-import { DEFAULT_CONTENT_HOST, Internal } from "@valbuild/core";
+import {
+  DEFAULT_CONTENT_HOST,
+  Internal,
+  type ModuleFilePath,
+} from "@valbuild/core";
 import { useConfig } from "./hooks/useConfig";
 import { useValModules } from "./hooks/useValModules";
 import { VERSION } from "../src";
@@ -50,6 +54,7 @@ function Overlay() {
 
   const [draftMode, setDraftMode] = useState(false);
   const [draftModeLoading, setDraftModeLoading] = useState(false);
+  const [pageHolds, setPageHolds] = useState<ModuleFilePath[]>([]);
   useEffect(() => {
     const listener = (event: Event) => {
       if (event instanceof CustomEvent) {
@@ -58,6 +63,10 @@ function Overlay() {
           typeof event?.detail.value === "boolean"
         ) {
           setDraftMode(event.detail.value);
+          // What the page holds a draft of, as it reports it: the relay
+          // sends those modules in its catch-up (`sendPendingSources`).
+          const holds: unknown = event.detail.holds;
+          if (isModuleFilePaths(holds)) setPageHolds(holds);
         } else if (
           event.detail.type === "draftModeLoading" &&
           typeof event.detail.value === "boolean"
@@ -102,6 +111,7 @@ function Overlay() {
           <ValProvider
             client={client}
             dispatchValEvents={draftMode}
+            pageHolds={pageHolds}
             config={config}
             valModules={valModules}
             theme={theme}
@@ -140,3 +150,10 @@ function Overlay() {
 }
 
 export default Overlay;
+
+/** `holds` on the page's `draftMode` event: module paths, as the page names them. */
+function isModuleFilePaths(value: unknown): value is ModuleFilePath[] {
+  return (
+    Array.isArray(value) && value.every((path) => typeof path === "string")
+  );
+}

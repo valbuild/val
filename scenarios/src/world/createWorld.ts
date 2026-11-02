@@ -62,6 +62,14 @@ import {
   type Resolution,
   type Resolvable,
   type ResolvedVal,
+  // The page's half of the relay, both frameworks': the draft store a
+  // provider starts from, what it reports, and when it refreshes.
+  createDraftStore,
+  draftHolds,
+  isDraft,
+  startRefreshLoop,
+  type RefreshLoop,
+  type ValDraft,
 } from "@valbuild/react/stega";
 // The Studio's own code, by path: `@valbuild/ui` exports the built Studio,
 // not its stores. Each of these is what the Studio runs, unchanged.
@@ -94,24 +102,15 @@ import {
   startOverlayRelay,
   type OverlayEvent,
 } from "../../../packages/ui/spa/stores/react/sourceRelay";
-// The page's own code, by path: TanStack's draft store, and what its hooks
-// read with (the env their provider's state makes, and a route's read),
-// which the package does not export.
-import {
-  createDraftStore,
-  isDraft,
-} from "../../../packages/tanstack/src/draftStore";
+// The page's own code, by path: what TanStack's hooks read with (the env
+// their provider's state makes, and a route's read), which the package does
+// not export.
 import {
   moduleRouteRead,
   pageReadEnv,
   type PageReadState,
 } from "../../../packages/tanstack/src/client/initValClient";
 import { readsOfFetchValDraft } from "../../../packages/tanstack/src/server/initValContent";
-import type { ValDraft } from "../../../packages/tanstack/src/ValDraft";
-import {
-  startRefreshLoop,
-  type RefreshLoop,
-} from "../../../packages/tanstack/src/refreshLoop";
 import { inRequest } from "./tanstackStart";
 import {
   createFrames,
@@ -453,6 +452,8 @@ export type LoadedPage = {
   events: OverlayEvent[];
   /** How many times the refresh loop has re-run the loaders. */
   readonly refreshes: number;
+  /** When (on the world's clock) each of those refreshes was asked for. */
+  readonly refreshTimes: readonly number[];
   /**
    * Every read a hook suspended on, at the step of the page's load it was
    * at: `server render`, `hydration`, `overlay mounted`, `draft mode known`,
@@ -1603,22 +1604,15 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       //    base the page serves (`window.__VAL_BASE__`), and its relay hands
       //    the page's store what the Studio holds.
       const events: OverlayEvent[] = [];
-      // The provider's refresh loop: an edit landing in the page's store
-      // re-runs the loaders, at most every 500 ms, with the safety net behind.
-      const pending = { current: 0 };
-      let refreshing = false;
-      let refreshes = 0;
+      // The provider's refresh loop: the loaders re-run once per version the
+      // Studio says the server has confirmed, with at most one in flight --
+      // and never on the clock (`startRefreshLoop`, as both providers run it).
+      const refreshTimes: number[] = [];
       const loop = startRefreshLoop({
-        pending,
         refresh: () => {
-          refreshing = true;
-          refreshes++;
-          void readLoaders().finally(() => {
-            refreshing = false;
-          });
+          refreshTimes.push(Date.now());
+          return readLoaders();
         },
-        isRefreshing: () => refreshing,
-        isHidden: () => false,
       });
       refreshLoops.push(loop);
       const studio = await startStudio(
@@ -1628,30 +1622,37 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           base: isDraft(loaderData) ? loaderData.base : undefined,
           beforeIntake: (system) => {
             relays.push(
-              startOverlayRelay(system, (event) => {
-                events.push(event);
-                if (event.type === "source-update") {
-                  // What the overlay's Studio holds the module at, as it
-                  // hands it over.
-                  held.set(event.moduleFilePath, {
-                    from: "overlay",
-                    version: versioning.studio(system, event.moduleFilePath),
-                    readWith: null,
-                  });
-                }
-                const outcome = applyValEvent(store, event);
-                if (outcome.type === "synced") {
-                  moveTo({ ...state, draftSourcesSynced: true }, "synced");
-                }
-                if (outcome.type === "updated" && outcome.changed) {
-                  step = "relayed";
-                  record();
-                  // Where the provider counts an edit and fires
-                  // VAL_EDIT_LANDED, which its loop listens for.
-                  pending.current++;
-                  loop.editLanded();
-                }
-              }),
+              startOverlayRelay(
+                system,
+                (event) => {
+                  events.push(event);
+                  if (event.type === "source-update") {
+                    // What the overlay's Studio holds the module at, as it
+                    // hands it over.
+                    held.set(event.moduleFilePath, {
+                      from: "overlay",
+                      version: versioning.studio(system, event.moduleFilePath),
+                      readWith: null,
+                    });
+                  }
+                  const outcome = applyValEvent(store, event);
+                  if (outcome.type === "synced") {
+                    moveTo({ ...state, draftSourcesSynced: true }, "synced");
+                  }
+                  if (outcome.type === "confirmed") {
+                    // Where the provider tells its loop.
+                    loop.confirmed(outcome.seq);
+                  }
+                  if (outcome.type === "updated" && outcome.changed) {
+                    step = "relayed";
+                    record();
+                    loop.changed();
+                  }
+                },
+                // What the provider reports when the overlay connects: the
+                // modules it was rendered with a draft of.
+                { holds: () => draftHolds(loaderData) },
+              ),
             );
           },
         },
@@ -1672,8 +1673,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         events,
         suspensions,
         get refreshes() {
-          return refreshes;
+          return loop.refreshes;
         },
+        refreshTimes,
       };
     },
     page(route, pageOptions) {

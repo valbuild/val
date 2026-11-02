@@ -28,6 +28,7 @@ export function statSnapshotOf(stat: StatSnapshotSource): StatSnapshot {
     // parent we named was not it. `fs` answers without one.
     headPatchId: stat.headPatchId,
     headVersion: stat.headVersion,
+    ...(stat.version !== undefined ? { seq: stat.version.seq } : {}),
     // Drained by the server as it answers (`fs` mode), so dropped here they
     // are lost: nobody is told their unpublished work was removed.
     ...(stat.removed !== undefined ? { removed: stat.removed } : {}),
@@ -48,6 +49,8 @@ export type StatSnapshotSource = {
   headCommitSha?: string;
   headPatchId?: PatchId | null;
   headVersion?: number;
+  /** The answer's project version: only its `seq` is taken. */
+  version?: { seq: number };
   removed?: { patchId: PatchId; reason: string }[];
 };
 

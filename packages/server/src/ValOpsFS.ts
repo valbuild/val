@@ -1446,8 +1446,13 @@ export class ValOpsFS extends ValOps {
   protected override async ownSeq(build: string): Promise<number> {
     const file = this.getPatchSeqFile();
     // No `.val` yet: nothing has been written, so there is nothing to order
-    // against, and a read must not be what creates the directory.
+    // against, and a read must not be what creates the directory. Counted as
+    // this instance's build all the same: the store starts with it, and
+    // counting it at the first read after the first write moved `seq` a
+    // second time for one write -- which a draft page reads as a second
+    // change to refresh for (`confirmed`, phase 4).
     if (!this.countedBuild && !fs.existsSync(fsPath.dirname(file))) {
+      this.countedBuild = true;
       return 0;
     }
     if (!this.countedBuild) {

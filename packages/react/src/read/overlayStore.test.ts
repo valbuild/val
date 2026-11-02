@@ -1,5 +1,5 @@
 import { ModuleFilePath } from "@valbuild/core";
-import { ValExternalStore } from "./overlayStore";
+import { ValExternalStore, applyValEvent } from "./overlayStore";
 
 describe("ValExternalStore.waitForLoad", () => {
   const path = "/content/page.val.ts" as ModuleFilePath;
@@ -94,7 +94,8 @@ describe("ValExternalStore.get", () => {
 /**
  * Whether an update actually MOVED the value.
  *
- * The providers arm their refresh loop (`router.refresh()`, `router.invalidate()`) on this, and they have to,
+ * The providers' refresh loop asks this (`startRefreshLoop`'s `changed`)
+ * to tell whether the Studio's catch-up found the page behind, and it has to,
  * because the same source arrives more than once by design: the editor sends a
  * catch-up snapshot of everything it holds every time the page becomes a new
  * document — a reload, or the one `next dev` does when a publish rewrites the
@@ -144,5 +145,27 @@ describe("ValExternalStore.update reports whether anything changed", () => {
     const promise = store.waitForLoad([path]);
     store.update(path, { foo: "bar" });
     await expect(promise).resolves.toBeUndefined();
+  });
+});
+
+describe("applyValEvent: confirmed", () => {
+  it("passes on how far the server holds the editor's changes", () => {
+    const store = new ValExternalStore();
+    expect(applyValEvent(store, { type: "confirmed", seq: 4 })).toEqual({
+      type: "confirmed",
+      seq: 4,
+    });
+    expect(applyValEvent(store, { type: "confirmed", seq: null })).toEqual({
+      type: "confirmed",
+      seq: null,
+    });
+  });
+
+  it("is invalid without a version, or with one that is not a number", () => {
+    const store = new ValExternalStore();
+    expect(applyValEvent(store, { type: "confirmed" }).type).toBe("invalid");
+    expect(applyValEvent(store, { type: "confirmed", seq: "4" }).type).toBe(
+      "invalid",
+    );
   });
 });

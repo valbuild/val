@@ -25,7 +25,30 @@ import {
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
+import { useHydrated } from "../useHydrated";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
+
+/**
+ * Whether the content this component renders carries its edit tags.
+ *
+ * In draft mode -- except, on a page rendered from a server-read draft
+ * (`<ValProvider draft>`), for the server's render and for this component's
+ * own hydration render: then the draft text goes out without them, and the
+ * render React does right after hydrating the component puts them in. JSX
+ * auto-tagging turns a tagged string into a `data-val-path` attribute as the
+ * element is created, and whether the server renders with the patched JSX
+ * runtime depends on how it was bundled; a string with no tags in it has
+ * nothing to tag, so the server's HTML and every hydration render agree.
+ * The same rule as `@valbuild/tanstack`'s.
+ */
+function useEncodesEditTags(context: {
+  draftMode: boolean | null;
+  serverDraft?: boolean;
+}): boolean {
+  const hydrated = useHydrated();
+  if (!context.draftMode) return false;
+  return !context.serverDraft || hydrated;
+}
 
 /** What the provider tells the hooks: `ValOverlayContext`'s value. */
 export type PageReadState = {
@@ -38,11 +61,16 @@ export type PageReadState = {
 
 /**
  * Where this page's hooks read from, in order: what the Studio sent (the
- * overlay), then -- added by every read -- the bundle. Edit tags in draft
- * mode. A plain function of the provider's state, as `@valbuild/tanstack`'s
- * is (which the scenario world reads a page with).
+ * overlay, which starts from the server-read draft when the page has one),
+ * then -- added by every read -- the bundle. Edit tags in draft mode, unless
+ * `encode` says otherwise (see `useEncodesEditTags`). A plain function of the
+ * provider's state, as `@valbuild/tanstack`'s is (which the scenario world
+ * reads a page with).
  */
-export function pageReadEnv(state: PageReadState): ReadEnv {
+export function pageReadEnv(
+  state: PageReadState,
+  encode: boolean = !!state.draftMode,
+): ReadEnv {
   return {
     sources: [
       overlaySource(state.store, {
@@ -52,7 +80,7 @@ export function pageReadEnv(state: PageReadState): ReadEnv {
         synced: state.draftSourcesSynced ?? false,
       }),
     ],
-    encode: !!state.draftMode,
+    encode,
   };
 }
 
@@ -61,18 +89,23 @@ export function pageReadEnv(state: PageReadState): ReadEnv {
  * moves, so a component's subscription is not made again on every render.
  */
 function useReadEnv(): ReadEnv {
+  const context = useValOverlayContext();
+  const encode = useEncodesEditTags(context);
   const { store, draftMode, suspend, draftModeReady, draftSourcesSynced } =
-    useValOverlayContext();
+    context;
   return React.useMemo(
     () =>
-      pageReadEnv({
-        store,
-        draftMode,
-        suspend,
-        draftModeReady,
-        draftSourcesSynced,
-      }),
-    [store, draftMode, suspend, draftModeReady, draftSourcesSynced],
+      pageReadEnv(
+        {
+          store,
+          draftMode,
+          suspend,
+          draftModeReady,
+          draftSourcesSynced,
+        },
+        encode,
+      ),
+    [store, draftMode, suspend, draftModeReady, draftSourcesSynced, encode],
   );
 }
 

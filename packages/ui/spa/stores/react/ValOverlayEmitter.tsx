@@ -1,37 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ModuleFilePath } from "@valbuild/core";
-import { useValSystem, type ValSystem } from "./SystemContext";
+import { useValSystem } from "./SystemContext";
 import {
-  onceBaseAligned,
-  sendPendingSources,
+  startCatchUp,
   startOverlayRelay,
   subscribeSourceUpdates,
+  type CatchUp,
   type OverlayEvent,
 } from "./sourceRelay";
 
 // The relay's rules live in `sourceRelay.ts`, as plain functions; these are
 // the React bindings. Re-exported for the tests that import it from here.
 export { withFilePatchIds } from "./sourceRelay";
-
-/**
- * Whether the store's base is in step with the server's chain, so what it
- * holds can be handed to a page: see {@link onceBaseAligned}. Only waited
- * for while `enabled`.
- */
-export function useValBaseAligned(enabled: boolean): boolean {
-  const val = useValSystem();
-  const system = val?.system ?? null;
-  // The system that aligned, so a new system starts out unaligned.
-  const [alignedSystem, setAlignedSystem] = useState<
-    ValSystem["system"] | null
-  >(null);
-  useEffect(() => {
-    if (!enabled || system === null) return;
-    return onceBaseAligned(system, () => setAlignedSystem(system));
-  }, [system, enabled]);
-  // No system: nothing will be handed over, so there is nothing to wait for.
-  return system === null || alignedSystem === system;
-}
 
 /**
  * Subscribe to module sources moving, debounced and made whole.
@@ -63,45 +43,52 @@ export function useValSourceUpdates(
 }
 
 /**
- * Every module the editor knows a newer value for than the page might, as it
- * stands right now.
+ * Catch a page up the moment it is listening, say that was all of it, and
+ * then say how far the server has confirmed the editor's changes
+ * (`startCatchUp`), once per `document` -- a key that changes with every new
+ * document the page is.
  *
- * The subscription above only fires on a *change*, which is the wrong shape for
+ * The relay above only carries a *change*, which is the wrong shape for
  * something that has just started listening. A canvas frame gets its content
- * from the server when the page is requested, and there are reasons that render
- * can miss uncommitted work — a cached route, a patch written after the request
- * went out — so a freshly loaded canvas sometimes showed the published page
- * while the editor beside it showed the edit, and stayed that way until the next
- * keystroke happened to relay one.
+ * from the server when the page is requested, and there are reasons that
+ * render can miss uncommitted work — a cached route, a patch written after the
+ * request went out — so a freshly loaded canvas sometimes showed the published
+ * page while the editor beside it showed the edit, and stayed that way until
+ * the next keystroke happened to relay one.
  *
- * Modules with a pending patch rather than everything the page reports: those
- * are exactly the ones whose content could disagree, the set is small, and it
- * does not need to know anything about the page.
- *
- * PLUS the modules this session has published into, which the pending set stops
- * naming the moment the publish lands. That gap is what auto-save turned into a
- * routine failure: publishing rewrites the `.val.ts` files, `next dev` reloads
- * the page on the change, and the fresh document is caught up with a snapshot
- * that now has nothing to send — followed by `sourcesSynced`, which tells the
- * page to render committed source. If that render came from a server that had
- * not picked the new file up, the canvas sat on pre-publish content until the
- * next keystroke put a patch back in the chain. The editor's own source for a
- * published module IS the published value, so sending it is both correct and
- * idempotent.
+ * The modules sent are the pending ones, the ones this session has published
+ * into (publishing rewrites the `.val.ts` files, `next dev` reloads the page,
+ * and a page rendered by a server that had not picked the new file up sat on
+ * pre-publish content), and the ones the page says it holds a draft of.
  */
-export function useValPendingSourceSnapshot(): (
-  onUpdate: (moduleFilePath: ModuleFilePath, source: unknown) => void,
-) => void {
+export function useValCatchUp(
+  enabled: boolean,
+  document: unknown,
+  page: CatchUp,
+): void {
   const val = useValSystem();
-  return useCallback(
-    (onUpdate) => {
-      if (val === null) {
-        return;
-      }
-      sendPendingSources(val.system, onUpdate);
-    },
-    [val],
-  );
+  // The callbacks are the caller's, often inline: read through a ref, so a
+  // render does not start the catch-up again.
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const relays = page.update !== null;
+  useEffect(() => {
+    if (!enabled) return;
+    if (val === null) {
+      // No system: nothing will be handed over, so there is nothing to wait
+      // for -- but the page still has to be told so.
+      pageRef.current.synced();
+      return;
+    }
+    return startCatchUp(val.system, {
+      update: relays
+        ? (path, source) => pageRef.current.update?.(path, source)
+        : null,
+      holds: () => pageRef.current.holds(),
+      synced: () => pageRef.current.synced(),
+      confirmed: (seq) => pageRef.current.confirmed(seq),
+    });
+  }, [val, enabled, document, relays]);
 }
 
 /**
@@ -116,25 +103,41 @@ export function useValPendingSourceSnapshot(): (
  * DOM effect, and nothing in `stores/` touches `window` — that is what lets the
  * whole store graph run in a worker and in a node test. See `StoreBus`.
  */
-export function ValOverlayEmitter({ enabled }: { enabled: boolean }) {
+export function ValOverlayEmitter({
+  enabled,
+  pageHolds,
+}: {
+  enabled: boolean;
+  /**
+   * The modules the page behind the overlay holds a draft of, as it
+   * reported them (`draftMode` on `val-overlay-spa`): sent in the catch-up
+   * whether or not anything is pending for them. See `sendPendingSources`.
+   */
+  pageHolds?: readonly ModuleFilePath[];
+}) {
   const val = useValSystem();
   const send = useCallback((detail: OverlayEvent) => {
     window.dispatchEvent(new CustomEvent("val-event", { detail }));
   }, []);
+  const holdsRef = useRef<readonly ModuleFilePath[]>(pageHolds ?? []);
+  holdsRef.current = pageHolds ?? [];
   /**
-   * Changes as they happen, and once the base is aligned, what is already
-   * pending followed by `sources-synced` (`startOverlayRelay`).
+   * Changes as they happen, and once the store is in step, what is already
+   * pending followed by `sources-synced`, then `confirmed` as the server
+   * takes the editor's changes (`startOverlayRelay`).
    *
    * The snapshot is not optional: the subscription only fires on a CHANGE, so
    * a page loaded with edits already in the chain saw none of them -- and a
    * page waiting for draft sources (`suspend`) had nothing to wait for and no
-   * way to know that. Not before the base aligns: until then the store can
+   * way to know that. Not before the store is in step: until then it can
    * hold the build from before a publish, and this would hand it to a page
    * showing what came after.
    */
   useEffect(() => {
     if (!enabled || val === null) return;
-    return startOverlayRelay(val.system, send);
+    return startOverlayRelay(val.system, send, {
+      holds: () => holdsRef.current,
+    });
   }, [enabled, val, send]);
   return null;
 }

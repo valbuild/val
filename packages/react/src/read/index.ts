@@ -10,6 +10,8 @@ export {
   type HeldRead,
   type ValEventOutcome,
 } from "./overlayStore";
+export { createDraftStore, draftHolds, isDraft, type ValDraft } from "./draft";
+export { startRefreshLoop, type RefreshLoop } from "./refreshLoop";
 export {
   bundleSource,
   entryOfModuleSource,

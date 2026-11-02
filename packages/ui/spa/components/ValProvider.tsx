@@ -424,6 +424,7 @@ export function ValProvider({
   config: _config,
   valModules,
   dispatchValEvents,
+  pageHolds,
   theme,
   setTheme,
   handsOffPublish = false,
@@ -433,6 +434,11 @@ export function ValProvider({
   config: SharedValConfig | null;
   valModules?: ValModules | null;
   dispatchValEvents: boolean;
+  /**
+   * The overlay's: what the page behind it holds a draft of, as it reported
+   * it. See `ValOverlayEmitter`.
+   */
+  pageHolds?: readonly ModuleFilePath[];
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
   /**
@@ -1654,7 +1660,10 @@ export function ValProvider({
                           customer's own components behind the Studio show the
                           edit rather than the committed value.
                         */}
-                          <ValOverlayEmitter enabled={dispatchValEvents} />
+                          <ValOverlayEmitter
+                            enabled={dispatchValEvents}
+                            pageHolds={pageHolds}
+                          />
                           <LocalModulesErrorBanner />
                           <ProjectLocalesProvider>
                             {children}

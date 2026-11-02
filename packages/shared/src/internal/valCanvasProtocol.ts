@@ -95,6 +95,15 @@ export type ValCanvasPageMessage =
       draftMode: boolean;
       /** The URL the frame ended up on, which a redirect may have changed. */
       url: string;
+      /**
+       * The modules the page holds a draft of: what its server read for this
+       * request (`<ValProvider draft>`). The studio sends each of them in its
+       * catch-up, pending or not, so a draft that stopped being the draft
+       * before the studio was there to say so -- discarded, published -- is
+       * replaced rather than kept. Absent from a page of the release before,
+       * and from a page that read no draft.
+       */
+      holds?: ModuleFilePath[];
     }
   | {
       val: typeof VAL_CANVAS_MESSAGE;
@@ -293,6 +302,23 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
+       * The server holds the editor's changes up to this version (`seq`, the
+       * server's `ProjectVersion.seq`; `null` from a server that reports
+       * none). Sent once after `sourcesSynced`, then every time it moves.
+       *
+       * What the page re-reads its server-rendered content on (a loader, a
+       * server component): those only show an edit once the server has it,
+       * so a refresh sent when the edit was typed raced the write and came
+       * back without it -- which a ten second safety refresh used to catch.
+       * A bridge of the release before ignores it, as it ignores any type it
+       * does not know.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "confirmed";
+      seq: number | null;
+    }
+  | {
+      /**
        * What colour to outline the page's content in.
        *
        * Sent because it cannot be inherited: the bridge runs in the customer's
@@ -396,7 +422,8 @@ export function isValCanvasPageMessage(
   const message = data as { val?: unknown; type?: unknown };
   if (message.val !== VAL_CANVAS_MESSAGE) return false;
   return (
-    message.type === "ready" ||
+    (message.type === "ready" &&
+      isModulePathList((data as { holds?: unknown }).holds)) ||
     message.type === "elements" ||
     message.type === "clicked" ||
     message.type === "pinch" ||
@@ -412,6 +439,14 @@ export function isValCanvasPageMessage(
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string")
+  );
+}
+
+/** `holds` on `ready`: absent, or a list of module paths. */
+function isModulePathList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((path) => typeof path === "string"))
   );
 }
 
@@ -528,7 +563,10 @@ export function isValCanvasStudioMessage(
     message.type === "highlight" ||
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
-    message.type === "sourcesSynced"
+    message.type === "sourcesSynced" ||
+    (message.type === "confirmed" &&
+      ((data as { seq?: unknown }).seq === null ||
+        typeof (data as { seq?: unknown }).seq === "number"))
   );
 }
 

@@ -14,8 +14,9 @@ export const ValOverlayContext = React.createContext<{
   readonly store?: ValExternalStore;
   readonly draftMode: boolean | null;
   // Whether the hooks may suspend until draft data is loaded (`overlaySource`, in @valbuild/react). False
-  // during SSR and hydration (the server store is never populated; draft data
-  // arrives via browser CustomEvents only); activated by ValProvider after
+  // during SSR and hydration (the server store is empty unless ValProvider was
+  // given a server-read `draft`, in which case it already holds the draft;
+  // otherwise draft data arrives via browser CustomEvents only); activated by ValProvider after
   // hydration — inside a transition, so static content stays visible while
   // hooks suspend — when its `suspend` prop is set and the Val Enable cookie
   // is present. Never deactivated once active.
@@ -37,6 +38,12 @@ export const ValOverlayContext = React.createContext<{
    * find out was `waitForLoad`'s timeout, once per unedited module.
    */
   readonly draftSourcesSynced?: boolean;
+  /**
+   * Whether this page was rendered from a server-read draft (`<ValProvider
+   * draft>`). Then the hooks leave the edit tags out of what a component
+   * renders on the server and while it hydrates -- see `useEncodesEditTags`.
+   */
+  readonly serverDraft?: boolean;
 }>({
   store: undefined,
   draftMode: false,
@@ -51,6 +58,7 @@ export function ValOverlayProvider({
   suspend,
   draftModeReady,
   draftSourcesSynced,
+  serverDraft,
   children,
 }: {
   store?: ValExternalStore;
@@ -58,6 +66,7 @@ export function ValOverlayProvider({
   suspend: boolean;
   draftModeReady?: Promise<void>;
   draftSourcesSynced?: boolean;
+  serverDraft?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -68,6 +77,7 @@ export function ValOverlayProvider({
         suspend,
         draftModeReady,
         draftSourcesSynced,
+        serverDraft,
       }}
     >
       {children}

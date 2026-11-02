@@ -137,37 +137,34 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * Given a draft page with the overlay, showing the title through a hook and
    * through a loader,
    * when the overlay's Studio saves an edit while its PUT /patches is held,
-   * the page's refresh loop re-runs the loaders, and then the write is let
-   * through,
-   * then every surface ends on the edit without the 10 s safety refresh
-   * ("events, not timers").
+   * and then the write is let through,
+   * then every surface ends on the edit, with no timer involved ("events,
+   * not timers").
    *
-   * SKIPPED: fails today, by design of the current loop. The edit reaches the
-   * page's store at once, which re-runs the loaders -- against a server that
-   * does not have the write yet, so the loader shows the old title. When the
-   * write lands, nothing tells the page (the store did not change again), so
-   * the loader stays old until the safety net's next tick. The test below
-   * pins that. Plan: phase 4 ("confirmed up to this version" triggers the
-   * refresh).
+   * It failed before phase 4: the edit reached the page's store at once,
+   * which re-ran the loaders against a server that did not have the write
+   * yet, so the loader showed the old title; when the write landed nothing
+   * told the page, and only the safety refresh, ten seconds on, caught up.
+   * Now the page re-reads its server when the Studio says the server has
+   * CONFIRMED the edit (`confirmed`, with the server's `seq`), and the
+   * safety refresh is gone. So nothing is re-read while the write is held,
+   * and exactly once after it lands.
    */
-  test.skip("S05 a refresh that lands before the write does not hide the edit", async () => {
+  test("S05 a refresh that lands before the write does not hide the edit", async () => {
     world = await createWorld({ config, modules: [homeVal], server });
-    await refreshBeforeWrite(world);
+    const { page, refreshesWhileHeld } = await refreshBeforeWrite(world);
     world.frames.expectInvariants();
-  });
-
-  test("S05 why: the loader re-runs before the write and only the safety net catches up", async () => {
-    world = await createWorld({ config, modules: [homeVal], server });
-    const page = await refreshBeforeWrite(world);
     expect(world.frames.last("hook")).toBe("Hello world");
-    // Re-run while the write was held, and nothing re-ran it after.
-    expect(world.frames.last("loader")).toBe("Hello");
-    const refreshesBefore = page.refreshes;
-    // The safety net's tick (10 s) is what brings the edit across.
-    await world.clock.advance(10_000);
-    await world.settle();
-    expect(page.refreshes).toBeGreaterThan(refreshesBefore);
     expect(world.frames.last("loader")).toBe("Hello world");
+    // Not while the server did not have it: that refresh would only bring
+    // the old title back.
+    expect(refreshesWhileHeld).toBe(0);
+    // One refresh for the one confirmed edit...
+    expect(page.refreshes).toBe(1);
+    // ...and none from the clock, however long the page stays open.
+    await world.clock.advance(60_000);
+    await world.settle();
+    expect(page.refreshes).toBe(1);
   });
 
   /**
@@ -212,7 +209,7 @@ function lastOf(world: World, ...surfaces: string[]): unknown[] {
   return surfaces.map((surface) => world.frames.last(surface));
 }
 
-/** S05's steps: load, hold the write, edit, let the loop refresh, release. */
+/** S05's steps: load, hold the write, edit, let the relay run, release. */
 async function refreshBeforeWrite(world: World) {
   const page = await world.loadPage("/", {
     shows: [{ surface: "hook", ...title }],
@@ -221,8 +218,9 @@ async function refreshBeforeWrite(world: World) {
   await world.settle();
   world.network.hold({ method: "PUT", path: "/api/val/patches" });
   await page.studio.edit(homeVal, ["title"], "Hello world");
-  await world.clock.advance(1_000); // the relay's debounce, and the loop's refresh
+  await world.clock.advance(1_000); // the relay's debounce: the hook shows it
+  const refreshesWhileHeld = page.refreshes;
   world.network.release();
   await world.settle();
-  return page;
+  return { page, refreshesWhileHeld };
 }

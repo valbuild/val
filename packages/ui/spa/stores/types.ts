@@ -251,6 +251,12 @@ export type SystemEvent =
       appliedPatches?: PatchId[];
       /** The chain version all of the above was read at, where reported. */
       headVersion?: number;
+      /**
+       * How far along the project's changes the stat was read
+       * (`confirmedSeqOf`): what it says the server holds, up to. Where
+       * reported.
+       */
+      seq?: number;
     }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }

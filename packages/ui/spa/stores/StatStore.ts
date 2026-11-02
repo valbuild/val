@@ -87,6 +87,18 @@ export type StatSnapshot = {
    */
   headVersion?: number;
   /**
+   * How far along the project's changes the server was when it answered:
+   * the `seq` of the answer's `ProjectVersion` (`docs/plans/one-content-model.md`).
+   * Every write, delete and publish moves it, so an answer at `seq` N holds
+   * everything written up to N. In `http` mode it is the content service's
+   * {@link headVersion}, which a socket message moves without a new `/stat`,
+   * so read the two through {@link confirmedSeqOf}.
+   *
+   * What a page is told its server-read content can be refreshed up to (the
+   * relay's `confirmed`). Absent from a server that predates versions.
+   */
+  seq?: number;
+  /**
    * WHICH BUILD answered: the `sourcesSha` of the source its chain is relative to.
    *
    * `patches` are the ones that build does not contain, so they are right only
@@ -143,6 +155,8 @@ export class StatStore {
   private newestHeadVersion: number | undefined = undefined;
   /** The version of the ADOPTED head, which is {@link headPatchId}'s. */
   private headVersion: number | undefined = undefined;
+  /** {@link confirmedSeqOf} the ADOPTED stat. */
+  private seq: number | undefined = undefined;
   private baseSha: string | null = null;
   /** See {@link currentSchemaSha}. */
   private schemaSha: string | null = null;
@@ -276,6 +290,7 @@ export class StatStore {
     this.patches = [...snapshot.patches];
     this.headPatchId = snapshot.headPatchId;
     this.headVersion = snapshot.headVersion;
+    this.seq = confirmedSeqOf(snapshot);
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;
     }
@@ -298,6 +313,7 @@ export class StatStore {
       ...(snapshot.headVersion !== undefined
         ? { headVersion: snapshot.headVersion }
         : {}),
+      ...(this.seq !== undefined ? { seq: this.seq } : {}),
     });
   }
 
@@ -369,6 +385,15 @@ export class StatStore {
   }
 
   /**
+   * How far along the project's changes the ADOPTED stat was read
+   * ({@link StatSnapshot.seq}), or `undefined` before one, or from a server
+   * that does not say.
+   */
+  currentSeq(): number | undefined {
+    return this.seq;
+  }
+
+  /**
    * The newest commit this client has been told about, or `null`.
    *
    * See {@link StatSnapshot.headCommitSha}. Read rather than carried on the
@@ -412,4 +437,16 @@ export class StatStore {
   currentBaseSha(): string | null {
     return this.baseSha;
   }
+}
+
+/**
+ * The `seq` a stat was read at. `headVersion` first: in `http` mode the two
+ * are the same counter (the content service's chain version), and a socket
+ * message moves `headVersion` on the stat it updates without a new
+ * `version` -- so a stat's `seq` can be older than its own chain there.
+ */
+export function confirmedSeqOf(
+  snapshot: Pick<StatSnapshot, "headVersion" | "seq">,
+): number | undefined {
+  return snapshot.headVersion ?? snapshot.seq;
 }

@@ -16,8 +16,9 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  * (`RecordingActivity`), and versions hashed with `versionHashCount`, not
  * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05, and the
  * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`), and the
- * readers' B07 (`read:resolve`, `read:encode`). (B03, a draft
- * read in a 128 MB isolate, is a benchmark, not here.)
+ * readers' B07 (`read:resolve`, `read:encode`), and a draft page's
+ * refreshes, B08. (B03, a draft read in a 128 MB isolate, is a benchmark,
+ * not here.)
  */
 
 const { s, c, config } = initVal({});
@@ -255,5 +256,70 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       "read:encode": { exactly: 1 + 1 },
     });
     expect(world.frames.last("visitor")).toBe("Hello");
+  });
+
+  /**
+   * B08 A draft page re-reads its server once per confirmed edit, and never
+   * on the clock ("events, not timers").
+   *
+   * Given a draft page with the overlay, rendered from the server's draft
+   * (the `draft` prop), reading the title through a loader,
+   * when the overlay's Studio types twice, waiting for each to be saved,
+   * then the loaders re-ran exactly twice -- once per version the server
+   * confirmed (`confirmed`, `startRefreshLoop`) -- and not for the page
+   * connecting, whose render already had what the Studio holds; another
+   * editor's change, once the server has it, is one more; and a minute of
+   * nothing is none. Before phase 4 a refresh went out on every relayed
+   * change (racing the write, S05) and a safety refresh every ten seconds
+   * for thirty seconds after an edit.
+   */
+  test("B08 a draft page refreshes once per confirmed edit, and never on the clock", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const page = await world.loadPage("/", {
+      shows: [{ surface: "hook", module: homeVal, field: ["title"] }],
+      loaderShows: [{ surface: "loader", module: homeVal, field: ["title"] }],
+    });
+    await world.settle();
+    expect(page.refreshes).toBe(0);
+
+    await page.studio.edit(homeVal, ["title"], "One");
+    await world.settle();
+    expect(page.refreshes).toBe(1);
+    await page.studio.edit(homeVal, ["title"], "Two");
+    await world.settle();
+    expect(page.refreshes).toBe(2);
+    expect(world.frames.last("loader")).toBe("Two");
+
+    const other = await world.studio("other");
+    await other.edit(homeVal, ["subtitle"], "Theirs");
+    await world.settle();
+    expect(page.refreshes).toBe(3);
+
+    await world.clock.advance(60_000);
+    await world.settle();
+    expect(page.refreshes).toBe(3);
+  });
+
+  /**
+   * B08 A page loaded without the `draft` prop, with an edit already
+   * pending, is behind what the Studio holds: one refresh when the overlay
+   * connects, and none after.
+   */
+  test("B08 a page rendered without the draft refreshes once when the overlay connects", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    await editor.edit(homeVal, ["title"], "Pending");
+    await world.settle();
+    const page = await world.loadPage("/", {
+      shows: [{ surface: "hook", module: homeVal, field: ["title"] }],
+      loaderShows: [{ surface: "loader", module: homeVal, field: ["title"] }],
+      draftProp: false,
+    });
+    await world.settle();
+    await world.clock.advance(60_000);
+    await world.settle();
+    expect(page.refreshes).toBe(1);
+    expect(world.frames.last("loader")).toBe("Pending");
+    expect(world.frames.last("hook")).toBe("Pending");
   });
 });

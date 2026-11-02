@@ -258,10 +258,11 @@ export const StatData = z.object({
   mode: z.union([z.literal("fs"), z.literal("http")]),
   /**
    * The project version this answer is relative to (`build`, `seq`); see
-   * `ProjectVersion` in `@valbuild/shared/internal`. Nothing in the Studio
-   * reads it yet (the manifest does, from phase 7 of
-   * `docs/plans/one-content-model.md`); declared so the type says what the
-   * wire carries. Absent from a server that predates it.
+   * `ProjectVersion` in `@valbuild/shared/internal`. The stores keep its
+   * `seq` (`StatSnapshot.seq`): what the relay tells a page the server holds
+   * its edits up to (`confirmed`, phase 4 of
+   * `docs/plans/one-content-model.md`). Absent from a server that predates
+   * it.
    */
   version: ProjectVersionSchema.optional(),
 });
