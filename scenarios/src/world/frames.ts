@@ -177,6 +177,7 @@ function neverGoesBack(all: readonly Frame[]): string[] {
     for (const frame of all.filter((f) => f.surface === surface)) {
       const value = JSON.stringify(frame.value);
       if (shown.at(-1) === value) {
+        shownAt.set(value, [...(shownAt.get(value) ?? []), frame]);
         previous = frame;
         continue;
       }

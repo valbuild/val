@@ -1,12 +1,13 @@
 import { initVal, modules } from "@valbuild/core";
+import type { PatchId, ValModule, SelectorSource } from "@valbuild/core";
 import {
+  ModuleVersionSchema,
+  ProjectVersionSchema,
   chainOf,
   versionHashCount,
-  type ModuleVersion,
-  type ProjectVersion,
+  type ValServerGenericResult,
 } from "@valbuild/shared/internal";
-import type { PatchId } from "@valbuild/core";
-import type { ValServerGenericResult } from "@valbuild/shared/internal";
+import { z } from "zod";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { fakeRequest } from "./fakeRequest";
 import { InMemoryPatchStore } from "./ValOpsMemory";
@@ -24,20 +25,43 @@ describe("/manifest", () => {
     s.object({ title: s.string() }),
     { title: "Hello" },
   );
+  const homeWithCta = c.define(
+    "/content/home.val.ts",
+    s.object({ title: s.string(), cta: s.string() }),
+    { title: "Hello", cta: "Buy" },
+  );
   const footer = c.define(
     "/content/footer.val.ts",
     s.object({ text: s.string() }),
     { text: "Footer" },
   );
 
-  const start = () => {
+  const Manifest = z.object({
+    project: ProjectVersionSchema,
+    modules: z.record(z.string(), ModuleVersionSchema),
+  });
+  const Tree = z.object({
+    modules: z.record(
+      z.string(),
+      z.object({ source: z.unknown(), version: ModuleVersionSchema }),
+    ),
+    project: ProjectVersionSchema,
+  });
+  const Stat = z.object({ version: ProjectVersionSchema });
+
+  const start = (
+    build: ValModule<SelectorSource>[] = [home, footer],
+    patchStore = new InMemoryPatchStore(),
+  ) => {
     const handler = createValApiRouter(
       route,
       createValServer(
-        modules(config, [
-          { def: () => Promise.resolve({ default: home }) },
-          { def: () => Promise.resolve({ default: footer }) },
-        ]),
+        modules(
+          config,
+          build.map((module) => ({
+            def: () => Promise.resolve({ default: module }),
+          })),
+        ),
         route,
         {
           disableCache: true,
@@ -45,7 +69,7 @@ describe("/manifest", () => {
             "/content/home.val.ts": "",
             "/content/footer.val.ts": "",
           },
-          patchStore: new InMemoryPatchStore(),
+          patchStore,
           unsafelyAllowUnauthenticated: true,
         },
         config,
@@ -82,13 +106,7 @@ describe("/manifest", () => {
       return {
         status: res.status,
         etag: headers["ETag"],
-        json:
-          "json" in res
-            ? (res.json as {
-                project: ProjectVersion;
-                modules: Record<string, ModuleVersion>;
-              })
-            : null,
+        json: "json" in res ? Manifest.parse(res.json) : null,
       };
     };
     const edit = async (patchId: PatchId, title: string) => {
@@ -169,21 +187,34 @@ describe("/manifest", () => {
     const { json } = await manifest();
     const tree = await send("PUT", "/sources/~");
     expect(tree.status).toBe(200);
-    const treeJson =
-      "json" in tree
-        ? (tree.json as {
-            modules: Record<string, { source: unknown; version?: unknown }>;
-            project?: unknown;
-          })
-        : null;
-    expect(treeJson?.modules["/content/home.val.ts"]).toMatchObject({
+    const treeJson = "json" in tree ? Tree.parse(tree.json) : null;
+    expect(treeJson?.modules["/content/home.val.ts"]).toEqual({
       source: { title: "Hello world" },
       version: json?.modules["/content/home.val.ts"],
     });
     expect(treeJson?.project).toEqual(json?.project);
     const stat = await send("POST", "/stat", { json: null });
-    expect("json" in stat ? stat.json : null).toMatchObject({
-      version: json?.project,
-    });
+    expect("json" in stat ? Stat.parse(stat.json).version : null).toEqual(
+      json?.project,
+    );
+  });
+
+  test("a new build is counted once, and two builds answering at once do not move seq", async () => {
+    const store = new InMemoryPatchStore();
+    const old = start([home, footer], store);
+    const before = await old.manifest();
+    const next = start([homeWithCta, footer], store);
+    const after = await next.manifest();
+    expect(after.json?.project.build).not.toBe(before.json?.project.build);
+    expect(after.json?.project.seq).toBeGreaterThan(
+      before.json?.project.seq ?? Infinity,
+    );
+    // A rollout: both answer, in turn. Reading moves nothing.
+    const seqs = [];
+    for (let i = 0; i < 3; i++) {
+      seqs.push((await old.manifest()).json?.project.seq);
+      seqs.push((await next.manifest()).json?.project.seq);
+    }
+    expect(new Set(seqs)).toEqual(new Set([after.json?.project.seq]));
   });
 });

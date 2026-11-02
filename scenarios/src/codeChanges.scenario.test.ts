@@ -114,7 +114,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   /**
    * S11 (versions) A new build is counted.
    *
-   * Given a server answering at some `seq`,
+   * Given a server answering at some `seq`, with an edit pending,
    * when a new build replaces it (local development's HMR here),
    * then its answers name the new build and order after the old one's: `seq`
    * moved, with no write in between ("bumped by every write, delete, publish
@@ -130,7 +130,10 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     "S11 a new build is counted: its answers order after the last build's",
     async () => {
       world = await createWorld({ config, modules: [home, footer], server });
-      await world.studio("editor");
+      const editor = await world.studio("editor");
+      // An edit, so fs mode has a `.val` to count in: a read never makes one.
+      await editor.edit(home, ["title"], "Edited");
+      await world.settle();
       const before = await world.manifest();
 
       await world.changeCode([homeWithCta, footer]);

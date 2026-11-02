@@ -417,12 +417,20 @@ export class ValOpsMemory extends ValOps {
    */
   protected override async ownSeq(build: string): Promise<number> {
     const counter = seqOf(this.store);
-    if (counter.build !== build) {
-      counter.build = build;
-      counter.seq += 1;
+    // Once per instance: two builds answering at once (a rollout) must not
+    // bump it back and forth on every read.
+    if (!this.countedBuild) {
+      this.countedBuild = true;
+      if (counter.build !== build) {
+        counter.build = build;
+        counter.seq += 1;
+      }
     }
     return counter.seq;
   }
+
+  /** Whether this instance has counted itself as a new build yet. */
+  private countedBuild = false;
 
   override async getStat(
     params: {
