@@ -493,6 +493,11 @@ export abstract class ValOps {
       }
       adopt[moduleFilePath] = source;
     }
+    markPublishedJsonEntries(
+      adopt,
+      analysis,
+      preparedCommit.patchedJsonEntries,
+    );
     this.promoteCommittedSources(adopt);
     /**
      * And the `.val.ts` TEXT, for a store that has nowhere else to keep it.
@@ -3746,4 +3751,68 @@ export function bufferReader(buffer: Uint8Array): BinaryFileReader {
     size: buffer.length,
     read: async (start, end) => buffer.subarray(start, end + 1),
   };
+}
+
+/**
+ * Mark the `.jsonValues()` entries a publish just wrote: their marker in the
+ * committed source carries the `patch_id` of the patch that last wrote them.
+ *
+ * A marker with a `patch_id` says "this entry's content is not the bundle's:
+ * read it from the server", which is what it already says for an entry a
+ * PENDING patch added. After a publish it has to say it too, and nothing else
+ * could: the entry's content lives in its `*.val.json`, which the source holds
+ * only a marker for, so an edit inside an entry left the source -- and with it
+ * every SHA -- exactly as it was. A host that does not rebuild after a publish
+ * (memory mode) then served the page's readers, the overlay and the Studio the
+ * content from before it, out of the bundle's imports, with no way to tell.
+ *
+ * Marked, the source moves, the SHAs move with it, and every reader that sees
+ * the marker reads the entry from the server, where `adoptedJsonEntries` has
+ * the content the commit wrote. A deleted entry needs nothing: its key leaves
+ * the source.
+ */
+function markPublishedJsonEntries(
+  adopt: Sources,
+  analysis: OrderedPatches,
+  patchedJsonEntries: PreparedCommit["patchedJsonEntries"],
+): void {
+  // The last patch of this commit that wrote each entry, in chain order. The
+  // destination of a move or copy is its `path`, like every other op's.
+  const lastPatch = new Map<ModuleFilePath, Map<string, PatchId>>();
+  for (const { path, patchId, patch } of analysis.patches) {
+    const byKey = lastPatch.get(path) ?? new Map<string, PatchId>();
+    for (const op of patch) {
+      const key = op.path[0];
+      if (typeof key === "string") byKey.set(key, patchId);
+    }
+    lastPatch.set(path, byKey);
+  }
+  for (const [moduleFilePath, byKey] of lastPatch) {
+    const entries = patchedJsonEntries[moduleFilePath];
+    const source = adopt[moduleFilePath];
+    if (
+      entries === undefined ||
+      typeof source !== "object" ||
+      source === null ||
+      Array.isArray(source)
+    ) {
+      continue;
+    }
+    const marked: Record<string, Source> = Object.fromEntries(
+      Object.entries(source),
+    );
+    for (const [entryKey, content] of Object.entries(entries)) {
+      const patchId = byKey.get(entryKey);
+      const marker = marked[entryKey];
+      if (
+        content === null ||
+        patchId === undefined ||
+        !Internal.isJson(marker)
+      ) {
+        continue;
+      }
+      marked[entryKey] = { ...marker, patch_id: patchId };
+    }
+    adopt[moduleFilePath] = marked;
+  }
 }

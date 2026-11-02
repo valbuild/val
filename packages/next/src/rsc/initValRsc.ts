@@ -290,9 +290,9 @@ async function withJsonValuesEntries(
 
 /**
  * The draft of the whole `.jsonValues()` record `selector` reads, with the
- * entries its patches touch filled in from the server -- or `null` when it
- * reads no such record, the draft changes nothing in it, or the edited entries
- * could not be read.
+ * entries its patches touch -- and those a publish wrote since the bundle
+ * was built -- filled in from the server, or `null` when it reads no such
+ * record, the draft has no such module, or those entries could not be read.
  *
  * In the draft tree every entry is still a marker, an edited one too, so
  * filling the record from the bundle rendered the PUBLISHED entry under a
@@ -313,7 +313,7 @@ async function draftJsonValuesRecord(
 ): Promise<{ path: ModuleFilePath; source: Json } | null> {
   const path = jsonValuesRecordToFill(selector, () => [])?.modulePath;
   const draft = path !== undefined ? modules[path] : undefined;
-  if (path === undefined || !draft?.patches?.applied.length) {
+  if (path === undefined || draft === undefined) {
     return null;
   }
   const source = await withDraftJsonEntries(
@@ -321,7 +321,7 @@ async function draftJsonValuesRecord(
     sessionCookie,
     path,
     draft.source,
-    draft.patches.applied,
+    draft.patches?.applied ?? [],
   );
   return source !== undefined ? { path, source } : null;
 }
@@ -331,8 +331,10 @@ async function draftJsonValuesRecord(
  * filled in -- or `undefined` when they could not all be read.
  *
  * `/sources/~` keeps each such entry as a MARKER (its content lives in its own
- * file), an edited one too. The entries an applied patch touches, and only
- * those, are read through `/json` and put in place of their markers. Every
+ * file), an edited one too. The entries an applied patch touches, and those
+ * whose marker says the bundle's copy is not current
+ * (`Internal.isJsonFromServer`: a publish wrote them, and the host has not
+ * rebuilt), are read through `/json` and put in place of their markers. Every
  * other marker stays, for the bundle to fill.
  */
 async function withDraftJsonEntries(
@@ -346,41 +348,51 @@ async function withDraftJsonEntries(
     return undefined;
   }
   const wire: Json = JSON.parse(JSON.stringify(source));
-  if (!isRecordOfJsonMarkers(source) || appliedPatchIds.length === 0) {
+  if (!isRecordOfJsonMarkers(source)) {
     return wire;
   }
+  // The entries whose content is the server's and not the bundle's -- one a
+  // publish wrote, on a host that has not rebuilt since -- whether or not a
+  // patch is pending on them.
+  const edited = new Set<string>(
+    Object.keys(source).filter((key) => Internal.isJsonFromServer(source[key])),
+  );
   const valServer = await valServerPromise;
   const cookies = { [VAL_SESSION_COOKIE]: sessionCookie };
-  const patchesRes = await valServer["/patches"]["GET"]({
-    query: {
-      patch_id: appliedPatchIds,
-      exclude_patch_ops: false,
-    },
-    cookies,
-  });
-  if (patchesRes.status !== 200) {
-    return undefined;
+  if (appliedPatchIds.length > 0) {
+    const patchesRes = await valServer["/patches"]["GET"]({
+      query: {
+        patch_id: appliedPatchIds,
+        exclude_patch_ops: false,
+      },
+      cookies,
+    });
+    if (patchesRes.status !== 200) {
+      return undefined;
+    }
+    for (const { path, patch } of patchesRes.json.patches) {
+      if (path !== moduleFilePath) {
+        continue;
+      }
+      for (const op of patch ?? []) {
+        const touched = [op.path[0]];
+        if (op.op === "move" || op.op === "copy") {
+          touched.push(op.from[0]);
+        }
+        for (const key of touched) {
+          if (key === undefined) {
+            // A write of the whole record: no smaller set of entries to read.
+            return undefined;
+          }
+          if (Internal.isJson(source[key])) {
+            edited.add(key);
+          }
+        }
+      }
+    }
   }
-  const edited = new Set<string>();
-  for (const { path, patch } of patchesRes.json.patches) {
-    if (path !== moduleFilePath) {
-      continue;
-    }
-    for (const op of patch ?? []) {
-      const touched = [op.path[0]];
-      if (op.op === "move" || op.op === "copy") {
-        touched.push(op.from[0]);
-      }
-      for (const key of touched) {
-        if (key === undefined) {
-          // A write of the whole record: no smaller set of entries to read.
-          return undefined;
-        }
-        if (Internal.isJson(source[key])) {
-          edited.add(key);
-        }
-      }
-    }
+  if (edited.size === 0) {
+    return wire;
   }
   const keys = [...edited];
   const draft = wire as Record<string, Json>;

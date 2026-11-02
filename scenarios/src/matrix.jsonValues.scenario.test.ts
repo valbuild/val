@@ -186,24 +186,6 @@ function sourcePathOf() {
   return path;
 }
 
-/**
- * Why cells fail today. Each is a bug: the user expects every one of these to
- * work. Evidence and suspected cause are in the README's matrix section.
- */
-const R2 =
-  "R2: in memory mode, after a publish a whole-record fetchVal fills the published entry from the page's bundle, which still holds the content from before the publish, while fetchValKey and fetchValRoute read the entry the server adopted";
-const R3 =
-  "R3: in memory mode, after a publish the overlay relays the published module with its entries as placeholders (no pending patch names them, so it loads none), and the page fills them from its bundle, which still holds the content from before the publish";
-
-/** The page's hooks for one entry, all failing for `reason`. */
-function hooksFail(key: string, reason: string): Record<string, string> {
-  return {
-    [`useVal ${key}`]: reason,
-    [`useValKey ${key}`]: reason,
-    [`useValRoute ${key}`]: reason,
-  };
-}
-
 const A = titleSurfaces("/blog/a");
 const B = titleSurfaces("/blog/b");
 const C = titleSurfaces("/blog/c");
@@ -279,19 +261,13 @@ const cells: Cell[] = [
   },
   {
     operation: "publish an edit",
-    // R1 (the readers' own server instance never adopting the publish) is
-    // fixed: every server in the process shares one data layer
-    // (`sharedValOps`), so fetchValKey and fetchValRoute show the publish.
-    // What is left are two other causes, both about the page's BUNDLE, which a
-    // memory-mode publish does not rebuild: fs mode passes because the world
-    // reloads the rewritten files, as a dev server does.
-    failingIn: {
-      memory: {
-        "fetchVal /blog/a": R2,
-        ...hooksFail("/blog/a", R3),
-        "never goes back": R3,
-      },
-    },
+    // In memory mode nothing rebuilds after a publish, so the page's bundle
+    // still has the entry from before it. Every surface shows the publish
+    // because the server marks each entry it wrote (`patch_id` on the
+    // marker, `markPublishedJsonEntries` in ValOps): the readers and the
+    // overlay read a marked entry from the server, never from the bundle.
+    // fs mode passes either way: the world reloads the rewritten files, as a
+    // dev server does. (R1, R2, R3 in the README, all fixed.)
     surfaces: [
       ...A,
       {

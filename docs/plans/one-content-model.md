@@ -49,8 +49,10 @@ coverage" (valbuild/val#1006).
   publish cells that failed before that (F3, P1) were the world, not the
   product. R1 (memory mode's readers not adopting a publish) is fixed: every
   Val server in a process shares one data layer per project
-  (`sharedValOps`). Two memory-mode publish cells remain (R2, R3, the page's
-  bundle). Every http cell passes.
+  (`sharedValOps`). R2 is fixed too: a publish marks the entries it wrote
+  (`patch_id` on the marker), and the readers load a marked entry from the
+  server rather than from a bundle that has not been rebuilt. Every matrix
+  cell passes, in all three modes.
 - **The hosted layers** (S06, S20, S21, decision 1 below): a content version
   and a proposal snapshot handed to the API and the readers alike, and a
   `/stat` answer delivered after a later write. All pass; the mock's proposal

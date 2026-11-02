@@ -54,6 +54,22 @@ export function isJson(obj: unknown): obj is JsonSource {
 }
 
 /**
+ * Whether this `.jsonValues()` entry's content has to be read from the server
+ * rather than from the bundle's `import()`: a marker carrying a `patch_id`.
+ *
+ * The server writes one for an entry a pending patch added or replaced, and
+ * for every entry a publish wrote (`adoptCommittedSources`), because a host
+ * that does not rebuild after a publish -- memory mode -- still has the
+ * content from before it in the bundle. A marker without one is the bundle's
+ * entry, and any reader may fill it from there.
+ */
+export function isJsonFromServer(obj: unknown): boolean {
+  return (
+    isJson(obj) && typeof obj.patch_id === "string" && obj.patch_id.length > 0
+  );
+}
+
+/**
  * Reads the runtime-only lazy import thunk from a {@link JsonSource}. Returns
  * `undefined` for a transport marker (sent over the wire without the thunk).
  */
