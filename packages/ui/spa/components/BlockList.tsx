@@ -897,7 +897,7 @@ function RowLabelText({ label }: { label: RowLabel }) {
   // A key is data, not a field name, so it is shown as written — never
   // title-cased the way `FieldLabel` treats a schema's own keys.
   return (
-    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-sm font-medium text-fg-primary">
+    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-base font-medium text-fg-primary">
       {label.key}
     </span>
   );
@@ -1011,10 +1011,10 @@ function InlineDiscriminatedUnionBody({
     return null;
   }
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2.5">
       {/* Labelled like every other field: it is the discriminator, which is
           a field of the value even though it is drawn as the variant picker. */}
-      <div className="flex flex-col gap-0.5 pl-2">
+      <div className="flex flex-col gap-1 pl-2">
         <FieldLabel label={itemSchema.key} />
         <DiscriminatedUnionTagSelect
           state={state}
@@ -1064,7 +1064,7 @@ export function InlineObjectBody({
     return null;
   }
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2.5">
       {Object.entries(itemSchema.items).map(([key, fieldSchema]) => {
         if (fieldSchema.hidden || omitKeys?.includes(key)) {
           return null;
@@ -1119,7 +1119,7 @@ export function InlineObjectBody({
           );
         }
         return (
-          <div key={key} className="flex flex-col gap-0.5 pl-2">
+          <div key={key} className="flex flex-col gap-1 pl-2">
             <FieldLabel label={key} />
             {fieldSchema.description && (
               <FieldDescription description={fieldSchema.description} />
@@ -1141,7 +1141,7 @@ export function InlineObjectBody({
 /** A schema key, title-cased the way `Field` labels the same key elsewhere. */
 function FieldLabel({ label }: { label: string }) {
   return (
-    <span className="truncate text-xs font-medium leading-4 text-fg-secondary">
+    <span className="truncate text-sm font-medium text-fg-secondary">
       {fromCamelToTitleCase(label)}
     </span>
   );
@@ -1157,7 +1157,7 @@ function FieldDescription({
 }) {
   return (
     <span
-      className={cn("text-[11px] leading-4 text-fg-tertiary", {
+      className={cn("text-sm text-fg-tertiary", {
         "pl-2": inset,
       })}
     >
@@ -1224,8 +1224,12 @@ function RowSummary({
       )}
       <span
         className={cn(
-          "flex-1 min-w-0 truncate text-sm",
-          muted ? "text-fg-secondary" : "text-fg-primary",
+          "flex-1 min-w-0 truncate",
+          // The row's title, a step above the field labels under it. Beside
+          // a record's key it is second, so it stays at body size.
+          muted
+            ? "text-sm text-fg-secondary"
+            : "text-base font-medium text-fg-primary",
         )}
       >
         {summary ?? ""}
