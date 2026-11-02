@@ -75,6 +75,15 @@ coverage" (valbuild/val#1006).
   `request_code_mode`. The view is each person's (`codeMode.ts`). S10b's
   hosted form passes (C5); its local-development form stays failing, because
   HMR is no write through the server (see `addedField.scenario.test.ts`).
+- **Build on their push** (C7-C10, `codeMode.scenario.test.ts`): a developer's
+  push to `val/p/<name>` refuses Commit and Publish (C6); the refusal offers
+  Build on their push (`buildOnTheirPush`, on home's take-push contract),
+  which brings their files in, keeps the proposal's version where both
+  changed a file, and makes their commit the next Commit's parent. The
+  preview is rebuilt, Publish waits for it, and the notice follows their
+  push if it moves again. A refused Publish shows the same notice in its
+  dialog -- also when a builder tab pressed it -- and a commit message typed
+  before a builder tab's Publish now goes with the tab's press.
 - **Measurements** (`scenarios/measure/`): how to measure, and the first
   results.
 - **Versions on the wire** (phase 1, 2026-11-02). `ModuleVersion` and
@@ -958,9 +967,26 @@ branch"); home's `docs/proposals.md` changes with it.
      the same refusal, because the content service's state does not include
      the other push. So, first: the refusal names who pushed and when, links
      to their commit, and says Val will not commit over it.
-   - **Better, later:** bring their commit into the proposal (stage the files
-     it changed), then commit on top. Home already plans this ("adopting a
-     developer's push", not built yet).
+   - **Built (2026-11-02): Build on their push.** The refusal offers it, for
+     Commit and for Publish alike, instead of Try again. Content's
+     `POST /proposals/:name/take-push` (valbuild/home's take-push contract)
+     stages the files their push changed; where the proposal changed a file
+     too, the proposal's version is kept ("Val's wins") and the answer lists
+     it; what a proposal cannot hold (outside the project, `node_modules/`,
+     symlinks, submodules) is listed as not taken, and the next Commit
+     leaves it as the base has it. Their commit becomes what the next Commit
+     is made on top of. Val's server saves every pending change first, at the
+     proposal's address (`beforeProposalCodeWrite`), code mode or not: their
+     push is a developer's code, not the assistant's. The Studio then
+     rebuilds the preview (content does not); Commit goes at once, Publish
+     waits for the build (merge check `taken-push`, action `build`). If their
+     push moved again, the press is refused with a `someone-pushed` of its
+     own, and the notice moves to the newer commit. Every other refusal
+     offers only what can work: Try again (busy, GitHub down, no answer),
+     Sign in, Commit/Publish again (nothing left to take), or nothing but
+     their commit (too many files, unreadable, a plan refusal). The notice is
+     `CommitRefusedNotice`; the press is `buildOnTheirPush`, which C7-C10
+     drive.
 
 5. **Code mode can be turned off, and turning it off discards nothing.** It
    stops the save before each code write, and the code tools refuse. Code

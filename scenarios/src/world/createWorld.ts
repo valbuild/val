@@ -124,8 +124,10 @@ import {
   type ProposalsClient,
 } from "../../../packages/ui/spa/proposals/proposalsClient";
 import {
+  buildProposal,
   runCodeTool,
   type CodeToolAnswer,
+  type ProposalBuildOutcome,
 } from "../../../packages/ui/spa/proposals/proposalCode";
 import {
   createStudioJobClient,
@@ -136,6 +138,10 @@ import {
   commitProposal,
   type CommitOutcome,
 } from "../../../packages/ui/spa/proposals/commitProposal";
+import {
+  buildOnTheirPush,
+  type BuildOnPushOutcome,
+} from "../../../packages/ui/spa/proposals/buildOnTheirPush";
 
 /**
  * A world a scenario runs in: Val's real server behind a network the test
@@ -277,8 +283,30 @@ export type ProposalAt = {
   /**
    * Somebody else pushes to the proposal's git branch, as a developer does
    * from a laptop: the content host's control plane. Val has not seen it.
+   * `files`: what the push changes, as project paths (`null` deletes). A
+   * second push before the first is taken in goes on top of it. Answers
+   * their commit's sha.
    */
-  someonePushes(push: { author: string; message: string }): Promise<void>;
+  someonePushes(push: {
+    author: string;
+    message: string;
+    files?: Record<string, string | null>;
+  }): Promise<string>;
+  /**
+   * Build on their push, as the Studio's notice does after Commit or Publish
+   * was refused (`buildOnTheirPush`): `sha` is their commit, as the refusal
+   * named it.
+   */
+  buildOnTheirPush(sha: string): Promise<BuildOnPushOutcome>;
+  /**
+   * Build the proposal and serve the build at its address, as the Studio's
+   * Build does (`buildProposal`). The bundler is the world's edge: nothing
+   * is bundled, and the build is "uploaded" as it is handed the files, which
+   * it records in `built`. Then `redeploy` serves it.
+   */
+  build(): Promise<ProposalBuildOutcome>;
+  /** The files each `build` handed the bundler, oldest first. */
+  built: Record<string, string | null>[];
   /** The product's client for content's proposals API, through the app. */
   client: ProposalsClient;
 };
@@ -1234,6 +1262,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     const notWriteFiles = (): never => {
       throw new Error("write_files does not build, typecheck or offer");
     };
+    const built: Record<string, string | null>[] = [];
     return {
       name,
       branch,
@@ -1268,11 +1297,34 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             body: JSON.stringify({
               author: { name: push.author },
               message: push.message,
+              ...(push.files !== undefined ? { files: push.files } : {}),
             }),
           },
         );
         if (!res.ok) throw new Error(`Could not push: ${res.status}`);
+        const answer: unknown = await res.json();
+        if (
+          typeof answer !== "object" ||
+          answer === null ||
+          !("sha" in answer) ||
+          typeof answer.sha !== "string"
+        ) {
+          throw new Error("The push answered no sha");
+        }
+        return answer.sha;
       },
+      buildOnTheirPush: (sha) => buildOnTheirPush(client, name, sha),
+      built,
+      build: () =>
+        buildProposal({
+          name,
+          client,
+          canBuildHere: () => true,
+          deploy: async (files) => {
+            built.push(files);
+            return { status: "uploaded", publishId: randomUUID() };
+          },
+        }),
       async redeploy() {
         const res = await fetch(
           `${host.contentHost.url}/__test__/proposals/${name}/overlay`,
