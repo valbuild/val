@@ -19,6 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
   ChevronRight,
   Copy,
   EllipsisVertical,
@@ -336,6 +338,8 @@ function ArrayBlockList({
           // every field were disabled.
           readonly ? null : (
             <ArrayRowMenu
+              onInsertAbove={() => insertAt(index)}
+              onInsertBelow={() => insertAt(index + 1)}
               onDelete={() => {
                 addPatch(
                   [
@@ -602,8 +606,14 @@ function BlockRow({
           // The insert bar above this row is the next sibling, and shows its
           // plus while this has keyboard focus — it is also the next Tab
           // stop, so the plus says where Tab goes. See `InsertBar`.
-          "flex w-3 shrink-0 cursor-grab items-start justify-center self-stretch pt-2.5",
-          "bg-bg-secondary text-fg-secondary-alt outline-none transition-colors",
+          "flex w-3 shrink-0 cursor-grab items-start justify-center self-stretch rounded-sm pt-2.5",
+          "text-fg-secondary-alt outline-none transition-colors",
+          // Quiet at rest: just the grip icon. The strip appears while its
+          // row is hovered or holds focus — the INNERMOST such row only, so
+          // working in a nested list does not light every level above it.
+          // `>`: the gutter is the row's own direct child.
+          "[[data-block-row]:hover:not(:has([data-block-row]:hover))>&]:bg-bg-secondary",
+          "[[data-block-row]:focus-within:not(:has([data-block-row]:focus-within))>&]:bg-bg-secondary",
           "hover:bg-bg-brand-primary hover:text-fg-brand-primary",
           "focus-visible:bg-bg-brand-primary focus-visible:text-fg-brand-primary",
           // See `DRAG_HANDLE_TOUCH`.
@@ -620,6 +630,7 @@ function BlockRow({
          goes through `Field`, so without this a navigation to a path in this
          list has nothing to scroll to (see `scrollToStudioPath`). */
       data-val-studio-path={path}
+      data-block-row=""
       data-block-index={label.kind === "index" ? label.index : undefined}
       ref={sortable?.setNodeRef}
       style={sortable?.style}
@@ -641,12 +652,10 @@ function BlockRow({
           onClick={onInsertAbove}
         />
       )}
-      {/* The card. The gutter is OUTSIDE its border, so the gutters and the
-          bars' stubs between rows make one unbroken rail down the list. */}
+      {/* The card. The gutter is outside its border, beside it. */}
       <div
         className={cn("flex-1 min-w-0 border bg-bg-primary", {
-          "rounded-md": gutter === null,
-          "rounded-r-md": gutter !== null,
+          "rounded-md": true,
           "border-border-primary": validationErrors.length === 0,
           "border-bg-warning-secondary": validationErrors.length > 0,
         })}
@@ -756,9 +765,10 @@ function BlockRow({
 }
 
 /**
- * The bar in the gap between two rows: an insert there. At rest only its
- * gutter-wide stub shows, which joins the rows' gutters into one rail down
- * the list; on hover or focus it fills the gap in brand colour with a plus.
+ * The bar in the gap between two rows: an insert there. Invisible at rest —
+ * the gap is just a gap — and on hover or focus it fills in brand colour with
+ * a plus. The row menu's "Add above" / "Add below" are the same inserts for
+ * anyone who does not find the gap.
  *
  * Absolutely placed in the gap the list leaves for it, but in the DOM it sits
  * inside the row — "above" right after the row's grip, "below" after the
@@ -783,7 +793,7 @@ function InsertBar({
       onClick={onClick}
       className={cn(
         // Exactly the gap the list leaves between rows.
-        "group/insert absolute left-0 right-0 flex h-3 items-center outline-none",
+        "group/insert absolute left-0 right-0 flex h-3 items-center rounded-sm outline-none",
         position === "above" ? "-top-3" : "-bottom-3",
         "hover:bg-bg-brand-primary focus-visible:bg-bg-brand-primary",
         // Shown while the grip before it has keyboard focus: see the gutter.
@@ -795,9 +805,7 @@ function InsertBar({
     >
       <span
         className={cn(
-          "flex h-full w-3 items-center justify-center bg-bg-secondary text-fg-brand-primary",
-          "group-hover/insert:bg-transparent group-focus-visible/insert:bg-transparent",
-          "[[data-block-grip]:focus-visible+[data-insert-bar]>&]:bg-transparent",
+          "flex h-full w-3 items-center justify-center text-fg-brand-primary",
         )}
       >
         <Plus
@@ -1120,15 +1128,26 @@ const ADD_BUTTON =
   "flex h-6 items-center gap-1 rounded px-1 text-xs font-normal text-fg-tertiary hover:bg-transparent hover:text-fg-primary";
 
 function ArrayRowMenu({
+  onInsertAbove,
+  onInsertBelow,
   onDelete,
   onDuplicate,
 }: {
+  onInsertAbove: () => void;
+  onInsertBelow: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
 }) {
   const portalContainer = useValPortal();
+  const [open, setOpen] = useState(false);
+  // Every item closes the menu: each one changes the list, and the menu's
+  // row may not even be the same item afterwards.
+  const item = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className={MENU_TRIGGER} aria-label="Row actions">
         <EllipsisVertical size={14} />
       </PopoverTrigger>
@@ -1137,11 +1156,21 @@ function ArrayRowMenu({
         container={portalContainer}
         side="top"
       >
-        <button className={MENU_ITEM} onClick={onDuplicate}>
+        {/* The same inserts as the bars in the gaps, for keyboard and
+            screen-reader users and anyone who never hovers a gap. */}
+        <button className={MENU_ITEM} onClick={item(onInsertAbove)}>
+          <BetweenHorizontalStart className="w-3.5 h-3.5" />
+          <span>Add above</span>
+        </button>
+        <button className={MENU_ITEM} onClick={item(onInsertBelow)}>
+          <BetweenHorizontalEnd className="w-3.5 h-3.5" />
+          <span>Add below</span>
+        </button>
+        <button className={MENU_ITEM} onClick={item(onDuplicate)}>
           <Copy className="w-3.5 h-3.5" />
           <span>Duplicate</span>
         </button>
-        <button className={MENU_ITEM} onClick={onDelete}>
+        <button className={MENU_ITEM} onClick={item(onDelete)}>
           <Trash2 className="w-3.5 h-3.5" />
           <span>Delete</span>
         </button>
