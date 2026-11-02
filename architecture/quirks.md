@@ -1113,23 +1113,41 @@ with a fabricated chain, one-patch `GET /patches`: 8ms at 1 patch, 15ms at 200,
 it too. Enough to notice on a long chain, nowhere near enough to explain a request
 that appears to hang.
 
-## The canvas can refresh before the server has the edit
+## A draft page refreshes when the server has the edit, not when it is typed
 
-An edit is applied to the client store the moment you type it and written to the
-server asynchronously. `router.refresh()` fired on the edit therefore races the
-write: the RSC payload can come back rendered from content that does not include
-the patch yet. The canvas flickers and does not change — which looks exactly like
-an edit that did not work.
+An edit is applied to the Studio's store the moment you type it and written to
+the server asynchronously. A refresh of what the page's SERVER rendered (Next's
+`router.refresh()`, TanStack's `router.invalidate()`, which re-runs the loaders)
+fired on the edit therefore raced the write: it came back rendered from content
+without the patch. The canvas flickered and did not change -- which looks
+exactly like an edit that did not work -- and a safety refresh every 10 s while
+editing was recent caught it up.
 
-The page has no way to ask whether its patch has been persisted, so it cannot be
-closed properly from this side. `ValNextProvider` asks again instead: a safety
-refresh every 10s while editing is recent (`SAFETY_REFRESH_MS`,
-`SAFETY_REFRESH_WINDOW_MS`). `shouldSafetyRefresh` holds the reasons to skip —
-never edited, editing long over, tab hidden, refresh in flight — because each one
-is a whole-route request avoided, and in development that is a page re-render.
+Since phase 4 of `docs/plans/one-content-model.md` the Studio tells the page
+when the SERVER has it: `confirmed`, with the `seq` of the server's answer (an
+adopted `/stat`, or in http mode a save's own answer), on the overlay's
+`val-event` and as a canvas message. The page refreshes once per confirmed
+version, with at most one refresh in flight (`startRefreshLoop` in
+`@valbuild/react/stega`, both providers). A relayed edit refreshes nothing: the
+hooks show it from the relay already. The safety refresh and the 500 ms
+throttle are gone, and nothing in the loop runs on a timer. S05 and B08 in
+`scenarios/` pin it in memory, fs and http.
 
-If you find yourself adding a refresh somewhere, check whether this net already
-covers it.
+Two things it relies on, which are easy to break:
+
+- **Every server answer that moves content moves `seq`.** A write, a delete, a
+  publish, a new build (fs: `.val/patches.seq`; memory: the patch store's
+  counter; http: the content service's `headVersion`). A move that is not news
+  is a spare refresh, and one went unnoticed until B08 counted: fs mode counted
+  an empty store's build at the first read AFTER the first write, so a fresh
+  project's first edit moved `seq` twice.
+- **The first `confirmed` is the connection, not news.** It is sent once
+  after the catch-up; the page refreshes for it only if the catch-up moved
+  what it holds (its render was behind the Studio's). A page rendered from the
+  `draft` prop is not refreshed for loading.
+
+If you find yourself adding a refresh somewhere, check whether `confirmed`
+already covers it -- and never add one on a timer.
 
 ## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
 
@@ -1250,20 +1268,22 @@ scenario world: S24).
    waited out `waitForLoad`'s 10s timeout once per unedited module it reads.
    `/blogs/[blog]` also reads the authors module, so a new blog page sat on its
    loading fallback for tens of seconds. Fixed: the editor sends `sourcesSynced`
-   when it has handed over everything it holds. **But it says so too early**
-   (S24, `test.failing`): the relay sends it when the Studio's base aligns,
-   and at that moment the chain's records have not been fetched, so
-   `sendPendingSources` finds no patch to send. The page stops waiting,
-   renders the published content (for a route only in a patch, `null`), and
-   the draft follows on the next relay. The fix is the relay's: say it once
-   the chain it aligned to is in the store.
+   when it has handed over everything it holds. It used to say so too early
+   (S24b): when the Studio's base aligned, before the chain's records were
+   fetched, so `sendPendingSources` found no patch to send, and the page
+   rendered the published content (for a route only in a patch, `null`).
+   Fixed in phase 4: `sources-synced` waits until the store is in step --
+   aligned, and the chain it aligned to fetched and applied (`onceInStep`)
+   -- and until every module of the catch-up has been handed over.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
    consult it — and hydration is where `notFound()` is called. **Not fixed on
-   its own terms, and on TanStack no longer needed:** with `<ValProvider
-draft>` the server renders from the draft it read, so the deciding render
-   already has the route. Without `draft` (and on Next) it is still open. See
-   below.
+   its own terms, and no longer needed with the `draft` prop:** with
+   `<ValProvider draft>` the server renders from the draft it read, so the
+   deciding render already has the route. TanStack has had it since
+   `fetchValDraft`; Next's `ValProvider` takes it since phase 4, but
+   `@valbuild/next` has no `fetchValDraft` to fill it yet. Without `draft` it is
+   still open. See below.
 
 ### Why (3) is not just a bug
 
@@ -1317,14 +1337,17 @@ there is no static route for a cookie read to opt out of.
 It also fixed the more common symptom, which was not a 404 at all: every draft
 page load showed the published text and then, once the overlay had loaded, the
 draft. People notice it most right after publishing, when they reload to look.
-`e2e/tanstack/draftRender.spec.ts` pins it. Next still has the gap for client
-components; the cost argument below is why it has not followed.
+`e2e/tanstack/draftRender.spec.ts` pins it. Next's `ValProvider` takes the same
+`draft` since phase 4 (`ValNextProvider.draft.test.tsx` pins the server render
+and hydration), but nothing in `@valbuild/next` reads it for an app yet; until
+it does, Next still has the gap for client components, and the cost argument
+below is why the provider does not read it itself.
 
 ### What a visitor pays
 
 Nothing. Measured on a fresh context with no `val_enable` cookie: **zero**
 `/api/val` requests, no Val elements in the DOM, and no timers — the refresh
-loop, the `/draft/stat` poll and the safety refresh are all behind
+loop and the `/draft/stat` poll are both behind
 `mountOverlay`, which is the cookie. The suspend gates short-circuit on
 `suspend`, which stays false. The `draftModeReady` promise is only built when
 `props.suspend` is set.
@@ -1339,8 +1362,10 @@ route into dynamic rendering for everyone.
 `packages/next/src/client/useValRoute.draft.test.tsx` — one test per state,
 including the two that differ ONLY in whether the gate was on for the deciding
 render. S24 in `scenarios/src/readers.scenario.test.ts` — every step of a page
-load, with and without `suspend` and the `draft` prop; (3) and the early
-`sourcesSynced` are its two `test.failing` cases.
+load, with and without `suspend` and the `draft` prop; (3) without the `draft`
+prop is its `test.failing` case, and S24b (the early `sourcesSynced`) passes.
+`packages/next/src/ValNextProvider.draft.test.tsx` — Next's `draft` prop, on
+the server render and on hydration.
 `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).
 

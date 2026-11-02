@@ -1,6 +1,6 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1, 2 and 3
+> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1, 2, 3 and 4
 > built (2026-11-02).** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
@@ -274,6 +274,109 @@ coverage" (valbuild/val#1006).
     pipeline (internal, as the rest of that entry is), `@valbuild/server`
     the draft reads.
 
+- **The page converges** (phase 4, 2026-11-02). A draft page re-reads what
+  its server rendered (TanStack's loaders, Next's server components) when the
+  Studio says the server HAS the editor's changes, never when an edit
+  arrives, and never on a timer. The pieces:
+  - **"Confirmed up to this version"** is the server's `ProjectVersion.seq`,
+    not a `ModuleVersion`: the Studio computes no versions of its own until
+    phase 5 (`withLocalEdits`), and the question the page asks -- is there
+    something newer on the server than what I refreshed for? -- is the one
+    `seq` answers. The Studio keeps the `seq` of the stat it adopted
+    (`StatSnapshot.seq`, from `/stat`'s `version`, or `headVersion` in http
+    mode, where the two are one counter and a socket message moves only
+    `headVersion`). `subscribeConfirmed` (`sourceRelay.ts`) tells it on an
+    adopted stat and, in http mode, on a save's own answer (`patch:saved`'s
+    `headVersion`), a stat earlier. A save's answer in fs and memory carries
+    no version, so there the stat after it confirms (the long poll answers at
+    once). The relay sends `{ type: "confirmed", seq }` once after its
+    catch-up (`sources-synced`) and then each time `seq` moves forward; the
+    canvas has the same message.
+  - **What triggers the refresh**: `startRefreshLoop` in
+    `@valbuild/react/stega`, the one loop both providers and the scenario
+    world run. One refresh per confirmed `seq` (a version told twice, or late,
+    is one); at most one in flight where the refresh says when it is done
+    (TanStack's `router.invalidate()` promise -- a version confirmed meanwhile
+    is ONE more refresh after it), each time where it cannot (Next's
+    `router.refresh()`). The first `confirmed` is the connection: the page
+    refreshes for it only if the catch-up moved what it holds
+    (`ValExternalStore.receive`'s answer), i.e. its render was behind the
+    Studio's. Draft mode switching refreshes at once (`refresh()`). No timer:
+    the loop has none.
+  - **What the page reports and what the Studio sends.** The page reports
+    the modules it was rendered with a draft of (`draftHolds`): on the
+    overlay's `draftMode` event (`val-overlay-spa`, read by `Overlay.tsx` into
+    `ValOverlayEmitter`'s `pageHolds`) and on the canvas's `ready`
+    (`holds`). The catch-up (`startCatchUp`, shared by the overlay and the
+    canvas's `useValCatchUp`) sends those modules as well as the pending and
+    published ones, so a draft discarded (or published) before the Studio
+    connected is replaced rather than kept. Paths, not versions: the relay's
+    reads carry `version: null` until phase 5, so "what differs" is decided
+    on the page by content (`receive`'s `deepEqual`), and a module that did
+    not move costs nothing. Left out until then: a held module whose
+    `.jsonValues()` entries the Studio has not loaded -- it would go as
+    markers the page fills from its bundle, over entries its server read
+    filled from the server.
+  - **S24b, the early `sources-synced`, fixed.** `onceInStep` replaces
+    `onceBaseAligned`: the base aligned AND the chain it aligned to fetched
+    and applied (`PatchStore.chainSettled`, woken by `patch:chain` and
+    `patch:head`), with the five second fallback for a server that answers
+    nothing kept. `sendPendingSources` resolves when every module has been
+    handed over, and `sources-synced` follows it. What it uncovered: with the
+    catch-up now naming the pending module, a module whose touched entries
+    were still markers went out as markers and the page filled them from its
+    (older) bundle -- the matrix's "a page opened after a publish", on http.
+    `emitModuleSource` now holds any module back until the entries its
+    patches touch are loaded (it did so for publish-marked entries only).
+  - **Next's `draft` prop** (additive): `ValProvider` takes an optional
+    `draft` of the shape TanStack's takes. The store is seeded on both sides
+    (`createDraftStore`), draft mode starts known, `sources-synced` starts
+    true, `window.__VAL_BASE__` is set, and the edit tags are left out of the
+    server render and the hydration render (`useEncodesEditTags` and
+    `useHydrated`, as TanStack's). `ValDraft`, `isDraft`, `createDraftStore`
+    and `draftHolds` moved to `@valbuild/react/stega`; `@valbuild/tanstack`
+    still exports `ValDraft`. Wait 3 is fixed on Next for a page that passes
+    it (`ValNextProvider.draft.test.tsx`: the server render and hydration
+    find a route only in the draft, with no hydration mismatch). **Not
+    added:** a `fetchValDraft` in `@valbuild/next/rsc` to fill it -- a public
+    API change beyond the prop, so it waits for a decision (see Public API).
+  - **Deleted:** `safetyRefresh.ts` and its test in both packages,
+    `SAFETY_REFRESH_MS`, `SAFETY_REFRESH_WINDOW_MS`, `shouldSafetyRefresh`,
+    the 500 ms throttle (`REFRESH_INTERVAL_MS` and its poll), TanStack's
+    `refreshLoop.ts` and Next's inline copy of it, `VAL_EDIT_LANDED` and the
+    edit counter in both providers, TanStack's `draftStore.ts` (moved),
+    `onceBaseAligned`, `useValBaseAligned`, `useValPendingSourceSnapshot` and
+    the canvas's own catch-up effect (now `useValCatchUp`), and S05's "why"
+    pin.
+  - **Found on the way:** fs mode counted an empty store's build at the
+    first read AFTER the first write, so a fresh project's first edit moved
+    `seq` twice, which B08 counted as a second refresh. An empty store now
+    counts the instance's build when it is first read.
+  - **Scenarios:** S05 passes in memory, fs and http (nothing is re-read
+    while the write is held, one refresh after, none in a minute); S24b is a
+    passing test; S22 converges without its ten second wait; B08 counts
+    refreshes (one per confirmed edit, one for another editor's, none for
+    connecting from the draft, one for connecting without it, none on the
+    clock). Wait 3 without the `draft` prop stays `test.failing` (it is the
+    case the prop exists for). The world drives a TanStack page; Next's
+    provider runs the same `createDraftStore`, `applyValEvent` and
+    `startRefreshLoop`, but has no server draft reader, so its `draft` prop
+    and its refreshes are pinned by `ValNextProvider.draft.test.tsx`; the
+    canvas's messages by `canvasConfirmed.test.tsx`.
+  - **The flicker cases are unchanged**, and that is the design rather than
+    an omission: S26 (`overlayAfterBuild`, the overlay's `/stat` answered by
+    the previous build) needs the Studio to know which of two builds' bases
+    is newer before it relays one -- the manifest's versions, phase 7; S27
+    (the browser running the previous build's client code) happens at
+    hydration, before any overlay exists; S16 (the schema dialog after a
+    deploy) is phase 9's.
+  - **Public API:** one addition, Next's optional `draft` prop. The overlay's
+    `val-event`s (`confirmed`, and `holds` on `draftMode`) and the canvas
+    messages (`confirmed`, `ready.holds`) are between Val's own packages,
+    optional both ways: a bridge or a Studio of the release before ignores
+    what it does not know (a page then refreshes for nothing, so the two
+    have to be the same release -- they are served by the same app).
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -307,8 +410,12 @@ coverage" (valbuild/val#1006).
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
-4. Phases 4 to 9 (2 and 3 are built). Left from phase 3: the relay's early
-   `sources-synced` (S24's finding 1, the Studio's fix); `fetchValDraft` still
+4. Phases 5 to 9 (2, 3 and 4 are built). Left from phase 4: a
+   `fetchValDraft` for Next to fill its new `draft` prop (a public API
+   addition, waiting for a decision); the page reports paths, so a held
+   `.jsonValues()` module with entries the Studio has not loaded is not
+   re-sent until the relay carries versions (phase 5); the relay's reads
+   still have `version: null`. Left from phase 3: `fetchValDraft` still
    reads the tree and the entries itself (through the same functions as
    `serverDraftSource`), until phase 6's head. Left from phase 2: `/stat` and the manifest
    still name a module's whole chain where `/sources/~` names where it
@@ -377,7 +484,8 @@ Each reason is still true, and the design keeps serving it:
   in an isolate (`docs/plans/upgrades-v2.md` in valbuild/home). That path has
   not been measured in an isolate; phase 0 does.
 - **The page refreshes before the server has the edit**, and a safety refresh
-  every 10 s catches it (`architecture/quirks.md`).
+  every 10 s catches it (`architecture/quirks.md`). (Fixed in phase 4: the
+  refresh follows "confirmed", and the safety refresh is gone.)
 - **One Next page can show two versions**: server components the server's
   draft, client hooks the bundle until the overlay sends content.
 - **Caches nothing invalidates**: the per-instance server memo,
@@ -897,7 +1005,10 @@ the fake clock, value, the source that answered, and the version.
 5. **Never with another schema.** No surface shows content whose `schema` is
    not the schema it read it with.
 6. **Events, not timers.** `settle({ before: "safety-refresh" })` fails if
-   converging needed the safety refresh.
+   converging needed the safety refresh. (As built in phase 4 the safety
+   refresh is deleted, so there is no timer left to stop before: the
+   refresh loop has none, and S05 and B08 count the refreshes and move the
+   clock on a minute to see none come from it.)
 7. **No dialog about the schema.** A schema change, however often it happens,
    never stops the editor (see
    [Reloading the schema](#reloading-the-schema-while-the-studio-runs)).
@@ -1048,9 +1159,11 @@ shows today's draft read already crosses 128 MB. http mode joins
   build answers at the old `seq` until the service hears it went live --
   seconds for the platform's own builds, a webhook's delay for GitHub's --
   and only `build` tells those answers apart.)
-- **Next's server components** only change on a refresh. "Confirmed up to this
-  version" covers the edit; does it also need to cover another editor's
-  change, or is that the next refresh's job?
+- ~~**Next's server components** only change on a refresh. "Confirmed up to
+  this version" covers the edit; does it also need to cover another editor's
+  change, or is that the next refresh's job?~~ Answered by phase 4: it covers
+  it, because "confirmed" is the server's `seq`, which another editor's write
+  moves as much as one's own (B08).
 - **Staged schemas.** Content under `staged:…` is unreadable until something
   evaluates the proposal's code. Whether the browser evaluation of
   `design-tab.md` §3 is in scope decides how long code mode's content waits.
@@ -1191,7 +1304,12 @@ readers (signatures and results); `ValProvider`'s props, `suspend` included
 
 - Next: an optional `draft` prop on `ValProvider` and a `fetchValDraft` in
   `@valbuild/next/rsc`, mirroring TanStack's, for an app that wants the draft
-  at SSR. Without them, Next behaves as today.
+  at SSR. Without them, Next behaves as today. (Phase 4 added the prop. The
+  reader was held back as a public API addition beyond the one the phase was
+  given; the options are `fetchValDraft` on what `initValRsc` returns, as
+  TanStack's `initValContent` has it, or a separate `initValDraft`
+  export of `@valbuild/next/rsc`, and the reading itself is already
+  framework-free in `@valbuild/server`'s `draftReads.ts`.)
 - `stegaEncode` in `@valbuild/react/stega` takes an optional `version`.
 
 **Kept although they become redundant:** `initValContent`'s `patchStore`,

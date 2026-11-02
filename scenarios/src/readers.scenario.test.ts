@@ -202,11 +202,11 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
      * A route that exists only in a pending patch. `useValRoute` returns
      * `null` for it on the server render and on hydration -- the render the
      * page turns into `notFound()`, which nothing later undoes -- because the
-     * gate is not on yet for either (wait 3). Fixed on TanStack by the
-     * `draft` prop (below); without it, and on Next, still open: the server
-     * would have to know Val is enabled, which costs every visitor a dynamic
-     * render. Kept failing, as the finding. (After hydration it also meets
-     * the early `sources-synced` above: one more render without the route.)
+     * gate is not on yet for either (wait 3). Fixed by the `draft` prop
+     * (below; on Next since phase 4, pinned by `ValNextProvider.draft.test.tsx`,
+     * since this world drives a TanStack page); without it still open: the
+     * server would have to know Val is enabled, which costs every visitor a
+     * dynamic render. Kept failing, as the finding.
      */
     test.failing(
       "S24 with suspend, a route only in a pending patch is found on the render that decides, without the draft prop (fails today: wait 3)",

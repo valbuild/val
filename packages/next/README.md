@@ -43,6 +43,8 @@
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Previewing unpublished pages](#previewing-unpublished-pages)
+  - [The `draft` prop](#the-draft-prop)
+  - [Refreshes in draft mode](#refreshes-in-draft-mode)
 - [Schema types](#schema-types):
   - [String](#string)
   - [Number](#number)
@@ -280,7 +282,43 @@ after hydration, and the render before that resolves against published content.
 A page that calls `notFound()` at that point cannot recover, since the response
 has already been sent. Reloading the page in the editor works around it. Pages
 that read content for a route they already have — the common case, editing an
-existing page — are not affected.
+existing page — are not affected. The `draft` prop below is what closes it.
+
+## The `draft` prop
+
+`ValProvider` takes an optional `draft`: the editor's draft, read on the server
+for this request — the source of every module the draft changes, in the same
+shape `@valbuild/tanstack`'s `fetchValDraft` returns. With it, the provider's
+store holds the draft on the server and in the browser alike, so a client
+component's server render and its hydration render are the draft from the
+first byte: no published text first and the draft a moment later, and a route
+that exists only in an unpublished change is found on the render that decides
+whether the page is a 404.
+
+```tsx
+<ValProvider config={config} suspend draft={draft}>
+```
+
+It is optional and additive: without it (or with `null`, which is what a visitor
+or a request outside draft mode should get), the provider behaves exactly as
+before. It is read once, when the provider mounts. Only pass it to an editor's
+request — reading a draft makes the route render per request. The edit tags
+(what makes content click-to-edit) are left out of the server's HTML and the
+hydration render, and added by the render right after, so the two agree.
+
+`@valbuild/next` does not yet read the request's draft for you: the plan is a
+`fetchValDraft` beside `fetchVal` in `@valbuild/next/rsc`, as
+`@valbuild/tanstack/server` has.
+
+## Refreshes in draft mode
+
+Server components only change when the route is refreshed, and only show an
+edit once the server has it. So in draft mode the page calls `router.refresh()`
+when the editor says the server has confirmed an edit — once per confirmed
+change, never on a timer — rather than when the edit is typed, which raced the
+write and came back without it. Client components (`useVal` and friends) show an
+edit as it is typed, from the editor. `disableRefresh` on `ValProvider` turns
+the refreshes off.
 
 # Formatting published content
 
