@@ -229,16 +229,25 @@ function ArrayBlockList({
   const emptyOf = useEmptyOf();
   const containerRef = useRef<HTMLDivElement>(null);
   /**
-   * The index of an item just inserted, to move focus into once its row is
-   * on screen. Focus follows the insert so the keyboard path is: grip, Tab to
-   * the bar above it, Enter, and you are typing in the new item.
+   * Where focus goes once the list has caught up with an edit made from the
+   * keyboard. After an insert, into the new item: grip, Tab to the bar above
+   * it, Enter, and you are typing in it. After a move, to the moved item's
+   * position picker, so moving it again is one more keypress.
    */
-  const pendingFocus = useRef<number | null>(null);
+  const pendingFocus = useRef<{
+    index: number;
+    target: "body" | "position";
+  } | null>(null);
   useEffect(() => {
-    const index = pendingFocus.current;
-    if (index === null || sourcePaths === null || index >= sourcePaths.length) {
+    const pending = pendingFocus.current;
+    if (
+      pending === null ||
+      sourcePaths === null ||
+      pending.index >= sourcePaths.length
+    ) {
       return;
     }
+    const { index, target: focusTarget } = pending;
     pendingFocus.current = null;
     // After paint: the row for the new index re-renders with its new content
     // in the same commit this effect runs after, but its fields mount lazily.
@@ -246,10 +255,14 @@ function ArrayBlockList({
       const row = containerRef.current?.querySelector(
         `[data-block-index="${index}"]`,
       );
+      // The row's own controls come before any nested row's in the DOM, so
+      // the first match is this row's.
       const target =
-        row?.querySelector<HTMLElement>(
-          "[data-block-body] :is(input, textarea, [contenteditable='true'], [role='combobox'])",
-        ) ?? row?.querySelector<HTMLElement>("[data-block-grip]");
+        focusTarget === "position"
+          ? row?.querySelector<HTMLElement>("[data-block-position]")
+          : (row?.querySelector<HTMLElement>(
+              "[data-block-body] :is(input, textarea, [contenteditable='true'], [role='combobox'])",
+            ) ?? row?.querySelector<HTMLElement>("[data-block-grip]"));
       target?.focus();
     });
   }, [sourcePaths]);
@@ -296,7 +309,7 @@ function ArrayBlockList({
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
   const insertAt = (index: number) => {
-    pendingFocus.current = index;
+    pendingFocus.current = { index, target: "body" };
     addPatch(
       [
         {
@@ -307,6 +320,17 @@ function ArrayBlockList({
       ],
       type,
     );
+  };
+
+  // The keyboard's (and anyone's) way to reorder: pick a position. The same
+  // optimistic reorder and `move` patch as a drag.
+  const moveTo = (from: number, to: number) => {
+    if (from === to) {
+      return;
+    }
+    pendingFocus.current = { index: to, target: "position" };
+    setItems((prev) => arrayMove(prev, from, to));
+    onMove(from, to);
   };
 
   const renderRow = (
@@ -326,7 +350,12 @@ function ArrayBlockList({
             : () => insertAt(index + 1)
         }
         path={item.path}
-        label={{ kind: "index", index }}
+        label={{
+          kind: "index",
+          index,
+          count: items.length,
+          onMove: readonly || isOverlay ? undefined : (to) => moveTo(index, to),
+        }}
         itemSchema={schema.item}
         isInline={isInlineRender(schema)}
         depth={depth}
@@ -518,7 +547,15 @@ function RecordBlockList({
   );
 }
 
-type RowLabel = { kind: "index"; index: number } | { kind: "key"; key: string };
+type RowLabel =
+  | {
+      kind: "index";
+      index: number;
+      count: number;
+      /** Absent when the row cannot move: readonly, or the drag overlay. */
+      onMove?: (to: number) => void;
+    }
+  | { kind: "key"; key: string };
 
 function SortableBlockRow({
   id,
@@ -662,6 +699,9 @@ function BlockRow({
       >
         {headered && (
           <div className="flex items-center gap-1 h-7 px-1.5">
+            {/* An array row's number is a control (it moves the row), so it
+                cannot be inside the collapse button. A key is just text. */}
+            {label.kind === "index" && <RowLabelText label={label} />}
             <button
               className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
               aria-expanded={!collapsed}
@@ -674,7 +714,7 @@ function BlockRow({
                   { "rotate-90": !collapsed },
                 )}
               />
-              <RowLabelText label={label} />
+              {label.kind === "key" && <RowLabelText label={label} />}
               <RowSummary
                 path={path}
                 unionKey={
@@ -716,11 +756,13 @@ function BlockRow({
           >
             {/* `h-7`, the height of a dense input, so a key and the menu line
               up with the first line of the field however tall it grows. */}
-            {label.kind === "key" && (
-              <div className="flex items-center h-7 max-w-[40%] shrink-0">
-                <RowLabelText label={label} />
-              </div>
-            )}
+            <div
+              className={cn("flex items-center h-7 shrink-0", {
+                "max-w-[40%]": label.kind === "key",
+              })}
+            >
+              <RowLabelText label={label} />
+            </div>
             <div className="flex-1 min-w-0">
               <AnyField
                 path={path}
@@ -766,8 +808,8 @@ function BlockRow({
 
 /**
  * The bar in the gap between two rows: an insert there. Invisible at rest —
- * the gap is just a gap — and on hover or focus it fills in brand colour with
- * a plus. The row menu's "Add above" / "Add below" are the same inserts for
+ * the gap is just a gap — and on hover or focus a thin brand line appears
+ * across it, split in the middle by a round plus. The row menu's "Add above" / "Add below" are the same inserts for
  * anyone who does not find the gap.
  *
  * Absolutely placed in the gap the list leaves for it, but in the DOM it sits
@@ -784,6 +826,16 @@ function InsertBar({
   label: string;
   onClick: () => void;
 }) {
+  // Each piece is a direct child of the bar, so one selector per state reaches
+  // all three: the bar's own hover/focus, or the grip right before it holding
+  // keyboard focus. `+` and `>`, never `~` or a descendant selector: the grip
+  // lights the bar right after it (its own row's "above"), not the row's
+  // "below" bar or any bar nested inside the row.
+  const shown = cn(
+    "opacity-0 transition-opacity",
+    "group-hover/insert:opacity-100 group-focus-visible/insert:opacity-100",
+    "[[data-block-grip]:focus-visible+[data-insert-bar]>&]:opacity-100",
+  );
   return (
     <button
       type="button"
@@ -792,36 +844,40 @@ function InsertBar({
       title={label}
       onClick={onClick}
       className={cn(
-        // Exactly the gap the list leaves between rows.
-        "group/insert absolute left-0 right-0 flex h-3 items-center rounded-sm outline-none",
+        // The whole gap is the target; what shows is a thin line across the
+        // card (not the gutter), split in the middle by the plus.
+        "group/insert absolute left-3 right-0 flex h-3 items-center gap-1 outline-none",
         position === "above" ? "-top-3" : "-bottom-3",
-        "hover:bg-bg-brand-primary focus-visible:bg-bg-brand-primary",
-        // Shown while the grip before it has keyboard focus: see the gutter.
-        // `+` and `>`, never `~` or a descendant selector: the grip lights
-        // the bar right after it (its own row's "above"), not the row's
-        // "below" bar or any bar nested inside the row.
-        "[[data-block-grip]:focus-visible+&]:bg-bg-brand-primary",
       )}
     >
       <span
+        className={cn("h-0.5 flex-1 rounded-full bg-bg-brand-primary", shown)}
+      />
+      <span
         className={cn(
-          "flex h-full w-3 items-center justify-center text-fg-brand-primary",
+          "flex size-4 shrink-0 items-center justify-center rounded-full bg-bg-brand-primary text-fg-brand-primary",
+          shown,
         )}
       >
-        <Plus
-          size={10}
-          strokeWidth={3}
-          className={cn(
-            "opacity-0 group-hover/insert:opacity-100 group-focus-visible/insert:opacity-100",
-            "[[data-block-grip]:focus-visible+[data-insert-bar]>span>&]:opacity-100",
-          )}
-        />
+        <Plus size={10} strokeWidth={3} />
       </span>
+      <span
+        className={cn("h-0.5 flex-1 rounded-full bg-bg-brand-primary", shown)}
+      />
     </button>
   );
 }
 
 function RowLabelText({ label }: { label: RowLabel }) {
+  if (label.kind === "index" && label.onMove) {
+    return (
+      <PositionSelect
+        index={label.index}
+        count={label.count}
+        onMove={label.onMove}
+      />
+    );
+  }
   if (label.kind === "index") {
     return (
       <span className="min-w-4 shrink-0 text-[10px] tabular-nums text-fg-secondary-alt">
@@ -835,6 +891,88 @@ function RowLabelText({ label }: { label: RowLabel }) {
     <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-xs text-fg-secondary">
       {label.key}
     </span>
+  );
+}
+
+/**
+ * The item's number, which is also where it can be moved to: click it (or
+ * Enter on it) and pick another number, and the item moves there — the
+ * keyboard's twin of dragging the gutter.
+ *
+ * A button and a popover, not a native `<select>`: a select is a `combobox`,
+ * and a union row's variant picker is already the row's combobox. Two of
+ * them made "the row's picker" ambiguous, to a screen reader as much as to
+ * a test.
+ */
+function PositionSelect({
+  index,
+  count,
+  onMove,
+}: {
+  index: number;
+  count: number;
+  onMove: (to: number) => void;
+}) {
+  const portalContainer = useValPortal();
+  const [open, setOpen] = useState(false);
+  const moved = useRef(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        data-block-position=""
+        aria-label={`Item ${index + 1} of ${count}. Move to another position`}
+        title="Move to position"
+        className={cn(
+          "h-5 min-w-5 shrink-0 rounded px-1 text-center text-[10px] tabular-nums text-fg-secondary-alt outline-none",
+          "hover:bg-bg-secondary-hover hover:text-fg-primary",
+          "focus-visible:ring-1 focus-visible:ring-border-focus",
+          "data-[state=open]:bg-bg-secondary-hover data-[state=open]:text-fg-primary",
+        )}
+      >
+        {index + 1}
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        side="bottom"
+        align="start"
+        className="w-auto max-w-56 p-1.5"
+        onCloseAutoFocus={(event) => {
+          // After a move, focus goes to the moved item's number instead (see
+          // `pendingFocus`); this trigger now belongs to whatever slid in.
+          if (moved.current) {
+            event.preventDefault();
+            moved.current = false;
+          }
+        }}
+      >
+        <div className="px-1 pb-1 text-xs text-fg-tertiary">
+          Move to position
+        </div>
+        <div className="grid max-h-48 grid-cols-6 gap-0.5 overflow-y-auto">
+          {Array.from({ length: count }, (_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-current={i === index ? "true" : undefined}
+              aria-label={i === index ? `${i + 1} (current)` : `${i + 1}`}
+              disabled={i === index}
+              onClick={() => {
+                moved.current = true;
+                setOpen(false);
+                onMove(i);
+              }}
+              className={cn(
+                "h-7 min-w-7 rounded text-xs tabular-nums text-fg-primary",
+                "hover:bg-bg-secondary-hover focus-visible:bg-bg-secondary-hover focus-visible:outline-none",
+                "disabled:bg-bg-brand-primary disabled:text-fg-brand-primary",
+              )}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
