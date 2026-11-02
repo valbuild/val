@@ -102,3 +102,27 @@ as noise: their code path did not change (no patch is applied).
   patches with its own `applyPatch(deepClone(module))` until phase 5: 0.36 /
   1.5 / 9.7 / 19.2 / 48.6 / 102 ms before, 0.44 / 2.1 / 12.2 / 18.8 / 44.6 /
   184 ms after (9 KB to 5 MB), the difference being the machine's load.
+
+## Phase 3: the readers on sources, before and after
+
+2026-11-02, same container, quiet, nothing else running.
+`pnpm exec tsx measure/draftRead.ts all --time-only`, before and after the
+readers moved onto `resolveVal`. Medians:
+
+| Input                   | Draft read before | after   | Without validation before | after  |
+| ----------------------- | ----------------- | ------- | ------------------------- | ------ |
+| valbuild/web            | 94 ms             | 61 ms   | 25 ms                     | 21 ms  |
+| synthetic 1 MB          | 70 ms             | 47 ms   | 21 ms                     | 22 ms  |
+| synthetic 5 MB          | 257 ms            | 263 ms  | 112 ms                    | 168 ms |
+| synthetic 10 MB         | 560 ms            | 535 ms  | 253 ms                    | 218 ms |
+| synthetic 20 MB         | 1105 ms           | 1008 ms | 507 ms                    | 461 ms |
+| synthetic + 650 patches | 106 ms            | 64 ms   | 41 ms                     | 39 ms  |
+
+- **No change, as expected.** The script measures the request a draft-mode
+  `fetchVal` makes (`PUT /sources/~`, in `serverDraftSource` now), and phase
+  3 did not change that request or how often it is made (once per request,
+  `memoizePerRequest`). The differences go both ways and are noise; the
+  head (phase 6) is what changes this number.
+- What phase 3 changes is counted, not timed (B07): a draft `fetchVal`
+  resolves twice and encodes once. `draftRead.perf.test.ts` (Next) printed
+  39 ms per three-read render with the memo, 79 ms without, after.

@@ -1,7 +1,7 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 and 2 built
-> (2026-11-02).** See
+> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1, 2 and 3
+> built (2026-11-02).** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
 > the change.
@@ -178,6 +178,102 @@ coverage" (valbuild/val#1006).
      nothing in Val writes a `test` op; the MCP `create_patch` tool passes
      one through from its caller.
 
+- **The readers on sources** (phase 3, 2026-11-02). Every reader of both
+  frameworks -- `fetchVal`, `fetchValKey`, `fetchValRoute`,
+  `fetchValRouteUrl`, `fetchValDraft`, `useVal`, `useValKey`, `useValRoute`,
+  `useValRouteUrl` -- is now `resolveVal` (or `resolveValEntry`) over a list
+  of `ContentSource`s, and differs from the others only in that list and in
+  how it waits. The pieces:
+  - `ContentSource`, `ModuleRead` and `EntryRead` are types in
+    `@valbuild/shared/internal` (`content/source.ts`), not in
+    `@valbuild/react` as drawn above: the server's source is written in
+    `@valbuild/server`, which cannot import React's package. (The engine's
+    own `EntryRead` was renamed `EntryContent` to free the name.)
+  - `@valbuild/react/stega` (`src/read/`): `layered` (the first source that
+    does not pass wins; the schema rule), `planOf`, `resolveVal`,
+    `resolveValEntry` (and `resolveModuleEntry`, after a view is resolved),
+    `awaitResolved` (a server read: wait, resolve again) and `useResolved`
+    (a component: `useSyncExternalStore` on `revision`, then `React.use` on
+    what is pending) -- the one hook both frameworks' `useValStega` is now,
+    as `useResolvedVal` / `useResolvedEntry`. And the sources a page reads:
+    `overlaySource` (with the three suspend gates as its states), the
+    overlay's store (`ValExternalStore` and `applyValEvent`, moved here from
+    both frameworks), `snapshotSource` and `bundleSource`, whose entry
+    imports are kept by module OBJECT (a build), which replaces
+    `jsonEntryPromiseCache` (kept by path, so it kept a previous build's
+    entries).
+  - `@valbuild/server` (`draftReads.ts`): `serverDraftSource`, the draft read
+    both frameworks had a copy of (the per-request `/sources/~`, the
+    `.jsonValues()` entries a draft edits filled through `/json`, one entry
+    through `/json`), `draftForRequest` (draft mode, cookies, host) and
+    `readerSchemaVersion`. Phase 6 replaces what it reads with the head.
+  - The schema rule is in `layered`: a source's answer whose
+    `version.schema` is not the reader's own (`readerSchemaVersion`, hashed
+    once per module object) is not read. A server reader has nowhere to wait
+    for code (its runtime IS the build), so without `codeChanged` the next
+    source answers -- which ends at the reader's bundle, content of the code
+    that reads it. Only the server's draft carries versions until phase 5.
+  - A wait that is over and still answered is passed over (`settled`), so a
+    gate whose promise resolved without an answer (draft mode stayed
+    unknown, a module the Studio never sent) reads on as it did, instead of
+    looping.
+  - The seeded draft (`<ValProvider draft>`) stays in the overlay's store,
+    as `from: "seeded"`, rather than a source of its own: the refresh loop
+    arms on a relayed value that differs from what the page shows
+    (`ValExternalStore.receive`), and a seed outside the store would arm it
+    on every first relay.
+  - The relay sends reads: `source-update` carries `read` (a `ModuleRead`,
+    `version: null` until phase 5), which the page keeps as it is. It also
+    still carries `source`, for a page of the release before (a rollout);
+    that goes in phase 8. The canvas `sourceUpdate` message carries both.
+  - **Deleted:** `withJsonValuesEntries`, `draftJsonValuesRecord`,
+    `withDraftJsonEntries`, `loadDraftJsonEntry`, `loadDraftSources`,
+    `getHost` and `resolveDraftOrCommittedEntry` in each of `initValRsc` and
+    `initValContent` (one copy each now, in `@valbuild/server`, or gone into
+    `layered`); `draftJsonEntry`, `useDraftModuleSource`,
+    `committedJsonEntryPromise`, `jsonEntryPromiseCache` and
+    `readCommittedJsonEntry` in both `initValClient`s; TanStack's
+    `overlayRead.ts` and `snapshotJsonEntry`; the inline source-priority
+    arrays; the suspend gates in both `initValClient`s (now
+    `overlaySource`'s states); the error-path `stegaEncode` in both
+    `fetchVal`s (a draft that cannot be read is a `pass`, read with the same
+    env, so its edit tags are the ones decided once); both copies of
+    `ValExternalStore` and its test, Next's inline `val-event` handler and
+    TanStack's `applyValEvent`; `jsonValuesRecordToFill`,
+    `fillJsonValuesRecord`, `bundledJsonEntryImport`,
+    `getJsonEntryStegaRoot` and `isJsonValuesRecordSchema` from both
+    `routeFromVal.ts`; and `readObserver.ts`: a server reader says what it
+    read itself (`readsOfFetchVal`, `readsOfFetchValDraft`: the read behind
+    the public function, which only drops the reads).
+  - **What it fixed.** `useValRoute` on a `.jsonValues()` router imported
+    EVERY entry (it called `useVal` on the record to keep its hooks in
+    order), and `useValRouteUrl` and `fetchValRouteUrl`, which need none,
+    imported them all too: now the route's entry, and nothing. Next's
+    `useValKey` showed the published entry of a nullable record that a
+    draft set to `null`, and gave back `Object.prototype.toString` for an
+    entry named `toString` that the draft did not have; it shares
+    TanStack's rule now. The error-path bug
+    (S25, a visitor given edit tags by the fallback) was fixed on this
+    branch before; the path itself is gone, so it cannot come back.
+  - **S24 is a scenario** (`readers.scenario.test.ts`), with the page's
+    provider steps in the world (`loadPage`'s `draftProp` and `suspend`):
+    without `suspend` nothing suspends, with or without the `draft` prop;
+    with it and the `draft` prop a route only in a patch is found on every
+    render. Two findings, kept `test.failing`: (1) the relay sends
+    `sources-synced` before the module with the pending edit -- when the
+    Studio's base aligns its chain's records are not in yet, so
+    `sendPendingSources` finds nothing -- and a page with `suspend` stops
+    waiting and renders the published content first; (2) wait 3, the gate
+    is off on the render that decides, so without the `draft` prop a route
+    only in a patch is not found at SSR and hydration (known, in
+    `quirks.md`).
+  - **Budgets:** B07 (`read:resolve`, `read:encode`, from `readWork()`): a
+    draft `fetchVal` resolves twice (the draft loading, then in) and
+    encodes once; a visitor's resolves and encodes once. B01-B06 unchanged.
+  - **Public API:** unchanged. `@valbuild/react/stega` exports the
+    pipeline (internal, as the rest of that entry is), `@valbuild/server`
+    the draft reads.
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -211,7 +307,10 @@ coverage" (valbuild/val#1006).
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
-4. Phases 3 to 9 (2 is built). Left from phase 2: `/stat` and the manifest
+4. Phases 4 to 9 (2 and 3 are built). Left from phase 3: the relay's early
+   `sources-synced` (S24's finding 1, the Studio's fix); `fetchValDraft` still
+   reads the tree and the entries itself (through the same functions as
+   `serverDraftSource`), until phase 6's head. Left from phase 2: `/stat` and the manifest
    still name a module's whole chain where `/sources/~` names where it
    stopped (they do not apply patches, so they cannot know); `/sources/~`'s
    `patches.applied` still lists a patch that failed.
@@ -287,8 +386,7 @@ Each reason is still true, and the design keeps serving it:
 Found on the way and not fixed here (each is its own small PR):
 
 - `fetchVal`'s error fallback stega-encodes for every visitor, because it
-  drops `disabled` (`packages/next/src/rsc/initValRsc.ts:231`, and the same in
-  `packages/tanstack/src/server/initValContent.ts:271`).
+  drops `disabled` (fixed as S25; the fallback itself is gone since phase 3).
 - `/stat` sends `jsonEntriesSha` and nothing reads it.
 - Compare with the site reads `/proposal-site-sources` with a raw `fetch`,
   not through `ValClient`.

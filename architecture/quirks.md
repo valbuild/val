@@ -353,9 +353,10 @@ finished build gets overwritten by the pending one it replaced.
 
 ## `fetchVal` in draft mode loads EVERY module, once per call
 
-`initFetchValStega` (next `rsc`, and the same code in tanstack `server`) asks
-`/sources/~` with `path: "/"` — the whole tree — and then hands `stegaEncode` a
-`getModule` that reads one entry out of the result. So a draft render that calls
+The server's draft source (`serverDraftSource` in `@valbuild/server`, which
+`fetchVal` in next `rsc` and tanstack `server` both read through `resolveVal`)
+asks `/sources/~` with `path: "/"` — the whole tree — and answers each module
+out of the result. So a draft render that calls
 `fetchVal` three times fetches and validates every module in the project three
 times, no matter how small the three selectors are.
 
@@ -363,8 +364,8 @@ Two things keep it from being a production problem, and neither makes it a
 non-problem:
 
 - It is **draft mode only**. With Val disabled the reader never touches the
-  server: `stegaEncode(selector, { disabled: true })` runs against the statically
-  imported module and nothing else.
+  server: there is no draft source, and the read is the statically imported
+  module (and a snapshot over it) and nothing else.
 - The client readers do NOT do this. `useVal` subscribes to exactly
   `getModuleIds(selector)`, so a page subscribes to the page.
 
@@ -1235,6 +1236,10 @@ text; a route that resolves too early is a 404 nothing later can undo.
 Three things have to be true before the answer is trustworthy, and each was
 independently wrong:
 
+The three are the states of one source now, `overlaySource` in
+`@valbuild/react` (both frameworks' hooks read through it, and so does the
+scenario world: S24).
+
 1. **Draft mode must be KNOWN.** `draftMode` is `null` until `/draft/stat`
    answers, and the reader that turns a selector into content treats `null` as
    off. So a render that got through while it was unknown resolved against
@@ -1245,7 +1250,13 @@ independently wrong:
    waited out `waitForLoad`'s 10s timeout once per unedited module it reads.
    `/blogs/[blog]` also reads the authors module, so a new blog page sat on its
    loading fallback for tens of seconds. Fixed: the editor sends `sourcesSynced`
-   when it has handed over everything it holds.
+   when it has handed over everything it holds. **But it says so too early**
+   (S24, `test.failing`): the relay sends it when the Studio's base aligns,
+   and at that moment the chain's records have not been fetched, so
+   `sendPendingSources` finds no patch to send. The page stops waiting,
+   renders the published content (for a route only in a patch, `null`), and
+   the draft follows on the next relay. The fix is the relay's: say it once
+   the chain it aligned to is in the store.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
    consult it — and hydration is where `notFound()` is called. **Not fixed on
@@ -1327,7 +1338,10 @@ route into dynamic rendering for everyone.
 
 `packages/next/src/client/useValRoute.draft.test.tsx` — one test per state,
 including the two that differ ONLY in whether the gate was on for the deciding
-render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
+render. S24 in `scenarios/src/readers.scenario.test.ts` — every step of a page
+load, with and without `suspend` and the `draft` prop; (3) and the early
+`sourcesSynced` are its two `test.failing` cases.
+`e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).
 
 ## `fetchVal` in draft mode reads every module, ONCE per request
@@ -1372,9 +1386,9 @@ anyway, to build the gallery-conflict map and the cross-module snapshot, so
 scoping it changes which errors are reported rather than just how fast.
 
 None of this touches production. With Val disabled the reader never calls the
-server at all: `stegaEncode(selector, { disabled: true })` runs against the
-statically imported module. And it does not touch the client readers, which were
-already scoped — `useVal` subscribes to exactly `getModuleIds(selector)`.
+server at all: it has no draft source, and reads the statically imported
+module. And it does not touch the client readers, which were already scoped —
+`useVal` subscribes to exactly `getModuleIds(selector)` (`planOf`).
 
 ## TanStack Start
 
