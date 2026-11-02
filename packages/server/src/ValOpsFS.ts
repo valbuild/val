@@ -75,6 +75,7 @@ import { Buffer } from "buffer";
 import { getFileExt } from "./getFileExt";
 import { createFsSketchpadStore } from "./sketchpads/fsSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 /** Serializes a schema, or gives up quietly — serialization errors are reported elsewhere. */
 function serializeSchemaSafely(
@@ -161,6 +162,7 @@ export class ValOpsFS extends ValOps {
         {
           method: "POST",
           headers: {
+            ...VAL_CLIENT_HEADERS,
             ...authHeader,
             "Content-Type": "application/json",
           },

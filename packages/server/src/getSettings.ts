@@ -1,5 +1,6 @@
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { z } from "zod";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 /**
  * The fallback content host.
@@ -53,10 +54,12 @@ export async function getSettings(
       headers:
         "pat" in auth
           ? {
+              ...VAL_CLIENT_HEADERS,
               "x-val-pat": auth.pat,
               "Content-Type": "application/json",
             }
           : {
+              ...VAL_CLIENT_HEADERS,
               Authorization: `Bearer ${auth.apiKey}`,
               "Content-Type": "application/json",
             },

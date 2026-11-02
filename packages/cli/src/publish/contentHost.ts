@@ -1,4 +1,6 @@
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import { valClientHeaders } from "@valbuild/shared/internal";
+import { VERSION } from "../version";
 
 /**
  * The one host `val publish` talks to.
@@ -105,10 +107,14 @@ async function requestJson(options: {
   try {
     res = await fetchImpl(options.url, {
       method: options.method,
-      headers:
-        options.method === "GET"
-          ? options.headers
-          : { "Content-Type": "application/json", ...options.headers },
+      headers: {
+        // Which `val` is asking. See `VAL_CLIENT_HEADER` in @valbuild/shared.
+        ...valClientHeaders("@valbuild/cli", VERSION),
+        ...(options.method === "GET"
+          ? {}
+          : { "Content-Type": "application/json" }),
+        ...options.headers,
+      },
       ...(options.method === "GET"
         ? {}
         : { body: JSON.stringify(options.body ?? {}) }),

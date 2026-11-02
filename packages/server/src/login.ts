@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { getPersonalAccessTokenPath } from "./personalAccessTokens";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 /**
  * The Val login flow, as reusable primitives.
@@ -107,7 +108,7 @@ export async function startValLogin(
   const deviceName = options.deviceName ?? defaultDeviceName();
   const response = await fetch(`${host}/api/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...VAL_CLIENT_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify(deviceName ? { device_name: deviceName } : {}),
   });
 
@@ -214,7 +215,7 @@ export async function awaitValLoginConfirmation(
 
     const response = await fetch(`${host}/api/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...VAL_CLIENT_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({ device_code: authorization.deviceCode }),
     });
 
