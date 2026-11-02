@@ -116,7 +116,7 @@ describe.each(["fs", "memory", "http"] as const)(
      * `codeMode.scenario.test.ts`, where the assistant adds the field through
      * `write_files` and the editor fills it in. What makes THIS one pass is the
      * schema rule (an edit to a module whose schema the server does not have
-     * yet is held, not deleted): phase 1 of the plan.
+     * yet is held, not deleted): phase 9 of the plan.
      */
     test.failing(
       "is kept when the Studio has the new code before the server does",

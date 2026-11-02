@@ -109,7 +109,7 @@ coverage" (valbuild/val#1006).
 2. Fix the plain bugs (decision 2), and then the grid's failing cells, after
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
-   local form waits for the schema rule (phase 1).
+   local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
 4. Phases 1 to 9.
 
 ## The goal
