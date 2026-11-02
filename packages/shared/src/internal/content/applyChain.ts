@@ -453,7 +453,7 @@ function implicitState(
 }
 
 /** An entry's content, read. */
-export type EntryRead =
+export type EntryContent =
   | { kind: "content"; content: ReadonlyJSONValue }
   | { kind: "missing" }
   | { kind: "error"; message: string; patchId?: PatchId };
@@ -468,7 +468,7 @@ export function resolveEntry(
   key: string,
   state: EntryState | undefined,
   baseContentOf: (key: string) => ReadonlyJSONValue | undefined,
-): EntryRead {
+): EntryContent {
   if (state === undefined || state.kind === "deleted") {
     return { kind: "missing" };
   }

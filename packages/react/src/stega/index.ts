@@ -17,6 +17,10 @@ export {
   type RichText,
 } from "./stegaEncode";
 export { stegaDecodeStrings } from "./stegaDecodeStrings";
+// How every reader of @valbuild/next and @valbuild/tanstack loads content:
+// the sources, `layered`, `resolveVal`. Not for apps; here because it is what
+// the framework packages share, beside the encoder it ends in.
+export * from "../read";
 export { attrs } from "./attrs";
 export { raw, type DecodeVal } from "./raw";
 export {

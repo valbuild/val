@@ -28,6 +28,22 @@ export type {
   Returns,
 } from "./externalRecords";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+// What the server-side readers of @valbuild/next and @valbuild/tanstack read
+// the draft from: one copy for both, which each had line for line.
+export {
+  draftForRequest,
+  draftTree,
+  hasJsonEntriesFromServer,
+  loadDraftSources,
+  readerSchemaVersion,
+  serverDraftSource,
+  withDraftJsonEntries,
+} from "./draftReads";
+export type {
+  DraftSources,
+  DraftValServer,
+  GetDraftSourcesScope,
+} from "./draftReads";
 export {
   contentFromEnv,
   proposalFromEnv,

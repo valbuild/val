@@ -21,6 +21,10 @@ export * from "./content/version";
 // rules it is built on: see "One engine" in the same plan.
 export * from "./content/applyChain";
 export * from "./content/jsonValuesOps";
+// What every reader loads from, in one shape: see "One way to load" in the
+// same plan. Types only; the sources are in @valbuild/react and
+// @valbuild/server.
+export type * from "./content/source";
 export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";
