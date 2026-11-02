@@ -2,6 +2,7 @@ import { formatRelativeTime } from "../utils/formatRelativeTime";
 import {
   commitRefusalOf,
   ProposalsApiError,
+  type ProposalSomeonePushed,
   type ProposalsClient,
 } from "./proposalsClient";
 
@@ -70,17 +71,7 @@ export async function commitProposal(
       };
     }
     if (refusal.kind === "someone-pushed") {
-      const theirs = refusal.pushed.theirs;
-      return {
-        status: "someone-pushed",
-        message: refusal.message,
-        branch: refusal.pushed.branch,
-        branchUrl: refusal.pushed.branchUrl,
-        who: theirs.author?.name ?? theirs.author?.login ?? null,
-        ago:
-          theirs.at !== null ? formatRelativeTime(theirs.at, Date.now()) : null,
-        theirs: { sha: theirs.sha, url: theirs.url, message: theirs.message },
-      };
+      return someonePushedOf(refusal.message, refusal.pushed);
     }
     return {
       status: "failed",
@@ -91,4 +82,50 @@ export async function commitProposal(
         refusal.kind === "repository-refused" ? refusal.branchUrl : null,
     };
   }
+}
+
+/** Content's `someone-pushed`, as Commit and Publish both say it. */
+export function someonePushedOf(
+  message: string,
+  pushed: ProposalSomeonePushed,
+): Extract<CommitOutcome, { status: "someone-pushed" }> {
+  const theirs = pushed.theirs;
+  return {
+    status: "someone-pushed",
+    message,
+    branch: pushed.branch,
+    branchUrl: pushed.branchUrl,
+    who: theirs.author?.name ?? theirs.author?.login ?? null,
+    ago: theirs.at !== null ? formatRelativeTime(theirs.at, Date.now()) : null,
+    theirs: { sha: theirs.sha, url: theirs.url, message: theirs.message },
+  };
+}
+
+/**
+ * Why a press of Publish was refused, when it was the commit Publish makes
+ * first (`commitRefusalOf`): someone pushed, or a refusal whose Try again
+ * can or cannot help. `null`: not a refused commit; the press's own message
+ * says it.
+ */
+export function publishCommitRefusalOf(
+  cause: unknown,
+): Exclude<CommitOutcome, { status: "committed" }> | null {
+  const refusal = commitRefusalOf(cause);
+  if (refusal === null) return null;
+  if (refusal.kind === "someone-pushed") {
+    return someonePushedOf(refusal.message, refusal.pushed);
+  }
+  if (
+    refusal.kind === "repository-refused" ||
+    refusal.kind === "committing" ||
+    refusal.kind === "github-unavailable"
+  ) {
+    return {
+      status: "failed",
+      message: refusal.message,
+      canRetry: refusal.kind !== "repository-refused",
+      branchUrl: refusal.branchUrl,
+    };
+  }
+  return null;
 }

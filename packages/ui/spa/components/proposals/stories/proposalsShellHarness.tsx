@@ -33,7 +33,10 @@ import {
 import type { PreviewProblem } from "../PreviewProblemCard";
 import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
 import type { CodeModeView } from "../CodeModeButton";
-import { CommitRefusedNotice } from "../CommitRefusedNotice";
+import {
+  CommitRefusedNotice,
+  type BuildOnPushState,
+} from "../CommitRefusedNotice";
 import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
 import {
   FILES,
@@ -246,8 +249,13 @@ export type HarnessProps = {
    * `upToDate`: nothing saved since the last Commit.
    */
   commit?: { upToDate?: boolean };
-  /** A Commit was refused: somebody else pushed to the branch. */
-  commitRefused?: boolean;
+  /**
+   * A Commit was refused: somebody else pushed to the branch. `true` starts
+   * at the refusal, and Build on their push plays out from there (their
+   * push brought in, one file kept as the proposal's, the preview rebuilt);
+   * a state starts there instead.
+   */
+  commitRefused?: boolean | BuildOnPushState;
   /** Save builds too: `onSaveAndBuild`. See `ProposalSaveAndBuildButton`. */
   saveBuilds?: boolean;
   /**
@@ -321,7 +329,34 @@ export function ProposalsShell({
     codeMode?.contentView === true ? "content" : "code",
   );
   const [committing, setCommitting] = useState(false);
-  const [refusedShown, setRefusedShown] = useState(commitRefused);
+  const [refusedShown, setRefusedShown] = useState(commitRefused !== false);
+  const [buildOn, setBuildOn] = useState<BuildOnPushState>(
+    typeof commitRefused === "object" ? commitRefused : { kind: "idle" },
+  );
+  // Building on their push, as the app plays it: brought in, then rebuilt.
+  useEffect(() => {
+    if (buildOn.kind === "building") {
+      const timer = setTimeout(
+        () =>
+          setBuildOn({
+            kind: "built",
+            kept: ["content/home.val.ts"],
+            notTaken: [],
+            rewritten: false,
+            rebuild: { state: "running" },
+          }),
+        1500,
+      );
+      return () => clearTimeout(timer);
+    }
+    if (buildOn.kind === "built" && buildOn.rebuild.state === "running") {
+      const timer = setTimeout(
+        () => setBuildOn({ ...buildOn, rebuild: { state: "done" } }),
+        3000,
+      );
+      return () => clearTimeout(timer);
+    }
+  }, [buildOn]);
   const [codeChanged, setCodeChanged] = useState(codeMode?.changed ?? true);
   // The `</>` menu, opened by a chat's "Choose a proposal…" on the site.
   const [codeMenuRequests, setCodeMenuRequests] = useState(0);
@@ -694,6 +729,16 @@ export function ProposalsShell({
             },
             during: "commit",
           }}
+          state={buildOn}
+          onBuildOn={() => setBuildOn({ kind: "building" })}
+          onAgain={() => {
+            action("commit again, on top of their push")();
+            setRefusedShown(false);
+          }}
+          onRebuild={() =>
+            buildOn.kind === "built" &&
+            setBuildOn({ ...buildOn, rebuild: { state: "running" } })
+          }
           onDismiss={() => setRefusedShown(false)}
         />
       ),

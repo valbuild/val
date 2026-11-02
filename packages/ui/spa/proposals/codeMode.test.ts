@@ -6,6 +6,8 @@ import {
   withoutCodeModeParam,
 } from "./codeMode";
 import { commitRefusalOf, ProposalsApiError } from "./proposalsClient";
+import { publishCommitRefusalOf } from "./commitProposal";
+import { StudioPublishError } from "@valbuild/shared/publish";
 
 const NOW = Date.parse("2026-11-02T10:10:00.000Z");
 const names = (id: string) => (id === "profile-kari" ? "Kari Nordmann" : null);
@@ -127,6 +129,59 @@ describe("commitRefusalOf", () => {
       branchUrl: "https://github.com/acme/site/tree/x",
     });
     expect(refused("")).toMatchObject({ branchUrl: null });
+  });
+
+  /*
+   * Publish's press goes through the publish client, so its refusal comes
+   * back as that client's error -- with the same body as `/commit`'s.
+   */
+  test("a refused Publish is read the same way: someone pushed, or where to see why", () => {
+    const pushed = publishCommitRefusalOf(
+      new StudioPublishError(409, "Ada Lovelace pushed to val/p/x (3c4d5e6).", {
+        statusCode: 409,
+        message: "…",
+        details: {
+          code: "someone-pushed",
+          branch: "val/p/x",
+          branchUrl: "https://github.com/acme/site/tree/val/p/x",
+          expected: "1a2b3c4",
+          theirs: {
+            sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+            url: "https://github.com/acme/site/commit/3c4d5e6",
+            message: null,
+            author: { name: null, email: null, login: "ada", avatarUrl: null },
+            at: null,
+          },
+        },
+      }),
+    );
+    expect(pushed).toMatchObject({
+      status: "someone-pushed",
+      who: "ada",
+      theirs: { sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b" },
+    });
+    expect(
+      publishCommitRefusalOf(
+        new StudioPublishError(409, "GitHub refused the push.", {
+          details: {
+            code: "repository-refused",
+            reason: "protected",
+            branchUrl: "https://github.com/acme/site/tree/val/p/x",
+          },
+        }),
+      ),
+    ).toEqual({
+      status: "failed",
+      message: "GitHub refused the push.",
+      canRetry: false,
+      branchUrl: "https://github.com/acme/site/tree/val/p/x",
+    });
+    // A merge check refusing it is not a refused commit: said as it is.
+    expect(
+      publishCommitRefusalOf(
+        new StudioPublishError(409, "Not saved", { details: { checks: [] } }),
+      ),
+    ).toBeNull();
   });
 
   test("an answer that is not a refused commit is none", () => {

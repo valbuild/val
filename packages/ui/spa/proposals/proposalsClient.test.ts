@@ -333,6 +333,7 @@ describe("an upgrade proposal", () => {
               action: "compute-lockfile",
             },
             { id: "types", ok: false, message: "m", action: "typecheck" },
+            { id: "taken-push", ok: false, message: "m", action: "build" },
             { id: "later", ok: false, message: "m", action: "fly" },
           ],
         },
@@ -345,6 +346,7 @@ describe("an upgrade proposal", () => {
     expect(checks.map((check) => check.action)).toEqual([
       "compute-lockfile",
       "typecheck",
+      "build",
       undefined,
     ]);
   });
@@ -453,6 +455,71 @@ describe("code mode and Commit", () => {
     expect(sent[0]?.url).toBe(`/api/val/proposals-api/${NAME}/commit`);
     expect(sent[0]?.body).toEqual({ message: "Spring" });
     expect(answer.commit.pushed).toBe(true);
+  });
+
+  test("Build on their push is `/take-push` with their sha, answered with what came in", async () => {
+    const theirs = {
+      sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+      url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+      message: "Fix the hero's spacing",
+      author: { name: "Ada", email: null, login: "ada", avatarUrl: null },
+      at: "2026-11-02T14:03:00.000Z",
+    };
+    const { sent, fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          theirs,
+          commit: "save2",
+          taken: [
+            { path: "src/Hero.tsx", change: "modified", binary: false },
+            { path: "public/a.png", change: "renamed", binary: true },
+          ],
+          keptOurs: [{ path: "content/home.val.ts", reason: "val-content" }],
+          notTaken: [{ path: ".github/ci.yml", reason: "outside-project" }],
+          rewritten: false,
+          merges: [],
+          already: false,
+          proposal: {
+            ...read,
+            git: {
+              ...read.git,
+              takenIn: {
+                sha: theirs.sha,
+                url: theirs.url,
+                by: "ada",
+                at: "2026-11-02T14:10:00.000Z",
+                building: true,
+              },
+            },
+          },
+        },
+      },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    const answer = await client.takePush(NAME, theirs.sha);
+    expect(sent[0]).toEqual({
+      url: `/api/val/proposals-api/${NAME}/take-push`,
+      method: "POST",
+      body: { sha: theirs.sha },
+    });
+    // A kind of change this Studio does not know reads as a modification.
+    expect(answer.taken.map((file) => file.change)).toEqual([
+      "modified",
+      "modified",
+    ]);
+    expect(answer.keptOurs).toEqual([
+      { path: "content/home.val.ts", reason: "val-content" },
+    ]);
+    expect(answer.proposal.git?.takenIn?.building).toBe(true);
+  });
+
+  test("content older than taking a push in reads as none taken in", async () => {
+    const { fetchImpl } = fakeFetch([
+      { status: 200, body: { proposal: read } },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    expect((await client.get(NAME)).git?.takenIn).toBeUndefined();
   });
 
   test("content without code mode reads as none, not as a failure to read", async () => {

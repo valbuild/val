@@ -93,7 +93,14 @@ import {
   withCodeModeParam,
   withoutCodeModeParam,
 } from "../../proposals/codeMode";
-import { commitProposal } from "../../proposals/commitProposal";
+import {
+  commitProposal,
+  publishCommitRefusalOf,
+  type CommitOutcome,
+} from "../../proposals/commitProposal";
+import { buildOnTheirPush } from "../../proposals/buildOnTheirPush";
+import { StudioPublishError } from "@valbuild/shared/publish";
+import { urlOf } from "@valbuild/shared/internal";
 import { formatRelativeTime } from "../../utils/formatRelativeTime";
 import {
   buildIsDue,
@@ -103,7 +110,12 @@ import {
 import type { PreviewProblem } from "./PreviewProblemCard";
 import type { CodeModeBuild } from "./CodeModeStatus";
 import { CommitMessageDialog } from "./CommitMessageDialog";
-import { CommitRefusedNotice, type CommitRefused } from "./CommitRefusedNotice";
+import {
+  CommitRefusedNotice,
+  type BuildOnPushState,
+  type CommitRefused,
+  type RebuildState,
+} from "./CommitRefusedNotice";
 import { useSettingsModuleSource } from "../../hooks/useSettingsModuleSource";
 import {
   isCommitMessageRequired,
@@ -682,9 +694,14 @@ export function useProposalsBar({
       settingsModule.source === undefined) ||
     isCommitMessageRequired(readStudioSettings(settingsModule.source));
   const [committing, setCommitting] = useState(false);
-  const [commitRefused, setCommitRefused] = useState<CommitRefused | null>(
-    null,
-  );
+  /*
+   * Somebody pushed to the proposal's branch, so Commit -- or the commit
+   * Publish makes first -- was refused, and Build on their push is where
+   * that goes: one for both, since it is the same branch and the same push.
+   */
+  const [theirPush, setTheirPush] = useState<TheirPush | null>(null);
+  const theirPushRef = useRef(theirPush);
+  theirPushRef.current = theirPush;
   const [askingMessage, setAskingMessage] = useState<
     "commit" | "publish" | null
   >(null);
@@ -694,7 +711,8 @@ export function useProposalsBar({
     async (message: string) => {
       if (here === null) return;
       setCommitting(true);
-      setCommitRefused(null);
+      const before = theirPushRef.current;
+      setTheirPush(null);
       try {
         // Unsaved changes are not in a commit: saved first.
         if (unsaved > 0) {
@@ -721,13 +739,10 @@ export function useProposalsBar({
         }
         if (outcome.status === "someone-pushed") {
           // Pressing again would be refused the same way: see the notice.
-          setCommitRefused({
-            branch: outcome.branch,
-            branchUrl: outcome.branchUrl,
-            who: outcome.who,
-            ago: outcome.ago,
-            commit: outcome.theirs,
-            during: "commit",
+          setTheirPush({
+            refused: refusedOf(outcome, "commit", before),
+            buildOn: { kind: "idle" },
+            commitMessage: message,
           });
           return;
         }
@@ -760,6 +775,72 @@ export function useProposalsBar({
   );
   const runCommitRef = useRef(runCommit);
   runCommitRef.current = runCommit;
+
+  /*
+   * Build on their push: their changes brought into the proposal, then
+   * Commit (or Publish) again. The preview is rebuilt with their code here,
+   * as after any staging -- content does not start that build itself.
+   */
+  const runBuildRef = useRef(runBuild);
+  runBuildRef.current = runBuild;
+  const runBuildOnPush = useCallback(async () => {
+    const pushed = theirPushRef.current;
+    if (here === null || pushed === null) return;
+    const during = pushed.refused.during;
+    const update = (buildOn: TheirPush["buildOn"]) =>
+      setTheirPush((now) => (now === null ? null : { ...now, buildOn }));
+    update({ kind: "building" });
+    const outcome = await buildOnTheirPush(
+      client,
+      here.name,
+      pushed.refused.commit.sha,
+    );
+    switch (outcome.status) {
+      case "taken":
+        update({
+          kind: "built",
+          kept: outcome.kept,
+          notTaken: outcome.notTaken,
+          rewritten: outcome.rewritten,
+        });
+        await refresh();
+        if (outcome.proposal.staged?.buildRequired === true) {
+          void runBuildRef.current();
+        }
+        return;
+      case "someone-pushed":
+        // Their push moved again: this is the one to build on now.
+        setTheirPush((now) =>
+          now === null
+            ? null
+            : {
+                ...now,
+                refused: refusedOf(outcome, during, now),
+                buildOn: { kind: "idle" },
+              },
+        );
+        return;
+      case "nothing-to-take":
+        update({
+          kind: "failed",
+          message: `There is nothing of theirs to bring in any more: the branch is where Val left it. ${during === "commit" ? "Commit" : "Publish"} again.`,
+          offer: { kind: "again" },
+        });
+        return;
+      case "failed":
+        update({
+          kind: "failed",
+          message: outcome.message,
+          offer:
+            outcome.offer === "retry"
+              ? { kind: "retry" }
+              : outcome.offer === "sign-in"
+                ? { kind: "sign-in", url: signInUrl() }
+                : null,
+        });
+        return;
+    }
+  }, [client, here, refresh]);
   const defaultCommitMessage = `Changes in “${currentJson?.displayName ?? "the proposal"}”`;
   const commit: ProposalCommit | undefined =
     git === null || here === null
@@ -1009,7 +1090,13 @@ export function useProposalsBar({
   const following = useMemo<
     | { kind: "running"; step: "building" | "publishing" }
     | { kind: "merged" }
-    | { kind: "failed"; message: string; requestId: string | null }
+    | {
+        kind: "failed";
+        message: string;
+        requestId: string | null;
+        /** Content's refusal of the press, when it was one: see `refusedPublish`. */
+        cause?: unknown;
+      }
     | null
   >(() => {
     if (pressed === null) return null;
@@ -1066,6 +1153,16 @@ export function useProposalsBar({
             kind: "failed",
             message: handoffState.message,
             requestId: null,
+            // The builder tab pressed, and content refused it: why, as data.
+            ...(handoffState.refused !== undefined
+              ? {
+                  cause: new StudioPublishError(
+                    handoffState.refused.status,
+                    handoffState.refused.message,
+                    handoffState.refused.body,
+                  ),
+                }
+              : {}),
           };
         case "checking":
           return { kind: "running", step: "publishing" };
@@ -1090,7 +1187,7 @@ export function useProposalsBar({
     void refresh();
     if (following.kind === "failed") {
       setFailedRequest(following.requestId);
-      setPublishState({ kind: "failed", message: following.message });
+      refusedPublishRef.current(following.message, following.cause);
       return;
     }
     setFailedRequest(null);
@@ -1126,6 +1223,42 @@ export function useProposalsBar({
     };
   }, [mergedName, client, refresh]);
 
+  /*
+   * A press of Publish refused, as the dialog says it: the commit Publish
+   * makes first, refused because somebody pushed, offers Build on their
+   * push -- Try again would be refused the same way -- and one GitHub
+   * refused for good links where to see why.
+   */
+  const refusedPublish = useCallback((message: string, cause: unknown) => {
+    const refusal = publishCommitRefusalOf(cause);
+    if (refusal?.status === "someone-pushed") {
+      const before = theirPushRef.current;
+      const refused = refusedOf(refusal, "publish", before);
+      setTheirPush({ refused, buildOn: { kind: "idle" }, commitMessage: null });
+      setPublishState({
+        kind: "someone-pushed",
+        refused,
+        buildOn: { kind: "idle" },
+      });
+      return;
+    }
+    if (
+      refusal?.status === "failed" &&
+      !refusal.canRetry &&
+      refusal.branchUrl !== null
+    ) {
+      setPublishState({
+        kind: "failed",
+        message: refusal.message,
+        seeWhy: { label: "Open the branch", url: refusal.branchUrl },
+      });
+      return;
+    }
+    setPublishState({ kind: "failed", message });
+  }, []);
+  const refusedPublishRef = useRef(refusedPublish);
+  refusedPublishRef.current = refusedPublish;
+
   /** Press the merge, or press it again: then follow it. */
   const pressMerge = useCallback(
     async (press: () => Promise<ProposalPublishPress>) => {
@@ -1134,12 +1267,12 @@ export function useProposalsBar({
       const answer = await press();
       if (answer.status === "error") {
         setPressed(null);
-        setPublishState({ kind: "failed", message: answer.message });
+        refusedPublish(answer.message, answer.cause);
         return;
       }
       setPressed({ since, handedOff: answer.status === "handed-off" });
     },
-    [],
+    [refusedPublish],
   );
 
   const runPublish = useCallback(async () => {
@@ -1214,12 +1347,31 @@ export function useProposalsBar({
     runPublish,
   ]);
 
+  /*
+   * Their push, while it is brought in and the preview rebuilt: the bar
+   * keeps it (`theirPush`), and Commit's notice and Publish's dialog both
+   * show it from there.
+   */
+  const takenBuilding = currentJson?.git?.takenIn?.building === true;
+  const buildOnState = (pushed: TheirPush): BuildOnPushState =>
+    pushed.buildOn.kind === "built"
+      ? { ...pushed.buildOn, rebuild: rebuildOf(code, takenBuilding) }
+      : pushed.buildOn;
+
   /* Settled is shown at once; the effect above keeps it once pressed clears. */
   const dialogState: PublishProposalState =
     following === null
       ? publishState.kind === "ready" && conflicts !== null
         ? { ...publishState, conflicts: conflicts.list }
-        : publishState
+        : publishState.kind === "someone-pushed" &&
+            theirPush !== null &&
+            theirPush.refused.during === "publish"
+          ? {
+              kind: "someone-pushed",
+              refused: theirPush.refused,
+              buildOn: buildOnState(theirPush),
+            }
+          : publishState
       : following.kind === "running"
         ? { kind: "publishing", step: following.step }
         : following.kind === "merged"
@@ -1590,6 +1742,10 @@ export function useProposalsBar({
             setDecided([]);
           }}
           updating={updating}
+          onBuildOnPush={() => void runBuildOnPush()}
+          onRebuild={() => void runBuild()}
+          onBuild={() => void runBuild().then(() => loadChecks())}
+          building={previewUpdateOf(code).state === "updating"}
           portalContainer={portalContainer}
         />
       )}
@@ -1720,18 +1876,36 @@ export function useProposalsBar({
       : null;
   /*
    * A Commit refused because someone else pushed: stays until dismissed, so
-   * who pushed, and the link to their commit, are not missed.
+   * who pushed, the link to their commit and Build on their push are not
+   * missed -- and then what came in, and Commit again.
    */
+  const commitPushed =
+    theirPush !== null && theirPush.refused.during === "commit"
+      ? theirPush
+      : null;
   const commitNotice: FloatingNoticeItem | null =
-    commitRefused !== null
+    commitPushed !== null
       ? {
-          id: `commit-refused:${commitRefused.commit.sha}`,
-          label: "Not committed",
+          id: `commit-refused:${commitPushed.refused.commit.sha}`,
+          label:
+            commitPushed.buildOn.kind === "building"
+              ? "Building on their push…"
+              : commitPushed.buildOn.kind === "built"
+                ? "Their push is in"
+                : "Not committed",
           icon: <GitCommit size={13} />,
           content: (
             <CommitRefusedNotice
-              refused={commitRefused}
-              onDismiss={() => setCommitRefused(null)}
+              refused={commitPushed.refused}
+              state={buildOnState(commitPushed)}
+              onBuildOn={() => void runBuildOnPush()}
+              onAgain={() =>
+                void runCommit(
+                  commitPushed.commitMessage ?? defaultCommitMessage,
+                )
+              }
+              onRebuild={() => void runBuild()}
+              onDismiss={() => setTheirPush(null)}
             />
           ),
         }
@@ -1757,4 +1931,71 @@ export function useProposalsBar({
 
 function nextNewProposal(): { requestId: string; suggestedName: string } {
   return { requestId: randomUUID(), suggestedName: randomProposalName() };
+}
+
+/**
+ * Somebody's push to the proposal's branch, which refused Commit or the
+ * commit Publish makes first, and how far building on it has got. The
+ * rebuild of the preview is not kept here: it is read from the build.
+ */
+type TheirPush = {
+  refused: CommitRefused;
+  buildOn:
+    | Exclude<BuildOnPushState, { kind: "built" }>
+    | Omit<Extract<BuildOnPushState, { kind: "built" }>, "rebuild">;
+  /** The message Commit was pressed with, for Commit again. */
+  commitMessage: string | null;
+};
+
+/** The refusal as the notice shows it; `movedAgain` when it is a newer push. */
+function refusedOf(
+  outcome: Extract<CommitOutcome, { status: "someone-pushed" }>,
+  during: CommitRefused["during"],
+  before: TheirPush | null,
+): CommitRefused {
+  return {
+    branch: outcome.branch,
+    branchUrl: outcome.branchUrl,
+    who: outcome.who,
+    ago: outcome.ago,
+    commit: outcome.theirs,
+    during,
+    ...(before !== null && before.refused.commit.sha !== outcome.theirs.sha
+      ? { movedAgain: true }
+      : {}),
+  };
+}
+
+/**
+ * The preview, rebuilt with their code: what this tab's build says, and,
+ * once it is quiet, whether content has a build with their code
+ * (`git.takenIn.building`). Built here, as after any staging; Publish waits
+ * for it.
+ */
+function rebuildOf(
+  code: ProposalCodeState | null,
+  takenBuilding: boolean,
+): RebuildState {
+  const update = previewUpdateOf(code);
+  switch (update.state) {
+    case "updating":
+      return { state: "running" };
+    case "failed":
+      return {
+        state: "failed",
+        message: update.error,
+        canRetry: update.canRetry,
+      };
+    case "behind":
+    case "blocked":
+      return { state: "due" };
+    case "up-to-date":
+      // Nothing building here, and content has no build with their code.
+      return takenBuilding ? { state: "due" } : { state: "done" };
+  }
+}
+
+/** Sign in, and come back to this page. */
+function signInUrl(): string {
+  return urlOf("/api/val/authorize", { redirect_to: window.location.href });
 }

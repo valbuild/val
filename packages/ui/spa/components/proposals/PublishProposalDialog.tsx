@@ -2,7 +2,9 @@ import {
   AlertTriangle,
   ArrowRight,
   Check,
+  ExternalLink,
   GitCompare,
+  Hammer,
   Package,
   ShieldCheck,
   Upload,
@@ -20,6 +22,11 @@ import {
 import { changesLabel } from "./ProposalSwitcher";
 import { conflictKey, UpdateConflicts } from "./UpdateConflicts";
 import { Spinner } from "../designSystem/spinner";
+import {
+  CommitRefusedNotice,
+  type BuildOnPushState,
+  type CommitRefused,
+} from "./CommitRefusedNotice";
 
 /** One merge check, as the dialog shows it. */
 export type MergeCheckView = {
@@ -34,9 +41,11 @@ export type MergeCheckView = {
    * (valbuild/home `docs/hosted-publishing.md`, step 8). "compute-lockfile":
    * its dependencies changed without a lockfile to match. "typecheck": it
    * has dependencies of its own and no typecheck of what it stages
-   * (valbuild/home `docs/adept.md`, step 6 and decision 20).
+   * (valbuild/home `docs/adept.md`, step 6 and decision 20). "build":
+   * somebody's push was taken in, and the proposal's build does not have
+   * their code yet (`taken-push`).
    */
-  action?: "update-from-site" | "compute-lockfile" | "typecheck";
+  action?: "update-from-site" | "compute-lockfile" | "typecheck" | "build";
 };
 
 /** Something both sides changed, as the person decides it. */
@@ -103,7 +112,25 @@ export type PublishProposalState =
        */
       continuedIn?: { displayName: string; changes: number };
     }
-  | { kind: "failed"; message: string }
+  | {
+      kind: "failed";
+      message: string;
+      /**
+       * Pressing again cannot help -- GitHub refused the commit Publish makes
+       * first, for good -- and this is where to see why. Absent: Try again.
+       */
+      seeWhy?: { label: string; url: string };
+    }
+  /**
+   * The commit Publish makes first was refused: somebody else pushed to the
+   * proposal's branch. Publishing again would be refused the same way, so the
+   * dialog offers Build on their push, then Publish again.
+   */
+  | {
+      kind: "someone-pushed";
+      refused: CommitRefused;
+      buildOn: BuildOnPushState;
+    }
   | {
       kind: "error";
       message: string;
@@ -177,6 +204,10 @@ export function PublishProposalDialog({
   onResolve,
   onCancelUpdate,
   updating = false,
+  onBuildOnPush,
+  onRebuild,
+  onBuild,
+  building = false,
   portalContainer,
 }: {
   open: boolean;
@@ -216,6 +247,17 @@ export function PublishProposalDialog({
   onCancelUpdate?: () => void;
   /** Updating from the site now. */
   updating?: boolean;
+  /**
+   * Build on their push, when the commit Publish makes first was refused
+   * because someone else pushed (`someone-pushed`).
+   */
+  onBuildOnPush?: () => void;
+  /** Build the preview with their code, which Publish waits for. */
+  onRebuild?: () => void;
+  /** The `build` check's action: build the proposal, then check again. */
+  onBuild?: () => void;
+  /** The proposal is being built now. */
+  building?: boolean;
   portalContainer?: HTMLElement | null;
 }) {
   const busy = state.kind === "publishing";
@@ -367,6 +409,23 @@ export function PublishProposalDialog({
                             </button>
                           )}
                         {!check.ok &&
+                          check.action === "build" &&
+                          onBuild !== undefined && (
+                            <button
+                              type="button"
+                              onClick={onBuild}
+                              disabled={building}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
+                            >
+                              {building ? (
+                                <Spinner size={14} />
+                              ) : (
+                                <Hammer size={13} />
+                              )}
+                              {building ? "Building…" : "Build"}
+                            </button>
+                          )}
+                        {!check.ok &&
                           check.action === "typecheck" &&
                           onTypecheck !== undefined && (
                             <button
@@ -420,6 +479,17 @@ export function PublishProposalDialog({
                 </div>
               )}
             </div>
+          )}
+
+          {state.kind === "someone-pushed" && (
+            <CommitRefusedNotice
+              refused={state.refused}
+              state={state.buildOn}
+              onBuildOn={() => onBuildOnPush?.()}
+              onAgain={onPublish}
+              {...(onRebuild !== undefined ? { onRebuild } : {})}
+              onDismiss={() => onOpenChange(false)}
+            />
           )}
 
           {(state.kind === "failed" || state.kind === "error") && (
@@ -492,8 +562,18 @@ export function PublishProposalDialog({
               >
                 Cancel
               </button>
-              {state.kind === "failed" ||
-              (state.kind === "error" && state.update?.checkId !== null) ? (
+              {state.kind === "someone-pushed" ? null : state.kind ===
+                  "failed" && state.seeWhy !== undefined ? (
+                <a
+                  href={state.seeWhy.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-float px-3 text-xs font-medium text-fg-primary hover:bg-bg-float-raised"
+                >
+                  <ExternalLink size={14} /> {state.seeWhy.label}
+                </a>
+              ) : state.kind === "failed" ||
+                (state.kind === "error" && state.update?.checkId !== null) ? (
                 <button
                   type="button"
                   onClick={onRetry}

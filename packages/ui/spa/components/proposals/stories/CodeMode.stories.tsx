@@ -554,12 +554,102 @@ export const SaveMenuCommitted = shell({
 
 /**
  * Commit refused: somebody else pushed to the proposal's branch. Who, when,
- * and a link to their commit; no Try again, since pressing again would be
- * refused the same way.
+ * a link to their commit, and Build on their push -- no Try again, since
+ * pressing again would be refused the same way. Press it: their push comes
+ * in, one file keeps the proposal's version, the preview is rebuilt, and
+ * Commit again goes on top of their commit.
  */
 export const CommitRefusedSomeonePushed = shell({
   location: inProposal({ unsaved: 0 }),
   saveBuilds: true,
   commit: {},
   commitRefused: true,
+});
+
+/** Bringing their push into the proposal. */
+export const CommitBuildingOnTheirPush = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: { kind: "building" },
+});
+
+/**
+ * Their push is in: two files both changed kept the proposal's version, and
+ * one change a proposal cannot hold is named. The preview is still being
+ * rebuilt; Commit does not wait for it.
+ */
+export const CommitBuiltOnTheirPush = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "built",
+    kept: ["content/home.val.ts", "src/components/Hero.tsx"],
+    notTaken: [".github/workflows/deploy.yml"],
+    rewritten: false,
+    rebuild: { state: "running" },
+  },
+});
+
+/**
+ * Their push is in, but the preview could not be rebuilt with their code:
+ * Build again, and Commit still goes.
+ */
+export const CommitBuiltOnTheirPushPreviewFailed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "built",
+    kept: [],
+    notTaken: [],
+    rewritten: true,
+    rebuild: {
+      state: "failed",
+      message: "src/components/Hero.tsx: Unexpected token (12:4)",
+      canRetry: true,
+    },
+  },
+});
+
+/** GitHub could not be reached: nothing came in, and Try again does it again. */
+export const CommitBuildOnTheirPushFailed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "GitHub could not be reached, so their push was not brought in. Nothing changed in the proposal.",
+    offer: { kind: "retry" },
+  },
+});
+
+/**
+ * Their push changes more files than one take-in holds: asking again cannot
+ * help, so nothing is offered but their commit, where a developer sorts it out.
+ */
+export const CommitBuildOnTheirPushTooBig = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "Their push changes 1,204 files, and Val brings in at most 1,000 at a time. A developer can split it, or merge it into the proposal's branch by hand.",
+    offer: null,
+  },
+});
+
+/** The session ran out while bringing it in: Sign in, and come back here. */
+export const CommitBuildOnTheirPushSignedOut = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message: "Your session has run out, so their push was not brought in.",
+    offer: { kind: "sign-in", url: "#sign-in" },
+  },
 });

@@ -7,6 +7,7 @@ import {
   type BuildTargetResponse,
   type SchemaError,
 } from "@valbuild/shared/internal";
+import { StudioPublishError } from "@valbuild/shared/publish";
 import type {
   ProposalJobState,
   ProposalPerson,
@@ -121,6 +122,23 @@ const GitJson = z.object({
   head: z.string().nullable(),
   /** Saved or staged since the last Commit: Commit has something to push. */
   uncommitted: z.boolean(),
+  /**
+   * The last push of somebody else's that was taken in ("Build on their
+   * push"); `null` when none was. `building`: their files are staged and the
+   * proposal's build does not have them yet, so Publish waits for one.
+   * Absent from content older than taking a push in.
+   */
+  takenIn: z
+    .object({
+      sha: z.string(),
+      url: z.string(),
+      by: z.string().nullable(),
+      at: z.string().nullable(),
+      building: z.boolean(),
+    })
+    .nullable()
+    .optional()
+    .catch(undefined),
 });
 export type ProposalGitJson = z.infer<typeof GitJson>;
 
@@ -227,7 +245,7 @@ const MergeCheck = z.object({
   message: z.string(),
   /** What clears it, when something here does. Unknown actions are none. */
   action: z
-    .enum(["update-from-site", "compute-lockfile", "typecheck"])
+    .enum(["update-from-site", "compute-lockfile", "typecheck", "build"])
     .optional()
     .catch(undefined),
 });
@@ -432,10 +450,57 @@ const SomeonePushed = z.object({
 export type ProposalSomeonePushed = z.infer<typeof SomeonePushed>;
 
 /**
+ * Their push taken into the proposal (valbuild/home's take-push contract):
+ * what came in, what kept the proposal's version, and what a proposal cannot
+ * hold. Their commit is now what the next Commit is made on top of.
+ */
+const TakePushAnswer = z.object({
+  theirs: SomeonePushed.shape.theirs,
+  /** The staging that holds their files; `null` when nothing needed one. */
+  commit: z.string().nullable(),
+  /** Project paths their push changed that the proposal now holds. */
+  taken: z.array(
+    z.object({
+      path: z.string(),
+      change: z.enum(["added", "modified", "deleted"]).catch("modified"),
+      /** Held as their git blob: in git and in Publish, not in the preview. */
+      binary: z.boolean().catch(false),
+    }),
+  ),
+  /**
+   * Files both changed, where the proposal's version stays and the next
+   * Commit writes it over theirs. `val-content`: a `.val.ts` whose content
+   * the proposal saved.
+   */
+  keptOurs: z.array(
+    z.object({
+      path: z.string(),
+      reason: z.enum(["both-changed", "val-content"]).catch("both-changed"),
+    }),
+  ),
+  /**
+   * What their push changed that a proposal cannot hold (repository paths):
+   * the next Commit leaves these as the proposal's base has them.
+   */
+  notTaken: z.array(z.object({ path: z.string(), reason: z.string() })),
+  /** Their tip does not contain what Val expected: history was rewritten. */
+  rewritten: z.boolean(),
+  merges: z.array(z.string()),
+  /** Taken in already, by an earlier press: the lists are that one's. */
+  already: z.boolean(),
+  proposal: ProposalJson,
+});
+export type ProposalTakePushAnswer = z.infer<typeof TakePushAnswer>;
+
+/**
  * Why content refused a Commit (or the Commit a Publish makes first), by its
  * `details.code`, for the Studio to offer what helps: their commit to open
  * when someone else pushed, Try again only where trying again can work.
  * `null` for an answer that is not a refused commit.
+ *
+ * A refused Publish comes back through the publish client's error
+ * (`StudioPublishError`, `pressMerge`), with the same body: content refuses
+ * it with `/commit`'s status, code and fields.
  */
 export function commitRefusalOf(error: unknown):
   | { kind: "someone-pushed"; message: string; pushed: ProposalSomeonePushed }
@@ -452,11 +517,17 @@ export function commitRefusalOf(error: unknown):
       branchUrl: string | null;
     }
   | null {
-  if (!(error instanceof ProposalsApiError)) return null;
-  if (error.status !== 409 && error.status !== 502) return null;
+  const answer =
+    error instanceof ProposalsApiError
+      ? { status: error.status, body: error.body }
+      : error instanceof StudioPublishError
+        ? { status: error.statusCode, body: error.body }
+        : null;
+  if (answer === null || !(error instanceof Error)) return null;
+  if (answer.status !== 409 && answer.status !== 502) return null;
   const details = z
     .object({ details: z.object({ code: z.string() }).passthrough() })
-    .safeParse(error.body);
+    .safeParse(answer.body);
   if (!details.success) return null;
   const pushed = SomeonePushed.safeParse(details.data.details);
   if (pushed.success) {
@@ -531,6 +602,16 @@ export type ProposalsClient = {
     name: string,
     input: { message: string; save?: string },
   ): Promise<ProposalCommitAnswer>;
+  /**
+   * Build on their push: bring somebody else's push to the proposal's branch
+   * into the proposal (their changed files staged, the proposal's version
+   * kept where both changed) and make their commit the next Commit's parent.
+   * `sha` is their commit, as the `someone-pushed` refusal named it: refused
+   * with a `someone-pushed` of its own when the branch moved again since.
+   * At the proposal's own address, Val's server saves every pending change
+   * first. See `buildOnTheirPush` for every way it can be refused.
+   */
+  takePush(name: string, sha: string): Promise<ProposalTakePushAnswer>;
   close(name: string): Promise<ProposalJson>;
   reopen(name: string): Promise<ProposalJson>;
   retrySetup(name: string): Promise<ProposalJson>;
@@ -727,6 +808,10 @@ export function createProposalsClient(options: {
     setCodeMode: (name, on) => one(`${at(name)}/code-mode`, "POST", { on }),
     commit: async (name, input) =>
       CommitAnswer.parse(await call(`${at(name)}/commit`, "POST", input)),
+    takePush: async (name, sha) =>
+      TakePushAnswer.parse(
+        await call(`${at(name)}/take-push`, "POST", { sha }),
+      ),
     close: (name) => one(`${at(name)}/close`, "POST", {}),
     reopen: (name) => one(`${at(name)}/reopen`, "POST", {}),
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
