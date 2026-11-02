@@ -585,8 +585,9 @@ describe("peeking a `.jsonValues()` record", () => {
    * it is asserted on identity rather than on value because identity is the whole
    * of it: the value was right the entire time.
    *
-   * `substituteJsonEntries` is copy-on-write, so the first loaded entry turned
-   * every later read into a fresh `{...source}`. `samePeek` compares `ready`
+   * `substituteJsonEntries` (gone in phase 5: the view is made once per
+   * version now) was copy-on-write, so the first loaded entry turned every
+   * later read into a fresh `{...source}`. `samePeek` compares `ready`
    * answers by `data` identity, so it saw a change on every call and handed back
    * a new `SourcePeek`. `usePeek` is a `useSyncExternalStore` snapshot, and a
    * snapshot that always changes re-renders until React gives up with "Maximum

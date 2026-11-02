@@ -13,7 +13,6 @@ import {
 import {
   EMPTY_CHAIN,
   baseVersionOf,
-  chainOf,
   createValClient,
   engineWork,
   schemaVersionOf,
@@ -225,8 +224,10 @@ export type World = {
   manifest(): Promise<Manifest>;
   /**
    * Where the world's counted work stands now, for {@link expectWork}: work
-   * done by Val's own code anywhere in the world (server, readers, Studios),
-   * never the world's own observing.
+   * done by Val's own code outside the Studios (the server and the readers),
+   * never the world's own observing. A Studio's is its own, since phase 5
+   * (it applies patches with the same engine and computes its own versions),
+   * and is budgeted with `studio.expectWork`.
    */
   workPosition(): WorldWorkPosition;
   /**
@@ -1081,6 +1082,33 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     /** Messages its socket has brought (http mode), for `settle`. */
     socketMessages: () => number;
   }> = [];
+  /**
+   * The world's counted work, Val's server's alone: the engine and the
+   * hashing count per process, and since phase 5 a Studio applies patches
+   * and computes versions in this process too -- so what each Studio says it
+   * did (its own `version:hash`, `source:apply-patch` and
+   * `engine:clone-bytes`) is left out here, and budgeted with
+   * `studio.expectWork`.
+   */
+  const serverWork = (): WorldWorkPosition => {
+    let hashes = 0;
+    let applies = 0;
+    let cloneBytes = 0;
+    for (const { studio } of studios) {
+      hashes += studio.work.total("version:hash");
+      applies += studio.work.count("source:apply-patch");
+      cloneBytes += studio.work.total("engine:clone-bytes");
+    }
+    const engine = engineWork();
+    const reads = readWork();
+    return {
+      versionHashes: versioning.productHashes() - hashes,
+      engineApplies: engine.applyPatch - applies,
+      engineCloneBytes: engine.cloneBytes - cloneBytes,
+      readResolves: reads.resolve,
+      readEncodes: reads.encode,
+    };
+  };
 
   /** What has to stay the same for the world to count as quiet. */
   const signature = () =>
@@ -1239,7 +1267,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       const seq = "data" in stat ? stat.data?.version?.seq : undefined;
       return {
         from: "studio",
-        version: versioning.studio(system, moduleFilePath),
+        // The Studio's own (phase 5): the schema it holds, the base its
+        // chain is applied to, and the chain of what applied, unconfirmed
+        // patches included -- the server's version once confirmed.
+        version: system.sourceStore.versionOf(moduleFilePath) ?? null,
         readWith: null,
         ...(seq !== undefined ? { seq } : {}),
       };
@@ -1299,7 +1330,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         const over: string[] = [];
         for (const [kind, limit] of Object.entries(budget)) {
           if (limit === undefined || !isWorkKind(kind)) continue;
-          const count = work.count(kind, { since });
+          // An amount is summed; anything else is counted.
+          const count = SUMMED_KINDS.has(kind)
+            ? work.total(kind, { since })
+            : work.count(kind, { since });
           const ok =
             "atMost" in limit ? count <= limit.atMost : count === limit.exactly;
           if (!ok) {
@@ -1638,7 +1672,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
                     // hands it over.
                     held.set(event.moduleFilePath, {
                       from: "overlay",
-                      version: versioning.studio(system, event.moduleFilePath),
+                      version:
+                        event.read.status === "ready"
+                          ? event.read.version
+                          : null,
                       readWith: null,
                     });
                   }
@@ -1784,27 +1821,16 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       }
       return res.json;
     },
-    workPosition() {
-      const engine = engineWork();
-      const reads = readWork();
-      return {
-        versionHashes: versioning.productHashes(),
-        engineApplies: engine.applyPatch,
-        engineCloneBytes: engine.cloneBytes,
-        readResolves: reads.resolve,
-        readEncodes: reads.encode,
-      };
-    },
+    workPosition: serverWork,
     expectWork(since, budget) {
       const over: string[] = [];
-      const engine = engineWork();
-      const reads = readWork();
+      const now = serverWork();
       const counts: Record<keyof WorldWorkBudget, number> = {
-        "version:hash": versioning.productHashes() - since.versionHashes,
-        "engine:apply-patch": engine.applyPatch - since.engineApplies,
-        "engine:clone-bytes": engine.cloneBytes - since.engineCloneBytes,
-        "read:resolve": reads.resolve - since.readResolves,
-        "read:encode": reads.encode - since.readEncodes,
+        "version:hash": now.versionHashes - since.versionHashes,
+        "engine:apply-patch": now.engineApplies - since.engineApplies,
+        "engine:clone-bytes": now.engineCloneBytes - since.engineCloneBytes,
+        "read:resolve": now.readResolves - since.readResolves,
+        "read:encode": now.readEncodes - since.readEncodes,
       };
       const kinds: (keyof WorldWorkBudget)[] = [
         "version:hash",
@@ -1927,6 +1953,12 @@ const SUBSCRIBE_MAX_MS = 5000;
 
 /** A real second: past it, a call to the content host is not coming back. */
 const DRAIN_MAX_MS = 1000;
+
+/** The kinds whose records carry an amount, which a budget sums. */
+const SUMMED_KINDS: ReadonlySet<WorkKind> = new Set<WorkKind>([
+  "engine:clone-bytes",
+  "version:hash",
+]);
 
 /** Narrows a budget's key, which `Object.entries` widens to string. */
 function isWorkKind(kind: string): kind is WorkKind {
@@ -2151,10 +2183,11 @@ function moduleAt(
 }
 
 /**
- * The versions the world computes to OBSERVE what a surface shows: a Studio's
- * (from what it holds), a bundle's (from the module the reader runs), and the
- * schema a reader's own code has. With the product's own functions
- * (`schemaVersionOf`, `baseVersionOf`, `chainOf`), memoised by object so an
+ * The versions the world computes to OBSERVE what a surface shows: a bundle's
+ * (from the module the reader runs) and the schema a reader's own code has --
+ * a Studio computes its own since phase 5 (`SourceStore.versionOf`), and the
+ * relay carries it. With the product's own functions (`schemaVersionOf`,
+ * `baseVersionOf`), memoised by object so an
  * observation does not hash what it hashed before, and counted apart from
  * Val's own hashing, which is what `world.expectWork` budgets.
  */
@@ -2171,13 +2204,6 @@ function createVersioning() {
   const schemas = new WeakMap<object, string>();
   const bases = new WeakMap<object, string>();
   const bundles = new WeakMap<object, ModuleVersion | null>();
-  const schemaOf = (serialized: object): string => {
-    const known = schemas.get(serialized);
-    if (known !== undefined) return known;
-    const version = own(() => schemaVersionOf(serialized));
-    schemas.set(serialized, version);
-    return version;
-  };
   const baseOf = (source: unknown): string => {
     if (typeof source !== "object" || source === null) {
       return own(() => baseVersionOf(source));
@@ -2215,29 +2241,6 @@ function createVersioning() {
             };
       bundles.set(module, version);
       return version;
-    },
-    /**
-     * The version a Studio shows a module at: the schema it holds, the base
-     * its store starts from, and the chain of the patches it holds for the
-     * module, unconfirmed ones included -- the Studio's own optimistic
-     * content, which is the same version as the server's once confirmed.
-     */
-    studio(
-      system: System,
-      moduleFilePath: ModuleFilePath,
-    ): ModuleVersion | null {
-      const serialized = system.schemaStore.get(moduleFilePath);
-      const base = system.sourceStore.baseSourceOf(moduleFilePath);
-      if (serialized === undefined || base === undefined) return null;
-      const ids = system.patchStore
-        .chainRecords()
-        .filter((record) => record.moduleFilePath === moduleFilePath)
-        .map((record) => record.patchId);
-      return {
-        schema: schemaOf(serialized),
-        base: baseOf(base),
-        chain: own(() => chainOf(ids)),
-      };
     },
   };
 }

@@ -537,6 +537,12 @@ function copyArray(node: DocArray): Doc[] {
   return node.slice();
 }
 
+/**
+ * A shallow copy, key by key. Not a spread, which was tried: a module's root
+ * is a large object in dictionary mode, and V8 spreads one of forty thousand
+ * keys at about half this speed (the 5 MB keystroke of
+ * `scenarios/measure/keystroke.ts` went from 19 ms to 33).
+ */
 function copyObject(node: DocObject): { [key: string]: Doc } {
   const copy: { [key: string]: Doc } = {};
   let slots = 0;

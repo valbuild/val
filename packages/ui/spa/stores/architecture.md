@@ -247,17 +247,17 @@ so; the wiring used not to.
 
 A `.jsonValues()` record's on-disk source holds opaque `{_type:"json"}` MARKERS,
 and each entry's content lives in a separate `*.val.json` fetched on its own
-(`GET /json`). The engine being replaced keeps that content in a field beside
-source (`jsonEntryContents`) and `getPatchedSource` substitutes it in on read.
-That substitution is the right idea and it lives in the **source store** here,
-for the same reason patched source does: it is what every reader reads, and the
-host realm is where readers are.
-
-`substituteJsonEntries` is root-only and marker-guarded, matching the schema, and
-copy-on-write — so a project using no `.jsonValues()` pays a `Map` lookup and
-nothing else. `moduleSource()` caches the substituted source against the revision
-it was computed at, because every in-realm walker (search, schema validation, the
-custom-validate walk) asks for the same thing.
+(`GET /json`, without patches: the BASE entry). The source store keeps the
+base entries it has read beside the base source, and since phase 5 of
+`docs/plans/one-content-model.md` patches reach entries through THE engine
+(`applyPatchRecord` in `@valbuild/shared`, which Val's server uses too): an
+edit inside an entry is applied to its content when the chain made it, and
+held (`waiting`) when the base entry is not read yet, to apply once it is. The
+module's VIEW (`studioView.ts`, `viewOf`) is where those meet: the entries
+whose content is known stand in place of their markers. It is made once per
+version and base entries read, so every reader -- a field, search, schema
+validation, the relay -- gets the same object back while nothing moved, and a
+project using no `.jsonValues()` reads the engine's source as it is.
 
 **The read is the demand signal, and the read WAITS.** A read at a path inside an
 unloaded entry is exactly the moment the content is wanted — the same rule as a

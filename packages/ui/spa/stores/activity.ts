@@ -40,10 +40,24 @@
  */
 export type WorkKind =
   // --- source: the clone and apply costs the rewrite exists to remove -------
-  /** A whole module was deep-cloned. The headline cost in the diagnosis. */
+  /**
+   * A whole module was deep-cloned: once per module an intake hands over, and
+   * never per patch any more -- the engine copies along a patch's path.
+   */
   | "source:clone-module"
-  /** `applyPatch` ran over one module for one patch record. */
+  /** The engine (`applyPatchRecord`) applied one patch record to its module. */
   | "source:apply-patch"
+  /**
+   * What the engine copied for this store, in bytes (`count`): its
+   * `engine:clone-bytes`, attributed to the Studio, since the engine counts per
+   * process. A keystroke copies its path, not its module.
+   */
+  | "engine:clone-bytes"
+  /**
+   * Versions this store hashed (`count`): a schema or a base when it arrives,
+   * one link of a chain per patch applied. Never on a read.
+   */
+  | "version:hash"
   /** The listener registry was walked once, to find who to wake. */
   | "source:scan-listeners"
   /** One registered listener was invoked. The fan-out measure. */
@@ -61,13 +75,10 @@ export type WorkKind =
    * `source:load-json-entry` stays at one is the dedup working.
    */
   | "source:share-json-entry-load"
-  /** Entry content was folded into a module's source for an in-realm walk. */
-  | "source:substitute-json-entries"
   /**
-   * One module was reset to base and its surviving chain re-applied.
-   *
-   * The cost of dropping a patch, and proportional to the MODULE rather than to
-   * the patch — which is why it is not counted as an apply.
+   * One module was computed again from its base and its surviving chain: the
+   * cost of dropping a patch. The applies it took, if the version before the
+   * dropped patch was not kept, are counted as applies.
    */
   | "source:rebuild-module"
   /**
@@ -236,6 +247,20 @@ export class RecordingActivity implements ActivitySink {
         continue;
       }
       total++;
+    }
+    return total;
+  }
+
+  /**
+   * The sum of `count` (one for a record without one) since `since`: for the
+   * kinds that measure an amount, `engine:clone-bytes` and `version:hash`.
+   */
+  total(kind: WorkKind, options?: { since?: number }): number {
+    const since = options?.since ?? 0;
+    let total = 0;
+    for (let index = since; index < this.records.length; index++) {
+      const record = this.records[index];
+      if (record.kind === kind) total += record.count ?? 1;
     }
     return total;
   }

@@ -197,3 +197,32 @@ describe("applyPatchRecord: .jsonValues() entries", () => {
     });
   });
 });
+
+describe("applyPatchRecord: an own `__proto__` key", () => {
+  /**
+   * JSON can name a key `__proto__`, and `JSON.parse` makes it an own data
+   * property. Copying the object along a patch's path must keep it one: an
+   * assignment would call the prototype setter instead, losing the key and
+   * changing what the copy inherits.
+   */
+  test("is copied as an own key, and the copy's prototype is untouched", () => {
+    const source: ReadonlyJSONValue = JSON.parse(
+      '{"__proto__": {"polluted": true}, "title": "Hello"}',
+    );
+    const module = applied(
+      applyPatchRecord(
+        baseModuleContent(source),
+        record([{ op: "replace", path: ["title"], value: "Typed" }]),
+        undefined,
+      ),
+    );
+    const copied = module.source;
+    if (typeof copied !== "object" || copied === null) {
+      throw new Error("not an object");
+    }
+    expect(at(copied, "title")).toBe("Typed");
+    expect(at(copied, "__proto__")).toEqual({ polluted: true });
+    expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);
+    expect(Object.keys(copied)).toEqual(["__proto__", "title"]);
+  });
+});

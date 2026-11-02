@@ -1,5 +1,10 @@
-import { initVal } from "@valbuild/core";
-import { createWorld, type ServerMode, type World } from "./world/createWorld";
+import { Internal, initVal } from "@valbuild/core";
+import {
+  createWorld,
+  moduleFilePathOf,
+  type ServerMode,
+  type World,
+} from "./world/createWorld";
 
 // See `smoke.scenario.test.ts` and the README for these two.
 jest.mock(
@@ -17,8 +22,15 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05, and the
  * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`), and the
  * readers' B07 (`read:resolve`, `read:encode`), and a draft page's
- * refreshes, B08. (B03, a draft read in a 128 MB isolate, is a benchmark,
- * not here.)
+ * refreshes, B08, and the versions a Studio keeps, B09. (B03, a draft read
+ * in a 128 MB isolate, is a benchmark, not here.)
+ *
+ * Since phase 5 a Studio applies patches with the same engine as the server
+ * and computes its own versions, in the same process: `world.expectWork`
+ * counts the server's work and the readers', and `studio.expectWork` a
+ * Studio's (its `source:apply-patch` is the engine's apply, its
+ * `engine:clone-bytes` and `version:hash` what the engine copied and what it
+ * hashed for it).
  */
 
 const { s, c, config } = initVal({});
@@ -27,6 +39,7 @@ const homeVal = c.define(
   s.object({ title: s.string(), subtitle: s.string() }),
   { title: "Hello", subtitle: "Sub" },
 );
+const HOME = moduleFilePathOf(homeVal);
 
 const ITEMS = 200;
 const listVal = c.define(
@@ -57,12 +70,15 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * Given a Studio with a module,
    * when the editor types once (one patch) and the server echoes it back
    * through /stat,
-   * then the patch is applied once, one module is cloned for it, and the echo
-   * applies nothing again.
+   * then the patch is applied once (risk 2 in the plan: one engine apply per
+   * keystroke), no module is cloned -- the engine copies the module's root,
+   * two references, and shares the rest -- and one version is hashed, the
+   * chain one link longer; the echo applies and hashes nothing again. And the
+   * version the Studio showed the edit at before the server had it is the
+   * version the server answers for it: confirming it is not a change.
    *
-   * The plan's target is lower (copy-on-write: nothing outside the patch's
-   * path cloned); today's `applyPatch(deepClone(module))` costs one clone per
-   * patch, which is the budget held here so it cannot get worse.
+   * Before phase 5 the Studio cloned the module for every patch
+   * (`applyPatch(deepClone(module))`), which this held at most one.
    */
   test("B01 a keystroke applies its patch once, even after the echo", async () => {
     world = await createWorld({ config, modules: [homeVal], server });
@@ -71,12 +87,18 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     const since = editor.work.position();
 
     await editor.edit(homeVal, ["title"], "Typed");
+    const optimistic = editor.system.sourceStore.versionOf(HOME);
     await world.settle();
 
     editor.expectWork(since, {
       "source:apply-patch": { exactly: 1 },
-      "source:clone-module": { atMost: 1 },
+      "source:clone-module": { exactly: 0 },
+      "engine:clone-bytes": { exactly: 8 * 2 },
+      "version:hash": { exactly: 1 },
     });
+    expect(optimistic).toBeDefined();
+    expect(editor.system.sourceStore.versionOf(HOME)).toEqual(optimistic);
+    expect((await world.manifest()).modules[HOME]).toEqual(optimistic);
   });
 
   /**
@@ -100,7 +122,9 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
 
     bo.expectWork(since, {
       "source:apply-patch": { exactly: 1 },
-      "source:clone-module": { atMost: 1 },
+      "source:clone-module": { exactly: 0 },
+      "engine:clone-bytes": { exactly: 8 * 2 },
+      "version:hash": { exactly: 1 },
     });
     const bos = world.network.log
       .slice(logSince)
@@ -130,6 +154,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.settle();
     await world.observe();
     const since = world.workPosition();
+    const studioSince = editor.work.position();
 
     await world.observe();
     await world.manifest();
@@ -138,6 +163,8 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.settle();
 
     world.expectWork(since, { "version:hash": { exactly: 0 } });
+    // The Studio's reads too: its field, its relay's version, its /stat.
+    editor.expectWork(studioSince, { "version:hash": { exactly: 0 } });
   });
 
   /**
@@ -145,9 +172,11 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    *
    * Given a Studio on a module, read once,
    * when the editor types once and everything reads it again,
-   * then one version is hashed: the module's chain extended by the new
-   * patch, once for every reader in the process (they share one data layer,
-   * `sharedValOps`). Nothing else moved: not a schema, not a base.
+   * then one version is hashed on the server: the module's chain extended
+   * by the new patch, once for every reader in the process (they share one
+   * data layer, `sharedValOps`); and one in the Studio, which computes the
+   * version of what it shows (phase 5). Nothing else moved: not a schema, not
+   * a base.
    */
   test("B05 a keystroke costs one link of the chain", async () => {
     world = await createWorld({ config, modules: [homeVal], server });
@@ -157,6 +186,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.settle();
     await world.observe();
     const since = world.workPosition();
+    const studioSince = editor.work.position();
 
     await editor.edit(homeVal, ["title"], "Typed");
     await world.settle();
@@ -164,6 +194,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.manifest();
 
     world.expectWork(since, { "version:hash": { exactly: 1 } });
+    editor.expectWork(studioSince, { "version:hash": { exactly: 1 } });
   });
 
   /**
@@ -187,6 +218,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.observe();
 
     const beforeTitle = world.workPosition();
+    const studioBeforeTitle = editor.work.position();
     await editor.edit(listVal, ["title"], "Typed");
     await world.settle();
     await world.observe();
@@ -198,7 +230,13 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     world.expectWork(beforeTitle, {
       "engine:clone-bytes": { exactly: titleApplies * rootBytes },
     });
+    // The Studio, through the same engine: once, its root.
+    editor.expectWork(studioBeforeTitle, {
+      "source:apply-patch": { exactly: 1 },
+      "engine:clone-bytes": { exactly: rootBytes },
+    });
 
+    const studioBeforeItem = editor.work.position();
     await editor.edit(listVal, ["items", "150", "name"], "Renamed");
     await world.settle();
     await world.observe();
@@ -214,6 +252,52 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       "engine:apply-patch": { exactly: reads * 2 },
       "engine:clone-bytes": { exactly: reads * (rootBytes + itemBytes) },
     });
+    // The Studio applies the new patch alone, on the version before it.
+    editor.expectWork(studioBeforeItem, {
+      "source:apply-patch": { exactly: 1 },
+      "engine:clone-bytes": { exactly: itemBytes },
+    });
+  });
+
+  /**
+   * B09 A Studio keeps the last two versions of a module, and no more.
+   *
+   * Given a Studio on a module,
+   * when the editor types forty times,
+   * then each keystroke is one apply and its store holds two versions of the
+   * module -- the one shown and the one before it -- not forty (risk 9 in the
+   * plan, the heap guard); and when the newest edit is discarded, the
+   * version before it is shown again without applying anything.
+   */
+  test("B09 a Studio keeps the last two versions of a module", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    await world.settle();
+    const since = editor.work.position();
+    let last: Awaited<ReturnType<typeof editor.edit>> | null = null;
+    for (let i = 1; i <= 40; i++) {
+      last = await editor.edit(homeVal, ["title"], `Typed ${i}`);
+    }
+    await world.settle();
+    editor.expectWork(since, { "source:apply-patch": { exactly: 40 } });
+    expect(editor.system.sourceStore.retainedVersions(HOME)).toBe(2);
+    const before = editor.system.sourceStore.versionOf(HOME);
+
+    const discarding = editor.work.position();
+    if (last === null) throw new Error("no edit");
+    expect(await editor.discard([last])).toEqual({ status: "discarded" });
+    await world.settle();
+
+    editor.expectWork(discarding, { "source:apply-patch": { exactly: 0 } });
+    expect(editor.system.sourceStore.retainedVersions(HOME)).toBe(2);
+    expect(editor.system.sourceStore.versionOf(HOME)).not.toEqual(before);
+    const title = editor.system.sourceStore.peek(
+      Internal.joinModuleFilePathAndModulePath(
+        HOME,
+        Internal.patchPathToModulePath(["title"]),
+      ),
+    );
+    expect(title.status === "ready" && title.data).toBe("Typed 39");
   });
 
   /**

@@ -618,32 +618,21 @@ export function createSystem(options: SystemOptions): System {
     for (const { patchId, message } of failed) {
       const record = patchStore.recordsFor([patchId])[0];
       const moduleFilePath = record?.moduleFilePath;
-      /**
-       * "Cannot apply" is not reliably permanent, and assuming it was destroyed
-       * a real edit.
-       *
-       * A module with `.jsonValues()` entries still unloaded is the case that
-       * proved it: entry content is stitched in on read, so a patch INTO an entry
-       * nobody has loaded fails against a marker — and would succeed once the
-       * entry arrives. Reported, never deleted.
+      /*
+       * A patch into a `.jsonValues()` entry nobody has loaded used to fail
+       * against the entry's marker, and was kept until the entry arrived.
+       * The engine holds such an edit instead (`applyPatchRecord`'s
+       * `waiting`), so it never fails for that, and one whose entry it does
+       * not fit is reported once that entry is read: every failure here is
+       * a patch that cannot apply.
        */
-      const uncertain =
-        moduleFilePath !== undefined &&
-        sourceStore.hasUnloadedEntries(moduleFilePath);
       const attempts = (unapplicableAttempts.get(patchId) ?? 0) + 1;
       unapplicableAttempts.set(patchId, attempts);
 
-      // Debug when kept: a patch into an entry nobody has loaded is the normal
-      // case, and `SourceStore.receiveJsonEntry` applies it when the entry
-      // arrives. Only a discard is something to report.
-      (uncertain ? Internal.log.debug : Internal.log.error)(
-        uncertain
-          ? "a patch could not be applied yet: this module still has " +
-              "unloaded .jsonValues() entries, and it applies when they arrive. " +
-              "Keeping it."
-          : "discarding a patch that cannot be applied. If you see this " +
-              "often, please report it — it means a patch is being generated " +
-              "that does not fit the source it targets.",
+      Internal.log.error(
+        "discarding a patch that cannot be applied. If you see this " +
+          "often, please report it — it means a patch is being generated " +
+          "that does not fit the source it targets.",
         {
           patchId,
           reason: message,
@@ -658,7 +647,6 @@ export function createSystem(options: SystemOptions): System {
           attempt: attempts,
         },
       );
-      if (uncertain) continue;
       if (attempts > UNAPPLICABLE_ATTEMPTS) {
         Internal.log.error(
           "giving up on deleting an unapplicable patch — it keeps coming " +
