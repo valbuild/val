@@ -3,6 +3,7 @@ import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
 import { fakeRequest } from "./fakeRequest";
 import { studioApiUrl } from "./adminProxy";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -166,8 +167,10 @@ describe("the /admin/proxy route", () => {
     expect(url).toBe(`${CONTENT}/v1/studio/projects/search?q=camp&limit=20`);
     expect(init.method).toBe("GET");
     expect(init.redirect).toBe("manual");
-    // The app's cookies stay here: only the token goes.
+    // The app's cookies stay here: only the token goes, beside which package
+    // is asking (`x-val-client`, which carries no credential).
     expect(init.headers).toEqual({
+      ...VAL_CLIENT_HEADERS,
       authorization: "Bearer editors-val-build-token",
       accept: "application/json",
     });
@@ -372,6 +375,7 @@ describe("in fs mode", () => {
     // The PAT, in the header the rest of Val Build reads it from -- and no
     // bearer beside it.
     expect(init.headers).toEqual({
+      ...VAL_CLIENT_HEADERS,
       "x-val-pat": "developers-pat",
       accept: "application/json",
     });

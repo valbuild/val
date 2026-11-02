@@ -73,6 +73,7 @@ import {
 } from "@valbuild/shared/internal";
 import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 const textEncoder = new TextEncoder();
 
@@ -458,9 +459,12 @@ const NonceResponse = z.object({
 });
 
 export class ValOpsHttp extends ValOps {
-  private readonly authHeaders:
-    | { Authorization: string }
-    | { "x-val-pat": string };
+  /**
+   * Sent with every request to the content service: the credential, and
+   * `x-val-client` (see `VAL_CLIENT_HEADER` in `@valbuild/shared`), which is
+   * why every request spreads this rather than building its own.
+   */
+  private readonly authHeaders: Record<string, string>;
   private readonly root: string;
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
@@ -632,10 +636,12 @@ export class ValOpsHttp extends ValOps {
           }
         : options,
     );
-    this.authHeaders =
-      "pat" in auth
+    this.authHeaders = {
+      ...VAL_CLIENT_HEADERS,
+      ...("pat" in auth
         ? { "x-val-pat": auth.pat }
-        : { Authorization: `Bearer ${auth.apiKey}` };
+        : { Authorization: `Bearer ${auth.apiKey}` }),
+    };
     this.root = options?.root ?? "";
     this.sketchpads = createHttpSketchpadStore({
       url: `${contentUrl}/v1/${project}/sketchpads`,
@@ -1824,6 +1830,7 @@ export class ValOpsHttp extends ValOps {
       fetch(`${this.contentUrl}/v1${path}`, {
         method: init.method,
         headers: {
+          ...VAL_CLIENT_HEADERS,
           Authorization: `Bearer ${token}`,
           ...(init.body === undefined ? {} : { "Content-Type": json }),
         },
