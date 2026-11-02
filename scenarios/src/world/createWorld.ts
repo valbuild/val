@@ -431,6 +431,12 @@ export type PageLoadOptions = {
    * hydrates the bundle, and draft mode is unknown until `/draft/stat`.
    */
   draftProp?: boolean;
+  /**
+   * What happens between the page's server render (and hydration) and its
+   * overlay connecting: another tab discarding the draft the page was
+   * rendered with, say (S28).
+   */
+  beforeOverlay?: () => Promise<void>;
   /** `<ValProvider suspend>`: the hooks may wait for the draft (S24). */
   suspend?: boolean;
 };
@@ -1584,6 +1590,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       state = initialState(loaderData);
       step = "hydration";
       record();
+      await pageOptions.beforeOverlay?.();
       // 3. The overlay mounts (the Val Enable cookie is there): the provider
       //    switches `suspend` on, if the page asked for it, with a promise
       //    for draft mode becoming known; then `/draft/stat` answers.

@@ -310,7 +310,8 @@ coverage" (valbuild/val#1006).
     (`holds`). The catch-up (`startCatchUp`, shared by the overlay and the
     canvas's `useValCatchUp`) sends those modules as well as the pending and
     published ones, so a draft discarded (or published) before the Studio
-    connected is replaced rather than kept. Paths, not versions: the relay's
+    connected is replaced rather than kept (S28, in `sync`, which fails
+    without the report). Paths, not versions: the relay's
     reads carry `version: null` until phase 5, so "what differs" is decided
     on the page by content (`receive`'s `deepEqual`), and a module that did
     not move costs nothing. Left out until then: a held module whose
@@ -354,7 +355,7 @@ coverage" (valbuild/val#1006).
     counts the instance's build when it is first read.
   - **Scenarios:** S05 passes in memory, fs and http (nothing is re-read
     while the write is held, one refresh after, none in a minute); S24b is a
-    passing test; S22 converges without its ten second wait; B08 counts
+    passing test; S28 (new) pins the page's report; S22 converges without its ten second wait; B08 counts
     refreshes (one per confirmed edit, one for another editor's, none for
     connecting from the draft, one for connecting without it, none on the
     clock). Wait 3 without the `draft` prop stays `test.failing` (it is the

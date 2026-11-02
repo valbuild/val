@@ -15,7 +15,7 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
 
 /**
  * Writes and sync: the patch chain, discards, publishing, and how the page
- * learns of each. Catalogue ids S05, S07, S08, S09.
+ * learns of each. Catalogue ids S05, S07, S08, S09, S28.
  */
 
 const { s, c, config } = initVal({});
@@ -165,6 +165,44 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.clock.advance(60_000);
     await world.settle();
     expect(page.refreshes).toBe(1);
+  });
+
+  /**
+   * S28 A draft discarded before the page's overlay connects.
+   *
+   * Given a pending edit, and a draft page rendered with it (the `draft`
+   * prop) and showing it through a hook and a loader,
+   * when the edit is discarded -- in another tab -- before the page's overlay
+   * has connected,
+   * then the page ends on the published title, on both.
+   *
+   * The page's overlay has nothing pending for the module, so before phase 4
+   * it sent the module nothing, and the hook kept the draft it was rendered
+   * with for as long as the page was open. Now the page reports what it was
+   * rendered with a draft of (`draftHolds`), the Studio sends those modules
+   * in its catch-up, the hook takes the module as the Studio holds it, and
+   * the loader is refreshed once, because the catch-up found the page behind.
+   */
+  test("S28 a draft discarded before the overlay connects leaves the page", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    const edit = await editor.edit(homeVal, ["title"], "Discarded");
+    await world.settle();
+    const page = await world.loadPage("/", {
+      shows: [{ surface: "hook", ...title }],
+      loaderShows: [{ surface: "loader", ...title }],
+      beforeOverlay: async () => {
+        expect(await editor.discard([edit])).toEqual({ status: "discarded" });
+        await world?.settle();
+      },
+    });
+    await world.settle();
+
+    expect(world.frames.of("hook")[0]?.value).toBe("Discarded");
+    expect(world.frames.last("hook")).toBe("Hello");
+    expect(world.frames.last("loader")).toBe("Hello");
+    expect(page.refreshes).toBe(1);
+    world.frames.expectNeverGoesBack();
   });
 
   /**
