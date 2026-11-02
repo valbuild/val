@@ -12,7 +12,10 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // As the Studio's: the assistant's code tools it compiles (`proposalCode`)
+    // lint with `@valbuild/eslint-plugin`, which is JavaScript.
+    "allowJs": true
   },
   "include": [
     "src/**/*",

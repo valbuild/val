@@ -194,6 +194,12 @@ type MockPatch = {
   /** Set by a commit. The client reads this as `appliedAt`. */
   applied: { commitSha: string } | null;
   /**
+   * The branch the patch is on: the project's, or a proposal's
+   * (`val/p/<name>`). `home` keys its chains by branch, so a proposal's
+   * patches are a chain of their own, never on the site until a merge.
+   */
+  branch: string;
+  /**
    * Which @valbuild/core wrote the ops. `home` records it on every row and
    * hands it back from `/commits/{sha}/patches`, where the history reader uses
    * it to refuse replaying ops from a version known to replay wrongly.
@@ -387,6 +393,8 @@ type MockAiSession = {
 type State = {
   /** Insertion-ordered: this is the patch chain. */
   patches: Map<string, MockPatch>;
+  /** Proposals, by name: see the proposals region. */
+  proposals: Map<string, MockProposal>;
   /**
    * Uploaded bytes, keyed by patch id and then by file path.
    *
@@ -480,6 +488,7 @@ type State = {
 function emptyState(): State {
   return {
     patches: new Map(),
+    proposals: new Map(),
     patchFiles: new Map(),
     commits: [],
     deployments: [],
@@ -507,6 +516,9 @@ let state = emptyState();
 
 /** Every subscribed browser. Written to by the control plane and by commits. */
 const sockets = new Set<WebSocket>();
+/** The branch each socket's chain messages are about, from its nonce. */
+const socketBranch = new WeakMap<WebSocket, string>();
+const socketBranchOfNonce = new Map<string, string>();
 /** How many sockets have ever been accepted. Only ever increases. */
 let socketsAccepted = 0;
 
@@ -603,13 +615,18 @@ function authorized(req: IncomingMessage): boolean {
   return typeof nonce === "string" && state.nonces.has(nonce);
 }
 
-/** The last patch in the chain, which is what a new patch must name as parent. */
-function headPatchId(): string | null {
+/** The last patch in a branch's chain, which is what a new patch must name as parent. */
+function headPatchId(branch: string = PROJECT_BRANCH): string | null {
   let last: string | null = null;
-  for (const patchId of state.patches.keys()) {
-    last = patchId;
+  for (const patch of state.patches.values()) {
+    if (patch.branch === branch) last = patch.patchId;
   }
   return last;
+}
+
+/** A branch's chain, in order. */
+function patchesOn(branch: string): MockPatch[] {
+  return [...state.patches.values()].filter((patch) => patch.branch === branch);
 }
 
 /**
@@ -629,25 +646,37 @@ let chainVersion = 0;
 /** The version each save made, so a retried save answers with its own. */
 const versionOfPatch = new Map<string, number>();
 
-function broadcastChain(): void {
-  broadcast({
-    type: "patches",
-    patches: [...state.patches.keys()],
-    // Beside the list, as `home` sends it. Here the two always agree — this
-    // mock lists the whole chain — but a client that stopped reading the head
-    // would fall back to the list and nothing here could tell.
-    headPatchId: headPatchId(),
-    headVersion: chainVersion,
-    // Which of them a publish has already applied, as `home` sends it.
-    appliedPatches: [...state.patches.values()]
-      .filter((patch) => patch.applied !== null)
-      .map((patch) => patch.patchId),
-  });
+function broadcastChain(branch: string = PROJECT_BRANCH): void {
+  // To the sockets of that branch's Studios only: a nonce names its branch.
+  const site = patchesOn(branch);
+  broadcast(
+    {
+      type: "patches",
+      patches: site.map((patch) => patch.patchId),
+      // Beside the list, as `home` sends it. Here the two always agree — this
+      // mock lists the whole chain — but a client that stopped reading the head
+      // would fall back to the list and nothing here could tell.
+      headPatchId: headPatchId(branch),
+      headVersion: chainVersion,
+      // Which of them a publish has already applied, as `home` sends it.
+      appliedPatches: site
+        .filter((patch) => patch.applied !== null)
+        .map((patch) => patch.patchId),
+    },
+    branch,
+  );
 }
 
-function broadcast(message: unknown): void {
+/** To every socket, or to the sockets of one branch's Studios. */
+function broadcast(message: unknown, branch?: string): void {
   const payload = JSON.stringify(message);
   for (const socket of sockets) {
+    if (
+      branch !== undefined &&
+      (socketBranch.get(socket) ?? PROJECT_BRANCH) !== branch
+    ) {
+      continue;
+    }
     if (socket.readyState === socket.OPEN) {
       socket.send(payload);
     }
@@ -837,9 +866,30 @@ const getApplicablePatches: Handler = (req, res, url) => {
   const requested = url.searchParams.getAll("patch_id");
   const excludeOps = url.searchParams.get("exclude_patch_ops") === "true";
   const wanted = requested.length > 0 ? new Set(requested) : null;
+  /*
+   * The branch's chain: the project's when the caller does not say, as
+   * `home` resolves it from the project row. A proposal's server names its
+   * branch and the save its snapshot is (`commit`), and is answered with what
+   * came after that save and nothing else: the snapshot already holds the
+   * saves up to it, and their patches applied again would apply twice.
+   */
+  const branch = url.searchParams.get("branch") ?? PROJECT_BRANCH;
+  const position = url.searchParams.get("commit");
+  const proposal = proposalOnBranch(branch);
+  const saved =
+    proposal !== null && position !== null
+      ? savesUpTo(proposal, position)
+      : null;
   const patches = [];
-  for (const patch of state.patches.values()) {
+  for (const patch of patchesOn(branch)) {
     if (wanted && !wanted.has(patch.patchId)) {
+      continue;
+    }
+    if (
+      saved !== null &&
+      patch.applied !== null &&
+      saved.has(patch.applied.commitSha)
+    ) {
       continue;
     }
     patches.push({
@@ -860,9 +910,9 @@ const getApplicablePatches: Handler = (req, res, url) => {
      * mock's list does not, so the head is simply the last patch — and it is
      * the whole chain's last patch whatever `patch_id` filter was asked for.
      */
-    headPatchId: headPatchId(),
+    headPatchId: headPatchId(branch),
     headVersion: chainVersion,
-    commits: state.commits,
+    commits: state.commits.filter((commit) => commit.branch === branch),
     /**
      * Newest update first, as the content service returns them.
      *
@@ -956,7 +1006,19 @@ const savePatch: Handler = async (req, res) => {
     json(res, 404, { message: "Parent patch not found" });
     return;
   }
-  const head = headPatchId();
+  const branch = body.branch ?? PROJECT_BRANCH;
+  const onProposal = proposalOnBranch(branch);
+  if (branch !== PROJECT_BRANCH && onProposal === null) {
+    json(res, 400, { message: `No proposal is on branch '${branch}'` });
+    return;
+  }
+  if (onProposal !== null && onProposal.status !== "open") {
+    json(res, 409, {
+      message: `The proposal is ${onProposal.status}: nothing more is written into it.`,
+    });
+    return;
+  }
+  const head = headPatchId(branch);
   if (parentPatchId !== head) {
     res.writeHead(409, { "Content-Type": "text/plain", ...corsHeaders(res) });
     res.end(
@@ -973,6 +1035,7 @@ const savePatch: Handler = async (req, res) => {
     createdAt: nowIso(),
     parentPatchId: body.parentPatchId ?? null,
     applied: null,
+    branch,
     // `home` stores whatever the client says it is, NOT NULL. A client that
     // sends none gets a value that is obviously not a release, so a test
     // reading it back cannot mistake the default for a real version.
@@ -982,7 +1045,7 @@ const savePatch: Handler = async (req, res) => {
   chainVersion += 1;
   versionOfPatch.set(body.patchId, chainVersion);
   const headVersion = chainVersion;
-  broadcastChain();
+  broadcastChain(branch);
   json(res, 200, {
     patchId: body.patchId,
     createdAt: nowIso(),
@@ -997,7 +1060,13 @@ const deletePatches: Handler = async (req, res) => {
   }>(req);
   const ids = body?.patchIds ?? [];
   // A delete can move the head backwards, so the chain moves on a version.
-  const moved = ids.some((patchId) => state.patches.has(patchId));
+  const branches = new Set(
+    ids.flatMap((patchId) => {
+      const patch = state.patches.get(patchId);
+      return patch === undefined ? [] : [patch.branch];
+    }),
+  );
+  const moved = branches.size > 0;
   if (moved) {
     chainVersion += 1;
   }
@@ -1005,14 +1074,16 @@ const deletePatches: Handler = async (req, res) => {
     state.patches.delete(patchId);
     state.patchFiles.delete(patchId);
   }
-  broadcastChain();
+  for (const branch of branches) broadcastChain(branch);
   // Every id comes back as deleted, including ones that were already gone: a
   // patch someone else removed first is absent either way, and reporting that
   // as a failure would make an ordinary discard look broken.
   json(res, 200, {
     deleted: ids,
     // Per branch, as `home` answers, since a delete there can span branches.
-    headVersions: moved ? { [PROJECT_BRANCH]: chainVersion } : {},
+    headVersions: Object.fromEntries(
+      [...branches].map((branch) => [branch, chainVersion]),
+    ),
   });
 };
 
@@ -1311,6 +1382,19 @@ function recordCommit(
   const binaries = binaryFilesOf(body);
   if ("error" in binaries) {
     return binaries;
+  }
+  // The line that keeps a proposal's changes off the site until a merge.
+  const elsewhere = Object.values(body.appliedPatches ?? {})
+    .flat()
+    .filter(
+      (patchId) =>
+        (state.patches.get(patchId)?.branch ?? PROJECT_BRANCH) !==
+        PROJECT_BRANCH,
+    );
+  if (elsewhere.length > 0) {
+    return {
+      error: `These changes are in a proposal, and reach the site by merging it: ${elsewhere.join(", ")}`,
+    };
   }
   const parentCommitSha = state.headCommitSha;
   const commitSha = sha(
@@ -1807,9 +1891,12 @@ const presignedAuthNonce: Handler = (req, res) => {
  * The reply decides where the browser opens its socket, so the url has to be one
  * the browser can reach — this host, not an internal name.
  */
-const websocketNonce: Handler = (req, res) => {
+const websocketNonce: Handler = async (req, res) => {
+  const body = await readJsonBody<{ branch?: string }>(req);
   const nonce = randomUUID();
   state.nonces.add(nonce);
+  // A nonce is for one branch's chain: a proposal's Studio names its branch.
+  socketBranchOfNonce.set(nonce, body?.branch ?? PROJECT_BRANCH);
   json(res, 200, { nonce, url: `ws://localhost:${PORT}/ws` });
 };
 
@@ -2287,7 +2374,7 @@ function pendingForJob(): string[] {
   for (const job of state.publishJobs.values()) {
     if (job.done === null) job.patches.forEach((id) => held.add(id));
   }
-  return [...state.patches.values()]
+  return patchesOn(PROJECT_BRANCH)
     .filter((patch) => !patch.applied && !held.has(patch.patchId))
     .map((patch) => patch.patchId);
 }
@@ -2594,6 +2681,546 @@ async function publishApi(
  * says it. Everything here also pushes down the WebSocket, because that is how a
  * running Studio finds out.
  */
+// #region proposals
+
+/**
+ * A proposal, as `home` keeps one (`docs/proposals.md`): an editor-managed
+ * branch of the project's content, `val/p/<name>`, with a chain of patches
+ * of its own, saves that are commits on that branch, staged code, and the
+ * saved state the platform serves its address from.
+ *
+ * What the mock does NOT do, and `scenarios/README.md` lists: no builds (a
+ * staging is recorded, never built, so `buildRequired` stays true), no render
+ * check, no git push, no moves of the site's changes at a merge, and a merge
+ * sealed at the press -- no publish job, no tab, no merge-prepare.
+ */
+type MockProposal = {
+  name: string;
+  branch: string;
+  displayName: string;
+  description: string | null;
+  ownerId: string | null;
+  status: "open" | "merged" | "closed";
+  createdAt: string;
+  updatedAt: string;
+  /** The create's id: the same create sent again answers this proposal. */
+  requestId: string;
+  /** The site's head when it was opened. */
+  base: string;
+  /**
+   * What its saves and stagings left, as `readProposalSaved` reads it in
+   * `home`: the last commit on the branch, each module's Source as of it,
+   * and every file written (`null`: deleted). The overlay the platform
+   * serves the address from is made of exactly this
+   * (`val/proposalOverlay.ts`), so the mock keeps it current on every write
+   * rather than running an overlay job.
+   */
+  saved: {
+    commit: string | null;
+    modules: Record<string, unknown>;
+    files: Record<string, string | null>;
+  };
+  /** The commits on its branch, oldest first: its saves and stagings. */
+  commits: string[];
+  /** Paths staged as code, in the order first staged. */
+  staged: string[];
+};
+
+function proposalOnBranch(branch: string): MockProposal | null {
+  for (const proposal of state.proposals.values()) {
+    if (proposal.branch === branch) return proposal;
+  }
+  return null;
+}
+
+/** The commits on a proposal's branch up to and including `commit`. */
+function savesUpTo(proposal: MockProposal, commit: string): Set<string> {
+  const at = proposal.commits.indexOf(commit);
+  return new Set(at === -1 ? [] : proposal.commits.slice(0, at + 1));
+}
+
+function stagedJson(proposal: MockProposal) {
+  return {
+    files: proposal.staged,
+    inputs:
+      proposal.staged.length === 0
+        ? null
+        : sha(
+            JSON.stringify(
+              proposal.staged.map((path) => [path, proposal.saved.files[path]]),
+            ),
+          ).slice(0, 40),
+    // Nothing here builds, so what is staged is never served yet.
+    buildRequired: proposal.staged.length > 0,
+  };
+}
+
+function proposalJson(proposal: MockProposal, read = false) {
+  return {
+    name: proposal.name,
+    branch: proposal.branch,
+    displayName: proposal.displayName,
+    description: proposal.description,
+    ownerId: proposal.ownerId,
+    ownerIds: proposal.ownerId === null ? [] : [proposal.ownerId],
+    status: proposal.status,
+    createdAt: proposal.createdAt,
+    updatedAt: proposal.updatedAt,
+    address: null,
+    changes: patchesOn(proposal.branch).filter((patch) => !patch.applied)
+      .length,
+    kind: "editor",
+    ...(read ? { staged: stagedJson(proposal) } : {}),
+  };
+}
+
+/** A commit on a proposal's branch: a save, or a staging. */
+function proposalCommit(
+  proposal: MockProposal,
+  committer: string,
+  message: string | null,
+): string {
+  const parentCommitSha = proposal.saved.commit ?? proposal.base;
+  const commitSha = sha(
+    `${proposal.branch}:${parentCommitSha}:${state.commits.length}`,
+  ).slice(0, 40);
+  const record: MockCommit = {
+    commitSha,
+    clientCommitSha: commitSha,
+    parentCommitSha,
+    commitMessage: message,
+    branch: proposal.branch,
+    creator: committer,
+    createdAt: nowIso(),
+  };
+  state.commits.push(record);
+  proposal.commits.push(commitSha);
+  proposal.saved.commit = commitSha;
+  proposal.updatedAt = record.createdAt;
+  return commitSha;
+}
+
+/** The repository path a commit's file is under: no leading slash, as the overlay names it. */
+function repoPathOf(root: string | undefined, filePath: string): string {
+  return path.posix.join(root || "/", filePath).replace(/^\/+/, "");
+}
+
+/**
+ * `POST /proposals/:name/save` -- `postProposalSave`: `/commit`'s body and
+ * answer, onto the proposal's branch. The site's files and head do not move.
+ */
+async function proposalSave(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proposal: MockProposal,
+): Promise<void> {
+  const body = await readJsonBody<CommitBody>(req);
+  if (!body) {
+    json(res, 400, { message: "Invalid commit body" });
+    return;
+  }
+  if (body.newBranch !== undefined) {
+    json(res, 400, { message: "A save in a proposal makes no branch." });
+    return;
+  }
+  const applied = Object.values(body.appliedPatches ?? {}).flat();
+  const notHere = applied.filter(
+    (patchId) => state.patches.get(patchId)?.branch !== proposal.branch,
+  );
+  if (notHere.length > 0) {
+    json(res, 400, {
+      message: `Not this proposal's changes: ${notHere.join(", ")}`,
+    });
+    return;
+  }
+  const commitSha = proposalCommit(
+    proposal,
+    body.committer,
+    body.message ?? null,
+  );
+  for (const patchId of applied) {
+    const patch = state.patches.get(patchId);
+    if (patch) patch.applied = { commitSha };
+  }
+  if (applied.length > 0) {
+    chainVersion += 1;
+    // Its Studios learn the save applied them, as the site's do of a publish.
+    broadcastChain(proposal.branch);
+  }
+  for (const [filePath, text] of Object.entries(
+    body.patchedSourceFiles ?? {},
+  )) {
+    proposal.saved.files[repoPathOf(body.root, filePath)] = text;
+  }
+  for (const [moduleFilePath, module] of Object.entries(body.modules ?? {})) {
+    proposal.saved.modules[moduleFilePath] = module.source;
+  }
+  json(res, 200, {
+    updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
+    commit: commitSha,
+    branch: proposal.branch,
+    ...(applied.length > 0 ? { headVersion: chainVersion } : {}),
+  });
+}
+
+/** `POST /proposals/:name/files` -- stage code: a commit on its branch. */
+async function proposalStage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proposal: MockProposal,
+): Promise<void> {
+  const body = await readJsonBody<{
+    files?: Record<string, string | null>;
+    message?: string;
+    modules?: Record<string, unknown>;
+  }>(req);
+  const files = body?.files;
+  if (!files || typeof files !== "object" || Object.keys(files).length === 0) {
+    json(res, 400, { message: "files must name at least one file" });
+    return;
+  }
+  // As `postProposalFiles` checks it (valbuild/home#369): only a module file
+  // staged in the same request has a Source to record.
+  for (const moduleFilePath of Object.keys(body?.modules ?? {})) {
+    const at = moduleFilePath.replace(/^\/+/, "");
+    if (moduleFilePath !== `/${at}` || typeof files[at] !== "string") {
+      json(res, 400, {
+        message: `Cannot record the Source of ${JSON.stringify(moduleFilePath)}: only a module file staged with it has one`,
+      });
+      return;
+    }
+  }
+  const committer = req.headers["x-val-profile-id"];
+  const commitSha = proposalCommit(
+    proposal,
+    typeof committer === "string" ? committer : "unknown",
+    body?.message ?? null,
+  );
+  for (const [filePath, text] of Object.entries(files)) {
+    const at = filePath.replace(/^\/+/, "");
+    proposal.saved.files[at] = text;
+    if (!proposal.staged.includes(at)) proposal.staged.push(at);
+  }
+  /*
+   * The Source each staged `.val.ts` declares, recorded as the module's
+   * version at the staging (`stagedModuleRows` in home), so the address
+   * serves the Source its code declares. Only for a module that already HAS
+   * a version -- a save in this proposal, or a site commit, recorded one --
+   * and whose Source it changes: home records none for a module new in the
+   * proposal, whose build is what names it.
+   */
+  const siteModules = siteContentVersion().modules;
+  for (const [moduleFilePath, source] of Object.entries(body?.modules ?? {})) {
+    const now =
+      moduleFilePath in proposal.saved.modules
+        ? proposal.saved.modules[moduleFilePath]
+        : siteModules[moduleFilePath];
+    if (now === undefined) continue;
+    if (JSON.stringify(now) === JSON.stringify(source)) continue;
+    proposal.saved.modules[moduleFilePath] = source;
+  }
+  json(res, 200, { commit: commitSha, staged: stagedJson(proposal) });
+}
+
+/**
+ * `POST /proposals/:name/merge`: Publish in a proposal. `home` answers with a
+ * request and a publish job a tab runs -- merge-prepare, build, upload --
+ * before content seals it. The mock seals it at the press: the site's files
+ * take the proposal's saved text, the site gets a commit carrying its saved
+ * modules, and the proposal is merged. Its unsaved changes stay on its
+ * branch. Idempotent on `requestId`, as `home`'s is.
+ */
+async function proposalMerge(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proposal: MockProposal,
+): Promise<void> {
+  const body = await readJsonBody<{ requestId?: string; tab?: string }>(req);
+  const requestId = body?.requestId;
+  if (typeof requestId !== "string" || typeof body?.tab !== "string") {
+    json(res, 400, { message: "requestId and tab are required" });
+    return;
+  }
+  const known = state.publishRequests.get(requestId);
+  if (known !== undefined) {
+    json(res, 200, { request: known.status, job: null });
+    return;
+  }
+  if (proposal.status !== "open") {
+    json(res, 409, { message: `The proposal is ${proposal.status}.` });
+    return;
+  }
+  if (proposal.saved.commit === null) {
+    const status: MockPublishRequestStatus = { kind: "nothing-to-publish" };
+    state.publishRequests.set(requestId, { requestId, status, jobId: null });
+    json(res, 200, { request: status, job: null });
+    return;
+  }
+  const committer = req.headers["x-val-profile-id"];
+  const modules: Record<string, { source: unknown; schema: unknown }> = {};
+  for (const [moduleFilePath, source] of Object.entries(
+    proposal.saved.modules,
+  )) {
+    modules[moduleFilePath] = { source, schema: null };
+  }
+  const patchedSourceFiles: Record<string, string | null> = {};
+  for (const [filePath, text] of Object.entries(proposal.saved.files)) {
+    patchedSourceFiles[`/${filePath}`] = text;
+  }
+  const recorded = recordCommit({
+    patchedSourceFiles,
+    patchedBinaryFilesDescriptors: {},
+    appliedPatches: {},
+    root: "/",
+    message: `Merge ${proposal.displayName}`,
+    committer: typeof committer === "string" ? committer : "unknown",
+    modules,
+  });
+  if ("error" in recorded) {
+    json(res, 400, { message: recorded.error });
+    return;
+  }
+  proposal.status = "merged";
+  proposal.updatedAt = nowIso();
+  const status: MockPublishRequestStatus = {
+    kind: "live",
+    commit: recorded.commitSha,
+  };
+  state.publishRequests.set(requestId, { requestId, status, jobId: null });
+  json(res, 200, { request: status, job: null });
+}
+
+/** `/v1/{project}/proposals[/...]`: the routes `ValOpsHttp` reaches. */
+async function proposalsRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rest: string,
+): Promise<void> {
+  const profile = req.headers["x-val-profile-id"];
+  const owner = typeof profile === "string" ? profile : null;
+  if (rest === "/proposals") {
+    if (req.method === "GET") {
+      json(res, 200, {
+        proposals: [...state.proposals.values()].map((p) => proposalJson(p)),
+        siteUrl: null,
+      });
+      return;
+    }
+    if (req.method === "POST") {
+      const body = await readJsonBody<{
+        displayName?: string;
+        description?: string;
+        base?: string | null;
+        patchIds?: string[];
+        requestId?: string;
+        kind?: string;
+      }>(req);
+      if (!body || typeof body.displayName !== "string") {
+        json(res, 400, { message: "displayName is required" });
+        return;
+      }
+      if (body.kind !== undefined && body.kind !== "editor") {
+        json(res, 400, { message: `This mock opens editor proposals only.` });
+        return;
+      }
+      if (
+        body.base !== undefined &&
+        body.base !== null &&
+        body.base !== state.headCommitSha
+      ) {
+        json(res, 409, {
+          message: "The site has moved: base is not its head.",
+        });
+        return;
+      }
+      const requestId = body.requestId ?? randomUUID();
+      for (const existing of state.proposals.values()) {
+        if (existing.requestId === requestId) {
+          json(res, 200, {
+            proposal: proposalJson(existing),
+            movedPatchIds: [],
+          });
+          return;
+        }
+      }
+      // Twenty hex characters, the hash of its inputs.
+      const name = sha(`${state.headCommitSha}:${requestId}`).slice(0, 20);
+      const now = nowIso();
+      const proposal: MockProposal = {
+        name,
+        branch: `val/p/${name}`,
+        displayName: body.displayName,
+        description: body.description ?? null,
+        ownerId: owner,
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+        requestId,
+        base: state.headCommitSha,
+        saved: { commit: null, modules: {}, files: {} },
+        commits: [],
+        staged: [],
+      };
+      state.proposals.set(name, proposal);
+      // A re-key, never a copy: the site's pending changes move in whole.
+      const moved: string[] = [];
+      for (const patchId of body.patchIds ?? []) {
+        const patch = state.patches.get(patchId);
+        if (patch && patch.branch === PROJECT_BRANCH && !patch.applied) {
+          patch.branch = proposal.branch;
+          moved.push(patchId);
+        }
+      }
+      if (moved.length > 0) {
+        chainVersion += 1;
+        broadcastChain();
+        broadcastChain(proposal.branch);
+      }
+      json(res, 200, {
+        proposal: proposalJson(proposal),
+        movedPatchIds: moved,
+      });
+      return;
+    }
+  }
+  const match = /^\/proposals\/([0-9a-f]{20})(\/.*)?$/.exec(rest);
+  const proposal = match === null ? undefined : state.proposals.get(match[1]);
+  if (match === null || proposal === undefined) {
+    json(res, 404, { message: "No such proposal" });
+    return;
+  }
+  const route = `${req.method} ${match[2] ?? ""}`;
+  switch (route) {
+    case "GET ":
+      json(res, 200, { proposal: proposalJson(proposal, true), events: [] });
+      return;
+    case "PATCH ": {
+      const body = await readJsonBody<{
+        displayName?: string;
+        description?: string;
+      }>(req);
+      if (typeof body?.displayName === "string") {
+        proposal.displayName = body.displayName;
+      }
+      if (typeof body?.description === "string") {
+        proposal.description = body.description;
+      }
+      proposal.updatedAt = nowIso();
+      json(res, 200, { proposal: proposalJson(proposal) });
+      return;
+    }
+    case "POST /save":
+      await proposalSave(req, res, proposal);
+      return;
+    case "GET /files":
+      json(res, 200, {
+        files: proposal.saved.files,
+        staged: stagedJson(proposal),
+      });
+      return;
+    case "POST /files":
+      if (proposal.status !== "open") {
+        json(res, 409, { message: `The proposal is ${proposal.status}.` });
+        return;
+      }
+      await proposalStage(req, res, proposal);
+      return;
+    case "GET /merge-checks": {
+      const unsaved = patchesOn(proposal.branch).filter(
+        (patch) => !patch.applied,
+      ).length;
+      const checks = [
+        {
+          id: "open",
+          ok: proposal.status === "open",
+          message:
+            proposal.status === "open"
+              ? "It is open."
+              : `It is ${proposal.status}.`,
+        },
+        {
+          id: "saved",
+          ok: unsaved === 0,
+          message:
+            unsaved === 0
+              ? "Everything in it is saved."
+              : `${unsaved} change(s) in it are not saved.`,
+        },
+      ];
+      json(res, 200, { checks, canMerge: checks.every((check) => check.ok) });
+      return;
+    }
+    case "POST /merge":
+      await proposalMerge(req, res, proposal);
+      return;
+    case "POST /close":
+    case "POST /reopen":
+      proposal.status = route === "POST /close" ? "closed" : "open";
+      proposal.updatedAt = nowIso();
+      json(res, 200, { proposal: proposalJson(proposal) });
+      return;
+    default:
+      json(res, 404, {
+        message: `Not modeled by this mock: ${req.method} /proposals/:name${match[2] ?? ""}`,
+      });
+  }
+}
+
+/**
+ * What the platform serves a proposal's address from (`VAL_OVERLAY`,
+ * `VAL_PROPOSAL`, `VAL_BRANCH`): `home`'s overlay step writes it from the
+ * saved state after every save (`overlayStep`), with deleted files left out
+ * (`shippedFiles`). Read by a test as the platform would hand it to the next
+ * isolate.
+ */
+function proposalOverlay(proposal: MockProposal) {
+  const files: Record<string, string> = {};
+  for (const [filePath, text] of Object.entries(proposal.saved.files)) {
+    if (text !== null) files[filePath] = text;
+  }
+  return {
+    name: proposal.name,
+    branch: proposal.branch,
+    commit: proposal.saved.commit,
+    modules: proposal.saved.modules,
+    files,
+  };
+}
+
+/**
+ * The site's content since the bundle the test built from, as the platform
+ * hands a content version to a site isolate after a publish that did not
+ * rebuild (`VAL_CONTENT`): every module the site's commits recorded, at its
+ * latest, and every text file they wrote.
+ */
+function siteContentVersion() {
+  const modules: Record<string, unknown> = {};
+  for (const commit of state.commits) {
+    if (commit.branch !== PROJECT_BRANCH) continue;
+    const archive = state.archives.get(commit.commitSha);
+    for (const [moduleFilePath, module] of Object.entries(
+      archive?.modules ?? {},
+    )) {
+      modules[moduleFilePath] = module.source;
+    }
+  }
+  const files: Record<string, string> = {};
+  for (const [filePath, value] of state.repoOverlay) {
+    if (value !== null && value.encoding === "utf8") {
+      files[filePath.replace(/^\/+/, "")] = value.value;
+    }
+  }
+  return {
+    id: sha(`${state.headCommitSha}:version`).slice(0, 20),
+    job: null,
+    commit: state.headCommitSha,
+    modules,
+    files,
+  };
+}
+
+// #endregion
+
 const controlPlane: Handler = async (req, res, url) => {
   const action = url.pathname.slice("/__test__/".length);
   if (action === "reset" && req.method === "POST") {
@@ -2609,6 +3236,60 @@ const controlPlane: Handler = async (req, res, url) => {
     const body = await readJsonBody<{ enabled?: boolean }>(req);
     state.publishJobsEnabled = body?.enabled !== false;
     json(res, 200, { ok: true, enabled: state.publishJobsEnabled });
+    return;
+  }
+  if (action === "proposals" && req.method === "POST") {
+    /*
+     * A proposal that already exists on content, with what its saves left:
+     * for a test that starts at the address of one rather than opening it.
+     */
+    const body = await readJsonBody<{
+      name?: string;
+      branch?: string;
+      commit?: string | null;
+      modules?: Record<string, unknown>;
+      files?: Record<string, string>;
+    }>(req);
+    if (
+      typeof body?.name !== "string" ||
+      !/^[0-9a-f]{20}$/.test(body.name) ||
+      typeof body.branch !== "string"
+    ) {
+      json(res, 400, { message: "name (20 hex) and branch are required" });
+      return;
+    }
+    const now = nowIso();
+    const commit = body.commit ?? null;
+    state.proposals.set(body.name, {
+      name: body.name,
+      branch: body.branch,
+      displayName: body.name,
+      description: null,
+      ownerId: null,
+      status: "open",
+      createdAt: now,
+      updatedAt: now,
+      requestId: body.name,
+      base: state.headCommitSha,
+      saved: { commit, modules: body.modules ?? {}, files: body.files ?? {} },
+      commits: commit === null ? [] : [commit],
+      staged: [],
+    });
+    json(res, 200, { ok: true });
+    return;
+  }
+  const overlay = /^proposals\/([0-9a-f]{20})\/overlay$/.exec(action);
+  if (overlay !== null && req.method === "GET") {
+    const proposal = state.proposals.get(overlay[1]);
+    if (proposal === undefined) {
+      json(res, 404, { message: "No such proposal" });
+      return;
+    }
+    json(res, 200, proposalOverlay(proposal));
+    return;
+  }
+  if (action === "content-version" && req.method === "GET") {
+    json(res, 200, siteContentVersion());
     return;
   }
   if (action === "state" && req.method === "GET") {
@@ -2928,6 +3609,10 @@ async function handle(
     }
     return;
   }
+  if (rest === "/proposals" || rest.startsWith("/proposals/")) {
+    await proposalsRoute(req, res, rest);
+    return;
+  }
   switch (route) {
     case "GET /applicable/patches":
       getApplicablePatches(req, res, url);
@@ -3007,6 +3692,10 @@ wss.on("connection", (socket) => {
       return;
     }
     sockets.add(socket);
+    socketBranch.set(
+      socket,
+      socketBranchOfNonce.get(message.nonce) ?? PROJECT_BRANCH,
+    );
     /*
      * Counted, not just held.
      *

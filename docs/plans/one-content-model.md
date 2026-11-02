@@ -55,8 +55,16 @@ coverage" (valbuild/val#1006).
   cell passes, in all three modes.
 - **The hosted layers** (S06, S20, S21, decision 1 below): a content version
   and a proposal snapshot handed to the API and the readers alike, and a
-  `/stat` answer delivered after a later write. All pass; the mock's proposal
-  routes (writes) are still not there.
+  `/stat` answer delivered after a later write. All pass.
+- **Proposals, written** (S26-S30, `proposals.scenario.test.ts`): the mock
+  content host keeps a chain per branch, opens proposals, saves and stages
+  into them, keeps the overlay the platform serves an address from, and
+  merges (sealed at the press: no publish job, no build -- the README lists
+  what it does not do). A world opens one and serves its address; an edit
+  there stays off the site, a save makes it the proposal's, two editors
+  share it, a staged `.val.ts` (through `write_files`) is its Source, and
+  Publish merges it into the site. The new routes are pinned in
+  `homeWireContract.test.ts`. All pass.
 - **Measurements** (`scenarios/measure/`): how to measure, and the first
   results.
 

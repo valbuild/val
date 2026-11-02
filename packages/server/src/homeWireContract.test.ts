@@ -1,6 +1,7 @@
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
+import type { ValProposal } from "./proposal";
 import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
 /**
@@ -37,6 +38,8 @@ function opsAnswering(
      * not built from any. See `git` on `ValApiOptions`.
      */
     git?: { commit: string; branch: string } | null;
+    /** Serve a proposal's address: see `proposal` on `ValApiOptions`. */
+    proposal?: ValProposal;
   },
 ) {
   const originalFetch = global.fetch;
@@ -77,6 +80,9 @@ function opsAnswering(
     // The module side is irrelevant here: nothing on this path evaluates a
     // module or reads a schema.
     { modules: [] } as never,
+    options?.proposal !== undefined
+      ? { config: {}, proposal: options.proposal }
+      : undefined,
   );
   return {
     ops,
@@ -910,6 +916,144 @@ test("a content API that does not say which changes are publishing leaves it abs
   try {
     const res = await ops.fetchPatches({ excludePatchOps: true });
     expect(res).not.toHaveProperty("publishingPatches");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A proposal's address (valbuild/home `docs/proposals.md`). The e2e mock
+ * keeps a chain per branch, saves, stagings and merges now
+ * (`scenarios/src/proposals.scenario.test.ts`), so what it is held to is
+ * pinned here against `home`'s `Api.ts`.
+ */
+const PROPOSAL: ValProposal = {
+  name: "0123456789abcdef0123",
+  branch: "val/p/0123456789abcdef0123",
+  commit: "save1",
+  modules: {},
+  files: {},
+};
+
+const EMPTY_PREPARED = {
+  patchedSourceFiles: {},
+  patchedJsonEntries: {},
+  previousSourceFiles: {},
+  partiallyPatchedSourceFiles: {},
+  patchedBinaryFilesDescriptors: {},
+  appliedPatches: {},
+  hasErrors: false,
+  sourceFilePatchErrors: {},
+  binaryFilePatchErrors: {},
+  unappliablePatches: {},
+  skippedPatches: {},
+  triedPatches: {},
+  moduleVersions: {},
+};
+
+test("a save in a proposal is `/proposals/:name/save`, answered as `/commit` is", async () => {
+  // `home` -- `Api["/proposals/:proposalName/save"]["POST"]` is
+  // `Api["/commit"]["POST"]`: the same body and the same answer.
+  const { ops, sent, restore } = opsAnswering(
+    {
+      updatedFiles: ["/content/page.val.ts"],
+      commit: "save2",
+      branch: PROPOSAL.branch,
+      headVersion: 7,
+    },
+    200,
+    { proposal: PROPOSAL },
+  );
+  try {
+    const res = await ops.commit(
+      EMPTY_PREPARED,
+      "save",
+      PROFILE,
+      "/public/val",
+    );
+    expect(res.error).toBeUndefined();
+    expect("branch" in res && res.branch).toBe(PROPOSAL.branch);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/save`,
+    );
+    const body = sent[0]?.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("newBranch");
+    expect(body.committer).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("a proposal's server reads its own chain: its branch, from its save", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_APPLICABLE_PATCHES, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    await ops.fetchPatches({ excludePatchOps: true });
+    const read = sent.find((request) =>
+      request.url.includes("/applicable/patches"),
+    );
+    expect(read).toBeDefined();
+    const query = new URL(read?.url ?? "").searchParams;
+    // `getApplicablePatches` -- `branch` and `commit` are its position.
+    expect(query.get("branch")).toBe(PROPOSAL.branch);
+    expect(query.get("commit")).toBe(PROPOSAL.commit);
+  } finally {
+    restore();
+  }
+});
+
+test("a staging sends the Source its module files declare, and home's answer comes back", async () => {
+  // `home` -- `Api["/proposals/:proposalName/files"]["POST"]`, since #369.
+  const HOME_STAGED = {
+    commit: "stage1",
+    staged: {
+      files: ["content/page.val.ts"],
+      inputs: "inputs1",
+      buildRequired: true,
+    },
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_STAGED, 200, {
+    proposal: PROPOSAL,
+  });
+  const text = `export default c.define("/content/page.val.ts", s.object({ title: s.string() }), { title: "Staged" });\n`;
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/files`,
+      {
+        method: "POST",
+        body: JSON.stringify({ files: { "content/page.val.ts": text } }),
+      },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_STAGED);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/files`,
+    );
+    // Keyed by module file path, for a file staged in the same request: the
+    // only `modules` home accepts.
+    expect(sent[0]?.body).toEqual({
+      files: { "content/page.val.ts": text },
+      modules: { "/content/page.val.ts": { title: "Staged" } },
+    });
+  } finally {
+    restore();
+  }
+});
+
+test("a proposal's socket nonce names its branch", async () => {
+  const { ops, sent, restore } = opsAnswering(
+    { nonce: "n1", url: "wss://content.val.build/ws" },
+    200,
+    { proposal: PROPOSAL },
+  );
+  try {
+    const res = await ops.getWebSocketNonce(PROFILE);
+    expect(res.status).toBe("success");
+    expect((sent[0]?.body as Record<string, unknown>).branch).toBe(
+      PROPOSAL.branch,
+    );
   } finally {
     restore();
   }

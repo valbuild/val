@@ -99,6 +99,18 @@ import { createFrames, type Frames } from "./frames";
 import { startFakeClock, type Clock } from "./clock";
 import { installXmlHttpRequest } from "./xmlHttpRequest";
 import { startContentHost, type ContentHost } from "./contentHost";
+import {
+  createProposalsClient,
+  type ProposalsClient,
+} from "../../../packages/ui/spa/proposals/proposalsClient";
+import {
+  runCodeTool,
+  type CodeToolAnswer,
+} from "../../../packages/ui/spa/proposals/proposalCode";
+import {
+  createStudioJobClient,
+  type StudioJobClient,
+} from "@valbuild/shared/publish";
 
 /**
  * A world a scenario runs in: Val's real server behind a network the test
@@ -121,7 +133,15 @@ export type World = {
   network: Network;
   frames: Frames;
   studio(name: string): Promise<Studio>;
-  page(route: string, options: { draftMode: boolean }): Page;
+  /**
+   * A page of the app. `at: "site"` serves it from the SITE's build in a
+   * world at a proposal's address: the same content service and the same
+   * editor's cookie, without the proposal -- with the content version the
+   * platform hands a site isolate now (`VAL_CONTENT`), read per request.
+   */
+  page(route: string, options: { draftMode: boolean; at?: "site" }): Page;
+  /** In a world at a proposal's address (http only): see {@link ProposalAt}. */
+  proposal: ProposalAt | null;
   /** Every surface reads what it reads, and the answers become frames. */
   observe(): Promise<void>;
   /**
@@ -155,6 +175,33 @@ export type World = {
   expectInvariants(): void;
   /** Stops what the world started, and puts the working directory back. */
   dispose(): Promise<void>;
+};
+
+/**
+ * The proposal a world is at the address of, and what the platform and the
+ * Studio do with it.
+ */
+export type ProposalAt = {
+  name: string;
+  branch: string;
+  /**
+   * The assistant's `write_files`, as the Studio runs it (`runCodeTool`):
+   * stages files in the proposal through the app's `/proposals-api`.
+   */
+  stage(
+    files: Record<string, string | null>,
+    message?: string,
+  ): Promise<CodeToolAnswer>;
+  /**
+   * What the platform does after a save or a staging: serve the address from
+   * a new isolate, with the overlay content's overlay step wrote
+   * (`VAL_OVERLAY`, read here from the content host as the platform holds it).
+   */
+  redeploy(): Promise<void>;
+  /** Publish in the proposal: the press the Studio makes (`pressMerge`). */
+  merge(): ReturnType<StudioJobClient["pressMerge"]>;
+  /** The product's client for content's proposals API, through the app. */
+  client: ProposalsClient;
 };
 
 export type Studio = {
@@ -310,9 +357,12 @@ export type WorldOptions = {
   contentVersion?: ValContentVersion;
   /**
    * http only: the proposal whose address the build serves (`VAL_PROPOSAL`,
-   * `VAL_BRANCH`, `VAL_OVERLAY`, read by `proposalFromEnv`).
+   * `VAL_BRANCH`, `VAL_OVERLAY`, read by `proposalFromEnv`). `{ open }`
+   * opens a new one on the content host first, as New proposal does on the
+   * site (`createProposalsClient().create`, through the site's build), and
+   * serves its address: then `world.proposal` is how it is driven.
    */
-  proposal?: ValProposal;
+  proposal?: ValProposal | { open: string };
   /**
    * The `.val.ts` text of modules, for what reads it: a publish rewrites it.
    * Written into the project directory in fs mode and handed over as
@@ -349,6 +399,7 @@ type HttpOptions = {
   valContentUrl: string;
   contentVersion?: ValContentVersion;
   proposal?: ValProposal;
+  projectSource?: Record<string, string>;
 };
 
 /** What session cookies are signed with: the app's `VAL_SECRET`. */
@@ -388,8 +439,23 @@ async function hostFor(
         ...(options.contentVersion !== undefined
           ? { contentVersion: options.contentVersion }
           : {}),
-        ...(options.proposal !== undefined
+        ...(options.proposal !== undefined && !("open" in options.proposal)
           ? { proposal: options.proposal }
+          : {}),
+        /*
+         * The platform builds a proposal's address itself and embeds the
+         * project's source in the build, which is where a save there reads
+         * the `.val.ts` text it patches (under the proposal's own files).
+         */
+        ...(options.proposal !== undefined
+          ? {
+              projectSource: Object.fromEntries(
+                Object.entries(sourceText).map(([path, text]) => [
+                  path.replace(/^\/+/, ""),
+                  text,
+                ]),
+              ),
+            }
           : {}),
       },
     };
@@ -503,6 +569,94 @@ function pageRequest(host: ServerHost, route: string): Request {
   });
 }
 
+/** A JSON object, as the content host's control plane answers. */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!isObject(value)) throw new Error("not an object of strings");
+  const out: Record<string, string> = {};
+  for (const [key, text] of Object.entries(value)) {
+    if (typeof text !== "string") throw new Error(`${key} is not a string`);
+    out[key] = text;
+  }
+  return out;
+}
+
+function stringOrNull(value: unknown): string | null {
+  if (value === null || typeof value === "string") return value;
+  throw new Error("not a string or null");
+}
+
+/** The overlay the platform holds for a proposal's address: a `ValProposal`. */
+function parseProposalOverlay(body: unknown): ValProposal {
+  if (
+    !isObject(body) ||
+    typeof body.name !== "string" ||
+    typeof body.branch !== "string" ||
+    !isObject(body.modules)
+  ) {
+    throw new Error("not a proposal overlay");
+  }
+  return {
+    name: body.name,
+    branch: body.branch,
+    commit: stringOrNull(body.commit),
+    modules: body.modules,
+    files: stringRecord(body.files),
+  };
+}
+
+/** The site's content version, as the platform would hand it to an isolate now. */
+function parseContentVersion(body: unknown): ValContentVersion {
+  if (
+    !isObject(body) ||
+    typeof body.id !== "string" ||
+    !isObject(body.modules)
+  ) {
+    throw new Error("not a content version");
+  }
+  return {
+    id: body.id,
+    job: stringOrNull(body.job),
+    commit: stringOrNull(body.commit),
+    modules: body.modules,
+    files: stringRecord(body.files),
+  };
+}
+
+/**
+ * What the platform hands a site isolate (`VAL_CONTENT`): the content the
+ * site's publishes made since the bundle, or none while there is none.
+ */
+async function siteContentVersion(
+  contentHost: ContentHost,
+): Promise<ValContentVersion | undefined> {
+  const res = await fetch(`${contentHost.url}/__test__/content-version`);
+  if (!res.ok) throw new Error(`No content version: ${res.status}`);
+  const version = parseContentVersion(await res.json());
+  return Object.keys(version.modules).length === 0 &&
+    Object.keys(version.files).length === 0
+    ? undefined
+    : version;
+}
+
+/** A world's `fetch` for a sender, in the shape a product client takes. */
+function asFetch(
+  send: (input: string, init: RequestInit) => Promise<Response>,
+): typeof fetch {
+  return (input, init) =>
+    send(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+      init ?? {},
+    );
+}
+
 export async function createWorld(options: WorldOptions): Promise<World> {
   const registryOf = (modules: AnyModule[]): ValModules => ({
     config: options.config,
@@ -516,6 +670,46 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const host = await hostFor(options, options.sourceText ?? {});
   const serverConfig = hostConfig(host, options.config);
   const apiDraftMode = { on: true };
+  if (host.mode === "http" && host.http.proposal !== undefined) {
+    // A proposal handed over whole exists on content already, with its saves.
+    const seeded = await fetch(`${host.contentHost.url}/__test__/proposals`, {
+      method: "POST",
+      body: JSON.stringify(host.http.proposal),
+    });
+    if (!seeded.ok)
+      throw new Error(`could not seed the proposal: ${seeded.status}`);
+  }
+  /** The site's http options in a world at a proposal's address. */
+  const siteHttp = host.mode === "http" ? { ...host.http } : null;
+  if (
+    host.mode === "http" &&
+    options.proposal !== undefined &&
+    "open" in options.proposal
+  ) {
+    // New proposal, pressed in a Studio on the site: through the site's build.
+    const site = initValServer(valModules, serverConfig, {
+      http: host.http,
+      draftMode: draftModeOf(apiDraftMode),
+    }).valApiHandler;
+    const opened = await createProposalsClient({
+      api: "/api/val",
+      fetchImpl: asFetch(
+        withSession(host, (input, init) =>
+          site(new Request(new URL(input, "http://localhost").href, init)),
+        ),
+      ),
+    }).create({ displayName: options.proposal.open, requestId: randomUUID() });
+    host.http = {
+      ...host.http,
+      proposal: {
+        name: opened.name,
+        branch: opened.branch,
+        commit: null,
+        modules: {},
+        files: {},
+      },
+    };
+  }
   const serverFor = (registry: ValModules) =>
     withStaticFiles(
       host,
@@ -865,6 +1059,56 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     return studio;
   };
 
+  /** `world.proposal`: the proposal a world is at the address of. */
+  const proposalAt = (): ProposalAt | null => {
+    if (host.mode !== "http" || host.http.proposal === undefined) return null;
+    const { name, branch } = host.http.proposal;
+    const send = asFetch(
+      withSession(host, network.fetchFor("studio:proposals")),
+    );
+    const client = createProposalsClient({ api: "/api/val", fetchImpl: send });
+    const notWriteFiles = (): never => {
+      throw new Error("write_files does not build, typecheck or offer");
+    };
+    return {
+      name,
+      branch,
+      client,
+      stage: (files, message) =>
+        runCodeTool(
+          "write_files",
+          { files, ...(message !== undefined ? { message } : {}) },
+          {
+            proposal: { name },
+            client,
+            siteSource: async () => null,
+            build: {
+              start: notWriteFiles,
+              running: () => null,
+              report: notWriteFiles,
+              cancel: () => false,
+            },
+            typecheck: notWriteFiles,
+            offerProposal: notWriteFiles,
+          },
+        ),
+      async redeploy() {
+        const res = await fetch(
+          `${host.contentHost.url}/__test__/proposals/${name}/overlay`,
+        );
+        if (!res.ok) throw new Error(`No overlay for ${name}: ${res.status}`);
+        const overlay = parseProposalOverlay(await res.json());
+        host.http = { ...host.http, proposal: overlay };
+        deployCode(serverModules);
+      },
+      merge: () =>
+        createStudioJobClient({ api: "/api/val", fetchImpl: send }).pressMerge(
+          name,
+          randomUUID(),
+          "scenario-tab",
+        ),
+    };
+  };
   return {
     server:
       host.mode === "fs"
@@ -875,6 +1119,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     network,
     frames,
     studio: (name) => startStudio(name, valModules),
+    proposal: proposalAt(),
     async loadPage(route, pageOptions) {
       const request = () => pageRequest(host, route);
       // The page's browser bundle: the server's code unless the scenario gives
@@ -998,12 +1243,33 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     page(route, pageOptions) {
       const draft = { on: pageOptions.draftMode };
+      const atSite = pageOptions.at === "site";
+      if (atSite && siteHttp === null) {
+        throw new Error("A page at the site is for a world in http mode.");
+      }
+      let version: ValContentVersion | undefined;
       const contentFor = (registry: ValModules) =>
         initValContent(serverConfig, registry, {
-          ...hostOptions(host),
+          ...(atSite && siteHttp !== null
+            ? {
+                http: {
+                  ...siteHttp,
+                  ...(version !== undefined ? { contentVersion: version } : {}),
+                },
+              }
+            : hostOptions(host)),
           draftMode: draftModeOf(draft),
         });
       let content = contentFor(valModules);
+      /** A site isolate gets the content version the platform holds now. */
+      const refreshSite = async () => {
+        if (!atSite || host.mode !== "http") return;
+        const next = await siteContentVersion(host.contentHost);
+        if (next?.id !== version?.id) {
+          version = next;
+          content = contentFor(valModules);
+        }
+      };
       pages.push(() => {
         content = contentFor(valModules);
       });
@@ -1030,8 +1296,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         reads(surface, read) {
           surfaces.push({
             name: surface,
-            read: () =>
-              inRequest(pageRequest(host, route), () => read(readers)),
+            read: async () => {
+              await refreshSite();
+              return inRequest(pageRequest(host, route), () => read(readers));
+            },
           });
         },
       };
