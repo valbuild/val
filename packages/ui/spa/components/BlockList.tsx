@@ -643,7 +643,7 @@ function BlockRow({
           // The insert bar above this row is the next sibling, and shows its
           // plus while this has keyboard focus — it is also the next Tab
           // stop, so the plus says where Tab goes. See `InsertBar`.
-          "flex w-3 shrink-0 cursor-grab items-start justify-center self-stretch rounded-sm pt-2.5",
+          "flex w-4 shrink-0 cursor-grab items-start justify-center self-stretch rounded-sm pt-3",
           "text-fg-secondary-alt outline-none transition-colors",
           // Quiet at rest: just the grip icon. The strip appears while its
           // row is hovered or holds focus — the INNERMOST such row only, so
@@ -657,7 +657,7 @@ function BlockRow({
           DRAG_HANDLE_TOUCH,
         )}
       >
-        <GripVertical size={12} />
+        <GripVertical size={14} />
       </button>
     ) : null;
 
@@ -698,17 +698,17 @@ function BlockRow({
         })}
       >
         {headered && (
-          <div className="flex items-center gap-1 h-7 px-1.5">
+          <div className="flex items-center gap-1.5 h-9 px-2">
             {/* An array row's number is a control (it moves the row), so it
                 cannot be inside the collapse button. A key is just text. */}
             {label.kind === "index" && <RowLabelText label={label} />}
             <button
-              className="flex items-center gap-1.5 flex-1 min-w-0 h-full text-left"
+              className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
               aria-expanded={!collapsed}
               onClick={() => setCollapsed((prev) => !prev)}
             >
               <ChevronRight
-                size={12}
+                size={16}
                 className={cn(
                   "shrink-0 text-fg-secondary-alt transition-transform",
                   { "rotate-90": !collapsed },
@@ -722,6 +722,7 @@ function BlockRow({
                     ? itemSchema.key
                     : undefined
                 }
+                muted={label.kind === "key"}
               />
             </button>
             <ContentViewsBadge path={path} />
@@ -808,8 +809,8 @@ function BlockRow({
 
 /**
  * The bar in the gap between two rows: an insert there. Invisible at rest —
- * the gap is just a gap — and on hover or focus a thin brand line appears
- * across it, split in the middle by a round plus. The row menu's "Add above" / "Add below" are the same inserts for
+ * the gap is just a gap — and on hover or focus a plus appears in the middle
+ * of it, between two short brand lines that fade out. The row menu's "Add above" / "Add below" are the same inserts for
  * anyone who does not find the gap.
  *
  * Absolutely placed in the gap the list leaves for it, but in the DOM it sits
@@ -836,6 +837,9 @@ function InsertBar({
     "group-hover/insert:opacity-100 group-focus-visible/insert:opacity-100",
     "[[data-block-grip]:focus-visible+[data-insert-bar]>&]:opacity-100",
   );
+  // Short, and fading out away from the plus, so it reads as a mark at one
+  // place between two rows rather than as another border.
+  const line = "h-0.5 w-1/4 max-w-32 rounded-full to-transparent";
   return (
     <button
       type="button"
@@ -844,25 +848,30 @@ function InsertBar({
       title={label}
       onClick={onClick}
       className={cn(
-        // The whole gap is the target; what shows is a thin line across the
-        // card (not the gutter), split in the middle by the plus.
-        "group/insert absolute left-3 right-0 flex h-3 items-center gap-1 outline-none",
+        // The whole gap is the target; what shows is centred over the card
+        // (not the gutter).
+        "group/insert absolute left-4 right-0 flex h-3 items-center justify-center gap-1.5 outline-none",
         position === "above" ? "-top-3" : "-bottom-3",
       )}
     >
       <span
-        className={cn("h-0.5 flex-1 rounded-full bg-bg-brand-primary", shown)}
+        className={cn(
+          line,
+          "bg-gradient-to-l from-border-brand-primary",
+          shown,
+        )}
+      />
+      <Plus
+        size={14}
+        strokeWidth={2.5}
+        className={cn("text-fg-primary", shown)}
       />
       <span
         className={cn(
-          "flex size-4 shrink-0 items-center justify-center rounded-full bg-bg-brand-primary text-fg-brand-primary",
+          line,
+          "bg-gradient-to-r from-border-brand-primary",
           shown,
         )}
-      >
-        <Plus size={10} strokeWidth={3} />
-      </span>
-      <span
-        className={cn("h-0.5 flex-1 rounded-full bg-bg-brand-primary", shown)}
       />
     </button>
   );
@@ -880,7 +889,7 @@ function RowLabelText({ label }: { label: RowLabel }) {
   }
   if (label.kind === "index") {
     return (
-      <span className="min-w-4 shrink-0 text-[10px] tabular-nums text-fg-secondary-alt">
+      <span className="min-w-6 shrink-0 text-center text-sm tabular-nums text-fg-secondary-alt">
         {label.index + 1}
       </span>
     );
@@ -888,7 +897,7 @@ function RowLabelText({ label }: { label: RowLabel }) {
   // A key is data, not a field name, so it is shown as written — never
   // title-cased the way `FieldLabel` treats a schema's own keys.
   return (
-    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-xs text-fg-secondary">
+    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-sm font-medium text-fg-primary">
       {label.key}
     </span>
   );
@@ -923,7 +932,7 @@ function PositionSelect({
         aria-label={`Item ${index + 1} of ${count}. Move to another position`}
         title="Move to position"
         className={cn(
-          "h-5 min-w-5 shrink-0 rounded px-1 text-center text-[10px] tabular-nums text-fg-secondary-alt outline-none",
+          "h-6 min-w-6 shrink-0 rounded px-1 text-center text-sm tabular-nums text-fg-secondary outline-none",
           "hover:bg-bg-secondary-hover hover:text-fg-primary",
           "focus-visible:ring-1 focus-visible:ring-border-focus",
           "data-[state=open]:bg-bg-secondary-hover data-[state=open]:text-fg-primary",
@@ -1172,9 +1181,12 @@ function FieldDescription({
 function RowSummary({
   path,
   unionKey,
+  muted,
 }: {
   path: SourcePath;
   unionKey?: string;
+  /** Beside a record's key, which is the row's label: the summary is second. */
+  muted?: boolean;
 }) {
   const preview = useRefPreview(path);
   const sourceAtPath = useSourceAtPath(path);
@@ -1206,11 +1218,16 @@ function RowSummary({
   return (
     <>
       {tag !== null && (
-        <span className="shrink-0 rounded bg-bg-secondary px-1 text-[10px] leading-4 text-fg-secondary">
+        <span className="shrink-0 rounded bg-bg-secondary px-1.5 py-0.5 text-xs text-fg-secondary">
           {tag}
         </span>
       )}
-      <span className="flex-1 min-w-0 truncate text-xs text-fg-tertiary">
+      <span
+        className={cn(
+          "flex-1 min-w-0 truncate text-sm",
+          muted ? "text-fg-secondary" : "text-fg-primary",
+        )}
+      >
         {summary ?? ""}
       </span>
     </>
@@ -1259,7 +1276,7 @@ function firstStringOf(source: Json, unionKey?: string): string | null {
 }
 
 const MENU_TRIGGER =
-  "shrink-0 rounded px-0.5 py-1 text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-secondary-hover";
+  "shrink-0 rounded p-1 text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary-hover";
 const MENU_ITEM =
   "flex h-7 w-full items-center justify-start gap-2 rounded px-2 text-sm font-normal text-fg-primary hover:bg-bg-secondary-hover";
 const ADD_BUTTON =
@@ -1287,7 +1304,7 @@ function ArrayRowMenu({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className={MENU_TRIGGER} aria-label="Row actions">
-        <EllipsisVertical size={14} />
+        <EllipsisVertical size={16} />
       </PopoverTrigger>
       <PopoverContent
         className="flex w-auto flex-col p-1"
@@ -1340,7 +1357,7 @@ function RecordRowMenu({ path }: { path: SourcePath }) {
         className={MENU_TRIGGER}
         aria-label={`Actions for ${entry.key}`}
       >
-        <EllipsisVertical size={14} />
+        <EllipsisVertical size={16} />
       </PopoverTrigger>
       <PopoverContent
         className="flex w-auto flex-col p-1"
