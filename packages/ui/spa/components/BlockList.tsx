@@ -3,6 +3,7 @@ import {
   DndContext,
   DragEndEvent,
   DragOverlay,
+  KeyboardCode,
   closestCenter,
   KeyboardSensor,
   MouseSensor,
@@ -21,9 +22,9 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
+  ChevronDown,
   ChevronRight,
   Copy,
-  EllipsisVertical,
   GripVertical,
   Pencil,
   Plus,
@@ -215,11 +216,22 @@ function ArrayBlockList({
     setItems(nextItems);
   }, [sourcePaths]);
 
+  // The handle is also the row's menu button, so a press has to stay a click
+  // until it moves: a few pixels of travel make it a drag (and dnd-kit then
+  // swallows the click that ends it). The handle is `touch-none`, so a finger
+  // has no scroll to compete with and the same rule works for touch. On the
+  // keyboard, Space picks the row up and Enter opens the menu — Enter is not
+  // a start key here, or it could never reach the button.
   const sensors = useSensors(
-    useSensor(MouseSensor),
-    useSensor(TouchSensor),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: {
+        start: [KeyboardCode.Space],
+        cancel: [KeyboardCode.Esc],
+        end: [KeyboardCode.Space, KeyboardCode.Enter, KeyboardCode.Tab],
+      },
     }),
   );
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -361,47 +373,51 @@ function ArrayBlockList({
         depth={depth}
         readonly={readonly}
         onNavigate={(p) => navigate(p)}
-        menu={
+        menuItems={
           // Readonly means readonly: with the menu still rendered, Delete and
           // Duplicate stayed live and wrote patches even though the grip and
           // every field were disabled.
-          readonly ? null : (
-            <ArrayRowMenu
-              onInsertAbove={() => insertAt(index)}
-              onInsertBelow={() => insertAt(index + 1)}
-              onDelete={() => {
-                addPatch(
-                  [
-                    {
-                      op: "remove",
-                      path: patchPath.concat(
-                        index.toString(),
-                      ) as array.NonEmptyArray<string>,
-                    },
-                  ],
-                  type,
-                );
-              }}
-              onDuplicate={() => {
-                if (
-                  "data" in sourceAtPath &&
-                  sourceAtPath.data &&
-                  Array.isArray(sourceAtPath.data)
-                ) {
-                  addPatch(
-                    [
-                      {
-                        op: "add",
-                        path: patchPath.concat(index.toString()),
-                        value: (sourceAtPath.data[index] ?? null) as JSONValue,
-                      },
-                    ],
-                    type,
-                  );
-                }
-              }}
-            />
-          )
+          readonly || isOverlay
+            ? undefined
+            : (close) => (
+                <ArrayMenuItems
+                  close={close}
+                  onInsertAbove={() => insertAt(index)}
+                  onInsertBelow={() => insertAt(index + 1)}
+                  onDelete={() => {
+                    addPatch(
+                      [
+                        {
+                          op: "remove",
+                          path: patchPath.concat(
+                            index.toString(),
+                          ) as array.NonEmptyArray<string>,
+                        },
+                      ],
+                      type,
+                    );
+                  }}
+                  onDuplicate={() => {
+                    if (
+                      "data" in sourceAtPath &&
+                      sourceAtPath.data &&
+                      Array.isArray(sourceAtPath.data)
+                    ) {
+                      addPatch(
+                        [
+                          {
+                            op: "add",
+                            path: patchPath.concat(index.toString()),
+                            value: (sourceAtPath.data[index] ??
+                              null) as JSONValue,
+                          },
+                        ],
+                        type,
+                      );
+                    }
+                  }}
+                />
+              )
         }
       />
     </LocaleFiltered>
@@ -419,6 +435,7 @@ function ArrayBlockList({
     >
       <DndContext
         sensors={sensors}
+        accessibility={{ screenReaderInstructions: HANDLE_INSTRUCTIONS }}
         collisionDetection={closestCenter}
         onDragStart={(event) => setActiveId(Number(event.active.id))}
         onDragEnd={handleDragEnd}
@@ -530,7 +547,11 @@ function RecordBlockList({
               depth={depth}
               readonly={itemReadonly}
               onNavigate={(p) => navigate(p)}
-              menu={readonly ? null : <RecordRowMenu path={itemPath} />}
+              menuItems={
+                readonly
+                  ? undefined
+                  : (close) => <RecordMenuItems path={itemPath} close={close} />
+              }
             />
           );
           return keyDecidesLocale ? (
@@ -585,7 +606,7 @@ function BlockRow({
   depth,
   readonly,
   onNavigate,
-  menu,
+  menuItems,
   sortable,
   onInsertAbove,
   onInsertBelow,
@@ -599,7 +620,11 @@ function BlockRow({
   depth: number;
   readonly?: boolean;
   onNavigate: (path: SourcePath) => void;
-  menu: React.ReactNode;
+  /**
+   * What the row's handle opens when clicked. Absent when nothing may be done
+   * to the row (readonly, or the drag overlay's copy of it).
+   */
+  menuItems?: (close: () => void) => React.ReactNode;
   /** Absent for a record: its entries have no order to change. */
   sortable?: {
     handleProps: React.ButtonHTMLAttributes<HTMLButtonElement>;
@@ -624,41 +649,16 @@ function BlockRow({
     isInline &&
     (itemSchema.type === "object" || itemSchema.type === "discriminated-union");
 
-  // The gutter: the row's whole left edge is the drag handle, which is a
-  // bigger target than the grip icon alone, and brand-coloured on hover or
-  // keyboard focus so it says "this moves".
-  //
-  // No gutter at all when there is nothing to drag: a readonly list cannot be
-  // reordered, and a record has no order.
   const rowNumber = label.kind === "index" ? label.index + 1 : undefined;
+  // The gutter: the row's handle. Drag it to move the row, click it for the
+  // row's menu. No gutter when neither is possible.
   const gutter =
-    sortable && !readonly ? (
-      <button
-        {...sortable.handleProps}
-        data-block-grip=""
-        aria-label={
-          rowNumber !== undefined ? `Move item ${rowNumber}` : "Move item"
-        }
-        className={cn(
-          // The insert bar above this row is the next sibling, and shows its
-          // plus while this has keyboard focus — it is also the next Tab
-          // stop, so the plus says where Tab goes. See `InsertBar`.
-          "flex w-4 shrink-0 cursor-grab items-start justify-center self-stretch rounded-sm pt-3",
-          "text-fg-secondary-alt outline-none transition-colors",
-          // Quiet at rest: just the grip icon. The strip appears while its
-          // row is hovered or holds focus — the INNERMOST such row only, so
-          // working in a nested list does not light every level above it.
-          // `>`: the gutter is the row's own direct child.
-          "[[data-block-row]:hover:not(:has([data-block-row]:hover))>&]:bg-bg-secondary",
-          "[[data-block-row]:focus-within:not(:has([data-block-row]:focus-within))>&]:bg-bg-secondary",
-          "hover:bg-bg-brand-primary hover:text-fg-brand-primary",
-          "focus-visible:bg-bg-brand-primary focus-visible:text-fg-brand-primary",
-          // See `DRAG_HANDLE_TOUCH`.
-          DRAG_HANDLE_TOUCH,
-        )}
-      >
-        <GripVertical size={14} />
-      </button>
+    !readonly && (sortable || menuItems) ? (
+      <RowHandle
+        label={label}
+        handleProps={sortable?.handleProps}
+        menuItems={menuItems}
+      />
     ) : null;
 
   return (
@@ -702,18 +702,13 @@ function BlockRow({
             {/* An array row's number is a control (it moves the row), so it
                 cannot be inside the collapse button. A key is just text. */}
             {label.kind === "index" && <RowLabelText label={label} />}
+            {/* The whole header is the collapse button, chevron at the right
+                end — where `Field` puts its own. The menu is the handle's. */}
             <button
               className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
               aria-expanded={!collapsed}
               onClick={() => setCollapsed((prev) => !prev)}
             >
-              <ChevronRight
-                size={16}
-                className={cn(
-                  "shrink-0 text-fg-secondary-alt transition-transform",
-                  { "rotate-90": !collapsed },
-                )}
-              />
               {label.kind === "key" && <RowLabelText label={label} />}
               <RowSummary
                 path={path}
@@ -724,9 +719,15 @@ function BlockRow({
                 }
                 muted={label.kind === "key"}
               />
+              <ContentViewsBadge path={path} />
+              <ChevronDown
+                size={16}
+                className={cn(
+                  "shrink-0 text-fg-secondary transition-transform",
+                  { "rotate-180": !collapsed },
+                )}
+              />
             </button>
-            <ContentViewsBadge path={path} />
-            {menu}
           </div>
         )}
         {headered && !collapsed && (
@@ -755,8 +756,8 @@ function BlockRow({
             data-block-body=""
             className="flex items-start gap-1.5 px-1.5 py-1"
           >
-            {/* `h-7`, the height of a dense input, so a key and the menu line
-              up with the first line of the field however tall it grows. */}
+            {/* `h-7`, the height of a dense input, so a number or key lines up
+              with the first line of the field however tall it grows. */}
             <div
               className={cn("flex items-center h-7 shrink-0", {
                 "max-w-[40%]": label.kind === "key",
@@ -774,7 +775,6 @@ function BlockRow({
               />
             </div>
             <ContentViewsBadge path={path} />
-            {menu && <div className="flex items-center h-7">{menu}</div>}
           </div>
         )}
         {!isInline && (
@@ -787,7 +787,6 @@ function BlockRow({
               <RefPreview path={path} className="w-full" />
             </button>
             <ContentViewsBadge path={path} />
-            {menu}
           </div>
         )}
         {validationErrors.length > 0 && (
@@ -1279,62 +1278,130 @@ function firstStringOf(source: Json, unionKey?: string): string | null {
   return null;
 }
 
-const MENU_TRIGGER =
-  "shrink-0 rounded p-1 text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary-hover";
 const MENU_ITEM =
   "flex h-7 w-full items-center justify-start gap-2 rounded px-2 text-sm font-normal text-fg-primary hover:bg-bg-secondary-hover";
 const ADD_BUTTON =
   "flex h-6 items-center gap-1 rounded px-1 text-xs font-normal text-fg-tertiary hover:bg-transparent hover:text-fg-primary";
 
-function ArrayRowMenu({
+/**
+ * The handle on a row's left edge, which is two controls in one: drag it to
+ * move the row, click it (Enter) for the row's menu. Spending one control on
+ * both is what lets the header give its right end to the collapse chevron,
+ * where `Field` has it, instead of to a ⋮ that sat oddly beside the grip.
+ *
+ * It stays a direct child of the row, and the insert bar above the row its
+ * next sibling: the bar shows its plus while this has keyboard focus (see
+ * `InsertBar`), and is the next Tab stop. Radix's `Popover` renders no DOM of
+ * its own and its content is portalled, so wrapping this in one keeps that.
+ */
+function RowHandle({
+  label,
+  handleProps,
+  menuItems,
+}: {
+  label: RowLabel;
+  /** Absent for a record: it cannot be dragged, only opened. */
+  handleProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
+  menuItems?: (close: () => void) => React.ReactNode;
+}) {
+  const portalContainer = useValPortal();
+  const [open, setOpen] = useState(false);
+  const name = label.kind === "index" ? `item ${label.index + 1}` : label.key;
+  const button = (
+    <button
+      {...handleProps}
+      type="button"
+      data-block-grip=""
+      aria-label={
+        handleProps
+          ? `Actions for ${name}, or drag to move`
+          : `Actions for ${name}`
+      }
+      className={cn(
+        "flex w-4 shrink-0 items-start justify-center self-stretch rounded-sm pt-3",
+        handleProps ? "cursor-grab" : "cursor-pointer",
+        "text-fg-secondary-alt outline-none transition-colors",
+        // Quiet at rest: just the grip icon. The strip appears while its
+        // row is hovered or holds focus — the INNERMOST such row only, so
+        // working in a nested list does not light every level above it.
+        // `>`: the handle is the row's own direct child.
+        "[[data-block-row]:hover:not(:has([data-block-row]:hover))>&]:bg-bg-secondary",
+        "[[data-block-row]:focus-within:not(:has([data-block-row]:focus-within))>&]:bg-bg-secondary",
+        "hover:bg-bg-brand-primary hover:text-fg-brand-primary",
+        "focus-visible:bg-bg-brand-primary focus-visible:text-fg-brand-primary",
+        "data-[state=open]:bg-bg-brand-primary data-[state=open]:text-fg-brand-primary",
+        // See `DRAG_HANDLE_TOUCH`.
+        DRAG_HANDLE_TOUCH,
+      )}
+    >
+      <GripVertical size={14} />
+    </button>
+  );
+  if (!menuItems) {
+    return button;
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{button}</PopoverTrigger>
+      <PopoverContent
+        className="flex w-auto flex-col p-1"
+        container={portalContainer}
+        side="right"
+        align="start"
+      >
+        {menuItems(() => setOpen(false))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** What dnd-kit reads to a screen reader on the handle — ours, because Enter
+ * opens the menu rather than picking the row up. */
+const HANDLE_INSTRUCTIONS = {
+  draggable:
+    "Press Enter for this item's actions. To move it, press Space to pick it up, the arrow keys to move it, and Space again to drop it, or Escape to cancel.",
+};
+
+function ArrayMenuItems({
+  close,
   onInsertAbove,
   onInsertBelow,
   onDelete,
   onDuplicate,
 }: {
+  close: () => void;
   onInsertAbove: () => void;
   onInsertBelow: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
 }) {
-  const portalContainer = useValPortal();
-  const [open, setOpen] = useState(false);
   // Every item closes the menu: each one changes the list, and the menu's
   // row may not even be the same item afterwards.
   const item = (action: () => void) => () => {
-    setOpen(false);
+    close();
     action();
   };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className={MENU_TRIGGER} aria-label="Row actions">
-        <EllipsisVertical size={16} />
-      </PopoverTrigger>
-      <PopoverContent
-        className="flex w-auto flex-col p-1"
-        container={portalContainer}
-        side="top"
-      >
-        {/* The same inserts as the bars in the gaps, for keyboard and
-            screen-reader users and anyone who never hovers a gap. */}
-        <button className={MENU_ITEM} onClick={item(onInsertAbove)}>
-          <BetweenHorizontalStart className="w-3.5 h-3.5" />
-          <span>Add above</span>
-        </button>
-        <button className={MENU_ITEM} onClick={item(onInsertBelow)}>
-          <BetweenHorizontalEnd className="w-3.5 h-3.5" />
-          <span>Add below</span>
-        </button>
-        <button className={MENU_ITEM} onClick={item(onDuplicate)}>
-          <Copy className="w-3.5 h-3.5" />
-          <span>Duplicate</span>
-        </button>
-        <button className={MENU_ITEM} onClick={item(onDelete)}>
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>Delete</span>
-        </button>
-      </PopoverContent>
-    </Popover>
+    <>
+      {/* The same inserts as the bars in the gaps, for keyboard and
+          screen-reader users and anyone who never hovers a gap. */}
+      <button className={MENU_ITEM} onClick={item(onInsertAbove)}>
+        <BetweenHorizontalStart className="w-3.5 h-3.5" />
+        <span>Add above</span>
+      </button>
+      <button className={MENU_ITEM} onClick={item(onInsertBelow)}>
+        <BetweenHorizontalEnd className="w-3.5 h-3.5" />
+        <span>Add below</span>
+      </button>
+      <button className={MENU_ITEM} onClick={item(onDuplicate)}>
+        <Copy className="w-3.5 h-3.5" />
+        <span>Duplicate</span>
+      </button>
+      <button className={MENU_ITEM} onClick={item(onDelete)}>
+        <Trash2 className="w-3.5 h-3.5" />
+        <span>Delete</span>
+      </button>
+    </>
   );
 }
 
@@ -1344,78 +1411,73 @@ function ArrayRowMenu({
  * route cannot be renamed, a referenced entry cannot be deleted) is
  * `useArrayAndRecordTools`'s, so this menu and the header cannot disagree.
  */
-function RecordRowMenu({ path }: { path: SourcePath }) {
-  const portalContainer = useValPortal();
-  const [open, setOpen] = useState(false);
+function RecordMenuItems({
+  path,
+  close,
+}: {
+  path: SourcePath;
+  close: () => void;
+}) {
   const { entry } = useArrayAndRecordTools(path);
   if (
     entry === null ||
     !(entry.canChange || entry.canDuplicate || entry.canDelete)
   ) {
-    return null;
+    return (
+      <span className="px-2 py-1 text-sm text-fg-tertiary">
+        This entry cannot be renamed, copied or deleted here.
+      </span>
+    );
   }
-  const close = () => setOpen(false);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        className={MENU_TRIGGER}
-        aria-label={`Actions for ${entry.key}`}
-      >
-        <EllipsisVertical size={16} />
-      </PopoverTrigger>
-      <PopoverContent
-        className="flex w-auto flex-col p-1"
-        container={portalContainer}
-        side="top"
-      >
-        {entry.canChange && (
-          <ChangeRecordPopover
-            defaultValue={entry.key}
-            parentPath={entry.parentPath}
-            variant="ghost"
-            size="sm"
-            className={MENU_ITEM}
-            routePattern={entry.routePattern}
-            references={entry.references}
-            keyDescription={entry.keyDescription}
-            onComplete={close}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            <span>{entry.routePattern ? "Change URL" : "Rename"}</span>
-          </ChangeRecordPopover>
-        )}
-        {entry.canDuplicate && (
-          <DuplicateRecordPopover
-            defaultValue={entry.key}
-            parentPath={entry.parentPath}
-            variant="ghost"
-            size="sm"
-            className={MENU_ITEM}
-            routePattern={entry.routePattern}
-            keyDescription={entry.keyDescription}
-            onComplete={close}
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>Duplicate</span>
-          </DuplicateRecordPopover>
-        )}
-        {entry.canDelete && (
-          <DeleteRecordPopover
-            path={path}
-            parentPath={entry.parentPath}
-            variant="ghost"
-            size="sm"
-            className={MENU_ITEM}
-            references={entry.references}
-            confirmationMessage={`This will delete the ${entry.key} record.`}
-            onComplete={close}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Delete</span>
-          </DeleteRecordPopover>
-        )}
-      </PopoverContent>
-    </Popover>
+    <>
+      {entry.canChange && (
+        <ChangeRecordPopover
+          defaultValue={entry.key}
+          parentPath={entry.parentPath}
+          variant="ghost"
+          size="sm"
+          className={MENU_ITEM}
+          routePattern={entry.routePattern}
+          references={entry.references}
+          keyDescription={entry.keyDescription}
+          onComplete={close}
+        >
+          <Pencil className="w-3.5 h-3.5" />
+          <span>{entry.routePattern ? "Change URL" : "Rename"}</span>
+        </ChangeRecordPopover>
+      )}
+      {entry.canDuplicate && (
+        <DuplicateRecordPopover
+          defaultValue={entry.key}
+          parentPath={entry.parentPath}
+          variant="ghost"
+          size="sm"
+          className={MENU_ITEM}
+          routePattern={entry.routePattern}
+          keyDescription={entry.keyDescription}
+          onComplete={close}
+        >
+          <Copy className="w-3.5 h-3.5" />
+          <span>Duplicate</span>
+        </DuplicateRecordPopover>
+      )}
+      {entry.canDelete && (
+        <DeleteRecordPopover
+          path={path}
+          parentPath={entry.parentPath}
+          variant="ghost"
+          size="sm"
+          className={MENU_ITEM}
+          references={entry.references}
+          confirmationMessage={`This will delete the ${entry.key} record.`}
+          onComplete={close}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Delete</span>
+        </DeleteRecordPopover>
+      )}
+    </>
   );
 }
 
