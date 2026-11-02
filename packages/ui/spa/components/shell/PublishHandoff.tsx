@@ -11,6 +11,7 @@ import { cn } from "../designSystem/cn";
 import { OverlayCard } from "./OverlayMenu";
 import { seconds } from "../../publish/deployProgress";
 import { Spinner } from "../designSystem/spinner";
+import type { RefusedAnswer } from "../../publish/handoff";
 
 /**
  * Publishing from the overlay, which cannot build.
@@ -64,6 +65,11 @@ export type HandoffState =
       details?: string;
       followed?: boolean;
       studioCannotHelp?: boolean;
+      /**
+       * Content refused the merge the tab pressed, with this answer: the
+       * proposal's Publish reads why from it (`commitRefusalOf`).
+       */
+      refused?: RefusedAnswer;
     };
 
 /**

@@ -2980,7 +2980,16 @@ type PagePublishResult =
 export type ProposalPublishPress =
   | { status: "requested" }
   | { status: "handed-off" }
-  | { status: "error"; message: string };
+  | {
+      status: "error";
+      message: string;
+      /**
+       * What content answered, when it refused the press: a Publish whose
+       * commit was refused carries `/commit`'s code and fields
+       * (`commitRefusalOf`), and the dialog offers what helps.
+       */
+      cause?: unknown;
+    };
 
 /**
  * The newest publish of `proposal` this tab follows -- pressed here, by the
@@ -3288,7 +3297,15 @@ export function usePublishSummary() {
        * Not `buildsInTab`: this address's own saves are commits, and build
        * nothing, but a merge is a managed publish of the site.
        */
-      if (handoff.prepare(options.needsBuild, { merge: proposalName })) {
+      if (
+        handoff.prepare(options.needsBuild, {
+          merge: proposalName,
+          // Typed before the tap: the tab's press carries it.
+          ...(options.commitMessage !== undefined
+            ? { commitMessage: options.commitMessage }
+            : {}),
+        })
+      ) {
         return { status: "handed-off" };
       }
       const lock = beginSiteOperation("publish");
@@ -3339,6 +3356,7 @@ export function usePublishSummary() {
           return {
             status: "error",
             message: error instanceof Error ? error.message : String(error),
+            cause: error,
           };
         }
       } finally {
