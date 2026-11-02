@@ -369,7 +369,9 @@ coverage" (valbuild/val#1006).
     the previous build) needs the Studio to know which of two builds' bases
     is newer before it relays one -- the manifest's versions, phase 7; S27
     (the browser running the previous build's client code) happens at
-    hydration, before any overlay exists; S16 (the schema dialog after a
+    hydration, before any overlay exists, and is home's loader's pinned
+    `app.js` fallback -- decided: fixed after phase 9, as its own change in
+    home; S16 (the schema dialog after a
     deploy) is phase 9's.
   - **Public API:** one addition, Next's optional `draft` prop. The overlay's
     `val-event`s (`confirmed`, and `holds` on `draftMode`) and the canvas
