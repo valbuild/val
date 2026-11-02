@@ -2699,7 +2699,7 @@ async function publishApi(
  *
  * What the mock does NOT do, and `scenarios/README.md` lists: no builds (a
  * staging is recorded, never built, so `buildRequired` stays true), no render
- * check, no git push, no moves of the site's changes at a merge, and a merge
+ * check, no repository (Commit is recorded, not pushed), no moves of the site's changes at a merge, and a merge
  * sealed at the press -- no publish job, no tab, no merge-prepare.
  */
 type MockProposal = {
@@ -2732,7 +2732,75 @@ type MockProposal = {
   commits: string[];
   /** Paths staged as code, in the order first staged. */
   staged: string[];
+  /**
+   * Code mode (the code-mode contract, valbuild/home): the proposal's, for
+   * everyone in it. Content only stores the flag: the save before turning it
+   * on, and before each code write, is Val's server's.
+   */
+  codeMode: { on: boolean; changedBy: string | null; changedAt: string | null };
+  /** What `GET /proposals/:name` lists in `events`: code mode and commits. */
+  events: MockProposalEvent[];
+  /**
+   * Its git branch, `val/p/<name>`, in a connected project. Saves and
+   * stagings do not push: only Commit and Publish do.
+   */
+  git: {
+    /** The last Commit Val made; `null` before the first. */
+    committed: {
+      sha: string;
+      url: string;
+      save: string | null;
+      by: string | null;
+      at: string | null;
+    } | null;
+    /**
+     * Somebody else's push to the branch, which Val has not seen: set by the
+     * control plane (`/__test__/proposals/:name/push`), and why Commit is
+     * refused (`someone-pushed`) until a test clears it.
+     */
+    theirs: {
+      sha: string;
+      url: string;
+      message: string | null;
+      author: {
+        name: string | null;
+        email: string | null;
+        login: string | null;
+        avatarUrl: string | null;
+      } | null;
+      at: string | null;
+    } | null;
+  };
 };
+
+type MockProposalEvent =
+  | {
+      kind: "code-mode";
+      actorId: string;
+      at: string;
+      data: { on: boolean };
+    }
+  | {
+      kind: "committed";
+      actorId: string;
+      at: string;
+      data: { gitSha: string; save: string; message: string; publish: boolean };
+    };
+
+/** A new proposal's code mode and git, before anything happened to either. */
+function freshProposalState(): Pick<
+  MockProposal,
+  "codeMode" | "events" | "git"
+> {
+  return {
+    codeMode: { on: false, changedBy: null, changedAt: null },
+    events: [],
+    git: { committed: null, theirs: null },
+  };
+}
+
+/** Where the mock's repository is, for the urls a commit answers with. */
+const MOCK_REPO_URL = "https://github.com/valbuild/mock-site";
 
 function proposalOnBranch(branch: string): MockProposal | null {
   for (const proposal of state.proposals.values()) {
@@ -2778,7 +2846,160 @@ function proposalJson(proposal: MockProposal, read = false) {
     changes: patchesOn(proposal.branch).filter((patch) => !patch.applied)
       .length,
     kind: "editor",
-    ...(read ? { staged: stagedJson(proposal) } : {}),
+    codeMode: proposal.codeMode,
+    pushedGitSha: proposal.git.committed?.sha ?? null,
+    ...(read
+      ? { staged: stagedJson(proposal), git: proposalGitJson(proposal) }
+      : {}),
+  };
+}
+
+/**
+ * `git` on a read of one proposal: `null` in a project with no repository
+ * (managed). Read from content's own rows, never from GitHub, so somebody
+ * else's push is found by Commit, not shown here.
+ */
+function proposalGitJson(proposal: MockProposal) {
+  if (SOURCE_MODE === "managed") return null;
+  const head = proposal.saved.commit;
+  const committed = proposal.git.committed;
+  return {
+    branch: proposal.branch,
+    branchUrl: `${MOCK_REPO_URL}/tree/${proposal.branch}`,
+    committed,
+    head,
+    uncommitted: head !== null && committed?.save !== head,
+  };
+}
+
+/** Why a commit of the proposal is refused, as `/commit` and `/merge` say it. */
+type CommitRefusal = {
+  status: number;
+  body: {
+    statusCode: number;
+    message: string;
+    details?: Record<string, unknown>;
+  };
+};
+
+/**
+ * `POST /proposals/:name/commit`, and the commit Publish makes first: the
+ * proposal's saved state as one commit on its branch, on top of what Val
+ * last pushed. Refused when somebody else pushed since (`someone-pushed`).
+ * Not modeled: `committing` (one at a time is all a test makes),
+ * `repository-refused`, `github-unavailable` and `no-git-root`.
+ */
+function commitProposal(
+  proposal: MockProposal,
+  input: { message: string; save?: string; by: string; publish: boolean },
+):
+  | {
+      ok: true;
+      commit: { sha: string; url: string; save: string; pushed: boolean };
+    }
+  | { ok: false; refusal: CommitRefusal } {
+  // `home`'s `HttpError`: `{ statusCode, message, details }`.
+  const refuse = (
+    status: number,
+    message: string,
+    details?: Record<string, unknown>,
+  ) => ({
+    ok: false as const,
+    refusal: {
+      status,
+      body: { statusCode: status, message, ...(details ? { details } : {}) },
+    },
+  });
+  if (proposal.status !== "open") {
+    return refuse(409, `The proposal is ${proposal.status}.`, {
+      code: "not-open",
+      status: proposal.status,
+    });
+  }
+  if (SOURCE_MODE === "managed") {
+    return refuse(
+      409,
+      "This project has no repository: there is nothing to commit to.",
+      { code: "no-repository" },
+    );
+  }
+  const head = proposal.saved.commit;
+  if (head === null) {
+    return refuse(
+      409,
+      "Nothing is saved in this proposal yet: save it first, then commit.",
+      { code: "nothing-saved" },
+    );
+  }
+  if (input.save !== undefined && input.save !== head) {
+    return refuse(
+      409,
+      "Something was saved in this proposal since you looked: look again, then commit.",
+      { code: "saved-since", head },
+    );
+  }
+  const theirs = proposal.git.theirs;
+  if (theirs !== null) {
+    // As `commitRefusal` in home's `proposalGit.ts` words it.
+    const who = theirs.author?.name ?? theirs.author?.login ?? "Somebody";
+    const at =
+      theirs.at === null || Number.isNaN(new Date(theirs.at).getTime())
+        ? null
+        : `${new Date(theirs.at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    return refuse(
+      409,
+      `${who} pushed to ${proposal.branch} (${theirs.sha.slice(0, 7)})${at !== null ? ` at ${at}` : ""}. Val does not commit over a push it has not seen.`,
+      {
+        code: "someone-pushed",
+        branch: proposal.branch,
+        branchUrl: `${MOCK_REPO_URL}/tree/${proposal.branch}`,
+        expected: proposal.git.committed?.sha ?? proposal.base,
+        theirs,
+      },
+    );
+  }
+  const committed = proposal.git.committed;
+  if (committed !== null && committed.save === head) {
+    return {
+      ok: true,
+      commit: {
+        sha: committed.sha,
+        url: committed.url,
+        save: head,
+        pushed: false,
+      },
+    };
+  }
+  const gitSha = sha(
+    `git:${proposal.branch}:${committed?.sha ?? proposal.base}:${head}`,
+  ).slice(0, 40);
+  const at = nowIso();
+  proposal.git.committed = {
+    sha: gitSha,
+    url: `${MOCK_REPO_URL}/commit/${gitSha}`,
+    save: head,
+    by: input.by,
+    at,
+  };
+  proposal.events.push({
+    kind: "committed",
+    actorId: input.by,
+    at,
+    data: {
+      gitSha,
+      save: head,
+      message: input.message,
+      publish: input.publish,
+    },
+  });
+  return {
+    ok: true,
+    commit: {
+      sha: gitSha,
+      url: `${MOCK_REPO_URL}/commit/${gitSha}`,
+      save: head,
+      pushed: true,
+    },
   };
 }
 
@@ -2943,7 +3164,11 @@ async function proposalMerge(
   res: ServerResponse,
   proposal: MockProposal,
 ): Promise<void> {
-  const body = await readJsonBody<{ requestId?: string; tab?: string }>(req);
+  const body = await readJsonBody<{
+    requestId?: string;
+    tab?: string;
+    commitMessage?: string;
+  }>(req);
   const requestId = body?.requestId;
   if (typeof requestId !== "string" || typeof body?.tab !== "string") {
     json(res, 400, { message: "requestId and tab are required" });
@@ -2965,6 +3190,26 @@ async function proposalMerge(
     return;
   }
   const committer = req.headers["x-val-profile-id"];
+  /*
+   * Publish commits first, in a connected project, exactly as Commit does --
+   * a no-op when nothing was saved since -- and a refused commit refuses the
+   * Publish with the same answer. The proposal stays open.
+   */
+  if (SOURCE_MODE !== "managed") {
+    const committed = commitProposal(proposal, {
+      message:
+        typeof body.commitMessage === "string" &&
+        body.commitMessage.trim() !== ""
+          ? body.commitMessage.trim()
+          : `Published “${proposal.displayName}”`,
+      by: typeof committer === "string" ? committer : "unknown",
+      publish: true,
+    });
+    if (!committed.ok) {
+      json(res, committed.refusal.status, committed.refusal.body);
+      return;
+    }
+  }
   const modules: Record<string, { source: unknown; schema: unknown }> = {};
   for (const [moduleFilePath, source] of Object.entries(
     proposal.saved.modules,
@@ -3072,6 +3317,7 @@ async function proposalsRoute(
         saved: { commit: null, modules: {}, files: {} },
         commits: [],
         staged: [],
+        ...freshProposalState(),
       };
       state.proposals.set(name, proposal);
       // A re-key, never a copy: the site's pending changes move in whole.
@@ -3104,8 +3350,81 @@ async function proposalsRoute(
   const route = `${req.method} ${match[2] ?? ""}`;
   switch (route) {
     case "GET ":
-      json(res, 200, { proposal: proposalJson(proposal, true), events: [] });
+      json(res, 200, {
+        proposal: proposalJson(proposal, true),
+        events: proposal.events,
+      });
       return;
+    case "POST /code-mode": {
+      // The flag only: the save before it is Val's server's.
+      const body = await readJsonBody<{ on?: unknown }>(req);
+      if (typeof body?.on !== "boolean") {
+        json(res, 400, { message: "The body must be { on: boolean }." });
+        return;
+      }
+      if (owner === null) {
+        json(res, 403, {
+          message:
+            "Proposals are changed by people: this credential names nobody",
+        });
+        return;
+      }
+      if (proposal.status !== "open") {
+        json(res, 409, {
+          statusCode: 409,
+          message: `The proposal is ${proposal.status}: code mode is for an open proposal.`,
+          details: { code: "not-open", status: proposal.status },
+        });
+        return;
+      }
+      if (proposal.codeMode.on !== body.on) {
+        const at = nowIso();
+        proposal.codeMode = { on: body.on, changedBy: owner, changedAt: at };
+        proposal.events.push({
+          kind: "code-mode",
+          actorId: owner,
+          at,
+          data: { on: body.on },
+        });
+      }
+      json(res, 200, { proposal: proposalJson(proposal, true) });
+      return;
+    }
+    case "POST /commit": {
+      const body = await readJsonBody<{ message?: unknown; save?: unknown }>(
+        req,
+      );
+      const message =
+        typeof body?.message === "string" ? body.message.trim() : "";
+      if (message === "" || message.length > 5000) {
+        json(res, 400, {
+          message: "A commit needs a message of 1 to 5000 characters.",
+        });
+        return;
+      }
+      if (owner === null) {
+        json(res, 403, {
+          message:
+            "Proposals are changed by people: this credential names nobody",
+        });
+        return;
+      }
+      const committed = commitProposal(proposal, {
+        message,
+        ...(typeof body?.save === "string" ? { save: body.save } : {}),
+        by: owner,
+        publish: false,
+      });
+      if (!committed.ok) {
+        json(res, committed.refusal.status, committed.refusal.body);
+        return;
+      }
+      json(res, 200, {
+        commit: committed.commit,
+        proposal: proposalJson(proposal, true),
+      });
+      return;
+    }
     case "PATCH ": {
       const body = await readJsonBody<{
         displayName?: string;
@@ -3294,8 +3613,48 @@ const controlPlane: Handler = async (req, res, url) => {
       saved: { commit, modules: body.modules ?? {}, files: body.files ?? {} },
       commits: commit === null ? [] : [commit],
       staged: [],
+      ...freshProposalState(),
     });
     json(res, 200, { ok: true });
+    return;
+  }
+  const pushed = /^proposals\/([0-9a-f]{20})\/push$/.exec(action);
+  if (pushed !== null && req.method === "POST") {
+    /*
+     * Somebody else pushes to the proposal's branch, as a developer does from
+     * a laptop: Val has not seen it, so its next Commit is refused
+     * (`someone-pushed`). `{ clear: true }` takes it back.
+     */
+    const proposal = state.proposals.get(pushed[1]);
+    if (proposal === undefined) {
+      json(res, 404, { message: "No such proposal" });
+      return;
+    }
+    const body = await readJsonBody<{
+      clear?: boolean;
+      message?: string;
+      author?: { name?: string; login?: string };
+      at?: string;
+    }>(req);
+    if (body?.clear === true) {
+      proposal.git.theirs = null;
+      json(res, 200, { ok: true });
+      return;
+    }
+    const theirSha = sha(`theirs:${proposal.branch}:${nowIso()}`).slice(0, 40);
+    proposal.git.theirs = {
+      sha: theirSha,
+      url: `${MOCK_REPO_URL}/commit/${theirSha}`,
+      message: body?.message ?? null,
+      author: {
+        name: body?.author?.name ?? null,
+        email: null,
+        login: body?.author?.login ?? null,
+        avatarUrl: null,
+      },
+      at: body?.at ?? nowIso(),
+    };
+    json(res, 200, { ok: true, sha: theirSha });
     return;
   }
   const overlay = /^proposals\/([0-9a-f]{20})\/overlay$/.exec(action);

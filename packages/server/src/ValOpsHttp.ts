@@ -1021,7 +1021,9 @@ export class ValOpsHttp extends ValOps {
    * Which proposal calls the browser may make, by method and the path after
    * `/proposals`: list and open, read and rename one, read what its build
    * targets and how far an upgrade's preparation is, render its build as a
-   * canary (`verify`), and close, reopen and retry its setup. Not `/save` -- the Studio saves through `/save`, which
+   * canary (`verify`), close, reopen and retry its setup, turn code mode on
+   * and off, and commit it to git (both at its own address only, see
+   * {@link ValOpsHttp.proposalFilesWrite}). Not `/save` -- the Studio saves through `/save`, which
    * prepares the commit here -- and not `/patches`, which moves the site's
    * changes into a proposal and has no screen yet.
    */
@@ -1035,14 +1037,15 @@ export class ValOpsHttp extends ValOps {
       );
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|quick-preview|verify|update-from-site|restore-code)$/.test(
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|quick-preview|verify|update-from-site|restore-code|code-mode|commit)$/.test(
         path,
       )
     );
   }
 
   /**
-   * A write to a proposal's FILES -- staging code, computing its lockfile
+   * A write to a proposal's FILES -- or to what decides who may change
+   * them: code mode, and committing them to git -- staging code, computing its lockfile
    * (valbuild/home `docs/adept.md`, step 6), reporting the typecheck of
    * them (step 7, decision 20), serving a build of it
    * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
@@ -1057,7 +1060,7 @@ export class ValOpsHttp extends ValOps {
   ): { name: string; write: string } | null {
     if (method !== "POST") return null;
     const match =
-      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|quick-preview|update-from-site|restore-code)$/.exec(
+      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|quick-preview|update-from-site|restore-code|code-mode|commit)$/.exec(
         path,
       );
     return match === null ? null : { name: match[1], write: match[2] };

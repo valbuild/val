@@ -27,6 +27,7 @@ import {
   hasRemoteFileSchema,
 } from "@valbuild/core";
 import { ReifiedPreview } from "@valbuild/core";
+import { ProposalCodeModeRead } from "./proposalCodeMode";
 import {
   Api,
   ParentRef,
@@ -281,6 +282,9 @@ export type ValServerConfig = ValServerOptions &
   );
 
 export type ValServer = ServerOf<Api>;
+
+/** What `/save` answers: see `saveChanges`. */
+type SaveAnswer = Awaited<ReturnType<ValServer["/save"]["POST"]>>;
 
 /**
  * Where a local file a publish commits is written. Fixed: it was configurable
@@ -761,6 +765,601 @@ export const ValServer = (
         },
       };
     }
+  };
+
+  /**
+   * `/save`: the patches named (every pending one when `patchIds` is not
+   * given) applied and committed -- to the working tree in fs mode, to the
+   * site or to the proposal this address serves in http mode.
+   *
+   * A function rather than the route's own body because the proposals proxy
+   * saves too: turning code mode on, and before each code write in code mode
+   * (`saveBeforeCode`), so content and code are never in two places when
+   * code changes (`docs/plans/one-content-model.md`, "Code mode").
+   */
+  const saveChanges = async (
+    cookies: Parameters<typeof getAuth>[0],
+    body: {
+      patchIds?: PatchId[] | undefined;
+      message?: string | undefined;
+      expectedHeadCommitSha?: string | undefined;
+    },
+  ): Promise<SaveAnswer> => {
+    const auth = getAuth(cookies);
+    if (auth.error) {
+      return {
+        status: 401,
+        json: {
+          message: auth.error,
+        },
+      };
+    }
+    const PostSaveBody = z.object({
+      // Absent: every pending patch (the proposals proxy's saves).
+      patchIds: z
+        .array(
+          z.string().refine(
+            (id): id is PatchId => true, // TODO:
+          ),
+        )
+        .optional(),
+    });
+    const bodyRes = PostSaveBody.safeParse(body);
+    if (!bodyRes.success) {
+      return {
+        status: 400,
+        json: {
+          message: "Invalid body: " + fromError(bodyRes.error).toString(),
+          details: bodyRes.error.issues,
+        },
+      };
+    }
+    const { patchIds } = bodyRes.data;
+    const patches = await serverOps.fetchPatches({
+      patchIds,
+      excludePatchOps: false,
+    });
+    /*
+     * Can this deployment publish this project AT ALL?
+     *
+     * After the fetch above, deliberately: that call is what tells the
+     * data layer what the project expects, and asking before it would be
+     * asking a question nothing has answered yet. It is still before
+     * anything is written, which is the part that matters.
+     *
+     * The Studio already knows -- `/stat` carries the same refusal, so the
+     * action is disabled with the reason shown. This is the second half of
+     * that: a stat can be stale by a poll, and nothing may reach `prepare`
+     * on a project it cannot mirror.
+     */
+    const refusal = serverOps.publishRefusal();
+    if (refusal) {
+      return {
+        status: 409,
+        json: {
+          message: refusal.message,
+          publishRefusal: refusal,
+        },
+      };
+    }
+    /*
+     * Exactly the patches this request consumes, and the ONLY ones it may
+     * delete afterwards.
+     *
+     * Taken from what was fetched rather than from what was asked for, and
+     * held across everything below, because the store keeps accepting writes
+     * while this runs. A change typed during a save is not in this list, is
+     * not applied, and must still be here when the save finishes — that is
+     * the whole contract, and `deleteAllPatches` broke it by removing the
+     * store wholesale.
+     */
+    const consumed = patches.patches.map((patch) => patch.patchId);
+    /*
+     * Has somebody else published since this was decided?
+     *
+     * The client names the newest commit it knew about; anything newer here
+     * means the review screen it acted on described a world that has moved.
+     * The answer is "look again" rather than "your commit was rejected".
+     *
+     * Git's own not-fast-forward guard cannot see this: the chain is
+     * fetched and committed fresh at this point, so the parent commit sent
+     * is always the server's current one.
+     *
+     * Checked HERE, before `analyzePatches` and `prepare`, rather than just
+     * before the commit: a publish that is going to be refused should not
+     * first pay to apply every patch in it. And compared against the
+     * commits `fetchPatches` just returned — `applicable/patches` filters
+     * its PATCHES by the requested ids and never its commits, so the second
+     * whole-chain fetch this used to make asked for a list it already had.
+     *
+     * Only when the client sends a head. One that does not publishes
+     * exactly as it did before, and this cannot start refusing publishes for
+     * a field it never sets.
+     */
+    if (isHttpOps(serverOps)) {
+      const expectedHead = body.expectedHeadCommitSha;
+      if (expectedHead !== undefined) {
+        const serverHead = newestCommitSha(patches.commits);
+        if (serverHead !== null && serverHead !== expectedHead) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "Someone else published while you were reviewing. Nothing was published — open Review again to see what changed.",
+              headMoved: true,
+            },
+          };
+        }
+      }
+    }
+    const analysis = serverOps.analyzePatches(
+      patches.patches,
+      patches.commits,
+      commit,
+    );
+    let preparedCommit = await serverOps.prepare({
+      ...analysis,
+      ...patches,
+    });
+    /*
+     * In `fs` mode a change that cannot be applied is removed rather than
+     * blocking the save.
+     *
+     * Refusing the whole commit is right for a git commit — it is one
+     * atomic thing, and the content api owns its own patches. It is wrong
+     * for auto-save: the editor keeps typing, every save fails on the same
+     * patch, and nothing is ever written again. So the failing change and
+     * the rest of its module's chain go, the rest is written, and the person
+     * editing is told what was thrown away.
+     */
+    let removed: DroppedPatch[] = [];
+    if (preparedCommit.hasErrors && serverOps.patchesAreLocal) {
+      removed = computePatchesToDrop(preparedCommit);
+      /*
+       * Nothing to drop means nothing a second `prepare` could do better.
+       *
+       * `hasErrors` covers failures no patch is to blame for — a binary file
+       * that could not be written, a module that could not be formatted, a
+       * `.val.ts` that could not be read at all. Re-preparing every module
+       * with an unchanged patch set would fail identically, and logging
+       * "removed unpublished changes []" on the way would say something
+       * untrue. It falls through to the 400 instead, which is the honest
+       * answer: this save did not happen and the changes are still here.
+       */
+      if (removed.length > 0) {
+        const doomed = new Set(removed.map((entry) => entry.patchId));
+        const survivors = patches.patches.filter(
+          (patch) => !doomed.has(patch.patchId),
+        );
+        const survivingPatches = { ...patches, patches: survivors };
+        // One retry is enough: what is left of each module is the prefix
+        // that already applied, and `prepare` walks modules independently,
+        // so nothing new can fail.
+        preparedCommit = await serverOps.prepare({
+          ...serverOps.analyzePatches(survivors, patches.commits, commit),
+          ...survivingPatches,
+        });
+        Internal.log.error(
+          "removed unpublished changes that could not be applied",
+          removed,
+        );
+      }
+    }
+    if (preparedCommit.hasErrors) {
+      Internal.log.error(
+        "Failed to create commit",
+        JSON.stringify(
+          {
+            sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+            binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+          },
+          null,
+          2,
+        ),
+      );
+      return {
+        status: 400,
+        json: {
+          message: "Failed to create commit",
+          details: {
+            sourceFilePatchErrors: Object.fromEntries(
+              Object.entries(preparedCommit.sourceFilePatchErrors).map(
+                ([key, errors]) => [
+                  key,
+                  errors.map((e) => ({
+                    message: formatPatchSourceError(e),
+                  })),
+                ],
+              ),
+            ),
+            binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+            // Attributed to the patch that caused it, so the studio can
+            // name the offending change and offer to remove it instead of
+            // leaving the editor with "Failed to publish changes".
+            unappliablePatches: preparedCommit.unappliablePatches,
+          },
+        },
+      };
+    }
+    if (serverOps.patchesAreLocal) {
+      /*
+       * Writing the files is the one step that is not shared.
+       *
+       * Everything around it is: applying the patches, telling the ops the
+       * sources moved, handing the result to the host, dropping the patches
+       * this request consumed. Only the destination differs -- `fs` mode has
+       * a working tree to write into and remote binaries to push, and a host
+       * that holds its own source has neither. So this branch is on the
+       * store that CAN write files rather than on "is this local", which is
+       * what the rest of the flow asks.
+       */
+      /*
+       * Remote binary files, which publish separately from the source.
+       *
+       * Val uploads a remote file at PUBLISH rather than when it is added:
+       * until then the bytes are a pending change like any other. So a
+       * local store has to push them before the source that references them
+       * goes live, or the new build ships a URL that 404s. `ValOpsFS` does
+       * this inside `saveOrUploadFiles`, alongside writing its working
+       * tree; a store with no working tree does only the push.
+       */
+      if (isMemoryOps(serverOps)) {
+        /*
+         * A commit with no files uploads nothing and needs no credentials;
+         * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
+         * through `uploadRemoteFiles` where the project is remote, because
+         * that is where a local file is refused rather than dropped.
+         */
+        const isRemoteRequired =
+          commitCarriesRemoteFiles(preparedCommit) ||
+          (commitCarriesFiles(preparedCommit) &&
+            getIsRemoteRequired(await serverOps.getSchemas()));
+        if (isRemoteRequired) {
+          const authRes = await getRemoteFileAuth();
+          if (authRes.status !== 200) {
+            return authRes;
+          }
+          const uploadRes = await serverOps.uploadRemoteFiles(
+            preparedCommit,
+            authRes.json.remoteFileAuth,
+          );
+          if (Object.keys(uploadRes.errors).length > 0) {
+            Internal.log.error(
+              "Failed to upload remote files",
+              uploadRes.errors,
+            );
+            return {
+              status: 400,
+              json: {
+                message: "Failed to save files",
+                details: Object.entries(uploadRes.errors).map(
+                  ([ref, error]) => ({
+                    message: `Got error: ${error.message} in ${ref}`,
+                  }),
+                ),
+              },
+            };
+          }
+        }
+      }
+      if (isFsOps(serverOps)) {
+        // Credentials when THIS save uploads a remote file, not whenever
+        // the project has a remote schema. See `commitCarriesRemoteFiles`.
+        const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
+        let mode: "skip-remote" | "upload-remote";
+        let remoteFileAuthRes:
+          | undefined
+          | Awaited<ReturnType<typeof getRemoteFileAuth>>;
+        if (isRemoteRequired) {
+          mode = "upload-remote";
+          remoteFileAuthRes = await getRemoteFileAuth();
+        } else {
+          mode = "skip-remote";
+        }
+        if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
+          return remoteFileAuthRes;
+        }
+        const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
+        const saveRes = await serverOps.saveOrUploadFiles(
+          preparedCommit,
+          mode,
+          remoteFileAuth,
+        );
+        if (Object.keys(saveRes.errors).length > 0) {
+          Internal.log.error("Failed to save files", saveRes.errors);
+          return {
+            status: 400,
+            json: {
+              message: "Failed to save files",
+              details: Object.entries(saveRes.errors).map(([key, error]) => {
+                return {
+                  message: `Got error: ${error} in ${key}`,
+                };
+              }),
+            },
+          };
+        }
+      }
+      /*
+       * The host's destination, after the store's own.
+       *
+       * Ordered this way so a store that writes has already succeeded by
+       * the time the host is told: `commitPrepared` throwing fails the save,
+       * and a host that publishes what it was handed should not be handed
+       * files the store could not write.
+       */
+      if (options.commitPrepared) {
+        await options.commitPrepared({
+          patchedSourceFiles: preparedCommit.patchedSourceFiles,
+        });
+      }
+      /*
+       * The files on disk are the committed content now, so say so here too.
+       *
+       * Nothing else will: the sources are memoised per `ValOps` instance
+       * and are re-read by awaiting each module's `def`, which is the app's
+       * own `import()` — that resolves from the module registry, not from
+       * the file this save just rewrote. So until the host rebuilds its
+       * module graph, every read of committed content answers with what was
+       * there before the save. A page rendering draft content sees exactly
+       * that once the patches below are gone: `getJsonEntry` resolves the
+       * committed entry and has no patches left to replay over it.
+       *
+       * Before `deletePatches`, because it needs the patches it is adopting
+       * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
+       * move with them.
+       */
+      await serverOps.adoptCommittedSources(
+        { ...analysis, ...patches },
+        preparedCommit,
+      );
+      /*
+       * Only what this request consumed.
+       *
+       * This used to be `deleteAllPatches()`, which renamed the whole store
+       * aside and deleted it. Anything typed while the save was in flight
+       * went with it — never applied, and indistinguishable on the client
+       * from having been published, because both look like "the patch is
+       * gone and the base moved". A visible edit that exists nowhere on
+       * disk, with nothing reporting a problem.
+       */
+      const deleteRes = await serverOps.deletePatches(consumed);
+      if ("error" in deleteRes && deleteRes.error !== undefined) {
+        Internal.log.error(
+          `got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+        );
+      } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
+        // Per patch, and not fatal: the files are written, so the save
+        // succeeded. A patch left behind is announced again on the next
+        // stat, applies to a base that already contains it, and is removed
+        // then.
+        Internal.log.error(
+          "could not clean up some patches after publish",
+          deleteRes.errors,
+        );
+      }
+      return {
+        status: 200,
+        json: removed.length > 0 ? { removed } : {},
+      };
+    } else if (isHttpOps(serverOps)) {
+      if (auth.error === undefined && auth.id) {
+        const message =
+          body.message ||
+          "Val CMS update (" +
+            Object.keys(analysis.patchesByModule).length +
+            " files changed)";
+        /*
+         * Before the commit, because after it the files are no longer the
+         * patch's to read. See `binaryFiles` on the route.
+         */
+        const managedBranch =
+          serverOps.sourceMode() === "managed"
+            ? serverOps.projectBranch()
+            : null;
+        const committedBinaries =
+          serverOps.sourceMode() === "managed"
+            ? await readCommittedBinaryFiles(
+                serverOps,
+                preparedCommit.patchedBinaryFilesDescriptors,
+                platform.bytesToBase64,
+              )
+            : null;
+        const commitToGit = () =>
+          serverOps.commit(
+            preparedCommit,
+            message,
+            auth.id as AuthorId,
+            FILES_DIRECTORY,
+            undefined,
+          );
+        /*
+         * A host may publish somewhere other than the repository.
+         *
+         * See `publishOverride`. It is handed `commitToGit` rather than
+         * having it skipped, so it can replace the commit or add to it --
+         * and it is the host, not this route, that knows which.
+         */
+        const commitRes = options.publishOverride
+          ? await options.publishOverride({
+              patchedSourceFiles: preparedCommit.patchedSourceFiles,
+              preparedCommit,
+              message,
+              authorId: auth.id as AuthorId,
+              commitToGit,
+            })
+          : await commitToGit();
+        if (commitRes.error) {
+          Internal.log.error("Failed to commit", commitRes.error);
+          if ("isNotFastForward" in commitRes && commitRes.isNotFastForward) {
+            return {
+              status: 409,
+              json: {
+                isNotFastForward: true,
+                message:
+                  "Cannot commit: this is not the latest version of this branch",
+              },
+            };
+          }
+          return {
+            status: 400,
+            json: {
+              message: commitRes.error.message,
+              details: [],
+            },
+          };
+        }
+        // TODO: serverOps.markApplied(patchIds);
+        /*
+         * The new head, back to the client that made it.
+         *
+         * Nothing else tells it in time: `headCommitSha` moves on a `/stat`
+         * response, so until the next poll the client still believes the
+         * pre-publish head — and its next publish sent that as
+         * `expectedHeadCommitSha`, hit the check above against the commit it
+         * had itself just made, and was told somebody else had published.
+         */
+        return {
+          status: 200,
+          json: {
+            commitSha: commitRes.commit,
+            /*
+             * For the Studio to BUILD, when it is the deployer. See
+             * `sourceFiles` on the route: the build must contain the text
+             * this commit wrote, and only this handler has it.
+             */
+            ...(serverOps.sourceMode() === "managed"
+              ? { sourceFiles: preparedCommit.patchedSourceFiles }
+              : {}),
+            ...(managedBranch !== null ? { branch: managedBranch } : {}),
+            ...(commitRes.headVersion !== undefined
+              ? { headVersion: commitRes.headVersion }
+              : {}),
+            ...(committedBinaries !== null
+              ? {
+                  binaryFiles: committedBinaries.files,
+                  ...(committedBinaries.unread.length > 0
+                    ? { binaryFilesUnread: committedBinaries.unread }
+                    : {}),
+                }
+              : {}),
+          },
+        };
+      }
+      return {
+        status: 401,
+        json: {
+          message: "Unauthorized",
+        },
+      };
+    } else {
+      throw new Error("Invalid server ops");
+    }
+  };
+
+  /**
+   * Code mode, at a proposal's own address (`docs/plans/one-content-model.md`,
+   * "Code mode"): content and code are never in two places when code
+   * changes. Turning code mode on saves every pending change first, and so
+   * does each code write while it is on (`POST /<name>/files`, the
+   * assistant's `write_files`, `format_files` and `lint`'s fixes) -- here, in
+   * the server's write path, so every writer gets it. A write while code mode
+   * is off is refused, naming who turned it off. A save here commits invalid
+   * content too: a proposal is not the site, and its errors stay shown.
+   *
+   * `null`: go on and hand the call to content. Anything else is the answer.
+   */
+  const beforeProposalCodeWrite = async (
+    cookies: Parameters<typeof getAuth>[0],
+    path: string,
+    body: unknown,
+    profileId: string | null,
+  ): Promise<{ status: number; json: unknown } | null> => {
+    const write = /^\/([0-9a-f]{20})\/(code-mode|files)$/.exec(path);
+    if (write === null) return null;
+    const [, name, kind] = write;
+    // Only the proposal's own address holds its pending changes.
+    if (serverOps.currentProposal()?.name !== name) return null;
+    if (kind === "code-mode") {
+      const turning = z.object({ on: z.literal(true) }).safeParse(body);
+      if (!turning.success) return null;
+      const saved = await saveBeforeCode(
+        cookies,
+        "Saved before code mode was turned on",
+      );
+      return saved === null
+        ? null
+        : {
+            status: saved.status,
+            json: {
+              message: `Code mode was not turned on, because the changes waiting to be saved could not be saved first: ${saved.message}`,
+              details: { code: "save-failed" },
+            },
+          };
+    }
+    const read = await proxyProposalsApi(`/${name}`, "GET", profileId);
+    if (read.status !== 200) return read;
+    const mode = ProposalCodeModeRead.safeParse(read.json);
+    /*
+     * Content that keeps no code mode (older than code mode) has no switch
+     * to turn: the write goes on, saved first all the same.
+     */
+    const codeMode = mode.success ? mode.data.proposal.codeMode : undefined;
+    if (codeMode !== undefined && !codeMode.on) {
+      return {
+        status: 409,
+        json: {
+          // Who and when go in `details`: names are the Studio's to read.
+          message:
+            "Code mode is off in this proposal, so its code is not changed. Turn it on with the </> beside the proposal's name.",
+          details: {
+            code: "code-mode-off",
+            changedBy: codeMode.changedBy,
+            changedAt: codeMode.changedAt,
+          },
+        },
+      };
+    }
+    const saved = await saveBeforeCode(
+      cookies,
+      "Saved before the code was changed",
+    );
+    return saved === null
+      ? null
+      : {
+          status: saved.status,
+          json: {
+            message: `The code was not changed, because the changes waiting to be saved could not be saved first: ${saved.message}`,
+            details: { code: "save-failed" },
+          },
+        };
+  };
+
+  /**
+   * Save every pending change at this proposal's address, as `/save` does:
+   * `null` when there was nothing to save or it was saved, otherwise why not.
+   */
+  const saveBeforeCode = async (
+    cookies: Parameters<typeof getAuth>[0],
+    message: string,
+  ): Promise<{ status: number; message: string } | null> => {
+    const chain = await serverOps.fetchPatches({ excludePatchOps: true });
+    if (chain.error) {
+      return { status: 502, message: chain.error.message };
+    }
+    const pending = chain.patches
+      .filter((patch) => patch.appliedAt === null)
+      .map((patch) => patch.patchId);
+    if (pending.length === 0) return null;
+    const saved = await saveChanges(cookies, { patchIds: pending, message });
+    if (saved.status === 200) return null;
+    return {
+      status: saved.status === 401 ? 401 : 409,
+      message:
+        "message" in saved.json && typeof saved.json.message === "string"
+          ? saved.json.message
+          : `the save answered ${saved.status}`,
+    };
   };
 
   /**
@@ -1513,6 +2112,14 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
+        // Code mode: saved first, or refused. See `beforeProposalCodeWrite`.
+        const before = await beforeProposalCodeWrite(
+          req.cookies,
+          req.path ?? "",
+          req.body,
+          profileOf(auth),
+        );
+        if (before !== null) return before;
         return proxyProposalsApi(
           req.path,
           "POST",
@@ -2912,482 +3519,7 @@ export const ValServer = (
       },
     },
     "/save": {
-      POST: async (req) => {
-        const cookies = req.cookies;
-        const body = req.body;
-        const auth = getAuth(cookies);
-        if (auth.error) {
-          return {
-            status: 401,
-            json: {
-              message: auth.error,
-            },
-          };
-        }
-        const PostSaveBody = z.object({
-          patchIds: z.array(
-            z.string().refine(
-              (id): id is PatchId => true, // TODO:
-            ),
-          ),
-        });
-        const bodyRes = PostSaveBody.safeParse(body);
-        if (!bodyRes.success) {
-          return {
-            status: 400,
-            json: {
-              message: "Invalid body: " + fromError(bodyRes.error).toString(),
-              details: bodyRes.error.issues,
-            },
-          };
-        }
-        const { patchIds } = bodyRes.data;
-        const patches = await serverOps.fetchPatches({
-          patchIds,
-          excludePatchOps: false,
-        });
-        /*
-         * Can this deployment publish this project AT ALL?
-         *
-         * After the fetch above, deliberately: that call is what tells the
-         * data layer what the project expects, and asking before it would be
-         * asking a question nothing has answered yet. It is still before
-         * anything is written, which is the part that matters.
-         *
-         * The Studio already knows -- `/stat` carries the same refusal, so the
-         * action is disabled with the reason shown. This is the second half of
-         * that: a stat can be stale by a poll, and nothing may reach `prepare`
-         * on a project it cannot mirror.
-         */
-        const refusal = serverOps.publishRefusal();
-        if (refusal) {
-          return {
-            status: 409,
-            json: {
-              message: refusal.message,
-              publishRefusal: refusal,
-            },
-          };
-        }
-        /*
-         * Exactly the patches this request consumes, and the ONLY ones it may
-         * delete afterwards.
-         *
-         * Taken from what was fetched rather than from what was asked for, and
-         * held across everything below, because the store keeps accepting writes
-         * while this runs. A change typed during a save is not in this list, is
-         * not applied, and must still be here when the save finishes — that is
-         * the whole contract, and `deleteAllPatches` broke it by removing the
-         * store wholesale.
-         */
-        const consumed = patches.patches.map((patch) => patch.patchId);
-        /*
-         * Has somebody else published since this was decided?
-         *
-         * The client names the newest commit it knew about; anything newer here
-         * means the review screen it acted on described a world that has moved.
-         * The answer is "look again" rather than "your commit was rejected".
-         *
-         * Git's own not-fast-forward guard cannot see this: the chain is
-         * fetched and committed fresh at this point, so the parent commit sent
-         * is always the server's current one.
-         *
-         * Checked HERE, before `analyzePatches` and `prepare`, rather than just
-         * before the commit: a publish that is going to be refused should not
-         * first pay to apply every patch in it. And compared against the
-         * commits `fetchPatches` just returned — `applicable/patches` filters
-         * its PATCHES by the requested ids and never its commits, so the second
-         * whole-chain fetch this used to make asked for a list it already had.
-         *
-         * Only when the client sends a head. One that does not publishes
-         * exactly as it did before, and this cannot start refusing publishes for
-         * a field it never sets.
-         */
-        if (isHttpOps(serverOps)) {
-          const expectedHead = body.expectedHeadCommitSha;
-          if (expectedHead !== undefined) {
-            const serverHead = newestCommitSha(patches.commits);
-            if (serverHead !== null && serverHead !== expectedHead) {
-              return {
-                status: 409,
-                json: {
-                  message:
-                    "Someone else published while you were reviewing. Nothing was published — open Review again to see what changed.",
-                  headMoved: true,
-                },
-              };
-            }
-          }
-        }
-        const analysis = serverOps.analyzePatches(
-          patches.patches,
-          patches.commits,
-          commit,
-        );
-        let preparedCommit = await serverOps.prepare({
-          ...analysis,
-          ...patches,
-        });
-        /*
-         * In `fs` mode a change that cannot be applied is removed rather than
-         * blocking the save.
-         *
-         * Refusing the whole commit is right for a git commit — it is one
-         * atomic thing, and the content api owns its own patches. It is wrong
-         * for auto-save: the editor keeps typing, every save fails on the same
-         * patch, and nothing is ever written again. So the failing change and
-         * the rest of its module's chain go, the rest is written, and the person
-         * editing is told what was thrown away.
-         */
-        let removed: DroppedPatch[] = [];
-        if (preparedCommit.hasErrors && serverOps.patchesAreLocal) {
-          removed = computePatchesToDrop(preparedCommit);
-          /*
-           * Nothing to drop means nothing a second `prepare` could do better.
-           *
-           * `hasErrors` covers failures no patch is to blame for — a binary file
-           * that could not be written, a module that could not be formatted, a
-           * `.val.ts` that could not be read at all. Re-preparing every module
-           * with an unchanged patch set would fail identically, and logging
-           * "removed unpublished changes []" on the way would say something
-           * untrue. It falls through to the 400 instead, which is the honest
-           * answer: this save did not happen and the changes are still here.
-           */
-          if (removed.length > 0) {
-            const doomed = new Set(removed.map((entry) => entry.patchId));
-            const survivors = patches.patches.filter(
-              (patch) => !doomed.has(patch.patchId),
-            );
-            const survivingPatches = { ...patches, patches: survivors };
-            // One retry is enough: what is left of each module is the prefix
-            // that already applied, and `prepare` walks modules independently,
-            // so nothing new can fail.
-            preparedCommit = await serverOps.prepare({
-              ...serverOps.analyzePatches(survivors, patches.commits, commit),
-              ...survivingPatches,
-            });
-            Internal.log.error(
-              "removed unpublished changes that could not be applied",
-              removed,
-            );
-          }
-        }
-        if (preparedCommit.hasErrors) {
-          Internal.log.error(
-            "Failed to create commit",
-            JSON.stringify(
-              {
-                sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
-                binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-              },
-              null,
-              2,
-            ),
-          );
-          return {
-            status: 400,
-            json: {
-              message: "Failed to create commit",
-              details: {
-                sourceFilePatchErrors: Object.fromEntries(
-                  Object.entries(preparedCommit.sourceFilePatchErrors).map(
-                    ([key, errors]) => [
-                      key,
-                      errors.map((e) => ({
-                        message: formatPatchSourceError(e),
-                      })),
-                    ],
-                  ),
-                ),
-                binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-                // Attributed to the patch that caused it, so the studio can
-                // name the offending change and offer to remove it instead of
-                // leaving the editor with "Failed to publish changes".
-                unappliablePatches: preparedCommit.unappliablePatches,
-              },
-            },
-          };
-        }
-        if (serverOps.patchesAreLocal) {
-          /*
-           * Writing the files is the one step that is not shared.
-           *
-           * Everything around it is: applying the patches, telling the ops the
-           * sources moved, handing the result to the host, dropping the patches
-           * this request consumed. Only the destination differs -- `fs` mode has
-           * a working tree to write into and remote binaries to push, and a host
-           * that holds its own source has neither. So this branch is on the
-           * store that CAN write files rather than on "is this local", which is
-           * what the rest of the flow asks.
-           */
-          /*
-           * Remote binary files, which publish separately from the source.
-           *
-           * Val uploads a remote file at PUBLISH rather than when it is added:
-           * until then the bytes are a pending change like any other. So a
-           * local store has to push them before the source that references them
-           * goes live, or the new build ships a URL that 404s. `ValOpsFS` does
-           * this inside `saveOrUploadFiles`, alongside writing its working
-           * tree; a store with no working tree does only the push.
-           */
-          if (isMemoryOps(serverOps)) {
-            /*
-             * A commit with no files uploads nothing and needs no credentials;
-             * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
-             * through `uploadRemoteFiles` where the project is remote, because
-             * that is where a local file is refused rather than dropped.
-             */
-            const isRemoteRequired =
-              commitCarriesRemoteFiles(preparedCommit) ||
-              (commitCarriesFiles(preparedCommit) &&
-                getIsRemoteRequired(await serverOps.getSchemas()));
-            if (isRemoteRequired) {
-              const authRes = await getRemoteFileAuth();
-              if (authRes.status !== 200) {
-                return authRes;
-              }
-              const uploadRes = await serverOps.uploadRemoteFiles(
-                preparedCommit,
-                authRes.json.remoteFileAuth,
-              );
-              if (Object.keys(uploadRes.errors).length > 0) {
-                Internal.log.error(
-                  "Failed to upload remote files",
-                  uploadRes.errors,
-                );
-                return {
-                  status: 400,
-                  json: {
-                    message: "Failed to save files",
-                    details: Object.entries(uploadRes.errors).map(
-                      ([ref, error]) => ({
-                        message: `Got error: ${error.message} in ${ref}`,
-                      }),
-                    ),
-                  },
-                };
-              }
-            }
-          }
-          if (isFsOps(serverOps)) {
-            // Credentials when THIS save uploads a remote file, not whenever
-            // the project has a remote schema. See `commitCarriesRemoteFiles`.
-            const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
-            let mode: "skip-remote" | "upload-remote";
-            let remoteFileAuthRes:
-              | undefined
-              | Awaited<ReturnType<typeof getRemoteFileAuth>>;
-            if (isRemoteRequired) {
-              mode = "upload-remote";
-              remoteFileAuthRes = await getRemoteFileAuth();
-            } else {
-              mode = "skip-remote";
-            }
-            if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
-              return remoteFileAuthRes;
-            }
-            const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
-            const saveRes = await serverOps.saveOrUploadFiles(
-              preparedCommit,
-              mode,
-              remoteFileAuth,
-            );
-            if (Object.keys(saveRes.errors).length > 0) {
-              Internal.log.error("Failed to save files", saveRes.errors);
-              return {
-                status: 400,
-                json: {
-                  message: "Failed to save files",
-                  details: Object.entries(saveRes.errors).map(
-                    ([key, error]) => {
-                      return {
-                        message: `Got error: ${error} in ${key}`,
-                      };
-                    },
-                  ),
-                },
-              };
-            }
-          }
-          /*
-           * The host's destination, after the store's own.
-           *
-           * Ordered this way so a store that writes has already succeeded by
-           * the time the host is told: `commitPrepared` throwing fails the save,
-           * and a host that publishes what it was handed should not be handed
-           * files the store could not write.
-           */
-          if (options.commitPrepared) {
-            await options.commitPrepared({
-              patchedSourceFiles: preparedCommit.patchedSourceFiles,
-            });
-          }
-          /*
-           * The files on disk are the committed content now, so say so here too.
-           *
-           * Nothing else will: the sources are memoised per `ValOps` instance
-           * and are re-read by awaiting each module's `def`, which is the app's
-           * own `import()` — that resolves from the module registry, not from
-           * the file this save just rewrote. So until the host rebuilds its
-           * module graph, every read of committed content answers with what was
-           * there before the save. A page rendering draft content sees exactly
-           * that once the patches below are gone: `getJsonEntry` resolves the
-           * committed entry and has no patches left to replay over it.
-           *
-           * Before `deletePatches`, because it needs the patches it is adopting
-           * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
-           * move with them.
-           */
-          await serverOps.adoptCommittedSources(
-            { ...analysis, ...patches },
-            preparedCommit,
-          );
-          /*
-           * Only what this request consumed.
-           *
-           * This used to be `deleteAllPatches()`, which renamed the whole store
-           * aside and deleted it. Anything typed while the save was in flight
-           * went with it — never applied, and indistinguishable on the client
-           * from having been published, because both look like "the patch is
-           * gone and the base moved". A visible edit that exists nowhere on
-           * disk, with nothing reporting a problem.
-           */
-          const deleteRes = await serverOps.deletePatches(consumed);
-          if ("error" in deleteRes && deleteRes.error !== undefined) {
-            Internal.log.error(
-              `got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
-            );
-          } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
-            // Per patch, and not fatal: the files are written, so the save
-            // succeeded. A patch left behind is announced again on the next
-            // stat, applies to a base that already contains it, and is removed
-            // then.
-            Internal.log.error(
-              "could not clean up some patches after publish",
-              deleteRes.errors,
-            );
-          }
-          return {
-            status: 200,
-            json: removed.length > 0 ? { removed } : {},
-          };
-        } else if (isHttpOps(serverOps)) {
-          if (auth.error === undefined && auth.id) {
-            const message =
-              body.message ||
-              "Val CMS update (" +
-                Object.keys(analysis.patchesByModule).length +
-                " files changed)";
-            /*
-             * Before the commit, because after it the files are no longer the
-             * patch's to read. See `binaryFiles` on the route.
-             */
-            const managedBranch =
-              serverOps.sourceMode() === "managed"
-                ? serverOps.projectBranch()
-                : null;
-            const committedBinaries =
-              serverOps.sourceMode() === "managed"
-                ? await readCommittedBinaryFiles(
-                    serverOps,
-                    preparedCommit.patchedBinaryFilesDescriptors,
-                    platform.bytesToBase64,
-                  )
-                : null;
-            const commitToGit = () =>
-              serverOps.commit(
-                preparedCommit,
-                message,
-                auth.id as AuthorId,
-                FILES_DIRECTORY,
-                undefined,
-              );
-            /*
-             * A host may publish somewhere other than the repository.
-             *
-             * See `publishOverride`. It is handed `commitToGit` rather than
-             * having it skipped, so it can replace the commit or add to it --
-             * and it is the host, not this route, that knows which.
-             */
-            const commitRes = options.publishOverride
-              ? await options.publishOverride({
-                  patchedSourceFiles: preparedCommit.patchedSourceFiles,
-                  preparedCommit,
-                  message,
-                  authorId: auth.id as AuthorId,
-                  commitToGit,
-                })
-              : await commitToGit();
-            if (commitRes.error) {
-              Internal.log.error("Failed to commit", commitRes.error);
-              if (
-                "isNotFastForward" in commitRes &&
-                commitRes.isNotFastForward
-              ) {
-                return {
-                  status: 409,
-                  json: {
-                    isNotFastForward: true,
-                    message:
-                      "Cannot commit: this is not the latest version of this branch",
-                  },
-                };
-              }
-              return {
-                status: 400,
-                json: {
-                  message: commitRes.error.message,
-                  details: [],
-                },
-              };
-            }
-            // TODO: serverOps.markApplied(patchIds);
-            /*
-             * The new head, back to the client that made it.
-             *
-             * Nothing else tells it in time: `headCommitSha` moves on a `/stat`
-             * response, so until the next poll the client still believes the
-             * pre-publish head — and its next publish sent that as
-             * `expectedHeadCommitSha`, hit the check above against the commit it
-             * had itself just made, and was told somebody else had published.
-             */
-            return {
-              status: 200,
-              json: {
-                commitSha: commitRes.commit,
-                /*
-                 * For the Studio to BUILD, when it is the deployer. See
-                 * `sourceFiles` on the route: the build must contain the text
-                 * this commit wrote, and only this handler has it.
-                 */
-                ...(serverOps.sourceMode() === "managed"
-                  ? { sourceFiles: preparedCommit.patchedSourceFiles }
-                  : {}),
-                ...(managedBranch !== null ? { branch: managedBranch } : {}),
-                ...(commitRes.headVersion !== undefined
-                  ? { headVersion: commitRes.headVersion }
-                  : {}),
-                ...(committedBinaries !== null
-                  ? {
-                      binaryFiles: committedBinaries.files,
-                      ...(committedBinaries.unread.length > 0
-                        ? { binaryFilesUnread: committedBinaries.unread }
-                        : {}),
-                    }
-                  : {}),
-              },
-            };
-          }
-          return {
-            status: 401,
-            json: {
-              message: "Unauthorized",
-            },
-          };
-        } else {
-          throw new Error("Invalid server ops");
-        }
-      },
+      POST: async (req) => saveChanges(req.cookies, req.body),
     },
 
     //#region ai proxy

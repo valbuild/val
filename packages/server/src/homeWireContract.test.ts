@@ -2,6 +2,7 @@ import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
 import type { ValProposal } from "./proposal";
+import { ProposalCodeModeRead } from "./proposalCodeMode";
 import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
 /**
@@ -1054,6 +1055,181 @@ test("a proposal's socket nonce names its branch", async () => {
     expect((sent[0]?.body as Record<string, unknown>).branch).toBe(
       PROPOSAL.branch,
     );
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * Code mode and Commit (valbuild/home's code-mode contract, v1): code mode on
+ * every `ProposalJson`, `git` on a read of one, and `/code-mode` and
+ * `/commit`, reached through the proposals proxy at the proposal's own
+ * address. The e2e mock implements the same (`e2e/mock-content-host`), and
+ * `scenarios/src/codeMode.scenario.test.ts` drives it.
+ */
+const HOME_PROPOSAL_IN_CODE_MODE = {
+  proposal: {
+    name: PROPOSAL.name,
+    branch: PROPOSAL.branch,
+    displayName: "Spring campaign",
+    description: null,
+    ownerId: PROFILE,
+    status: "open",
+    updatedAt: "2026-11-02T10:05:00.000Z",
+    codeMode: {
+      on: true,
+      changedBy: PROFILE,
+      changedAt: "2026-11-02T10:00:00.000Z",
+    },
+    pushedGitSha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+    git: {
+      branch: PROPOSAL.branch,
+      branchUrl: `https://github.com/acme/site/tree/${PROPOSAL.branch}`,
+      committed: {
+        sha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+        url: "https://github.com/acme/site/commit/1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+        save: "save1",
+        by: PROFILE,
+        at: "2026-11-02T09:00:00.000Z",
+      },
+      head: "save2",
+      uncommitted: true,
+    },
+  },
+  events: [
+    {
+      kind: "code-mode",
+      actorId: PROFILE,
+      data: { on: true },
+    },
+  ],
+};
+
+test("a proposal's code mode is read from home's answer, before a code write", () => {
+  const read = ProposalCodeModeRead.parse(HOME_PROPOSAL_IN_CODE_MODE);
+  expect(read.proposal.codeMode).toEqual({
+    on: true,
+    changedBy: PROFILE,
+    changedAt: "2026-11-02T10:00:00.000Z",
+  });
+  // Content older than code mode keeps none: there is no switch to turn.
+  const { codeMode: _none, ...older } = HOME_PROPOSAL_IN_CODE_MODE.proposal;
+  expect(
+    ProposalCodeModeRead.parse({ proposal: older }).proposal.codeMode,
+  ).toBeUndefined();
+});
+
+test("code mode is `/proposals/:name/code-mode`, at the proposal's own address", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_PROPOSAL_IN_CODE_MODE, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/code-mode`,
+      { method: "POST", body: JSON.stringify({ on: true }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_PROPOSAL_IN_CODE_MODE);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/code-mode`,
+    );
+    expect(sent[0]?.body).toEqual({ on: true });
+    expect(sent[0]?.headers["x-val-profile-id"]).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("Commit is `/proposals/:name/commit`, and home's answer comes back", async () => {
+  const HOME_COMMITTED = {
+    commit: {
+      sha: "2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a",
+      url: "https://github.com/acme/site/commit/2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a",
+      save: "save2",
+      pushed: true,
+    },
+    proposal: HOME_PROPOSAL_IN_CODE_MODE.proposal,
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_COMMITTED, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/commit`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message: "Spring campaign", save: "save2" }),
+      },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_COMMITTED);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/commit`,
+    );
+    expect(sent[0]?.body).toEqual({
+      message: "Spring campaign",
+      save: "save2",
+    });
+  } finally {
+    restore();
+  }
+});
+
+test("a Commit refused because someone pushed comes back as home said it", async () => {
+  const HOME_SOMEONE_PUSHED = {
+    statusCode: 409,
+    // `commitRefusal` in home's `content/src/val/proposalGit.ts`.
+    message: `Ada Lovelace pushed to ${PROPOSAL.branch} (3c4d5e6) at 2026-11-02 14:03 UTC. Val does not commit over a push it has not seen.`,
+    details: {
+      code: "someone-pushed",
+      branch: PROPOSAL.branch,
+      branchUrl: `https://github.com/acme/site/tree/${PROPOSAL.branch}`,
+      expected: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+      theirs: {
+        sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+        url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+        message:
+          "Fix the hero's spacing\n\nThe gap above the heading was 2rem.",
+        author: {
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          login: "ada",
+          avatarUrl: null,
+        },
+        at: "2026-11-02T14:03:00.000Z",
+      },
+    },
+  };
+  const { ops, restore } = opsAnswering(HOME_SOMEONE_PUSHED, 409, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/commit`,
+      { method: "POST", body: JSON.stringify({ message: "Spring" }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(409);
+    expect(JSON.parse(answer.body)).toEqual(HOME_SOMEONE_PUSHED);
+  } finally {
+    restore();
+  }
+});
+
+test("the site's server neither turns a proposal's code mode nor commits it", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_PROPOSAL_IN_CODE_MODE);
+  try {
+    for (const write of ["code-mode", "commit"]) {
+      const answer = await ops.proposalsApi(
+        `/${PROPOSAL.name}/${write}`,
+        { method: "POST", body: JSON.stringify({ on: true }) },
+        PROFILE,
+      );
+      expect(answer.status).toBe(403);
+    }
+    expect(sent).toEqual([]);
   } finally {
     restore();
   }
