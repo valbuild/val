@@ -424,7 +424,7 @@ every file in it). The value must be CONTENT: a `{_type:"json"}` marker as an
 entry's value is refused, because a marker is what a module's Source holds where
 the content is not, and writing markers back is the bug this exists to stop.
 Both sides expand through that one function — `ValOps.prepare` writes the files,
-`applyJsonValuesEntryPatches` builds the draft the Studio reads — because two
+the engine (`applyPatchRecord` in `@valbuild/shared`) builds the draft — because two
 implementations of the rule would differ silently, and the difference only shows
 up once it is published.
 

@@ -86,3 +86,21 @@ describe("ChainFold", () => {
     expect(fold.chainsOf([]).get(a)).toBeUndefined();
   });
 });
+
+describe("ChainFold.chainAt", () => {
+  test("names the chain after a module's first n patches, without hashing", () => {
+    const fold = new ChainFold();
+    const chains = fold.chainsOf([
+      { patchId: id(1), path: a },
+      { patchId: id(2), path: b },
+      { patchId: id(3), path: a },
+    ]);
+    const afterOne = chainOf([id(1)]);
+    const before = versionHashCount();
+    expect(fold.chainAt(a, 0)).toBe(EMPTY_CHAIN);
+    expect(fold.chainAt(a, 1)).toBe(afterOne);
+    expect(fold.chainAt(a, 2)).toBe(chains.get(a));
+    expect(fold.chainAt(b, 1)).toBe(chains.get(b));
+    expect(versionHashCount()).toBe(before);
+  });
+});

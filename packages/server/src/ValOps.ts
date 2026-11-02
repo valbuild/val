@@ -46,13 +46,11 @@ import type {
 } from "./history/types";
 import type { JsonValuesEntry } from "./patch/ts/jsonValuesModule";
 import {
-  applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
   expandJsonValuesRootOp,
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
   isJsonValuesRootOp,
-  wholeEntryKey,
   rebaseContentOp,
   resolveExistingJsonPath,
   type CurrentJsonEntries,
@@ -76,6 +74,13 @@ import {
   type SchemaSourceSnapshot,
   ChainFold,
   EMPTY_CHAIN,
+  applyChain,
+  applyPatchRecord,
+  baseModuleContent,
+  entryState,
+  resolveEntry,
+  type EntryState,
+  type ModuleContent,
   baseVersionOf,
   schemaVersionOf,
   type ModuleVersion,
@@ -700,15 +705,27 @@ export abstract class ValOps {
   async moduleVersions(
     patches: readonly { patchId: PatchId; path: ModuleFilePath }[],
     applied: boolean = true,
+    /**
+     * For a module whose chain stopped at a patch that does not apply, how
+     * many of its patches the answer's content is AT (`getSources`'s
+     * `stopped`): its version names that chain, not the whole one.
+     */
+    stopped?: Readonly<Record<ModuleFilePath, number>>,
   ): Promise<Record<ModuleFilePath, ModuleVersion>> {
     await this.initSources();
     const versions: Record<ModuleFilePath, ModuleVersion> = {};
     const chains = applied ? this.chainFold.chainsOf(patches) : null;
     for (const [moduleFilePath, version] of this.baseVersions ?? []) {
+      const stoppedAt = stopped?.[moduleFilePath];
       versions[moduleFilePath] = {
         schema: version.schema,
         base: version.base,
-        chain: chains?.get(moduleFilePath) ?? EMPTY_CHAIN,
+        chain:
+          chains === null
+            ? EMPTY_CHAIN
+            : stoppedAt !== undefined
+              ? this.chainFold.chainAt(moduleFilePath, stoppedAt)
+              : (chains.get(moduleFilePath) ?? EMPTY_CHAIN),
       };
     }
     return versions;
@@ -719,13 +736,20 @@ export abstract class ValOps {
     moduleFilePath: ModuleFilePath,
     patches: readonly { patchId: PatchId; path: ModuleFilePath }[],
     applied: boolean = true,
+    /** See `stopped` on {@link moduleVersions}: this module's count. */
+    stoppedAt?: number,
   ): Promise<ModuleVersion | undefined> {
     await this.initSources();
     const version = this.baseVersions?.get(moduleFilePath);
     if (version === undefined) return undefined;
-    const chain = applied
-      ? (this.chainFold.chainsOf(patches).get(moduleFilePath) ?? EMPTY_CHAIN)
-      : EMPTY_CHAIN;
+    let chain: string = EMPTY_CHAIN;
+    if (applied) {
+      const chains = this.chainFold.chainsOf(patches);
+      chain =
+        stoppedAt !== undefined
+          ? this.chainFold.chainAt(moduleFilePath, stoppedAt)
+          : (chains.get(moduleFilePath) ?? EMPTY_CHAIN);
+    }
     return { schema: version.schema, base: version.base, chain };
   }
 
@@ -789,7 +813,11 @@ export abstract class ValOps {
     /** Passed straight through — see {@link getJsonEntries}. */
     opts?: { applyPatches?: boolean; withVersion?: boolean },
   ): Promise<
-    | { status: "success"; content: JSONValue | null; version?: ModuleVersion }
+    | {
+        status: "success";
+        content: ReadonlyJSONValue | null;
+        version?: ModuleVersion;
+      }
     | { status: "not-found"; message: string }
     | { status: "error"; message: string }
     | { status: "unauthorized"; message: string }
@@ -849,7 +877,7 @@ export abstract class ValOps {
   ): Promise<
     | {
         status: "success";
-        entries: { key: string; content: JSONValue | null }[];
+        entries: { key: string; content: ReadonlyJSONValue | null }[];
         missing: string[];
         errors: { key: string; message: string }[];
         total: number;
@@ -891,9 +919,15 @@ export abstract class ValOps {
       ? allKeys.slice(selector.offset, selector.offset + selector.limit)
       : selector.keys;
 
-    // Fetched once for the whole batch, not per entry.
-    let modulePatches: { patchId: PatchId; patch: Patch }[] = [];
-    let serializedSchema: SerializedSchema | undefined = undefined;
+    /**
+     * The record module through its chain, by the engine -- fetched and
+     * applied once for the whole batch, not per entry. The entries come out
+     * of it as states (`entryState`): an entry the chain touched is content,
+     * deleted or an error; one it edited without anybody having loaded it is
+     * `waiting` on a base entry with the edits held, applied once that base
+     * is loaded below.
+     */
+    let module: ModuleContent | null = null;
     /** The record module's version, with the chain the entries were read at. */
     let version: ModuleVersion | undefined = applyPatches
       ? undefined
@@ -909,157 +943,91 @@ export abstract class ValOps {
           message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
         };
       }
-      modulePatches = draftModulePatches(
-        patchOps.patches,
-        moduleFilePath,
-        patchOps.commits,
-      ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
-      version = await this.moduleVersion(
-        moduleFilePath,
-        draftOverlay(patchOps.patches, patchOps.commits),
-      );
+      let serializedSchema: SerializedSchema | undefined = undefined;
       try {
         serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
       } catch {
         // Serialization errors are reported elsewhere; treat as "no schema".
       }
+      const chain = applyChain(
+        baseModuleContent(moduleSource as ReadonlyJSONValue),
+        draftModulePatches(patchOps.patches, moduleFilePath, patchOps.commits),
+        serializedSchema,
+      );
+      module = chain.module;
+      version = await this.moduleVersion(
+        moduleFilePath,
+        draftOverlay(patchOps.patches, patchOps.commits),
+        true,
+        chain.failed === null ? undefined : chain.applied,
+      );
     }
 
-    const entries: { key: string; content: JSONValue | null }[] = [];
+    const entries: { key: string; content: ReadonlyJSONValue | null }[] = [];
     const missing: string[] = [];
     const errors: { key: string; message: string }[] = [];
-    type ResolvedEntry =
-      | {
-          entryKey: string;
-          baseContent: JSONValue | undefined;
-          /** Set when the value lives in the module source, not a `*.val.json`. */
-          inline?: true;
-        }
-      | { entryKey: string; message: string };
-    /*
-     * The entries a whole-entry `move` or `copy` reads from. A renamed or
-     * duplicated entry's content is theirs, so they are loaded beside the
-     * ones asked for, and not reported.
-     */
-    const sourceKeys = new Set<string>();
-    for (const { patch } of modulePatches) {
-      for (const op of patch) {
-        if (op.op === "move" || op.op === "copy") {
-          const fromKey = wholeEntryKey(serializedSchema, op.from);
-          if (fromKey !== undefined && !requestedKeys.includes(fromKey)) {
-            sourceKeys.add(fromKey);
-          }
-        }
+    /** Where each requested key's content starts from: a base entry's key. */
+    const states = new Map<string, EntryState | undefined>();
+    const baseKeys = new Set<string>();
+    for (const entryKey of requestedKeys) {
+      if (module === null) {
+        baseKeys.add(entryKey);
+        continue;
       }
+      const state = entryState(module, entryKey);
+      states.set(entryKey, state);
+      if (state?.kind === "waiting") baseKeys.add(state.from);
     }
-    const loaded = await Promise.all(
-      [...requestedKeys, ...sourceKeys].map(
-        async (entryKey): Promise<ResolvedEntry> => {
-          const marker = record[entryKey];
-          if (marker !== undefined && !Internal.isJson(marker)) {
-            // Not a jsonValues entry — return the inlined value as-is (defensive).
-            // `inline` skips patch replay: entry patches are expressed against a
-            // jsonValues entry, and this value is part of the module source proper.
-            return { entryKey, baseContent: marker as JSONValue, inline: true };
-          }
-          if (marker === undefined) {
-            return { entryKey, baseContent: undefined };
-          }
-          /**
-           * What a save told us this entry holds, ahead of the thunk.
-           *
-           * The thunk resolves from the module registry, so after `/save` rewrites
-           * a `*.val.json` it keeps answering with the content from before — and
-           * there is nothing to re-extract, because the committed content was
-           * never in the memoised source to begin with. See
-           * {@link adoptedJsonEntries}.
-           *
-           * `null` means the commit deleted the entry, which is reported the same
-           * way an absent key is. (Nearly unreachable — a `remove` also drops the
-           * thunk from the `.val.ts`, so the key is gone from `record` once the
-           * source is adopted — but the map says it, so this says it too.)
-           *
-           * The BASELINE only. Pending patches replay over it below exactly as
-           * they do over the thunk's answer.
-           */
-          const adopted = this.adoptedJsonEntries
-            .get(moduleFilePath)
-            ?.get(entryKey);
-          if (adopted !== undefined) {
-            return {
-              entryKey,
-              baseContent:
-                adopted.kind === "deleted" ? undefined : adopted.content,
-            };
-          }
-          /*
-           * A snapshot's marker came as JSON, with no import behind it: the
-           * entry the proposal did not save is the build's, behind the marker
-           * the module evaluated to.
-           */
-          const siteMarker =
-            this.bundleSourcesBeforeSnapshot?.[moduleFilePath]?.[
-              entryKey as keyof Sources[ModuleFilePath]
-            ];
-          const thunk =
-            Internal.getJsonImport(marker) ??
-            (Internal.isJson(siteMarker)
-              ? Internal.getJsonImport(siteMarker)
-              : undefined);
-          if (!thunk) {
-            return { entryKey, baseContent: null };
-          }
-          try {
-            return {
-              entryKey,
-              baseContent: ((await thunk()).default ?? null) as JSONValue,
-            };
-          } catch (e) {
-            return {
-              entryKey,
-              message: `Failed to load JSON entry '${entryKey}': ${
-                e instanceof Error ? e.message : String(e)
-              }`,
-            };
-          }
-        },
+    type LoadedEntry = { content: JSONValue | undefined } | { message: string };
+    const loaded = new Map<string, LoadedEntry>(
+      await Promise.all(
+        [...baseKeys].map(
+          async (entryKey): Promise<[string, LoadedEntry]> => [
+            entryKey,
+            await this.loadBaseJsonEntry(moduleFilePath, record, entryKey),
+          ],
+        ),
       ),
     );
-    const resolved = loaded.slice(0, requestedKeys.length);
-    const bases = new Map<string, { content: JSONValue | undefined }>();
-    for (const entry of loaded) {
-      if (!("message" in entry) && !("inline" in entry)) {
-        bases.set(entry.entryKey, { content: entry.baseContent });
-      }
-    }
-    for (const result of resolved) {
-      const { entryKey } = result;
-      if ("message" in result) {
-        errors.push({ key: entryKey, message: result.message });
+    for (const entryKey of requestedKeys) {
+      const marker = record[entryKey];
+      if (marker !== undefined && !Internal.isJson(marker)) {
+        // Not a jsonValues entry — return the inlined value as-is (defensive).
+        // No patches are applied: entry patches are expressed against a
+        // jsonValues entry, and this value is part of the module source proper.
+        entries.push({ key: entryKey, content: marker as JSONValue });
         continue;
       }
-      const { baseContent } = result;
-      if (!applyPatches || "inline" in result) {
-        if (baseContent === undefined) {
+      if (module === null) {
+        const base = loaded.get(entryKey);
+        if (base !== undefined && "message" in base) {
+          errors.push({ key: entryKey, message: base.message });
+        } else if (base?.content === undefined) {
           missing.push(entryKey);
         } else {
-          entries.push({ key: entryKey, content: baseContent });
+          entries.push({ key: entryKey, content: base.content });
         }
         continue;
       }
-      const res = applyJsonValuesEntryPatches({
-        serializedSchema,
-        entryKey,
-        baseContent,
-        patches: modulePatches,
-        baseContentOf: (key) => bases.get(key),
+      const state = states.get(entryKey);
+      const from =
+        state?.kind === "waiting" ? loaded.get(state.from) : undefined;
+      if (from !== undefined && "message" in from) {
+        errors.push({ key: entryKey, message: from.message });
+        continue;
+      }
+      const read = resolveEntry(entryKey, state, (key) => {
+        const base = loaded.get(key);
+        return base === undefined || "message" in base
+          ? undefined
+          : base.content;
       });
-      if (res.kind === "error") {
-        errors.push({ key: entryKey, message: res.message });
-      } else if (res.kind === "deleted") {
+      if (read.kind === "error") {
+        errors.push({ key: entryKey, message: read.message });
+      } else if (read.kind === "missing") {
         missing.push(entryKey);
       } else {
-        entries.push({ key: entryKey, content: res.content });
+        entries.push({ key: entryKey, content: read.content });
       }
     }
     return {
@@ -1074,6 +1042,74 @@ export abstract class ValOps {
         : {}),
     };
   }
+  /**
+   * One `.jsonValues()` entry's BASE content: what the chain starts from.
+   * `undefined` for a key the base record does not have; `null` for a marker
+   * with nothing behind it.
+   */
+  private async loadBaseJsonEntry(
+    moduleFilePath: ModuleFilePath,
+    record: Record<string, unknown>,
+    entryKey: string,
+  ): Promise<{ content: JSONValue | undefined } | { message: string }> {
+    const marker = record[entryKey];
+    if (marker === undefined) {
+      return { content: undefined };
+    }
+    if (!Internal.isJson(marker)) {
+      return { content: marker as JSONValue };
+    }
+    /**
+     * What a save told us this entry holds, ahead of the thunk.
+     *
+     * The thunk resolves from the module registry, so after `/save` rewrites
+     * a `*.val.json` it keeps answering with the content from before — and
+     * there is nothing to re-extract, because the committed content was
+     * never in the memoised source to begin with. See
+     * {@link adoptedJsonEntries}.
+     *
+     * `deleted` means the commit deleted the entry, which is reported the same
+     * way an absent key is. (Nearly unreachable — a `remove` also drops the
+     * thunk from the `.val.ts`, so the key is gone from `record` once the
+     * source is adopted — but the map says it, so this says it too.)
+     *
+     * The BASELINE only. Pending patches apply over it exactly as they do
+     * over the thunk's answer.
+     */
+    const adopted = this.adoptedJsonEntries.get(moduleFilePath)?.get(entryKey);
+    if (adopted !== undefined) {
+      return {
+        content: adopted.kind === "deleted" ? undefined : adopted.content,
+      };
+    }
+    /*
+     * A snapshot's marker came as JSON, with no import behind it: the
+     * entry the proposal did not save is the build's, behind the marker
+     * the module evaluated to.
+     */
+    const siteMarker =
+      this.bundleSourcesBeforeSnapshot?.[moduleFilePath]?.[
+        entryKey as keyof Sources[ModuleFilePath]
+      ];
+    const thunk =
+      Internal.getJsonImport(marker) ??
+      (Internal.isJson(siteMarker)
+        ? Internal.getJsonImport(siteMarker)
+        : undefined);
+    if (!thunk) {
+      return { content: null };
+    }
+    try {
+      return { content: ((await thunk()).default ?? null) as JSONValue };
+    } catch (e) {
+      return {
+        message: `Failed to load JSON entry '${entryKey}': ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      };
+    }
+  }
+
   async getSchemas(): Promise<Schemas> {
     return this.initSources().then((result) => result.schemas);
   }
@@ -1197,6 +1233,17 @@ export abstract class ValOps {
   }
 
   // #region getSources
+  /**
+   * The modules' sources, with these patches applied -- ONLY the modules that
+   * had patches (see {@link getSourcesWithPatchesApplied} for all of them).
+   *
+   * The patches are applied by THE engine (`applyPatchRecord` in
+   * `@valbuild/shared`), copy-on-write, so an unpatched part of a module is
+   * the same object as in the base. A module's chain stops at its first patch
+   * that does not apply: that one is reported with `skipped: false`, every
+   * later one with `skipped: true`, and `stopped` says how many of the
+   * module's patches its source is AT, so its version can name that chain.
+   */
   async getSources(analysis?: PatchAnalysis & OrderedPatches): Promise<{
     sources: Sources;
     errors: Record<
@@ -1207,13 +1254,16 @@ export abstract class ValOps {
         error: GenericErrorMessage;
       }[]
     >;
+    /**
+     * For a module whose chain stopped at a patch that does not apply: how
+     * many of its patches applied. Absent for a module whose patches all did.
+     */
+    stopped: Record<ModuleFilePath, number>;
   }> {
+    const { sources, schemas } = await this.initSources();
     if (!analysis) {
-      const { sources } = await this.initSources();
-      return { sources, errors: {} };
+      return { sources, errors: {}, stopped: {} };
     }
-    const { sources } = await this.initSources();
-
     const patchedSources: Sources = {};
     const errors: Record<
       ModuleFilePath,
@@ -1223,14 +1273,19 @@ export abstract class ValOps {
         error: GenericErrorMessage;
       }[]
     > = {};
+    const stopped: Record<ModuleFilePath, number> = {};
+    /** Each patched module as far along its chain as it has got. */
+    const modules = new Map<
+      ModuleFilePath,
+      { content: ModuleContent; applied: number }
+    >();
     // Serialized schemas, resolved lazily and only for modules that actually
-    // have patches, so the common (non-jsonValues) case stays free.
-    const { schemas } = await this.initSources();
+    // have patches: they say which ops reach into a `.jsonValues()` entry.
     const serializedSchemaCache = new Map<
       ModuleFilePath,
       SerializedSchema | undefined
     >();
-    const jsonValuesSchemaFor = (
+    const serializedSchemaFor = (
       path: ModuleFilePath,
     ): SerializedSchema | undefined => {
       if (!serializedSchemaCache.has(path)) {
@@ -1246,7 +1301,8 @@ export abstract class ValOps {
     };
     for (const patchData of analysis.patches) {
       const path = patchData.path;
-      if (sources[path] === undefined) {
+      const base = sources[path];
+      if (base === undefined) {
         if (!errors[path]) {
           errors[path] = [];
         }
@@ -1258,220 +1314,46 @@ export abstract class ValOps {
         });
         continue;
       }
-      if (!patchedSources[path]) {
-        patchedSources[path] = sources[path];
+      let module = modules.get(path);
+      if (module === undefined) {
+        module = {
+          content: baseModuleContent(base as ReadonlyJSONValue),
+          applied: 0,
+        };
+        modules.set(path, module);
+        patchedSources[path] = base;
       }
       const patchId = patchData.patchId;
       if (errors[path]) {
-        Internal.log.error(
-          "Cannot apply patch: previous errors exists",
-          path,
-          errors[path],
-        );
         errors[path].push({
           patchId: patchId,
           skipped: true,
           error: new PatchError(`Cannot apply patch: previous errors exists`),
         });
-      } else {
-        const applicableOps: Patch = [];
-        const fileFixOps: Record<string, Patch> = {};
-        // `.jsonValues()` entry values are opaque `{_type:"json"}` markers in
-        // the module source — their content lives in the entry's `*.val.json`.
-        // Ops that reach INTO an entry therefore cannot be applied here (and
-        // would fail with "Cannot replace object element which does not exist",
-        // poisoning the rest of this module's patch chain). See the per-op
-        // routing below.
-        const serializedSchema = jsonValuesSchemaFor(path);
-        /**
-         * The record's keys as they stand while this patch is walked.
-         *
-         * Only the key set: the module source holds markers, so there is no
-         * content here to compare a whole-record write against. Seeded from the
-         * source and kept current as the ops below add and remove entries,
-         * because `patchedSources` is only written once the whole patch has
-         * been applied.
-         */
-        let entryKeys: Map<string, JSONValue | undefined> | null = null;
-        const currentEntryKeys = (): Map<string, JSONValue | undefined> => {
-          if (entryKeys === null) {
-            entryKeys = new Map();
-            const source = patchedSources[path];
-            if (
-              typeof source === "object" &&
-              source !== null &&
-              !Array.isArray(source)
-            ) {
-              for (const key of Object.keys(source)) {
-                entryKeys.set(key, undefined);
-              }
-            }
-          }
-          return entryKeys;
-        };
-        /**
-         * Set when a whole-record write could not be expanded.
-         *
-         * Nothing of this patch is applied then: the ops before the failure are
-         * half of an edit, and half of a record write is a record missing
-         * entries.
-         */
-        let unexpandable = false;
-        for (const rawOp of patchData.patch) {
-          /**
-           * A write of the WHOLE record fans out into per-entry ops first,
-           * through the same expansion the commit flow and the entry read path
-           * use. Left as it is, a root write would put the value straight into
-           * the module source - where the entries are markers, so the record
-           * would hold content the Studio then tries to load as entries.
-           */
-          let ops: Operation[] = [rawOp];
-          if (serializedSchema && isJsonValuesRootOp(serializedSchema, rawOp)) {
-            const expandedRes = expandJsonValuesRootOp(
-              rawOp,
-              currentEntryKeys(),
-            );
-            if (result.isErr(expandedRes)) {
-              if (!errors[path]) {
-                errors[path] = [];
-              }
-              errors[path].push({
-                patchId,
-                skipped: false,
-                error: expandedRes.error,
-              });
-              unexpandable = true;
-              break;
-            }
-            ops = expandedRes.value;
-          }
-          for (const op of ops) {
-            if (op.op === "file") {
-              // A file op inside a `.jsonValues()` entry has nothing to inject
-              // HERE: the entry is an opaque marker in the module source, so an
-              // `add` reaching into it fails and poisons the rest of this
-              // module's chain. `applyJsonValuesEntryPatches` writes the patch_id
-              // into the entry's draft content instead.
-              const fileCls = serializedSchema
-                ? classifyJsonValuesOp(serializedSchema, op.path)
-                : ({ kind: "normal" } as const);
-              if (fileCls.kind === "entry" && fileCls.subPath.length > 0) {
-                continue;
-              }
-              if (op.value !== null) {
-                // NOTE: We insert the last patch_id that modify a file
-                // when constructing the url we use the patch id (and the file path)
-                // to fetch the right file
-                // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-                //
-                // Keyed by where the patch_id LANDS — the field's path plus
-                // `nestedFilePath` — not by the field's path alone. A video's
-                // poster and caption files are file ops on the video's own path
-                // with `nestedFilePath` ["poster"] / ["captions", "0"]; keyed by
-                // `op.path` they overwrote the video's entry (and each other),
-                // so only one of the files got a patch_id and the rest were
-                // looked for at a published URL that holds nothing. JSON rather
-                // than a "/" join because a segment can contain "/" (a gallery
-                // key is a file path).
-                const patchIdPath = op.path
-                  .concat(...(op.nestedFilePath || []))
-                  .concat("patch_id");
-                fileFixOps[JSON.stringify(patchIdPath)] = [
-                  {
-                    op: "add",
-                    path: patchIdPath,
-                    value: patchId,
-                  },
-                ];
-              }
-              // null value = delete: no patch_id to inject; the "remove" op in
-              // the patch already removes the metadata entry from the source
-            } else {
-              const cls = serializedSchema
-                ? classifyJsonValuesOp(serializedSchema, op.path)
-                : ({ kind: "normal" } as const);
-              if (cls.kind === "normal") {
-                applicableOps.push(op);
-              } else if (cls.subPath.length > 0) {
-                // Content edit inside an entry: the module source is genuinely
-                // unaffected (the content lives in the `*.val.json`), so skip it.
-                // Draft content is served by the single-entry `/json` endpoint.
-              } else if (op.op === "add" || op.op === "replace") {
-                // Whole-entry add/replace: keep the record's KEY SET correct for
-                // drafts by writing the marker rather than the content. Record
-                // validation only asserts `isJson`, and
-                // `validateJsonValuesEntries` skips thunkless markers by design.
-                applicableOps.push({
-                  op: op.op,
-                  path: op.path,
-                  value: {
-                    [VAL_EXTENSION]: "json",
-                    patch_id: patchId,
-                  } as JSONValue,
-                } as Operation);
-                currentEntryKeys().set(cls.entryKey, undefined);
-              } else if (op.op === "remove") {
-                applicableOps.push(op);
-                currentEntryKeys().delete(cls.entryKey);
-              } else {
-                // move/copy of a whole entry: the destination key must appear, and
-                // for a move the source key must disappear. Both are key-set
-                // changes we can express with markers.
-                applicableOps.push({
-                  op: "add",
-                  path: op.path,
-                  value: {
-                    [VAL_EXTENSION]: "json",
-                    patch_id: patchId,
-                  } as JSONValue,
-                } as Operation);
-                currentEntryKeys().set(cls.entryKey, undefined);
-                if (op.op === "move" && array.isNonEmpty(op.from)) {
-                  applicableOps.push({ op: "remove", path: op.from });
-                  if (op.from.length === 1) {
-                    currentEntryKeys().delete(op.from[0]);
-                  }
-                }
-              }
-            }
-          }
-        }
-        if (unexpandable) {
-          continue;
-        }
-        const patchRes = applyPatch(
-          deepClone(patchedSources[path] as ReadonlyJSONValue) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
-          jsonOps,
-          applicableOps.concat(...Object.values(fileFixOps)),
-        );
-        if (result.isErr(patchRes)) {
-          Internal.log.error(
-            "Could not apply patch",
-            JSON.stringify(
-              {
-                path,
-                patchId,
-                error: patchRes.error,
-                applicableOps,
-              },
-              null,
-              2,
-            ),
-          );
-          if (!errors[path]) {
-            errors[path] = [];
-          }
-          errors[path].push({
-            patchId: patchId,
-            skipped: false,
-            error: patchRes.error,
-          });
-        } else {
-          patchedSources[path] = patchRes.value;
-        }
+        continue;
       }
+      const res = applyPatchRecord(
+        module.content,
+        patchData,
+        serializedSchemaFor(path),
+      );
+      if (res.status === "failed") {
+        Internal.log.error("Could not apply patch", {
+          path,
+          patchId,
+          error: res.message,
+        });
+        errors[path] = [
+          { patchId, skipped: false, error: new PatchError(res.message) },
+        ];
+        stopped[path] = module.applied;
+        continue;
+      }
+      module.content = res.module;
+      module.applied++;
+      patchedSources[path] = res.module.source;
     }
-    return { sources: patchedSources, errors };
+    return { sources: patchedSources, errors, stopped };
   }
 
   /**
@@ -1490,6 +1372,7 @@ export abstract class ValOps {
     return {
       sources: { ...unpatched.sources, ...patched.sources },
       errors: patched.errors,
+      stopped: patched.stopped,
     };
   }
 

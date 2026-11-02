@@ -77,3 +77,28 @@ does: about +15 MB for 5 MB of content and +39 MB for 10 MB, so roughly 3-4
 times the content's size at the peak. The run timed out before the 21 MB
 draft read. Measuring the read's own peak, rather than the process's, needs a
 better method than bisection; noted for the next run.
+
+## Phase 2: the engine, before and after
+
+2026-11-02, same container. `node --import tsx measure/draftRead.ts all
+--time-only` and `node --import tsx measure/keystroke.ts`, before and after
+`applyPatchRecord` replaced `ValOps.getSources`'s patch loop. **Before ran on
+a quiet machine (load 0.2); after ran while another session's Playwright
+suite was running (load 9-10 on 4 cores)**, so read the rows without patches
+as noise: their code path did not change (no patch is applied).
+
+| Input                   | Draft read before | after  | Without validation before | after  |
+| ----------------------- | ----------------- | ------ | ------------------------- | ------ |
+| synthetic + 650 patches | 577 ms            | 107 ms | 402 ms                    | 69 ms  |
+| synthetic 1 MB          | 132 ms            | 102 ms | 37 ms                     | 47 ms  |
+| synthetic 5 MB          | 394 ms            | 392 ms | 228 ms                    | 183 ms |
+| valbuild/web            | 95 ms             | 106 ms | 16 ms                     | 15 ms  |
+
+- **A 650-patch chain went from about 0.37 s per read to about 0.03 s** (the
+  draft read less the same read with no patches): each patch cloned its 1 MB
+  module, and now copies its path. Under load, so the after numbers are a
+  ceiling.
+- **The keystroke** is the Studio's `SourceStore`, which still applies
+  patches with its own `applyPatch(deepClone(module))` until phase 5: 0.36 /
+  1.5 / 9.7 / 19.2 / 48.6 / 102 ms before, 0.44 / 2.1 / 12.2 / 18.8 / 44.6 /
+  184 ms after (9 KB to 5 MB), the difference being the machine's load.

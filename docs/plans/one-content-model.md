@@ -1,6 +1,6 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 nearly done; phase 1 built
+> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 and 2 built
 > (2026-11-02).** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
@@ -122,6 +122,59 @@ coverage" (valbuild/val#1006).
   counted" passes on http (it was `test.failing`). The window that is left
   is between a build serving and the service hearing of it.
 
+- **One engine, server side** (phase 2, 2026-11-02). `applyPatchRecord`
+  and `applyChain` are in `@valbuild/shared/internal`
+  (`content/applyChain.ts`), with the `.jsonValues()` op rules they are built
+  on (`content/jsonValuesOps.ts`, moved from the server, which re-exports
+  them). Copy-on-write along each op's path: nothing is mutated, an untouched
+  subtree keeps its identity, and every copy is counted
+  (`engineWork()`: `engine:apply-patch`, `engine:clone-bytes`, 8 bytes a
+  reference copied). A module is `{ source, entries }`: an entry the chain
+  touched is `content`, `deleted`, an `error` (sticky) or `waiting` (the base
+  entry it starts from, with its edits held until somebody loads it); an
+  entry the chain never touched costs nothing. `ValOps.getSources` (so
+  `getSourcesWithPatchesApplied`, MCP's `loadState` and `prepare`'s
+  `moduleVersions` with it) and `getJsonEntries` (`/json`) apply patches
+  through it and nothing else, and report where a module's chain stopped
+  (`stopped`), so the version `/sources/~` and `/json` answer names the chain
+  the content is AT (`ChainFold.chainAt`, no hashing). Deleted: the patch
+  rules in `getSources`, the replay in `applyJsonValuesEntryPatches`, and the
+  `deepClone` per patch. The old engine survives TEST-ONLY
+  (`packages/server/src/patch/legacyEngine.ts`), for the conformance cases
+  (`engineConformance.test.ts`: a table, plus random patches on plain JSON
+  through both), and goes with them. Budgets: B06 in
+  `budgets.scenario.test.ts` (a keystroke copies the root, two references,
+  per apply; an edit to one item of 200 copies its path). Still with their
+  own engine: the Studio's `SourceStore` (phase 5) and the commit's text
+  rewrite (`prepare`'s `.val.ts`/`*.val.json` mirror, by design).
+  **What the conformance cases found** -- each a case with the old answer
+  pinned beside the new one:
+  1. Applying a patch changed the patch: an op's value was inserted by
+     reference and then edited by a later op or marked with a file's
+     `patch_id`, so every upload wrote a `patch_id` into its own stored patch
+     (memory mode, and what `GET /patches` sent). Fixed.
+  2. A module whose content became `null`, `""`, `0` or `false` was put back
+     to its base before its next patch (`if (!patchedSources[path])`).
+     Fixed.
+  3. Entries did not stop with their module: after a failing patch, the
+     entry read still applied later patches to an entry. Fixed: they stop
+     together, and a refused whole-record write leaves entries as they were
+     instead of an error per entry.
+  4. A file inside an entry was marked in op order, a module field's after
+     every op, so a file op before its value failed the entry. Fixed: after
+     every op, both.
+  5. A `test` of a whole entry wrote a marker with a `patch_id`; content
+     moved between two entries was rebased onto the wrong entry; a move from
+     a missing entry was refused by the module and an error by the entry.
+     The commit refuses the first two, so the read refuses them too now; the
+     third is refused, so the destination does not exist.
+  6. A replaced (nullable) `.jsonValues()` record kept answering its entries.
+     Fixed: they go with it.
+  7. Kept, not fixed: a `test` op never fails, because core's `applyPatch`
+     tests a Result's truthiness. The commit applies the `.val.ts` text with
+     the same `applyPatch`, so the engine keeps it a no-op rather than refuse
+     on read what the commit accepts; fix it in core, for both.
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -155,7 +208,10 @@ coverage" (valbuild/val#1006).
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
-4. Phases 2 to 9.
+4. Phases 3 to 9 (2 is built). Left from phase 2: `/stat` and the manifest
+   still name a module's whole chain where `/sources/~` names where it
+   stopped (they do not apply patches, so they cannot know); `/sources/~`'s
+   `patches.applied` still lists a patch that failed.
 
 ## The goal
 

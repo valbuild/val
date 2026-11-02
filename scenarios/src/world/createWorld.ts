@@ -15,6 +15,7 @@ import {
   baseVersionOf,
   chainOf,
   createValClient,
+  engineWork,
   schemaVersionOf,
   versionHashCount,
   type ModuleVersion,
@@ -231,6 +232,9 @@ export type World = {
    * The work Val's code did since `since`, against a budget. `version:hash`:
    * how many times a version was hashed (risk 3 in the plan: versions are
    * computed when content changes, never when it is read).
+   * `engine:apply-patch`: patches the engine applied (`applyPatchRecord`).
+   * `engine:clone-bytes`: what it copied doing so, 8 bytes a reference
+   * (risk 4: copy-on-write, so a patch costs its path, not its module).
    */
   expectWork(since: WorldWorkPosition, budget: WorldWorkBudget): void;
   /** Stops what the world started, and puts the working directory back. */
@@ -244,11 +248,17 @@ export type Manifest = {
 };
 
 /** See {@link World.workPosition}. */
-export type WorldWorkPosition = { versionHashes: number };
+export type WorldWorkPosition = {
+  versionHashes: number;
+  engineApplies: number;
+  engineCloneBytes: number;
+};
 
 /** See {@link World.expectWork}. */
 export type WorldWorkBudget = {
   "version:hash"?: { atMost: number } | { exactly: number };
+  "engine:apply-patch"?: { atMost: number } | { exactly: number };
+  "engine:clone-bytes"?: { atMost: number } | { exactly: number };
 };
 
 /**
@@ -1661,18 +1671,35 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       return res.json;
     },
     workPosition() {
-      return { versionHashes: versioning.productHashes() };
+      const engine = engineWork();
+      return {
+        versionHashes: versioning.productHashes(),
+        engineApplies: engine.applyPatch,
+        engineCloneBytes: engine.cloneBytes,
+      };
     },
     expectWork(since, budget) {
       const over: string[] = [];
-      const limit = budget["version:hash"];
-      if (limit !== undefined) {
-        const count = versioning.productHashes() - since.versionHashes;
+      const engine = engineWork();
+      const counts: Record<keyof WorldWorkBudget, number> = {
+        "version:hash": versioning.productHashes() - since.versionHashes,
+        "engine:apply-patch": engine.applyPatch - since.engineApplies,
+        "engine:clone-bytes": engine.cloneBytes - since.engineCloneBytes,
+      };
+      const kinds: (keyof WorldWorkBudget)[] = [
+        "version:hash",
+        "engine:apply-patch",
+        "engine:clone-bytes",
+      ];
+      for (const kind of kinds) {
+        const limit = budget[kind];
+        if (limit === undefined) continue;
+        const count = counts[kind];
         const ok =
           "atMost" in limit ? count <= limit.atMost : count === limit.exactly;
         if (!ok) {
           over.push(
-            `  version:hash: ${count} (budget ${"atMost" in limit ? `at most ${limit.atMost}` : `exactly ${limit.exactly}`})`,
+            `  ${kind}: ${count} (budget ${"atMost" in limit ? `at most ${limit.atMost}` : `exactly ${limit.exactly}`})`,
           );
         }
       }

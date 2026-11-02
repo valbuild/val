@@ -17,6 +17,10 @@ export * from "./chainHead";
 // What a module's content and a project answer ARE: see
 // `docs/plans/one-content-model.md`, "A version, per module".
 export * from "./content/version";
+// The one engine that applies patches to content, and the `.jsonValues()`
+// rules it is built on: see "One engine" in the same plan.
+export * from "./content/applyChain";
+export * from "./content/jsonValuesOps";
 export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";

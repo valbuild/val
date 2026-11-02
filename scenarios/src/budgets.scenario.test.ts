@@ -14,7 +14,8 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
 /**
  * Budgets: work counted with the stores' own activity channel
  * (`RecordingActivity`), and versions hashed with `versionHashCount`, not
- * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05. (B03, a draft
+ * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05, and the
+ * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`). (B03, a draft
  * read in a 128 MB isolate, is a benchmark, not here.)
  */
 
@@ -23,6 +24,22 @@ const homeVal = c.define(
   "/content/home.val.ts",
   s.object({ title: s.string(), subtitle: s.string() }),
   { title: "Hello", subtitle: "Sub" },
+);
+
+const ITEMS = 200;
+const listVal = c.define(
+  "/content/list.val.ts",
+  s.object({
+    title: s.string(),
+    items: s.array(s.object({ name: s.string(), body: s.string() })),
+  }),
+  {
+    title: "List",
+    items: Array.from({ length: ITEMS }, (_, i) => ({
+      name: `Item ${i}`,
+      body: `The body of item ${i}, long enough to be worth sharing.`,
+    })),
+  },
 );
 
 describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
@@ -145,5 +162,55 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.manifest();
 
     world.expectWork(since, { "version:hash": { exactly: 1 } });
+  });
+
+  /**
+   * B06 The engine copies along a patch's path, not the module.
+   *
+   * Given a module with a title and a list of 200 items, read in draft mode,
+   * when the editor types into the title and everything reads it again,
+   * then every time the server's engine applies that patch it copies the
+   * module's root (two references) and nothing else: the 200 items are
+   * shared with the base (risk 4 in the plan, `engine:clone-bytes`). And
+   * when the editor then types into one item, applying THAT patch copies
+   * the root, the list and the one item: its path, however long the rest is.
+   * Before copy-on-write each patch cloned the whole module.
+   */
+  test("B06 a keystroke copies only along its path", async () => {
+    world = await createWorld({ config, modules: [listVal], server });
+    const editor = await world.studio("editor");
+    const page = world.page("/", { draftMode: true });
+    page.reads("loader", async (val) => (await val.fetchVal(listVal)).title);
+    await world.settle();
+    await world.observe();
+
+    const beforeTitle = world.workPosition();
+    await editor.edit(listVal, ["title"], "Typed");
+    await world.settle();
+    await world.observe();
+    const afterTitle = world.workPosition();
+    const titleApplies = afterTitle.engineApplies - beforeTitle.engineApplies;
+    expect(titleApplies).toBeGreaterThan(0);
+    /** The root: `title` and `items`. */
+    const rootBytes = 8 * 2;
+    world.expectWork(beforeTitle, {
+      "engine:clone-bytes": { exactly: titleApplies * rootBytes },
+    });
+
+    await editor.edit(listVal, ["items", "150", "name"], "Renamed");
+    await world.settle();
+    await world.observe();
+    const applies =
+      world.workPosition().engineApplies - afterTitle.engineApplies;
+    // Every read now applies the chain: the title's patch, then the item's.
+    expect(applies % 2).toBe(0);
+    const reads = applies / 2;
+    expect(reads).toBeGreaterThan(0);
+    /** The root, the list's 200 references, and the item's two fields. */
+    const itemBytes = rootBytes + 8 * ITEMS + 8 * 2;
+    world.expectWork(afterTitle, {
+      "engine:apply-patch": { exactly: reads * 2 },
+      "engine:clone-bytes": { exactly: reads * (rootBytes + itemBytes) },
+    });
   });
 });

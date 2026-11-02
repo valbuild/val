@@ -137,6 +137,13 @@ export class ChainFold {
   private paths: ModuleFilePath[] = [];
   private chains = new Map<ModuleFilePath, string>();
   /**
+   * Every module's chain after each of its patches, in order: what
+   * {@link chainAt} answers for a module whose content stopped part way
+   * along its chain (a patch that does not apply). Kept as the chains are
+   * extended, so asking hashes nothing.
+   */
+  private prefixes = new Map<ModuleFilePath, string[]>();
+  /**
    * Bumped whenever the chains move: a cheap identity for "the same chains as
    * before", in-process (two processes holding the same chains have different
    * epochs, which only costs a cache a miss).
@@ -166,20 +173,41 @@ export class ChainFold {
     if (!extends_) {
       this.ids = [];
       this.paths = [];
+      this.prefixes = new Map();
     }
     for (let i = from; i < patches.length; i++) {
       const patch = patches[i];
       if (patch === undefined) continue;
-      chains.set(
-        patch.path,
-        extendChain(chains.get(patch.path) ?? EMPTY_CHAIN, patch.patchId),
+      const chain = extendChain(
+        chains.get(patch.path) ?? EMPTY_CHAIN,
+        patch.patchId,
       );
+      chains.set(patch.path, chain);
+      const prefixes = this.prefixes.get(patch.path);
+      if (prefixes === undefined) this.prefixes.set(patch.path, [chain]);
+      else prefixes.push(chain);
       this.ids.push(patch.patchId);
       this.paths.push(patch.path);
     }
     this.chains = chains;
     this.epochValue++;
     return chains;
+  }
+
+  /**
+   * A module's chain after its first `count` patches, of those the last
+   * {@link chainsOf} was given: the version of content that stopped at a
+   * patch that does not apply, so the version names the chain the content
+   * is AT. Hashes nothing.
+   */
+  chainAt(path: ModuleFilePath, count: number): string {
+    if (count <= 0) return EMPTY_CHAIN;
+    const prefixes = this.prefixes.get(path) ?? [];
+    return (
+      prefixes[Math.min(count, prefixes.length) - 1] ??
+      this.chains.get(path) ??
+      EMPTY_CHAIN
+    );
   }
 
   /** See {@link epochValue}. */

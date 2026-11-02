@@ -3066,6 +3066,7 @@ export const ValServer = (
                 ...sourcesRes.errors,
                 ...(onlyPatchedTreeModules.errors || {}),
               },
+              stopped: onlyPatchedTreeModules.stopped,
             };
           }
         }
@@ -3113,14 +3114,15 @@ export const ValServer = (
         /*
          * The version of each module as answered: the chain the server
          * applied, or none. Kept as content changed, so nothing is hashed
-         * here (`ChainFold`). A module whose chain stopped at a failing patch
-         * still names the whole chain: where it stops is the engine's (phase
-         * 2), and until then the Studio, which drops such a patch, simply
-         * holds a different version.
+         * here (`ChainFold`). A module whose chain stopped at a patch that
+         * does not apply names the chain it is AT -- its patches before that
+         * one (`stopped`, from the engine) -- not the whole chain, so two
+         * answers with the same version are the same content.
          */
         const versions = await serverOps.moduleVersions(
           patchOps.patches,
           applyPatches,
+          sourcesRes.stopped,
         );
         const modules: Record<
           ModuleFilePath,
