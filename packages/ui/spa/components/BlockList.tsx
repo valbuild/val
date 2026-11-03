@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -19,6 +26,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpDown,
+  ArrowUpToLine,
+  Hash,
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
   ChevronDown,
@@ -60,9 +73,22 @@ import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "./designSystem/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "./designSystem/dropdown-menu";
+import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
 
@@ -352,62 +378,55 @@ function ArrayBlockList({
             : () => insertAt(index + 1)
         }
         path={item.path}
-        label={{
-          kind: "index",
-          index,
-          count: items.length,
-          onMove: readonly || isOverlay ? undefined : (to) => moveTo(index, to),
-        }}
+        label={{ kind: "index", index, count: items.length }}
         itemSchema={schema.item}
         isInline={isInlineRender(schema)}
         depth={depth}
         readonly={readonly}
         onNavigate={(p) => navigate(p)}
-        menuItems={
+        arrayActions={
           // Readonly means readonly: with the menu still rendered, Delete and
           // Duplicate stayed live and wrote patches even though the grip and
           // every field were disabled.
           readonly || isOverlay
             ? undefined
-            : (close) => (
-                <ArrayMenuItems
-                  close={close}
-                  onInsertAbove={() => insertAt(index)}
-                  onInsertBelow={() => insertAt(index + 1)}
-                  onDelete={() => {
+            : {
+                onInsertAbove: () => insertAt(index),
+                onInsertBelow: () => insertAt(index + 1),
+                onMove: (to) => moveTo(index, to),
+                onDelete: () => {
+                  addPatch(
+                    [
+                      {
+                        op: "remove",
+                        path: patchPath.concat(
+                          index.toString(),
+                        ) as array.NonEmptyArray<string>,
+                      },
+                    ],
+                    type,
+                  );
+                },
+                onDuplicate: () => {
+                  if (
+                    "data" in sourceAtPath &&
+                    sourceAtPath.data &&
+                    Array.isArray(sourceAtPath.data)
+                  ) {
                     addPatch(
                       [
                         {
-                          op: "remove",
-                          path: patchPath.concat(
-                            index.toString(),
-                          ) as array.NonEmptyArray<string>,
+                          op: "add",
+                          path: patchPath.concat(index.toString()),
+                          value: (sourceAtPath.data[index] ??
+                            null) as JSONValue,
                         },
                       ],
                       type,
                     );
-                  }}
-                  onDuplicate={() => {
-                    if (
-                      "data" in sourceAtPath &&
-                      sourceAtPath.data &&
-                      Array.isArray(sourceAtPath.data)
-                    ) {
-                      addPatch(
-                        [
-                          {
-                            op: "add",
-                            path: patchPath.concat(index.toString()),
-                            value: (sourceAtPath.data[index] ??
-                              null) as JSONValue,
-                          },
-                        ],
-                        type,
-                      );
-                    }
-                  }}
-                />
-              )
+                  }
+                },
+              }
         }
       />
     </LocaleFiltered>
@@ -558,14 +577,18 @@ function RecordBlockList({
 }
 
 type RowLabel =
-  | {
-      kind: "index";
-      index: number;
-      count: number;
-      /** Absent when the row cannot move: readonly, or the drag overlay. */
-      onMove?: (to: number) => void;
-    }
+  | { kind: "index"; index: number; count: number }
   | { kind: "key"; key: string };
+
+/** What an array row's menu can do to it. */
+type ArrayRowActions = {
+  onInsertAbove: () => void;
+  onInsertBelow: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  /** To a 0-based index. */
+  onMove: (to: number) => void;
+};
 
 function SortableBlockRow({
   id,
@@ -596,6 +619,7 @@ function BlockRow({
   readonly,
   onNavigate,
   menuItems,
+  arrayActions,
   sortable,
   onInsertAbove,
   onInsertBelow,
@@ -614,6 +638,8 @@ function BlockRow({
    * to the row (readonly, or the drag overlay's copy of it).
    */
   menuItems?: (close: () => void) => React.ReactNode;
+  /** An array row's menu: what it can do. Absent when it can do nothing. */
+  arrayActions?: ArrayRowActions;
   /** Absent for a record: its entries have no order to change. */
   sortable?: {
     handleProps: React.ButtonHTMLAttributes<HTMLButtonElement>;
@@ -690,7 +716,11 @@ function BlockRow({
           <div className="flex items-center gap-1.5 h-9 px-2">
             {/* The number or key is the row's menu, so it is a control of
                 its own and cannot be inside the collapse button. */}
-            <RowLabelText label={label} menuItems={menuItems} />
+            <RowLabelText
+              label={label}
+              menuItems={menuItems}
+              arrayActions={arrayActions}
+            />
             {/* The rest of the header is the collapse button, chevron at the
                 right end — where `Field` puts its own. */}
             <button
@@ -751,7 +781,11 @@ function BlockRow({
                 "max-w-[40%]": label.kind === "key",
               })}
             >
-              <RowLabelText label={label} menuItems={menuItems} />
+              <RowLabelText
+                label={label}
+                menuItems={menuItems}
+                arrayActions={arrayActions}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <AnyField
@@ -867,10 +901,15 @@ function InsertBar({
 function RowLabelText({
   label,
   menuItems,
+  arrayActions,
 }: {
   label: RowLabel;
   menuItems?: (close: () => void) => React.ReactNode;
+  arrayActions?: ArrayRowActions;
 }) {
+  if (label.kind === "index" && arrayActions) {
+    return <ArrayRowMenu label={label} actions={arrayActions} />;
+  }
   if (menuItems) {
     return <RowLabelMenu label={label} menuItems={menuItems} />;
   }
@@ -889,18 +928,21 @@ function RowLabelText({
 const KEY_TEXT =
   "min-w-0 max-w-full truncate font-mono text-base text-fg-primary";
 
+const LABEL_TRIGGER = cn(
+  "group/label flex h-7 min-w-0 items-center gap-0.5 rounded px-1 outline-none",
+  "hover:bg-bg-secondary-hover data-[state=open]:bg-bg-secondary-hover",
+  "focus-visible:ring-1 focus-visible:ring-border-focus",
+);
+const LABEL_CHEVRON =
+  "shrink-0 text-fg-secondary-alt opacity-60 group-hover/label:opacity-100 group-data-[state=open]/label:opacity-100";
+
 /**
- * The row's number (or a record row's key) is its menu: click it, or Enter
- * on it, for what can be done to the row — add above or below, duplicate,
- * delete; rename for a record — and, for an array, where to move it.
+ * A record row's key is its menu: click it, or Enter on it, for Rename,
+ * Duplicate and Delete. Those are popovers with forms of their own (a new
+ * key), so this is a popover of buttons rather than a menu: a menu item
+ * closes the menu it is in, which would take its form with it.
  *
- * Every row already has a number or a key, so the menu costs no icon of its
- * own: the handle only drags, and the header's right end is the collapse
- * chevron alone, as in `Field`. The small chevron beside the label is the
- * hint that it opens.
- *
- * A button and a popover, not a native `<select>`: a select is a `combobox`,
- * and a union row's variant picker is already the row's combobox.
+ * The small chevron beside the key is the hint that it opens.
  */
 function RowLabelMenu({
   label,
@@ -911,90 +953,328 @@ function RowLabelMenu({
 }) {
   const portalContainer = useValPortal();
   const [open, setOpen] = useState(false);
-  const moved = useRef(false);
-  const close = () => setOpen(false);
-  const canMove =
-    label.kind === "index" && label.onMove !== undefined && label.count > 1;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        data-block-position={label.kind === "index" ? "" : undefined}
         aria-label={
-          label.kind === "index"
-            ? `Item ${label.index + 1} of ${label.count}: actions and position`
-            : `${label.key}: actions`
+          label.kind === "key"
+            ? `${label.key}: actions`
+            : `Item ${label.index + 1}: actions`
         }
-        className={cn(
-          "group/label flex h-7 min-w-0 shrink items-center gap-0.5 rounded px-1 outline-none",
-          "hover:bg-bg-secondary-hover data-[state=open]:bg-bg-secondary-hover",
-          "focus-visible:ring-1 focus-visible:ring-border-focus",
-          label.kind === "index" ? "shrink-0" : "max-w-[50%]",
-        )}
+        className={cn(LABEL_TRIGGER, "max-w-[50%]")}
       >
-        {label.kind === "index" ? (
+        {label.kind === "key" ? (
+          <span className={KEY_TEXT}>{label.key}</span>
+        ) : (
           <span className="min-w-4 text-center text-sm tabular-nums text-fg-secondary">
             {label.index + 1}
           </span>
-        ) : (
-          <span className={KEY_TEXT}>{label.key}</span>
         )}
-        <ChevronDown
-          size={12}
-          className="shrink-0 text-fg-secondary-alt opacity-60 group-hover/label:opacity-100 group-data-[state=open]/label:opacity-100"
-        />
+        <ChevronDown size={12} className={LABEL_CHEVRON} />
       </PopoverTrigger>
       <PopoverContent
         container={portalContainer}
         side="bottom"
         align="start"
         className="flex w-auto min-w-44 max-w-64 flex-col p-1"
-        onCloseAutoFocus={(event) => {
-          // After a move, focus goes to the moved item's number instead (see
-          // `pendingFocus`); this trigger now belongs to whatever slid in.
-          if (moved.current) {
-            event.preventDefault();
-            moved.current = false;
-          }
-        }}
       >
-        {menuItems(close)}
-        {canMove && label.kind === "index" && label.onMove && (
-          <>
-            <div className="my-1 h-px bg-border-primary" />
-            <div className="px-2 pb-1 pt-0.5 text-xs text-fg-tertiary">
-              Move to position
-            </div>
-            <div className="grid max-h-48 grid-cols-6 gap-0.5 overflow-y-auto px-1 pb-1">
-              {Array.from({ length: label.count }, (_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  aria-current={i === label.index ? "true" : undefined}
-                  aria-label={
-                    i === label.index
-                      ? `${i + 1} (current)`
-                      : `Move to ${i + 1}`
-                  }
-                  disabled={i === label.index}
-                  onClick={() => {
-                    moved.current = true;
-                    close();
-                    label.onMove?.(i);
-                  }}
-                  className={cn(
-                    "h-7 min-w-7 rounded text-xs tabular-nums text-fg-primary",
-                    "hover:bg-bg-secondary-hover focus-visible:bg-bg-secondary-hover focus-visible:outline-none",
-                    "disabled:bg-bg-brand-primary disabled:text-fg-brand-primary",
-                  )}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        {menuItems(() => setOpen(false))}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * An array row's number is its menu: click it, or Enter on it.
+ *
+ * A real menu (Radix `DropdownMenu`), so it is navigated the way menus are:
+ * arrow keys between items, Enter or Space to choose, Right to open the Move
+ * submenu and Left to leave it, Escape to close, and typing a letter jumps to
+ * the item that starts with it. Moving lives in a submenu so the top level
+ * stays short and "move" reads as one group of choices.
+ *
+ * "Move to position…" opens a small form instead of holding an input inside
+ * the menu: a menu traps Tab and gives the arrow keys to its items, so a
+ * number field in one could be typed in but not left, nor its button
+ * reached, from the keyboard. The form is anchored to the same number, so it
+ * appears where the menu was.
+ */
+function ArrayRowMenu({
+  label,
+  actions,
+}: {
+  label: Extract<RowLabel, { kind: "index" }>;
+  actions: ArrayRowActions;
+}) {
+  const portalContainer = useValPortal();
+  const [formOpen, setFormOpen] = useState(false);
+  // Set when a choice moves the row or opens the form: the menu must not
+  // hand focus back to this trigger then. After a move it now names a
+  // different item (focus follows the moved one, see `pendingFocus`), and
+  // the form takes focus itself.
+  const keepFocus = useRef(false);
+  // The form is anchored to the number, not opened by it, so Radix has no
+  // trigger to give focus back to when it closes: that is done here.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const movedFromForm = useRef(false);
+  const { index, count } = label;
+  const first = index === 0;
+  const last = index === count - 1;
+  const move = (to: number) => {
+    keepFocus.current = true;
+    actions.onMove(to);
+  };
+  const itemClass = "gap-2";
+  return (
+    <Popover open={formOpen} onOpenChange={setFormOpen}>
+      <DropdownMenu modal={false}>
+        <PopoverAnchor asChild>
+          <DropdownMenuTrigger
+            ref={triggerRef}
+            data-block-position=""
+            aria-label={`Item ${index + 1} of ${count}: actions`}
+            className={cn(LABEL_TRIGGER, "shrink-0")}
+          >
+            <span className="min-w-4 text-center text-sm tabular-nums text-fg-secondary">
+              {index + 1}
+            </span>
+            <ChevronDown size={12} className={LABEL_CHEVRON} />
+          </DropdownMenuTrigger>
+        </PopoverAnchor>
+        <DropdownMenuContent
+          container={portalContainer}
+          align="start"
+          className="min-w-48"
+          onCloseAutoFocus={(event) => {
+            if (keepFocus.current) {
+              event.preventDefault();
+              keepFocus.current = false;
+            }
+          }}
+        >
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={actions.onInsertAbove}
+          >
+            <BetweenHorizontalStart className="w-3.5 h-3.5" />
+            Add above
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={actions.onInsertBelow}
+          >
+            <BetweenHorizontalEnd className="w-3.5 h-3.5" />
+            Add below
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={actions.onDuplicate}
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Duplicate
+          </DropdownMenuItem>
+          {count > 1 && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className={itemClass}>
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                Move
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal container={portalContainer}>
+                <DropdownMenuSubContent className="min-w-48">
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={first}
+                    onSelect={() => move(index - 1)}
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    Move up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={last}
+                    onSelect={() => move(index + 1)}
+                  >
+                    <ArrowDown className="w-3.5 h-3.5" />
+                    Move down
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={first}
+                    onSelect={() => move(0)}
+                  >
+                    <ArrowUpToLine className="w-3.5 h-3.5" />
+                    Move to start
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={itemClass}
+                    disabled={last}
+                    onSelect={() => move(count - 1)}
+                  >
+                    <ArrowDownToLine className="w-3.5 h-3.5" />
+                    Move to end
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className={itemClass}
+                    onSelect={() => {
+                      keepFocus.current = true;
+                      setFormOpen(true);
+                    }}
+                  >
+                    <Hash className="w-3.5 h-3.5" />
+                    Move to position…
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className={itemClass} onSelect={actions.onDelete}>
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <PopoverContent
+        container={portalContainer}
+        side="bottom"
+        align="start"
+        className="w-64 p-3"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          // After a move, focus follows the item instead (`pendingFocus`).
+          if (!movedFromForm.current) {
+            triggerRef.current?.focus();
+          }
+          movedFromForm.current = false;
+        }}
+      >
+        <MoveToPositionForm
+          index={index}
+          count={count}
+          onMove={(to) => {
+            movedFromForm.current = true;
+            setFormOpen(false);
+            actions.onMove(to);
+          }}
+          onCancel={() => setFormOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Where to move an item, typed as a number.
+ *
+ * A number outside 1–count is not refused and not silently moved: the first
+ * Move puts the nearest valid position in the field (-1 becomes 1, 10001 in a
+ * three-item list becomes 3) and says why, and the next Move moves. The
+ * number the item lands on is then always the number that was on screen.
+ */
+function MoveToPositionForm({
+  index,
+  count,
+  onMove,
+  onCancel,
+}: {
+  index: number;
+  count: number;
+  /** To a 0-based index. */
+  onMove: (to: number) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(String(index + 1));
+  const [note, setNote] = useState<{
+    kind: "clamped" | "invalid";
+    text: string;
+  } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const noteId = useId();
+  const submit = () => {
+    const typed = Number(value.trim());
+    if (value.trim() === "" || !Number.isFinite(typed)) {
+      setNote({
+        kind: "invalid",
+        text: `Enter a number from 1 to ${count}.`,
+      });
+      inputRef.current?.focus();
+      return;
+    }
+    const position = Math.min(Math.max(Math.round(typed), 1), count);
+    if (position !== typed) {
+      setValue(String(position));
+      setNote({
+        kind: "clamped",
+        text: `Changed to ${position}: positions go from 1 to ${count}. Press Move again to move it there.`,
+      });
+      inputRef.current?.focus();
+      return;
+    }
+    if (position - 1 === index) {
+      onCancel();
+      return;
+    }
+    onMove(position - 1);
+  };
+  return (
+    <form
+      // The checking is ours: the browser's would refuse 10001 with a bubble
+      // of its own before this form could put 3 in the field and say why.
+      noValidate
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <label htmlFor={inputId} className="text-sm text-fg-primary">
+        Move item {index + 1} to position
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={count}
+          step={1}
+          value={value}
+          aria-invalid={note?.kind === "invalid" ? true : undefined}
+          aria-describedby={noteId}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setNote(null);
+          }}
+          className={cn(
+            "h-9 w-20 rounded-md border bg-bg-primary px-2 text-sm tabular-nums text-fg-primary",
+            // No native spinner (a white box on a dark theme); the arrow keys
+            // still step the number.
+            "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+            note?.kind === "invalid"
+              ? "border-border-error-primary"
+              : "border-border-primary",
+          )}
+        />
+        <span className="text-sm text-fg-tertiary">of {count}</span>
+        <Button type="submit" size="sm" className="ml-auto">
+          Move
+        </Button>
+      </div>
+      <p
+        id={noteId}
+        aria-live="polite"
+        className={cn("min-h-4 text-xs", {
+          "text-fg-tertiary": note?.kind !== "invalid",
+          "text-fg-error-on-surface": note?.kind === "invalid",
+        })}
+      >
+        {note?.text ?? `From 1 to ${count}.`}
+      </p>
+    </form>
   );
 }
 
@@ -1345,49 +1625,6 @@ function RowHandle({
     >
       <GripVertical size={14} />
     </button>
-  );
-}
-
-function ArrayMenuItems({
-  close,
-  onInsertAbove,
-  onInsertBelow,
-  onDelete,
-  onDuplicate,
-}: {
-  close: () => void;
-  onInsertAbove: () => void;
-  onInsertBelow: () => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-}) {
-  // Every item closes the menu: each one changes the list, and the menu's
-  // row may not even be the same item afterwards.
-  const item = (action: () => void) => () => {
-    close();
-    action();
-  };
-  return (
-    <>
-      {/* The same inserts as the bars in the gaps, for keyboard and
-          screen-reader users and anyone who never hovers a gap. */}
-      <button className={MENU_ITEM} onClick={item(onInsertAbove)}>
-        <BetweenHorizontalStart className="w-3.5 h-3.5" />
-        <span>Add above</span>
-      </button>
-      <button className={MENU_ITEM} onClick={item(onInsertBelow)}>
-        <BetweenHorizontalEnd className="w-3.5 h-3.5" />
-        <span>Add below</span>
-      </button>
-      <button className={MENU_ITEM} onClick={item(onDuplicate)}>
-        <Copy className="w-3.5 h-3.5" />
-        <span>Duplicate</span>
-      </button>
-      <button className={MENU_ITEM} onClick={item(onDelete)}>
-        <Trash2 className="w-3.5 h-3.5" />
-        <span>Delete</span>
-      </button>
-    </>
   );
 }
 

@@ -389,7 +389,17 @@ const productsModule = c.define(
   },
 );
 
+/** A long list: moving by number has to work without scrolling a grid. */
+const manyModule = c.define(
+  "/content/many.val.ts",
+  s.object({
+    items: s.array(s.string()).render({ as: "inline" }),
+  }),
+  { items: Array.from({ length: 60 }, (_, i) => `Item ${i + 1}`) },
+);
+
 const pagesData = createMockData([pagesModule]);
+const manyData = createMockData([manyModule]);
 const teamData = createMockData([teamModule]);
 const labelsData = createMockData([labelsModule]);
 const productsData = createMockData([productsModule]);
@@ -490,6 +500,15 @@ export const RecordInArray: Story = {
   render: () => (
     <StoryProviders mockData={productsData}>
       <BlockList path={sourcePathOf("/content/products.val.ts", "products")} />
+    </StoryProviders>
+  ),
+};
+
+export const ManyItems: Story = {
+  name: "Many items (60)",
+  render: () => (
+    <StoryProviders mockData={manyData}>
+      <BlockList path={sourcePathOf("/content/many.val.ts", "items")} />
     </StoryProviders>
   ),
 };
