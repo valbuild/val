@@ -28,6 +28,7 @@
  *
  * Next (`Authorization: Bearer <apiKey>`):
  *   GET    /v1/{project}/applicable/patches         (+ `liveBuild`, `relative_to=live`: S26)
+ *   GET    /v1/{project}/chain/version               (the chain version alone: phase 6's head)
  *   POST   /v1/{project}/patches
  *   DELETE /v1/{project}/patches
  *   GET    /v1/{project}/patches/{patchId}/files      (metadata)
@@ -958,6 +959,19 @@ type Handler = (
   res: ServerResponse,
   url: URL,
 ) => Promise<void> | void;
+
+/**
+ * `GET /v1/{project}/chain/version`
+ *
+ * The branch's chain version alone -- the `headVersion` every
+ * `applicable/patches` answer carries -- for "has the chain moved?" without
+ * reading the chain (`ValOpsHttp.chainSeq`, the head of phase 6). As home's
+ * `getChainVersion` answers it, from `readChainVersion`. One counter here for
+ * every branch, as `headVersion` is.
+ */
+const getChainVersion: Handler = (_req, res) => {
+  json(res, 200, { headVersion: chainVersion });
+};
 
 /**
  * `GET /v1/{project}/applicable/patches`
@@ -4693,6 +4707,9 @@ async function handle(
   switch (route) {
     case "GET /applicable/patches":
       getApplicablePatches(req, res, url);
+      return;
+    case "GET /chain/version":
+      getChainVersion(req, res, url);
       return;
     case "POST /patches":
       await savePatch(req, res, url);

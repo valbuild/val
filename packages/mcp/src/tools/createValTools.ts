@@ -1,10 +1,11 @@
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
 import {
-  sharedValOps,
+  valRuntime,
   type ValOps,
   type ValServerConfig,
 } from "@valbuild/server";
+import type { SerializedSchema, ModuleFilePath } from "@valbuild/core";
 import type { ValToolDeps, ValToolImpl, ValToolState } from "./defineTool";
 import { readTools } from "./readTools";
 import { writeTools } from "./writeTools";
@@ -45,7 +46,13 @@ export function createValTools(
    */
   extraTools: ValToolImpl[] = [],
 ): ValTools {
-  const resolveOps = createOpsResolver(valModules, options);
+  /*
+   * The runtime every reader in this process shares (`valRuntime`): the API's,
+   * the draft readers' and this registry's, so a write through any of them
+   * is read by all, and the content is the head's -- made once per version,
+   * not rebuilt per call.
+   */
+  const ops: ValOps = valRuntime(valModules, options).ops;
   const tools = [...readTools(), ...writeTools(), ...extraTools];
   const byName = new Map<string, ValToolImpl>();
   for (const tool of tools) {
@@ -108,11 +115,10 @@ export function createValTools(
         return insufficient;
       }
 
-      const resolved = resolveOps(ctx);
-      if (resolved.status === "error") {
-        return resolved.result;
+      const refused = refuseCaller(ctx, options);
+      if (refused !== null) {
+        return refused;
       }
-      const ops = resolved.ops;
 
       try {
         const state = await loadState(ops);
@@ -148,8 +154,9 @@ export function createValTools(
 }
 
 /**
- * Pick the data layer for a call, which in proxy mode means picking whose
- * credential the backend will see.
+ * Whether this caller may reach the data layer at all, which in proxy mode
+ * means whether there is a credential the backend will act on. `null`: it
+ * may.
  *
  * This is the one place authorization is decided, and in proxy mode there is
  * exactly one credential it will act on: an access token whose signature,
@@ -170,104 +177,69 @@ export function createValTools(
  * profile has to be one the host checked cryptographically, never one it was
  * handed. An `authenticate()` that decided a credential's rights inside the app
  * would make every bug in it full access to every project that key can reach.
+ *
+ * Every allowed caller reads the same data layer, and that is correct rather
+ * than a shortcut: in fs mode it is a developer's own working tree, with no
+ * credential to vary by, and in proxy mode it authenticates with the app's own
+ * API key, so there is nothing per-caller in it to keep apart.
  */
-function createOpsResolver(
-  valModules: ValModules,
+function refuseCaller(
+  ctx: ValToolContext,
   options: ValToolsOptions,
-): (ctx: ValToolContext) => OpsResolution {
+): ValToolResult | null {
   if (options.mode === "fs") {
-    // One instance, built once: fs mode is a developer's own working tree, so
-    // there is no credential to vary by and no reason to re-evaluate modules.
-    // And the SAME instance as the app's API and readers (`sharedValOps`), so
-    // a publish through any of them is seen by all.
-    const ops = sharedValOps(valModules, options);
-    return (ctx) => {
-      if (ctx.auth) {
-        // Refused rather than ignored. A host that thinks it is passing a
-        // credential should not silently get local filesystem access instead —
-        // and the difference matters, because fs mode writes straight to disk
-        // with no backend permission check at all.
-        //
-        // A verified access token is not something the caller chose to send: it
-        // only exists because this app advertised an authorization server, so
-        // the developer seeing this did not do anything wrong — a config file
-        // did, and naming it is the difference between a two-minute fix and an
-        // afternoon.
-        return {
-          status: "error",
-          result: {
-            status: "error",
-            code: "unsupported",
-            message:
-              "This Val project is running in local filesystem mode, so there is nothing to authenticate against, but it is configured with an `oauth` issuer and is therefore asking clients for an access token it cannot use. Remove the `oauth` config (or `VAL_OAUTH_ISSUER` from your local `.env`) for local development.",
-          },
-        };
-      }
-      return { status: "ok", ops };
+    if (ctx.auth) {
+      // Refused rather than ignored. A host that thinks it is passing a
+      // credential should not silently get local filesystem access instead —
+      // and the difference matters, because fs mode writes straight to disk
+      // with no backend permission check at all.
+      //
+      // A verified access token is not something the caller chose to send: it
+      // only exists because this app advertised an authorization server, so
+      // the developer seeing this did not do anything wrong — a config file
+      // did, and naming it is the difference between a two-minute fix and an
+      // afternoon.
+      return {
+        status: "error",
+        code: "unsupported",
+        message:
+          "This Val project is running in local filesystem mode, so there is nothing to authenticate against, but it is configured with an `oauth` issuer and is therefore asking clients for an access token it cannot use. Remove the `oauth` config (or `VAL_OAUTH_ISSUER` from your local `.env`) for local development.",
+      };
+    }
+    return null;
+  }
+  if (ctx.auth?.type !== "verified-profile") {
+    return {
+      status: "error",
+      code: "forbidden",
+      message:
+        "This Val project talks to the Val content backend, so every call needs an access token from the Val authorization server. If this endpoint is not asking clients to authorize, it has no `oauth` config — give `initValMcp` one, or run the project in local filesystem mode for development.",
     };
   }
-
-  /**
-   * One instance for every verified caller, and that is correct rather than a
-   * shortcut: this instance authenticates with the app's own API key, so there
-   * is nothing per-caller in it to keep apart. Who did what travels as the
-   * patch's `authorId` instead — see `writePath`.
-   *
-   * One instance is also all proxy mode keeps now. It could not share while a
-   * personal access token reached this function: each token needed its own
-   * `ValOpsHttp` to hold it, each of those cached the project's evaluated
-   * modules, and the bounded cache that kept that memory in check turned an
-   * eviction into a re-evaluation of every module on the next call.
-   */
-  let sharedOps: ValOps | null = null;
-
-  return (ctx) => {
-    if (ctx.auth?.type !== "verified-profile") {
-      return {
-        status: "error",
-        result: {
-          status: "error",
-          code: "forbidden",
-          message:
-            "This Val project talks to the Val content backend, so every call needs an access token from the Val authorization server. If this endpoint is not asking clients to authorize, it has no `oauth` config — give `initValMcp` one, or run the project in local filesystem mode for development.",
-        },
-      };
-    }
-    if (!options.apiKey) {
-      // Proxy mode is inferred from the api key being present, so this is
-      // unreachable through `initHandlerOptions`. It stays because the
-      // alternative to refusing is building ops with no credential at all.
-      return {
-        status: "error",
-        result: {
-          status: "error",
-          code: "forbidden",
-          message:
-            "This Val project has no API key configured, so a verified access token cannot be exchanged for backend access.",
-        },
-      };
-    }
-    if (!sharedOps) {
-      sharedOps = sharedValOps(valModules, options);
-    }
-    return { status: "ok", ops: sharedOps };
-  };
+  if (!options.apiKey) {
+    // Proxy mode is inferred from the api key being present, so this is
+    // unreachable through `initHandlerOptions`. It stays because the
+    // alternative to refusing is acting with no credential at all.
+    return {
+      status: "error",
+      code: "forbidden",
+      message:
+        "This Val project has no API key configured, so a verified access token cannot be exchanged for backend access.",
+    };
+  }
+  return null;
 }
 
-type OpsResolution =
-  | { status: "ok"; ops: ValOps }
-  | { status: "error"; result: ValToolResult };
-
 /**
- * The content as the caller should see it, loaded once per call.
+ * The content as the caller should see it: the head's (`ValHead.tree`).
  *
  * Pending patches are applied, because an agent looking at a project mid-edit
  * should see what the Studio would show rather than the last published state.
- *
- * Deliberately not cached across calls. In fs mode a save recomputes the base
- * sha within the same process, so a cached view would go stale silently — and
- * the cost of being wrong here is an agent writing a patch against content that
- * has already moved.
+ * The head re-reads the chain only when it moved (`seq`), and makes each
+ * patched module once per version, so a call after nothing changed costs one
+ * "has it moved?" -- and a call after a write (a save in fs mode moves the
+ * base too) sees it, so an agent never writes against content that has
+ * already moved.
  *
  * Exported for `toolsFixture`, not for consumers: `tools/index.ts` re-exports by
  * name, so this stays inside the package. A test that assembled its own state
@@ -279,70 +251,65 @@ export async function loadState(
   | { status: "ok"; state: ValToolState }
   | { status: "error"; result: ValToolError }
 > {
-  const patches = await ops.fetchPatches({ excludePatchOps: false });
-  // fetchPatches resolves with its failures on the result rather than rejecting,
-  // so not checking these reads as "no pending changes" — which would quietly
-  // hand back published content and let a write be based on it.
-  if (patches.unauthorized) {
-    return {
-      status: "error",
-      result: {
+  const tree = await ops.head.tree();
+  // The head reports a chain it could not read as an error rather than as
+  // "no pending changes" -- which would quietly hand back published content
+  // and let a write be based on it.
+  if ("error" in tree) {
+    if (tree.error.unauthorized) {
+      return {
         status: "error",
-        code: "forbidden",
-        message:
-          "Not authorized to read this project's pending changes. Check that the credential is valid and has access.",
-      },
-    };
-  }
-  if (patches.networkError) {
+        result: {
+          status: "error",
+          code: "forbidden",
+          message:
+            "Not authorized to read this project's pending changes. Check that the credential is valid and has access.",
+        },
+      };
+    }
+    if (tree.error.networkError) {
+      return {
+        status: "error",
+        result: {
+          status: "error",
+          code: "internal",
+          message: "Could not reach the Val content backend.",
+        },
+      };
+    }
     return {
       status: "error",
       result: {
         status: "error",
         code: "internal",
-        message: "Could not reach the Val content backend.",
+        message: tree.error.message,
       },
     };
   }
-  if (patches.error) {
-    return {
-      status: "error",
-      result: {
-        status: "error",
-        code: "internal",
-        message: patches.error.message,
-      },
-    };
-  }
-
-  const analysis = ops.analyzePatches(patches.patches);
-  // getSourcesWithPatchesApplied, not getSources(analysis): the latter returns
-  // only the modules that had patches, and validating that subset reports
-  // spurious errors for anything that looks across modules, like keyOf or a
-  // router.
-  const sourcesRes = await ops.getSourcesWithPatchesApplied({
-    ...analysis,
-    ...patches,
-  });
-  const [schemas, serializedSchemas] = await Promise.all([
+  const [schemas, serialized] = await Promise.all([
     ops.getSchemas(),
-    ops.getSerializedSchemas(),
+    ops.head.serializedSchemas(),
   ]);
-
+  const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
+  for (const [path, schema] of Object.entries(serialized)) {
+    if (schema !== undefined) {
+      serializedSchemas[path as ModuleFilePath] = schema;
+    }
+  }
   return {
     status: "ok",
     state: {
       schemas,
       serializedSchemas,
-      sources: sourcesRes.sources,
-      patches,
-      analysis,
+      sources: tree.ok.sources,
+      patches: tree.ok.chain.fetched,
+      analysis: tree.ok.chain.analysis,
       // Which modules hold a pending patch that would not apply. Carried rather
       // than discarded because their `sources` silently lack that change: the
       // content here is not what publishing would produce, so a write against
       // it would be based on a state that does not exist. See
       // `unappliedPatchesFor`.
-      unappliedPatches: sourcesRes.errors,
+      unappliedPatches: tree.ok.errors,
     },
   };
 }

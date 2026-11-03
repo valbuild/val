@@ -77,6 +77,12 @@ import type { ValOpsHttp } from "./ValOpsHttp";
 import type { ValPatchStore } from "./ValOpsMemory";
 import { isFsOps, isHttpOps, isMemoryOps } from "./opsKind";
 import type { ValServerPlatform } from "./platform";
+import {
+  IntegratedServerJwtPayload,
+  sessionAuth,
+  sessionErrorMessage,
+  type SessionAuth,
+} from "./sessionAuth";
 import { result } from "@valbuild/core/fp";
 import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
@@ -589,74 +595,19 @@ export const ValServer = (
 
   const getAuth = (
     cookies: Partial<Record<"val_session", string>>,
-  ):
-    | { error: string }
-    | { id: string; error?: undefined }
-    | { error: null; id: null } => {
-    const cookie = cookies[VAL_SESSION_COOKIE];
+  ): SessionAuth =>
     /*
-     * `requiresAuth`, not `patchesAreLocal`.
-     *
-     * These four exits return anonymous SUCCESS -- `{ error: null }` -- and all
-     * 29 routes below treat that as authorised. That is right for fs mode,
-     * which is a developer's own machine with no credential to require. It was
-     * keyed on the wrong question: a local patch store is about publishing, not
-     * about who may write, and memory mode is local AND deployed.
+     * `requiresAuth`, not `patchesAreLocal`: the anonymous success this can
+     * answer is right for fs mode, a developer's own machine with no
+     * credential to require. A local patch store is about publishing, not
+     * about who may write, and memory mode is local AND deployed. The same
+     * rule the draft readers ask (`ValRuntime.authorize`).
      */
-    if (!options.valSecret) {
-      if (!serverOps.requiresAuth) {
-        return {
-          error: null,
-          id: null,
-        };
-      } else {
-        return {
-          error: "Setup is not correct: secret is missing",
-        };
-      }
-    }
-    if (typeof cookie === "string") {
-      const verifiedToken = verifyJwt(cookie, options.valSecret);
-      if (!verifiedToken.success) {
-        if (!serverOps.requiresAuth) {
-          return {
-            error: null,
-            id: null,
-          };
-        }
-        return {
-          error: sessionErrorMessage(verifiedToken.reason),
-        };
-      }
-      const verification = IntegratedServerJwtPayload.safeParse(
-        verifiedToken.data,
-      );
-      if (!verification.success) {
-        if (!serverOps.requiresAuth) {
-          return {
-            error: null,
-            id: null,
-          };
-        }
-        return {
-          error: "Session invalid. You will need to login again.",
-        };
-      }
-      return {
-        id: verification.data.sub,
-      };
-    } else {
-      if (!serverOps.requiresAuth) {
-        return {
-          error: null,
-          id: null,
-        };
-      }
-      return {
-        error: "Login required: cookie not found",
-      };
-    }
-  };
+    sessionAuth(cookies[VAL_SESSION_COOKIE], {
+      valSecret: options.valSecret,
+      requiresAuth: serverOps.requiresAuth,
+      verifyJwt,
+    });
 
   const authorize = async (redirectTo: string) => {
     const token = crypto.randomUUID();
@@ -3006,25 +2957,12 @@ export const ValServer = (
     "/sources/~": {
       PUT: async (req) => {
         const query = req.query;
-        const cookies = req.cookies;
-        // TODO: filter results by moduleFilePath
-        // const moduleFilePath = req.path || "";
-        const auth = getAuth(cookies);
+        const auth = getAuth(req.cookies);
         if (auth.error) {
-          return {
-            status: 401,
-            json: {
-              message: auth.error,
-            },
-          };
+          return { status: 401, json: { message: auth.error } };
         }
         if (isHttpOps(serverOps) && !("id" in auth)) {
-          return {
-            status: 401,
-            json: {
-              message: "Unauthorized",
-            },
-          };
+          return { status: 401, json: { message: "Unauthorized" } };
         }
         const sourcesSha = await serverOps.getSourcesSha();
         const moduleErrors = await serverOps.getModuleErrors();
@@ -3038,213 +2976,205 @@ export const ValServer = (
             },
           };
         }
-        let patchOps: OrderedPatches = {
-          patches: [],
-        };
-        let project = await serverOps.projectVersion();
-        if (query.exclude_patches !== true) {
-          [patchOps, project] = await readAtVersion(() =>
-            serverOps.fetchPatches({
-              patchIds: undefined,
-              excludePatchOps: false,
-            }),
-          );
-        }
-        // We check authorization here, because it is the first call to the backend
-        if (patchOps.error && patchOps.unauthorized) {
+        const schemaSha = await serverOps.getSchemaSha();
+        /*
+         * No previews and no validation here any more (phase 6 of
+         * `docs/plans/one-content-model.md`): they cost every request the
+         * whole site, and nothing that reads this used them -- the Studio
+         * computes previews from its own schema instances and validates in
+         * its own worker and through `/validate`, one module at a time; the
+         * draft readers read the head. `validate_sources` and
+         * `validate_binary_files` are still accepted, and ignored.
+         */
+        // Default to true to keep the legacy contract for older clients.
+        // The studio client always passes false: it owns patch application,
+        // and treats /sources/~ as a pure un-patched read.
+        const applyPatches = query.apply_patches !== false;
+        if (query.exclude_patches === true) {
+          // The base alone: BaseAlignment's fetch.
+          const sources = await serverOps.getBaseSources();
+          const versions = await serverOps.moduleVersions([], false);
+          const modules: Record<
+            ModuleFilePath,
+            { source: Json; version?: ModuleVersion }
+          > = {};
+          for (const [path, source] of Object.entries(sources)) {
+            const moduleFilePath = path as ModuleFilePath;
+            if (req.path && !moduleFilePath.startsWith(req.path)) continue;
+            modules[moduleFilePath] = {
+              source,
+              ...(versions[moduleFilePath] !== undefined
+                ? { version: versions[moduleFilePath] }
+                : {}),
+            };
+          }
           return {
-            status: 401,
+            status: 200,
             json: {
-              message: "Unauthorized",
+              schemaSha,
+              sourcesSha,
+              modules,
+              project: await serverOps.projectVersion(),
             },
           };
         }
         /*
-         * What this build's draft applies: the pending patches and the ones
-         * published AFTER this build, which it does not have -- see
-         * `draftOverlay`. `getSources` already applied both, but
-         * `analyzePatches` skips every patch with `appliedAt`, so a module
-         * changed only by a post-build publish was reported with no
-         * `patches`, and a reader that sends only changed modules (TanStack's
-         * `fetchValDraft`) left it out: the page was rendered with this
-         * build's older value. Chain order, which is what the Studio applies.
+         * Through the head: the chain re-read only when it moved, and each
+         * patched module made once per version and kept -- not the whole
+         * chain fetched and applied on every request.
          */
-        patchOps = {
-          ...patchOps,
-          patches: draftOverlay(patchOps.patches, patchOps.commits),
-        };
-        const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
-        const schemasRes = await serverOps.getSchemas();
-        let sourcesRes = await serverOps.getSources();
-        const unpatchedSources = sourcesRes.sources;
-        // Default to true to keep the legacy contract for older clients.
-        // The studio client always passes false: it owns patch application
-        // and validation, and treats /sources/~ as a pure un-patched read.
-        const applyPatches = query.apply_patches !== false;
-        // NOTE: previews are computed here even when the client applies patches
-        // itself: the preview functions live on the Schema instances and are not
-        // part of the serialized schema, so the client cannot derive them. They
-        // are computed on the patched sources, so that previews (list titles /
-        // subtitles / images) reflect the patches that apply.
-        let patchedSources = sourcesRes.sources;
-        if ((patchOps.patches?.length ?? 0) > 0) {
-          const onlyPatchedTreeModules = await serverOps.getSources({
-            ...patchAnalysis,
-            ...patchOps,
-          });
-          patchedSources = {
-            ...sourcesRes.sources,
-            ...(onlyPatchedTreeModules.sources || {}),
+        const tree = await serverOps.head.tree();
+        if ("error" in tree) {
+          if (tree.error.unauthorized) {
+            return { status: 401, json: { message: "Unauthorized" } };
+          }
+          return {
+            status: 500,
+            json: {
+              message: tree.error.message,
+              details: { message: tree.error.message },
+            },
           };
-          if (applyPatches) {
-            sourcesRes = {
-              sources: patchedSources,
-              errors: {
-                ...sourcesRes.errors,
-                ...(onlyPatchedTreeModules.errors || {}),
-              },
-              stopped: onlyPatchedTreeModules.stopped,
-            };
-          }
         }
-        const previewRes = await serverOps.getPreviews(
-          schemasRes,
-          patchedSources,
-        );
-
-        let sourcesValidation: {
-          errors: Record<
-            ModuleFilePath,
-            {
-              invalidSource?: { message: string };
-              validations: Record<SourcePath, ValidationError[]>;
-            }
-          >;
-          files: Record<SourcePath, FileSource>;
-          remoteFiles: Record<SourcePath, MediaSource>;
-        } = {
-          errors: {},
-          files: {},
-          remoteFiles: {},
-        };
-        if (query.validate_sources || query.validate_binary_files) {
-          const schemas = await serverOps.getSchemas();
-          sourcesValidation = await serverOps.validateSources(
-            schemas,
-            sourcesRes.sources,
-          );
-
-          // TODO: send binary files validation errors
-          if (query.validate_binary_files) {
-            const binaryFilesValidation = await serverOps.validateFiles(
-              schemas,
-              sourcesRes.sources,
-              sourcesValidation.files,
-            );
-            // Remote files are not checked here: their check asks each host
-            // over the network, so it is the Studio's full check that runs it,
-            // one module at a time (`/validate`).
-          }
-        }
-
-        const schemaSha = await serverOps.getSchemaSha();
-        /*
-         * The version of each module as answered: the chain the server
-         * applied, or none. Kept as content changed, so nothing is hashed
-         * here (`ChainFold`). A module whose chain stopped at a patch that
-         * does not apply names the chain it is AT -- its patches before that
-         * one (`stopped`, from the engine) -- not the whole chain, so two
-         * answers with the same version are the same content.
-         */
-        const versions = await serverOps.moduleVersions(
-          patchOps.patches,
-          applyPatches,
-          sourcesRes.stopped,
-        );
+        const { chain } = tree.ok;
+        const baseSources = applyPatches
+          ? await serverOps.getBaseSources()
+          : null;
+        const sources = applyPatches
+          ? tree.ok.sources
+          : await serverOps.getBaseSources();
+        const versions = applyPatches
+          ? tree.ok.versions
+          : await serverOps.moduleVersions(chain.overlay, false);
         const modules: Record<
           ModuleFilePath,
           {
             source: Json;
             baseSource?: Json;
             version?: ModuleVersion;
-            preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
               errors?: Record<PatchId, { message: string }>;
             };
-            validationErrors?: Record<SourcePath, ValidationError[]>;
           }
         > = {};
-        for (const [moduleFilePathS, module] of Object.entries(
-          sourcesRes.sources,
-        )) {
+        for (const [moduleFilePathS, module] of Object.entries(sources)) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          // TODO: currently sourcesRes contains ALL MODULES.
-          // We should only evaluate exactly what we need
-          if (!req.path || moduleFilePath.startsWith(req.path)) {
-            const skippedPatches: PatchId[] = [];
-            const patchErrors: Record<PatchId, { message: string }> = {};
-            const appliedPatches: PatchId[] =
-              patchAnalysis.patchesByModule[moduleFilePath]?.map(
-                (p) => p.patchId,
-              ) || [];
-            for (const { patchId, skipped, error } of sourcesRes.errors?.[
+          if (req.path && !moduleFilePath.startsWith(req.path)) continue;
+          const skippedPatches: PatchId[] = [];
+          const patchErrors: Record<PatchId, { message: string }> = {};
+          const appliedPatches: PatchId[] =
+            chain.analysis.patchesByModule[moduleFilePath]?.map(
+              (p) => p.patchId,
+            ) || [];
+          if (applyPatches) {
+            for (const { patchId, skipped, error } of tree.ok.errors[
               moduleFilePath
             ] || []) {
               if (skipped) {
                 skippedPatches.push(patchId);
-              } else if (error) {
-                patchErrors[patchId] = { message: error.message };
               } else {
-                // unsure what makes sense here
-                appliedPatches.push(patchId);
+                patchErrors[patchId] = { message: error.message };
               }
             }
-            const hasPatches =
-              (patchAnalysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
-            modules[moduleFilePath] = {
-              source: module,
-              // baseSource is only meaningful when the server applied patches:
-              // with apply_patches=false, `source` is already un-patched.
-              baseSource:
-                applyPatches && hasPatches
-                  ? unpatchedSources[moduleFilePath]
-                  : undefined,
-              preview: previewRes.previews[moduleFilePath] || null,
-              patches:
-                appliedPatches.length > 0 ||
-                skippedPatches.length > 0 ||
-                Object.keys(patchErrors).length > 0
-                  ? {
-                      applied: appliedPatches,
-                      skipped:
-                        skippedPatches.length > 0 ? skippedPatches : undefined,
-                      errors:
-                        Object.keys(patchErrors).length > 0
-                          ? patchErrors
-                          : undefined,
-                    }
-                  : undefined,
-              validationErrors:
-                sourcesValidation.errors[moduleFilePath]?.validations,
-              ...(versions[moduleFilePath] !== undefined
-                ? { version: versions[moduleFilePath] }
-                : {}),
-            };
           }
+          const hasPatches =
+            (chain.analysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
+          modules[moduleFilePath] = {
+            source: module,
+            // baseSource is only meaningful when the server applied patches:
+            // with apply_patches=false, `source` is already un-patched.
+            ...(baseSources !== null && hasPatches
+              ? { baseSource: baseSources[moduleFilePath] }
+              : {}),
+            ...(appliedPatches.length > 0 ||
+            skippedPatches.length > 0 ||
+            Object.keys(patchErrors).length > 0
+              ? {
+                  patches: {
+                    applied: appliedPatches,
+                    ...(skippedPatches.length > 0
+                      ? { skipped: skippedPatches }
+                      : {}),
+                    ...(Object.keys(patchErrors).length > 0
+                      ? { errors: patchErrors }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(versions[moduleFilePath] !== undefined
+              ? { version: versions[moduleFilePath] }
+              : {}),
+          };
         }
-
         const res: z.infer<Api["/sources/~"]["PUT"]["res"]> = {
           status: 200,
           json: {
             schemaSha,
             sourcesSha,
             modules,
-            project,
+            project: chain.project,
           },
         };
         return res;
+      },
+    },
+
+    // #region modules
+    /*
+     * One module by version (phase 6 of `docs/plans/one-content-model.md`):
+     * the head's, or one it still holds, whole or -- given the version the
+     * caller holds (`have`) -- as the patches from it. What the Studio's
+     * origin tier reads (phase 7).
+     */
+    "/modules/~": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (isHttpOps(serverOps) && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const path = req.path as ModuleFilePath;
+        const answer = await serverOps.head.answer(path, {
+          ...(req.query.v !== undefined ? { v: req.query.v } : {}),
+          ...(req.query.have !== undefined ? { have: req.query.have } : {}),
+        });
+        if ("error" in answer) {
+          if (answer.error.unauthorized) {
+            return { status: 401, json: { message: "Unauthorized" } };
+          }
+          return { status: 500, json: { message: answer.error.message } };
+        }
+        if (answer.ok === null) {
+          return {
+            status: 404,
+            json: { message: `Module not found: ${path}` },
+          };
+        }
+        if (answer.ok.kind === "not-held") {
+          return {
+            status: 404,
+            json: {
+              message: `This version of ${path} is not held here`,
+              current: answer.ok.current,
+            },
+          };
+        }
+        return {
+          status: 200,
+          headers: {
+            // Content at a version never changes: an answer for an asked
+            // version is the same for ever. The newest is a question.
+            "Cache-Control":
+              req.query.v !== undefined
+                ? "private, max-age=31536000, immutable"
+                : "no-cache",
+          },
+          json: answer.ok,
+        };
       },
     },
 
@@ -4913,34 +4843,6 @@ const ValAppJwtPayload = z.object({
   org: z.string(),
 });
 type ValAppJwtPayload = z.infer<typeof ValAppJwtPayload>;
-
-const IntegratedServerJwtPayload = z.object({
-  sub: z.string(),
-  exp: z.number(),
-  token: z.string(),
-  org: z.string(),
-  project: z.string(),
-});
-export type IntegratedServerJwtPayload = z.infer<
-  typeof IntegratedServerJwtPayload
->;
-
-/**
- * The message we show the user when their session cookie does not verify. The
- * distinction matters: an expired session is normal and self-explanatory, while
- * a bad signature means the cookie was tampered with or `VAL_SECRET` changed.
- */
-function sessionErrorMessage(reason: JwtFailureReason): string {
-  switch (reason) {
-    case "expired":
-      return "Session expired. You will need to login again.";
-    case "malformed":
-    case "invalid-signature":
-      return "Could not verify session (invalid token). You will need to login again.";
-    case "missing-secret":
-      return "Setup is not correct: secret is missing";
-  }
-}
 
 async function withAuth<T>(
   verifyJwt: (token: string, secretKey: string) => JwtResult,

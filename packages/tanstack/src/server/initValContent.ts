@@ -22,12 +22,9 @@ import {
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
+import { type ContentSource } from "@valbuild/shared/internal";
 import {
-  type ContentSource,
-  type RequestScopedMemo,
-} from "@valbuild/shared/internal";
-import {
-  createValServer,
+  createValRuntime,
   draftForRequest,
   layeredSnapshot,
   proposalSnapshot,
@@ -35,11 +32,8 @@ import {
   proposalAsBuilt,
   readDraftChanges,
   readerSchemaVersion,
-  type DraftSources,
-  type DraftValServer,
-  type GetDraftSourcesScope,
   type ValPatchStore,
-  type ValServer,
+  type ValRuntime,
 } from "@valbuild/server";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
@@ -65,59 +59,12 @@ import type { ValHttpMode } from "./initValServer";
  * "One way to load".
  */
 
-export type { DraftSources, DraftValServer, GetDraftSourcesScope };
-
-/** What the draft readers read. */
-export type DraftSourcesValServer = DraftValServer;
-
-/** What the route readers need: what `fetchVal` does, the single-entry route among it. */
-export type RouteReaderValServer = DraftValServer;
-
 /**
- * The slice of `ValServer` the single-entry readers use. Narrower than
- * `ValServer` on purpose: it says what the dependency IS, and it lets a test
- * drive these readers with a one-route fake.
+ * What the readers read: this process's runtime for the app's `val.modules`
+ * (`createValRuntime`), the same one `initValServer`'s server is built on.
+ * Its head is the draft, read with the request's session.
  */
-export type JsonEntryValServer = Pick<ValServer, "/json">;
-
-/**
- * A per-request memo box, keyed on the `Request` itself.
- *
- * That is what makes this safe: TanStack resolves one `Request` object per
- * in-flight request out of async local storage, so two visitors cannot collide,
- * and a `WeakMap` lets the entry go when the request does. This is the TanStack
- * half of the Next package's `cache()` — there is no RSC here, so React's
- * request memoisation does not exist (see the note at the top of this file).
- *
- * Outside a request there is nothing to scope to and `getRequest` throws;
- * `null` then means "compute every time", which is what this did before the
- * memo existed. See `memoizePerRequest`.
- *
- * Built PER `initValContent` rather than once for the module, because the box
- * is only as specific as the map it came from: two Val servers in one process
- * sharing one would answer each other's reads within a request, and they hold
- * different content.
- */
-export function createTanStackRequestScope(): GetDraftSourcesScope {
-  const boxes = new WeakMap<Request, RequestScopedMemo<DraftSources | null>>();
-  return async () => {
-    let request: Request;
-    try {
-      const { getRequest } = await import("@tanstack/react-start/server");
-      request = getRequest();
-    } catch {
-      // Not inside a request -- nothing request-scoped to hang the memo on.
-      return null;
-    }
-    const existing = boxes.get(request);
-    if (existing) {
-      return existing;
-    }
-    const box: RequestScopedMemo<DraftSources | null> = {};
-    boxes.set(request, box);
-    return box;
-  };
-}
+export type ReaderRuntime = Promise<ValRuntime>;
 
 /** What a misuse of a reader is told, beside what went wrong. */
 const WHERE =
@@ -147,16 +94,15 @@ function requestEnv(
 }
 
 /** What a reader needs from the app and the request. */
-type ReaderDeps = {
-  valServer: Promise<DraftValServer>;
+export type ReaderDeps = {
+  runtime: ReaderRuntime;
   isEnabled: () => Promise<boolean>;
   getHeaders: () => Promise<{ get(name: string): string | null }>;
   getCookies: () => Promise<{
     get(name: string): { name: string; value: string } | undefined;
   }>;
-  scope: GetDraftSourcesScope;
   /** A proposal's saved Source; see `ValDraft.snapshot`. */
-  snapshot: Snapshot | undefined;
+  snapshot?: Snapshot;
 };
 
 /** `fetchVal`, with what it read: see `readsOfFetchVal`. */
@@ -166,14 +112,10 @@ function fetchValWithReads(deps: ReaderDeps) {
     opts?: { entries?: boolean },
   ): Promise<Ready<ResolvedVal<T>>> => {
     const { enabled, draft } = await draftForRequest({
-      valServer: deps.valServer,
+      runtime: deps.runtime,
       isEnabled: deps.isEnabled,
       getCookies: deps.getCookies,
-      modules: {
-        valServer: deps.valServer,
-        getHeaders: deps.getHeaders,
-        scope: deps.scope,
-      },
+      modules: { getHeaders: deps.getHeaders },
       where: WHERE,
     });
     const env = requestEnv(enabled, draft, deps.snapshot);
@@ -183,31 +125,8 @@ function fetchValWithReads(deps: ReaderDeps) {
   };
 }
 
-export const initFetchValStega = (
-  config: ValConfig,
-  valApiEndpoints: string,
-  valServerPromise: Promise<DraftSourcesValServer>,
-  isEnabled: () => Promise<boolean>,
-  getHeaders: () => Promise<{
-    get(name: string): string | null;
-  }>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-  /** A proposal's saved Source; see `ValDraft.snapshot`. */
-  snapshot?: Snapshot,
-) =>
-  fetchValFrom(
-    fetchValWithReads({
-      valServer: valServerPromise,
-      isEnabled,
-      getHeaders,
-      getCookies,
-      scope: getDraftSourcesScope,
-      snapshot,
-    }),
-  );
+export const initFetchValStega = (deps: ReaderDeps) =>
+  fetchValFrom(fetchValWithReads(deps));
 
 /** A proposal's saved Source, by module: see `ValProposal` in `@valbuild/server`. */
 type Snapshot = Record<ModuleFilePath, Json>;
@@ -268,6 +187,18 @@ export function markContentApplied(
   Reflect.set(globalThis, CONTENT_APPLIED_GLOBAL, http.contentVersion.id);
 }
 
+/** The runtime behind a reader: see {@link runtimeOfReaders}. */
+const runtimesOf = new WeakMap<object, ReaderRuntime>();
+
+/**
+ * The runtime a set of readers reads through, by its `fetchValStega`: what
+ * the scenario world (`scenarios/`) asks the head's size of. Nothing in the
+ * product asks.
+ */
+export function runtimeOfReaders(fetchValStega: object): ReaderRuntime | null {
+  return runtimesOf.get(fetchValStega) ?? null;
+}
+
 /** What the hooks' server render reads the draft from: see `fetchValDraft`. */
 const draftReadsOf = new WeakMap<
   object,
@@ -300,29 +231,18 @@ export function readsOfFetchValDraft(
  * the browser, by what the editor holds -- old text first on every load.
  */
 export const initFetchValDraft = (
-  valServerPromise: Promise<DraftValServer>,
-  isEnabled: () => Promise<boolean>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-  /** A proposal's saved Source; see `ValDraft.snapshot`. */
-  snapshot?: Snapshot,
-  /** What the server's draft starts from; see `ValDraft.base`. */
-  base?: Snapshot,
-  /** Whether this serves a proposal's address; see `ValDraft.atProposal`. */
-  atProposal: boolean = false,
+  deps: Omit<ReaderDeps, "getHeaders"> & {
+    /** What the server's draft starts from; see `ValDraft.base`. */
+    base?: Snapshot;
+    /** Whether this serves a proposal's address; see `ValDraft.atProposal`. */
+    atProposal?: boolean;
+  },
 ) => {
+  const { snapshot, base } = deps;
   const withReads = async (): Promise<Ready<ValDraft | null>> => {
-    const proposal: Pick<ValDraft, "atProposal"> = atProposal
-      ? { atProposal: true }
-      : {};
-    const changes = await readDraftChanges({
-      valServer: valServerPromise,
-      isEnabled,
-      getCookies,
-      scope: getDraftSourcesScope,
-    });
+    const proposal: Pick<ValDraft, "atProposal"> =
+      deps.atProposal === true ? { atProposal: true } : {};
+    const changes = await readDraftChanges(deps);
     if (changes === null) {
       // At a proposal's address the page needs the snapshot whatever draft
       // mode says, so a reviewer who is not editing sees the proposal too.
@@ -338,6 +258,7 @@ export const initFetchValDraft = (
     return {
       value: {
         sources: changes.sources,
+        versions: changes.versions,
         ...(snapshot !== undefined ? { snapshot } : {}),
         ...(base !== undefined ? { base } : {}),
         ...proposal,
@@ -351,35 +272,9 @@ export const initFetchValDraft = (
   return fetchValDraft;
 };
 
-const initFetchValRouteStega = (
-  config: ValConfig,
-  valApiEndpoints: string,
-  valServerPromise: Promise<RouteReaderValServer>,
-  isEnabled: () => Promise<boolean>,
-  getHeaders: () => Promise<{
-    get(name: string): string | null;
-  }>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-  /** A proposal's saved Source; see `ValDraft.snapshot`. */
-  snapshot?: Snapshot,
-) => {
-  const fetchVal = fetchValWithReads({
-    valServer: valServerPromise,
-    isEnabled,
-    getHeaders,
-    getCookies,
-    scope: getDraftSourcesScope,
-    snapshot,
-  });
-  const fetchValKey = initFetchValKeyStega(
-    valServerPromise,
-    isEnabled,
-    getCookies,
-    snapshot,
-  );
+const initFetchValRouteStega = (deps: ReaderDeps) => {
+  const fetchVal = fetchValWithReads(deps);
+  const fetchValKey = initFetchValKeyStega(deps);
   return async <T extends ResolvableModule>(
     selector: T,
     params:
@@ -427,29 +322,23 @@ const initFetchValRouteStega = (
  * Production (Val disabled): the entry's lazy import from the bundle (one
  * dynamic import, no server round-trip), unless a proposal's snapshot has it.
  *
- * Draft mode: the entry through `/json`, which replays pending patches, so
- * uncommitted Studio edits show up; an entry the draft deleted is not there.
+ * Draft mode: the entry from the runtime's head, with the pending patches the
+ * draft holds for it, so uncommitted Studio edits show up; an entry the draft
+ * deleted is not there. An entry of a record no patch touched is the bundle's
+ * (or the snapshot's).
  */
 export const initFetchValKeyStega =
-  (
-    valServerPromise: Promise<JsonEntryValServer>,
-    isEnabled: () => Promise<boolean>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-    /** A proposal's saved Source; see `ValDraft.snapshot`. */
-    snapshot?: Snapshot,
-  ) =>
+  (deps: Omit<ReaderDeps, "getHeaders">) =>
   async <T extends ResolvableModule>(
     selector: T,
     key: string,
   ): Promise<JsonEntryContentOf<T> | undefined> => {
     const { enabled, draft } = await draftForRequest({
-      valServer: valServerPromise,
-      isEnabled,
-      getCookies,
+      runtime: deps.runtime,
+      isEnabled: deps.isEnabled,
+      getCookies: deps.getCookies,
     });
-    const env = requestEnv(enabled, draft, snapshot);
+    const env = requestEnv(enabled, draft, deps.snapshot);
     return (
       await awaitResolved((settled) =>
         resolveValEntry(selector, key, env, { settled }),
@@ -457,29 +346,8 @@ export const initFetchValKeyStega =
     ).value;
   };
 
-const initFetchValRouteUrl = (
-  config: ValConfig,
-  valApiEndpoints: string,
-  valServerPromise: Promise<RouteReaderValServer>,
-  isEnabled: () => Promise<boolean>,
-  getHeaders: () => Promise<{
-    get(name: string): string | null;
-  }>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-  /** A proposal's saved Source; see `ValDraft.snapshot`. */
-  snapshot?: Snapshot,
-) => {
-  const fetchVal = fetchValWithReads({
-    valServer: valServerPromise,
-    isEnabled,
-    getHeaders,
-    getCookies,
-    scope: getDraftSourcesScope,
-    snapshot,
-  });
+const initFetchValRouteUrl = (deps: ReaderDeps) => {
+  const fetchVal = fetchValWithReads(deps);
   return async <T extends ResolvableModule>(
     selector: T,
     params?:
@@ -643,14 +511,16 @@ export function initValContent(
   if (!tanstackVersion) {
     throw new Error("Could not get @valbuild/tanstack package version");
   }
-  const draftSourcesScope = createTanStackRequestScope();
   const snapshot = snapshotForReaders(opts?.http);
   const base = draftBase(opts?.http);
   markContentApplied(opts?.http);
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
 
-  const valServerPromise = createValServer(
+  // One runtime per process for these modules: `initValServer`'s server is
+  // built on the same one when it is given the same options, so a save
+  // through the API moves what these read.
+  const runtime = createValRuntime(
     valModules,
     valApiEndpoints,
     {
@@ -676,61 +546,25 @@ export function initValContent(
       ...(opts?.http !== undefined ? opts.http : {}),
     },
     config,
-    {
-      isEnabled,
-      onEnable() {
-        return draftMode.enable();
-      },
-      onDisable() {
-        return draftMode.disable();
-      },
-    },
   );
+  const deps: ReaderDeps = {
+    runtime,
+    isEnabled,
+    getHeaders: requestHeaders,
+    getCookies: requestCookies,
+    ...(snapshot !== undefined ? { snapshot } : {}),
+  };
+  const fetchValStega = initFetchValStega(deps);
+  runtimesOf.set(fetchValStega, runtime);
   return {
-    fetchValStega: initFetchValStega(
-      config,
-      valApiEndpoints, // TODO: get from config
-      valServerPromise,
-      isEnabled,
-      requestHeaders,
-      requestCookies,
-      draftSourcesScope,
-      snapshot,
-    ),
-    fetchValKeyStega: initFetchValKeyStega(
-      valServerPromise,
-      isEnabled,
-      requestCookies,
-      snapshot,
-    ),
-    fetchValRouteStega: initFetchValRouteStega(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      isEnabled,
-      requestHeaders,
-      requestCookies,
-      draftSourcesScope,
-      snapshot,
-    ),
-    fetchValRouteUrl: initFetchValRouteUrl(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      isEnabled,
-      requestHeaders,
-      requestCookies,
-      draftSourcesScope,
-      snapshot,
-    ),
-    fetchValDraft: initFetchValDraft(
-      valServerPromise,
-      isEnabled,
-      requestCookies,
-      draftSourcesScope,
-      snapshot,
-      base,
-      opts?.http?.proposal !== undefined,
-    ),
+    fetchValStega,
+    fetchValKeyStega: initFetchValKeyStega(deps),
+    fetchValRouteStega: initFetchValRouteStega(deps),
+    fetchValRouteUrl: initFetchValRouteUrl(deps),
+    fetchValDraft: initFetchValDraft({
+      ...deps,
+      ...(base !== undefined ? { base } : {}),
+      atProposal: opts?.http?.proposal !== undefined,
+    }),
   };
 }

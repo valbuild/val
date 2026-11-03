@@ -1,165 +1,167 @@
-import { initVal, type ModuleFilePath, type PatchId } from "@valbuild/core";
-import type { RequestScopedMemo } from "@valbuild/shared/internal";
+import { randomUUID } from "crypto";
 import {
-  initFetchValDraft,
-  type DraftSources,
-  type DraftValServer,
-  type GetDraftSourcesScope,
-} from "./initValContent";
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type ValModules,
+} from "@valbuild/core";
+import type { Patch } from "@valbuild/core/patch";
+import {
+  InMemoryPatchStore,
+  createValRuntime,
+  headWork,
+  type ValRuntime,
+} from "@valbuild/server";
+import { initFetchValDraft } from "./initValContent";
 
 /**
  * `fetchValDraft`: what a draft page is rendered with on the server, and what
- * the browser hydrates from. See `ValDraft`.
+ * the browser hydrates from. See `ValDraft`. Against a real runtime in memory
+ * mode, its head the draft, with the edits written as the API writes them
+ * (`createPatch`).
  */
+
+const { s, c, config } = initVal();
 
 const EDITED = "/content/edited.val.ts" as ModuleFilePath;
 const UNTOUCHED = "/content/untouched.val.ts" as ModuleFilePath;
 const KB = "/content/kb.val.ts" as ModuleFilePath;
 
-type SourcesAnswer = Awaited<ReturnType<DraftValServer["/sources/~"]["PUT"]>>;
-type JsonAnswer = Awaited<ReturnType<DraftValServer["/json"]["GET"]>>;
-type PatchesAnswer = Awaited<ReturnType<DraftValServer["/patches"]["GET"]>>;
+const editedVal = c.define(EDITED, s.object({ text: s.string() }), {
+  text: "published",
+});
+const untouchedVal = c.define(UNTOUCHED, s.object({ text: s.string() }), {
+  text: "published",
+});
+const kbVal = c.define(
+  KB,
+  s.record(s.object({ title: s.string() })).jsonValues(),
+  {
+    "edited-entry": c.json(async () => ({ default: { title: "published" } })),
+    "other-entry": c.json(async () => ({ default: { title: "other" } })),
+    unreadable: c.json(
+      (): Promise<{ default: { title: string } }> =>
+        Promise.reject(new Error("unreadable")),
+    ),
+  },
+);
 
-function fakeValServer(
-  answer: SourcesAnswer,
-  more: {
-    patches?: PatchesAnswer;
-    json?: (keys: string[]) => JsonAnswer;
-  } = {},
+function runtimeOf(
+  opts: { authenticated: boolean } = { authenticated: true },
 ): {
-  server: Promise<DraftValServer>;
-  calls: number[];
-  jsonKeys: string[][];
+  runtime: Promise<ValRuntime>;
+  edit: (path: ModuleFilePath, patch: Patch) => Promise<void>;
 } {
-  const calls: number[] = [];
-  const jsonKeys: string[][] = [];
-  const server: DraftValServer = {
-    "/sources/~": {
-      PUT: async () => {
-        calls.push(calls.length);
-        return answer;
-      },
+  const valModules: ValModules = {
+    config,
+    modules: [editedVal, untouchedVal, kbVal].map((module) => ({
+      def: async () => ({ default: module }),
+    })),
+  };
+  const runtime = createValRuntime(
+    valModules,
+    "/api/val",
+    {
+      ...config,
+      sourceFiles: {},
+      patchStore: new InMemoryPatchStore(),
+      unsafelyAllowUnauthenticated: opts.authenticated,
     },
-    "/patches": {
-      GET: async () =>
-        more.patches ?? {
-          status: 200,
-          json: { patches: [], baseSha: "base-sha" },
-        },
-    },
-    "/json": {
-      GET: async (req) => {
-        const keys = req.query.keys ?? [];
-        jsonKeys.push(keys);
-        if (!more.json) {
-          throw Error("this test reads no entries");
-        }
-        return more.json(keys);
-      },
+    config,
+  );
+  return {
+    runtime,
+    edit: async (path, patch) => {
+      const ops = (await runtime).ops;
+      await ops.createPatch(
+        path,
+        patch,
+        randomUUID() as PatchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
     },
   };
-  return { server: Promise.resolve(server), calls, jsonKeys };
 }
-
-const draftAnswer = {
-  status: 200 as const,
-  json: {
-    schemaSha: "schema-sha",
-    sourcesSha: "sources-sha",
-    modules: {
-      [EDITED]: {
-        source: { text: "DRAFT" },
-        preview: null,
-        patches: { applied: ["p1" as PatchId] },
-      },
-      [UNTOUCHED]: { source: { text: "published" }, preview: null },
-    },
-  },
-} satisfies SourcesAnswer;
 
 const cookies = (session: string | undefined) => async () => ({
   get: (name: string) =>
     session === undefined ? undefined : { name, value: session },
 });
 
-function oneRequestScope(): GetDraftSourcesScope {
-  const box: RequestScopedMemo<DraftSources | null> = {};
-  return async () => box;
+/** The versions the head read these modules at. */
+async function versionsOf(
+  runtime: Promise<ValRuntime>,
+  ...paths: ModuleFilePath[]
+) {
+  const synced = await (await runtime).ops.head.sync();
+  if ("error" in synced) throw new Error(synced.error.message);
+  return Object.fromEntries(
+    paths.map((path) => [path, synced.ok.versions[path]]),
+  );
 }
 
 test("a visitor reads nothing and gets no draft", async () => {
-  const { server, calls } = fakeValServer(draftAnswer);
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => false,
-    cookies(undefined),
-    oneRequestScope(),
-  );
+  const { runtime } = runtimeOf();
+  const before = headWork().seqReads;
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => false,
+    getCookies: cookies(undefined),
+  });
   expect(await fetchValDraft()).toBeNull();
-  expect(calls).toEqual([]);
+  expect(headWork().seqReads).toBe(before);
 });
 
-test("in preview, the draft holds the modules it changes and no others", async () => {
-  // An unchanged module is the build's own source, which the page already
-  // has: sending it would only make every draft page heavier.
-  const { server } = fakeValServer(draftAnswer);
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => true,
-    cookies("session"),
-    oneRequestScope(),
-  );
+test("in preview, the draft holds the modules it changes, with their versions, and no others", async () => {
+  const { runtime, edit } = runtimeOf();
+  await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("session"),
+  });
   expect(await fetchValDraft()).toEqual({
     sources: { [EDITED]: { text: "DRAFT" } },
+    versions: await versionsOf(runtime, EDITED),
   });
 });
 
-test("it shares the request's one read with fetchVal", async () => {
-  const { server, calls } = fakeValServer(draftAnswer);
-  const scope = oneRequestScope();
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => true,
-    cookies("session"),
-    scope,
-  );
+test("a second read, with nothing moved, reads no chain and makes nothing", async () => {
+  const { runtime, edit } = runtimeOf();
+  await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("session"),
+  });
   await fetchValDraft();
+  const before = headWork();
   await fetchValDraft();
-  expect(calls).toHaveLength(1);
+  expect(headWork().chainReads).toBe(before.chainReads);
+  expect(headWork().materialized).toBe(before.materialized);
 });
 
 test("a session the server refuses is published content, not an error", async () => {
-  const { server } = fakeValServer({
-    status: 401,
-    json: { message: "Unauthorized" },
+  const { runtime, edit } = runtimeOf({ authenticated: false });
+  await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("expired"),
   });
-  const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-  try {
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("stale"),
-      oneRequestScope(),
-    );
-    expect(await fetchValDraft()).toBeNull();
-  } finally {
-    warn.mockRestore();
-  }
+  expect(await fetchValDraft()).toBeNull();
 });
 
-test("a server that fails is published content, not a page that fails", async () => {
-  const { server } = fakeValServer({
-    status: 500,
-    json: { message: "boom", details: [] },
-  });
+test("a runtime that fails is published content, not a page that fails", async () => {
   const error = jest.spyOn(console, "error").mockImplementation(() => {});
   try {
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
-    );
+    const fetchValDraft = initFetchValDraft({
+      runtime: Promise.reject(new Error("boom")),
+      isEnabled: async () => true,
+      getCookies: cookies("session"),
+    });
     expect(await fetchValDraft()).toBeNull();
   } finally {
     error.mockRestore();
@@ -167,112 +169,43 @@ test("a server that fails is published content, not a page that fails", async ()
 });
 
 describe("a module of `.jsonValues()` entries", () => {
-  const { c } = initVal();
-  /*
-   * As the server reads them in-process: each entry a marker that still
-   * carries its `import()`, which no serializer can send.
-   */
-  const kbSource = {
-    "edited-entry": c.json(async () => ({ default: { title: "published" } })),
-    "other-entry": c.json(async () => ({ default: { title: "other" } })),
-  };
-  const kbAnswer = (applied: PatchId[]): SourcesAnswer => ({
-    status: 200,
-    json: {
-      schemaSha: "schema-sha",
-      sourcesSha: "sources-sha",
-      modules: {
-        [KB]: { source: kbSource, preview: null, patches: { applied } },
-      },
-    },
-  });
-  const editOf = (path: string[]): PatchesAnswer => ({
-    status: 200,
-    json: {
-      baseSha: "base-sha",
-      patches: [
-        {
-          path: KB,
-          patchId: "p1" as PatchId,
-          patch: [{ op: "replace", path, value: "DRAFT" }],
-          createdAt: "2026-10-04T00:00:00.000Z",
-          authorId: null,
-          appliedAt: null,
-        },
-      ],
-    },
-  });
-  const entries = (keys: string[]): JsonAnswer => ({
-    status: 200,
-    json: {
-      path: KB,
-      entries: keys.map((key) => ({ key, content: { title: "DRAFT" } })),
-      missing: [],
-      errors: [],
-    },
-  });
-
   test("the draft has the content of the entries it edits, and markers for the rest", async () => {
-    const { server, jsonKeys } = fakeValServer(kbAnswer(["p1" as PatchId]), {
-      patches: editOf(["edited-entry", "title"]),
-      json: entries,
+    const { runtime, edit } = runtimeOf();
+    await edit(KB, [
+      { op: "replace", path: ["edited-entry", "title"], value: "DRAFT" },
+    ]);
+    const fetchValDraft = initFetchValDraft({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies("session"),
     });
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
-    );
     const draft = await fetchValDraft();
-    expect(jsonKeys).toEqual([["edited-entry"]]);
     expect(draft).toEqual({
       sources: {
         [KB]: {
           "edited-entry": { title: "DRAFT" },
           // The wire shape: what the Studio gets over HTTP, thunk and all gone.
           "other-entry": { _type: "json" },
+          unreadable: { _type: "json" },
         },
       },
+      versions: await versionsOf(runtime, KB),
     });
     // Sent from the server to the page, so it has to survive the trip.
     expect(JSON.parse(JSON.stringify(draft))).toEqual(draft);
   });
 
   test("an entry that cannot be read leaves the module out, rather than published in a draft", async () => {
-    const { server } = fakeValServer(kbAnswer(["p1" as PatchId]), {
-      patches: editOf(["edited-entry", "title"]),
-      json: (keys) => ({
-        status: 200,
-        json: {
-          path: KB,
-          entries: [],
-          missing: [],
-          errors: keys.map((key) => ({ key, message: "unreadable" })),
-        },
-      }),
+    const { runtime, edit } = runtimeOf();
+    await edit(KB, [
+      { op: "replace", path: ["unreadable", "title"], value: "DRAFT" },
+    ]);
+    const fetchValDraft = initFetchValDraft({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies("session"),
     });
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
-    );
-    expect(await fetchValDraft()).toEqual({ sources: {} });
-  });
-
-  test("a write of the whole record leaves the module out", async () => {
-    const { server, jsonKeys } = fakeValServer(kbAnswer(["p1" as PatchId]), {
-      patches: editOf([]),
-      json: entries,
-    });
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
-    );
-    expect(await fetchValDraft()).toEqual({ sources: {} });
-    expect(jsonKeys).toEqual([]);
+    expect(await fetchValDraft()).toEqual({ sources: {}, versions: {} });
   });
 });
 
@@ -283,82 +216,61 @@ describe("at a proposal's address", () => {
   test("the draft says it is a proposal's, which a visitor's page never is", async () => {
     // Content analytics counts a visitor's page and no other, and a proposal
     // is not the live site: `ValProvider` reads this, never the snapshot.
-    const { server } = fakeValServer(draftAnswer);
-    const reviewer = initFetchValDraft(
-      server,
-      async () => false,
-      cookies(undefined),
-      oneRequestScope(),
+    const { runtime, edit } = runtimeOf();
+    await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+    const reviewer = initFetchValDraft({
+      runtime,
+      isEnabled: async () => false,
+      getCookies: cookies(undefined),
       snapshot,
-      undefined,
-      true,
-    );
+      atProposal: true,
+    });
     expect(await reviewer()).toEqual({
       sources: {},
       snapshot,
       draftMode: false,
       atProposal: true,
     });
-    const editor = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
+    const editor = initFetchValDraft({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies("session"),
       snapshot,
-      undefined,
-      true,
-    );
+      atProposal: true,
+    });
     expect(await editor()).toEqual({
       sources: { [EDITED]: { text: "DRAFT" } },
+      versions: await versionsOf(runtime, EDITED),
       snapshot,
       atProposal: true,
     });
   });
 
   test("a reviewer who is not editing still gets the proposal, and no draft", async () => {
-    const { server, calls } = fakeValServer(draftAnswer);
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => false,
-      cookies(undefined),
-      oneRequestScope(),
+    const { runtime } = runtimeOf();
+    const before = headWork().seqReads;
+    const fetchValDraft = initFetchValDraft({
+      runtime,
+      isEnabled: async () => false,
+      getCookies: cookies(undefined),
       snapshot,
-    );
+    });
     expect(await fetchValDraft()).toEqual({
       sources: {},
       snapshot,
       draftMode: false,
     });
-    expect(calls).toEqual([]);
-  });
-
-  test("an editor gets the draft over it, and the snapshot beside it", async () => {
-    const { server } = fakeValServer(draftAnswer);
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
-      snapshot,
-    );
-    expect(await fetchValDraft()).toEqual({
-      sources: { [EDITED]: { text: "DRAFT" } },
-      snapshot,
-    });
+    expect(headWork().seqReads).toBe(before);
   });
 
   test("a draft that cannot be read still leaves the proposal on the page", async () => {
-    const { server } = fakeValServer({
-      status: 401,
-      json: { message: "Unauthorized" },
-    });
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("expired"),
-      oneRequestScope(),
+    const { runtime } = runtimeOf({ authenticated: false });
+    const fetchValDraft = initFetchValDraft({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies("expired"),
       snapshot,
-    );
+    });
     expect(await fetchValDraft()).toEqual({
       sources: {},
       snapshot,
@@ -375,19 +287,16 @@ describe("on a site serving a content version", () => {
   const snapshot = { [UNTOUCHED]: { text: "published without a build" } };
 
   test("a visitor gets the content version, and a draft that is not a proposal's", async () => {
-    const { server, calls } = fakeValServer(draftAnswer);
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => false,
-      cookies(undefined),
-      oneRequestScope(),
+    const { runtime } = runtimeOf();
+    const fetchValDraft = initFetchValDraft({
+      runtime,
+      isEnabled: async () => false,
+      getCookies: cookies(undefined),
       snapshot,
-      undefined,
-      false,
-    );
+      atProposal: false,
+    });
     const draft = await fetchValDraft();
     expect(draft).toEqual({ sources: {}, snapshot, draftMode: false });
     expect(draft?.atProposal).toBeUndefined();
-    expect(calls).toEqual([]);
   });
 });

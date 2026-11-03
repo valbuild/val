@@ -66,7 +66,6 @@ import type { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { base64ToBytes, bytesToBase64 } from "./bytes";
 import { ParentPatchId } from "@valbuild/core";
-import type { ReifiedPreview } from "@valbuild/core";
 import {
   ValCommit,
   ValDeployment,
@@ -75,12 +74,8 @@ import {
   type SchemaSourceSnapshot,
   ChainFold,
   EMPTY_CHAIN,
-  applyChain,
   applyPatchRecord,
   baseModuleContent,
-  entryState,
-  resolveEntry,
-  type EntryState,
   type ModuleContent,
   baseVersionOf,
   sameModuleVersion,
@@ -89,6 +84,8 @@ import {
   type ProjectVersion,
 } from "@valbuild/shared/internal";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import { draftOverlay } from "./draftOverlay";
+import { ValHead } from "./head";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -314,6 +311,24 @@ export abstract class ValOps {
    * {@link ValOpsOptions.stagedAfterBuild}.
    */
   private heldStaged: Map<ModuleFilePath, string> = new Map();
+  /**
+   * What the BUILD evaluated each module to, and its version: before a
+   * snapshot, a staging or a publish put anything over it. What a reader's
+   * own bundle holds, so where the head's version is this one a draft reader
+   * reads its bundle and the head reads nothing (`ValHead.draft`).
+   */
+  private bundleSources: Sources | null = null;
+  private bundleVersions: Map<
+    ModuleFilePath,
+    Pick<ModuleVersion, "schema" | "base">
+  > | null = null;
+
+  /**
+   * The head: the content at the newest chain, kept in a store of modules by
+   * version, which every reader in the process reads through. See
+   * `head.ts`.
+   */
+  readonly head: ValHead = new ValHead(this);
 
   /**
    * Take a formatter for saves, when this instance was built without one.
@@ -486,6 +501,8 @@ export abstract class ValOps {
           },
         ]),
       );
+      this.bundleSources = extracted.sources;
+      this.bundleVersions = new Map(this.baseVersions);
       /*
        * The snapshot, over what the modules evaluated to. Through the same
        * door a save uses, so the SHAs move with it: they describe the Source
@@ -1012,6 +1029,54 @@ export abstract class ValOps {
   }
 
   /**
+   * A module as the BUILD evaluated it, with its version (the empty chain):
+   * what a reader's own bundle holds. `null` for a module the build has not
+   * got. See {@link bundleSources}.
+   */
+  async bundleModule(
+    moduleFilePath: ModuleFilePath,
+  ): Promise<{ version: ModuleVersion; source: Json } | null> {
+    await this.initSources();
+    const version = this.bundleVersions?.get(moduleFilePath);
+    const source = this.bundleSources?.[moduleFilePath];
+    if (version === undefined || source === undefined) return null;
+    return { version: { ...version, chain: EMPTY_CHAIN }, source };
+  }
+
+  /**
+   * A module's BASE as this build serves it -- the bundle's, or what a
+   * content version, a proposal's saves or a publish put in its place --
+   * with its version (the empty chain). `null` for no such module.
+   */
+  async baseModule(
+    moduleFilePath: ModuleFilePath,
+  ): Promise<{ version: ModuleVersion; source: Json } | null> {
+    const { sources } = await this.initSources();
+    const version = this.baseVersions?.get(moduleFilePath);
+    const source = sources[moduleFilePath];
+    if (version === undefined || source === undefined) return null;
+    return { version: { ...version, chain: EMPTY_CHAIN }, source };
+  }
+
+  /**
+   * "Has the chain moved?", cheaply: the store's `seq` (fs, memory), or
+   * the content service's chain version (http). `null` when the store
+   * cannot say without reading the chain; the head then reads it each time.
+   */
+  async chainSeq(): Promise<number | null> {
+    await this.initSources();
+    return this.ownSeq(this.buildVersion ?? "");
+  }
+
+  /**
+   * A module's chain after its first `count` patches, of the chain the
+   * versions were last computed for. Hashes nothing. See `ChainFold.chainAt`.
+   */
+  chainAt(moduleFilePath: ModuleFilePath, count: number): string {
+    return this.chainFold.chainAt(moduleFilePath, count);
+  }
+
+  /**
    * Resolves the content of ONE `.jsonValues()` entry.
    *
    * The committed content comes from the entry's import thunk on the base
@@ -1115,7 +1180,26 @@ export abstract class ValOps {
           "Cannot enumerate json entries by offset/limit with apply_patches: the base key set would omit draft-added entries. Pass apply_patches=false, or request explicit keys.",
       };
     }
-    const { sources, schemas } = await this.initSources();
+    if (applyPatches && "keys" in selector) {
+      /*
+       * Through the head: the record module at the newest chain, made once
+       * per version, and each entry resolved once on it -- an entry the
+       * chain touched is content, deleted or an error; one it edited
+       * without anybody having loaded it is its held edits on the base
+       * entry.
+       */
+      const res = await this.head.entries(moduleFilePath, selector.keys);
+      if (res.status !== "success") return res;
+      return {
+        status: "success",
+        entries: res.value.entries,
+        missing: res.value.missing,
+        errors: res.value.errors,
+        total: res.value.total,
+        ...(opts?.withVersion === true ? { version: res.value.version } : {}),
+      };
+    }
+    const { sources } = await this.initSources();
     const moduleSource = sources[moduleFilePath];
     if (moduleSource === undefined || moduleSource === null) {
       return {
@@ -1134,116 +1218,27 @@ export abstract class ValOps {
     const requestedKeys = isWindow
       ? allKeys.slice(selector.offset, selector.offset + selector.limit)
       : selector.keys;
-
-    /**
-     * The record module through its chain, by the engine -- fetched and
-     * applied once for the whole batch, not per entry. The entries come out
-     * of it as states (`entryState`): an entry the chain touched is content,
-     * deleted or an error; one it edited without anybody having loaded it is
-     * `waiting` on a base entry with the edits held, applied once that base
-     * is loaded below.
-     */
-    let module: ModuleContent | null = null;
-    /** The record module's version, with the chain the entries were read at. */
-    let version: ModuleVersion | undefined = applyPatches
-      ? undefined
-      : await this.moduleVersion(moduleFilePath, [], false);
-    if (applyPatches) {
-      const patchOps = await this.fetchPatches({ excludePatchOps: false });
-      if (patchOps.error) {
-        return { status: "error", message: patchOps.error.message };
-      }
-      if (patchOps.errors && Object.keys(patchOps.errors).length > 0) {
-        return {
-          status: "error",
-          message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
-        };
-      }
-      let serializedSchema: SerializedSchema | undefined = undefined;
-      try {
-        serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
-      } catch {
-        // Serialization errors are reported elsewhere; treat as "no schema".
-      }
-      const chain = applyChain(
-        baseModuleContent(moduleSource as ReadonlyJSONValue),
-        draftModulePatches(patchOps.patches, moduleFilePath, patchOps.commits),
-        serializedSchema,
-      );
-      module = chain.module;
-      version = await this.moduleVersion(
-        moduleFilePath,
-        draftOverlay(patchOps.patches, patchOps.commits),
-        true,
-        chain.failed === null ? undefined : chain.applied,
-      );
-    }
-
+    /** The record module's version: its base, with no chain applied. */
+    const version = await this.moduleVersion(moduleFilePath, [], false);
     const entries: { key: string; content: ReadonlyJSONValue | null }[] = [];
     const missing: string[] = [];
     const errors: { key: string; message: string }[] = [];
-    /** Where each requested key's content starts from: a base entry's key. */
-    const states = new Map<string, EntryState | undefined>();
-    const baseKeys = new Set<string>();
-    for (const entryKey of requestedKeys) {
-      if (module === null) {
-        baseKeys.add(entryKey);
-        continue;
-      }
-      const state = entryState(module, entryKey);
-      states.set(entryKey, state);
-      if (state?.kind === "waiting") baseKeys.add(state.from);
-    }
-    type LoadedEntry = { content: JSONValue | undefined } | { message: string };
-    const loaded = new Map<string, LoadedEntry>(
-      await Promise.all(
-        [...baseKeys].map(
-          async (entryKey): Promise<[string, LoadedEntry]> => [
+    const loaded = await Promise.all(
+      requestedKeys.map(
+        async (entryKey) =>
+          [
             entryKey,
-            await this.loadBaseJsonEntry(moduleFilePath, record, entryKey),
-          ],
-        ),
+            await this.baseJsonEntry(moduleFilePath, record, entryKey),
+          ] as const,
       ),
     );
-    for (const entryKey of requestedKeys) {
-      const marker = record[entryKey];
-      if (marker !== undefined && !Internal.isJson(marker)) {
-        // Not a jsonValues entry — return the inlined value as-is (defensive).
-        // No patches are applied: entry patches are expressed against a
-        // jsonValues entry, and this value is part of the module source proper.
-        entries.push({ key: entryKey, content: marker as JSONValue });
-        continue;
-      }
-      if (module === null) {
-        const base = loaded.get(entryKey);
-        if (base !== undefined && "message" in base) {
-          errors.push({ key: entryKey, message: base.message });
-        } else if (base?.content === undefined) {
-          missing.push(entryKey);
-        } else {
-          entries.push({ key: entryKey, content: base.content });
-        }
-        continue;
-      }
-      const state = states.get(entryKey);
-      const from =
-        state?.kind === "waiting" ? loaded.get(state.from) : undefined;
-      if (from !== undefined && "message" in from) {
-        errors.push({ key: entryKey, message: from.message });
-        continue;
-      }
-      const read = resolveEntry(entryKey, state, (key) => {
-        const base = loaded.get(key);
-        return base === undefined || "message" in base
-          ? undefined
-          : base.content;
-      });
-      if (read.kind === "error") {
-        errors.push({ key: entryKey, message: read.message });
-      } else if (read.kind === "missing") {
+    for (const [entryKey, base] of loaded) {
+      if ("message" in base) {
+        errors.push({ key: entryKey, message: base.message });
+      } else if (base.content === undefined) {
         missing.push(entryKey);
       } else {
-        entries.push({ key: entryKey, content: read.content });
+        entries.push({ key: entryKey, content: base.content });
       }
     }
     return {
@@ -1263,7 +1258,7 @@ export abstract class ValOps {
    * `undefined` for a key the base record does not have; `null` for a marker
    * with nothing behind it.
    */
-  private async loadBaseJsonEntry(
+  async baseJsonEntry(
     moduleFilePath: ModuleFilePath,
     record: Record<string, unknown>,
     entryKey: string,
@@ -1419,33 +1414,6 @@ export abstract class ValOps {
       patchesByModule,
       fileLastUpdatedByPatchId,
     };
-  }
-
-  // #region getPreviews
-  /**
-   * Reifies each module's previews from its schema INSTANCE.
-   *
-   * Kept even though the Studio also computes previews client-side: a preview is
-   * a user function that lives on the instance and is not part of the serialized
-   * schema, so a host app that does not render `<ValModulesClient>` has no
-   * instances in the browser and would otherwise get no previews at all. See
-   * #470.
-   *
-   * A `render`, and a string's `multiline`, need none of this — they are static
-   * config that travels with the serialized schema.
-   */
-  async getPreviews(
-    schemas: Schemas,
-    sources: Sources,
-  ): Promise<{
-    previews: Record<ModuleFilePath, ReifiedPreview | null>;
-  }> {
-    const previews: Record<ModuleFilePath, ReifiedPreview | null> = {};
-    for (const [pathS, schema] of Object.entries(schemas)) {
-      const path = pathS as ModuleFilePath;
-      previews[path] = schema["executePreview"](path, sources[path]);
-    }
-    return { previews };
   }
 
   // #region getSources
@@ -3744,74 +3712,7 @@ export type PatchReadError =
       message: string;
     };
 
-/**
- * The patches a json entry render should apply, out of the whole chain:
- *
- * 1. this module's, since the chain is branch-wide;
- * 2. a patch published after this build is kept: this build does not have it.
- *    One already in the build is dropped. `draftOverlay` decides which is
- *    which, from `commits`.
- */
-export function draftModulePatches<
-  T extends {
-    path: ModuleFilePath;
-    patchId: PatchId;
-    appliedAt: { commitSha: CommitSha } | null;
-  },
->(
-  patches: T[],
-  moduleFilePath: ModuleFilePath,
-  /** The commits content says came after this build: see `draftOverlay`. */
-  commits?: Pick<ValCommit, "commitSha">[],
-): T[] {
-  return draftOverlay(
-    patches.filter((patch) => patch.path === moduleFilePath),
-    commits,
-  );
-}
-
-/**
- * The patches a DRAFT applies on top of this build's own source: the pending
- * ones, and the ones published AFTER this build, in chain order -- with
- * `appliedAt` cleared on the latter, because this build has none of them.
- *
- * Content places every caller at its own build (`getApplicablePatchesAndCommits`
- * in valbuild/home: "the earliest the caller has not seen") and returns the
- * commits after it as `commits`. A patch applied at one of those was
- * published after this build and is not in it, so a draft has to apply it --
- * skipping it showed the build's old value from the publish until the next
- * build went live. `/sources/~` already applies them (`getSources` walks every
- * patch it is given); the `.jsonValues()` entry path skipped them.
- *
- * A patch applied at a commit NOT in that list is already in this build --
- * content returns one only because it was asked for by id -- and is dropped:
- * applying it again would apply it twice. Without `commits` (a store that
- * does not report them) every applied patch is dropped, as before. Only
- * `ValOpsHttp` ever reports `appliedAt`; `fs` and memory stores report `null`.
- *
- * Chain order, not published-first, because that is the order the Studio
- * applies them in, and a draft page starts from the server's answer and is
- * then kept up to date by the Studio's: the two must agree.
- *
- * For the reads that render a draft only. What to COMMIT still keys on
- * `appliedAt`: a published patch must never be published again.
- */
-export function draftOverlay<
-  T extends { appliedAt: { commitSha: CommitSha } | null },
->(patches: T[], commits: Pick<ValCommit, "commitSha">[] | undefined): T[] {
-  const afterThisBuild = new Set<string>(
-    (commits ?? []).map((commit) => commit.commitSha),
-  );
-  const overlay: T[] = [];
-  for (const patch of patches) {
-    if (patch.appliedAt === null) {
-      overlay.push(patch);
-    } else if (afterThisBuild.has(patch.appliedAt.commitSha)) {
-      overlay.push({ ...patch, appliedAt: null });
-    }
-  }
-  return overlay;
-}
+export { draftModulePatches, draftOverlay } from "./draftOverlay";
 
 export type OrderedPatches = {
   patches: {

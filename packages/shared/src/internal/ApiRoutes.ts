@@ -15,6 +15,9 @@ import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
 import { ValDeployment } from "./zod/ValDeployment";
 import { ModuleVersionSchema, ProjectVersionSchema } from "./content/version";
+
+/** An `EntryVersion` on the wire. */
+const EntryVersionSchema = ModuleVersionSchema.extend({ key: z.string() });
 import {
   HistoricalCommit,
   HistoricalModule,
@@ -1773,6 +1776,86 @@ export const Api = {
             /** The project version this tree was read at. See `/stat`. */
             project: ProjectVersionSchema.optional(),
           }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * One module by version: phase 6 of `docs/plans/one-content-model.md`
+   * ("The Studio loads everything from one place"). `GET /modules/~<path>`,
+   * with `v` the version wanted as its `moduleKey` (the newest when absent;
+   * a base is a version with the empty chain) and `have` the version the
+   * caller holds: when the caller's chain is a start of the answer's under
+   * the same schema and base, the answer is the patches from it (`delta`),
+   * otherwise the whole module. An answer for an asked `v` is immutable.
+   */
+  "/modules/~": {
+    GET: {
+      req: {
+        path: z.string(),
+        query: {
+          v: onlyOneStringQueryParam.optional(),
+          have: onlyOneStringQueryParam.optional(),
+        },
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(404),
+          json: z.object({
+            message: z.string(),
+            /** The version held now, when the one asked for is not. */
+            current: ModuleVersionSchema.optional(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          headers: z.object({ "Cache-Control": z.string() }).optional(),
+          json: z.union([
+            z.object({
+              kind: z.literal("module"),
+              version: ModuleVersionSchema,
+              source: z.any(),
+              /**
+               * The `.jsonValues()` entries the module's chain touched, read,
+               * each with its own version. Every other entry is the base's,
+               * behind its marker in `source`.
+               */
+              entries: z.record(
+                z.string(),
+                z.union([
+                  z.object({
+                    content: z.any(),
+                    version: EntryVersionSchema,
+                  }),
+                  z.object({
+                    deleted: z.literal(true),
+                    version: EntryVersionSchema,
+                  }),
+                  z.object({
+                    error: z.string(),
+                    version: EntryVersionSchema,
+                  }),
+                ]),
+              ),
+              failed: z
+                .object({ patchId: PatchId, message: z.string() })
+                .optional(),
+            }),
+            z.object({
+              kind: z.literal("delta"),
+              from: ModuleVersionSchema,
+              to: ModuleVersionSchema,
+              patches: z.array(z.object({ patchId: PatchId, patch: Patch })),
+            }),
+          ]),
         }),
       ]),
     },

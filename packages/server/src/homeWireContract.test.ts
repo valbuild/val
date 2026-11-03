@@ -799,6 +799,38 @@ test("a deployment going live is the same chain at a higher version, and the pro
 });
 
 /**
+ * `home` -- `Api["/chain/version"]["GET"]["res"]`, copied from there
+ * (`handlers/getChainVersion.ts`): the chain version alone, which the head
+ * asks on each draft read instead of reading the chain (phase 6).
+ */
+const HOME_CHAIN_VERSION = { headVersion: 43 };
+
+test("the chain version is read alone, for the ops' own branch", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_CHAIN_VERSION);
+  try {
+    expect(await ops.chainSeq()).toBe(43);
+    expect(sent).toHaveLength(1);
+    const url = new URL(sent[0].url);
+    expect(url.pathname).toBe(`/v1/${PROJECT}/chain/version`);
+    expect(url.searchParams.get("branch")).toBe("main");
+    expect(sent[0].headers.Authorization).toBe("Bearer key");
+  } finally {
+    restore();
+  }
+});
+
+test("a content service that predates the chain version is asked once, and the head reads the chain", async () => {
+  const { ops, sent, restore } = opsAnswering({ message: "Not found" }, 404);
+  try {
+    expect(await ops.chainSeq()).toBeNull();
+    expect(await ops.chainSeq()).toBeNull();
+    expect(sent).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
+/**
  * `home` — the same `/applicable/patches`, asked by a PREVIOUS build with
  * `relative_to=live` (valbuild/home `utils/liveBuild.ts`, phase 7 of
  * `docs/plans/one-content-model.md`): for up to a minute after a publish the

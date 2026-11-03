@@ -191,10 +191,21 @@ describe("ValExternalStore.receive, with the Studio's versions", () => {
     expect(store.receive(path, read({ title: "B" }, "c2"))).toBe(true);
   });
 
-  it("compares content at one version: the entries the Studio has read are not in it", () => {
+  it("does not compare content at one version: what is not in a version is the bundle's either way", () => {
+    // A version names the module's source and the `.jsonValues()` entries its
+    // chain touched, which every reader sends in place of their markers; an
+    // entry the Studio happened to read is the bundle's, as its marker is.
     const store = new ValExternalStore();
     store.receive(path, read({ "/a": "marker" }, "c1"));
-    expect(store.receive(path, read({ "/a": "content" }, "c1"))).toBe(true);
+    expect(store.receive(path, read({ "/a": "content" }, "c1"))).toBe(false);
+  });
+
+  it("takes the first relay of a module the page was rendered with at that version as nothing new", () => {
+    const store = new ValExternalStore();
+    store.receive(path, { ...read({ title: "A" }, "c1"), from: "seeded" });
+    expect(store.receive(path, read({ title: "A, as relayed" }, "c1"))).toBe(
+      false,
+    );
   });
 
   it("compares content against a draft the page was rendered with, which has no version", () => {

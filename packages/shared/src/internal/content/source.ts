@@ -1,5 +1,6 @@
 import type { Json, ModuleFilePath } from "@valbuild/core";
 import type { ModuleVersion } from "./version";
+import type { EntryVersion } from "./moduleStore";
 
 /**
  * Where a reader's content comes from, in one shape: see
@@ -35,7 +36,13 @@ export type ModuleRead =
  * what once made a deleted entry keep rendering its published content.
  */
 export type EntryRead =
-  | { status: "ready"; content: unknown; from: string }
+  | {
+      status: "ready";
+      content: unknown;
+      from: string;
+      /** The entry's own version, where the source carries one. */
+      version?: EntryVersion | null;
+    }
   | { status: "gone"; from: string }
   | { status: "pass" }
   | { status: "pending"; ready: Promise<void> }

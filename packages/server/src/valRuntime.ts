@@ -4,13 +4,38 @@ import type { ValOpsHttp } from "./ValOpsHttp";
 import type { ValOpsMemory } from "./ValOpsMemory";
 import type { ValServerConfig } from "./ValServer";
 import { createValOps } from "./valServerConfig";
+import { verifyJwt } from "./jwt";
+import { sessionAuth } from "./sessionAuth";
+import { isHttpOps } from "./opsKind";
 
 type AnyValOps = ValOpsFS | ValOpsHttp | ValOpsMemory;
-type Entry = { options: ValServerConfig; ops: AnyValOps };
 
 /**
- * The data layer every server in this process builds for one project, kept
- * so they share it.
+ * One runtime per process (or isolate) for a project: see "One runtime per
+ * process, and the head" in `docs/plans/one-content-model.md`.
+ *
+ * The API route (`initValServer`), the draft readers (`initValContent`,
+ * `initValRsc`) and MCP (`initValMcp`) all read through it, so a save moves
+ * every reader. It holds the data layer, whose head (`ops.head`) is the
+ * content at the newest chain, kept by version: one head for every editor,
+ * since draft content is not per user -- the session only decides who may
+ * see it ({@link ValRuntime.authorize}).
+ */
+export type ValRuntime = {
+  readonly ops: AnyValOps;
+  /**
+   * Whether this session may read the draft: the rule the API's routes ask
+   * (`sessionAuth`), and in http mode a signed-in editor, as `/sources/~` and
+   * `/json` require. The readers that used to ask a private server of their
+   * own over those routes ask this instead, and read the head.
+   */
+  authorize(session: string | undefined): boolean;
+};
+type Entry = { options: ValServerConfig; runtime: ValRuntime };
+
+/**
+ * The runtime every server and reader in this process builds for one
+ * project, kept so they share it.
  *
  * An app builds several Val servers: the API route (`initValServer`), the
  * readers that render draft content on the server (`initValContent`,
@@ -20,8 +45,8 @@ type Entry = { options: ValServerConfig; ops: AnyValOps };
  * the API moved the API's copy and no other: in memory mode a page's readers
  * went on showing the content from before it (finding R1 in
  * `scenarios/README.md`). Handing them one instance removes the second copy,
- * which is the first step of "one runtime per process" in
- * `docs/plans/one-content-model.md`.
+ * and phase 6 of `docs/plans/one-content-model.md` made it the
+ * runtime: the readers read its head rather than a server of their own.
  *
  * Keyed on the `valModules` object, which is what identifies the project in
  * the process: hot reload makes a new one, and the old instance goes with it
@@ -36,17 +61,17 @@ type Entry = { options: ValServerConfig; ops: AnyValOps };
  */
 const registry = new WeakMap<ValModules, Entry[]>();
 
-export function sharedValOps(
+export function valRuntime(
   valModules: ValModules,
   options: ValServerConfig,
-): AnyValOps {
+): ValRuntime {
   const entries = registry.get(valModules) ?? [];
   for (const entry of entries) {
     if (differences(entry.options, options).length === 0) {
       if (options.formatter !== undefined) {
-        entry.ops.adoptFormatter(options.formatter);
+        entry.runtime.ops.adoptFormatter(options.formatter);
       }
-      return entry.ops;
+      return entry.runtime;
     }
   }
   const sameMode = entries.find((entry) => entry.options.mode === options.mode);
@@ -62,9 +87,24 @@ export function sharedValOps(
     }
   }
   const ops = createValOps(valModules, options);
-  entries.push({ options, ops });
+  const runtime: ValRuntime = {
+    ops,
+    authorize(session) {
+      const auth = sessionAuth(session, {
+        valSecret: options.valSecret,
+        requiresAuth: ops.requiresAuth,
+        verifyJwt,
+      });
+      if (auth.error !== null && auth.error !== undefined) {
+        Internal.log.debug("authentication error: ", auth.error);
+        return false;
+      }
+      return !isHttpOps(ops) || "id" in auth;
+    },
+  };
+  entries.push({ options, runtime });
   registry.set(valModules, entries);
-  return ops;
+  return runtime;
 }
 
 /** The options that decide what the data layer is, where two configs differ. */

@@ -237,27 +237,29 @@ export class ValExternalStore {
 
 /**
  * Whether two reads of a module hold the same content: the same object, or
- * -- unless their versions say they are different content -- the same JSON.
+ * the same version, or -- where either has none -- the same JSON.
  *
- * The versions settle "moved" without walking the module: the Studio relays
- * each module with the version it computed (phase 5 of
- * `docs/plans/one-content-model.md`), so two relays of a module at two
- * versions are two contents, however large the module (risk 8 in the plan).
- * The same version is still compared: a version names a module's source and
- * chain, not which of its `.jsonValues()` entries the Studio had read when it
- * sent it (entries get versions of their own in phase 6), and the draft the
- * page was rendered with carries none (`ValDraft` has no versions).
+ * The versions settle it without walking the module: the Studio relays each
+ * module with the version it computed (phase 5 of
+ * `docs/plans/one-content-model.md`), and the server's draft carries the
+ * version it read (`ValDraft.versions`, phase 6) -- the same version for the
+ * same content, so a page rendered from the server's draft takes the
+ * Studio's first relay of an unchanged module as the nothing it is (risk 8
+ * in the plan). A version names what a reader renders: the module's source,
+ * and the `.jsonValues()` entries its chain touched, which both the Studio
+ * (`entriesToRelay`) and the server's draft send in place of their markers;
+ * every other entry is the bundle's whether it travels as content or as a
+ * marker. A read without a version (a server or a Studio of the release
+ * before) is compared by content, as before.
  */
 function sameContent(a: HeldRead, b: HeldRead): boolean {
   if (a.source === b.source) return true;
-  if (
-    a.version !== null &&
-    b.version !== null &&
-    (a.version.schema !== b.version.schema ||
-      a.version.base !== b.version.base ||
-      a.version.chain !== b.version.chain)
-  ) {
-    return false;
+  if (a.version !== null && b.version !== null) {
+    return (
+      a.version.schema === b.version.schema &&
+      a.version.base === b.version.base &&
+      a.version.chain === b.version.chain
+    );
   }
   return deepEqual(a.source, b.source);
 }

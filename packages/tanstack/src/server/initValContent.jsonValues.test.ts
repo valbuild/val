@@ -1,11 +1,20 @@
-import { initVal, type ModuleFilePath } from "@valbuild/core";
+import { randomUUID } from "crypto";
+import {
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type ValModules,
+} from "@valbuild/core";
+import type { Patch } from "@valbuild/core/patch";
 import { raw } from "@valbuild/react/stega";
 import {
-  initFetchValKeyStega,
-  type JsonEntryValServer,
-} from "./initValContent";
+  InMemoryPatchStore,
+  createValRuntime,
+  headWork,
+} from "@valbuild/server";
+import { initFetchValKeyStega } from "./initValContent";
 
-const { s, c } = initVal();
+const { s, c, config } = initVal();
 
 const PAGES = "/pages.val.ts" as ModuleFilePath;
 
@@ -21,38 +30,39 @@ const pagesVal = c.define(
   },
 );
 
-type JsonResponse =
-  | {
-      status: 200;
-      json: { path: ModuleFilePath; key: string; content: unknown };
-    }
-  | { status: 404 | 401 | 500; json: { message: string } };
-
-/**
- * A server with only the route these readers use — which is all the readers ask
- * for (`JsonEntryValServer`), so no cast is needed. Driving the real reader
- * against a controllable `/json` is what verifies the draft/committed decision
- * end to end; building an actual ValServer would need a project on disk.
- */
-function fakeValServer(respond: (key: string) => JsonResponse): {
-  server: Promise<JsonEntryValServer>;
-  calls: { key: string | undefined; applyPatches: unknown }[];
-} {
-  const calls: { key: string | undefined; applyPatches: unknown }[] = [];
-  const server: JsonEntryValServer = {
-    "/json": {
-      GET: async (req: {
-        query: { key?: string; apply_patches?: unknown };
-      }) => {
-        calls.push({
-          key: req.query.key,
-          applyPatches: req.query.apply_patches,
-        });
-        return respond(req.query.key as string);
-      },
-    },
+/** A real runtime in memory mode, with these edits pending. */
+async function runtimeWith(...patches: Patch[]) {
+  const valModules: ValModules = {
+    config,
+    modules: [{ def: async () => ({ default: pagesVal }) }],
   };
-  return { server: Promise.resolve(server), calls };
+  const runtime = createValRuntime(
+    valModules,
+    "/api/val",
+    {
+      ...config,
+      sourceFiles: {},
+      patchStore: new InMemoryPatchStore(),
+      unsafelyAllowUnauthenticated: true,
+    },
+    config,
+  );
+  for (const patch of patches) {
+    await (
+      await runtime
+    ).ops.createPatch(
+      PAGES,
+      patch,
+      randomUUID() as PatchId,
+      {
+        type: "head",
+        headBaseSha: await (await runtime).ops.getBaseSha(),
+      },
+      null,
+      null,
+    );
+  }
+  return runtime;
 }
 
 const cookies = async () => ({
@@ -74,66 +84,70 @@ function titleOf(entry: unknown): string | undefined {
 
 describe("fetchValKey draft state", () => {
   test("draft content wins over the committed entry", async () => {
-    const { server, calls } = fakeValServer((key) => ({
-      status: 200,
-      json: { path: PAGES, key, content: { title: "draft A" } },
-    }));
-    const fetchValKey = initFetchValKeyStega(server, async () => true, cookies);
-
+    const runtime = runtimeWith([
+      { op: "replace", path: ["/a", "title"], value: "draft A" },
+    ]);
+    const fetchValKey = initFetchValKeyStega({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies,
+    });
     expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("draft A");
-    // The draft read must ask the server to apply pending patches — that is what
-    // makes it a draft read at all.
-    expect(calls).toEqual([{ key: "/a", applyPatches: true }]);
   });
 
   test("an entry DELETED in the draft state renders nothing", async () => {
-    // Regression: a 404 from the draft read was indistinguishable from "could not
-    // ask", so the reader fell back to the committed entry and rendered a page the
-    // editor had just deleted.
-    const { server } = fakeValServer(() => ({
-      status: 404,
-      json: { message: "Entry not found: /a in /pages.val.ts" },
-    }));
-    const fetchValKey = initFetchValKeyStega(server, async () => true, cookies);
-
+    // Regression: "deleted in the draft" was once indistinguishable from
+    // "could not ask", so the reader fell back to the committed entry and
+    // rendered a page the editor had just deleted.
+    const runtime = runtimeWith([{ op: "remove", path: ["/a"] }]);
+    const fetchValKey = initFetchValKeyStega({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies,
+    });
     expect(await fetchValKey(pagesVal, "/a")).toBeUndefined();
   });
 
   test("an entry ADDED in the draft state is reachable", async () => {
     // Its key exists only in a pending patch, so the local source knows nothing
     // about it: the answer can only come from the draft read.
-    const { server } = fakeValServer((key) => ({
-      status: 200,
-      json: { path: PAGES, key, content: { title: "drafted B" } },
-    }));
-    const fetchValKey = initFetchValKeyStega(server, async () => true, cookies);
-
+    const runtime = runtimeWith([
+      { op: "add", path: ["/b"], value: { title: "drafted B" } },
+    ]);
+    const fetchValKey = initFetchValKeyStega({
+      runtime,
+      isEnabled: async () => true,
+      getCookies: cookies,
+    });
     expect(titleOf(await fetchValKey(pagesVal, "/b"))).toBe("drafted B");
   });
 
-  test("a server error falls back to the committed entry rather than blanking", async () => {
-    const { server } = fakeValServer(() => ({
-      status: 500,
-      json: { message: "boom" },
-    }));
-    const fetchValKey = initFetchValKeyStega(server, async () => true, cookies);
-
-    expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("committed A");
+  test("a runtime that fails falls back to the committed entry rather than blanking", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const fetchValKey = initFetchValKeyStega({
+        runtime: Promise.reject(new Error("boom")),
+        isEnabled: async () => true,
+        getCookies: cookies,
+      });
+      expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("committed A");
+    } finally {
+      error.mockRestore();
+    }
   });
 
-  test("disabled (production) never asks the server", async () => {
-    const { server, calls } = fakeValServer(() => ({
-      status: 500,
-      json: { message: "should not be called" },
-    }));
-    const fetchValKey = initFetchValKeyStega(
-      server,
-      async () => false,
-      cookies,
-    );
-
+  test("disabled (production) never reads the draft", async () => {
+    const runtime = runtimeWith([
+      { op: "replace", path: ["/a", "title"], value: "draft A" },
+    ]);
+    const before = headWork().seqReads;
+    const fetchValKey = initFetchValKeyStega({
+      runtime,
+      isEnabled: async () => false,
+      getCookies: cookies,
+    });
     expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("committed A");
-    expect(calls).toEqual([]);
+    expect(headWork().seqReads).toBe(before);
   });
 });
 
@@ -150,25 +164,20 @@ describe("fetchValKey at a proposal's address", () => {
       "/b": { _type: "json" },
     },
   };
-  const neverAsked = () => {
-    throw new Error("a reviewer who is not editing reads no draft");
-  };
 
   test("gives the entry the proposal saved, not the build's", async () => {
-    const { server } = fakeValServer(neverAsked);
-    const fetchValKey = initFetchValKeyStega(
-      server,
-      async () => false,
-      cookies,
+    const fetchValKey = initFetchValKeyStega({
+      runtime: runtimeWith(),
+      isEnabled: async () => false,
+      getCookies: cookies,
       snapshot,
-    );
+    });
     expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe(
       "A saved in the proposal",
     );
   });
 
   test("an entry the proposal did not save is the build's", async () => {
-    const { server } = fakeValServer(neverAsked);
     const withB = c.define(
       PAGES,
       s.record(s.object({ title: s.string() })).jsonValues(),
@@ -181,48 +190,44 @@ describe("fetchValKey at a proposal's address", () => {
         ),
       },
     );
-    const fetchValKey = initFetchValKeyStega(
-      server,
-      async () => false,
-      cookies,
+    const fetchValKey = initFetchValKeyStega({
+      runtime: runtimeWith(),
+      isEnabled: async () => false,
+      getCookies: cookies,
       snapshot,
-    );
+    });
     expect(titleOf(await fetchValKey(withB, "/b"))).toBe("committed B");
   });
 
   test("a record the proposal saved as null has no entries, not the build's", async () => {
-    const { server } = fakeValServer(neverAsked);
-    const fetchValKey = initFetchValKeyStega(
-      server,
-      async () => false,
-      cookies,
-      { [PAGES]: null },
-    );
+    const fetchValKey = initFetchValKeyStega({
+      runtime: runtimeWith(),
+      isEnabled: async () => false,
+      getCookies: cookies,
+      snapshot: { [PAGES]: null },
+    });
     expect(await fetchValKey(pagesVal, "/a")).toBeUndefined();
   });
 
   test("an entry named like an Object property is only there if the proposal has it", async () => {
-    const { server } = fakeValServer(neverAsked);
-    const fetchValKey = initFetchValKeyStega(
-      server,
-      async () => false,
-      cookies,
+    const fetchValKey = initFetchValKeyStega({
+      runtime: runtimeWith(),
+      isEnabled: async () => false,
+      getCookies: cookies,
       snapshot,
-    );
+    });
     expect(await fetchValKey(pagesVal, "toString")).toBeUndefined();
   });
 
   test("an editor's draft still wins over what the proposal saved", async () => {
-    const { server } = fakeValServer((key) => ({
-      status: 200,
-      json: { path: PAGES, key, content: { title: "draft A" } },
-    }));
-    const fetchValKey = initFetchValKeyStega(
-      server,
-      async () => true,
-      cookies,
+    const fetchValKey = initFetchValKeyStega({
+      runtime: runtimeWith([
+        { op: "replace", path: ["/a", "title"], value: "draft A" },
+      ]),
+      isEnabled: async () => true,
+      getCookies: cookies,
       snapshot,
-    );
+    });
     expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("draft A");
   });
 });

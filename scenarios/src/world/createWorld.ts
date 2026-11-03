@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 import {
   encodeJwt,
   getExpire,
+  headWork,
   loadValModules as evaluateProject,
   proposalFromEnv,
   type ValContentVersion,
@@ -116,7 +117,10 @@ import {
   pageReadEnv,
   type PageReadState,
 } from "../../../packages/tanstack/src/client/initValClient";
-import { readsOfFetchValDraft } from "../../../packages/tanstack/src/server/initValContent";
+import {
+  readsOfFetchValDraft,
+  runtimeOfReaders,
+} from "../../../packages/tanstack/src/server/initValContent";
 import { inRequest } from "./tanstackStart";
 import {
   createFrames,
@@ -234,6 +238,21 @@ export type World = {
   manifest(): Promise<Manifest>;
   manifest(since: Manifest): Promise<Manifest | null>;
   /**
+   * `GET /modules`, as a client asks it: one module, at `v` (the newest when
+   * absent), as the patches from `have` when the server can. `bytes` is the
+   * answer's body as JSON, what crossed the wire.
+   */
+  modules(
+    module: AnyModule,
+    opts?: { v?: string; have?: string },
+  ): Promise<ModulesAnswer>;
+  /**
+   * What the head of the server's runtime holds now (phase 6): bytes beyond
+   * the bundle, versions, modules. The process's one runtime for this
+   * project, which the API, the page's readers and MCP all read through.
+   */
+  head(): Promise<HeadStats>;
+  /**
    * Where the world's counted work stands now, for {@link expectWork}: work
    * done by Val's own code outside the Studios (the server and the readers),
    * never the world's own observing. A Studio's is its own, since phase 5
@@ -268,6 +287,23 @@ export type Manifest = {
   since?: number;
 };
 
+/** See {@link World.modules}. */
+export type ModulesAnswer = {
+  status: number | null;
+  json: unknown;
+  bytes: number;
+};
+
+/** See {@link World.head}. */
+export type HeadStats = {
+  bytes: number;
+  versions: number;
+  modules: number;
+  mostVersionsOfOneModule: number;
+  mostBytesOfOneModule: number;
+  evicted: number;
+};
+
 /** See {@link World.workPosition}. */
 export type WorldWorkPosition = {
   versionHashes: number;
@@ -275,6 +311,9 @@ export type WorldWorkPosition = {
   engineCloneBytes: number;
   readResolves: number;
   readEncodes: number;
+  headSeqReads: number;
+  headChainReads: number;
+  headMaterialized: number;
 };
 
 /** See {@link World.expectWork}. */
@@ -284,6 +323,12 @@ export type WorldWorkBudget = {
   "engine:clone-bytes"?: { atMost: number } | { exactly: number };
   "read:resolve"?: { atMost: number } | { exactly: number };
   "read:encode"?: { atMost: number } | { exactly: number };
+  /** The head asking "has the chain moved?" (`seq`): once per read at most. */
+  "head:seq"?: { atMost: number } | { exactly: number };
+  /** The head reading the chain, because it moved. */
+  "head:chain"?: { atMost: number } | { exactly: number };
+  /** The head making a module's version (from a base, or extending one). */
+  "head:materialize"?: { atMost: number } | { exactly: number };
 };
 
 /**
@@ -1159,12 +1204,16 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     }
     const engine = engineWork();
     const reads = readWork();
+    const head = headWork();
     return {
       versionHashes: versioning.productHashes() - hashes,
       engineApplies: engine.applyPatch - applies,
       engineCloneBytes: engine.cloneBytes - cloneBytes,
       readResolves: reads.resolve,
       readEncodes: reads.encode,
+      headSeqReads: head.seqReads,
+      headChainReads: head.chainReads,
+      headMaterialized: head.materialized,
     };
   };
 
@@ -1982,6 +2031,27 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       frames.expectInvariants();
     },
     manifest: readManifest,
+    async modules(module, opts = {}) {
+      await reportingLive;
+      const client = createValClient("/api/val", null, {
+        fetch: withSession(host, network.fetchFor("world:modules")),
+      });
+      const res = await client("/modules/~", "GET", {
+        path: moduleFilePathOf(currentModule(module)),
+        query: { v: opts.v, have: opts.have },
+      });
+      const json = "json" in res ? res.json : null;
+      return {
+        status: res.status,
+        json,
+        bytes: json === null ? 0 : JSON.stringify(json).length,
+      };
+    },
+    async head() {
+      const runtime = runtimeOfReaders(readersFor({ on: true }).fetchValStega);
+      if (runtime === null) throw new Error("the readers have no runtime");
+      return (await runtime).ops.head.stats();
+    },
     workPosition: serverWork,
     expectWork(since, budget) {
       const over: string[] = [];
@@ -1992,6 +2062,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         "engine:clone-bytes": now.engineCloneBytes - since.engineCloneBytes,
         "read:resolve": now.readResolves - since.readResolves,
         "read:encode": now.readEncodes - since.readEncodes,
+        "head:seq": now.headSeqReads - since.headSeqReads,
+        "head:chain": now.headChainReads - since.headChainReads,
+        "head:materialize": now.headMaterialized - since.headMaterialized,
       };
       const kinds: (keyof WorldWorkBudget)[] = [
         "version:hash",
@@ -1999,6 +2072,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         "engine:clone-bytes",
         "read:resolve",
         "read:encode",
+        "head:seq",
+        "head:chain",
+        "head:materialize",
       ];
       for (const kind of kinds) {
         const limit = budget[kind];

@@ -1,91 +1,97 @@
-import { initVal, type ModuleFilePath, type PatchId } from "@valbuild/core";
-import type { RequestScopedMemo } from "@valbuild/shared/internal";
+import { randomUUID } from "crypto";
+import {
+  Internal,
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type ValModules,
+} from "@valbuild/core";
+import type { Patch } from "@valbuild/core/patch";
+import {
+  InMemoryPatchStore,
+  createValRuntime,
+  headWork,
+  type ValRuntime,
+} from "@valbuild/server";
 import type { ComponentProps } from "react";
 import type { ValNextProvider } from "../ValNextProvider";
-import {
-  initFetchValDraft,
-  type DraftSources,
-  type DraftSourcesValServer,
-  type GetDraftSourcesScope,
-} from "./initValRsc";
+import { initFetchValDraft } from "./initValRsc";
 
 /**
  * `fetchValDraft` from `initValRsc`: what `<ValProvider draft>` is given, so a
  * draft page is rendered as the draft on the server and hydrated from the
- * same thing. The read is `readDraftChanges` in `@valbuild/server`, which
- * `@valbuild/tanstack/server`'s `fetchValDraft` is too; these pin that Next's
- * answers what TanStack's does (`initValContent.draft.test.ts`), from Next's
- * request context.
+ * same thing. The read is `readDraftChanges` in `@valbuild/server`, over the
+ * runtime's head, which `@valbuild/tanstack/server`'s `fetchValDraft` is too;
+ * these pin that Next's answers what TanStack's does
+ * (`initValContent.draft.test.ts`), from Next's request context. Against a
+ * real runtime in memory mode, with the edits written as the API writes them
+ * (`createPatch`).
  */
 
-const EDITED = "/app/edited/page.val.ts" as ModuleFilePath;
-const UNTOUCHED = "/app/untouched/page.val.ts" as ModuleFilePath;
-const KB = "/app/kb/page.val.ts" as ModuleFilePath;
+const { s, c, config } = initVal();
 
-type SourcesAnswer = Awaited<
-  ReturnType<DraftSourcesValServer["/sources/~"]["PUT"]>
->;
-type JsonAnswer = Awaited<ReturnType<DraftSourcesValServer["/json"]["GET"]>>;
-type PatchesAnswer = Awaited<
-  ReturnType<DraftSourcesValServer["/patches"]["GET"]>
->;
+const editedVal = c.define(
+  "/app/edited/page.val.ts",
+  s.object({ text: s.string() }),
+  { text: "published" },
+);
+const untouchedVal = c.define(
+  "/app/untouched/page.val.ts",
+  s.object({ text: s.string() }),
+  { text: "published" },
+);
+const kbVal = c.define(
+  "/app/kb/page.val.ts",
+  s.record(s.object({ title: s.string() })).jsonValues(),
+  {
+    "edited-entry": c.json(async () => ({ default: { title: "published" } })),
+    "other-entry": c.json(async () => ({ default: { title: "other" } })),
+  },
+);
+const EDITED = Internal.getValPath(editedVal) as unknown as ModuleFilePath;
+const KB = Internal.getValPath(kbVal) as unknown as ModuleFilePath;
 
-function fakeValServer(
-  answer: SourcesAnswer,
-  more: {
-    patches?: PatchesAnswer;
-    json?: (keys: string[]) => JsonAnswer;
-  } = {},
-): {
-  server: Promise<DraftSourcesValServer>;
-  calls: number[];
-  jsonKeys: string[][];
-} {
-  const calls: number[] = [];
-  const jsonKeys: string[][] = [];
-  const server: DraftSourcesValServer = {
-    "/sources/~": {
-      PUT: async () => {
-        calls.push(calls.length);
-        return answer;
-      },
+async function runtimeOf(opts: { authenticated: boolean }): Promise<{
+  runtime: Promise<ValRuntime>;
+  edit: (path: ModuleFilePath, patch: Patch) => Promise<void>;
+}> {
+  const valModules: ValModules = {
+    config,
+    modules: [editedVal, untouchedVal, kbVal].map((module) => ({
+      def: async () => ({ default: module }),
+    })),
+  };
+  const runtime = createValRuntime(
+    valModules,
+    "/api/val",
+    {
+      ...config,
+      sourceFiles: {},
+      patchStore: new InMemoryPatchStore(),
+      unsafelyAllowUnauthenticated: opts.authenticated,
     },
-    "/patches": {
-      GET: async () =>
-        more.patches ?? {
-          status: 200,
-          json: { patches: [], baseSha: "base-sha" },
+    config,
+  );
+  return {
+    runtime,
+    edit: async (path, patch) => {
+      const res = await (
+        await runtime
+      ).ops.createPatch(
+        path,
+        patch,
+        randomUUID() as PatchId,
+        {
+          type: "head",
+          headBaseSha: await (await runtime).ops.getBaseSha(),
         },
-    },
-    "/json": {
-      GET: async (req) => {
-        const keys = req.query.keys ?? [];
-        jsonKeys.push(keys);
-        if (!more.json) {
-          throw Error("this test reads no entries");
-        }
-        return more.json(keys);
-      },
+        null,
+        null,
+      );
+      if ("error" in res && res.error) throw new Error("could not edit");
     },
   };
-  return { server: Promise.resolve(server), calls, jsonKeys };
 }
-
-const draftAnswer = {
-  status: 200 as const,
-  json: {
-    schemaSha: "schema-sha",
-    sourcesSha: "sources-sha",
-    modules: {
-      [EDITED]: {
-        source: { text: "DRAFT" },
-        preview: null,
-        patches: { applied: ["p1" as PatchId] },
-      },
-      [UNTOUCHED]: { source: { text: "published" }, preview: null },
-    },
-  },
-} satisfies SourcesAnswer;
 
 /** What `cookies()` from `next/headers` answers, as far as Val reads it. */
 const cookies = (session: string | undefined) => async () => ({
@@ -93,37 +99,38 @@ const cookies = (session: string | undefined) => async () => ({
     session === undefined ? undefined : { name, value: session },
 });
 
-/** One request's `cache()` box, as `createReactCacheScope` hands it out. */
-function oneRequestScope(): GetDraftSourcesScope {
-  const box: RequestScopedMemo<DraftSources | null> = {};
-  return async () => box;
-}
-
 test("outside draft mode it reads nothing and gives no draft", async () => {
-  const { server, calls } = fakeValServer(draftAnswer);
+  const { runtime } = await runtimeOf({ authenticated: true });
   const readCookies = jest.fn(cookies(undefined));
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => false,
-    readCookies,
-    oneRequestScope(),
-  );
+  const before = headWork().seqReads;
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => false,
+    getCookies: readCookies,
+  });
   expect(await fetchValDraft()).toBeNull();
   // `cookies()` makes a Next route dynamic: a visitor's request never asks.
   expect(readCookies).not.toHaveBeenCalled();
-  expect(calls).toEqual([]);
+  expect(headWork().seqReads).toBe(before);
 });
 
-test("in draft mode, the draft holds the modules it changes and no others", async () => {
-  const { server } = fakeValServer(draftAnswer);
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => true,
-    cookies("session"),
-    oneRequestScope(),
-  );
+test("in draft mode, the draft holds the modules it changes, with their versions, and no others", async () => {
+  const { runtime, edit } = await runtimeOf({ authenticated: true });
+  await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("session"),
+  });
   const draft = await fetchValDraft();
-  expect(draft).toEqual({ sources: { [EDITED]: { text: "DRAFT" } } });
+  expect(draft?.sources).toEqual({ [EDITED]: { text: "DRAFT" } });
+  // The version the head read it at: the page compares the Studio's relay
+  // with it instead of with the content.
+  const manifest = await (await runtime).ops.head.sync();
+  if ("error" in manifest) throw new Error(manifest.error.message);
+  expect(draft?.versions).toEqual({
+    [EDITED]: manifest.ok.versions[EDITED],
+  });
   // What `ValProvider` takes, as it is: no conversion between the two.
   const prop: ComponentProps<typeof ValNextProvider>["draft"] = draft;
   expect(prop).toBe(draft);
@@ -132,47 +139,40 @@ test("in draft mode, the draft holds the modules it changes and no others", asyn
   expect(JSON.parse(JSON.stringify(draft))).toEqual(draft);
 });
 
-test("it shares the request's one read with fetchVal", async () => {
-  const { server, calls } = fakeValServer(draftAnswer);
-  const scope = oneRequestScope();
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => true,
-    cookies("session"),
-    scope,
-  );
+test("a second read, with nothing moved, reads no chain", async () => {
+  const { runtime, edit } = await runtimeOf({ authenticated: true });
+  await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("session"),
+  });
   await fetchValDraft();
+  const before = headWork();
   await fetchValDraft();
-  expect(calls).toHaveLength(1);
+  expect(headWork().chainReads).toBe(before.chainReads);
+  expect(headWork().materialized).toBe(before.materialized);
 });
 
 test("a session the server refuses is the published page, not an error", async () => {
-  const { server } = fakeValServer({
-    status: 401,
-    json: { message: "Unauthorized" },
+  const { runtime, edit } = await runtimeOf({ authenticated: false });
+  await edit(EDITED, [{ op: "replace", path: ["text"], value: "DRAFT" }]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("stale"),
   });
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => true,
-    cookies("stale"),
-    oneRequestScope(),
-  );
   expect(await fetchValDraft()).toBeNull();
 });
 
-test("a server that fails is the published page, not a page that fails", async () => {
-  const { server } = fakeValServer({
-    status: 500,
-    json: { message: "boom", details: [] },
-  });
+test("a runtime that fails is the published page, not a page that fails", async () => {
   const error = jest.spyOn(console, "error").mockImplementation(() => {});
   try {
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => true,
-      cookies("session"),
-      oneRequestScope(),
-    );
+    const fetchValDraft = initFetchValDraft({
+      runtime: Promise.reject(new Error("boom")),
+      isEnabled: async () => true,
+      getCookies: cookies("session"),
+    });
     expect(await fetchValDraft()).toBeNull();
   } finally {
     error.mockRestore();
@@ -180,93 +180,39 @@ test("a server that fails is the published page, not a page that fails", async (
 });
 
 test("outside a request (draftMode() throws) it is the published page", async () => {
-  const { server, calls } = fakeValServer(draftAnswer);
+  const { runtime } = await runtimeOf({ authenticated: true });
   const error = jest.spyOn(console, "error").mockImplementation(() => {});
+  const before = headWork().seqReads;
   try {
-    const fetchValDraft = initFetchValDraft(
-      server,
-      async () => {
+    const fetchValDraft = initFetchValDraft({
+      runtime,
+      isEnabled: async () => {
         throw new Error("`draftMode` was called outside a request scope.");
       },
-      cookies("session"),
-      oneRequestScope(),
-    );
+      getCookies: cookies("session"),
+    });
     expect(await fetchValDraft()).toBeNull();
-    expect(calls).toEqual([]);
+    expect(headWork().seqReads).toBe(before);
   } finally {
     error.mockRestore();
   }
 });
 
 test("a `.jsonValues()` module has the entries the draft edits, and markers for the rest", async () => {
-  const { c } = initVal();
-  const kbSource = {
-    "edited-entry": c.json(async () => ({ default: { title: "published" } })),
-    "other-entry": c.json(async () => ({ default: { title: "other" } })),
-  };
-  const { server, jsonKeys } = fakeValServer(
-    {
-      status: 200,
-      json: {
-        schemaSha: "schema-sha",
-        sourcesSha: "sources-sha",
-        modules: {
-          [KB]: {
-            source: kbSource,
-            preview: null,
-            patches: { applied: ["p1" as PatchId] },
-          },
-        },
-      },
-    },
-    {
-      patches: {
-        status: 200,
-        json: {
-          baseSha: "base-sha",
-          patches: [
-            {
-              path: KB,
-              patchId: "p1" as PatchId,
-              patch: [
-                {
-                  op: "replace",
-                  path: ["edited-entry", "title"],
-                  value: "DRAFT",
-                },
-              ],
-              createdAt: "2026-10-04T00:00:00.000Z",
-              authorId: null,
-              appliedAt: null,
-            },
-          ],
-        },
-      },
-      json: (keys) => ({
-        status: 200,
-        json: {
-          path: KB,
-          entries: keys.map((key) => ({ key, content: { title: "DRAFT" } })),
-          missing: [],
-          errors: [],
-        },
-      }),
-    },
-  );
-  const fetchValDraft = initFetchValDraft(
-    server,
-    async () => true,
-    cookies("session"),
-    oneRequestScope(),
-  );
+  const { runtime, edit } = await runtimeOf({ authenticated: true });
+  await edit(KB, [
+    { op: "replace", path: ["edited-entry", "title"], value: "DRAFT" },
+  ]);
+  const fetchValDraft = initFetchValDraft({
+    runtime,
+    isEnabled: async () => true,
+    getCookies: cookies("session"),
+  });
   const draft = await fetchValDraft();
-  expect(jsonKeys).toEqual([["edited-entry"]]);
-  expect(draft).toEqual({
-    sources: {
-      [KB]: {
-        "edited-entry": { title: "DRAFT" },
-        "other-entry": { _type: "json" },
-      },
+  expect(draft?.sources).toEqual({
+    [KB]: {
+      "edited-entry": { title: "DRAFT" },
+      "other-entry": { _type: "json" },
     },
   });
 });

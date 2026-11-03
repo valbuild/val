@@ -1,5 +1,10 @@
 import { Internal, initVal } from "@valbuild/core";
 import {
+  EMPTY_CHAIN,
+  moduleKey,
+  type ModuleVersion,
+} from "@valbuild/shared/internal";
+import {
   createWorld,
   moduleFilePathOf,
   type ServerMode,
@@ -23,8 +28,10 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`), and the
  * readers' B07 (`read:resolve`, `read:encode`), and a draft page's
  * refreshes, B08, and the versions a Studio keeps, B09, and what a
- * manifest since the last one names, B10. (B03, a draft read in a 128 MB
- * isolate, is a benchmark, not here.)
+ * manifest since the last one names, B10; and the head's (phase 6): what it
+ * holds, B11, what a request's reads cost it, B12, and what the module
+ * endpoint sends, B13. (B03, a draft read in a 128 MB isolate, is a
+ * benchmark, not here.)
  *
  * Since phase 5 a Studio applies patches with the same engine as the server
  * and computes its own versions, in the same process: `world.expectWork`
@@ -229,16 +236,164 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   });
 
   /**
-   * B06 The engine copies along a patch's path, not the module.
+   * B11 The head grows with what was edited, and keeps two versions.
+   *
+   * Given a project of two modules, one of them 200 items long, both read
+   * by a draft page,
+   * when nothing is edited, then the head holds nothing: an unpatched module
+   * is the reader's own bundle, and nothing is made for it;
+   * and when the editor types forty times into the small one, then the head
+   * holds that module alone, two versions of it (the one shown and the one
+   * before: `HEAD_VERSIONS_PER_MODULE`), and no more bytes than the copied
+   * roots and the typed values -- never the 200 items (risk 11 in the plan,
+   * the isolate's 128 MB).
+   */
+  test("B11 the head holds what was edited, two versions of it", async () => {
+    world = await createWorld({ config, modules: [homeVal, listVal], server });
+    const editor = await world.studio("editor");
+    const page = world.page("/", { draftMode: true });
+    page.reads("home", async (val) => (await val.fetchVal(homeVal)).title);
+    page.reads("list", async (val) => (await val.fetchVal(listVal)).title);
+    await world.settle();
+    await world.observe();
+    expect(await world.head()).toMatchObject({
+      bytes: 0,
+      versions: 0,
+      modules: 0,
+    });
+
+    for (let i = 1; i <= 40; i++) {
+      await editor.edit(homeVal, ["title"], `Typed ${i}`);
+      await world.settle();
+      await world.observe();
+    }
+    expect(world.frames.last("home")).toBe("Typed 40");
+    const head = await world.head();
+    expect(head.modules).toBe(1);
+    expect(head.mostVersionsOfOneModule).toBe(2);
+    // Two versions, each the root (two references) and the title typed.
+    expect(head.bytes).toBeLessThanOrEqual(2 * (8 * 2 + 16));
+  });
+
+  /**
+   * B12 A request's reads ask the head once each, and read the chain once.
+   *
+   * Given a draft page that reads three modules' worth in one request (three
+   * `fetchVal`s and the draft for the provider),
+   * when nothing moved since the last request, then each read asks the head
+   * "has the chain moved?" once (`seq`), and nothing reads the chain or
+   * makes a module (before phase 6 each request read the whole tree,
+   * previewed and validated it, and asked `/patches` and `/json` again for
+   * the draft);
+   * and when the editor typed once in between, the request reads the chain
+   * once, and makes the one module that moved, once.
+   */
+  test("B12 a request's reads ask the head once each, and read the chain once", async () => {
+    world = await createWorld({ config, modules: [homeVal, listVal], server });
+    const editor = await world.studio("editor");
+    const page = world.page("/", { draftMode: true });
+    page.reads("title", async (val) => (await val.fetchVal(homeVal)).title);
+    page.reads("sub", async (val) => (await val.fetchVal(homeVal)).subtitle);
+    page.reads("list", async (val) => (await val.fetchVal(listVal)).title);
+    await editor.edit(homeVal, ["title"], "Typed");
+    await world.settle();
+    await world.observe();
+
+    const quiet = world.workPosition();
+    await world.observe();
+    world.expectWork(quiet, {
+      "head:seq": { atMost: 3 },
+      "head:chain": { exactly: 0 },
+      "head:materialize": { exactly: 0 },
+      "engine:apply-patch": { exactly: 0 },
+    });
+
+    await editor.edit(homeVal, ["subtitle"], "Typed too");
+    await world.settle();
+    const moved = world.workPosition();
+    await world.observe();
+    world.expectWork(moved, {
+      "head:seq": { atMost: 3 },
+      "head:chain": { exactly: 1 },
+      "head:materialize": { exactly: 1 },
+      "engine:apply-patch": { exactly: 1 },
+    });
+    expect(world.frames.last("sub")).toBe("Typed too");
+  });
+
+  /**
+   * B13 The module endpoint sends what moved.
+   *
+   * Given a module of 200 items and a client holding its version,
+   * when the editor types once into one item, then `GET /modules` with the
+   * version the client holds (`have`) answers the one patch, and none of the
+   * module -- a small fraction of the whole answer (risk 1 in the plan: a
+   * pull costs the patch, as the chain replay it replaces did); without
+   * `have` it answers the whole module, at the version the manifest names;
+   * a base is read by its version (the empty chain); and a version the
+   * server does not hold is a 404 that says which one it does.
+   */
+  test("B13 the module endpoint answers a keystroke with the keystroke", async () => {
+    world = await createWorld({ config, modules: [listVal], server });
+    const editor = await world.studio("editor");
+    await world.settle();
+    const LIST = moduleFilePathOf(listVal);
+    const before = (await world.manifest()).modules[LIST];
+    if (before === undefined) throw new Error("no version of the list");
+
+    await editor.edit(listVal, ["items", "150", "name"], "Renamed");
+    await world.settle();
+    const after = (await world.manifest()).modules[LIST];
+    if (after === undefined) throw new Error("no version of the list");
+
+    const whole = await world.modules(listVal);
+    expect(whole.status).toBe(200);
+    expect(whole.json).toMatchObject({ kind: "module", version: after });
+
+    const delta = await world.modules(listVal, {
+      have: moduleKey(LIST, before),
+    });
+    expect(delta.status).toBe(200);
+    expect(delta.json).toMatchObject({
+      kind: "delta",
+      from: before,
+      to: after,
+    });
+    const patches = (delta.json as { patches: unknown[] }).patches;
+    expect(patches).toHaveLength(1);
+    expect(delta.bytes * 20).toBeLessThan(whole.bytes);
+
+    const base: ModuleVersion = { ...after, chain: EMPTY_CHAIN };
+    const byBase = await world.modules(listVal, { v: moduleKey(LIST, base) });
+    expect(byBase.status).toBe(200);
+    expect(byBase.json).toMatchObject({ kind: "module", version: base });
+    expect(
+      (byBase.json as { source: { items: { name: string }[] } }).source
+        .items[150]?.name,
+    ).toBe("Item 150");
+
+    const unknown = await world.modules(listVal, {
+      v: moduleKey(LIST, { ...after, chain: "not-a-chain" }),
+    });
+    expect(unknown.status).toBe(404);
+    expect(unknown.json).toMatchObject({ current: after });
+  });
+
+  /**
+   * B06 The engine copies along a patch's path, not the module -- and the
+   * head applies a patch once, however often it is read.
    *
    * Given a module with a title and a list of 200 items, read in draft mode,
    * when the editor types into the title and everything reads it again,
-   * then every time the server's engine applies that patch it copies the
-   * module's root (two references) and nothing else: the 200 items are
-   * shared with the base (risk 4 in the plan, `engine:clone-bytes`). And
-   * when the editor then types into one item, applying THAT patch copies
-   * the root, the list and the one item: its path, however long the rest is.
-   * Before copy-on-write each patch cloned the whole module.
+   * then the server's engine applies that patch ONCE (the head makes the
+   * module's new version once and every read after is answered from it,
+   * phase 6) and copies the module's root (two references) and nothing
+   * else: the 200 items are shared with the base (risk 4 in the plan,
+   * `engine:clone-bytes`). And when the editor then types into one item,
+   * the head EXTENDS the version before by that one patch -- the title's is
+   * not applied again -- copying the root, the list and the one item: its
+   * path, however long the rest is. Before copy-on-write each patch cloned
+   * the whole module; before the head every read applied the whole chain.
    */
   test("B06 a keystroke copies only along its path", async () => {
     world = await createWorld({ config, modules: [listVal], server });
@@ -253,13 +408,13 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await editor.edit(listVal, ["title"], "Typed");
     await world.settle();
     await world.observe();
+    await world.observe();
     const afterTitle = world.workPosition();
-    const titleApplies = afterTitle.engineApplies - beforeTitle.engineApplies;
-    expect(titleApplies).toBeGreaterThan(0);
     /** The root: `title` and `items`. */
     const rootBytes = 8 * 2;
     world.expectWork(beforeTitle, {
-      "engine:clone-bytes": { exactly: titleApplies * rootBytes },
+      "engine:apply-patch": { exactly: 1 },
+      "engine:clone-bytes": { exactly: rootBytes },
     });
     // The Studio, through the same engine: once, its root.
     editor.expectWork(studioBeforeTitle, {
@@ -271,17 +426,13 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await editor.edit(listVal, ["items", "150", "name"], "Renamed");
     await world.settle();
     await world.observe();
-    const applies =
-      world.workPosition().engineApplies - afterTitle.engineApplies;
-    // Every read now applies the chain: the title's patch, then the item's.
-    expect(applies % 2).toBe(0);
-    const reads = applies / 2;
-    expect(reads).toBeGreaterThan(0);
+    await world.observe();
+    expect(world.frames.last("loader")).toBe("Typed");
     /** The root, the list's 200 references, and the item's two fields. */
     const itemBytes = rootBytes + 8 * ITEMS + 8 * 2;
     world.expectWork(afterTitle, {
-      "engine:apply-patch": { exactly: reads * 2 },
-      "engine:clone-bytes": { exactly: reads * (rootBytes + itemBytes) },
+      "engine:apply-patch": { exactly: 1 },
+      "engine:clone-bytes": { exactly: itemBytes },
     });
     // The Studio applies the new patch alone, on the version before it.
     editor.expectWork(studioBeforeItem, {

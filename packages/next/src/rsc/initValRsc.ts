@@ -22,20 +22,13 @@ import {
   SourceObject,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { cache } from "react";
+import { type ContentSource } from "@valbuild/shared/internal";
 import {
-  type ContentSource,
-  type RequestScopedMemo,
-} from "@valbuild/shared/internal";
-import {
-  createValServer,
+  createValRuntime,
   draftForRequest,
   readDraftChanges,
   readerSchemaVersion,
-  type DraftSources,
-  type DraftValServer,
-  type GetDraftSourcesScope,
-  type ValServer,
+  type ValRuntime,
 } from "@valbuild/server";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
@@ -50,41 +43,12 @@ SET_RSC(true);
  * `docs/plans/one-content-model.md`, "One way to load".
  */
 
-export type { DraftSources, GetDraftSourcesScope };
-
-/** What the draft readers read. */
-export type DraftSourcesValServer = DraftValServer;
-
-/** What the route readers need: what `fetchVal` does, the single-entry route among it. */
-export type RouteReaderValServer = DraftSourcesValServer;
-
 /**
- * The slice of `ValServer` the single-entry readers use. Narrower than
- * `ValServer` on purpose: it says what the dependency IS, and it lets a test
- * drive these readers with a one-route fake.
+ * What the readers read: this process's runtime for the app's `val.modules`
+ * (`createValRuntime`), the same one the API route's server is built on.
+ * Its head is the draft, read with the request's session.
  */
-export type JsonEntryValServer = Pick<ValServer, "/json">;
-
-/**
- * A per-request memo box, from React's request memoisation.
- *
- * `cache()` is what makes this safe: in an RSC render React hands back the SAME
- * object for the length of one request and a fresh one for the next. Outside
- * that — a route handler, a test, the non-`react-server` build of React —
- * `cache` is a pass-through, so every call gets its own object, the memo misses,
- * and the reader does exactly what it did before. Ineffective, never shared.
- * See `memoizePerRequest`. `fetchVal` is an RSC API (`SET_RSC(true)` above, and
- * its own error messages say so), so the effective case is the normal one.
- *
- * Built PER `initValRsc` rather than once for the module, because the box is
- * only as specific as the `cache()` it came from: two Val servers in one
- * process sharing one would answer each other's reads within a request, and
- * they hold different content.
- */
-export function createReactCacheScope(): GetDraftSourcesScope {
-  const getBox = cache((): RequestScopedMemo<DraftSources | null> => ({}));
-  return async () => getBox();
-}
+export type ReaderRuntime = Promise<ValRuntime>;
 
 /** What a misuse of a reader is told, beside what went wrong. */
 const WHERE = "fetchVal can only be used server-side. Use useVal on clients.";
@@ -106,14 +70,13 @@ function requestEnv(enabled: boolean, draft: ContentSource | null): ReadEnv {
 }
 
 /** What a reader needs from the app and the request. */
-type ReaderDeps = {
-  valServer: Promise<DraftValServer>;
+export type ReaderDeps = {
+  runtime: ReaderRuntime;
   isEnabled: () => Promise<boolean>;
   getHeaders: () => Promise<{ get(name: string): string | null }>;
   getCookies: () => Promise<{
     get(name: string): { name: string; value: string } | undefined;
   }>;
-  scope: GetDraftSourcesScope;
 };
 
 /** `fetchVal`, with what it read: see `readsOfFetchVal`. */
@@ -123,14 +86,10 @@ function fetchValWithReads(deps: ReaderDeps) {
     opts?: { entries?: boolean },
   ): Promise<Ready<ResolvedVal<T>>> => {
     const { enabled, draft } = await draftForRequest({
-      valServer: deps.valServer,
+      runtime: deps.runtime,
       isEnabled: deps.isEnabled,
       getCookies: deps.getCookies,
-      modules: {
-        valServer: deps.valServer,
-        getHeaders: deps.getHeaders,
-        scope: deps.scope,
-      },
+      modules: { getHeaders: deps.getHeaders },
       where: WHERE,
     });
     const env = requestEnv(enabled, draft);
@@ -140,54 +99,12 @@ function fetchValWithReads(deps: ReaderDeps) {
   };
 }
 
-export const initFetchValStega = (
-  config: ValConfig,
-  valApiEndpoints: string,
-  valServerPromise: Promise<DraftSourcesValServer>,
-  isEnabled: () => Promise<boolean>,
-  getHeaders: () => Promise<{
-    get(name: string): string | null;
-  }>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-) =>
-  fetchValFrom(
-    fetchValWithReads({
-      valServer: valServerPromise,
-      isEnabled,
-      getHeaders,
-      getCookies,
-      scope: getDraftSourcesScope,
-    }),
-  );
+export const initFetchValStega = (deps: ReaderDeps) =>
+  fetchValFrom(fetchValWithReads(deps));
 
-const initFetchValRouteStega = (
-  config: ValConfig,
-  valApiEndpoints: string,
-  valServerPromise: Promise<RouteReaderValServer>,
-  isEnabled: () => Promise<boolean>,
-  getHeaders: () => Promise<{
-    get(name: string): string | null;
-  }>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-) => {
-  const fetchVal = fetchValWithReads({
-    valServer: valServerPromise,
-    isEnabled,
-    getHeaders,
-    getCookies,
-    scope: getDraftSourcesScope,
-  });
-  const fetchValKey = initFetchValKeyStega(
-    valServerPromise,
-    isEnabled,
-    getCookies,
-  );
+const initFetchValRouteStega = (deps: ReaderDeps) => {
+  const fetchVal = fetchValWithReads(deps);
+  const fetchValKey = initFetchValKeyStega(deps);
   return async <T extends ResolvableModule>(
     selector: T,
     params:
@@ -235,25 +152,20 @@ const initFetchValRouteStega = (
  * Production (Val disabled): the entry's lazy import from the bundle. One
  * dynamic import, no server round-trip.
  *
- * Draft mode: the entry through `/json`, which replays pending patches, so
- * uncommitted Studio edits show up; an entry the draft deleted is not there.
+ * Draft mode: the entry from the runtime's head, with the pending patches the
+ * draft holds for it, so uncommitted Studio edits show up; an entry the draft
+ * deleted is not there. An entry of a record no patch touched is the bundle's.
  */
 export const initFetchValKeyStega =
-  (
-    valServerPromise: Promise<JsonEntryValServer>,
-    isEnabled: () => Promise<boolean>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-  ) =>
+  (deps: Omit<ReaderDeps, "getHeaders">) =>
   async <T extends ResolvableModule>(
     selector: T,
     key: string,
   ): Promise<JsonEntryContentOf<T> | undefined> => {
     const { enabled, draft } = await draftForRequest({
-      valServer: valServerPromise,
-      isEnabled,
-      getCookies,
+      runtime: deps.runtime,
+      isEnabled: deps.isEnabled,
+      getCookies: deps.getCookies,
     });
     const env = requestEnv(enabled, draft);
     return (
@@ -263,26 +175,8 @@ export const initFetchValKeyStega =
     ).value;
   };
 
-const initFetchValRouteUrl = (
-  config: ValConfig,
-  valApiEndpoints: string,
-  valServerPromise: Promise<RouteReaderValServer>,
-  isEnabled: () => Promise<boolean>,
-  getHeaders: () => Promise<{
-    get(name: string): string | null;
-  }>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  getDraftSourcesScope: GetDraftSourcesScope,
-) => {
-  const fetchVal = fetchValWithReads({
-    valServer: valServerPromise,
-    isEnabled,
-    getHeaders,
-    getCookies,
-    scope: getDraftSourcesScope,
-  });
+const initFetchValRouteUrl = (deps: ReaderDeps) => {
+  const fetchVal = fetchValWithReads(deps);
   return async <T extends ResolvableModule>(
     selector: T,
     params?:
@@ -316,9 +210,10 @@ const initFetchValRouteUrl = (
  * `null` -- and no read at all -- unless the request is in draft mode: a
  * visitor pays one `draftMode()` lookup, which does not make a static route
  * dynamic. In draft mode it is the source of every module the editor's draft
- * changes, read with the SAME read every `fetchVal` in the request shares
- * (React's `cache()`), so the server renders the draft and the browser
- * hydrates the same thing. Also `null` when the session is not one Val
+ * changes, from the runtime's head -- the one every `fetchVal` reads -- so
+ * the server renders the draft and the browser hydrates the same thing, with
+ * the version of each, so the page compares versions with what the Studio
+ * relays rather than content. Also `null` when the session is not one Val
  * accepts, or the draft could not be read (logged): the published page.
  *
  * The read is `readDraftChanges` in `@valbuild/server`, which
@@ -326,25 +221,13 @@ const initFetchValRouteUrl = (
  * and the cookies come from is Next's.
  */
 export const initFetchValDraft =
-  (
-    valServerPromise: Promise<DraftValServer>,
-    isEnabled: () => Promise<boolean>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-    getDraftSourcesScope: GetDraftSourcesScope,
-  ) =>
+  (deps: Omit<ReaderDeps, "getHeaders">) =>
   async (): Promise<ValDraft | null> => {
-    const changes = await readDraftChanges({
-      valServer: valServerPromise,
-      isEnabled,
-      getCookies,
-      scope: getDraftSourcesScope,
-    });
-    return changes === null ? null : { sources: changes.sources };
+    const changes = await readDraftChanges(deps);
+    return changes === null
+      ? null
+      : { sources: changes.sources, versions: changes.versions };
   };
-
-const valApiEndpoints = "/api/val";
 
 type ValNextRscConfig = {
   draftMode: typeof draftMode;
@@ -381,9 +264,9 @@ export function initValRsc(
   if (!nextVersion) {
     throw new Error("Could not get @valbuild/next package version");
   }
-  const draftSourcesScope = createReactCacheScope();
-
-  const valServerPromise = createValServer(
+  // One runtime per process for these modules: the API route's server is
+  // built on the same one, so a save through it moves what these read.
+  const runtime = createValRuntime(
     valModules,
     "/api/val",
     {
@@ -395,82 +278,18 @@ export function initValRsc(
       ...config,
     },
     config,
-    {
-      async isEnabled() {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async onEnable() {
-        (await rscNextConfig.draftMode()).enable();
-      },
-      async onDisable() {
-        (await rscNextConfig.draftMode()).disable();
-      },
-    },
   );
+  const deps: ReaderDeps = {
+    runtime,
+    isEnabled: async () => (await rscNextConfig.draftMode()).isEnabled,
+    getHeaders: async () => await rscNextConfig.headers(),
+    getCookies: async () => await rscNextConfig.cookies(),
+  };
   return {
-    fetchValStega: initFetchValStega(
-      config,
-      valApiEndpoints, // TODO: get from config
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.headers();
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
-    fetchValKeyStega: initFetchValKeyStega(
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-    ),
-    fetchValRouteStega: initFetchValRouteStega(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.headers();
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
-    fetchValRouteUrl: initFetchValRouteUrl(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.headers();
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
-    fetchValDraft: initFetchValDraft(
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
+    fetchValStega: initFetchValStega(deps),
+    fetchValKeyStega: initFetchValKeyStega(deps),
+    fetchValRouteStega: initFetchValRouteStega(deps),
+    fetchValRouteUrl: initFetchValRouteUrl(deps),
+    fetchValDraft: initFetchValDraft(deps),
   };
 }

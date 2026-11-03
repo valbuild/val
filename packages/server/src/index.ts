@@ -27,25 +27,21 @@ export type {
   ReadonlyRecordHasNoWrites,
   Returns,
 } from "./externalRecords";
-export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+export {
+  createValApiRouter,
+  createValRuntime,
+  createValServer,
+  safeReadGit,
+} from "./ValRouter";
 // What the server-side readers of @valbuild/next and @valbuild/tanstack read
-// the draft from: one copy for both, which each had line for line.
+// the draft from: the runtime's head, one copy for both frameworks.
 export {
   draftForRequest,
-  draftTree,
-  hasJsonEntriesFromServer,
-  loadDraftSources,
   readDraftChanges,
   readerSchemaVersion,
   serverDraftSource,
-  withDraftJsonEntries,
 } from "./draftReads";
-export type {
-  DraftModuleRead,
-  DraftSources,
-  DraftValServer,
-  GetDraftSourcesScope,
-} from "./draftReads";
+export type { DraftModuleRead } from "./draftReads";
 export {
   contentFromEnv,
   proposalFromEnv,
@@ -61,7 +57,19 @@ export type { ValContentVersion, ValProposal } from "./proposal";
 // while the Studio thinks it is in proxy mode reads different content from the
 // same project.
 export { initHandlerOptions, createValOps } from "./valServerConfig";
-export { sharedValOps } from "./sharedValOps";
+export { valRuntime, type ValRuntime } from "./valRuntime";
+export {
+  ValHead,
+  headWork,
+  HEAD_BUDGET_BYTES,
+  HEAD_VERSIONS_PER_MODULE,
+  type Draft,
+  type HeadChain,
+  type HeadEntries,
+  type HeadModule,
+  type HeadTree,
+  type ModuleAnswer,
+} from "./head";
 // Which credential talks to the content host about remote files: the app's api
 // key, else the developer's own `val login` token off disk. Exported for
 // `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api

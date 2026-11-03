@@ -143,6 +143,13 @@ const MetadataRes = z.object({
   type: z.union([z.literal("file"), z.literal("image")]).nullable(),
 });
 
+/**
+ * `GET /v1/{project}/chain/version`: the branch's chain version alone, for
+ * "has the chain moved?" without reading the chain (phase 6 of
+ * `docs/plans/one-content-model.md`, "a cheap `seq` in http mode").
+ */
+const ChainVersionResponse = z.object({ headVersion: z.number() });
+
 const GetApplicablePatches = z.object({
   patches: z.array(
     z.object({
@@ -735,6 +742,46 @@ export class ValOpsHttp extends ValOps {
 
   protected override hostBuild(): string | null {
     return this.buildName;
+  }
+
+  /**
+   * Whether the content service answers `GET /chain/version`: one that
+   * predates it answers 404, and is not asked again by this instance.
+   */
+  private chainVersionAnswered: boolean | null = null;
+
+  /**
+   * "Has the chain moved?" as one small read: the branch's chain version
+   * (`headVersion`), which the content service bumps with every write,
+   * delete and publish and with each deployment going live -- the same
+   * counter `applicable/patches` answers with, read alone (valbuild/home
+   * `readChainVersion`). `null` when it cannot be read: from a content
+   * service that predates it, or on any failure, the head reads the whole
+   * chain as before.
+   */
+  override async chainSeq(): Promise<number | null> {
+    if (this.chainVersionAnswered === false) return null;
+    const branch = this.ownBranch();
+    const query =
+      branch !== undefined ? `?${new URLSearchParams({ branch })}` : "";
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/chain/version${query}`,
+        { headers: this.authHeaders },
+      );
+      if (res.status === 404) {
+        this.chainVersionAnswered = false;
+        return null;
+      }
+      if (!res.ok) return null;
+      const parsed = ChainVersionResponse.safeParse(await res.json());
+      if (!parsed.success) return null;
+      this.chainVersionAnswered = true;
+      return parsed.data.headVersion;
+    } catch (err) {
+      Internal.log.debug("could not read the chain version", err);
+      return null;
+    }
   }
   /**
    * A deployment that cannot mirror a project which expects to be mirrored.

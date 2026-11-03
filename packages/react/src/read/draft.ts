@@ -1,4 +1,5 @@
 import type { Json, ModuleFilePath } from "@valbuild/core";
+import type { ModuleVersion } from "@valbuild/shared/internal";
 import { ValExternalStore } from "./overlayStore";
 
 /**
@@ -23,6 +24,19 @@ import { ValExternalStore } from "./overlayStore";
  */
 export type ValDraft = {
   sources: Record<ModuleFilePath, Json>;
+  /**
+   * The version of each module in {@link sources}, as the server's draft
+   * computed it: `{ schema, base, chain }`, plain strings. The Studio relays
+   * each module with the version it computed, which is the server's for the
+   * same content, so the page compares two versions rather than two
+   * modules' content -- on the first relay too -- and tells the Studio which
+   * versions it holds when it connects. Optional: a draft read by a server
+   * of the release before carries none, and is compared by content.
+   */
+  versions?: Record<
+    ModuleFilePath,
+    { schema: string; base: string; chain: string }
+  >;
   /**
    * At a proposal's address: the Source the proposal has saved, which
    * replaces the bundle's for those modules on EVERY render, draft or not --
@@ -86,7 +100,7 @@ export function createDraftStore(
         status: "ready",
         source: draft.sources[path],
         from: "seeded",
-        version: null,
+        version: draft.versions?.[path] ?? null,
       });
     }
   }
@@ -98,18 +112,35 @@ export function createDraftStore(
  * rendered with a draft of. The Studio sends each of them in its catch-up,
  * pending or not (`sendPendingSources` in `@valbuild/ui`), so a draft that
  * stopped being the draft before the Studio was there -- discarded,
- * published -- is replaced rather than kept. Paths, not versions: the draft
- * the page was rendered with carries none (`ValDraft` has no versions; the
- * relay's reads have carried the Studio's since phase 5 of
- * `docs/plans/one-content-model.md`), so the page compares what it is sent
- * with what it holds (`ValExternalStore.receive`) and a module that did not
- * move costs nothing.
+ * published -- is replaced rather than kept. With the version of each
+ * where the draft carries one ({@link draftHoldsVersions}): the page compares
+ * what it is sent with what it holds by version (`ValExternalStore.receive`),
+ * and a module that did not move costs nothing.
  */
 export function draftHolds(
   draft: ValDraft | null | undefined,
 ): ModuleFilePath[] {
   if (!isDraft(draft)) return [];
   return Object.keys(draft.sources).filter(isModuleFilePathOf(draft.sources));
+}
+
+/**
+ * The versions the page was rendered with, of the modules
+ * {@link draftHolds} names, where the draft says (phase 6 of
+ * `docs/plans/one-content-model.md`): what the page reports beside the paths
+ * when it connects, so the Studio can tell a module the page holds at the
+ * version it would send. A module without one is left out.
+ */
+export function draftHoldsVersions(
+  draft: ValDraft | null | undefined,
+): Partial<Record<ModuleFilePath, ModuleVersion>> {
+  const versions: Partial<Record<ModuleFilePath, ModuleVersion>> = {};
+  if (!isDraft(draft) || draft.versions === undefined) return versions;
+  for (const path of draftHolds(draft)) {
+    const version = draft.versions[path];
+    if (version !== undefined) versions[path] = version;
+  }
+  return versions;
 }
 
 /** Narrows a key of `sources` back to the path it was written under. */
