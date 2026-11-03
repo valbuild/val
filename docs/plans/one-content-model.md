@@ -1605,13 +1605,22 @@ shapes are correct, not that they are fast.
    network requests made.
 5. **Fix what the numbers show**, each fix with the budget that pins it.
 
-### Targets, to agree before the work starts
+### Targets (decided 2026-11-03)
 
-Suggested, not decided: with 100,000 `.jsonValues()` entries and 10,000
-media entries in one project, the Studio shows the first field in under
-2 s on a mid-range laptop, a keystroke stays under 16 ms, scrolling a list or
-gallery has no long task over 50 ms, browsing does not request or import
-entries that are not on screen, and the tab stays under 500 MB of heap.
+10,000 entries is extreme for Val; the point is to know how the shoe fits.
+
+- **1,000 entries: instant.** The suggested numbers apply: the first field in
+  under 2 s, a keystroke under 16 ms, no long task over 50 ms while
+  scrolling, nothing requested or imported that is not on screen.
+- **10,000: usable.** Slower is acceptable; no freeze, no crash, no lost edit,
+  and progress shown for anything long.
+- **100,000: measured only.** Where and how it breaks.
+
+**When a surface misses its target: report, decide later.** Phase 10
+measures and reports first -- every surface (cold start, list, gallery,
+picker, keystroke, search, validation, upload, publish) as fine, degraded or
+broken at 1k, 10k and 100k -- and what to fix, and what to document as a
+limit, is decided once the whole map is in front of the person deciding.
 
 ### When
 
