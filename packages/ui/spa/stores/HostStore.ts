@@ -10,6 +10,7 @@ import {
   type SerializedSchema,
   type SourcePath,
   type ValModule,
+  type ValModules,
   type ValidationErrors,
 } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
@@ -22,6 +23,7 @@ import type {
 import type { SchemaStore } from "./SchemaStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
+import { loadValModules } from "./react/loadValModules";
 
 /**
  * REALM: host. Cannot ever move to a worker.
@@ -50,6 +52,32 @@ import { noopActivity, type ActivitySink } from "./activity";
 export type IntakeModule =
   | ValModule<SelectorSource>
   | { readonly threw: string };
+
+/**
+ * What {@link HostStore.reloadCode} did with a registry.
+ *
+ * `reloaded`: it is the Studio's code now. `changed` are the modules whose
+ * schema moved (or that are new), `removed` the ones no longer in it, and
+ * `failures` what could not be read -- a module whose code throws is kept as
+ * it was (S12), and named there.
+ *
+ * `kept`: nothing was touched, and the Studio runs the code it had. Only
+ * `does-not-load` today: the registry itself could not be read. The plan's
+ * other two reasons -- a build with another Val (`other-val-version`) and a
+ * registry from a build the manifest does not name (`not-the-manifest's`) --
+ * come with a build's own registry, after `manifestSource` (see "Phase 9
+ * without phases 6 and 7" in `docs/plans/one-content-model.md`).
+ */
+export type CodeReload =
+  | {
+      status: "reloaded";
+      changed: ModuleFilePath[];
+      removed: ModuleFilePath[];
+      failures: readonly ModuleFailure[];
+    }
+  | { status: "kept"; reason: "does-not-load"; details: string }
+  /** A later registry arrived while this one was read: that one decides. */
+  | { status: "kept"; reason: "superseded" };
 
 /** A module intake could not read, and why. See {@link HostStore.failures}. */
 export type ModuleFailure = {
@@ -129,6 +157,72 @@ export class HostStore implements HostBridge {
    * names it -- a registry entry is an `import()` and nothing else.
    */
   private adoptedAt: (Adopted | undefined)[] = [];
+
+  /**
+   * Put a `val.modules` registry in place: THE way new code reaches the
+   * Studio, whatever brought it -- the first registry, HMR
+   * (`val-modules-updated`), or the code the tab evaluated after a staging
+   * (`evaluateStagedCode`). One path, so all three are the same intake, and
+   * every scenario that changes code drives it.
+   *
+   * The registry is read BEFORE anything is touched: a registry that cannot
+   * be read leaves the Studio on the code it had and says why (`kept`), and
+   * one whose modules throw keeps those modules as they were. Only the
+   * modules whose schema moved are touched downstream: `SchemaStore` and
+   * `SourceStore` compare by identity, and an unchanged module hands over the
+   * very objects it did last time.
+   *
+   * Replaced, not merged: a module no longer in the registry goes (S13).
+   */
+  /** How many registries {@link reloadCode} has been handed. */
+  private reloads = 0;
+
+  async reloadCode(
+    registry: ValModules,
+    /** See {@link receive}'s `served`. */
+    served?: Record<ModuleFilePath, Json>,
+  ): Promise<CodeReload> {
+    const generation = ++this.reloads;
+    let modules: IntakeModule[];
+    try {
+      modules = await loadValModules(registry);
+    } catch (error) {
+      if (generation !== this.reloads) {
+        return { status: "kept", reason: "superseded" };
+      }
+      const details = error instanceof Error ? error.message : String(error);
+      // The first intake still has to complete, or every readiness gate waits
+      // for it forever: with nothing, honestly (see `ValStoreProvider`).
+      if (this.receivedAt === null) this.receive([], served);
+      return { status: "kept", reason: "does-not-load", details };
+    }
+    // Read in parallel, adopted in order: an older registry whose imports
+    // took longer must not land over a newer one (two HMR rounds in a row).
+    if (generation !== this.reloads) {
+      return { status: "kept", reason: "superseded" };
+    }
+    const before = this.schemaStore.all();
+    this.receive(modules, served);
+    const after = this.schemaStore.all();
+    const changed: ModuleFilePath[] = [];
+    for (const moduleFilePath of Object.keys(after)) {
+      if (!isModuleFilePath(moduleFilePath)) continue;
+      if (before[moduleFilePath] !== after[moduleFilePath]) {
+        changed.push(moduleFilePath);
+      }
+    }
+    const removed: ModuleFilePath[] = [];
+    for (const moduleFilePath of Object.keys(before)) {
+      if (!isModuleFilePath(moduleFilePath)) continue;
+      if (after[moduleFilePath] === undefined) removed.push(moduleFilePath);
+    }
+    return {
+      status: "reloaded",
+      changed,
+      removed,
+      failures: this.moduleFailures,
+    };
+  }
 
   receive(
     modules: IntakeModule[],
@@ -490,4 +584,9 @@ export class HostStore implements HostBridge {
   loadedModules(): ModuleFilePath[] {
     return Object.keys(this.instances) as ModuleFilePath[];
   }
+}
+
+/** A schema store's key: the module's path, which is absolute. */
+function isModuleFilePath(path: string): path is ModuleFilePath {
+  return path.startsWith("/");
 }

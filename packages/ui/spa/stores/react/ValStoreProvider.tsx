@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { PatchId, ValModules } from "@valbuild/core";
 import type { System } from "../createSystem";
 import { ValSystemProvider } from "./SystemContext";
-import { loadValModules } from "./loadValModules";
 import { statSnapshotOf } from "./statSnapshotOf";
 
 /**
@@ -75,26 +74,38 @@ export function ValStoreProvider({
     }
     let cancelled = false;
     void (async () => {
-      const modules = await loadValModules(valModules);
+      /**
+       * The first registry and every one HMR brings (`val-modules-updated`)
+       * go through the same door, `reloadCode`, as staged code does.
+       *
+       * It completes intake even when NOTHING is adopted. The guard here used
+       * to be `modules.length > 0`, which reads as caution and is a hang: if
+       * every import rejects -- or the registry is momentarily empty --
+       * `receivedAt` stays null, so every readiness gate reads "not ready",
+       * `/stat` is never fed in, and anything waiting on intake waits forever.
+       * An empty intake is honest: no modules, and the project is known to
+       * have none rather than not yet known.
+       *
+       * The failures are not lost: `HostStore.receive` records the ones that
+       * could not be read and the dev banner names them; a registry that
+       * cannot be read at all leaves the code the Studio had, and says so.
+       *
+       * With the base the page serves, where it is not the bundle's: see
+       * `HostStore.receive`.
+       */
+      const reload = await system.host.reloadCode(
+        valModules,
+        window.__VAL_BASE__,
+      );
       if (cancelled) {
         return;
       }
-      /**
-       * Unconditionally, even when NOTHING was adopted.
-       *
-       * The guard here used to be `modules.length > 0`, which reads as caution
-       * and is a hang: if every import rejects — or the registry is momentarily
-       * empty — `receivedAt` stays null, so every readiness gate reads "not
-       * ready", `/stat` is never fed in, and anything waiting on intake waits
-       * forever. `receive([])` completes intake honestly: no modules, and the
-       * project is known to have none rather than not yet known.
-       *
-       * The failures are not lost: `HostStore.receive` records the ones that
-       * could not serialize and the dev banner names them.
-       */
-      // With the base the page serves, where it is not the bundle's: see
-      // `HostStore.receive`.
-      system.host.receive(modules, window.__VAL_BASE__);
+      if (reload.status === "kept" && reload.reason === "does-not-load") {
+        system.status.reportError(
+          "The new code could not be loaded, so the Studio shows the code it had.",
+          reload.details,
+        );
+      }
       setReceived(true);
     })();
     return () => {

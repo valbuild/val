@@ -170,6 +170,52 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   });
 
   /**
+   * S12 (the registry) A registry that cannot be read at all -- `val.modules`
+   * itself throws -- leaves the Studio on the code it had, and says why.
+   *
+   * `HostStore.reloadCode` reads the registry before it touches anything, so
+   * nothing is half-taken: the same schemas, the same content, and the
+   * answer is `kept` with what it threw, which the Studio shows the editor
+   * (`ValStoreProvider`).
+   */
+  test("S12 a registry that cannot be read leaves the Studio on the code it had", async () => {
+    world = await createWorld({ config, modules: [home, footer], server });
+    const editor = await world.studio("editor");
+    editor.reads("field", home, ["title"]);
+    const schemas = editor.system.schemaStore.all();
+    const reload = await editor.receiveRegistry(registryThatThrows());
+    expect(reload).toEqual({
+      status: "kept",
+      reason: "does-not-load",
+      details: "val.modules.ts threw",
+    });
+    expect(editor.system.schemaStore.all()).toBe(schemas);
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Hello");
+  });
+
+  /**
+   * reloadCode says what it did: the modules whose schema moved, and the
+   * ones that went -- and nothing about a module that came along unchanged.
+   */
+  test("reloadCode names the modules that moved and the ones that went", async () => {
+    world = await createWorld({ config, modules: [home, footer], server });
+    const editor = await world.studio("editor");
+    expect(await editor.receiveCode([homeWithCta, footer])).toEqual({
+      status: "reloaded",
+      changed: [PATH],
+      removed: [],
+      failures: [],
+    });
+    expect(await editor.receiveCode([homeWithCta])).toEqual({
+      status: "reloaded",
+      changed: [],
+      removed: ["/content/footer.val.ts"],
+      failures: [],
+    });
+  });
+
+  /**
    * S13 A removed module disappears from the Studio.
    *
    * Given a Studio showing two modules,
@@ -296,6 +342,16 @@ function registryWithThrowingFooter(): ValModules {
       { def: () => Promise.resolve({ default: home }) },
       { def: () => Promise.reject(new Error("footer.val.ts threw")) },
     ],
+  };
+}
+
+/** A registry whose `val.modules` throws when it is read. */
+function registryThatThrows(): ValModules {
+  return {
+    config,
+    get modules(): ValModules["modules"] {
+      throw new Error("val.modules.ts threw");
+    },
   };
 }
 

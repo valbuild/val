@@ -73,7 +73,7 @@ import {
 // The Studio's own code, by path: `@valbuild/ui` exports the built Studio,
 // not its stores. Each of these is what the Studio runs, unchanged.
 import { createValSystem } from "../../../packages/ui/spa/stores/react/createValSystem";
-import { loadValModules } from "../../../packages/ui/spa/stores/react/loadValModules";
+import type { CodeReload } from "../../../packages/ui/spa/stores/HostStore";
 import { statSnapshotOf } from "../../../packages/ui/spa/stores/react/statSnapshotOf";
 import {
   parseSocketMessage,
@@ -376,16 +376,17 @@ export type Studio = {
   readonly stat: StatState;
   /**
    * New code reaches the Studio: what `ValStoreProvider` does when the app's
-   * `<ValModulesClient>` registers a new registry (`val-modules-updated`):
-   * `loadValModules`, then `HostStore.receive`.
+   * `<ValModulesClient>` registers a new registry (`val-modules-updated`),
+   * `HostStore.reloadCode` -- the one door for new code, which staged code
+   * evaluated in the tab goes through too.
    */
-  receiveCode(modules: AnyModule[]): Promise<void>;
+  receiveCode(modules: AnyModule[]): Promise<CodeReload>;
   /**
    * A registry reaches the Studio, as `<ValModulesClient>` registers one: for
    * a registry whose modules are not all plain (a `def` that rejects, as a
    * module whose code throws does). {@link receiveCode} is this, for modules.
    */
-  receiveRegistry(registry: ValModules): Promise<void>;
+  receiveRegistry(registry: ValModules): Promise<CodeReload>;
   /** The messages the Studio is showing the editor (`StatusStore`). */
   errors(): string[];
   /** The work the Studio's stores record (`activity.ts`), counted. */
@@ -1161,7 +1162,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     options.beforeIntake?.(system);
     // Intake, then /stat: the order `ValStoreProvider` uses. With the base the
     // page serves, where it is not the bundle's (`window.__VAL_BASE__`).
-    system.host.receive(await loadValModules(registry), options.base);
+    await system.host.reloadCode(registry, options.base);
 
     // The Studio's /stat poll: what is asked (`requestStat`), what an answer
     // does to it (`statStateAfterAnswer`) and when it asks again
@@ -1326,12 +1327,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       get stat() {
         return stat;
       },
-      async receiveCode(modules) {
-        system.host.receive(await loadValModules(registryOf(modules)));
-      },
-      async receiveRegistry(registry) {
-        system.host.receive(await loadValModules(registry));
-      },
+      receiveCode: (modules) => system.host.reloadCode(registryOf(modules)),
+      receiveRegistry: (registry) => system.host.reloadCode(registry),
       work,
       expectWork(since, budget) {
         const over: string[] = [];
