@@ -2528,7 +2528,6 @@ export function useAI(
                         ? { valModules: stagedCodeNotice(staged) }
                         : {}),
                     },
-                    },
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
