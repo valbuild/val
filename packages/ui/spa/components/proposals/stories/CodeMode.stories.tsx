@@ -655,6 +655,48 @@ export const CommitBuildOnTheirPushSignedOut = shell({
 });
 
 /**
+ * Signed in, and not allowed to change the proposal (not a member of the
+ * project): the owners by name and an email to them -- not Sign in, which
+ * presents the same credential again.
+ */
+export const CommitBuildOnTheirPushNotAllowed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "You are not allowed to change this proposal, so their push was not brought in. You are not a member of this project. Ask an owner of acme to add you.",
+    offer: {
+      kind: "not-allowed",
+      owners: [{ name: "Grace Hopper", email: "grace@acme.example" }],
+      projectUrl: "#project",
+    },
+  },
+});
+
+/**
+ * Their code does not build, and building again cannot help (the build
+ * said so): the error, and the assistant to fix it.
+ */
+export const CommitBuildOnTheirPushDoesNotBuild = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "built",
+    kept: [],
+    notTaken: [],
+    rewritten: false,
+    rebuild: {
+      state: "failed",
+      message: "src/components/Hero.tsx: Unexpected token (12:4)",
+      canRetry: false,
+    },
+  },
+});
+
+/**
  * The project's plan refuses writes (a trial that ended): Billing, where it
  * is fixed -- not Sign in, which would be refused the same way.
  */

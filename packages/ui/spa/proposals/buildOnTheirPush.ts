@@ -55,14 +55,17 @@ export type BuildOnPushOutcome =
       message: string;
       /**
        * What can help, and only that: press it again (the proposal or GitHub
-       * was busy, or Val could not be reached), sign in again, or the
-       * organization's Billing (the plan refuses writes, as it refuses a
-       * save). `null`: nothing here can; the message says what can.
+       * was busy, or Val could not be reached), sign in again (the session
+       * ran out: a 401), the organization's Billing (the plan refuses
+       * writes, as it refuses a save), or the people who can let them (a
+       * 403 that is not the plan's: they are signed in, and not allowed).
+       * `null`: nothing here can; the message says what can.
        */
       offer:
         | { kind: "retry" }
         | { kind: "sign-in" }
         | { kind: "billing"; url: string }
+        | { kind: "not-allowed" }
         | null;
     };
 
@@ -115,11 +118,25 @@ export async function buildOnTheirPush(
             : null,
       };
     }
-    if (error.status === 401 || error.status === 403) {
+    if (error.status === 401) {
       return {
         status: "failed",
         message: "Your session has run out, so their push was not brought in.",
         offer: { kind: "sign-in" },
+      };
+    }
+    if (error.status === 403) {
+      /*
+       * Signed in, and not allowed (content: not a member of the project, a
+       * role without the scope, a credential that names nobody): signing in
+       * again presents the same credential and gets the same refusal. Who
+       * can allow it is the project's owners. Content's own message says
+       * which it was, in words for the person.
+       */
+      return {
+        status: "failed",
+        message: `You are not allowed to change this proposal, so their push was not brought in. ${message}`,
+        offer: { kind: "not-allowed" },
       };
     }
     const refusal = Refusal.safeParse(error.body);

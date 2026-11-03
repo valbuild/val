@@ -123,6 +123,7 @@ import {
 } from "../../hooks/studioSettings";
 import { useAIChatActions } from "../AIChatActionsContext";
 import { GitCommit } from "lucide-react";
+import type { Owner } from "../shell/planLimits/studioAccess";
 import type {
   ProposalCodeState,
   ProposalPerson,
@@ -194,9 +195,17 @@ export function useProposalsBar({
   unsaved,
   portalContainer,
   onCompare,
+  owners = [],
+  projectUrl = null,
 }: {
   /** Changes made since the last save: the Save button's count. */
   unsaved: number;
+  /**
+   * Who can let someone do what they are not allowed to: the project's
+   * owners and its page in Val Build (`/access`), for a refusal that says so.
+   */
+  owners?: Owner[];
+  projectUrl?: string | null;
   portalContainer?: HTMLElement | null;
   /** Compare with the site: what Publish would publish. */
   onCompare?: () => void;
@@ -834,11 +843,13 @@ export function useProposalsBar({
           offer:
             outcome.offer?.kind === "sign-in"
               ? { kind: "sign-in", url: signInUrl() }
-              : outcome.offer,
+              : outcome.offer?.kind === "not-allowed"
+                ? { kind: "not-allowed", owners, projectUrl }
+                : outcome.offer,
         });
         return;
     }
-  }, [client, here, refresh]);
+  }, [client, here, refresh, owners, projectUrl]);
   const defaultCommitMessage = `Changes in “${currentJson?.displayName ?? "the proposal"}”`;
   const commit: ProposalCommit | undefined =
     git === null || here === null
@@ -1742,6 +1753,9 @@ export function useProposalsBar({
           updating={updating}
           onBuildOnPush={() => void runBuildOnPush()}
           onRebuild={() => void runBuild()}
+          {...(previewProblem !== null
+            ? { onAskAssistant: previewProblem.onAskAssistant }
+            : {})}
           onBuild={() => void runBuild().then(() => loadChecks())}
           building={previewUpdateOf(code).state === "updating"}
           portalContainer={portalContainer}
@@ -1903,6 +1917,9 @@ export function useProposalsBar({
                 )
               }
               onRebuild={() => void runBuild()}
+              {...(previewProblem !== null
+                ? { onAskAssistant: previewProblem.onAskAssistant }
+                : {})}
               onDismiss={() => setTheirPush(null)}
             />
           ),

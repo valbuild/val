@@ -219,6 +219,7 @@ export function PublishProposalDialog({
   updating = false,
   onBuildOnPush,
   onRebuild,
+  onAskAssistant,
   onBuild,
   building = false,
   portalContainer,
@@ -267,6 +268,8 @@ export function PublishProposalDialog({
   onBuildOnPush?: () => void;
   /** Build the preview with their code, which Publish waits for. */
   onRebuild?: () => void;
+  /** That build failed: ask the assistant to fix what breaks it. */
+  onAskAssistant?: () => void;
   /** The `build` check's action: build the proposal, then check again. */
   onBuild?: () => void;
   /** The proposal is being built now. */
@@ -501,6 +504,7 @@ export function PublishProposalDialog({
               onBuildOn={() => onBuildOnPush?.()}
               onAgain={onPublish}
               {...(onRebuild !== undefined ? { onRebuild } : {})}
+              {...(onAskAssistant !== undefined ? { onAskAssistant } : {})}
               onDismiss={() => onOpenChange(false)}
             />
           )}

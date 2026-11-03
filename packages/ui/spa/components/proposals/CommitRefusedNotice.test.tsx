@@ -39,6 +39,7 @@ function shown(
       onBuildOn={() => pressed.push("build on")}
       onAgain={() => pressed.push("again")}
       onRebuild={() => pressed.push("rebuild")}
+      onAskAssistant={() => pressed.push("ask")}
       onDismiss={() => pressed.push("dismiss")}
     />,
   );
@@ -145,4 +146,63 @@ test("signed out: Sign in, back to this page", () => {
   expect(
     screen.getByRole("link", { name: /Sign in/ }).getAttribute("href"),
   ).toBe("/api/val/authorize?redirect_to=here");
+});
+
+test("not allowed: the owners by name, and an email to them -- not Sign in", () => {
+  shown("commit", {
+    kind: "failed",
+    message:
+      "You are not allowed to change this proposal, so their push was not brought in.",
+    offer: {
+      kind: "not-allowed",
+      owners: [
+        { name: "Grace Hopper", email: "grace@acme.example" },
+        { name: "Alan Turing", email: "alan@acme.example" },
+      ],
+      projectUrl: "https://admin.val.build/acme/site",
+    },
+  });
+  expect(
+    screen.getByText(/The owners are Grace Hopper and Alan Turing\./),
+  ).toBeTruthy();
+  const email = screen.getByRole("link", { name: /Email the owners/ });
+  expect(email.getAttribute("href")).toMatch(
+    /^mailto:grace@acme\.example,alan@acme\.example\?subject=/,
+  );
+  expect(screen.queryByRole("link", { name: /Sign in/ })).toBe(null);
+});
+
+test("not allowed, and Val Build did not say who the owners are: the project's page, which does", () => {
+  shown("commit", {
+    kind: "failed",
+    message: "You are not allowed to change this proposal.",
+    offer: {
+      kind: "not-allowed",
+      owners: [],
+      projectUrl: "https://admin.val.build/acme/site",
+    },
+  });
+  expect(
+    screen
+      .getByRole("link", { name: /Open in Val Build/ })
+      .getAttribute("href"),
+  ).toBe("https://admin.val.build/acme/site");
+});
+
+test("their code does not build, and building again cannot help: the assistant, not only Dismiss", () => {
+  const { pressed } = shown("publish", {
+    kind: "built",
+    kept: [],
+    notTaken: [],
+    rewritten: false,
+    rebuild: {
+      state: "failed",
+      message: "src/routes/index.tsx: Unexpected token",
+      canRetry: false,
+    },
+  });
+  expect(screen.getByText(/Unexpected token/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Ask the assistant/ }));
+  expect(pressed).toEqual(["ask"]);
+  expect(buttons()).not.toContain("Build again");
 });

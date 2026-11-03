@@ -739,6 +739,7 @@ export function ProposalsShell({
             buildOn.kind === "built" &&
             setBuildOn({ ...buildOn, rebuild: { state: "running" } })
           }
+          onAskAssistant={action("ask the assistant to fix the build")}
           onDismiss={() => setRefusedShown(false)}
         />
       ),

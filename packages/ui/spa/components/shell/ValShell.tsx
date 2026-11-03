@@ -18,6 +18,7 @@ import { usePlanNotice } from "./planLimits/usePlanNotice";
 import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
+import type { Owner } from "./planLimits/studioAccess";
 import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
@@ -159,6 +160,9 @@ import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvid
  * signing out) is delegated to the components that already own it rather than
  * reimplemented against the new layout.
  */
+/** Stable, so the proposals bar's callbacks do not move with every render. */
+const NO_OWNERS: Owner[] = [];
+
 export function ValShell() {
   const shellData = useShellData();
   const authenticationState = useAuthenticationState();
@@ -1360,6 +1364,8 @@ function ValShellBody({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
     onCompare: openSiteCompare,
+    owners: studioAccess.access?.owners ?? NO_OWNERS,
+    projectUrl: studioAccess.access?.projectUrl ?? null,
   });
 
   /**

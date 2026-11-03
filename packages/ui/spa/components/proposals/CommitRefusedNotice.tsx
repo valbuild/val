@@ -7,10 +7,14 @@ import {
   Hammer,
   Loader2,
   LogIn,
+  Mail,
   RotateCcw,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
+import { names } from "../shell/planLimits/readOnly";
+import type { Owner } from "../shell/planLimits/studioAccess";
 
 /**
  * A Commit -- or the commit Publish makes before it merges -- refused because
@@ -88,6 +92,12 @@ export type BuildOnPushOffer =
   | { kind: "sign-in"; url: string }
   /** The project's plan refuses writes: the organization's Billing. */
   | { kind: "billing"; url: string }
+  /**
+   * Signed in and not allowed: who can allow it -- the project's owners, by
+   * name, to write to -- or, where Val Build did not say who they are, the
+   * project's page, which lists them.
+   */
+  | { kind: "not-allowed"; owners: Owner[]; projectUrl: string | null }
   | { kind: "again" };
 
 export function CommitRefusedNotice({
@@ -96,6 +106,7 @@ export function CommitRefusedNotice({
   onBuildOn,
   onAgain,
   onRebuild,
+  onAskAssistant,
   onDismiss,
 }: {
   refused: CommitRefused;
@@ -106,6 +117,12 @@ export function CommitRefusedNotice({
   onAgain: () => void;
   /** Build the proposal's preview with their code: due, or failed. */
   onRebuild?: () => void;
+  /**
+   * The preview could not be built with their code: ask the assistant to
+   * find what in it breaks the build and fix it, as the preview's own
+   * failure offers. The way on when building again cannot help.
+   */
+  onAskAssistant?: () => void;
   onDismiss: () => void;
 }) {
   const title =
@@ -181,6 +198,10 @@ export function CommitRefusedNotice({
               </>
             )}
             {state.kind === "failed" && state.message}
+            {state.kind === "failed" &&
+              state.offer?.kind === "not-allowed" &&
+              state.offer.owners.length > 0 &&
+              ` ${state.offer.owners.length === 1 ? "The owner is" : "The owners are"} ${names(state.offer.owners)}.`}
           </p>
           {state.kind === "built" && state.kept.length > 0 && (
             <FileList
@@ -238,6 +259,17 @@ export function CommitRefusedNotice({
                   {rebuild.state === "failed" ? "Build again" : "Build"}
                 </button>
               )}
+            {rebuild !== null &&
+              rebuild.state === "failed" &&
+              onAskAssistant !== undefined && (
+                <button
+                  type="button"
+                  onClick={onAskAssistant}
+                  className={rebuild.canRetry ? SECONDARY : PRIMARY}
+                >
+                  <Sparkles size={12} /> Ask the assistant to fix it
+                </button>
+              )}
             {((state.kind === "built" && !againWaits) ||
               (state.kind === "failed" && state.offer?.kind === "again")) && (
               <button type="button" onClick={onAgain} className={PRIMARY}>
@@ -258,6 +290,9 @@ export function CommitRefusedNotice({
               <a href={state.offer.url} className={PRIMARY}>
                 <LogIn size={12} /> Sign in
               </a>
+            )}
+            {state.kind === "failed" && state.offer?.kind === "not-allowed" && (
+              <AskOwners offer={state.offer} refused={refused} />
             )}
             {state.kind === "failed" && state.offer?.kind === "billing" && (
               <a
@@ -287,6 +322,48 @@ export function CommitRefusedNotice({
       </div>
     </section>
   );
+}
+
+/**
+ * Ask the owners for access: an email to them, saying which proposal and
+ * why, or the project's page in Val Build when it did not say who they are.
+ * Nothing at all when neither is known -- the message names who can help.
+ */
+function AskOwners({
+  offer,
+  refused,
+}: {
+  offer: Extract<BuildOnPushOffer, { kind: "not-allowed" }>;
+  refused: CommitRefused;
+}) {
+  if (offer.owners.length > 0) {
+    const one = offer.owners.length === 1 ? offer.owners[0] : undefined;
+    const to = offer.owners.map((owner) => owner.email).join(",");
+    const subject = "Access to change a proposal";
+    const body = `I am not allowed to change the proposal on ${refused.branch}, so I could not bring a push into it. Could you give me access?`;
+    return (
+      <a
+        href={`mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+        className={PRIMARY}
+      >
+        <Mail size={12} />{" "}
+        {one !== undefined ? `Email ${one.name}` : "Email the owners"}
+      </a>
+    );
+  }
+  if (offer.projectUrl !== null) {
+    return (
+      <a
+        href={offer.projectUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={PRIMARY}
+      >
+        <ExternalLink size={12} /> Open in Val Build
+      </a>
+    );
+  }
+  return null;
 }
 
 /** "Ada Lovelace pushed to val/p/… 5 minutes ago". */

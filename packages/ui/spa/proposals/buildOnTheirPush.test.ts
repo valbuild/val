@@ -77,14 +77,44 @@ describe("buildOnTheirPush", () => {
     });
   });
 
+  test("signed out: Sign in", async () => {
+    expect(
+      await buildOnTheirPush(refusing(refusal(401)), NAME, SHA),
+    ).toMatchObject({ status: "failed", offer: { kind: "sign-in" } });
+  });
+
+  /*
+   * A 403 that is not the plan's is someone signed in and not allowed: not a
+   * member of the project, a role without the scope, a credential that
+   * names nobody. Signing in again presents the same credential, so it is
+   * not offered: who can allow it is.
+   */
   test.each([
-    ["signed out", refusal(401)],
+    [
+      "not a member of the project",
+      new ProposalsApiError(
+        403,
+        "You are not a member of this project. Ask an owner of acme to add you.",
+        {
+          statusCode: 403,
+          message:
+            "You are not a member of this project. Ask an owner of acme to add you.",
+        },
+      ),
+    ],
     ["a credential that names nobody", refusal(403)],
-  ])("%s: Sign in", async (_, error) => {
-    expect(await buildOnTheirPush(refusing(error), NAME, SHA)).toMatchObject({
+  ])("%s: who can allow it, not Sign in", async (_, error) => {
+    const outcome = await buildOnTheirPush(refusing(error), NAME, SHA);
+    expect(outcome).toMatchObject({
       status: "failed",
-      offer: { kind: "sign-in" },
+      offer: { kind: "not-allowed" },
     });
+    expect(outcome.status === "failed" && outcome.message).toContain(
+      error.message,
+    );
+    expect(outcome.status === "failed" && outcome.message).not.toMatch(
+      /session/,
+    );
   });
 
   /*
