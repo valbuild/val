@@ -79,9 +79,13 @@ const SearchInputRow = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-/** The search input's own classes, inside a {@link SearchInputRow}. */
+/**
+ * The search input's own classes, inside a {@link SearchInputRow}. 16px on a
+ * touch screen (`touch:text-base`): iOS zooms the page into a focused field
+ * under 16px, and this one is focused the moment its list opens.
+ */
 const searchInputClassName = cn(
-  "flex h-11 w-full rounded-sm py-3 text-sm",
+  "flex h-11 w-full rounded-sm py-3 text-sm touch:text-base",
   "placeholder:text-fg-secondary",
   "bg-transparent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
 );

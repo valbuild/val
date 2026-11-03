@@ -112,6 +112,13 @@ export function WindowedOptionList<T extends WindowedOption>({
         : shown.findIndex((option) => option.key === selectedKey);
     return selected >= 0 ? selected : 0;
   });
+  /**
+   * Whether the list has been put at the value yet: once, when the value is
+   * among the options -- on open, or when it arrives, for a list opened
+   * while they were loading -- and never after the editor has searched or
+   * moved, which is theirs to decide.
+   */
+  const placed = React.useRef(false);
   // A new search starts from its first match, as `cmdk` did: the option the
   // editor most likely typed towards. Not on the first render, which starts
   // from the value.
@@ -119,17 +126,23 @@ export function WindowedOptionList<T extends WindowedOption>({
   React.useEffect(() => {
     if (searched.current === search) return;
     searched.current = search;
+    placed.current = true;
     setActive(0);
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, [search]);
   // The value is where the list opens, even 9,000 options down.
-  const opened = React.useRef(false);
   React.useLayoutEffect(() => {
-    if (opened.current) return;
-    opened.current = true;
-    if (active > 0 && active < shown.length) {
-      scrollTo(active, "center");
-    }
+    if (placed.current || isLoading || shown.length === 0) return;
+    const selected =
+      selectedKey === null
+        ? -1
+        : shown.findIndex((option) => option.key === selectedKey);
+    // Not among them yet: it may be among the next to arrive.
+    if (selected < 0 && selectedKey !== null) return;
+    placed.current = true;
+    if (selected < 0) return;
+    if (selected !== active) setActive(selected);
+    if (selected > 0) scrollTo(selected, "center");
   });
 
   const scrollTo = (index: number, align: "auto" | "center") => {
@@ -146,6 +159,7 @@ export function WindowedOptionList<T extends WindowedOption>({
   };
   const moveTo = (index: number) => {
     if (total === 0) return;
+    placed.current = true;
     const next = Math.max(0, Math.min(total - 1, index));
     setActive(next);
     scrollTo(next, "auto");
@@ -176,6 +190,10 @@ export function WindowedOptionList<T extends WindowedOption>({
         moveTo(total - 1);
         return;
       case "Enter":
+        // The Enter that ends an IME composition (Japanese, Chinese,
+        // Korean...) commits the text, not an option: `cmdk` ignored it too.
+        // Safari reports it only as key code 229.
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
         if (active < total) {
           event.preventDefault();
           choose(active);
