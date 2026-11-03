@@ -1,5 +1,15 @@
 # @valbuild/cli
 
+## 0.150.24
+
+### Patch Changes
+
+- [#1011](https://github.com/valbuild/val/pull/1011) [`4edd384`](https://github.com/valbuild/val/commit/4edd384cf04a25836df77aae6d88378f8750a761) Thanks [@freekh](https://github.com/freekh)! - Requests that `@valbuild/server` and the `val` CLI send to Val Build now carry an `x-val-client` header naming the package and its version, for example `x-val-client: @valbuild/server@0.150.24`. It lets Val Build see which versions are still in use, and which old endpoints they still call, before anything is retired. The header holds no credential and nothing about your site's visitors, and nothing changes in how your app behaves.
+- Updated dependencies [[`4edd384`](https://github.com/valbuild/val/commit/4edd384cf04a25836df77aae6d88378f8750a761)]:
+  - @valbuild/server@0.150.24
+  - @valbuild/shared@0.150.24
+  - @valbuild/language-server@0.150.24
+
 ## 0.150.23
 
 ### Patch Changes
