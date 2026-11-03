@@ -2453,10 +2453,24 @@ readers (signatures and results); `ValProvider`'s props, `suspend` included
   `() => Promise<ValDraft | null>`. Both are `readDraftChanges` in
   `@valbuild/server`'s `draftReads.ts`; TanStack adds the proposal's
   snapshot and the draft's base.)
-- `stegaEncode` in `@valbuild/react/stega` takes an optional `version`.
 - `ValDraft.versions` (decided in phase 6): the version of each module in
   the draft, filled by the server, so a page compares the Studio's relay with
   what it was rendered with by version. Optional both ways.
+
+**Where the shared machinery is exported (decided 2026-11-03, in review of
+valbuild/val#1006):** nothing new on a public entrypoint beyond the three
+additions above (and `ValDraft` exported from `@valbuild/next` too, beside
+the prop that takes it) and `loadTypeScriptKit` / `TypeScriptKit` from
+`@valbuild/server`. The readers' pipeline (`src/read/`: the sources,
+`layered`, `resolveVal`, the relay, the refresh loop) is
+`@valbuild/react/internal`, not `/stega`; the runtime, the head and the
+draft readers are `@valbuild/server/internal`, and the in-tab internals the
+isolate probe reads are `@valbuild/server/internal/browser`;
+`createProjectSourceReader` is `@valbuild/shared/internal`; and
+`@valbuild/tanstack-build` does not export `valModulesEntryFile` (the
+builder and `@valbuild/shared` each pin the literal name in a test). Earlier
+phases below that say "`@valbuild/react/stega`" or "`@valbuild/server`" for
+these mean those internal entrypoints now.
 
 **Kept although they become redundant:** `initValContent`'s `patchStore`,
 `sourceFiles` and `http`. With one runtime per process they say what

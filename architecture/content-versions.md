@@ -362,7 +362,7 @@ Every reader of both frameworks -- `fetchVal`, `fetchValKey`,
 `fetchValRoute`, `fetchValRouteUrl`, `fetchValDraft`, `useVal`, `useValKey`,
 `useValRoute`, `useValRouteUrl` -- resolves through the same pipeline, in
 [`packages/react/src/read/`](../packages/react/src/read/) (exported from
-`@valbuild/react/stega`). They differ only in their list of sources and in
+`@valbuild/react/internal`: what the framework packages share, not API). They differ only in their list of sources and in
 how they wait.
 
 - **`ContentSource`** (types in

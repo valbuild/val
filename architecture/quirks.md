@@ -1173,7 +1173,7 @@ when the SERVER has it: `confirmed`, with the `seq` of the server's answer (an
 adopted `/stat`, or in http mode a save's own answer), on the overlay's
 `val-event` and as a canvas message. The page refreshes once per confirmed
 version, with at most one refresh in flight (`startRefreshLoop` in
-`@valbuild/react/stega`, both providers). A relayed edit refreshes nothing: the
+`@valbuild/react/internal`, both providers). A relayed edit refreshes nothing: the
 hooks show it from the relay already. The safety refresh and the 500 ms
 throttle are gone, and nothing in the loop runs on a timer. S05 and B08 in
 `scenarios/` pin it in memory, fs and http.
