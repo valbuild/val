@@ -1077,14 +1077,20 @@ export class SourceStore {
   private forgetEntriesOf(record: PatchRecord): void {
     const base = this.baseJsonEntries.get(record.moduleFilePath);
     let forgot = false;
+    let inFlight = false;
     for (const op of record.patch) {
       const keys = [op.path[0]];
       if (op.op === "move" || op.op === "copy") keys.push(op.from[0]);
       for (const key of keys) {
         if (typeof key !== "string") continue;
         forgot = (base?.delete(key) ?? false) || forgot;
+        inFlight =
+          inFlight ||
+          this.loadingEntries.has(entryKey(record.moduleFilePath, key));
       }
     }
+    // One on its way was read before the patch went: as stale as one here.
+    if (inFlight) this.entryBaseMoved(record.moduleFilePath);
     if (forgot) this.entriesMoved(record.moduleFilePath);
   }
 
