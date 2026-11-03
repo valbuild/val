@@ -9,6 +9,7 @@ import {
 import { deepClone, type JSONValue } from "@valbuild/core/patch";
 import {
   baseVersionOf,
+  JSON_ENTRIES_BATCH_MAX,
   engineWork,
   entryState,
   schemaVersionOf,
@@ -29,6 +30,13 @@ import type {
 import type { SchemaStore } from "./SchemaStore";
 import { APPLIED_ELSEWHERE_SHA, type PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
+import {
+  JSON_ENTRY_KEYS_PER_REQUEST,
+  chunkJsonEntryKeys,
+  type FetchJsonEntries,
+  type JsonEntryResult,
+} from "./react/jsonEntriesBatch";
+import { yieldToMain } from "./yieldToMain";
 import {
   VersionRing,
   applyOnBase,
@@ -367,8 +375,14 @@ export class SourceStore {
   >();
   /** Per module, so a publish in one does not invalidate every other's cache. */
   private appliedVersions = new Map<ModuleFilePath, number>();
-  /** In-flight entry fetches, by base key, so N readers of one entry cause ONE fetch. */
-  private loadingEntries = new Map<string, Promise<void>>();
+  /**
+   * In-flight entry fetches, by base key, so N readers of one entry cause ONE
+   * fetch. Settled when the batch that brought the entry has been applied.
+   */
+  private loadingEntries = new Map<
+    string,
+    { promise: Promise<void>; settle: () => void }
+  >();
   /**
    * Entries whose last fetch FAILED, and why, by base key. Kept because `peek`
    * has to be able to say so: without it a failed entry renders a spinner
@@ -426,7 +440,7 @@ export class SourceStore {
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly activity: ActivitySink = noopActivity,
-    private readonly fetchJsonEntry?: FetchJsonEntry,
+    private readonly fetchJsonEntries?: FetchJsonEntries,
   ) {}
 
   /**
@@ -435,14 +449,6 @@ export class SourceStore {
    * stable value that changes when anything could have.
    */
   private globalRevision = 0;
-
-  /**
-   * Modules whose change is computed but not yet announced, and the view each
-   * had before the batch: see {@link batched}.
-   */
-  private deferredAnnouncements = new Set<ModuleFilePath>();
-  private deferredWakes = new Map<ModuleFilePath, ModuleView | undefined>();
-  private batchDepth = 0;
 
   /** Record that the base realm of this module was written. See {@link baseRevisions}. */
   private bumpBase(moduleFilePath: ModuleFilePath): void {
@@ -459,59 +465,9 @@ export class SourceStore {
     );
     this.globalRevision++;
     this.allSourcesAt = null;
-    if (this.batchDepth > 0) {
-      this.deferredAnnouncements.add(moduleFilePath);
-      return;
-    }
     // The one place a revision moves is the one place this is announced. See
     // `source:change` in `types.ts`.
     this.events.emit({ type: "source:change", moduleFilePath });
-  }
-
-  /**
-   * Run `fn`, announcing the modules it changed ONCE at the end instead of once
-   * per change.
-   *
-   * For an operation that is one thing to its caller but many writes underneath.
-   * Loading a `.jsonValues()` record's entries is the case that forced it: each
-   * entry is its own request, each arrival changed the module, and every change
-   * woke every whole-project subscriber in the app. A 121-entry record therefore
-   * re-rendered the open module 121 times in a burst, and the route died with
-   * "Maximum update depth exceeded" from inside a Radix ref callback.
-   *
-   * Deferring the ANNOUNCEMENT and the wakes, not the write, is what makes this
-   * safe: the views and revisions are updated as each entry lands, so anything
-   * that reads mid-batch sees current data. Flushed in a `finally` before the
-   * returned promise settles.
-   */
-  private async batched<T>(fn: () => Promise<T>): Promise<T> {
-    this.batchDepth++;
-    try {
-      return await fn();
-    } finally {
-      this.batchDepth--;
-      if (this.batchDepth === 0 && this.deferredAnnouncements.size > 0) {
-        const modules = [...this.deferredAnnouncements];
-        this.deferredAnnouncements.clear();
-        for (const moduleFilePath of modules) {
-          this.events.emit({ type: "source:change", moduleFilePath });
-        }
-        this.events.emit({
-          type: "source:patch-apply",
-          success: [],
-          failed: [],
-          withoutModule: [],
-          modules,
-        });
-      }
-      if (this.batchDepth === 0 && this.deferredWakes.size > 0) {
-        const wakes = [...this.deferredWakes];
-        this.deferredWakes.clear();
-        for (const [moduleFilePath, before] of wakes) {
-          this.wakeChanged(moduleFilePath, before);
-        }
-      }
-    }
   }
 
   /**
@@ -819,14 +775,39 @@ export class SourceStore {
     key: string,
     content: Json,
   ): void {
+    this.receiveJsonEntries(moduleFilePath, [[key, content]]);
+  }
+
+  /**
+   * Deliver many entries' base content at once: ONE view of the module, one
+   * revision, one wake and one announcement for all of them.
+   *
+   * Per entry, a record of N entries loaded whole was quadratic: the view of
+   * the record (its root of N keys copied, every loaded entry filled in) was
+   * rebuilt for each arriving entry -- about 44 s for 10,000 (phase 10). A
+   * batch is what a request brought, or what several brought by the time the
+   * store got to them, so a full load rebuilds the view once per batch.
+   */
+  receiveJsonEntries(
+    moduleFilePath: ModuleFilePath,
+    entries: readonly (readonly [key: string, content: Json])[],
+  ): void {
+    if (entries.length === 0) return;
     let byKey = this.baseJsonEntries.get(moduleFilePath);
     if (byKey === undefined) {
       byKey = new Map();
       this.baseJsonEntries.set(moduleFilePath, byKey);
     }
-    byKey.set(key, content);
+    for (const [key, content] of entries) {
+      byKey.set(key, content);
+      this.activity.work("source:receive-json-entry", moduleFilePath);
+    }
     this.entriesMoved(moduleFilePath);
-    this.activity.work("source:receive-json-entry", moduleFilePath);
+    this.activity.work(
+      "source:apply-json-entries",
+      moduleFilePath,
+      entries.length,
+    );
     const { before, after } = this.refreshEntries(moduleFilePath);
     this.bump(moduleFilePath);
     const failed = this.entryErrorsOf(moduleFilePath, after);
@@ -840,10 +821,6 @@ export class SourceStore {
       });
     }
     this.wakeChanged(moduleFilePath, before);
-    if (this.batchDepth > 0) {
-      // `batched` emits one of these for the whole batch.
-      return;
-    }
     this.events.emit({
       type: "source:patch-apply",
       success: [],
@@ -988,6 +965,13 @@ export class SourceStore {
    * design: a failed entry is recorded and reported by `peek` as
    * `entry-failed`, which is where a row shows it.
    *
+   * Asked for at once, and coalesced per module per tick with every other
+   * read of this tick (a record's rows each `get` their own entry in one
+   * render pass) into as few `GET /json` as the URL allows
+   * (`chunkJsonEntryKeys`): one request for a window of rows, not one per
+   * row. What a request brings is applied as one batch
+   * ({@link receiveJsonEntries}) as soon as it lands.
+   *
    * ## An entry that FAILED is not asked for again
    *
    * `ValOverlayEmitter` asks for the entries a module needs on every
@@ -999,8 +983,150 @@ export class SourceStore {
     moduleFilePath: ModuleFilePath,
     keys: readonly string[],
   ): Promise<void> {
+    if (this.fetchJsonEntries === undefined) return;
+    await Promise.all(
+      this.requestEntries(
+        moduleFilePath,
+        this.wantedEntries(moduleFilePath, keys),
+      ),
+    );
+  }
+
+  /**
+   * Every `.jsonValues()` entry this module has, loaded. The deliberate
+   * exception to demand-driven reading, for the callers that genuinely need
+   * the whole module: search, a reference scan ("used by", a rename guard), a
+   * compare view.
+   *
+   * ## In batches, in the background, and never in one long task
+   *
+   * A record of 10,000 entries cannot be one request, and its entries cannot
+   * be applied one at a time (each rebuilt the record's view: quadratic, 44 s
+   * at 10,000). So the keys go out {@link BULK_KEYS_PER_REQUEST} to a request,
+   * at most {@link BULK_REQUESTS_IN_FLIGHT} requests at a time across the
+   * whole store -- the browser has six connections to a host, and the rest
+   * are for what the editor does meanwhile -- and what has arrived is applied
+   * as ONE batch per module, after a {@link yieldToMain}: a click, a keystroke
+   * or a frame gets a turn between two batches, so the Studio stays usable
+   * while it loads. The progress is `entriesProgress`, counted from the view.
+   *
+   * Lower priority than a read: an entry someone opens while this runs is
+   * asked for at once (`get`, {@link loadEntries}), not after the batches
+   * queued before it. The batches are formed as they go out, so it is not
+   * asked for twice.
+   *
+   * One load per module: a second caller joins the one running. `signal`
+   * says the caller has stopped waiting (search closed, the inspector left):
+   * when no caller is left, the batches not yet sent are dropped, and those
+   * in flight land as usual. A caller without one waits for the end.
+   *
+   * Resolves when every entry is here or has failed (`entriesStatus` says
+   * which), or when the load was given up.
+   */
+  async loadAllEntries(
+    moduleFilePath: ModuleFilePath,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<void> {
+    if (this.fetchJsonEntries === undefined) return;
+    const { signal } = options;
+    if (signal?.aborted === true) return;
+    let job = this.bulkLoads.get(moduleFilePath);
+    if (job === undefined) {
+      const keys = this.wantedEntries(
+        moduleFilePath,
+        this.markerKeys(moduleFilePath),
+      );
+      let finish: () => void = () => {};
+      const done = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      job = {
+        keys,
+        next: 0,
+        inFlight: 0,
+        interest: 0,
+        shared: [],
+        done,
+        finish,
+      };
+      this.bulkLoads.set(moduleFilePath, job);
+    }
+    const joined = job;
+    joined.interest++;
+    signal?.addEventListener(
+      "abort",
+      () => {
+        joined.interest--;
+        if (
+          joined.interest > 0 ||
+          this.bulkLoads.get(moduleFilePath) !== joined
+        )
+          return;
+        // Nobody is waiting: what has not gone out does not go.
+        joined.next = joined.keys.length;
+        this.settleBulkLoad(moduleFilePath, joined);
+      },
+      { once: true },
+    );
+    this.settleBulkLoad(moduleFilePath, joined);
+    this.pumpBulkLoads();
+    await joined.done;
+  }
+
+  /**
+   * Ask again for these entries, whose fetches failed: the "Try again" of a
+   * load that could not finish. The failures are forgotten first (or the load
+   * would skip them, see {@link loadEntries}); a few go out at once, many go
+   * the way {@link loadAllEntries} sends them, so a server that was down for
+   * a while is not answered with a request per entry, all at once.
+   */
+  async retryEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+  ): Promise<void> {
     const view = this.views.get(moduleFilePath)?.view;
-    if (view === undefined) return;
+    let cleared = false;
+    for (const key of keys) {
+      const fetchKey =
+        view === undefined ? key : (fetchKeyOf(view, key) ?? key);
+      cleared =
+        this.entryFailures.delete(entryKey(moduleFilePath, fetchKey)) ||
+        cleared;
+    }
+    if (cleared) {
+      this.fetchMoved(moduleFilePath);
+      // From "failed" to "loading" for whoever shows it, now rather than when
+      // the first answer lands.
+      this.bump(moduleFilePath);
+    }
+    if (keys.length <= JSON_ENTRY_KEYS_PER_REQUEST) {
+      await this.loadEntries(moduleFilePath, keys);
+    } else {
+      await this.loadAllEntries(moduleFilePath);
+    }
+  }
+
+  /** The keys of this module's view that are still markers. */
+  private markerKeys(moduleFilePath: ModuleFilePath): string[] {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined || !isJsonObject(view.source)) return [];
+    const keys: string[] = [];
+    for (const key of Object.keys(view.source)) {
+      if (Internal.isJson(view.source[key])) keys.push(key);
+    }
+    return keys;
+  }
+
+  /**
+   * The base entries reading `keys` needs and nobody has: not read, not
+   * failed (see {@link loadEntries}). By the key they are fetched by.
+   */
+  private wantedEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: Iterable<string>,
+  ): string[] {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined) return [];
     const read = this.baseJsonEntries.get(moduleFilePath);
     const wanted = new Set<string>();
     for (const key of keys) {
@@ -1010,55 +1136,274 @@ export class SourceStore {
       if (this.entryFailures.has(entryKey(moduleFilePath, fetchKey))) continue;
       wanted.add(fetchKey);
     }
-    if (wanted.size === 0) return;
-    /**
-     * Coalesced per module per tick, then announced once. Load-bearing for
-     * more than request count: a virtualized `.jsonValues()` record asks for
-     * the window it is showing, and every arrival re-renders those rows, which
-     * moves the window, which asks again. One announcement per tick is what
-     * lets that settle.
-     */
-    let pending = this.pendingEntryLoads.get(moduleFilePath);
-    if (pending === undefined) {
-      const keysWanted = new Set<string>();
-      const request = (async () => {
-        await Promise.resolve();
-        this.pendingEntryLoads.delete(moduleFilePath);
-        await this.batched(() =>
-          Promise.all(
-            [...keysWanted].map((key) => this.loadEntry(moduleFilePath, key)),
-          ),
-        );
-      })();
-      pending = { keys: keysWanted, request };
-      this.pendingEntryLoads.set(moduleFilePath, pending);
-    }
-    for (const key of wanted) {
-      pending.keys.add(key);
-    }
-    await pending.request;
+    return [...wanted];
   }
-
-  /** In-flight coalesced entry loads, per module. See {@link loadEntries}. */
-  private pendingEntryLoads = new Map<
-    ModuleFilePath,
-    { keys: Set<string>; request: Promise<void> }
-  >();
 
   /**
-   * Every `.jsonValues()` entry this module has, loaded. The deliberate
-   * exception to demand-driven reading, for the callers that genuinely need
-   * the whole module: search, a validation pass, a compare view.
+   * Fetch these base entries now, or wait for the fetch already carrying
+   * them: N readers of one entry cause ONE fetch. One promise per key, settled
+   * when its batch has been applied (or has failed).
    */
-  async loadAllEntries(moduleFilePath: ModuleFilePath): Promise<void> {
-    const view = this.views.get(moduleFilePath)?.view;
-    if (view === undefined || !isJsonObject(view.source)) return;
-    const keys: string[] = [];
-    for (const [key, value] of Object.entries(view.source)) {
-      if (Internal.isJson(value)) keys.push(key);
+  private requestEntries(
+    moduleFilePath: ModuleFilePath,
+    fetchKeys: readonly string[],
+  ): Promise<void>[] {
+    const waits: Promise<void>[] = [];
+    const started: string[] = [];
+    for (const key of fetchKeys) {
+      const inFlight = this.loadingEntries.get(entryKey(moduleFilePath, key));
+      if (inFlight !== undefined) {
+        this.activity.work("source:share-json-entry-load", moduleFilePath);
+        waits.push(inFlight.promise);
+        continue;
+      }
+      waits.push(this.startLoading(moduleFilePath, key));
+      started.push(key);
     }
-    await this.loadEntries(moduleFilePath, keys);
+    if (started.length === 0) return waits;
+    this.fetchMoved(moduleFilePath);
+    let queued = this.readsThisTick.get(moduleFilePath);
+    if (queued === undefined) {
+      queued = [];
+      this.readsThisTick.set(moduleFilePath, queued);
+      /**
+       * Coalesced per module per tick. Load-bearing for more than request
+       * count: a virtualized `.jsonValues()` record asks for the window it is
+       * showing, and every arrival re-renders those rows, which moves the
+       * window, which asks again. One batch per tick is what lets that settle.
+       */
+      queueMicrotask(() => {
+        const keys = this.readsThisTick.get(moduleFilePath) ?? [];
+        this.readsThisTick.delete(moduleFilePath);
+        for (const chunk of chunkJsonEntryKeys(keys)) {
+          void this.fetchEntries(moduleFilePath, chunk, "read");
+        }
+      });
+    }
+    queued.push(...started);
+    return waits;
   }
+
+  /** This entry is being fetched from now on: `peek` says `entry-loading`. */
+  private startLoading(moduleFilePath: ModuleFilePath, key: string) {
+    const cacheKey = entryKey(moduleFilePath, key);
+    // Cleared before the attempt, so a retry is not reported as failed while
+    // it is in flight.
+    this.entryFailures.delete(cacheKey);
+    let settle: () => void = () => {};
+    const promise = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.loadingEntries.set(cacheKey, { promise, settle });
+    return promise;
+  }
+
+  /**
+   * One `GET /json` for these keys, and what it brought handed to
+   * {@link arrive}. A read's batch is applied as it lands; a bulk load's
+   * after a yield, with whatever else has landed by then.
+   */
+  private async fetchEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+    kind: "read" | "bulk",
+  ): Promise<void> {
+    this.activity.work(
+      "source:fetch-json-entries",
+      moduleFilePath,
+      keys.length,
+    );
+    for (let i = 0; i < keys.length; i++) {
+      this.activity.work("source:load-json-entry", moduleFilePath);
+    }
+    let results: Record<string, JsonEntryResult>;
+    try {
+      // `loadEntries` and `loadAllEntries` start nothing without the seam.
+      results = await this.fetchJsonEntries!(moduleFilePath, keys);
+    } catch (err) {
+      // A throwing seam must not leave readers awaiting forever: a read that
+      // never settles is the one shape a field can neither render nor retry.
+      const message =
+        err instanceof Error ? err.message : "Unknown error reading entries";
+      results = {};
+      for (const key of keys) results[key] = { status: "error", message };
+    }
+    let landed = this.landed.get(moduleFilePath);
+    if (landed === undefined) {
+      landed = [];
+      this.landed.set(moduleFilePath, landed);
+    }
+    landed.push({ keys, results, bulk: kind === "bulk" });
+    if (kind === "read") {
+      this.applyLanded(moduleFilePath);
+      return;
+    }
+    if (this.applyScheduled.has(moduleFilePath)) return;
+    this.applyScheduled.add(moduleFilePath);
+    void yieldToMain().then(() => {
+      this.applyScheduled.delete(moduleFilePath);
+      this.applyLanded(moduleFilePath);
+    });
+  }
+
+  /**
+   * Apply every answer that has landed for this module, as ONE batch: one
+   * view, one revision, one wake ({@link receiveJsonEntries}). Then the
+   * fetches end, so a reader woken by either sees the content.
+   */
+  private applyLanded(moduleFilePath: ModuleFilePath): void {
+    const landed = this.landed.get(moduleFilePath);
+    if (landed === undefined || landed.length === 0) return;
+    this.landed.delete(moduleFilePath);
+    const received: [string, Json][] = [];
+    const settled: string[] = [];
+    let failed = false;
+    let bulk = 0;
+    for (const answer of landed) {
+      if (answer.bulk) bulk++;
+      for (const key of answer.keys) {
+        const result: JsonEntryResult = answer.results[key] ?? {
+          status: "error",
+          message: `Entry not found: ${key} in ${moduleFilePath}`,
+        };
+        if (result.status === "ok") {
+          received.push([key, result.content]);
+        } else {
+          this.entryFailures.set(entryKey(moduleFilePath, key), result.message);
+          failed = true;
+        }
+        settled.push(key);
+      }
+    }
+    this.receiveJsonEntries(moduleFilePath, received);
+    // A failure reads differently too (`entry-failed`, `entriesStatus`), and
+    // a whole-project reader has to hear of it even when nothing arrived.
+    if (failed && received.length === 0) this.bump(moduleFilePath);
+    for (const key of settled) {
+      const cacheKey = entryKey(moduleFilePath, key);
+      const loading = this.loadingEntries.get(cacheKey);
+      this.loadingEntries.delete(cacheKey);
+      loading?.settle();
+    }
+    this.fetchMoved(moduleFilePath);
+    const job = this.bulkLoads.get(moduleFilePath);
+    if (bulk > 0 && job !== undefined) {
+      job.inFlight -= bulk;
+      this.settleBulkLoad(moduleFilePath, job);
+    }
+  }
+
+  /**
+   * Send the next bulk batches, up to {@link BULK_REQUESTS_IN_FLIGHT}, in the
+   * order the loads were asked for.
+   */
+  private pumpBulkLoads(): void {
+    while (this.bulkInFlight < BULK_REQUESTS_IN_FLIGHT) {
+      let next: { moduleFilePath: ModuleFilePath; keys: string[] } | null =
+        null;
+      for (const [moduleFilePath, job] of this.bulkLoads) {
+        const keys = this.nextBulkBatch(moduleFilePath, job);
+        if (keys.length > 0) {
+          job.inFlight++;
+          next = { moduleFilePath, keys };
+          break;
+        }
+        this.settleBulkLoad(moduleFilePath, job);
+      }
+      if (next === null) return;
+      for (const key of next.keys) this.startLoading(next.moduleFilePath, key);
+      this.fetchMoved(next.moduleFilePath);
+      this.bulkInFlight++;
+      void this.fetchEntries(next.moduleFilePath, next.keys, "bulk").finally(
+        () => {
+          this.bulkInFlight--;
+          this.pumpBulkLoads();
+        },
+      );
+    }
+  }
+
+  /**
+   * The next keys of a bulk load that still need a fetch, as many as one
+   * request carries. Formed when it goes out, not when the load was asked
+   * for, so an entry a read fetched meanwhile is not asked for again; one
+   * already in flight is waited for instead.
+   */
+  private nextBulkBatch(
+    moduleFilePath: ModuleFilePath,
+    job: BulkLoad,
+  ): string[] {
+    const read = this.baseJsonEntries.get(moduleFilePath);
+    const candidates: string[] = [];
+    const at: number[] = [];
+    let i = job.next;
+    for (
+      ;
+      i < job.keys.length && candidates.length < BULK_KEYS_PER_REQUEST;
+      i++
+    ) {
+      const key = job.keys[i];
+      const cacheKey = entryKey(moduleFilePath, key);
+      if (read?.has(key) === true) continue;
+      if (this.entryFailures.has(cacheKey)) continue;
+      const inFlight = this.loadingEntries.get(cacheKey);
+      if (inFlight !== undefined) {
+        job.shared.push(inFlight.promise);
+        continue;
+      }
+      candidates.push(key);
+      at.push(i);
+    }
+    const [batch = []] = chunkJsonEntryKeys(candidates, BULK_KEYS_PER_REQUEST);
+    // What did not fit in the URL goes in the next one.
+    job.next = batch.length < candidates.length ? at[batch.length] : i;
+    return batch;
+  }
+
+  /**
+   * Finish a bulk load whose keys have all gone out and come back. Before it
+   * says done, one more look: an entry dropped while it ran (a file changed
+   * on disk, `markJsonEntriesStale`) is a marker again, and "every entry" has
+   * to mean every entry when somebody is still waiting.
+   */
+  private settleBulkLoad(moduleFilePath: ModuleFilePath, job: BulkLoad): void {
+    if (this.bulkLoads.get(moduleFilePath) !== job) return;
+    if (job.next < job.keys.length || job.inFlight > 0) return;
+    if (job.interest > 0) {
+      const more = this.wantedEntries(
+        moduleFilePath,
+        this.markerKeys(moduleFilePath),
+      ).filter(
+        (key) => !this.loadingEntries.has(entryKey(moduleFilePath, key)),
+      );
+      if (more.length > 0) {
+        job.keys = more;
+        job.next = 0;
+        queueMicrotask(() => this.pumpBulkLoads());
+        return;
+      }
+    }
+    this.bulkLoads.delete(moduleFilePath);
+    void Promise.all(job.shared).then(job.finish);
+  }
+
+  /** Reads of this tick, per module, not yet sent: see {@link requestEntries}. */
+  private readsThisTick = new Map<ModuleFilePath, string[]>();
+  /** Answers that have landed and are not applied yet, per module. */
+  private landed = new Map<
+    ModuleFilePath,
+    {
+      keys: string[];
+      results: Record<string, JsonEntryResult>;
+      bulk: boolean;
+    }[]
+  >();
+  /** Modules with an apply waiting for its turn ({@link yieldToMain}). */
+  private applyScheduled = new Set<ModuleFilePath>();
+  /** The running {@link loadAllEntries}, one per module, in the order asked. */
+  private bulkLoads = new Map<ModuleFilePath, BulkLoad>();
+  /** Bulk requests in flight, across every module. */
+  private bulkInFlight = 0;
 
   /**
    * The markers a module's view still holds, and what stands behind each: what
@@ -1232,50 +1577,21 @@ export class SourceStore {
     return this.loadEntry(moduleFilePath, fetchKey);
   }
 
-  /** Fetch one BASE entry, by its key. */
+  /** Fetch one BASE entry, by its key, with this tick's other reads. */
   private async loadEntry(
     moduleFilePath: ModuleFilePath,
     key: string,
   ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
-    if (this.fetchJsonEntry === undefined) {
+    if (this.fetchJsonEntries === undefined) {
       return {
         status: "error",
         message: `Cannot read inside '${key}' of ${moduleFilePath}: no jsonValues fetch is configured. Refusing rather than reporting the path absent.`,
       };
     }
-    const cacheKey = entryKey(moduleFilePath, key);
-    const inFlight = this.loadingEntries.get(cacheKey);
-    if (inFlight !== undefined) {
-      // N readers of one entry cause ONE fetch.
-      this.activity.work("source:share-json-entry-load", moduleFilePath);
-      await inFlight;
-      // The shared fetch's outcome, not an assumed success.
-      const shared = this.entryFailures.get(cacheKey);
-      return shared === undefined
-        ? { status: "ok" }
-        : { status: "error", message: shared };
-    }
-    let failure: string | undefined;
-    // Cleared before the attempt, so a retry is not reported as failed while
-    // it is in flight.
-    this.entryFailures.delete(cacheKey);
-    const request = (async () => {
-      this.activity.work("source:load-json-entry", moduleFilePath);
-      const res = await this.fetchJsonEntry!(moduleFilePath, key);
-      if (res.status === "error") {
-        failure = res.message;
-        this.entryFailures.set(cacheKey, res.message);
-        return;
-      }
-      this.receiveJsonEntry(moduleFilePath, key, res.content);
-    })().finally(() => {
-      this.loadingEntries.delete(cacheKey);
-      this.fetchMoved(moduleFilePath);
-    });
-    this.loadingEntries.set(cacheKey, request);
-    this.fetchMoved(moduleFilePath);
-    await request;
-    // A definite failure, never a promise that never settles.
+    await Promise.all(this.requestEntries(moduleFilePath, [key]));
+    // The fetch's outcome, shared or not, rather than an assumed success. A
+    // definite failure, never a promise that never settles.
+    const failure = this.entryFailures.get(entryKey(moduleFilePath, key));
     return failure === undefined
       ? { status: "ok" }
       : { status: "error", message: failure };
@@ -2414,12 +2730,6 @@ export class SourceStore {
     moduleFilePath: ModuleFilePath,
     before: ModuleView | undefined,
   ): void {
-    if (this.batchDepth > 0) {
-      if (!this.deferredWakes.has(moduleFilePath)) {
-        this.deferredWakes.set(moduleFilePath, before);
-      }
-      return;
-    }
     const after = this.views.get(moduleFilePath)?.view;
     if (before === after) return;
     const registered = this.listenersByModule.get(moduleFilePath);
@@ -2564,6 +2874,38 @@ class CountedMap<K, V> extends Map<K, V> {
     super.clear();
   }
 }
+
+/**
+ * How many bulk `GET /json` ({@link SourceStore.loadAllEntries}) may be in
+ * flight at once, across the store. A browser opens about six connections to
+ * a host; the rest are for what the editor does while a search loads: the
+ * entries a click opens, `/stat`, saving.
+ */
+const BULK_REQUESTS_IN_FLIGHT = 3;
+
+/**
+ * How many keys a bulk request asks for: as many as the route takes. The URL
+ * budget (`chunkJsonEntryKeys`) is what usually decides, at a few dozen keys.
+ * Larger than a read's batch because nothing waits on one particular bulk
+ * request, and every request is a batch the view is rebuilt for.
+ */
+const BULK_KEYS_PER_REQUEST = JSON_ENTRIES_BATCH_MAX;
+
+/** One running {@link SourceStore.loadAllEntries}. */
+type BulkLoad = {
+  /** The base keys to load, by the key they are fetched by. */
+  keys: string[];
+  /** The first of `keys` not yet considered for a request. */
+  next: number;
+  /** Requests sent and not yet applied. */
+  inFlight: number;
+  /** Callers still waiting; at none, what has not gone out is dropped. */
+  interest: number;
+  /** Fetches of its keys that something else started first. */
+  shared: Promise<void>[];
+  done: Promise<void>;
+  finish: () => void;
+};
 
 /** Cache key for one entry of one module. `\0` cannot occur in either half. */
 function entryKey(moduleFilePath: ModuleFilePath, key: string): string {

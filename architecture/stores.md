@@ -89,6 +89,21 @@ carries `patch_id` where the server's does (the relay stamped it with
   -- the engine shares what it did not touch. A patch applied still wakes by its
   paths, so a field's own edit can leave it asleep.
 
+## `.jsonValues()` entries load in batches
+
+A read (`get`, a record's window) asks for its entry at once, and the reads of
+one tick go out as ONE `GET /json` with `keys` (`chunkJsonEntryKeys`: 25 keys,
+inside the URL budget). `loadAllEntries` -- search, "used by", a rename guard
+-- is the bulk path: batches of as many keys as the URL allows, at most three
+requests in flight across the store, behind every read, and what has landed is
+applied after a `yieldToMain`, so a load of 10,000 entries is a few hundred
+short tasks and the Studio stays usable. Either way what landed is applied as
+one batch (`receiveJsonEntries`): one view, one revision, one wake -- the view
+used to be rebuilt per entry, which made a full load quadratic. A caller that
+stops waiting passes an `AbortSignal` and the unsent batches are dropped;
+`retryEntries` is Try again. Budgeted in `scale.scenario.test.ts`
+(`source:fetch-json-entries`, `source:apply-json-entries`).
+
 ## Waking: per path, and never yourself
 
 Notification is per **path**, not per module — typing one character used to wake

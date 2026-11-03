@@ -74,8 +74,19 @@ export type WorkKind =
   | "source:count-entries"
   /** One `.jsonValues()` entry's content was delivered into the store. */
   | "source:receive-json-entry"
-  /** One `.jsonValues()` entry fetch was started. The request count. */
+  /**
+   * One `.jsonValues()` entry was asked for: a key in a `GET /json`. Several
+   * go in one request (`source:fetch-json-entries`).
+   */
   | "source:load-json-entry"
+  /** One `GET /json` for `.jsonValues()` entries. `count` is its keys. */
+  | "source:fetch-json-entries"
+  /**
+   * The entries that had landed for a module were applied as one batch: ONE
+   * rebuild of its view, whatever their number. `count` is the entries.
+   * Never more of these than of `source:fetch-json-entries`.
+   */
+  | "source:apply-json-entries"
   /**
    * A reader joined an entry fetch already in flight. This one being high while
    * `source:load-json-entry` stays at one is the dedup working.

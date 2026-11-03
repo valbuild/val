@@ -324,7 +324,7 @@ export type TestSourceStore = {
     moduleFilePath: string,
     key: string,
   ): Promise<{ status: "ok" } | { status: "error"; message: string }>;
-  /** What the progress hooks read on every render (`useJsonEntriesProgress`). */
+  /** What a whole-project progress count reads. */
   allEntriesProgress(): { total: number; loaded: number; failed: number };
   /** What a reference scan waits on (`useJsonValuesLoad`). */
   entriesStatus(

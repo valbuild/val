@@ -16,6 +16,10 @@ import { describeStuckSave } from "../utils/describeStuckSave";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore, type FetchJsonEntry } from "./SourceStore";
 import {
+  oneRequestPerKey,
+  type FetchJsonEntries,
+} from "./react/jsonEntriesBatch";
+import {
   PatchStore,
   type CreatePatchId,
   type FetchPatches,
@@ -330,6 +334,12 @@ export type SystemOptions = {
    */
   fetchJsonEntry?: FetchJsonEntry;
   /**
+   * The same, many keys of one module in one request (`GET /json` with
+   * `keys`): what the Studio sends. Preferred over {@link fetchJsonEntry},
+   * which then goes one request per key.
+   */
+  fetchJsonEntries?: FetchJsonEntries;
+  /**
    * Where a local patch is written back to (`PUT /patches`).
    *
    * Omitting it means this system never writes: edits stay local, and
@@ -482,7 +492,10 @@ export function createSystem(options: SystemOptions): System {
   const sourceStore = new SourceStore(
     schemaStore,
     activity,
-    options.fetchJsonEntry,
+    options.fetchJsonEntries ??
+      (options.fetchJsonEntry === undefined
+        ? undefined
+        : oneRequestPerKey(options.fetchJsonEntry)),
   );
   const stat = new StatStore();
   const status = new StatusStore(activity);

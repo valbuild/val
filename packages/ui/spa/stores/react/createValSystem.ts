@@ -10,6 +10,7 @@ import type { PatchRecord } from "../types";
 import type { RequestPublish } from "../PublishSeam";
 import type { SavedPatches } from "../PatchSync";
 import { chunkPatchIds } from "./patchIdChunks";
+import type { JsonEntryResult } from "./jsonEntriesBatch";
 import {
   isRecord,
   jsonOrUndefined,
@@ -353,12 +354,17 @@ export function createValSystem(
       };
     },
 
-    fetchJsonEntry: async (moduleFilePath, key) => {
+    /**
+     * One `GET /json` for the keys the source store batched (it keeps each
+     * batch inside the route's limit and the URL budget). A key the answer
+     * does not mention is an error, never a read that does not settle.
+     */
+    fetchJsonEntries: async (moduleFilePath, keys) => {
       const res = await client("/json", "GET", {
         query: {
           path: moduleFilePath,
           key: undefined,
-          keys: [key],
+          keys,
           offset: undefined,
           limit: undefined,
           // The store owns local patches and applies them itself. Letting the
@@ -367,32 +373,31 @@ export function createValSystem(
           apply_patches: false,
         },
       });
+      const results: Record<string, JsonEntryResult> = {};
       if (res.status !== 200 || !("entries" in res.json)) {
-        return {
-          status: "error",
-          message:
-            res.status !== 200 && "message" in res.json
-              ? res.json.message
-              : `GET /json failed with status ${res.status ?? "network"}`,
-        };
+        const message =
+          res.status !== 200 && "message" in res.json
+            ? res.json.message
+            : `GET /json failed with status ${res.status ?? "network"}`;
+        for (const key of keys) results[key] = { status: "error", message };
+        return results;
       }
-      const entry = res.json.entries.find((candidate) => candidate.key === key);
-      if (entry === undefined) {
-        const failed = res.json.errors.find(
-          (candidate) => candidate.key === key,
-        );
-        if (failed !== undefined) {
-          return { status: "error", message: failed.message };
-        }
-        // In `missing`, or absent from the response altogether. Both mean the
-        // server could not resolve a key we were told exists — deleted on disk
-        // between the source sync and this request.
-        return {
+      for (const entry of res.json.entries) {
+        results[entry.key] = { status: "ok", content: entry.content ?? null };
+      }
+      for (const failed of res.json.errors) {
+        results[failed.key] ??= { status: "error", message: failed.message };
+      }
+      // In `missing`, or absent from the response altogether. Both mean the
+      // server could not resolve a key we were told exists — deleted on disk
+      // between the source sync and this request.
+      for (const key of keys) {
+        results[key] ??= {
           status: "error",
           message: `Entry not found: ${key} in ${moduleFilePath}`,
         };
       }
-      return { status: "ok", content: entry.content ?? null };
+      return results;
     },
 
     mode: options?.mode,
