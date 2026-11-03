@@ -5,7 +5,8 @@ import {
   SourcePath,
   Internal,
 } from "@valbuild/core";
-import { traverseSchemas } from "./traverseSchemas";
+import { traverseSchemaAt } from "./traverseSchemas";
+import { sourcePathOfChild } from "../utils/sourcePath";
 import {
   forEachRichTextImage,
   richTextImageSchema,
@@ -53,52 +54,32 @@ export function getFileReferrers(
   // Only the modules whose schema can point into the gallery: the walk is of
   // their SOURCE, and a library of 10,000 entries that cannot refer to this
   // one is 10,000 entries walked for nothing, on every scan.
-  const referring: Record<ModuleFilePath, SerializedSchema> = {};
-  for (const moduleFilePath in schemas) {
-    const schema = schemas[moduleFilePath as ModuleFilePath];
-    if (canReferTo(schema, parent)) {
-      referring[moduleFilePath as ModuleFilePath] = schema;
+  for (const moduleFilePathS in schemas) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    const schema = schemas[moduleFilePath];
+    if (!canReferTo(schema, parent)) continue;
+    const source = sources[moduleFilePath];
+    const root = moduleFilePathS as SourcePath;
+    if (schema.type !== "record" || !isRecordSource(source)) {
+      for (const hit of hitsIn(root, schema, source, parent, false)) {
+        add(hit.sourcePath, hit.source);
+      }
+      continue;
+    }
+    // A record, entry by entry, and an entry that is the same object as
+    // last time keeps what was found in it: a scan while a `.jsonValues()`
+    // record of 10,000 loads walks the entries that arrived, not the record.
+    const mediaEntry = schema.mediaType !== undefined;
+    for (const key in source) {
+      if (key === "patch_id") continue;
+      const value = source[key];
+      if (value === undefined) continue;
+      const at = sourcePathOfChild(root, key);
+      for (const hit of entryHits(at, schema, value, parent, mediaEntry)) {
+        add(hit.sourcePath, hit.source);
+      }
     }
   }
-  traverseSchemas(referring, sources, (sourcePath, schema, source) => {
-    if (
-      schema.type === "image" ||
-      schema.type === "file" ||
-      schema.type === "video"
-    ) {
-      if (schema.referencedModule === parent) {
-        add(sourcePath, source);
-      }
-    } else if (schema.type === "richtext") {
-      const img = richTextImageSchema(schema);
-      if (img?.referencedModule === parent) {
-        forEachRichTextImage(sourcePath, source, add);
-      }
-    } else if (
-      schema.type === "string" ||
-      schema.type === "number" ||
-      schema.type === "boolean" ||
-      schema.type === "literal" ||
-      schema.type === "enum" ||
-      schema.type === "date" ||
-      schema.type === "dateTime" ||
-      schema.type === "color" ||
-      schema.type === "code" ||
-      schema.type === "keyOf" ||
-      schema.type === "route" ||
-      schema.type === "locale" ||
-      // A view holds no source, so it references no file of its own.
-      schema.type === "view"
-    ) {
-      // ignore these
-    } else {
-      const exhaustiveCheck: never = schema;
-      Internal.log.error(
-        `Could not get referenced files. Unhandled schema type`,
-        exhaustiveCheck,
-      );
-    }
-  });
   return results;
 }
 
@@ -110,6 +91,117 @@ export function getReferencedFiles(
 ): SourcePath[] {
   return getFileReferrers(schemas, sources, parent, fileRef).map(
     (referrer) => referrer.sourcePath,
+  );
+}
+
+/** A media value found pointing into a gallery, before it is filtered. */
+type Hit = { sourcePath: SourcePath; source: unknown };
+
+/**
+ * Per record schema, per entry VALUE, per gallery and path: what that entry
+ * holds pointing into the gallery. By identity, which the Studio's sources
+ * keep for an entry nothing touched; an equal value that is a new object is
+ * walked again.
+ */
+const hitsByEntry = new WeakMap<
+  SerializedSchema,
+  WeakMap<object, Map<string, Hit[]>>
+>();
+
+function entryHits(
+  at: SourcePath,
+  record: Extract<SerializedSchema, { type: "record" }>,
+  value: Source,
+  parent: ModuleFilePath,
+  mediaEntry: boolean,
+): Hit[] {
+  if (typeof value !== "object" || value === null) {
+    return hitsIn(at, record.item, value, parent, mediaEntry);
+  }
+  let byValue = hitsByEntry.get(record);
+  if (byValue === undefined) {
+    byValue = new WeakMap();
+    hitsByEntry.set(record, byValue);
+  }
+  let found = byValue.get(value);
+  if (found === undefined) {
+    found = new Map();
+    byValue.set(value, found);
+  }
+  const key = `${parent}\0${at}`;
+  let hits = found.get(key);
+  if (hits === undefined) {
+    hits = hitsIn(at, record.item, value, parent, mediaEntry);
+    found.set(key, hits);
+  }
+  return hits;
+}
+
+/** Every media value under `at` that points into `parent`. */
+function hitsIn(
+  at: SourcePath,
+  schema: SerializedSchema | undefined,
+  source: Source,
+  parent: ModuleFilePath,
+  mediaEntry: boolean,
+): Hit[] {
+  const hits: Hit[] = [];
+  const add = (sourcePath: SourcePath, source: unknown) => {
+    hits.push({ sourcePath, source });
+  };
+  traverseSchemaAt(
+    at,
+    schema,
+    source,
+    (sourcePath, schema, source) => {
+      if (
+        schema.type === "image" ||
+        schema.type === "file" ||
+        schema.type === "video"
+      ) {
+        if (schema.referencedModule === parent) {
+          add(sourcePath, source);
+        }
+      } else if (schema.type === "richtext") {
+        const img = richTextImageSchema(schema);
+        if (img?.referencedModule === parent) {
+          forEachRichTextImage(sourcePath, source, add);
+        }
+      } else if (
+        schema.type === "string" ||
+        schema.type === "number" ||
+        schema.type === "boolean" ||
+        schema.type === "literal" ||
+        schema.type === "enum" ||
+        schema.type === "date" ||
+        schema.type === "dateTime" ||
+        schema.type === "color" ||
+        schema.type === "code" ||
+        schema.type === "keyOf" ||
+        schema.type === "route" ||
+        schema.type === "locale" ||
+        // A view holds no source, so it references no file of its own.
+        schema.type === "view"
+      ) {
+        // ignore these
+      } else {
+        const exhaustiveCheck: never = schema;
+        Internal.log.error(
+          `Could not get referenced files. Unhandled schema type`,
+          exhaustiveCheck,
+        );
+      }
+    },
+    mediaEntry,
+  );
+  return hits;
+}
+
+function isRecordSource(
+  source: Source,
+): source is Source & { readonly [key: string]: Source | undefined } {
+  return (
+    typeof source === "object" && source !== null && !Array.isArray(source)
   );
 }
 
