@@ -1,5 +1,5 @@
 ---
-"@valbuild/server": patch
+"@valbuild/server": minor
 ---
 
 Val's server in the browser (`@valbuild/server/browser`, which the demo

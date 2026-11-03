@@ -1,6 +1,6 @@
 ---
 "@valbuild/react": patch
-"@valbuild/next": patch
+"@valbuild/next": minor
 "@valbuild/tanstack": patch
 "@valbuild/server": patch
 "@valbuild/shared": patch
@@ -17,7 +17,9 @@ of on a timer.
   so the refresh often came back without it — and then again every 10 seconds
   for half a minute in case it had. That safety refresh is gone, and so are the
   extra requests it made while you edited. Another editor's change refreshes
-  the page too, once the server has it.
+  the page too, once the server has it. While a deploy rolls out, a Studio of
+  the previous release (which never says it has saved) still refreshes the
+  page as each change arrives, as before.
 - **Next.js: `ValProvider` takes an optional `draft` prop**, as
   `@valbuild/tanstack`'s does: the editor's draft, read on the server for the
   request. With it, the server renders the draft and the browser hydrates the
@@ -30,8 +32,8 @@ of on a timer.
   returns `null` unless the request is in draft mode, after one `draftMode()`
   lookup and no other work, so visitors pay nothing and a static page stays
   static. It reads the draft the way `@valbuild/tanstack/server`'s
-  `fetchValDraft` does and returns the same type, `ValDraft | null`; `ValDraft`
-  is now exported from `@valbuild/next/rsc` too.
+  `fetchValDraft` does and returns the same type, `ValDraft | null`, which
+  is now exported from `@valbuild/next` and `@valbuild/next/rsc` too.
 - **`suspend` waits for the editor's changes properly.** With `suspend` on
   `ValProvider`, a page could be told it had everything before the editor had
   sent the pending change it needed, and render the published content first —
@@ -39,7 +41,8 @@ of on a timer.
   until the change is there.
 - A draft page whose draft was discarded or published before the editor's
   overlay or canvas connected now shows what the editor has, instead of keeping
-  the draft it was rendered with.
+  the draft it was rendered with -- an edit inside a `.jsonValues()` entry
+  included.
 - Turning draft mode on or off refreshes the page once. In development (React's
   `StrictMode`) it could refresh twice, and Next.js could log "Cannot call
   startTransition while rendering" while the page refreshed.

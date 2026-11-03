@@ -1,5 +1,5 @@
 ---
-"@valbuild/core": patch
+"@valbuild/core": minor
 "@valbuild/shared": patch
 "@valbuild/server": patch
 ---

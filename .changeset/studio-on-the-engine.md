@@ -15,7 +15,3 @@ Typing in the Studio no longer slows down with the size of the module.
   does, and what a new entry is, are decided by the same code in both, so
   the editor's fields, the page behind the Studio and a draft page's server
   render cannot disagree about them.
-- **A draft entry that was discarded before the page's editor connected no
-  longer stays on the page.** A page rendered from the draft of an edit
-  inside a `.jsonValues()` entry kept showing that edit after it was
-  discarded in another tab, until the page was reloaded.
