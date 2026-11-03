@@ -27,7 +27,6 @@ import {
   createValRuntime,
   draftForRequest,
   layeredSnapshot,
-  proposalSnapshot,
   proposalSnapshotForReaders,
   proposalAsBuilt,
   readDraftChanges,
@@ -153,19 +152,6 @@ export function snapshotForReaders(
 }
 
 /**
- * What the server's own draft starts from, where it is not the bundle's: the
- * layers `ValOpsHttp` puts over it (`siteSnapshotSources`, then
- * `snapshotSources`), in the same form, so the Studio that starts from it
- * holds the base the server reports. See `ValDraft.base`.
- */
-export function draftBase(
-  http: Pick<ValHttpMode, "proposal" | "contentVersion"> | undefined,
-): Snapshot | undefined {
-  const layered = layeredSnapshot(http?.proposal, http?.contentVersion);
-  return layered !== undefined ? proposalSnapshot(layered) : undefined;
-}
-
-/**
  * Where an isolate says which content version it applied, for the platform
  * serving it to read back after a render (valbuild/home: the loader answers it
  * as a header). A Val that predates content versions never sets it, which is
@@ -224,7 +210,7 @@ export function readsOfFetchValDraft(
  * cut down to the modules the draft changes, with the version of each. See
  * `ValDraft`. The read is `readDraftChanges` in
  * `@valbuild/server`, which `@valbuild/next/rsc`'s `fetchValDraft` is too;
- * this adds a proposal's snapshot and the draft's base, which Next has not.
+ * this adds a proposal's snapshot, which Next has not.
  *
  * Exists because the hooks render on the server too, and had no draft there:
  * a draft page was rendered as the published site and only then replaced, in
@@ -232,13 +218,11 @@ export function readsOfFetchValDraft(
  */
 export const initFetchValDraft = (
   deps: Omit<ReaderDeps, "getHeaders"> & {
-    /** What the server's draft starts from; see `ValDraft.base`. */
-    base?: Snapshot;
     /** Whether this serves a proposal's address; see `ValDraft.atProposal`. */
     atProposal?: boolean;
   },
 ) => {
-  const { snapshot, base } = deps;
+  const { snapshot } = deps;
   const withReads = async (): Promise<Ready<ValDraft | null>> => {
     const proposal: Pick<ValDraft, "atProposal"> =
       deps.atProposal === true ? { atProposal: true } : {};
@@ -260,7 +244,6 @@ export const initFetchValDraft = (
         sources: changes.sources,
         versions: changes.versions,
         ...(snapshot !== undefined ? { snapshot } : {}),
-        ...(base !== undefined ? { base } : {}),
         ...proposal,
       },
       reads: changes.reads,
@@ -512,7 +495,6 @@ export function initValContent(
     throw new Error("Could not get @valbuild/tanstack package version");
   }
   const snapshot = snapshotForReaders(opts?.http);
-  const base = draftBase(opts?.http);
   markContentApplied(opts?.http);
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
@@ -563,7 +545,6 @@ export function initValContent(
     fetchValRouteUrl: initFetchValRouteUrl(deps),
     fetchValDraft: initFetchValDraft({
       ...deps,
-      ...(base !== undefined ? { base } : {}),
       atProposal: opts?.http?.proposal !== undefined,
     }),
   };

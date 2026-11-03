@@ -46,13 +46,10 @@ export type ValDraft = {
    */
   snapshot?: Record<ModuleFilePath, Json>;
   /**
-   * The Source the server's draft starts from where it is not the bundle's: a
-   * content version -- content published without a build -- with a
-   * proposal's saves over it, as stored (`.jsonValues()` markers and all).
-   * The Studio's overlay starts from it, by `window.__VAL_BASE__`: after a
-   * content-only publish the bundle still holds the text from before it, and
-   * a draft page took that text back whenever the overlay's bundle reached
-   * it first. Sent with a draft only -- the overlay runs in draft mode alone.
+   * @deprecated Not sent any more, and not read: the Studio's overlay reads
+   * the base the server is on by version (the manifest names it), so a page
+   * no longer hands it over. Kept on the type for a release, so a draft of
+   * the release before still type-checks; it goes after that.
    */
   base?: Record<ModuleFilePath, Json>;
   /**
