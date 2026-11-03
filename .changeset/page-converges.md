@@ -33,3 +33,6 @@ of on a timer.
 - A draft page whose draft was discarded or published before the editor's
   overlay or canvas connected now shows what the editor has, instead of keeping
   the draft it was rendered with.
+- Turning draft mode on or off refreshes the page once. In development (React's
+  `StrictMode`) it could refresh twice, and Next.js could log "Cannot call
+  startTransition while rendering" while the page refreshed.

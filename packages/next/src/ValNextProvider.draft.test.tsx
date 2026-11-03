@@ -178,4 +178,47 @@ describe("ValProvider's draft prop on Next", () => {
       jest.useRealTimers();
     }
   });
+
+  /**
+   * Draft mode switching is a refresh, once: what the server components read
+   * moved with it. The refresh used to be sent from inside a `setDraftMode`
+   * updater, which React may call twice (StrictMode: two refreshes) or during
+   * a render (where `startTransition` warns).
+   */
+  test("draft mode switching on refreshes once, under StrictMode too", async () => {
+    const fetchBefore = globalThis.fetch;
+    const answered: string[] = [];
+    Reflect.set(globalThis, "fetch", async (input: string) => {
+      answered.push(input);
+      return {
+        status: 200,
+        headers: { get: () => "application/json" },
+        json: async () => ({ draftMode: true }),
+      };
+    });
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      document.cookie = `${Internal.VAL_ENABLE_COOKIE_NAME}=true`;
+      await act(async () => {
+        root = createRoot(container);
+        root.render(<React.StrictMode>{tree({})}</React.StrictMode>);
+      });
+      // Until `/draft/stat` has answered, draft mode is unknown.
+      for (let i = 0; i < 10 && answered.length === 0; i++) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      expect(answered).toContain("/api/val/draft/stat");
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+      expect(
+        errors.mock.calls.filter((call) =>
+          String(call[0]).includes("startTransition"),
+        ),
+      ).toEqual([]);
+    } finally {
+      errors.mockRestore();
+      Reflect.set(globalThis, "fetch", fetchBefore);
+    }
+  });
 });

@@ -297,9 +297,27 @@ export const ValTanStackProvider = (props: {
   const [isCanvas, setIsCanvas] = React.useState(false);
   // Known on the server when it read a draft: `fetchValDraft` only reads one
   // in draft mode. Otherwise unknown until `/draft/stat` answers.
-  const [draftMode, setDraftMode] = React.useState<boolean | null>(
+  const [draftMode, setDraftModeState] = React.useState<boolean | null>(
     hasDraft ? true : null,
   );
+  /**
+   * `draftMode` as last set: what an answer from `/draft/stat` is compared
+   * with, to know whether it MOVED draft mode and so whether to refresh.
+   *
+   * Compared here, and the refresh sent after `setDraftMode`, rather than in
+   * a `setDraftMode` updater: React may call an updater twice (StrictMode)
+   * or during a render, and a refresh is a side effect -- run twice it is
+   * two refreshes, and run in a render it is a `startTransition` while
+   * rendering, which React refuses with a warning.
+   */
+  const draftModeRef = React.useRef<boolean | null>(draftMode);
+  /** Set draft mode; `true` when that moved it. */
+  const setDraftMode = (next: boolean): boolean => {
+    const moved = draftModeRef.current !== next;
+    draftModeRef.current = next;
+    setDraftModeState(next);
+    return moved;
+  };
   /**
    * Resolves when `draftMode` stops being unknown.
    *
@@ -639,14 +657,10 @@ export const ValTanStackProvider = (props: {
             Internal.log.error("could not get draft mode status", res);
             return;
           }
-          setDraftMode((prev) => {
-            if (prev !== res.json.draftMode) {
-              // What the loaders read moved with it.
-              refreshLoopRef.current?.refresh();
-              return res.json.draftMode;
-            }
-            return prev;
-          });
+          if (setDraftMode(res.json.draftMode)) {
+            // What the loaders read moved with it.
+            refreshLoopRef.current?.refresh();
+          }
         })
         .catch((err) => {
           Internal.log.error("could not get draft mode status", err);
