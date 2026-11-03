@@ -161,9 +161,83 @@ each run's median, with the range of the three:
 
 ## The deployed isolate
 
-Not run yet: the probe (`isolate/`, see "The deployed isolate probe" in
-README.md) is ready to deploy, and needs Cloudflare credentials. What is
-below is LOCAL, and none of it is evidence about the 128 MB limit.
+### Deployed, synthetic content
+
+2026-11-03, the probe (`isolate/`, see "The deployed isolate probe" in
+README.md) deployed as a plain Worker with `pnpm dlx wrangler@4.133.0 deploy
+--env ""` to a Workers Paid account (the probe's `limits.cpu_ms` of 300 s was
+accepted and enforced: one request ended `exceededCpu` at 302 s of CPU).
+Bundle: 2,052 KiB, 377 KiB gzipped, as wrangler printed it on upload. Driven
+from a Claude Code cloud container with `isolateProbe.ts run` (defaults:
+`fresh=1`, one request per row), `wrangler tail --format json` running
+throughout, joined with `isolateProbe.ts summarize`. Every 503 the driver saw
+was `exceededMemory` in the tail ("Worker exceeded memory limit."), 54 in all,
+except the one `exceededCpu` above, which was the retry of a request that had
+been killed for memory first. Content is the size of the modules' Source as
+JSON (`contentBytes`).
+
+Largest content that was answered / smallest that ended `exceededMemory`:
+
+| Ballast (the app's heap) | `load`                                   | `draft` (validated) | `draft-novalidate` | `base`         |
+| ------------------------ | ---------------------------------------- | ------------------- | ------------------ | -------------- |
+| none                     | 86.2 MB / never killed                   | 69.9 / 75.3 MB      | 69.9 / 75.3 MB     | 69.9 / 75.3 MB |
+| 32 MB                    | 86.2 MB / never killed                   | 53.7 / 59.1 MB      | 64.5 / 69.9 MB     | 64.5 / 69.9 MB |
+| 64 MB                    | 86.2 MB (on the retry; first try killed) | 53.7 / 59.1 MB      | 53.7 / 59.1 MB     | 53.7 / 59.1 MB |
+
+The ladder went 1, 2, 5, 10, 15, 20, 30, 40, 60 and 80 MB of synthetic
+content, then `--inputs synth:65,synth:70,synth:75` (no ballast) and
+`synth:45,synth:50,synth:55` (ballast 32 and 64) to bisect; 1 MB with 650
+patches passed every operation it was asked at every ballast.
+
+What else the runs showed:
+
+- **The isolate is replaced after a large draft read, though the read
+  answered.** Up to some size each request is answered by the same isolate
+  (`#1` to `#30`); from there on the request after a `draft` gets a new one,
+  with no `exceededMemory` in the tail for the one before. That size: 42.9 MB
+  with no ballast, 32.1 MB with 32 MB, 15.9 MB with 64 MB. Not confirmed why;
+  the likely reading is that the isolate ended the request over the limit and
+  was retired rather than killed. On a site that is a new isolate, and its
+  start, for the next visitor.
+- **Ballast counts for far less than its size.** 64 MB of ballast (doubles in
+  arrays, 1 MB each) moved the kill by about 16 MB of content, and `load` of
+  86 MB answered beside it. So whatever Cloudflare compares with 128 MB is not
+  the sum of the two as V8 reports a heap, and the ballast rows are not "what
+  is left after an app of N MB". They do show the direction: an app's heap
+  lowers the ceiling.
+- **CPU, from the tail**: a validated draft read took 1.8 s at 15.9 MB,
+  2.6 s at 21.3 MB, 5.2 s at 32.1 MB and 7.4 s at 42.9 MB, about 0.15 s per
+  MB, with outliers (5.7 s at 10.5 MB, 40.7 s at 64.5 MB). Starting the
+  server (`load`) is of the same order as one read.
+
+**Not run: `--env web`.** It bundles valbuild/web from a checkout beside this
+repository (`../web`), and this container had none and could not attach one,
+so valbuild/web's 0.23 MB was not measured in a deployed isolate. At 0.23 MB
+it is two orders of magnitude under every kill above.
+
+**Not run either: the loader.** This is a plain Worker. A site's isolate is
+started by home's loader (`worker_loaders`), and decision 5 of
+`docs/plans/one-content-model.md` asks for the probe there; if the two limits
+differ, only that one counts.
+
+**Conclusion.** A draft read of today's server, whole tree and validated, is
+answered in a deployed isolate with up to about 54 MB of (synthetic) content
+beside 64 MB of ballast, and about 70 MB on its own; it is killed at about 59
+and 75 MB. Home's rule of thumb (about 15 MB of content crosses 128 MB) is
+pessimistic for content of this shape by roughly 4x. The practical ceiling is
+lower than the kill: from 16 to 43 MB, depending on the ballast, the isolate
+does not outlive the read, and a validated read of 43 MB costs 7 s of CPU.
+Real content (deep rich text, `.jsonValues()` entries, media) is untested here
+and costs differently. For phase 6: today's draft read does not cross 128 MB
+at any size a site has today, so phase 6 does not have to move ahead of 2-5
+for memory. The head's 16 MB budget is about where, beside 64 MB of ballast,
+the isolate stopped outliving a validated read (15.9 MB), and far under the
+kill: a budget that holds, not one with room to spare, and it holds better
+once validation leaves the read path. What remains of the check is the same
+probe through home's loader, and with valbuild/web's content.
+
+The bundle and workerd sections below are LOCAL, and none of them is evidence
+about the 128 MB limit.
 
 ### The probe's bundle
 

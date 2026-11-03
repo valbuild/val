@@ -2,8 +2,11 @@
 
 > **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 to 5 built
 > (2026-11-02); of phase 7, the parts phase 6 does not block, and of phase 9
-> the parts phases 6 and 7 do not block (2026-11-03), while phase 6 waits for
-> a deployed 128 MB check.** See
+> the parts phases 6 and 7 do not block (2026-11-03). The deployed 128 MB
+> check ran on a plain Worker (2026-11-03): a validated draft read of today's
+> server is killed at about 59 MB of content beside 64 MB of ballast and
+> 75 MB without, so memory does not block phase 6; the same probe through
+> home's loader, and with valbuild/web, is still to run (decision 5).** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
 > the change.
@@ -1565,13 +1568,13 @@ entries and remote images or files. They have not._
 
 ### What has been measured, and what it does not cover
 
-| Measured (see `scenarios/measure/results.md`) | What it is                                                                               | What it leaves out                                         |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| A draft read on Val's server, 1 to 86 MB      | 20 inline `s.record` modules of equal size, plus 1 MB with 650 patches, and valbuild/web | No `.jsonValues()` entries, no media, and the server only  |
-| One write in the Studio, 9 KB to 5 MB         | One inline record module, up to about 40,000 keys at the root                            | No `.jsonValues()`, no media, no rendering; the store only |
-| Copy-on-write (B06)                           | A module of 200 items                                                                    | Nothing at size                                            |
-| The isolate bundle and local workerd          | Bundle size; workerd does not enforce 128 MB                                             | The deployed limit (waiting for a token)                   |
-| MCP's search index                            | Linear to about 13 MB                                                                    | The Studio's own search                                    |
+| Measured (see `scenarios/measure/results.md`)        | What it is                                                                                   | What it leaves out                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| A draft read on Val's server, 1 to 86 MB             | 20 inline `s.record` modules of equal size, plus 1 MB with 650 patches, and valbuild/web     | No `.jsonValues()` entries, no media, and the server only  |
+| One write in the Studio, 9 KB to 5 MB                | One inline record module, up to about 40,000 keys at the root                                | No `.jsonValues()`, no media, no rendering; the store only |
+| Copy-on-write (B06)                                  | A module of 200 items                                                                        | Nothing at size                                            |
+| The isolate bundle, local workerd, a deployed Worker | Bundle size; workerd does not enforce 128 MB; deployed, the draft read is killed at 59-75 MB | The loader's isolate; real content shapes                  |
+| MCP's search index                                   | Linear to about 13 MB                                                                        | The Studio's own search                                    |
 
 So nothing yet says how the Studio behaves with 10,000 to 100,000
 `.jsonValues()` entries, or with thousands of images, files or videos in an
