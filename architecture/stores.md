@@ -209,7 +209,12 @@ fields.
   it and hands it to `reloadCode` with what the manifest expects: another
   Val is not imported at all (`other-val-version`), and a registry whose
   schema versions are not the manifest's is not adopted
-  (`not-the-manifest's`). Once per build.
+  (`not-the-manifest's`). Once per build. Only from the page's own origin
+  (`registryEntryUrl`), and only for `REGISTRY_IMPORT_DEADLINE_MS`: an
+  import that hangs is a registry that did not load, so the manifest is
+  adopted without it rather than held up for good. A registry refused or
+  not loaded does not supersede an earlier one still importing; only an
+  adopted one does.
 - **Local development (`fs` mode)**: HMR brings the code. Nothing happens
   here.
 - **Anything else** (Next.js, a self-hosted TanStack Start, another Val, a
