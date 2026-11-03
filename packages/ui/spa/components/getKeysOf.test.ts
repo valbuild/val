@@ -6,7 +6,7 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { getKeysOf } from "./getKeysOf";
+import { getKeysOf, keyOfScanScope } from "./getKeysOf";
 
 const { s, c } = initVal();
 
@@ -200,6 +200,68 @@ describe("getKeysOf", () => {
     );
     expect(resultWithParent).toEqual([
       '/path2.val.ts?p="level1"."record1"."level2".0."findThis"',
+    ]);
+  });
+});
+
+describe("keyOfScanScope", () => {
+  /**
+   * The scan walks only what can hold a reference: a page pointing at a record
+   * and three libraries of 10,000 files walked all 30,000 files on every
+   * keystroke, for a `keyOf` none of them could contain.
+   */
+  test("leaves out every module whose schema has no keyOf to the parent", () => {
+    const posts = c.define(
+      "/posts.val.ts",
+      s.record(s.object({ title: s.string() })),
+      { a: { title: "A" } },
+    );
+    const images = c.define(
+      "/images.val.ts",
+      s.imagedir("/public/val/images", {}),
+      {},
+    );
+    const page = c.define(
+      "/page.val.ts",
+      s.object({
+        sections: s.array(
+          s.object({ post: s.keyOf(posts), hero: s.image(images) }),
+        ),
+      }),
+      { sections: [] },
+    );
+    const other = c.define("/other.val.ts", s.keyOf(page), "sections");
+    const { schemas } = getTestData([posts, images, page, other]);
+
+    expect(
+      Object.keys(keyOfScanScope(schemas, "/posts.val.ts" as ModuleFilePath)),
+    ).toEqual(["/page.val.ts"]);
+    expect(
+      Object.keys(keyOfScanScope(schemas, "/page.val.ts" as ModuleFilePath)),
+    ).toEqual(["/other.val.ts"]);
+    expect(
+      Object.keys(keyOfScanScope(schemas, "/images.val.ts" as ModuleFilePath)),
+    ).toEqual([]);
+  });
+
+  test("finds the same references as a walk of everything", () => {
+    const posts = c.define(
+      "/posts.val.ts",
+      s.record(s.object({ title: s.string() })),
+      { a: { title: "A" }, b: { title: "B" } },
+    );
+    const page = c.define(
+      "/page.val.ts",
+      s.object({ list: s.array(s.object({ post: s.keyOf(posts) })) }),
+      { list: [{ post: "a" }, { post: "b" }, { post: "a" }] },
+    );
+    const { schemas, sources } = getTestData([posts, page]);
+
+    expect(
+      getKeysOf(schemas, sources, "/posts.val.ts" as ModuleFilePath, "a"),
+    ).toEqual([
+      '/page.val.ts?p="list".0."post"',
+      '/page.val.ts?p="list".2."post"',
     ]);
   });
 });

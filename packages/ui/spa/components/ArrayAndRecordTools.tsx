@@ -62,11 +62,24 @@ export function ArrayAndRecordTools({
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const parts = splitIntoInitAndLastParts(path);
   const last = parts[parts.length - 1];
+  const parentIsRecord = isParentRecord(
+    path,
+    maybeParentPath,
+    parentSchemaAtPath,
+  );
+  /**
+   * Scanned for only where something below shows the answer: an entry of a
+   * record (its delete and rename guards, and its references) and a record
+   * (its references). Anything else -- the root of a page, which is where an
+   * editor types -- asked anyway and threw it away, and the scan walks the
+   * project's source again on every keystroke.
+   */
+  const showsRefs =
+    parentIsRecord ||
+    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined);
   const refs = useKeysOf(
-    maybeParentPath as unknown as ModuleFilePath,
-    isParentRecord(path, maybeParentPath, parentSchemaAtPath)
-      ? last?.part
-      : undefined,
+    showsRefs ? (maybeParentPath as unknown as ModuleFilePath) : undefined,
+    parentIsRecord ? last?.part : undefined,
   );
   const srcFolder = usePageRouterSrcFolder();
   /**

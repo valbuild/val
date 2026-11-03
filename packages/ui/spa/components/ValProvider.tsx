@@ -4138,6 +4138,17 @@ export function useShallowModulesAtPaths<
   const val = useValSystem();
   const initializedAt = useInitialized();
   const sourcesVersion = useSourcesVersion();
+  const previous = useRef<ShallowSourcesOf<SchemaType> | null>(null);
+  const mapped = useRef(
+    new Map<
+      ModuleFilePath,
+      {
+        source: Json;
+        type: SchemaType;
+        mapped: ReturnType<typeof mapSource<SchemaType>>;
+      }
+    >(),
+  );
   const sourcesRes = useMemo(() => {
     if (val === null) return null;
     void sourcesVersion;
@@ -4149,7 +4160,7 @@ export function useShallowModulesAtPaths<
       val.system.sourceStore.moduleSource(moduleFilePath),
     );
   }, [val, sourcesVersion, moduleFilePaths]);
-  return useMemo((): ShallowSourcesOf<SchemaType> => {
+  const result = useMemo((): ShallowSourcesOf<SchemaType> => {
     if (initializedAt === null) {
       return { status: "loading" };
     }
@@ -4185,12 +4196,18 @@ export function useShallowModulesAtPaths<
         notFoundPaths.push(moduleFilePath);
         continue;
       }
-      const mappedSource = mapSource(
-        moduleFilePath,
-        "" as ModulePath,
-        type,
+      // Mapped again only when the module moved: one keystroke moves
+      // `sourcesVersion` for every module, and a library is 10,000 keys.
+      const kept = mapped.current.get(moduleFilePath);
+      const mappedSource =
+        kept !== undefined && kept.source === source && kept.type === type
+          ? kept.mapped
+          : mapSource(moduleFilePath, "" as ModulePath, type, source);
+      mapped.current.set(moduleFilePath, {
         source,
-      );
+        type,
+        mapped: mappedSource,
+      });
 
       if (mappedSource.status === "success") {
         allSources.push(mappedSource.data as ShallowSource[SchemaType]);
@@ -4204,11 +4221,25 @@ export function useShallowModulesAtPaths<
     if (errors.length > 0) {
       return { status: "error", data: allSources, errors };
     }
+    // The answer before, while every module in it is the one it was: a
+    // keystroke anywhere moves `sourcesVersion`, and the callers (the shell's
+    // media lists, a record of 10,000 files each) recompute on a new answer.
+    const before = previous.current;
+    if (
+      before?.status === "success" &&
+      before.data !== null &&
+      before.data.length === allSources.length &&
+      before.data.every((data, i) => data === allSources[i])
+    ) {
+      return before;
+    }
     return {
       status: "success",
       data: allSources,
     };
   }, [sourcesRes, type, initializedAt, moduleFilePaths]);
+  previous.current = result;
+  return result;
 }
 
 /**

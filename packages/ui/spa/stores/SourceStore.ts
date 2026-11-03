@@ -375,7 +375,25 @@ export class SourceStore {
    * forever while the effect that would retry sees nothing new to do. Cleared
    * on a successful fetch and on a fresh attempt.
    */
-  private entryFailures = new Map<string, string>();
+  private entryFailures = new CountedMap<string, string>();
+  /**
+   * What {@link markersOf} and {@link entriesProgress} found in a module's
+   * view, kept per view object and read again only when the view or a fetch's
+   * outcome moved.
+   *
+   * Every progress hook asks on every render, and a keystroke re-renders them
+   * all: counted afresh, a `.jsonValues()` record of 10,000 posts was walked a
+   * few times per keystroke in a module nobody had edited -- most of a
+   * second's freeze per character on a page that only pointed at it.
+   */
+  private entriesCounted = new WeakMap<
+    ModuleView,
+    {
+      failureWrites: number;
+      markers: { key: string; failure: string | undefined }[];
+      progress?: { total: number; loaded: number; failed: number };
+    }
+  >();
   /** Moved whenever a module's entry fetches start, finish or fail: for {@link peek}. */
   private fetchEpochs = new Map<ModuleFilePath, number>();
   /** Patches an entry's error has been reported for, so it is reported once. */
@@ -1054,8 +1072,18 @@ export class SourceStore {
     const view = this.views.get(moduleFilePath)?.view;
     if (view === undefined) return null;
     if (!isJsonObject(view.source)) return [];
+    const counted = this.entriesCounted.get(view);
+    if (
+      counted !== undefined &&
+      counted.failureWrites === this.entryFailures.writes
+    ) {
+      return counted.markers;
+    }
     const markers: { key: string; failure: string | undefined }[] = [];
-    for (const [key, value] of Object.entries(view.source)) {
+    const keys = Object.keys(view.source);
+    this.activity.work("source:count-entries", moduleFilePath, keys.length);
+    for (const key of keys) {
+      const value = view.source[key];
       if (!Internal.isJson(value)) continue;
       const error = view.entryErrors.get(key);
       const fetchKey = fetchKeyOf(view, key) ?? key;
@@ -1066,6 +1094,10 @@ export class SourceStore {
           this.entryFailures.get(entryKey(moduleFilePath, fetchKey)),
       });
     }
+    this.entriesCounted.set(view, {
+      failureWrites: this.entryFailures.writes,
+      markers,
+    });
     return markers;
   }
 
@@ -1158,16 +1190,29 @@ export class SourceStore {
     if (view === undefined || !isJsonObject(view.at.content.source)) {
       return { total: 0, loaded: 0, failed: 0 };
     }
+    const markers = this.markersOf(moduleFilePath) ?? [];
+    // `markersOf` just counted this view (or found it counted), so the
+    // progress is kept beside its markers and goes stale with them.
+    const counted = this.entriesCounted.get(view);
+    if (counted?.progress !== undefined) return counted.progress;
     let total = 0;
-    for (const [key, value] of Object.entries(view.at.content.source)) {
-      if (!Internal.isJson(value)) continue;
+    const content = view.at.content.source;
+    const keys = Object.keys(content);
+    this.activity.work("source:count-entries", moduleFilePath, keys.length);
+    for (const key of keys) {
+      if (!Internal.isJson(content[key])) continue;
       // Content the chain wrote whole (a new entry) is not an entry to load.
       if (entryState(view.at.content, key)?.kind === "content") continue;
       total++;
     }
-    const markers = this.markersOf(moduleFilePath) ?? [];
     const failed = markers.filter((marker) => marker.failure !== undefined);
-    return { total, loaded: total - markers.length, failed: failed.length };
+    const progress = {
+      total,
+      loaded: total - markers.length,
+      failed: failed.length,
+    };
+    if (counted !== undefined) counted.progress = progress;
+    return progress;
   }
 
   /**
@@ -2492,6 +2537,31 @@ export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
     const last = patchPath[patchPath.length - 1];
     if (!Number.isInteger(Number(last))) return;
     add(patchPath.slice(0, -1));
+  }
+}
+
+/**
+ * A `Map` that counts its writes, so what is worked out from it can be kept
+ * and told when it went stale without being worked out again to compare.
+ */
+class CountedMap<K, V> extends Map<K, V> {
+  /** Moves on every `set`, and on every `delete` or `clear` that removed something. */
+  writes = 0;
+
+  override set(key: K, value: V): this {
+    this.writes++;
+    return super.set(key, value);
+  }
+
+  override delete(key: K): boolean {
+    const deleted = super.delete(key);
+    if (deleted) this.writes++;
+    return deleted;
+  }
+
+  override clear(): void {
+    if (this.size > 0) this.writes++;
+    super.clear();
   }
 }
 

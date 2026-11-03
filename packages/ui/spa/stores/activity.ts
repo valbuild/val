@@ -66,6 +66,12 @@ export type WorkKind =
   | "source:skip-unloaded"
   /** One `get()` walked the module to a path. */
   | "source:read-path"
+  /**
+   * A module's `.jsonValues()` entries were counted: which are still markers,
+   * which failed, how many there are. `count` is the keys walked. Once per
+   * view of a module, never per read: a progress bar asks on every render.
+   */
+  | "source:count-entries"
   /** One `.jsonValues()` entry's content was delivered into the store. */
   | "source:receive-json-entry"
   /** One `.jsonValues()` entry fetch was started. The request count. */

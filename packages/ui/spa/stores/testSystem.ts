@@ -15,7 +15,7 @@ import { ReferenceStore } from "./ReferenceStore";
 import { RecordingActivity } from "./activity";
 import type { CreatePatchResult } from "./PatchStore";
 import type { SaveResult } from "./PatchSync";
-import type { SourcePeek } from "./SourceStore";
+import type { SourcePeek, SourceStore } from "./SourceStore";
 import type {
   FieldEvent,
   Head,
@@ -324,6 +324,12 @@ export type TestSourceStore = {
     moduleFilePath: string,
     key: string,
   ): Promise<{ status: "ok" } | { status: "error"; message: string }>;
+  /** What the progress hooks read on every render (`useJsonEntriesProgress`). */
+  allEntriesProgress(): { total: number; loaded: number; failed: number };
+  /** What a reference scan waits on (`useJsonValuesLoad`). */
+  entriesStatus(
+    moduleFilePaths: readonly string[],
+  ): ReturnType<SourceStore["entriesStatus"]>;
 };
 
 export type TestStatStore = {
@@ -1140,6 +1146,11 @@ export function initTestSystem(
         system.sourceStore.loadEntries(moduleFilePath as ModuleFilePath, keys),
       retryEntry: (moduleFilePath, key) =>
         system.sourceStore.retryEntry(moduleFilePath as ModuleFilePath, key),
+      allEntriesProgress: () => system.sourceStore.allEntriesProgress(),
+      entriesStatus: (moduleFilePaths) =>
+        system.sourceStore.entriesStatus(
+          moduleFilePaths.map((path) => path as ModuleFilePath),
+        ),
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),
