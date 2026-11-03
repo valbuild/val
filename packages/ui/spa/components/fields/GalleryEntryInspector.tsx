@@ -14,6 +14,7 @@ import { MediaInspector } from "../MediaGallery/MediaInspector";
 import type { MediaItem, MediaKind } from "../MediaGallery/types";
 import { ConnectedReferenceLinks } from "../ReferencesList";
 import { useReferencedFiles } from "../useReferencedFiles";
+import { ContentLoadError, ContentLoadProgress } from "../ContentLoadStatus";
 import type { PendingPatch, Profile } from "../ValProvider";
 import { useNavigation } from "../ValRouter";
 import { FocalPointPicker } from "./FocalPointPicker";
@@ -261,23 +262,39 @@ export function GalleryEntryInspector({
       }
       renameDisabled={!referencesChecked}
       usage={
-        refs.length > 0 ? (
-          <ConnectedReferenceLinks
-            refs={refs}
-            currentPath={currentSourcePath}
-            onSelect={(navPath, { scrollToPath }) =>
-              navigate(navPath, { scrollToPath })
-            }
-          />
-        ) : (
-          <span className="text-xs italic text-fg-secondary-alt">
-            {references.status === "loading"
-              ? "Looking for where it is used…"
-              : references.status === "error"
-                ? "Could not look up where it is used."
-                : "Not used yet."}
-          </span>
-        )
+        <div className="flex flex-col gap-2">
+          {refs.length > 0 && (
+            <ConnectedReferenceLinks
+              refs={refs}
+              currentPath={currentSourcePath}
+              onSelect={(navPath, { scrollToPath }) =>
+                navigate(navPath, { scrollToPath })
+              }
+            />
+          )}
+          {/*
+           * A library whose files a `.jsonValues()` record can pick waits
+           * for every entry of that record: at 10,000 that takes a while, so
+           * it says how far, and the places found so far are shown above.
+           */}
+          {references.status === "loading" ? (
+            <ContentLoadProgress
+              label="Looking for where it is used"
+              loaded={references.loaded}
+              total={references.total}
+            />
+          ) : references.status === "error" ? (
+            <ContentLoadError
+              what="this list"
+              message={references.message}
+              retry={references.retry}
+            />
+          ) : refs.length === 0 ? (
+            <span className="text-xs italic text-fg-secondary-alt">
+              Not used yet.
+            </span>
+          ) : null}
+        </div>
       }
       onDelete={onDelete}
       deleteBlockedReason={

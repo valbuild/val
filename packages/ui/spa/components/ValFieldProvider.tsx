@@ -1229,40 +1229,6 @@ export function useResolveNavPath(): (
   );
 }
 
-/**
- * Progress of the `.jsonValues()` entries the project has loaded so far.
- *
- * NOTE: `percentage` is 100 while `status` is `"idle"`, so check the status
- * before showing it.
- *
- * Counted from source and the loaded map on every read, rather than accumulated
- * as fetches are issued. The engine counted requests and resolutions, which made
- * the total the number of entries someone had ASKED for — so the bar restarted
- * every time a new module was opened, and reached 100% while entries were still
- * missing. These two numbers come from the same place a read does, so a full bar
- * means the content is actually there.
- */
-export function useJsonEntriesProgress(): JsonEntriesProgress {
-  const val = useValSystem();
-  const version = useSourcesVersion(val);
-  return useMemo<JsonEntriesProgress>(() => {
-    if (val === null) {
-      return { status: "idle", loaded: 0, total: 0, percentage: 100 };
-    }
-    void version;
-    const { total, loaded } = val.system.sourceStore.allEntriesProgress();
-    if (total === 0 || loaded === total) {
-      return { status: "idle", loaded, total, percentage: 100 };
-    }
-    return {
-      status: "loading",
-      loaded,
-      total,
-      percentage: Math.round((loaded / total) * 100),
-    };
-  }, [val, version]);
-}
-
 export function useAllPreviews(): Record<
   ModuleFilePath,
   ReifiedPreview | null
@@ -1303,18 +1269,6 @@ export function useAllPreviews(): Record<
 }
 
 const EMPTY_PREVIEWS: Record<ModuleFilePath, ReifiedPreview | null> = {};
-
-/**
- * How far the `.jsonValues()` entry load has got. See
- * {@link useJsonEntriesProgress}.
- */
-export type JsonEntriesProgress = {
-  status: "idle" | "loading";
-  loaded: number;
-  total: number;
-  /** 100 while idle — check `status` first. */
-  percentage: number;
-};
 
 function walkSourcePath(
   modulePath: ModulePath,

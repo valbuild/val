@@ -1673,6 +1673,7 @@ function ValShellBody({
           getMediaFileUrl={getMediaFileUrl}
           searchContentResults={contentSearch.results}
           isSearchingContent={contentSearch.isSearching}
+          searchContentLoad={contentSearch.load}
           onSearchQueryChange={setSearchQuery}
           // A content hit is a path inside a module, so it is opened directly.
           onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
