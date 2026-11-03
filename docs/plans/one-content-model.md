@@ -2269,8 +2269,9 @@ What the numbers say, for the decision:
   once the posts are loaded with a longest task of 75 ms (was 14.9 s and
   3.3 s), after fixing a freeze the slicing had brought in (interleaved
   passes undoing each other; `searchPasses.test.ts`); "used by" is 5.3 s
-  with 29 long tasks of up to 263 ms, the shell re-rendering per applied
-  batch in a dev build, so "no long task over 50 ms" is not met there yet. Budgets in
+  with 29 long tasks of up to 263 ms in a dev build, and 3.2-4.2 s with up
+  to 130-147 ms built, so "no long task over 50 ms" is not met yet (see "On
+  a built Studio" below for the cause). Budgets in
   `scale.scenario.test.ts`; the numbers in `results.md`, "After: every
   entry of a record, in batches".
 - **The browser's costs are rendering**: the gallery and the `keyOf`
@@ -2283,6 +2284,39 @@ What the numbers say, for the decision:
 
 Cheap-looking and structural observations are listed in `results.md`;
 which to fix, and which to document as limits, is still to be decided.
+
+### On a built Studio (2026-11-03)
+
+The browser numbers above were Vite's dev server. Re-run on the built
+Studio (the production bundle `@valbuild/ui/server` embeds, as a project
+installed from npm runs it; the app around it still `vite dev`). How, and
+every number, in `results.md`, "The Studio, built".
+
+| Target                                        | 1,000                                                              | 10,000                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| First field                                   | met: 1.4 s quiet (2.0-2.6 s under load), 0.35 s of it the Studio's | 1.4 s, longest task 283 ms                                        |
+| Keystroke (no long task while typing)         | met: none at any size, 100k included (dev: 69-256 ms)              | met                                                               |
+| No long task over 50 ms while scrolling       | met on a quiet machine (record list and gallery); not under load   | usable: the record list 8 of up to 116 ms, the gallery none       |
+| No freeze, crash or lost edit; progress shown | met                                                                | met: no task over 300 ms                                          |
+| Search: a bar, no long task over 50 ms        | met (0.5-1.4 s)                                                    | not met, narrowly: 3.4-3.9 s, 1-3 tasks of 74-82 ms               |
+| "Used by": a bar, no long task over 50 ms     | just (one task of 54-118 ms)                                       | not met: 3.2-4.2 s, 19-26 tasks of up to 130-147 ms (dev: 263 ms) |
+
+The build took away what was the dev Studio's own cost (typing, the
+dropdown, the gallery have no long task left), and 100,000 now loads in
+4.4 s (dev: a 26 s freeze); there "used by" takes 42 s with tasks up to
+2.3 s and search 4 minutes and 969 MB.
+
+**What is left in "used by" at 10k** is `useAllValidationErrors`: each of
+the eight components that call it re-runs the whole-project filter
+(`filterBlockingValidationErrors`) on every validation event, and a batch
+of posts landing revalidates the posts module, whose every loaded entry
+carries an `image:check-gallery` marker that resolves to nothing -- about
+twenty batches x eight filters x every post loaded so far, 1.0 s of the
+load's 3.4 s busy time in a CPU profile. Proposed, not done: compute the
+surfaced errors once per event for the whole Studio (a cached selector on
+`ValidationStore`, or `ValErrorProvider` holding it), and per module, so a
+batch re-filters only the module that changed. Small to medium, with a test
+counting filter runs per event.
 
 ### When
 

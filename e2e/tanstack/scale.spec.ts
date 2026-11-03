@@ -26,6 +26,19 @@ import { navigateStudio, test } from "../studio";
  * scale fixtures (the first test says so). Skipped when `VAL_E2E_SCALE` is not
  * set, so the `tanstack` project in CI never runs it.
  *
+ * The Studio is whatever `@valbuild/ui/server` serves. In the source checkout
+ * (`pnpm preconstruct dev`) that is Vite's dev server on :5173, unbundled; to
+ * measure the BUILT Studio -- the production bundle embedded in the package --
+ * build first, run without the warmup project (its wait reads
+ * `__VAL_STORES__`, which a production build does not expose), and restore
+ * the dev entries after:
+ *
+ *   pnpm run build
+ *   VAL_E2E_SCALE=10000 pnpm exec playwright test --project=tanstack --no-deps e2e/tanstack/scale.spec.ts
+ *   pnpm preconstruct dev
+ *
+ * The table's heading says which Studio was measured.
+ *
  * What each test measures: wall time from the browser's point of view, long
  * tasks (`PerformanceObserver("longtask")`, over 50 ms) while it ran, the
  * requests the page made, and the JS heap after it (CDP's `JSHeapUsedSize`
@@ -53,12 +66,14 @@ type Row = {
   note?: string;
 };
 const rows: Row[] = [];
+/** Which Studio ran: a production build does not expose `__VAL_STORES__`. */
+let studio: "built" | "dev" | "unknown" = "unknown";
 
 test.afterAll(() => {
   if (rows.length === 0) return;
   const lines = [
     "",
-    `Scale ${SCALE}:`,
+    `Scale ${SCALE} (${studio} Studio):`,
     "| surface | ms | long tasks | longest (ms) | long-task total (ms) | heap (MB) | requests | note |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map(
@@ -73,7 +88,7 @@ test.afterAll(() => {
   process.stdout.write(`${lines.join("\n")}\n`);
   writeFileSync(
     `test-results/scale-${SCALE}.json`,
-    JSON.stringify({ scale: SCALE, rows }, null, 2),
+    JSON.stringify({ scale: SCALE, studio, rows }, null, 2),
   );
 });
 
@@ -196,19 +211,17 @@ async function measure(
   return ms !== null;
 }
 
-async function storesReceived(page: Page): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const bag = window as unknown as {
-            __VAL_STORES__?: { received: boolean };
-          };
-          return bag.__VAL_STORES__?.received === true;
-        }),
-      { timeout: STEP_TIMEOUT },
-    )
-    .toBe(true);
+/**
+ * The featured page's first field, holding its title: the Studio is up and
+ * has the project. Read from the page rather than from `__VAL_STORES__`, so
+ * it waits the same way for a built Studio, which does not expose the stores.
+ */
+async function firstFieldShown(page: Page): Promise<void> {
+  const title = page.locator("#val-content-area").getByRole("textbox").first();
+  await expect(
+    title,
+    "no scale fixtures: stop the dev server on :3458 and run again with VAL_E2E_SCALE set",
+  ).toHaveValue("Featured", { timeout: STEP_TIMEOUT });
 }
 
 /** The record list's own scroll viewport (`VirtualizedRecordList`). */
@@ -267,28 +280,44 @@ test.describe(`the Studio with ${SCALE} entries`, () => {
     const requests = countRequests(page);
 
     // A first load to let Vite compile what this route needs: not measured.
-    await page.goto("/val");
-    await storesReceived(page);
+    await page.goto("/val/~/content/scale/featured.val.ts");
+    await firstFieldShown(page);
+    studio = await page.evaluate(() =>
+      "__VAL_STORES__" in window ? "dev" : "built",
+    );
 
     // 1. Cold start to the first editable field, on the page that picks
-    // from every library. A full page load: in this suite the Studio is
-    // served by Vite's dev server, unbundled (a thousand module requests),
-    // so this is a ceiling for a built Studio. Every later surface is
-    // reached by navigating inside the Studio, as an editor does.
+    // from every library. A full page load: from Vite's dev server that is
+    // a thousand module requests, from a built Studio a handful (see the
+    // docblock). Every later surface is reached by navigating inside the
+    // Studio, as an editor does.
     const opened = await measure(
       page,
       requests,
       "cold start: first editable field (featured page, full page load)",
       async () => {
         await page.goto("/val/~/content/scale/featured.val.ts");
-        const title = page
-          .locator("#val-content-area")
-          .getByRole("textbox")
-          .first();
-        await expect(
-          title,
-          "no scale fixtures: stop the dev server on :3458 and run again with VAL_E2E_SCALE set",
-        ).toHaveValue("Featured", { timeout: STEP_TIMEOUT });
+        await firstFieldShown(page);
+        // When the Studio's own script arrived, so the app's share of a cold
+        // start (in this suite, `vite dev` of the app) can be told apart.
+        const studioScript = await page.evaluate(() => {
+          const entries = performance
+            .getEntriesByType("resource")
+            .filter(
+              (e) =>
+                e.name.includes("/api/val/static") &&
+                /\.(m?js|jsx|tsx?)(\?|$)/.test(new URL(e.name).pathname),
+            );
+          if (entries.length === 0) return null;
+          // A resource entry's end (`responseEnd`) is its start plus its
+          // duration, and both are on every `PerformanceEntry`.
+          return Math.round(
+            Math.max(...entries.map((e) => e.startTime + e.duration)),
+          );
+        });
+        return studioScript === null
+          ? undefined
+          : `the Studio's scripts loaded ${studioScript} ms after navigation`;
       },
     );
     expect(opened, "the Studio did not come up at this size").toBe(true);
