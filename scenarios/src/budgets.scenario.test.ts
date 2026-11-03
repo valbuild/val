@@ -29,8 +29,8 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  * readers' B07 (`read:resolve`, `read:encode`), and a draft page's
  * refreshes, B08, and the versions a Studio keeps, B09, and what a
  * manifest since the last one names, B10; and the head's (phase 6): what it
- * holds, B11, what a request's reads cost it, B12, and what the module
- * endpoint sends, B13. (B03, a draft read in a 128 MB isolate, is a
+ * holds, B11, what a request's reads cost it, B12, what the module
+ * endpoint sends, B13, and what an entry request costs, B14. (B03, a draft read in a 128 MB isolate, is a
  * benchmark, not here.)
  *
  * Since phase 5 a Studio applies patches with the same engine as the server
@@ -48,6 +48,26 @@ const homeVal = c.define(
   { title: "Hello", subtitle: "Sub" },
 );
 const HOME = moduleFilePathOf(homeVal);
+
+/** A `.jsonValues()` record of `size` entries, each its own import. */
+function notesOf(path: string, size: number) {
+  const note = (i: number) =>
+    c.json(
+      (): Promise<{ default: { title: string } }> =>
+        Promise.resolve({ default: { title: `Note ${i}` } }),
+    );
+  const entries: Record<string, ReturnType<typeof note>> = {};
+  for (let i = 0; i < size; i++) {
+    entries[`note-${i}`] = note(i);
+  }
+  return c.define(
+    path as `/${string}.val.ts`,
+    s.record(s.object({ title: s.string() })).jsonValues(),
+    entries,
+  );
+}
+const smallNotes = notesOf("/content/small-notes.val.ts", 20);
+const largeNotes = notesOf("/content/large-notes.val.ts", 5_000);
 
 const ITEMS = 200;
 const listVal = c.define(
@@ -377,6 +397,67 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     });
     expect(unknown.status).toBe(404);
     expect(unknown.json).toMatchObject({ current: after });
+  });
+
+  /**
+   * B14 An entry request costs the entries it asks for, whatever the
+   * record's size.
+   *
+   * Given two `.jsonValues()` records, of 20 entries and of 5,000, one entry
+   * of each edited,
+   * when a client asks for 20 entries of each, one request per entry and
+   * then all 20 in one request, the server's patches applied and not (the
+   * Studio's `apply_patches=false`),
+   * then neither record's keys are walked more than once (each record object
+   * once, ever: `recordKeysOf`), and the head resolves each entry once per
+   * version -- the same work for the record of 5,000 as for the one of 20.
+   * Before, every `GET /json` walked the whole record, so reading every
+   * entry one request at a time was quadratic (phase 10's baseline).
+   */
+  test("B14 an entry request costs the entries it asks for, not the record", async () => {
+    world = await createWorld({
+      config,
+      modules: [smallNotes, largeNotes],
+      server,
+    });
+    const editor = await world.studio("editor");
+    await world.settle();
+    await editor.edit(smallNotes, ["note-3", "title"], "Edited");
+    await editor.edit(largeNotes, ["note-3", "title"], "Edited");
+    await world.settle();
+    const keys = Array.from({ length: 20 }, (_, i) => `note-${i}`);
+
+    const work = async (module: typeof smallNotes) => {
+      const since = world!.workPosition();
+      for (const applyPatches of [true, false]) {
+        for (const key of keys) {
+          const one = await world!.jsonEntries(module, [key], { applyPatches });
+          expect(one.status).toBe(200);
+        }
+        const all = await world!.jsonEntries(module, keys, { applyPatches });
+        expect(all.status).toBe(200);
+        expect(
+          (all.json as { entries: { key: string }[] }).entries.map(
+            (entry) => entry.key,
+          ),
+        ).toEqual(keys);
+      }
+      return since;
+    };
+    const small = await work(smallNotes);
+    world.expectWork(small, {
+      "head:record-scan": { atMost: 2 },
+      "head:entry-resolve": { atMost: keys.length },
+    });
+    const large = await work(largeNotes);
+    world.expectWork(large, {
+      "head:record-scan": { atMost: 2 },
+      "head:entry-resolve": { atMost: keys.length },
+    });
+    const edited = await world.jsonEntries(largeNotes, ["note-3"]);
+    expect(edited.json).toMatchObject({
+      entries: [{ key: "note-3", content: { title: "Edited" } }],
+    });
   });
 
   /**

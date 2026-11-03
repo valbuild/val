@@ -744,6 +744,20 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     place of their markers), so two relays at one version are no longer
     compared by content either. `draftHoldsVersions` reports them beside
     `draftHolds`.
+  - **An entry request costs the entries it asks for** (asked for from
+    phase 10's baseline, where reading every entry one `GET /json` at a time
+    was quadratic: each request walked the whole record). A record's keys
+    are walked once per record OBJECT (`recordKeysOf`: a base, or a version
+    the engine made, both immutable) and kept beside it, so `total` and an
+    `offset`/`limit` window no longer walk the record per request, and an
+    entry is resolved once per version and key. The request shape is
+    unchanged, and is the one to batch with: `GET /json?path=<module>&keys=<k1>&keys=<k2>…`
+    (up to `JSON_ENTRIES_BATCH_MAX`, 100, per request; `apply_patches=false`
+    for the Studio, which applies its own chain), answering `entries`,
+    `missing`, `errors`, `total` and the record's `version`. B14 budgets it:
+    20 entries of a record of 5,000 cost what 20 of a record of 20 do
+    (`head:record-scan` at most once per record object, `head:entry-resolve`
+    at most once per entry), one request per entry or one for all.
   - **Validation and previews left the read path.** `PUT /sources/~`
     computes neither (its `validate_sources` and `validate_binary_files` are
     accepted and ignored): the Studio previews from its own schema instances
@@ -773,8 +787,10 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     module once after an edit; B13 `GET /modules` answers a keystroke in a
     module of 200 items with one patch, under a twentieth of the whole
     module, reads a base by its version, and 404s a version it does not
-    hold. `world.head()` reads what the head holds; `head:seq`,
-    `head:chain` and `head:materialize` are counted work. B01-B10 and the
+    hold; B14 an entry request costs the entries it asks for, whatever the
+    record's size. `world.head()` reads what the head holds; `head:seq`,
+    `head:chain`, `head:materialize`, `head:record-scan` and
+    `head:entry-resolve` are counted work. B01-B10 and the
     content-shape matrix pass unchanged.
   - **Measured** (`scenarios/measure/results.md`, "Phase 6"): a draft read
     of every module, as a draft-mode `fetchVal` reads now (`reader`), takes

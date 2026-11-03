@@ -85,7 +85,7 @@ import {
 } from "@valbuild/shared/internal";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 import { draftOverlay } from "./draftOverlay";
-import { ValHead } from "./head";
+import { ValHead, recordKeysOf } from "./head";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -1214,7 +1214,8 @@ export abstract class ValOps {
       };
     }
     const record = moduleSource as Record<string, unknown>;
-    const allKeys = Object.keys(record);
+    // Walked once per record, not per request: see `recordKeysOf`.
+    const allKeys = recordKeysOf(record);
     const requestedKeys = isWindow
       ? allKeys.slice(selector.offset, selector.offset + selector.limit)
       : selector.keys;

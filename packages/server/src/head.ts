@@ -88,9 +88,37 @@ const counted = {
   chainReads: 0,
   /** Modules made from a base or an older version. */
   materialized: 0,
-  /** Of those, made by extending the version before by the new patches. */
+  /** Of those, made by extending the version before by the new patches alone. */
   extended: 0,
+  /**
+   * A record's whole key list walked: once per record object (a base, a
+   * version), never per request -- see {@link recordKeysOf}.
+   */
+  recordScans: 0,
+  /** `.jsonValues()` entries resolved: once per entry and version. */
+  entriesResolved: 0,
 };
+
+const recordKeys = new WeakMap<object, readonly string[]>();
+
+/**
+ * A record's keys, in order: walked once per record OBJECT and kept beside
+ * it. A record is immutable (a base, or a version the engine made), so the
+ * same object has the same keys for good -- and an entry request, which only
+ * needs the count (`total`) or a window of them, costs what it asks for,
+ * not the size of the record. Before, every `GET /json` walked the whole
+ * record (`Object.keys`), so reading 10,000 entries one request at a time
+ * was 10,000 x 10,000 (phase 10's baseline).
+ */
+export function recordKeysOf(record: object): readonly string[] {
+  let keys = recordKeys.get(record);
+  if (keys === undefined) {
+    counted.recordScans++;
+    keys = Object.keys(record);
+    recordKeys.set(record, keys);
+  }
+  return keys;
+}
 
 /** See {@link counted}. */
 export function headWork(): Readonly<typeof counted> {
@@ -539,7 +567,7 @@ export class ValHead {
       entries: [],
       missing: [],
       errors: [],
-      total: Object.keys(record).length,
+      total: recordKeysOf(record).length,
       version: held.module.version,
       entryVersions: {},
     };
@@ -583,6 +611,7 @@ export class ValHead {
     module: StoredModule,
     key: string,
   ): Promise<ResolvedEntry> {
+    counted.entriesResolved++;
     const state: EntryState | undefined = entryState(module.content, key);
     let from: { content: JSONValue | undefined } | { message: string } = {
       content: undefined,
@@ -699,13 +728,27 @@ export class ValHead {
   async changed(): Promise<HeadResult<ModuleFilePath[]>> {
     const synced = await this.sync();
     if ("error" in synced) return synced;
-    const changed = new Set<ModuleFilePath>(synced.ok.byModule.keys());
-    for (const path of Object.keys(synced.ok.versions) as ModuleFilePath[]) {
+    const chain = synced.ok;
+    if (this.changedIn?.chain !== chain) {
+      this.changedIn = { chain, paths: this.changedOf(chain) };
+    }
+    return { ok: [...(await this.changedIn.paths)] };
+  }
+
+  /** {@link changed}, made once per chain: it looks at every record's markers. */
+  private changedIn: {
+    chain: HeadChain;
+    paths: Promise<readonly ModuleFilePath[]>;
+  } | null = null;
+
+  private async changedOf(chain: HeadChain): Promise<ModuleFilePath[]> {
+    const changed = new Set<ModuleFilePath>(chain.byModule.keys());
+    for (const path of Object.keys(chain.versions) as ModuleFilePath[]) {
       if (changed.has(path)) continue;
       const base = await this.ops.baseModule(path);
       if (base !== null && hasMarkersFromServer(base.source)) changed.add(path);
     }
-    return { ok: [...changed] };
+    return [...changed];
   }
 
   // #region the whole tree

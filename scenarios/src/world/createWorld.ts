@@ -253,6 +253,15 @@ export type World = {
    */
   head(): Promise<HeadStats>;
   /**
+   * `GET /json`, as the Studio asks it: `.jsonValues()` entries by key, in
+   * one request, with the server's patches applied or not.
+   */
+  jsonEntries(
+    module: AnyModule,
+    keys: string[],
+    opts?: { applyPatches?: boolean },
+  ): Promise<{ status: number | null; json: unknown }>;
+  /**
    * Where the world's counted work stands now, for {@link expectWork}: work
    * done by Val's own code outside the Studios (the server and the readers),
    * never the world's own observing. A Studio's is its own, since phase 5
@@ -314,6 +323,8 @@ export type WorldWorkPosition = {
   headSeqReads: number;
   headChainReads: number;
   headMaterialized: number;
+  headRecordScans: number;
+  headEntriesResolved: number;
 };
 
 /** See {@link World.expectWork}. */
@@ -329,6 +340,10 @@ export type WorldWorkBudget = {
   "head:chain"?: { atMost: number } | { exactly: number };
   /** The head making a module's version (from a base, or extending one). */
   "head:materialize"?: { atMost: number } | { exactly: number };
+  /** A `.jsonValues()` record's whole key list walked (`recordKeysOf`). */
+  "head:record-scan"?: { atMost: number } | { exactly: number };
+  /** `.jsonValues()` entries resolved by the head. */
+  "head:entry-resolve"?: { atMost: number } | { exactly: number };
 };
 
 /**
@@ -1214,6 +1229,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       headSeqReads: head.seqReads,
       headChainReads: head.chainReads,
       headMaterialized: head.materialized,
+      headRecordScans: head.recordScans,
+      headEntriesResolved: head.entriesResolved,
     };
   };
 
@@ -2047,6 +2064,23 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         bytes: json === null ? 0 : JSON.stringify(json).length,
       };
     },
+    async jsonEntries(module, keys, opts = {}) {
+      await reportingLive;
+      const client = createValClient("/api/val", null, {
+        fetch: withSession(host, network.fetchFor("world:json")),
+      });
+      const res = await client("/json", "GET", {
+        query: {
+          path: moduleFilePathOf(currentModule(module)),
+          key: undefined,
+          keys,
+          offset: undefined,
+          limit: undefined,
+          apply_patches: opts.applyPatches ?? true,
+        },
+      });
+      return { status: res.status, json: "json" in res ? res.json : null };
+    },
     async head() {
       const runtime = runtimeOfReaders(readersFor({ on: true }).fetchValStega);
       if (runtime === null) throw new Error("the readers have no runtime");
@@ -2065,6 +2099,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         "head:seq": now.headSeqReads - since.headSeqReads,
         "head:chain": now.headChainReads - since.headChainReads,
         "head:materialize": now.headMaterialized - since.headMaterialized,
+        "head:record-scan": now.headRecordScans - since.headRecordScans,
+        "head:entry-resolve":
+          now.headEntriesResolved - since.headEntriesResolved,
       };
       const kinds: (keyof WorldWorkBudget)[] = [
         "version:hash",
@@ -2075,6 +2112,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         "head:seq",
         "head:chain",
         "head:materialize",
+        "head:record-scan",
+        "head:entry-resolve",
       ];
       for (const kind of kinds) {
         const limit = budget[kind];
