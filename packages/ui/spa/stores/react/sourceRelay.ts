@@ -1,6 +1,10 @@
 import { Internal } from "@valbuild/core";
 import type { Json, ModuleFilePath } from "@valbuild/core";
-import type { ModuleRead, ModuleVersion } from "@valbuild/shared/internal";
+import {
+  sameModuleVersion,
+  type ModuleRead,
+  type ModuleVersion,
+} from "@valbuild/shared/internal";
 import type { System } from "../createSystem";
 
 /**
@@ -217,6 +221,13 @@ export function emitModuleSource(
 export function subscribeSourceUpdates(
   system: System,
   onUpdate: SourceUpdate,
+  /**
+   * What the page reported holding when it connected: a module collected
+   * before the store was in step that the page holds at the version the
+   * store is at now is the page's already, and is not sent. Only those: a
+   * change after that is news whatever the page started with.
+   */
+  holdsVersions: () => HeldVersions = () => ({}),
 ): () => void {
   const pending = new Set<ModuleFilePath>();
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -239,6 +250,12 @@ export function subscribeSourceUpdates(
   });
   const offInStep = onceInStep(system, () => {
     inStep = true;
+    const held = holdsVersions();
+    for (const moduleFilePath of [...pending]) {
+      if (holdsAtOurVersion(system, held, moduleFilePath)) {
+        pending.delete(moduleFilePath);
+      }
+    }
     schedule();
   });
   return () => {
@@ -274,6 +291,12 @@ export async function sendPendingSources(
   system: System,
   onUpdate: SourceUpdate,
   holds: readonly ModuleFilePath[] = [],
+  /**
+   * The version the page holds each of `holds` at, where it says
+   * (`draftHoldsVersions`): a module the page holds at the version this
+   * Studio would send is the same content, and is not sent again.
+   */
+  holdsVersions: HeldVersions = {},
 ): Promise<void> {
   const moduleFilePaths = new Set<ModuleFilePath>();
   for (const record of system.patchStore.allRecords()) {
@@ -286,9 +309,35 @@ export async function sendPendingSources(
     moduleFilePaths.add(moduleFilePath);
   }
   await Promise.all(
-    [...moduleFilePaths].map((moduleFilePath) =>
-      emitModuleSource(system, moduleFilePath, onUpdate),
-    ),
+    [...moduleFilePaths]
+      .filter((moduleFilePath) => {
+        return !holdsAtOurVersion(system, holdsVersions, moduleFilePath);
+      })
+      .map((moduleFilePath) =>
+        emitModuleSource(system, moduleFilePath, onUpdate),
+      ),
+  );
+}
+
+/** What a page says it holds each module at. See {@link sendPendingSources}. */
+export type HeldVersions = Readonly<
+  Partial<Record<ModuleFilePath, ModuleVersion>>
+>;
+
+/**
+ * Whether the page holds this module at the version the store holds it:
+ * the same content (a version names what a reader renders), so sending it
+ * again is a message for nothing.
+ */
+function holdsAtOurVersion(
+  system: System,
+  holdsVersions: HeldVersions,
+  moduleFilePath: ModuleFilePath,
+): boolean {
+  const held = holdsVersions[moduleFilePath];
+  const ours = system.sourceStore.versionOf(moduleFilePath);
+  return (
+    held !== undefined && ours !== undefined && sameModuleVersion(held, ours)
   );
 }
 
@@ -334,6 +383,8 @@ export type CatchUp = {
    * started.
    */
   holds(): readonly ModuleFilePath[];
+  /** The version it holds each of them at, where it says. */
+  holdsVersions?(): HeldVersions;
   /** Everything the editor holds for the page has been handed over. */
   synced(): void;
   /**
@@ -358,7 +409,12 @@ export function startCatchUp(system: System, page: CatchUp): () => void {
     const sent =
       page.update === null
         ? Promise.resolve()
-        : sendPendingSources(system, page.update, page.holds());
+        : sendPendingSources(
+            system,
+            page.update,
+            page.holds(),
+            page.holdsVersions?.() ?? {},
+          );
     void sent.then(() => {
       if (stopped) return;
       page.synced();
@@ -428,6 +484,8 @@ export type OverlayEvent =
 export type PageReport = {
   /** The modules it holds a draft of: see {@link sendPendingSources}. */
   holds(): readonly ModuleFilePath[];
+  /** The version it holds each at, where it says. */
+  holdsVersions?(): HeldVersions;
 };
 
 const NOTHING_HELD: PageReport = { holds: () => [] };
@@ -450,10 +508,15 @@ export function startOverlayRelay(
       send({ type: "source-update", moduleFilePath, read, source });
     }
   };
-  const offUpdates = subscribeSourceUpdates(system, update);
+  const offUpdates = subscribeSourceUpdates(
+    system,
+    update,
+    () => page.holdsVersions?.() ?? {},
+  );
   const offCatchUp = startCatchUp(system, {
     update,
     holds: () => page.holds(),
+    holdsVersions: () => page.holdsVersions?.() ?? {},
     synced: () => send({ type: "sources-synced" }),
     confirmed: (seq) => send({ type: "confirmed", seq }),
   });

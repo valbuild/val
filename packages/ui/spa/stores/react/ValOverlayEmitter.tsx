@@ -8,6 +8,7 @@ import {
   subscribeSourceUpdates,
   type CatchUp,
   type OverlayEvent,
+  type HeldVersions,
 } from "./sourceRelay";
 
 // The relay's rules live in `sourceRelay.ts`, as plain functions; these are
@@ -29,6 +30,8 @@ export function useValSourceUpdates(
     source: unknown,
     version: ModuleVersion | null,
   ) => void,
+  /** What the page reported holding: see `subscribeSourceUpdates`. */
+  holdsVersions?: () => HeldVersions,
 ): void {
   const val = useValSystem();
   // Held in a ref so a caller can pass an inline function without the
@@ -36,12 +39,16 @@ export function useValSourceUpdates(
   // drop whatever was mid-debounce each time.
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  const holdsVersionsRef = useRef(holdsVersions);
+  holdsVersionsRef.current = holdsVersions;
   useEffect(() => {
     if (!enabled || val === null) {
       return;
     }
-    return subscribeSourceUpdates(val.system, (path, source, version) =>
-      onUpdateRef.current(path, source, version),
+    return subscribeSourceUpdates(
+      val.system,
+      (path, source, version) => onUpdateRef.current(path, source, version),
+      () => holdsVersionsRef.current?.() ?? {},
     );
   }, [val, enabled]);
 }
@@ -90,6 +97,7 @@ export function useValCatchUp(
             pageRef.current.update?.(path, source, version)
         : null,
       holds: () => pageRef.current.holds(),
+      holdsVersions: () => pageRef.current.holdsVersions?.() ?? {},
       synced: () => pageRef.current.synced(),
       confirmed: (seq) => pageRef.current.confirmed(seq),
     });
@@ -111,6 +119,7 @@ export function useValCatchUp(
 export function ValOverlayEmitter({
   enabled,
   pageHolds,
+  pageHoldsVersions,
 }: {
   enabled: boolean;
   /**
@@ -119,6 +128,8 @@ export function ValOverlayEmitter({
    * whether or not anything is pending for them. See `sendPendingSources`.
    */
   pageHolds?: readonly ModuleFilePath[];
+  /** The version it holds each at, where it says: not sent again. */
+  pageHoldsVersions?: HeldVersions;
 }) {
   const val = useValSystem();
   const send = useCallback((detail: OverlayEvent) => {
@@ -126,6 +137,8 @@ export function ValOverlayEmitter({
   }, []);
   const holdsRef = useRef<readonly ModuleFilePath[]>(pageHolds ?? []);
   holdsRef.current = pageHolds ?? [];
+  const holdsVersionsRef = useRef<HeldVersions>(pageHoldsVersions ?? {});
+  holdsVersionsRef.current = pageHoldsVersions ?? {};
   /**
    * Changes as they happen, and once the store is in step, what is already
    * pending followed by `sources-synced`, then `confirmed` as the server
@@ -142,6 +155,7 @@ export function ValOverlayEmitter({
     if (!enabled || val === null) return;
     return startOverlayRelay(val.system, send, {
       holds: () => holdsRef.current,
+      holdsVersions: () => holdsVersionsRef.current,
     });
   }, [enabled, val, send]);
   return null;

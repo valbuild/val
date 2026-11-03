@@ -24,7 +24,10 @@ import {
   useValCatchUp,
   useValSourceUpdates,
 } from "../../../stores/react/ValOverlayEmitter";
-import { relayedRead } from "../../../stores/react/sourceRelay";
+import {
+  relayedRead,
+  type HeldVersions,
+} from "../../../stores/react/sourceRelay";
 import type { ModuleVersion } from "@valbuild/shared/internal";
 
 /**
@@ -43,6 +46,8 @@ type FrameState =
       draftMode: boolean;
       /** What the page said it holds a draft of: see `ready` in the protocol. */
       holds: readonly ModuleFilePath[];
+      /** The version it holds each at, where it said. */
+      holdsVersions: HeldVersions;
     }
   | { status: "no-answer" };
 
@@ -56,6 +61,8 @@ type FrameState =
 export const ANSWER_TIMEOUT_MS = 8000;
 
 const NO_HOLDS: readonly ModuleFilePath[] = [];
+/** A page that said no versions: everything it holds is sent. */
+const NO_HELD_VERSIONS: HeldVersions = {};
 
 export type CanvasFrameProps = {
   /** The page's own URL, e.g. `/blogs/blog1`; absolute when `origin` is another. */
@@ -327,6 +334,7 @@ export function CanvasFrame({
           status: "ready",
           draftMode: message.draftMode,
           holds: message.holds ?? [],
+          holdsVersions: message.holdsVersions ?? {},
         });
         // The page may be a newer build than this Studio -- a proposal
         // built since it loaded -- and its paths name fields this Studio
@@ -664,7 +672,9 @@ export function CanvasFrame({
     },
     [send],
   );
-  useValSourceUpdates(isLive && relaySources, sendSourceUpdate);
+  useValSourceUpdates(isLive && relaySources, sendSourceUpdate, () =>
+    state.status === "ready" ? state.holdsVersions : NO_HELD_VERSIONS,
+  );
 
   /**
    * And catch the page up the moment it is listening, then say how far the
@@ -694,9 +704,12 @@ export function CanvasFrame({
    * typed.
    */
   const holds = state.status === "ready" ? state.holds : NO_HOLDS;
+  const holdsVersions =
+    state.status === "ready" ? state.holdsVersions : NO_HELD_VERSIONS;
   useValCatchUp(isLive, documentEpoch, {
     update: relaySources ? sendSourceUpdate : null,
     holds: () => holds,
+    holdsVersions: () => holdsVersions,
     synced: () => send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" }),
     confirmed: (seq) =>
       send({ val: VAL_CANVAS_MESSAGE, type: "confirmed", seq }),

@@ -219,6 +219,42 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   });
 
   /**
+   * S28 A module the page holds at the version the Studio would send is not
+   * sent in the catch-up.
+   *
+   * Given a pending edit, and a draft page rendered with it (the `draft`
+   * prop, which carries each module's version),
+   * when the page's overlay connects and its Studio is in step,
+   * then the catch-up sends the page nothing for that module -- the page
+   * reported the version it holds (`draftHoldsVersions`), and the Studio's
+   * is the same: the same content -- and the page still shows the edit.
+   *
+   * Phase 6 put the versions on the draft and the page compared by them, so
+   * a module that had not moved cost a message and no work; since phase 7
+   * it costs nothing.
+   */
+  test("S28 a module the page holds at the Studio's version is not sent again", async () => {
+    world = await createWorld({ config, modules: [homeVal], server });
+    const editor = await world.studio("editor");
+    await editor.edit(homeVal, ["title"], "Drafted");
+    await world.settle();
+    const page = await world.loadPage("/", {
+      shows: [{ surface: "hook", ...title }],
+    });
+    await world.settle();
+
+    expect(world.frames.last("hook")).toBe("Drafted");
+    expect(
+      page.events.filter(
+        (event) =>
+          event.type === "source-update" &&
+          event.moduleFilePath === "/content/home.val.ts",
+      ),
+    ).toEqual([]);
+    expect(page.events.map((event) => event.type)).toContain("sources-synced");
+  });
+
+  /**
    * S28 The same for an edit inside a `.jsonValues()` entry.
    *
    * Given a pending edit inside an entry, and a draft page rendered with it

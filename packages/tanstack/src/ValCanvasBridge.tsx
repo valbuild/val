@@ -63,6 +63,7 @@ export function ValCanvasBridge({
   draftMode,
   isRefreshing,
   holds,
+  holdsVersions,
 }: {
   draftMode: boolean;
   /**
@@ -71,6 +72,10 @@ export function ValCanvasBridge({
    * in the canvas protocol.
    */
   holds?: readonly ModuleFilePath[];
+  /** The version it holds each at, where its draft says: see `ready`. */
+  holdsVersions?: Partial<
+    Record<ModuleFilePath, { schema: string; base: string; chain: string }>
+  >;
   /**
    * Whether the server tree is being re-rendered because of an edit.
    *
@@ -222,8 +227,11 @@ export function ValCanvasBridge({
       draftMode,
       url: window.location.href,
       ...(holds !== undefined && holds.length > 0 ? { holds: [...holds] } : {}),
+      ...(holdsVersions !== undefined && Object.keys(holdsVersions).length > 0
+        ? { holdsVersions }
+        : {}),
     });
-  }, [post, draftMode, holds]);
+  }, [post, draftMode, holds, holdsVersions]);
 
   /**
    * Re-scan whenever the page could have moved.

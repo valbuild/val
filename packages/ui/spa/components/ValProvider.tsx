@@ -71,6 +71,7 @@ import {
   SharedValConfig,
   ValClient,
   getPageRouterSourceFolder,
+  type ModuleVersion,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
@@ -426,6 +427,7 @@ export function ValProvider({
   valModules,
   dispatchValEvents,
   pageHolds,
+  pageHoldsVersions,
   theme,
   setTheme,
   handsOffPublish = false,
@@ -440,6 +442,8 @@ export function ValProvider({
    * it. See `ValOverlayEmitter`.
    */
   pageHolds?: readonly ModuleFilePath[];
+  /** The version the page holds each at, where it said. */
+  pageHoldsVersions?: Readonly<Partial<Record<ModuleFilePath, ModuleVersion>>>;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
   /**
@@ -1664,6 +1668,7 @@ export function ValProvider({
                           <ValOverlayEmitter
                             enabled={dispatchValEvents}
                             pageHolds={pageHolds}
+                            pageHoldsVersions={pageHoldsVersions}
                           />
                           <LocalModulesErrorBanner />
                           <HeldEditsBanner />

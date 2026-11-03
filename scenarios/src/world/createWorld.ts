@@ -66,6 +66,7 @@ import {
   // provider starts from, what it reports, and when it refreshes.
   createDraftStore,
   draftHolds,
+  draftHoldsVersions,
   isDraft,
   startRefreshLoop,
   type RefreshLoop,
@@ -1929,8 +1930,12 @@ export async function createWorld(options: WorldOptions): Promise<World> {
                   }
                 },
                 // What the provider reports when the overlay connects: the
-                // modules it was rendered with a draft of.
-                { holds: () => draftHolds(loaderData) },
+                // modules it was rendered with a draft of, and the version
+                // of each.
+                {
+                  holds: () => draftHolds(loaderData),
+                  holdsVersions: () => draftHoldsVersions(loaderData),
+                },
               ),
             );
           },

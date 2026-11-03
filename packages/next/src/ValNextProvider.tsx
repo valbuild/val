@@ -15,6 +15,7 @@ import {
   applyValEvent,
   createDraftStore,
   draftHolds,
+  draftHoldsVersions,
   isDraft,
   startRefreshLoop,
   type RefreshLoop,
@@ -171,6 +172,12 @@ export const ValNextProvider = (props: {
    * Studio was there -- discarded, published -- does not stay on the page.
    */
   const holds = React.useMemo(() => draftHolds(initialDraft), [initialDraft]);
+  // And the version of each, where the draft says: one the Studio would send
+  // at the same version is the same content, and is not sent again.
+  const holdsVersions = React.useMemo(
+    () => draftHoldsVersions(initialDraft),
+    [initialDraft],
+  );
   // Whether useValStega should actually suspend. False during SSR and the
   // hydration render — the server store is never populated (draft data
   // arrives via browser CustomEvents only), so suspending there would just
@@ -502,10 +509,11 @@ export const ValNextProvider = (props: {
           type: "draftMode",
           value: draftMode ?? false,
           holds,
+          holdsVersions,
         },
       }),
     );
-  }, [mountOverlay, draftMode, spaReady, holds]);
+  }, [mountOverlay, draftMode, spaReady, holds, holdsVersions]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -727,6 +735,7 @@ ${prefixStyles(commonStyles)}
           draftMode={draftMode === true}
           isRefreshing={isRefreshing}
           holds={holds}
+          holdsVersions={holdsVersions}
         />
       )}
       {/**

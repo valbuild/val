@@ -104,6 +104,15 @@ export type ValCanvasPageMessage =
        * and from a page that read no draft.
        */
       holds?: ModuleFilePath[];
+      /**
+       * The version the page holds each of {@link holds} at, where its draft
+       * says (`draftHoldsVersions`): the studio does not send one it would
+       * send at the same version -- the same content. Absent from a page of
+       * the release before, which is sent everything it holds, as before.
+       */
+      holdsVersions?: Partial<
+        Record<ModuleFilePath, { schema: string; base: string; chain: string }>
+      >;
     }
   | {
       val: typeof VAL_CANVAS_MESSAGE;
@@ -423,7 +432,8 @@ export function isValCanvasPageMessage(
   if (message.val !== VAL_CANVAS_MESSAGE) return false;
   return (
     (message.type === "ready" &&
-      isModulePathList((data as { holds?: unknown }).holds)) ||
+      isModulePathList((data as { holds?: unknown }).holds) &&
+      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions)) ||
     message.type === "elements" ||
     message.type === "clicked" ||
     message.type === "pinch" ||
@@ -443,6 +453,20 @@ export function isValCanvasPageMessage(
 }
 
 /** `holds` on `ready`: absent, or a list of module paths. */
+/** `holdsVersions` on `ready`: absent, or a version per module path. */
+function isHeldVersions(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every(
+    (version) =>
+      typeof version === "object" &&
+      version !== null &&
+      typeof (version as { schema?: unknown }).schema === "string" &&
+      typeof (version as { base?: unknown }).base === "string" &&
+      typeof (version as { chain?: unknown }).chain === "string",
+  );
+}
+
 function isModulePathList(value: unknown): boolean {
   return (
     value === undefined ||
