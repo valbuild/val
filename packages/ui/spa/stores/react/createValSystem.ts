@@ -297,9 +297,15 @@ export function createValSystem(
           },
         });
         if (res.status !== 200) {
+          // The content service's own words ride along in brackets: the
+          // sentence is for the editor, the evidence for whoever they ask.
+          const details =
+            "details" in res.json && typeof res.json.details === "string"
+              ? ` (${res.json.details})`
+              : "";
           const message =
             "message" in res.json
-              ? res.json.message
+              ? `${res.json.message}${details}`
               : `GET /patches failed with status ${res.status ?? "network"}`;
           // Only this chunk. A later one may well succeed, and failing the whole
           // request would throw away patches that did arrive.
@@ -613,6 +619,18 @@ export function createValSystem(
                     ],
                   ),
                 ),
+              };
+            }
+            if (res.status === 502) {
+              // The content service failed, not the patches: kept, and the
+              // part of the batch it took before failing is reported as saved.
+              return {
+                status: "server-error",
+                saved: savedPatchesOf(res.json),
+                message: res.json.message,
+                ...(res.json.details !== undefined
+                  ? { details: res.json.details }
+                  : {}),
               };
             }
             if (res.status === 403) {

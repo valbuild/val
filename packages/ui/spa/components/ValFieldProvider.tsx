@@ -26,6 +26,7 @@ import { useRemoteHost } from "./ValRemoteProvider";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
 import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
+import type { SyncState } from "../stores/PatchSync";
 import { Patch } from "@valbuild/core/patch";
 import { isJsonArray } from "../utils/isJsonArray";
 import {
@@ -364,6 +365,28 @@ export function useIsInitialized(): boolean {
 export function useLoadingStatus(): LoadingStatus {
   const val = useValSystem();
   const initializedAt = useInitialized(val);
+  const syncState = usePatchSyncState();
+  if (val === null) {
+    return "not-asked";
+  }
+  if (initializedAt === null) {
+    return "loading";
+  }
+  return syncState !== null && syncState.status === "in-sync"
+    ? "success"
+    : "loading";
+}
+
+/**
+ * What the write queue is doing: saved, saving, retrying, held for the plan,
+ * or held because the content service failed. `null` with no system.
+ *
+ * Wakes on every save, so it is for the shell -- the status bar, the save
+ * notice -- and never for a component mounted once per field: see
+ * `perFieldSubscriptions.test.ts`.
+ */
+export function usePatchSyncState(): SyncState | null {
+  const val = useValSystem();
   const subscribe = useCallback(
     (onChange: () => void) => {
       if (val === null) return () => {};
@@ -375,20 +398,23 @@ export function useLoadingStatus(): LoadingStatus {
     () => (val === null ? null : val.system.patchSync.currentState()),
     [val],
   );
-  const syncState = useSyncExternalStore(
+  return useSyncExternalStore(
     val === null ? noopSubscribe : subscribe,
     getSyncState,
     getSyncState,
   );
-  if (val === null) {
-    return "not-asked";
-  }
-  if (initializedAt === null) {
-    return "loading";
-  }
-  return syncState !== null && syncState.status === "in-sync"
-    ? "success"
-    : "loading";
+}
+
+/**
+ * Send a save the content service failed again, now: the Try again beside
+ * "Could not save". See `PatchSync.retry`.
+ */
+export function useRetrySave(): () => void {
+  const val = useValSystem();
+  return useCallback(() => {
+    if (val === null) return;
+    void val.system.patchSync.retry();
+  }, [val]);
 }
 
 // Module-scoped monotonic counter; useRef captures the value once per mount,

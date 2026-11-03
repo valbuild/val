@@ -839,7 +839,7 @@ export function createSystem(options: SystemOptions): System {
         "Unpublished changes could not be loaded.",
         `${event.patches.length} ${
           event.patches.length === 1 ? "change is" : "changes are"
-        } affected: ${event.message} Until this succeeds, the editor shows published content for the fields they touch.`,
+        } affected: ${event.message} Val asks again on its own. Until it gets them, the editor shows published content for the fields they touch.`,
       );
     }),
     patchStore.events.on("patch:announced-not-delivered", (event) => {

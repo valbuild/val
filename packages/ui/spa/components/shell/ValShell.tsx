@@ -20,7 +20,10 @@ import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
 import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
-import { useSteadySaveState } from "./useSteadySaveState";
+import { saveStateOf, useSteadySaveState } from "./useSteadySaveState";
+import { SaveFailedNotice } from "./SaveFailedNotice";
+import type { FloatingNoticeItem } from "./FloatingNotices";
+import { AlertTriangle } from "lucide-react";
 import { PublishState } from "./TopBar";
 import {
   ShellBreakpoint,
@@ -130,7 +133,9 @@ import {
 import {
   useFilePatchIds,
   useGetNavPath,
+  usePatchSyncState,
   useResolveNavPath,
+  useRetrySave,
 } from "../ValFieldProvider";
 import type { NavPathResolution } from "../getNavPath";
 import { refToUrl } from "../MediaPicker/refToUrl";
@@ -367,6 +372,8 @@ function ValShellBody({
   const commitState = useHistoricalCommit(history.commitSha);
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
+  const syncState = usePatchSyncState();
+  const retrySave = useRetrySave();
   const { patchErrors } = useAllPatchErrors();
   const validationErrors = useAllValidationErrors();
   // The query the search overlay is showing, so the content index can answer
@@ -1317,17 +1324,45 @@ function ValShellBody({
    * "saving": patches are applied locally first, so the editor is never
    * waiting on a round trip to show your change.
    */
-  const rawSaveState: SaveState = useMemo(() => {
-    const hasPatchErrors = Object.values(patchErrors ?? {}).some(
-      (forModule) => Object.keys(forModule ?? {}).length > 0,
-    );
-    if (hasPatchErrors || connectionStatus === "service-unavailable") {
-      return "error";
-    }
-    return pendingClientSidePatchIds.length > 0 ? "saving" : "saved";
-  }, [patchErrors, connectionStatus, pendingClientSidePatchIds]);
+  const rawSaveState: SaveState = useMemo(
+    () =>
+      saveStateOf({
+        sync: syncState,
+        unsavedCount: pendingClientSidePatchIds.length,
+        hasPatchErrors: Object.values(patchErrors ?? {}).some(
+          (forModule) => Object.keys(forModule ?? {}).length > 0,
+        ),
+        serviceUnavailable: connectionStatus === "service-unavailable",
+      }),
+    [syncState, patchErrors, connectionStatus, pendingClientSidePatchIds],
+  );
   /** Held through a burst of writes, so typing does not blink the bar. */
   const saveState = useSteadySaveState(rawSaveState);
+  /**
+   * A save the content service would not take: said where it stays until it
+   * is fixed, with Try again beside it. One id for the whole spell, so a
+   * dismissed notice folds into the status bar and is not pushed back up by
+   * every timed retry that fails the same way.
+   */
+  const saveFailedNotice: FloatingNoticeItem | null = useMemo(
+    () =>
+      syncState?.status === "failed"
+        ? {
+            id: "save-failed",
+            label: "Not saved",
+            icon: <AlertTriangle size={13} />,
+            content: (
+              <SaveFailedNotice
+                message={syncState.message}
+                details={syncState.details}
+                changeCount={syncState.patches.length}
+                onRetry={retrySave}
+              />
+            ),
+          }
+        : null,
+    [syncState, retrySave],
+  );
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
@@ -1580,7 +1615,11 @@ function ValShellBody({
           }
           editorOverride={overrideEditor}
           notice={editorNotice}
-          floatingNotices={proposalNotices}
+          floatingNotices={
+            saveFailedNotice === null
+              ? proposalNotices
+              : [saveFailedNotice, ...proposalNotices]
+          }
           renderPlanStatus={planStatus}
           statusNotice={remoteFilesStatusNotice}
           publishSlot={
@@ -1589,6 +1628,7 @@ function ValShellBody({
           publishState={publishState}
           publishIndicator={publishIndicatorState}
           saveState={saveState}
+          onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
           autoSave={autoPublish}
           onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
           pendingChanges={data.pendingChanges ?? 0}

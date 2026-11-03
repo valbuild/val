@@ -469,6 +469,17 @@ type State = {
    * other spec here was written against. See the publish jobs region.
    */
   publishJobsEnabled: boolean;
+  /**
+   * Make the patch endpoints answer 500, as a content service that THROWS
+   * does: `save` is `POST /patches`, `read` is `GET /applicable/patches`.
+   *
+   * What found it was `home`'s self-hosted engine answering a save with
+   * `column "first_paid_at" does not exist`, and the Studio dropping the edit.
+   * The body is the one `home`'s `sendResult` writes for an exception --
+   * `message` the constant, the cause in `details` -- because that shape is
+   * what the client has to keep the cause out of. Both off at `reset`.
+   */
+  failPatches: { save: boolean; read: boolean };
   /** Publish tokens minted by `/publish-token`: the publish API's credential. */
   publishTokens: Set<string>;
   /** Presses of Publish, by the request id the Studio minted. */
@@ -497,6 +508,7 @@ function emptyState(): State {
     aiOffline: false,
     aiSessionSha256: true,
     publishJobsEnabled: false,
+    failPatches: { save: false, read: false },
     publishTokens: new Set(),
     publishRequests: new Map(),
     publishJobs: new Map(),
@@ -833,7 +845,23 @@ type Handler = (
  * that is where `/stat` gets them from, and in turn where the Studio's
  * deployment banner comes from.
  */
+/** What `home` answers when a handler throws. See `State.failPatches`. */
+function answerInternalError(res: ServerResponse): void {
+  json(res, 500, {
+    statusCode: 500,
+    message: "Internal Server Error",
+    details: MOCK_INTERNAL_ERROR_DETAILS,
+  });
+}
+
+/** The cause in that answer: the one from the incident. */
+const MOCK_INTERNAL_ERROR_DETAILS = 'column "first_paid_at" does not exist';
+
 const getApplicablePatches: Handler = (req, res, url) => {
+  if (state.failPatches.read) {
+    answerInternalError(res);
+    return;
+  }
   const requested = url.searchParams.getAll("patch_id");
   const excludeOps = url.searchParams.get("exclude_patch_ops") === "true";
   const wanted = requested.length > 0 ? new Set(requested) : null;
@@ -932,6 +960,10 @@ const savePatch: Handler = async (req, res) => {
   }>(req);
   if (!body || typeof body.patchId !== "string") {
     json(res, 400, { message: "Invalid save-patch body" });
+    return;
+  }
+  if (state.failPatches.save) {
+    answerInternalError(res);
     return;
   }
   if (state.patches.has(body.patchId)) {
@@ -2686,6 +2718,19 @@ const controlPlane: Handler = async (req, res, url) => {
           }
         : null,
     });
+    return;
+  }
+  if (action === "fail-patches" && req.method === "POST") {
+    /*
+     * Make the patch endpoints throw, or stop. Each key that is given is set;
+     * one left out is left as it is. See `State.failPatches`.
+     */
+    const body = await readJsonBody<{ save?: boolean; read?: boolean }>(req);
+    state.failPatches = {
+      save: body?.save ?? state.failPatches.save,
+      read: body?.read ?? state.failPatches.read,
+    };
+    json(res, 200, { ok: true, failPatches: state.failPatches });
     return;
   }
   if (action === "ai-script" && req.method === "POST") {

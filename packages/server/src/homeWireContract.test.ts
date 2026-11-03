@@ -358,15 +358,133 @@ test("home's 500 reaches the editor with the reason it was carrying", async () =
     if (!result.isErr(res)) {
       throw new Error("a 500 must not be reported as a saved patch");
     }
-    if (res.error.errorType !== "other") {
-      throw new Error(`expected 'other', got '${res.error.errorType}'`);
+    // A `service-error`, not an `other`: an `other` becomes a 400 and the
+    // Studio drops a patch it is told is bad. The SERVICE failed here, so the
+    // edit is kept and the editor is offered Try again.
+    if (res.error.errorType !== "service-error") {
+      throw new Error(`expected 'service-error', got '${res.error.errorType}'`);
     }
-    // The constant is still there — it is what the service said — but it is no
-    // longer the whole message, which is the difference between an error a
-    // person can act on and one they can only report.
-    expect(res.error.error.message).toContain("Internal Server Error");
-    expect(res.error.error.message).toContain("patch_commit_sha");
-    expect(res.error.error.message).not.toBe("Internal Server Error");
+    // The sentence is for the editor and names the service; the evidence is
+    // in `details`. The constant is still there — it is what the service
+    // said — but it is not all there is, which is the difference between an
+    // error a person can act on and one they can only report.
+    expect(res.error.message).toContain("Val Build");
+    expect(res.error.message).not.toMatch(/network|connection/i);
+    expect(res.error.details).toContain("HTTP 500");
+    expect(res.error.details).toContain("Internal Server Error");
+    expect(res.error.details).toContain("patch_commit_sha");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * The incident that prompted the `service-error` split: `home`'s self-hosted
+ * engine threw on a column its database did not have. Not a bad patch -- a
+ * service that will take it once someone runs the migration.
+ */
+const HOME_MISSING_COLUMN = {
+  statusCode: 500,
+  message: "Internal Server Error",
+  details: 'column "first_paid_at" does not exist',
+};
+
+test("a 500 from home is the service failing, not the patch", async () => {
+  const { ops, restore } = opsAnswering(HOME_MISSING_COLUMN, 500);
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+    if (!result.isErr(res) || res.error.errorType !== "service-error") {
+      throw new Error("a 500 must be a service-error");
+    }
+    expect(res.error.details).toContain(
+      'column "first_paid_at" does not exist',
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("a 4xx from home is still a refusal of the patch", async () => {
+  // A parent the service does not hold: nothing a retry can fix.
+  const { ops, restore } = opsAnswering(
+    { statusCode: 404, message: "Parent patch not found" },
+    404,
+  );
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "patch", patchId: "gone" as PatchId },
+      null,
+      PROFILE,
+    );
+    if (!result.isErr(res) || res.error.errorType !== "other") {
+      throw new Error("a 404 must stay an 'other'");
+    }
+    expect(res.error.error.message).toBe("Parent patch not found");
+  } finally {
+    restore();
+  }
+});
+
+test("a content service that cannot be reached is a service-error too", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = (async () => {
+    throw new TypeError("fetch failed", {
+      cause: new Error("connect ECONNREFUSED 127.0.0.1:443"),
+    });
+  }) as typeof fetch;
+  try {
+    const ops = new ValOpsHttp(
+      CONTENT_URL,
+      PROJECT,
+      { commit: "commit-sha", branch: "main" },
+      { apiKey: "key" },
+      { modules: [] } as never,
+    );
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+    if (!result.isErr(res) || res.error.errorType !== "service-error") {
+      throw new Error("an unreachable service must be a service-error");
+    }
+    // The connection that failed is the SERVER's, to the service: the editor
+    // reached this server, or nothing would have asked.
+    expect(res.error.message).toContain("could not be reached");
+    expect(res.error.message).not.toMatch(/your (network|connection)/i);
+    expect(res.error.details).toContain("ECONNREFUSED");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("a 500 to the patches request does not blame the network", async () => {
+  const { ops, restore } = opsAnswering(HOME_MISSING_COLUMN, 500);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: false });
+    const error = res.error;
+    if (error === undefined) {
+      throw new Error("a 500 must be reported as an error");
+    }
+    expect(error.message).toContain("Val Build");
+    expect(error.message).toContain("answered with an error");
+    expect(error.message).not.toMatch(/network|connection/i);
+    expect(error.details).toContain("HTTP 500");
+    expect(error.details).toContain('column "first_paid_at" does not exist');
+    expect(res.networkError).toBeUndefined();
   } finally {
     restore();
   }
