@@ -334,6 +334,27 @@ describe("indexing a record module again", () => {
     expect(added).toEqual([]);
   });
 
+  test("a module indexed from the same source again is not walked or removed", () => {
+    const { searchIndex, added } = counting();
+    const removed: string[] = [];
+    const remove = searchIndex.index.remove.bind(searchIndex.index);
+    searchIndex.index.remove = (id) => {
+      removed.push(id);
+      remove(id);
+    };
+    const PAGE = "/page.val.ts" as ModuleFilePath;
+    const pageSchema = s.object({ title: s.string() })["executeSerialize"]();
+    const pageSource = { title: "hello" };
+    indexModule(searchIndex, PAGE, pageSource, pageSchema);
+    const posts = { "/a": titled("alpha") };
+    indexModule(searchIndex, POSTS, posts, schema);
+    added.length = 0;
+    indexModule(searchIndex, PAGE, pageSource, pageSchema);
+    indexModule(searchIndex, POSTS, posts, schema);
+    expect(added).toEqual([]);
+    expect(removed).toEqual([]);
+  });
+
   test("stops at its deadline, and goes on from there", () => {
     const { searchIndex, added } = counting();
     const source: Record<string, { title: string }> = {};

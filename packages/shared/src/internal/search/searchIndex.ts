@@ -73,6 +73,13 @@ export type SearchIndex = {
    * value they were made from, by key -- so indexing it again walks only the
    * entries whose value is a different object (see {@link indexModule}).
    */
+  /**
+   * What each module was last indexed from, whole: the same source object
+   * under a schema that says the same is not walked again. Removing a
+   * document from a big index is slow (FlexSearch looks for it everywhere),
+   * so indexing an unchanged module again was the cost of a pass.
+   */
+  walkedByModule: Map<ModuleFilePath, { source: Json; schema: string }>;
   entriesByModule: Map<
     ModuleFilePath,
     {
@@ -88,6 +95,7 @@ export function createSearchIndex(): SearchIndex {
     index: new FlexSearch.Index({ tokenize: "forward" }),
     pathToLabel: new Map(),
     docsByModule: new Map(),
+    walkedByModule: new Map(),
     entriesByModule: new Map(),
   };
 }
@@ -120,14 +128,29 @@ export function indexModule(
    */
   until?: number,
 ): boolean {
+  const walked = searchIndex.walkedByModule.get(moduleFilePath);
+  if (
+    walked !== undefined &&
+    walked.source === source &&
+    walked.schema === schemaKeyOf(schema)
+  ) {
+    return true;
+  }
   if (schema.type === "record" && isJsonRecord(source)) {
-    return indexRecordModule(
+    const done = indexRecordModule(
       searchIndex,
       moduleFilePath,
       source,
       schema,
       until,
     );
+    if (done) {
+      searchIndex.walkedByModule.set(moduleFilePath, {
+        source,
+        schema: schemaKeyOf(schema),
+      });
+    }
+    return done;
   }
   removeModule(searchIndex, moduleFilePath);
   const docs = new Set<string>();
@@ -136,6 +159,10 @@ export function indexModule(
   traverseSchemaSource(source, schema, path, (leaf) => {
     const id = indexLeaf(searchIndex, leaf);
     if (id !== null) docs.add(id);
+  });
+  searchIndex.walkedByModule.set(moduleFilePath, {
+    source,
+    schema: schemaKeyOf(schema),
   });
   return true;
 }
@@ -344,6 +371,7 @@ export function removeModule(
 ): void {
   const { index, pathToLabel, docsByModule, entriesByModule } = searchIndex;
   entriesByModule.delete(moduleFilePath);
+  searchIndex.walkedByModule.delete(moduleFilePath);
   const existing = docsByModule.get(moduleFilePath);
   if (existing === undefined) return;
   for (const id of existing) {
