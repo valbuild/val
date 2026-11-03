@@ -7,22 +7,15 @@
 > server before phase 6 is killed at about 59 MB of content beside 64 MB of
 > ballast and 75 MB without, so memory did not block phase 6. Phase 6 built
 > (2026-11-03): the store, one runtime per process, the head, `GET /modules`
-<<<<<<< HEAD
 > with deltas, and a cheap `seq` in http mode (with valbuild/home). Re-run
 > deployed after it (2026-11-03, a plain Worker): a draft page (`reader`)
 > answers wherever the content loads at all -- 86 MB beside 64 MB of
 > ballast, 100,000 `.jsonValues()` entries with 650 patches, valbuild/web --
 > with the head holding at most 56 KB of its 16 MB budget; only the probe
-> through home's loader is left (decision 5). Phase 7's remainder can
-> start.**
-=======
-> with deltas, and a cheap `seq` in http mode (with valbuild/home); the
-> deployed probe through home's loader, and with valbuild/web, is still to
-> run (decision 5), now against the head. Phase 7's remainder built
+> through home's loader is left (decision 5). Phase 7's remainder built
 > (2026-11-03): the Studio reads the manifest and its server's modules, and
 > `BaseAlignment`, `__VAL_BASE__` and the client's replay are gone. Next:
 > phase 9's remainder, then 8.**
->>>>>>> 0c17a95a2 (plan, architecture, scenarios README, changeset: phase 7's remainder built)
 > See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
@@ -978,21 +971,6 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form passes since phase 9's first part.
-<<<<<<< HEAD
-4. **Phase 7's remainder, now that phase 6 is built**: `originTier` over
-   `GET /modules` in the Studio's store, `manifestSource` (reading the
-   manifest "since `seq` N") with `withLocalEdits` over it, so `chainSource`
-   goes and with it the client's replay and its reconciliation of vanished
-   patches; then `BaseAlignment`, the Studio's `PUT /sources/~?apply_patches=false`
-   and `__VAL_BASE__`. Listed under
-   [Phase 7 without phase 6](#phase-7-without-phase-6). Then the rest of 9
-   ([Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)) and 8. Left from phase 6: the deployed probe through home's loader (decision 5;
-   the plain Worker, valbuild/web and the head's budget ran, see "Built"); the Studio does not yet skip, in its catch-up, a module the page
-   holds at the version it would send (`draftHoldsVersions` is there for
-   it; the page already compares by version, so it costs a message, not a
-   comparison); `/stat` still reads the whole chain in http mode on every
-   call (the head's cheap `seq` is not used there yet). Left from phase 5:
-=======
 4. ~~Phase 7's remainder~~ (done; see "Built"). **Next: phase 9's
    remainder** ([Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)):
    a build's registry entry named in the manifest, `reloadCode` against the
@@ -1004,9 +982,8 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
    by would make it one; the patch store still fetches every record of the
    chain for the review and the publish, so the client holds the records it
    no longer replays. Left from phase 6: the deployed probe through home's
-   loader, and with valbuild/web's content (decision 5; `results.md`, "Phase
-   6", says what to run). Left from phase 5:
->>>>>>> 0c17a95a2 (plan, architecture, scenarios README, changeset: phase 7's remainder built)
+   loader (decision 5; the plain Worker, valbuild/web and the head's budget
+   ran, see "Built"). Left from phase 5:
    `entriesStatus`
    and `allEntriesProgress` are still stable by recompute-and-compare (they
    are not `peek`, and are cheap). (Phase 5's other leftovers -- `ValDraft` without

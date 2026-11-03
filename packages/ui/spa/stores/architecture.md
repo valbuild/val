@@ -339,16 +339,18 @@ Two things follow, and both are ordinary rather than exotic:
   landed between it and the one before.
 
 So a patch stat stops naming is _suspect_, not gone. It stays in the chain, in
-place, and `PatchStore.reconcileVanished` asks `GET /patches` about it — a request
-issued now, after the save that made it durable has already returned, so its
-answer describes a server that has seen everything this client has done. An id
-that comes back in neither the results nor the errors is genuinely deleted and is
-`drop`ped; an id the server errors on is kept, because "I could not read it" is
-not "it is gone".
+place, until the manifest decides it (`PatchStore.settleVanished`, since phase 7
+of `docs/plans/one-content-model.md`): the manifest read after the stat names the
+version of the patch's module the server has, and a patch that version does not
+have, which this client held (record received, or save confirmed) before that
+manifest was ASKED for, is genuinely gone and is `drop`ped. A manifest asked for
+earlier may predate it and decides nothing. (Until phase 7 this was a
+`GET /patches` per vanished patch, issued after the save had returned; the
+version in hand answers the same question.)
 
-This is why there is no sequence number anywhere in the chain code. A stale or
-out-of-order stat costs one round trip that answers "still there", instead of a
-protocol that has to be able to date its own responses.
+The ordering is this client's own -- `PatchStore.nextManifestEpoch`, a counter
+of manifests asked for -- so still nothing in the chain code has to date the
+server's responses.
 
 Two failure modes it closes, both of which shipped:
 

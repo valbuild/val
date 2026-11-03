@@ -632,7 +632,7 @@ cannot be picked up by invalidating the memo: the re-extraction returns the
 pre-save content and stores it as fresh. The save tells `ValOps` instead
 (`adoptCommittedSources`), which also re-folds the SHAs so `baseSha` moves — the
 first thing that moves it within a server's lifetime in `fs` mode, and the signal
-`PatchStore.reconcileVanished` needs to tell a publish from a discard.
+`PatchStore.settleVanished` uses to tell a publish from a discard.
 
 **A `.jsonValues()` entry needs its own adoption, for a sharper reason.** Its
 content is not in the memoised source at all — the source holds markers, and the
@@ -1200,14 +1200,16 @@ browser had already sent -- above all a `/stat` long poll, parked for up to
 20 s -- is answered by the old one. So for a while two builds answer one
 Studio, and the old one's evaluation of the modules is from before the change.
 
-What the Studio puts its chain on is the `sourcesSha` a `/stat` names
-(`BaseAlignment`), and the old server used to name its own: the Studio
-fetched the old base (`PUT /sources/~?apply_patches=false`, from the old
-server too) and a draft page in the overlay showed new text, old text, new
-text (S26 in `scenarios/`). In fs and memory mode the patches belong to the
-STORE, relative to what the newest build evaluated, so `/stat` now names the
-base of the newest server made in the process for that root or patch store
-(`ValOps.chainBaseSha`).
+The Studio used to put its chain on the `sourcesSha` a `/stat` named
+(`BaseAlignment`), and the old server named its own: the Studio fetched the
+old base and a draft page in the overlay showed new text, old text, new text
+(S26 in `scenarios/`). Since phase 7 the Studio moves to the versions the
+MANIFEST names (`ManifestSource`), per module, and in fs and memory mode the
+patches belong to the STORE, relative to what the newest build evaluated: so
+`GET /manifest` and `GET /modules` are answered by the head of the newest
+server made in the process for that root or patch store (`ValOps.newestOps`),
+whichever server the request reached, and `/stat` names that build's base
+too (`ValOps.chainBaseSha`).
 
 Two things that look like they would do instead, and do not:
 
@@ -1220,9 +1222,40 @@ Two things that look like they would do instead, and do not:
   version of the fix was tried, and the flicker stayed.
 
 On a hosted site the content service answers each build with the patches that
-build lacks, so there the old build's base is right for its chain and the
-flicker during a rollout is not fixed yet (see the plan, "Phase 7 without
-phase 6").
+build lacks, and only it knows a newer build is live (`liveBuild`): a previous
+build's manifest says it is `superseded`, and the Studio does not move to its
+versions -- it asks again, and the live build answers the next time.
+
+## Another editor's edit arrives twice, and only one of them shows it
+
+Since phase 7 of `docs/plans/one-content-model.md` the Studio shows the
+module at the version the server's MANIFEST names, with its own edits on
+top. Another editor's patch reaches it two ways after one `/stat`: its
+record, through `GET /patches` (the review, the head, the publish need it),
+and its effect, through the manifest read after the stat and the module's
+patch from `GET /modules` (`ManifestSource`). Only the second changes what a
+field shows -- a record of another editor's patch is never applied in the
+Studio, so a "missing edit" is a manifest that was not read or not adopted,
+not a record that did not arrive. Look at `manifest:fetch`,
+`manifest:origin` and `manifest:memory-hit` in the activity channel.
+
+Two things that look wrong and are not:
+
+- **The Studio's own edit costs no request when the server confirms it.**
+  The version the manifest names for it is the one the Studio computed, so
+  it is found in memory -- by its patches alone when the editor typed on
+  past it (`SourceStore.knownChain`). A `GET /modules` for your own edit is
+  the bug.
+- **A patch a `/stat` stopped naming stays until a manifest decides it.**
+  Gone means: not in the server's version of its module, and that manifest
+  was ASKED FOR after this Studio held the patch (`PatchStore.decidedGone`).
+  A manifest asked for before then can predate it. The ordering is the
+  tab's own counter (`nextManifestEpoch`), never the server's clock.
+
+And a trap in the stores' tests: the fake server's manifest
+(`stores/testManifest.ts`) answers on a microtask, not a timer, because the
+tests let a stat take one turn of the event loop, and the manifest is read
+after it.
 
 ## After a code change, an edit that does not apply may be held, not deleted
 
@@ -1233,13 +1266,14 @@ ways, and both are now told apart from it (phase 9 of
 
 - **The Studio had the new field before the server did** (S10b). In
   development HMR reaches the page and the server in either order; when the
-  page is first, the old server's `/stat` named its own base, BaseAlignment
-  fetched it -- no field -- and an edit to the field failed on it and was
-  deleted. Now a module whose schema new code moved the Studio to keeps the
-  base that code wrote until a build answers with the same schema. If you
-  see an edit "could not be applied" right after a code change, look at
-  whether the Studio's schema for that module and the answering build's
-  (`version.schema` on `PUT /sources/~`) differ, and which one moved.
+  page is first, the old server's base was put under the field -- no field
+  -- and an edit to it failed there and was deleted. Now a module whose
+  schema new code moved the Studio to keeps the base that code wrote, with
+  every patch of its chain on top, until the manifest names the same schema
+  (`ManifestSource.ahead`). If you see an edit "could not be applied" right
+  after a code change, look at whether the Studio's schema for that module
+  and the manifest's (`version.schema` on `GET /manifest`) differ, and which
+  one moved.
 - **The code renamed or removed the field** (S14). The patch applied before
   and does not now: it is held (`StatusStore.held`, the banner above the
   Studio), and a publish is refused until it is discarded. The server's own

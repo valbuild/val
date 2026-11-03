@@ -55,14 +55,15 @@ silently when it does not.
 
 ## What a field reads: the engine, at a version
 
-Since phase 5 of [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md)
+Since phases 5 and 7 of [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md)
 the source store holds each module's **base**, the base content of the
-`.jsonValues()` entries it has read, and the **chain**, and everything a field
-reads is the Studio's VIEW of those (`stores/studioView.ts`): `withLocalEdits`
-(what this Studio wrote that the server has not confirmed) over `chainSource`
-(the base with the part of the chain the server has), through THE engine --
-`applyPatchRecord` in `@valbuild/shared`, the one Val's server applies patches
-with. So where a file's `patch_id` lands, what an edit inside an entry does and
+`.jsonValues()` entries it has read, the module at the version the **server**
+names for it (the manifest's: see "The Studio reads the server's version"
+below), and the **chain**, and everything a field reads is the Studio's VIEW
+of those (`stores/studioView.ts`): `withLocalEdits` -- this Studio's own edits
+the server's version does not have yet -- over the server's module, through
+THE engine -- `applyPatchRecord` in `@valbuild/shared`, the one Val's server
+applies patches with. So where a file's `patch_id` lands, what an edit inside an entry does and
 what a whole entry added does are the server's rules, and the Studio's source
 carries `patch_id` where the server's does (the relay stamped it with
 `withFilePatchIds` before).
@@ -143,9 +144,14 @@ behind the head for good. The head is a fact about the whole chain and only the 
 
 `/stat` is polled and is the authority on **order**, not on existence. A response
 describes the server as it was when the request was _issued_, so a stat can omit a
-patch that exists. A patch that disappears from stat is therefore **verified**
-with a fresh `GET /patches` before it is dropped, which is also why no sequence
-number is needed anywhere.
+patch that exists. A patch that disappears from stat is kept until the
+**manifest** decides it (`PatchStore.decidedGone`): it is gone when the
+server's version of its module does not have it AND that manifest was asked
+for after this Studio held it (its record arrived, or its save was
+confirmed) -- counted by `PatchStore.nextManifestEpoch`, a counter of this
+tab's own, so no sequence number crosses the wire for it. It used to be
+verified with a `GET /patches` per vanished patch; the version in hand
+answers the same question.
 
 A patch that cannot be applied is **deleted** (server included) and logged: it can
 never produce a value, and leaving it blocks every later save to its module.
@@ -176,63 +182,84 @@ hands over the objects it did last time -- by instance for HMR, by content
 (serialized schema and written source) for an imported bundle, whose
 instances are all new.
 
-## Base and chain come from ONE build
+## The Studio reads the server's version
 
-What the Studio shows is base + chain. The base is the source in the bundle it
-loaded; the chain is what `/stat` lists, and `/stat` lists the patches THE
-BUILD THAT ANSWERED does not contain. After a publish those can be two builds
-for a while (a tab opened before it, a managed project's pointer lagging per
-location), and one build's chain on another's source drops edits or applies
-them twice — invisible for a `replace`, a reordered list for a `move`.
+What the Studio shows is the server's module at the version the server names
+for it, with this Studio's own edits on top. After each `/stat` whose `seq`
+moved, `ManifestSource` (`stores/manifestSource.ts`) reads `GET /manifest`
+"since `seq` N" (a 304 while nothing moved), reads every module at the
+version it names from the cheapest place that has it, and the source store
+moves to them in ONE turn (`SourceStore.adoptServer`):
 
-`BaseAlignment` holds the line. `/stat` carries the answering build's
-`sourcesSha`; `HostStore` folds the bundle's source with the same
-`computeSourcesSha` the server uses. On a mismatch the stat is not adopted until
-that build's base (`PUT /sources/~?apply_patches=false`) and the records its
-chain names are here; then, in one turn, shipped patches leave the chain,
-`SourceStore.rebase` replaces base AND chain in the server's order, and the stat
-is adopted. Order matters in the backward direction: an older base needs patches
-that come BEFORE the ones already held, so appending them (what `receive` + a
-plain `patch:receive` would do) is wrong. `baseAndChain.test.ts` is every
-combination, over time, sampled at the end of each turn.
+1. **What this Studio computed itself** -- its own edit, now confirmed. The
+   version the server names for it is the one the Studio computed (same
+   schema, base and patches), so it is found by its content in the
+   `VersionRing`, or, when the editor typed on past it, by its patches alone
+   (`SourceStore.knownChain`): what is shown extends it, and its content is
+   made only if a discard needs it.
+2. **The bundle's own module** -- a version with the empty chain on the
+   bundle's base: nothing to read.
+3. **Its server** (`originTier.ts`, `GET /modules/~<path>?v=<moduleKey>`):
+   with the version held of the same schema and base as `have`, the answer
+   is the patches from it, so another editor's keystroke costs one patch.
+
+A base the bundle was not built with -- a content version, a publish, a
+proposal's saves -- is one read of one module by its version (a base is a
+version with the empty chain), and the server's module at its version is on
+its own base by construction. So there is no base and chain from two builds
+to keep apart any more: `BaseAlignment`, its whole-tree
+`PUT /sources/~?apply_patches=false` and the page's `window.__VAL_BASE__`
+went in phase 7.
+
+- **Another editor's patch is shown once the server's version has it**, never
+  replayed here on whatever base this Studio holds. Its record still arrives
+  (`GET /patches`, for the review, the head and the publish), and is not
+  applied: the manifest read after the same stat already brought its content.
+- **Where nothing has been decided, every patch of the chain is on top**, as
+  before phase 7: before the first manifest, after a re-intake moved the base
+  under a module, on a module new code put this Studio ahead on, or with no
+  server to ask (a test's system without `fetchManifest`).
+- **A re-intake (HMR) puts the server's base back in the same turn** where
+  the server is on another base (`ManifestSource.restoreBases`), so the
+  bundle's is never on screen under the server's version.
+- **The page is handed nothing until the store is in step** (`onInStep`, the
+  first manifest adopted, and `chainSettled`): until then it holds the
+  bundle's source, which after a publish, or on a site serving a content
+  version, is not what the server has.
 
 **A base is only put under a module when it fits the Studio's schema, where
 the Studio is ahead.** When new code moved a module's schema in the Studio
 (HMR, or staged code the tab evaluated: `schema:init` after the first intake)
-and the build answering has not got that code yet, its base for that module
-was evaluated with the old schema -- it has no field the new code added. So
-BaseAlignment leaves that module out (`PUT /sources/~` answers each module's
-`version.schema`) and keeps the base the Studio's own code wrote, until a
-build answers with the same schema (S10b, C11). Where the SERVER is ahead (a
-deploy while the Studio was open) the build's base is the one that belongs
-under its chain, and is taken as before.
+and the server has not got that code yet, its version of that module was
+made with the old schema -- it has no field the new code added. So the
+manifest's version for that module is not moved to (`ManifestSource.ahead`)
+and the module keeps the base the Studio's own code wrote, with every patch
+of its chain on top, until the manifest names the Studio's schema (S10b,
+C11). Where the SERVER is ahead (a deploy while the Studio was open) its
+version is the one taken.
 
-What `/stat`'s `sourcesSha` names is the base its CHAIN is relative to, which
-is not always the answering build's own (`ValOps.chainBaseSha`). In fs and
+**A previous build still answering does not move the Studio.** In fs and
 memory mode the chain is the store's, relative to what the newest build
-evaluated, so a previous build still answering -- a long poll parked on it
-across a hot reload -- names the newest build's base, and a Studio already on
-the new bundle fetches nothing (S26). In http mode each build is answered with
-the chain it lacks, so it names its own. BaseAlignment, the fetch and
-`__VAL_BASE__` go in phase 7 of the plan, now that a base can be read by its
-version: `GET /modules/~<path>?v=<the base's moduleKey>`, phase 6's module
-endpoint, answers one module at a version from the server's head, or as the
-patches from the version the Studio holds (`have`). See "Phase 7 without
-phase 6" there.
+evaluated, and `GET /manifest` and `GET /modules` are answered by the newest
+build's head (`ValOps.newestOps`) -- a long poll parked on the old build
+across a hot reload included. In http mode a previous build knows from the
+content service that a newer one is live and says so (`superseded` on the
+manifest); the Studio does not move to its versions and asks again (S26).
 
 ## Where things live
 
-| you want                                   | look at                                           |
-| ------------------------------------------ | ------------------------------------------------- |
-| the read hooks a field uses                | `packages/ui/spa/components/ValFieldProvider.tsx` |
-| how a patch gets INTO source               | `SourceStore.intake` and `PatchIntake`            |
-| source, versions, `.jsonValues()`          | `stores/SourceStore.ts`                           |
-| the view: the engine over base and chain   | `stores/studioView.ts`                            |
-| the chain, `/stat` reconciliation, uploads | `stores/PatchStore.ts`, `stores/PatchSync.ts`     |
-| wiring, publish, discard, held edits       | `stores/createSystem.ts`                          |
-| new code: `reloadCode(registry)`           | `stores/HostStore.ts`                             |
-| a fake server to test against              | `stores/testSystem.ts`                            |
-| what a store _did_, not what it announced  | the activity channel, `stores/activity.ts`        |
+| you want                                   | look at                                            |
+| ------------------------------------------ | -------------------------------------------------- |
+| the read hooks a field uses                | `packages/ui/spa/components/ValFieldProvider.tsx`  |
+| how a patch gets INTO source               | `SourceStore.intake` and `PatchIntake`             |
+| source, versions, `.jsonValues()`          | `stores/SourceStore.ts`                            |
+| the view: the engine over base and chain   | `stores/studioView.ts`                             |
+| the chain, `/stat` reconciliation, uploads | `stores/PatchStore.ts`, `stores/PatchSync.ts`      |
+| the server's versions: manifest, modules   | `stores/manifestSource.ts`, `stores/originTier.ts` |
+| wiring, publish, discard, held edits       | `stores/createSystem.ts`                           |
+| new code: `reloadCode(registry)`           | `stores/HostStore.ts`                              |
+| a fake server to test against              | `stores/testSystem.ts`                             |
+| what a store _did_, not what it announced  | the activity channel, `stores/activity.ts`         |
 
 ## Debugging in a browser
 

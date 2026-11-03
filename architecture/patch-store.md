@@ -91,7 +91,7 @@ routine case; the client fix is what makes the rest correct.
 re-reading them cannot work: a module's content is read by awaiting its `def`,
 the app's own `import()`, which resolves from the module registry rather than the
 file that was just rewritten. So in `fs` mode `baseSha` changes within a server's
-lifetime for the first time, which is what `reconcileVanished` needs to tell a
+lifetime for the first time, which is what `settleVanished` uses to tell a
 patch that was PUBLISHED from one that was discarded. `schemaSha` does not move —
 the fold leaves it alone when only sources change, so nothing refetches `/schema`.
 
