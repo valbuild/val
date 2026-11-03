@@ -1204,12 +1204,21 @@ ways, and both are now told apart from it (phase 9 of
   module until the held one is settled. A Studio opened AFTER the change
   never saw the patch fit, and deletes it as before.
 
-And one that is not fixed: **an edit to a field only staged code has cannot
-be saved before the proposal is built** (C11b). The tab's evaluation lets the
-editor type into it, but the save before the next code write runs in Val's
-server at the proposal's address, which applies the pending patches to the
-module as the build it runs evaluated it. The assistant's next `write_files`
-is refused ("could not be saved first") until somebody builds.
+- **The field only staged code has** (C11b). At a proposal's address the
+  platform serves a new overlay after every staging, on the build it already
+  runs, so the server there can hold a module's staged code that its build
+  never evaluated. It tells which from `VAL_BUILD_INPUTS` (the staging the
+  build was made of) against the overlay's `staged`: a module staged after
+  the build is read and saved from its staged text, and versioned
+  `staged:<inputs>`, so nothing reads it as the build's. If a save at the
+  address fails with "Path refers to non-existing object/array" on a staged
+  module, look at whether the isolate was handed `VAL_BUILD_INPUTS` and the
+  overlay's `staged` at all: a `val.server.ts` whose proposal block predates
+  them hands Val neither, and every staged module then reads as the build's.
+  And if the code write is refused with "cannot be saved here", that is the
+  hold, not a bug: the module's content is made by code (or is a
+  `.jsonValues()` record) and the server does not run staged code, so it
+  waits for a build (C11c).
 
 ## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
 

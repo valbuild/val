@@ -624,17 +624,42 @@ coverage" (valbuild/val#1006).
     `HostStore.receive` as the Studio's intake of a registry (now under
     `reloadCode`), `discardUnapplicable`'s delete of an edit the code moved
     under.
-  - **A finding, kept `test.failing`: C11b.** The tab lets the editor type
-    into a field only staged code has, but the save before the next code
-    write runs in Val's server at the address, which applies the pending
-    patches to the module as the build it runs evaluated it -- without the
-    field -- and the commit fails, so the assistant's next `write_files` is
-    refused until somebody builds. The server would need a staged module's
-    base from the staged text, which the overlay's `staged` map (home's
-    contract) lets it recognise; see what is left.
+  - **C11b, fixed: the build carries its own inputs** (decided
+    2026-11-03; valbuild/home PR #371). The tab let the editor type into a
+    field only staged code has, but the save before the next code write ran
+    in Val's server at the address, which applied the pending patches to the
+    module as the build it runs evaluated it -- without the field -- so the
+    commit failed and the assistant's next `write_files` was refused until
+    somebody built. The overlay's `staged` names the staging, not whether the
+    build serving the address was made of it, so the platform now hands the
+    isolate that too: `VAL_BUILD_INPUTS`, the staged inputs of the proposal's
+    own build (content sends them with the build, the overlay keeps them as
+    `codeInputs`). `proposalFromEnv` and the generated `val.server.ts` read
+    both (`ValProposal.staged`, `.buildInputs`; an old proposal block is
+    rewritten to the new one), and `stagedAfterBuild` compares them: a staged
+    module whose version names the build's inputs is the build's, served and
+    saved as it evaluated it; any other is **staged after the build**. Such a
+    module's Source is read from its staged text (the overlay's `files`,
+    without running it: `stagedModuleSources`), its version is
+    `staged:<inputs>` on every answer, a save applies to that text and that
+    Source with no schema and names the staging per module
+    (`moduleVersions[path].staged`, which home records as the version's
+    schema), and the page's readers leave its saved Source out
+    (`proposalAsBuilt`), so content made for code they have not got is never
+    read with theirs. One whose Source cannot be read from its text (made by
+    code, `.jsonValues()`) is **held**: the save that touches it is refused
+    with the reason, which the code write passes on to the assistant ("build
+    the proposal, then save"), and the edit stays pending (C11c). The whole
+    staging's inputs are compared, not a module's own file, because a
+    module's schema moves with any file it imports. Not covered: a module new
+    in the proposal, which the build serving it does not have at all; a
+    module whose own file is not staged but whose schema a staged import
+    moved (the overlay names only staged module files). The scenario world
+    now serves the new overlay on the same build after each staging, as the
+    platform does (it did not, which is half of why C11b failed in it).
   - **Scenarios:** S10b (`addedField` b) and S14 pass in memory, fs and
-    http; S12 gains "a registry that cannot be read"; C11 and C12 are new
-    and pass; C11b fails as above. S16 stays skipped. B01-B10, the
+    http; S12 gains "a registry that cannot be read"; C11, C11b, C11c and
+    C12 are new and pass. S16 stays skipped. B01-B10, the
     content-shape matrix and overlayAfterBuild's pins are unchanged.
   - **Public API:** unchanged. The wire: none between Val's packages or to
     content. The assistant's tools: `write_files` answers a `valModules`
@@ -1493,7 +1518,9 @@ its base per module (phase 4's `holds`, by version) is the replacement.
    every staged module file (a module new in the proposal too) with
    `staged:<inputs>`, derived from the staged files, and names the staging,
    not whether the build serving the address was made of it. Val's reading
-   of it is phase 9's.
+   of it is phase 9's, and needed one more thing from home, built with it:
+   the inputs of the build serving the address (`VAL_BUILD_INPUTS`; see
+   C11b under phase 9 above).
 
 ### Phase 9 without phases 6 and 7
 
@@ -1513,17 +1540,17 @@ phase 7's remainder (`originTier`, `manifestSource`, BaseAlignment and
 | Search and references stale for the modules whose schema moved                                                     | No                                 | `schema:init` names them; validation and previews listened, search and references did not. **Built.**                                                                                                                                                                                                                                                                                                                               |
 | The tab evaluates `val.modules` after each staging, swaps the schema in and tells the assistant                    | No (where the page can build)      | `bundleValModules`, `evaluateTree` and `readValModules` exist (update with code). Only where the builder can run (`canBuildHere`), as for a build in the page. **Built** (C11, C12).                                                                                                                                                                                                                                                |
 | A staging records each changed module's Source WITH its schema                                                     | home: done its way                 | Home's phase 7 contract records a staged module's Source with `staged:<inputs>` (not the previous schema's sha) and names the staged modules in the overlay (`staged`). Sending the tab's real schema sha instead needs a field that contract does not have, so `stagedModuleSources`' Source stays.                                                                                                                                |
-| Val's server reads the overlay's `staged` (versions `staged:<inputs>`; saves a staged module from its staged text) | No, but a decision                 | The contract names the STAGING, not whether the build serving the address was made of it; the server needs its own build's inputs to tell. Then C11b passes: the save before a code write applies pending patches to the staged text, not to what the build evaluated.                                                                                                                                                              |
+| Val's server reads the overlay's `staged` (versions `staged:<inputs>`; saves a staged module from its staged text) | No, but a decision                 | The contract names the STAGING, not whether the build serving the address was made of it; the server needs its own build's inputs to tell. Decided: the build carries them (`VAL_BUILD_INPUTS`). **Built** (C11b, C11c): a module staged after the build is read and saved from its staged text, versioned `staged:<inputs>`, left out of the readers' snapshot, and held when its text cannot be read.                             |
 
 **What is left of phase 9**, for after phases 6 and 7: a build's registry
 entry and `reloadCode` against the manifest (`not-the-manifest's`,
 `other-val-version`), and with it the deletion of `SchemaFreshnessWatch`,
 `reportSchemaOutOfDate`, the dialog and S16's pin -- and "no schema dialog"
 as an invariant of every scenario, which cannot hold while a deploy the
-Studio has not got still shows it. Unblocked but not built here: the
-server's reading of the overlay's `staged` (C11b), and evaluating staged
-code where the Studio cannot run the builder (a builder tab or the server
-bundling it, the Studio evaluating the code it is handed). Not measured: the
+Studio has not got still shows it. Unblocked but not built here: evaluating
+staged code where the Studio cannot run the builder (a builder tab or the
+server bundling it, the Studio evaluating the code it is handed), which is
+also what would let a held module (C11c) be saved before a build. Not measured: the
 cost of an evaluation (the plan's "Cost" below).
 
 Phase 2 can run beside phases 3 and 4. Phase 6 moves ahead of 2–5 if phase 0
