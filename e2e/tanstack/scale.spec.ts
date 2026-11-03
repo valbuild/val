@@ -357,6 +357,31 @@ test.describe(`the Studio with ${SCALE} entries`, () => {
       const images = await page.locator("#val-content-area img").count();
       return `${images} <img> in the content area`;
     });
+    // 5a. Selecting an image: its "used by", which loads every post (a post
+    // picks its image from this library). A bar while it loads, the gallery
+    // usable meanwhile; done when the bar is gone.
+    await measure(
+      page,
+      requests,
+      'select an image: "used by" (loads every post)',
+      async () => {
+        await page.getByText("image-0.png").first().click();
+        const loading = page.getByRole("progressbar", {
+          name: "Looking for where it is used",
+        });
+        const sawBar = await loading
+          .waitFor({ timeout: 5_000 })
+          .then(() => true)
+          .catch(() => false);
+        await expect(loading).toHaveCount(0, { timeout: STEP_TIMEOUT });
+        const failed = await page
+          .getByText("Some content could not be loaded")
+          .count();
+        if (failed > 0) throw new Error("the load failed");
+        return sawBar ? "progress bar shown" : "no progress bar seen";
+      },
+    );
+    await page.keyboard.press("Escape");
     await measure(
       page,
       requests,
@@ -385,13 +410,25 @@ test.describe(`the Studio with ${SCALE} entries`, () => {
           .getByLabel("Search the project")
           .fill(`Post number ${SCALE - 1}`);
         const dialog = page.getByRole("dialog", { name: "Search" });
+        const start = Date.now();
         await expect(dialog.getByText("In content")).toBeVisible({
           timeout: STEP_TIMEOUT,
         });
+        const firstResults = Date.now() - start;
+        // Every post loaded: the bar is gone (phase 10: a bar while the
+        // content loads, results as they arrive).
+        await expect(
+          dialog.getByRole("progressbar", {
+            name: "Loading content to search",
+          }),
+        ).toHaveCount(0, { timeout: STEP_TIMEOUT });
         await expect(dialog.getByText("Searching…")).toHaveCount(0, {
           timeout: STEP_TIMEOUT,
         });
-        return `${await dialog.getByRole("button").count()} rows`;
+        await expect(
+          dialog.getByText(`Post number ${SCALE - 1}`, { exact: true }),
+        ).toBeVisible({ timeout: STEP_TIMEOUT });
+        return `first content results after ${firstResults} ms; ${await dialog.getByRole("button").count()} rows`;
       },
     );
   });

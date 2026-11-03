@@ -60,10 +60,20 @@ const MEDIA: MediaRefs[] = (process.env.VAL_SCALE_MEDIA ?? "local,remote")
 
 /**
  * Above this many posts the surfaces that load EVERY post (the gallery's
- * "used by", search) are left out: each is one request per post, and the
- * Studio's intake of them is quadratic, so 100,000 would take hours.
+ * "used by", search) are left out. Unlimited by default since phase 10's fix
+ * made that load linear (a request per batch of keys, the view rebuilt per
+ * batch); `VAL_SCALE_LOAD_ALL_MAX=10000` skips them at 100,000.
  */
-const LOAD_ALL_MAX = Number(process.env.VAL_SCALE_LOAD_ALL_MAX ?? 10_000);
+const LOAD_ALL_MAX = Number(
+  process.env.VAL_SCALE_LOAD_ALL_MAX ?? Number.POSITIVE_INFINITY,
+);
+
+/**
+ * The most keys a bulk `GET /json` is held to by the URL budget alone, at
+ * this project's key length (`/blog/post-12345`): fewer than this per
+ * request would mean the batches are not filling.
+ */
+const MIN_KEYS_PER_BULK_REQUEST = 25;
 
 /** Large worlds take a while to build: seconds per 10,000 entries. */
 jest.setTimeout(Math.max(...SIZES) >= 100_000 ? 1_800_000 : 300_000);
@@ -110,7 +120,9 @@ const STUDIO_KINDS = [
   "engine:clone-bytes",
   "version:hash",
   "source:load-json-entry",
+  "source:fetch-json-entries",
   "source:receive-json-entry",
+  "source:apply-json-entries",
   "source:rebuild-module",
   "host:execute-preview",
   "preview:cache-miss",
@@ -200,6 +212,24 @@ function hits(found: Awaited<ReturnType<Studio["system"]["search"]>>): string {
   return `${found.total} hit(s)${found.partialModules.length > 0 ? `, ${found.partialModules.length} module(s) partial` : ""}`;
 }
 
+/**
+ * Gate: loading every post is linear. Requests carry many keys (entries /
+ * batch, not one per entry), and the record's view is rebuilt per batch that
+ * landed, never per entry -- the two things that made it quadratic (44 s at
+ * 10,000 in the baseline).
+ */
+function expectBatched(row: ReturnType<typeof measured>, n: number): void {
+  const requests = row.byRequest["GET /json"] ?? 0;
+  expect(requests).toBeGreaterThan(0);
+  expect(requests).toBeLessThanOrEqual(
+    Math.ceil(n / MIN_KEYS_PER_BULK_REQUEST),
+  );
+  expect(row.studio["source:fetch-json-entries"]).toBe(requests);
+  const applies = row.studio["source:apply-json-entries"];
+  expect(applies).toBeGreaterThan(0);
+  expect(applies).toBeLessThanOrEqual(requests);
+}
+
 describe.each(MEDIA)("%s media", (media) => {
   describe.each(SIZES)("%d entries", (n) => {
     let world: World | null = null;
@@ -250,10 +280,13 @@ describe.each(MEDIA)("%s media", (media) => {
         "open the record",
         `${record.window.length} rows on screen; preview has ${rowsPreviewed} rows`,
       );
-      // Gate: no request per entry -- only the rows on screen are fetched.
-      expect(opened.byRequest["GET /json"] ?? 0).toBeLessThanOrEqual(
+      // Gate: only the rows on screen are fetched, and in ONE request: the
+      // rows' reads of one render pass are one batch.
+      expect(opened.studio["source:load-json-entry"]).toBeLessThanOrEqual(
         RECORD_WINDOW_ROWS,
       );
+      expect(opened.byRequest["GET /json"] ?? 0).toBe(1);
+      expect(opened.studio["source:apply-json-entries"]).toBe(1);
 
       // Opening one post, and typing into its title.
       const key = postKey(0);
@@ -360,7 +393,7 @@ describe.each(MEDIA)("%s media", (media) => {
           imports: 0,
           studio: {},
           server: {},
-          note: `not run: each loads every post, one request each, and that is quadratic (about 40 s at 10,000 in measure/scale.ts); VAL_SCALE_LOAD_ALL_MAX=${n} runs it`,
+          note: `not run: VAL_SCALE_LOAD_ALL_MAX is ${LOAD_ALL_MAX}`,
         });
       } else {
         // Selecting an image in the library's gallery: its "used by" list.
@@ -371,7 +404,7 @@ describe.each(MEDIA)("%s media", (media) => {
           project.imagePaths[n - 1],
         );
         await w.settle();
-        measured(
+        const selected = measured(
           w,
           editor,
           project,
@@ -379,6 +412,7 @@ describe.each(MEDIA)("%s media", (media) => {
           "select an image in the gallery",
           `used by ${inspected.referrers}; loaded every entry of ${inspected.loaded.length} module(s)`,
         );
+        expectBatched(selected, n);
 
         // Search, from a Studio of its own: the editor's has every post now.
         const searcher = await w.studio("searcher");
@@ -386,7 +420,7 @@ describe.each(MEDIA)("%s media", (media) => {
         since = mark(w, searcher, project);
         const found = await search(searcher.system, `Post number ${n - 1}`);
         await w.settle();
-        measured(
+        const searched = measured(
           w,
           searcher,
           project,
@@ -394,6 +428,7 @@ describe.each(MEDIA)("%s media", (media) => {
           "search (one query)",
           `first answer ${hits(found.first)}, after loading ${hits(found.last)}`,
         );
+        expectBatched(searched, n);
         since = mark(w, searcher, project);
         await validateAll(searcher.system);
         await w.settle();
