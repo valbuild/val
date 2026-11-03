@@ -230,6 +230,30 @@ const GetApplicablePatches = z.object({
       publishJobs: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * The build the branch's chain version last counted live, with the base it
+   * reported (`sources_sha`, which every request here sends), and whether
+   * THIS build went live before it (valbuild/home `utils/liveBuild.ts`).
+   * Absent from a content service that predates it, and when no build of
+   * the branch has been counted.
+   */
+  liveBuild: z
+    .object({
+      deployment: z.string(),
+      version: z.number(),
+      sourcesSha: z
+        .string()
+        .refine((s): s is SourcesSha => !!s)
+        .nullable(),
+      callerIsPrevious: z.boolean(),
+    })
+    .optional(),
+  /**
+   * Asked for with `relative_to=live` (`/stat` asks): what the list is
+   * relative to. `live` names the live build's position, and `/stat` names
+   * `liveBuild.sourcesSha` as the base the chain belongs on.
+   */
+  relativeTo: z.union([z.literal("live"), z.literal("caller")]).optional(),
 });
 const FilesResponse = z.object({
   files: z.array(
@@ -1001,8 +1025,13 @@ export class ValOpsHttp extends ValOps {
 
   override async publishApi(
     path: string,
-    init: { method: string; body?: string },
-  ): Promise<{ status: number; body: string; contentType: string }> {
+    init: { method: string; body?: string; ifNoneMatch?: string },
+  ): Promise<{
+    status: number;
+    body: string;
+    contentType: string;
+    etag?: string;
+  }> {
     /*
      * Nothing is published from a proposal's address: its way to the site is
      * a merge. The publish API reaches the SITE's builds and jobs, so a
@@ -1844,8 +1873,13 @@ export class ValOpsHttp extends ValOps {
 
   private async callPublishApi(
     path: string,
-    init: { method: string; body?: string },
-  ): Promise<{ status: number; body: string; contentType: string }> {
+    init: { method: string; body?: string; ifNoneMatch?: string },
+  ): Promise<{
+    status: number;
+    body: string;
+    contentType: string;
+    etag?: string;
+  }> {
     const json = "application/json";
     const send = async (token: string) =>
       fetch(`${this.contentUrl}/v1${path}`, {
@@ -1853,6 +1887,14 @@ export class ValOpsHttp extends ValOps {
         headers: {
           Authorization: `Bearer ${token}`,
           ...(init.body === undefined ? {} : { "Content-Type": json }),
+          /*
+           * By version: content answers 304 to the tag of what the caller
+           * holds (`/project-source`; valbuild/home's `etagOf`). A GET's
+           * alone: a write is never "not modified".
+           */
+          ...(init.ifNoneMatch !== undefined && init.method === "GET"
+            ? { "If-None-Match": init.ifNoneMatch }
+            : {}),
         },
         ...(init.body === undefined ? {} : { body: init.body }),
       });
@@ -1885,10 +1927,12 @@ export class ValOpsHttp extends ValOps {
       res = await send(second.token);
     }
 
+    const etag = res.headers.get("etag");
     return {
       status: res.status,
       contentType: res.headers.get("content-type") ?? json,
       body: await res.text(),
+      ...(etag !== null ? { etag } : {}),
     };
   }
 
@@ -2049,11 +2093,23 @@ export class ValOpsHttp extends ValOps {
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
-    const currentSourcesSha = await this.getSourcesSha();
-    const allPatchData = await this.fetchPatches({
+    /*
+     * The chain RELATIVE TO THE LIVE BUILD, when this is a previous build
+     * still answering (S26): for up to a minute after a publish the edge
+     * serves the build before it, and a Studio told this build's base fetched
+     * it and showed the content from before the build. The content service
+     * knows which build is live and what its base is, and answers at it
+     * (`relativeTo: "live"`); then the base named is the live build's -- the
+     * one a Studio holding the new bundle already has. Otherwise this build's
+     * own, as always.
+     */
+    const allPatchData = await this.fetchPatchesInternal({
       excludePatchOps: true,
       patchIds: undefined,
+      relativeToLive: true,
     });
+    const currentSourcesSha =
+      allPatchData.chainBase ?? (await this.getSourcesSha());
     if (
       "error" in allPatchData &&
       allPatchData.error &&
@@ -2108,7 +2164,10 @@ export class ValOpsHttp extends ValOps {
         appliedPatches.push(patchData.patchId);
       }
     }
-    const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
+    const webSocketNonceRes = await this.getWebSocketNonce(
+      params.profileId,
+      "live",
+    );
     if (webSocketNonceRes.status === "error") {
       return { type: "error", error: webSocketNonceRes.error };
     }
@@ -2200,12 +2259,33 @@ export class ValOpsHttp extends ValOps {
     return this.publishJob !== null ? { job: this.publishJob } : {};
   }
 
+  /**
+   * This build's base, as a report to the content service (`sources_sha`), or
+   * `null` when it cannot be read: a request must not fail for a report.
+   */
+  private async reportedBase(): Promise<SourcesSha | null> {
+    try {
+      return await this.getSourcesSha();
+    } catch (err) {
+      Internal.log.debug("could not read this build's base to report", err);
+      return null;
+    }
+  }
+
   /** The branch this server's patches are on, where it knows it. */
   private ownBranch(): string | undefined {
     return this.proposal?.branch ?? this.git?.branch;
   }
 
-  async getWebSocketNonce(profileId: string): Promise<
+  async getWebSocketNonce(
+    profileId: string,
+    /**
+     * `live`: when this is a previous build, the socket follows the chain the
+     * live build's `/stat` named (`relativeTo` on the stat's
+     * `applicable/patches`), so its `patches` messages and that stat agree.
+     */
+    relativeTo?: "live",
+  ): Promise<
     | {
         status: "success";
         data: { nonce: string; url: string };
@@ -2232,6 +2312,7 @@ export class ValOpsHttp extends ValOps {
         })(),
         // Which build is asking, beside what it says about itself.
         ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
+        ...(relativeTo !== undefined ? { relativeTo } : {}),
       }),
       headers: {
         ...this.authHeaders,
@@ -2426,6 +2507,13 @@ export class ValOpsHttp extends ValOps {
   async fetchPatchesInternal<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
     excludePatchOps: ExcludePatchOps;
+    /**
+     * Ask for the chain relative to the branch's LIVE build when this one is
+     * a previous build (`relative_to=live`). Only `/stat` asks: every other
+     * reader applies the chain to this build's own base, which needs this
+     * build's chain. See {@link OrderedPatchesMetadata.chainBase}.
+     */
+    relativeToLive?: boolean;
   }): Promise<
     ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
@@ -2462,6 +2550,19 @@ export class ValOpsHttp extends ValOps {
     }
     if (filters.excludePatchOps) {
       params.push(["exclude_patch_ops", "true"]);
+    }
+    /*
+     * This build's base, reported: the content service files it under the
+     * build this is, so once this build is live it can name it to a previous
+     * build still answering (S26; valbuild/home `utils/liveBuild.ts`). Not at
+     * a proposal's address, whose builds are never the site's live one.
+     */
+    const ownBase = this.proposal === null ? await this.reportedBase() : null;
+    if (ownBase !== null) {
+      params.push(["sources_sha", ownBase]);
+    }
+    if (filters.relativeToLive) {
+      params.push(["relative_to", "live"]);
     }
     const searchParams = new URLSearchParams(params);
     try {
@@ -2564,6 +2665,18 @@ export class ValOpsHttp extends ValOps {
               : {}),
             ...(data.heldBackPatches !== undefined
               ? { heldBackPatches: data.heldBackPatches }
+              : {}),
+            /*
+             * Answered at the live build, whose base it names: the base this
+             * chain belongs on. Only when asked, and when both are said -- a
+             * list at the live build without its base could not be put on
+             * anything.
+             */
+            ...(filters.relativeToLive &&
+            data.relativeTo === "live" &&
+            data.liveBuild?.sourcesSha !== undefined &&
+            data.liveBuild.sourcesSha !== null
+              ? { chainBase: data.liveBuild.sourcesSha }
               : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata

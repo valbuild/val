@@ -164,7 +164,7 @@ import {
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
-import { createStudioPublishClient } from "@valbuild/shared/publish";
+import { createProjectSourceReader } from "@valbuild/shared/publish";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -840,7 +840,14 @@ export function useAI(
   const codeClients = useMemo(
     () => ({
       proposals: createProposalsClient({ api: "/api/val" }),
-      publish: createStudioPublishClient({ api: "/api/val" }),
+      /*
+       * The site's source, by version: asked on every tool call, and sent
+       * whole only when a publish changed it. Not the publish client's,
+       * which holds its first answer for as long as it lives -- one deploy
+       * there, and this hook's whole life here, so a publish in between
+       * went unseen by the code tools.
+       */
+      siteSource: createProjectSourceReader({ api: "/api/val" }),
     }),
     [],
   );
@@ -2378,7 +2385,7 @@ export function useAI(
           void runCodeTool(toolName, message.arguments, {
             proposal: currentProposalRef.current,
             client: codeClients.proposals,
-            siteSource: () => codeClients.publish.projectSource(),
+            siteSource: codeClients.siteSource,
             build:
               proposalName === null
                 ? build

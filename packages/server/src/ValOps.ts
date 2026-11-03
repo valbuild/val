@@ -876,7 +876,10 @@ export abstract class ValOps {
    * fetch it and show the content from before the code change (S26,
    * `scenarios/src/overlayAfterBuild.scenario.test.ts`). In http mode the
    * content service answers each build with the patches THAT build does not
-   * contain, so its own base is the right one.
+   * contain, so its own base is the right one for that chain -- and when a
+   * newer build is live, only the content service knows, so `/stat` there
+   * asks it for the chain relative to the live build and names that build's
+   * base (`ValOpsHttp.getStat`, `OrderedPatchesMetadata.chainBase`).
    *
    * Newest by when the instance was MADE, not by when it first answered:
    * hot reload makes the new one after the old, and an old one first asked
@@ -3010,8 +3013,19 @@ export abstract class ValOps {
    */
   async publishApi(
     _path: string,
-    _init: { method: string; body?: string },
-  ): Promise<{ status: number; body: string; contentType: string }> {
+    _init: {
+      method: string;
+      body?: string;
+      /** A GET's `If-None-Match`, carried to content. */
+      ifNoneMatch?: string;
+    },
+  ): Promise<{
+    status: number;
+    body: string;
+    contentType: string;
+    /** Content's `ETag`, when it named its answer. */
+    etag?: string;
+  }> {
     return {
       status: 501,
       contentType: "application/json",
@@ -3729,6 +3743,13 @@ export type OrderedPatchesMetadata = {
   publishingPatches?: OrderedPatches["publishingPatches"];
   /** See {@link OrderedPatches.heldBackPatches}. */
   heldBackPatches?: OrderedPatches["heldBackPatches"];
+  /**
+   * The base this list is relative to, when the content service answered it
+   * relative to ANOTHER build than the one asking: the live build, when the
+   * one asking is a previous build still answering (S26, http mode; see
+   * `ValOpsHttp.getStat`). Absent: this build's own base.
+   */
+  chainBase?: SourcesSha;
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

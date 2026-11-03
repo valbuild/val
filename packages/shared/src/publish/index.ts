@@ -20,6 +20,7 @@ export {
 } from "./callJson";
 export {
   StudioUploadError,
+  createProjectSourceReader,
   createStudioPublishClient,
   isExpiredSlot,
   publishApiOf,

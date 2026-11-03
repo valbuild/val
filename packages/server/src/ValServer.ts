@@ -723,37 +723,47 @@ export const ValServer = (
   };
 
   /**
-   * Hand one publish-API call to content and carry the answer back.
-   *
-   * `JSON.parse` and nothing more. That is not validation -- there is no schema
-   * here and no knowledge of content's shapes -- it is the round trip a JSON
-   * body has to make to travel as `json` rather than as a string. A body that
-   * does not parse is a gateway's error page rather than content answering, so
-   * it comes back as a message with the original status instead of throwing:
-   * a publish that failed is something the editor has to be told in words.
+   * Hand one publish-API write to content and carry the answer back, as
+   * `carriedPublishAnswer` says.
    */
   const proxyPublishApi = async (
     path: string | undefined,
-    method: "GET" | "POST",
     body?: string,
-  ): Promise<{ status: number; json: unknown }> => {
+  ): Promise<{
+    status: number;
+    json: unknown;
+    headers?: Record<string, string>;
+  }> =>
+    carriedPublishAnswer(
+      await serverOps.publishApi(path ?? "", {
+        method: "POST",
+        ...(body === undefined ? {} : { body }),
+      }),
+    );
+
+  /**
+   * A publish-API READ, carried BY VERSION when content names its answer
+   * (`/project-source`): the browser's `If-None-Match` goes to content, and
+   * content's `ETag` comes back -- with its 304 and no body -- so the
+   * Studio's code tools can ask on every call and be sent the site's whole
+   * source only when it changed.
+   */
+  const readPublishApi = async (
+    path: string | undefined,
+    ifNoneMatch: string | undefined,
+  ): Promise<
+    | { status: number; json: unknown; headers?: Record<string, string> }
+    | { status: 304; headers?: Record<string, string> }
+  > => {
     const answer = await serverOps.publishApi(path ?? "", {
-      method,
-      ...(body === undefined ? {} : { body }),
+      method: "GET",
+      ...(ifNoneMatch === undefined ? {} : { ifNoneMatch }),
     });
-    try {
-      return { status: answer.status, json: JSON.parse(answer.body) };
-    } catch {
-      return {
-        status: answer.status,
-        json: {
-          message:
-            answer.body.trim() === ""
-              ? `The publish API answered ${answer.status} with no body.`
-              : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
-        },
-      };
+    if (answer.status === 304) {
+      const headers = versionHeaders(answer.etag);
+      return { status: 304, ...(headers !== undefined ? { headers } : {}) };
     }
+    return carriedPublishAnswer(answer);
   };
 
   /** The person a session names, or `null` for an anonymous one. */
@@ -2204,7 +2214,7 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
-        return proxyPublishApi(req.path, "GET");
+        return readPublishApi(req.path, req.headers["if-none-match"]);
       },
       POST: async (req) => {
         const auth = getAuth(req.cookies);
@@ -2213,7 +2223,6 @@ export const ValServer = (
         }
         return proxyPublishApi(
           req.path,
-          "POST",
           req.body === undefined ? undefined : JSON.stringify(req.body),
         );
       },
@@ -5380,5 +5389,53 @@ function safeJson(text: string): unknown {
     return JSON.parse(text);
   } catch {
     return null;
+  }
+}
+
+/**
+ * The headers that name a publish-API answer, when content named it: its
+ * `ETag`, and `no-cache`, so nothing between keeps it without asking.
+ */
+function versionHeaders(
+  etag: string | undefined,
+): Record<string, string> | undefined {
+  return etag !== undefined
+    ? { ETag: etag, "Cache-Control": "no-cache" }
+    : undefined;
+}
+
+/**
+ * Hand one publish-API answer back: `JSON.parse` and nothing more, with the
+ * answer's `ETag` when content named it.
+ *
+ * That is not validation -- there is no schema here and no knowledge of
+ * content's shapes -- it is the round trip a JSON body has to make to travel
+ * as `json` rather than as a string. A body that does not parse is a
+ * gateway's error page rather than content answering, so it comes back as a
+ * message with the original status instead of throwing: a publish that failed
+ * is something the editor has to be told in words.
+ */
+function carriedPublishAnswer(answer: {
+  status: number;
+  body: string;
+  etag?: string;
+}): { status: number; json: unknown; headers?: Record<string, string> } {
+  const headers = versionHeaders(answer.etag);
+  try {
+    return {
+      status: answer.status,
+      json: JSON.parse(answer.body),
+      ...(headers !== undefined ? { headers } : {}),
+    };
+  } catch {
+    return {
+      status: answer.status,
+      json: {
+        message:
+          answer.body.trim() === ""
+            ? `The publish API answered ${answer.status} with no body.`
+            : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+      },
+    };
   }
 }

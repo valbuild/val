@@ -27,7 +27,7 @@
  * ## Who calls what
  *
  * Next (`Authorization: Bearer <apiKey>`):
- *   GET    /v1/{project}/applicable/patches
+ *   GET    /v1/{project}/applicable/patches         (+ `liveBuild`, `relative_to=live`: S26)
  *   POST   /v1/{project}/patches
  *   DELETE /v1/{project}/patches
  *   GET    /v1/{project}/patches/{patchId}/files      (metadata)
@@ -49,6 +49,10 @@
  *   GET    /v1/{project}/commits/{sha}/modules        (history: each module's data + schema)
  *   GET    /v1/{project}/commits/{sha}/affected-files (history: what it touched)
  *   GET    /v1/{project}/commits/{sha}/file           (history: one file's bytes then)
+ *
+ * Next, with a publish token (`POST /v1/{project}/publish-token`):
+ *   GET    /v1/project-source                         (by version: `ETag`, 304)
+ *   ...    /v1/publish-requests, /v1/publish-jobs, /v1/ci-runs
  *
  * The browser, cross-origin, with `x-val-auth-nonce`:
  *   POST   /v1/{project}/patches/{patchId}/files      (the bytes of an upload)
@@ -490,6 +494,12 @@ type State = {
   publishRequests: Map<string, MockPublishRequest>;
   /** Publish jobs, by id. */
   publishJobs: Map<string, MockPublishJob>;
+  /**
+   * The files the project's live build was made from (`GET /v1/project-source`),
+   * as the platform keeps them (`source:<project>`); `null`: never published.
+   * Set by a test (`PUT /__test__/project-source`), as a publish would.
+   */
+  projectSource: Record<string, string> | null;
 };
 
 function emptyState(): State {
@@ -517,6 +527,7 @@ function emptyState(): State {
     publishTokens: new Set(),
     publishRequests: new Map(),
     publishJobs: new Map(),
+    projectSource: null,
   };
 }
 
@@ -653,12 +664,27 @@ function patchesOn(branch: string): MockPatch[] {
  */
 let chainVersion = 0;
 /**
- * The deployments that moved {@link chainVersion}, by branch and id: `home`'s
- * `val_chain_deployments`, which only a deployment's first `success` inserts
- * into. Emptied with the rest of the state on reset: a test names its own
- * deployments, and a project made afresh has counted none.
+ * The deployments that moved {@link chainVersion}, by branch and id, in the
+ * order they were counted: `home`'s `val_chain_deployments`, which only a
+ * deployment's first `success` inserts into. Each with the BUILD it names, as
+ * `home` resolves one (`patches.liveBuild`): `build:<hash>` for a publish's
+ * build (here: a deployment reported with `build`), `commit:<sha>` for a
+ * GitHub deployment's commit. Emptied with the rest of the state on reset: a
+ * test names its own deployments, and a project made afresh has counted none.
  */
-let countedDeployments = new Set<string>();
+let countedDeployments: Array<{
+  key: string;
+  branch: string;
+  deployment: string;
+  version: number;
+  build: string;
+}> = [];
+
+/**
+ * The base each build reported (`sources_sha` on `/applicable/patches`), by
+ * the build it asked as: `home`'s `val_build_bases`. See {@link liveBuildOf}.
+ */
+let buildBases = new Map<string, string>();
 
 /**
  * A deployment went live for `branch`: what `home`'s `writeDeployment` does
@@ -668,12 +694,59 @@ let countedDeployments = new Set<string>();
  * and the version is what orders answers (Val's `ProjectVersion.seq` in http
  * mode). Says whether it moved.
  */
-function countDeploymentLive(branch: string, deploymentId: string): boolean {
+function countDeploymentLive(
+  branch: string,
+  deploymentId: string,
+  build: string,
+): boolean {
   const key = `${branch}\0github:${deploymentId}`;
-  if (countedDeployments.has(key)) return false;
-  countedDeployments.add(key);
+  if (countedDeployments.some((counted) => counted.key === key)) return false;
   chainVersion += 1;
+  countedDeployments.push({
+    key,
+    branch,
+    deployment: `github:${deploymentId}`,
+    version: chainVersion,
+    build,
+  });
   return true;
+}
+
+/**
+ * The build a caller asks as, as `home`'s `callerBuildOf` spells it: the
+ * platform's build when it names one, else its commit; none on a proposal's
+ * branch, whose builds are never counted on the site's chain.
+ */
+function callerBuildOf(url: URL, onProposal: boolean): string | null {
+  if (onProposal) return null;
+  const build = url.searchParams.get("build");
+  if (build !== null) return `build:${build}`;
+  const commit = url.searchParams.get("commit");
+  return commit !== null ? `commit:${commit}` : null;
+}
+
+/**
+ * `liveBuild` on `/applicable/patches`, as `home`'s `liveBuildFor` answers
+ * it: the deployment counted last on `branch`, the base its build reported,
+ * and whether `callerBuild` went live before it -- never for a build not
+ * counted at all, which is the newest one answering before it was reported.
+ */
+function liveBuildOf(branch: string, callerBuild: string | null) {
+  const counted = countedDeployments.filter((c) => c.branch === branch);
+  const live = counted[counted.length - 1];
+  if (live === undefined) return null;
+  const callers =
+    callerBuild === null || callerBuild === live.build
+      ? []
+      : counted.filter((c) => c.build === callerBuild);
+  const callerVersion = callers[callers.length - 1]?.version;
+  return {
+    deployment: live.deployment,
+    version: live.version,
+    sourcesSha: buildBases.get(live.build) ?? null,
+    callerIsPrevious:
+      callerVersion !== undefined && callerVersion < live.version,
+  };
 }
 /** The version each save made, so a retried save answers with its own. */
 const versionOfPatch = new Map<string, number>();
@@ -899,6 +972,23 @@ const getApplicablePatches: Handler = (req, res, url) => {
   const excludeOps = url.searchParams.get("exclude_patch_ops") === "true";
   const wanted = requested.length > 0 ? new Set(requested) : null;
   /*
+   * The caller's own base, reported (`sources_sha`), and whether it wants the
+   * chain relative to the live build (`relative_to=live`): `home`'s answer to
+   * Val's S26 (`utils/liveBuild.ts` there). Refused as `home` refuses them.
+   */
+  const sourcesSha = url.searchParams.get("sources_sha");
+  if (sourcesSha !== null && !/^[A-Za-z0-9_-]{1,128}$/.test(sourcesSha)) {
+    json(res, 400, { message: "Invalid sources_sha: not a base's hash" });
+    return;
+  }
+  const relativeTo = url.searchParams.get("relative_to");
+  if (relativeTo !== null && relativeTo !== "live") {
+    json(res, 400, {
+      message: "Invalid relative_to: the only one there is is 'live'",
+    });
+    return;
+  }
+  /*
    * The branch's chain: the project's when the caller does not say, as
    * `home` resolves it from the project row. A proposal's server names its
    * branch and the save its snapshot is (`commit`), and is answered with what
@@ -912,6 +1002,25 @@ const getApplicablePatches: Handler = (req, res, url) => {
     proposal !== null && position !== null
       ? savesUpTo(proposal, position)
       : null;
+  const callerBuild = callerBuildOf(url, proposal !== null);
+  if (sourcesSha !== null && callerBuild !== null) {
+    buildBases.set(callerBuild, sourcesSha);
+  }
+  // Only for a caller that reports or asks, as `home` answers it.
+  const live =
+    proposal !== null || (sourcesSha === null && relativeTo === null)
+      ? null
+      : liveBuildOf(branch, callerBuild);
+  /*
+   * At the live build when the caller is a previous one and the live build's
+   * base is known. This mock lists the WHOLE chain whatever the position (see
+   * the head below), so only what the answer says it is relative to differs.
+   */
+  const atLive =
+    relativeTo === "live" &&
+    live !== null &&
+    live.callerIsPrevious &&
+    live.sourcesSha !== null;
   const patches = [];
   for (const patch of patchesOn(branch)) {
     if (wanted && !wanted.has(patch.patchId)) {
@@ -980,6 +1089,10 @@ const getApplicablePatches: Handler = (req, res, url) => {
       // jobs sends, and what every spec but the job ones runs against.
       ...(state.publishJobsEnabled ? { publishJobs: true } : {}),
     },
+    ...(live !== null ? { liveBuild: live } : {}),
+    ...(relativeTo === "live"
+      ? { relativeTo: atLive ? "live" : "caller" }
+      : {}),
   });
 };
 
@@ -1924,7 +2037,15 @@ const presignedAuthNonce: Handler = (req, res) => {
  * the browser can reach — this host, not an internal name.
  */
 const websocketNonce: Handler = async (req, res) => {
-  const body = await readJsonBody<{ branch?: string }>(req);
+  /*
+   * `relativeTo: "live"` (a previous build's `/stat` answered at the live
+   * build) is accepted and changes nothing here: this mock's socket sends
+   * every branch's WHOLE chain, at no position, so there is no other chain to
+   * file it under. `home` files it under the live build's.
+   */
+  const body = await readJsonBody<{ branch?: string; relativeTo?: "live" }>(
+    req,
+  );
   const nonce = randomUUID();
   state.nonces.add(nonce);
   // A nonce is for one branch's chain: a proposal's Studio names its branch.
@@ -2376,6 +2497,45 @@ function publishTokenOf(req: IncomingMessage): string | null {
   return state.publishTokens.has(token) ? token : null;
 }
 
+/**
+ * `GET /v1/project-source`, with a publish token: the live build's files, BY
+ * VERSION. A strong `ETag` -- the sha256 of the answer, as `home` sends it --
+ * and a 304 with no body to a matching `If-None-Match` (`*`, a list, `W/`
+ * ignored), so the Studio's code tools can ask on every call.
+ */
+function projectSource(req: IncomingMessage, res: ServerResponse): void {
+  const body = {
+    files: state.projectSource,
+    publicFiles: null,
+    publicPaths: null,
+  };
+  const etag = `"${sha(JSON.stringify(body))}"`;
+  const held = req.headers["if-none-match"];
+  const opaque = (tag: string) => tag.trim().replace(/^W\//, "");
+  const matches =
+    typeof held === "string" &&
+    held
+      .split(",")
+      .some((tag) => tag.trim() === "*" || opaque(tag) === opaque(etag));
+  const headers = {
+    ETag: etag,
+    "Cache-Control": "no-cache",
+    ...corsHeaders(res),
+  };
+  if (matches) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  const payload = JSON.stringify(body);
+  res.writeHead(200, {
+    ...headers,
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(payload),
+  });
+  res.end(payload);
+}
+
 /** `POST /v1/{project}/publish-token`, with the api key. */
 const publishToken: Handler = (req, res) => {
   const token = `mock-publish-${randomUUID()}`;
@@ -2517,6 +2677,10 @@ async function publishApi(
     return;
   }
   const route = `${req.method} ${rest}`;
+  if (route === "GET /project-source") {
+    projectSource(req, res);
+    return;
+  }
   if (
     route === "POST /publish-requests" ||
     route === "POST /publish-requests/try-again"
@@ -2894,11 +3058,12 @@ function stagedJson(proposal: MockProposal) {
   const inputs =
     proposal.staged.length === 0
       ? null
-      : sha(
+      : // 64 hex, as `home`'s `stagedInputs` is: a staged schema names it.
+        sha(
           JSON.stringify(
             proposal.staged.map((path) => [path, proposal.saved.files[path]]),
           ),
-        ).slice(0, 40);
+        );
   return {
     files: proposal.staged,
     inputs,
@@ -3920,7 +4085,28 @@ function proposalOverlay(proposal: MockProposal) {
     commit: proposal.saved.commit,
     modules: proposal.saved.modules,
     files,
+    staged: stagedSchemas(proposal),
   };
+}
+
+/**
+ * The overlay's `staged`, as `home`'s `stagedSchemas` makes it: every staged
+ * MODULE file (`.val.ts` / `.val.js`, not deleted), by module file path, with
+ * the schema version a staging records for it, `staged:<inputs>` -- code
+ * nobody has evaluated, named by the staging it came with. `{}` when nothing
+ * that is a module is staged. This mock keeps no version index, so this is
+ * where the record shows.
+ */
+function stagedSchemas(proposal: MockProposal): Record<string, string> {
+  const inputs = stagedJson(proposal).inputs;
+  if (inputs === null) return {};
+  const staged: Record<string, string> = {};
+  for (const path of [...proposal.staged].sort()) {
+    if (!/\.val\.(ts|js)$/.test(path)) continue;
+    if (typeof proposal.saved.files[path] !== "string") continue;
+    staged[`/${path}`] = `staged:${inputs}`;
+  }
+  return staged;
 }
 
 /**
@@ -3961,7 +4147,8 @@ const controlPlane: Handler = async (req, res, url) => {
   const action = url.pathname.slice("/__test__/".length);
   if (action === "reset" && req.method === "POST") {
     state = emptyState();
-    countedDeployments = new Set();
+    countedDeployments = [];
+    buildBases = new Map();
     json(res, 200, { ok: true });
     return;
   }
@@ -4079,6 +4266,15 @@ const controlPlane: Handler = async (req, res, url) => {
       return;
     }
     json(res, 200, proposalOverlay(proposal));
+    return;
+  }
+  if (action === "project-source" && req.method === "PUT") {
+    // What a publish leaves the platform holding: the live build's files.
+    const body = await readJsonBody<{
+      files?: Record<string, string> | null;
+    }>(req);
+    state.projectSource = body?.files ?? null;
+    json(res, 200, { ok: true });
     return;
   }
   if (action === "content-version" && req.method === "GET") {
@@ -4251,11 +4447,22 @@ const controlPlane: Handler = async (req, res, url) => {
        * whose chain version a `success` moves. The project's by default.
        */
       branch?: string;
+      /**
+       * The build this deployment serves, as a Val server there names it
+       * (`publishBuild`, the platform's `VAL_BUILD`): what `home` reads off a
+       * counted publish (`build_hash`). Absent: the build is known by its
+       * commit, as a GitHub deployment's is.
+       */
+      build?: string;
     }>(req);
     const deploymentId = body?.deploymentId ?? randomUUID();
     const commitSha = body?.commitSha ?? state.headCommitSha;
     const deploymentState = body?.deploymentState ?? "pending";
     const branch = body?.branch ?? PROJECT_BRANCH;
+    // The build it serves, as `home` names a counted deployment's: a publish's
+    // build hash when the test says one, else the commit GitHub reported.
+    const build =
+      body?.build !== undefined ? `build:${body.build}` : `commit:${commitSha}`;
     const existing = state.deployments.find(
       (d) => d.deploymentId === deploymentId,
     );
@@ -4278,7 +4485,7 @@ const controlPlane: Handler = async (req, res, url) => {
     // message, as `home`'s two notifications commit in that order.
     const moved =
       deploymentState === "success" &&
-      countDeploymentLive(branch, deploymentId);
+      countDeploymentLive(branch, deploymentId, build);
     if (moved && body?.broadcast !== false) {
       broadcastChain(branch);
     }
@@ -4360,7 +4567,8 @@ async function handle(
   }
   // The publish API: a publish token names the project, so its routes do not.
   if (
-    /^\/v1\/(publish-requests|publish-jobs|ci-runs)(\/|$)/.test(url.pathname)
+    /^\/v1\/(publish-requests|publish-jobs|ci-runs)(\/|$)/.test(url.pathname) ||
+    url.pathname === "/v1/project-source"
   ) {
     await publishApi(req, res, url.pathname.slice("/v1".length));
     return;

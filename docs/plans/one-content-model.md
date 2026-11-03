@@ -505,11 +505,38 @@ coverage" (valbuild/val#1006).
     newer"): `seq` does not order two builds (the old one answers at the
     newest `seq` too), and the Studio cannot tell which build its own bundle
     is; the answering server can, and the fix is to stop it naming a base
-    its chain is not relative to. **On http S26 stays failing**: the content
-    service answers each build with the patches THAT build does not
-    contain, so the previous build's own base is right for its chain, and
-    only the content service knows a newer build is live -- see what home
-    would need, below.
+    its chain is not relative to. **On http** the content service answers
+    each build with the patches THAT build does not contain, so the previous
+    build's own base is right for its chain, and only the content service
+    knows a newer build is live -- built there (below), and now passing.
+  - **S26 on http** (with valbuild/home's live build, PR #371). Every
+    `applicable/patches` call reports this build's base (`sources_sha`),
+    which home files under the build it asks as (`build:<VAL_BUILD>`, else
+    `commit:<sha>`); the answer names the build home last counted live
+    (`liveBuild`: its deployment, version, reported base, and whether the
+    caller went live BEFORE it). `/stat` alone asks `relative_to=live`: a
+    previous build is answered at the live build's position
+    (`relativeTo: "live"`) and names that build's base
+    (`OrderedPatchesMetadata.chainBase`), and its socket nonce asks the
+    same (`relativeTo`), so the socket's chain is the one `/stat` named. A
+    build home has not heard went live is the NEWEST, never told to name
+    the one before it. The mock content host does the same, and the world
+    names each http build (`publishBuild`), reports it live as the platform
+    does (the first one too), and opens a page once that report landed.
+  - **The code tools' `projectSource` by version** (home's `ETag` on
+    `GET /v1/project-source`: the sha256 of its answer; 304 to
+    `If-None-Match`). The publish proxy carries both (`/publish-api` GET:
+    `If-None-Match` in, `ETag` and the 304 out; `ValOpsHttp.callPublishApi`),
+    and the code tools read through `createProjectSourceReader`
+    (`@valbuild/shared/publish`), which asks on every call with the tag it
+    holds: a publish in between is seen, and the whole source is sent only
+    when it changed (`projectSource.scenario.test.ts`).
+  - **Staged schemas, home's half.** A staging records `staged:<inputs>` as
+    every staged module's schema, and the overlay says which modules are
+    staged (`VAL_OVERLAY`'s `staged`: module file path to
+    `staged:<inputs>`); the mock content host serves the same. Reading it
+    (versioning them `staged:`, `layered` reading them as pending) is
+    phase 9's.
   - **The manifest answers "since `seq` N"** (`GET /manifest?since=N`, with
     the held manifest's ETag as `If-None-Match`): the modules whose version
     moved, `since: N` on the answer; whole when the instance did not answer
@@ -520,17 +547,23 @@ coverage" (valbuild/val#1006).
     product reader is `manifestSource`, which waits for phase 6; the world
     reads it (`world.manifest(since)`), and B10 budgets it (a quiet project:
     304; one edit: one module, nothing hashed).
-  - **Deleted:** nothing yet, and that is the analysis's answer rather than
-    an omission: every deletion in phase 7's row is replaced by phase 6's
-    module endpoint. The "why it flickers" pin of S26 went, in memory and fs,
+  - **Deleted:** the code tools' `projectSource` memo (`useAI` held a
+    publish client for the hook's life; `createStudioPublishClient`'s own
+    memo stays, for the publish flow, which is one deploy by design). The
+    rest of phase 7's row is replaced by phase 6's module endpoint, and
+    waits with it. The "why it flickers" pin of S26 went, in memory and fs,
     with the fix it pinned the absence of.
-  - **Scenarios:** S26 passes in memory and fs (no old title, no
-    `PUT /sources/~` from the overlay) and is `test.failing` on http, with
-    the reason. S16 is unchanged: it is phase 9's (the dialog), and nothing
+  - **Scenarios:** S26 passes in memory, fs and http (no old title, no
+    `PUT /sources/~` from the overlay). S16 is unchanged: it is phase 9's (the dialog), and nothing
     here moves it. B10 is new. B01-B09 and the content-shape matrix pass.
   - **Public API:** unchanged. The wire: `/stat`'s `sourcesSha` keeps its
-    meaning (the base its chain is relative to) and is now true in fs and
-    memory; `/manifest` gains an optional query and two optional fields.
+    meaning (the base its chain is relative to) and is now true in fs,
+    memory and http; `/manifest` gains an optional query and two optional
+    fields; `/publish-api` GET carries `If-None-Match` and `ETag`. To
+    content, all optional both ways: `sources_sha` and `relative_to` on
+    `applicable/patches`, `relativeTo` on the socket nonce (a content
+    service of the release before ignores them; a Val of the release before
+    sends none, and is answered as before).
 
 **Decided on 2026-11-01**, beyond what the sections below say:
 
@@ -1332,13 +1365,13 @@ of phase 7 needs from phase 6 (`tiered`, `memoryTier`, `bundleTier`, the head,
 | Part of phase 7                                                                                | Needs phase 6?                                     | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ---------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The manifest's "since `seq` N"                                                                 | No                                                 | Versions are kept as content changes since phase 1; a delta is a comparison. **Built.**                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| S26: which of two builds' bases the chain belongs on                                           | No (fs, memory)                                    | The answering server knows; see the Built entry. **Built** for fs and memory. On http it needs the content service (below), not phase 6.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| S26: which of two builds' bases the chain belongs on                                           | No (fs, memory)                                    | The answering server knows; see the Built entry. **Built** for fs and memory, and for http with the content service's live build (below), not phase 6.                                                                                                                                                                                                                                                                                                                                                                                   |
 | `originTier`                                                                                   | **Yes**                                            | It IS a tier of phase 6's store, over `GET /modules`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `manifestSource` replacing `chainSource`                                                       | **Yes**                                            | The manifest names versions, not content. On today's endpoints the content would be `PUT /sources/~`: the whole tree, previewed and validated, on every other editor's keystroke -- risk 1, which "decides the design": pulling without the delta makes collaboration dearer than the chain replay it replaces. The confirmed boundary between `chainSource` and `withLocalEdits` (phase 5) waits with it.                                                                                                                               |
 | The client's replay of the chain, and its reconciliation of patches that vanished from `/stat` | **Yes**                                            | They are what `chainSource` does; they go when the server's answer (by version, with deltas) replaces it.                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `BaseAlignment` and the Studio's `PUT /sources/~?apply_patches=false`                          | **Yes**                                            | A base the Studio does not hold has to come from somewhere: today the whole tree by `sourcesSha`, after phase 6 one module by its version (`GET /modules?v=` with an empty chain). Replacing one fetch of the whole tree with a per-module loop over today's endpoints is a third way to load a base, for one phase.                                                                                                                                                                                                                     |
 | `__VAL_BASE__`                                                                                 | **Yes**                                            | It saves the overlay that fetch. Without it, every draft page on a site serving a content version (content published without a build: common when hosted) would cost the overlay a whole-tree `PUT /sources/~` before it relays anything. It goes when a base by version is one cheap read -- and it is in the provider files, which are shared with the page's half.                                                                                                                                                                    |
-| The code tools' `projectSource` keyed by version                                               | No, but **home**                                   | There is no version to key it by: `/v1/project-source` carries none, Val's publish-API proxy carries no headers back, and the Studio knows the site's newest commit only at the site's address (`headCommitSha`), not at a proposal's, where code mode runs. Keyed by what the Studio has (the proposal's build or saves) it would re-read the site's whole source for changes to the proposal.                                                                                                                                          |
+| The code tools' `projectSource` keyed by version                                               | No, but **home**                                   | There was no version to key it by: `/v1/project-source` carried none, Val's publish-API proxy carried no headers back, and the Studio knows the site's newest commit only at the site's address (`headCommitSha`), not at a proposal's, where code mode runs. **Built** with home's `ETag` (below): keyed by the answer's own tag, revalidated per call.                                                                                                                                                                                 |
 | Staged schemas (`staged:<hash>`)                                                               | No, but **home** (and phase 9 for the real schema) | The server at a proposal's address cannot tell a staged `.val.ts` (code) from a content save: the overlay it is handed (`VAL_OVERLAY`: `commit`, `modules`, `files`) says neither which modules were staged after its build nor their inputs hash, and a content save rewrites the same `.val.ts` text. And a version the server marks `staged:` is only effective once the readers that read the snapshot and the Studio read versions from the server (`snapshotSource` has none; the Studio computes its own until `manifestSource`). |
 
 **What is left of phase 7 for after phase 6**, in order: `originTier` in the
@@ -1349,7 +1382,8 @@ Studio's `PUT /sources/~?apply_patches=false` and `__VAL_BASE__` (both
 providers and `ValModulesClient`'s window type), for which the page's report of
 its base per module (phase 4's `holds`, by version) is the replacement.
 
-**What valbuild/home would need** (nothing was changed there):
+**What valbuild/home needed**, built there on 2026-11-03 (valbuild/home PR
+#371; the contract as written for both sides is in the Built entry above):
 
 1. **S26 on http.** On `GET /v1/{project}/applicable/patches`, an optional
    field naming the branch's live build -- the deployment
@@ -1360,19 +1394,28 @@ its base per module (phase 4's `holds`, by version) is the replacement.
    the live build's chain and base, which a Studio holding the new bundle
    already has. Absent: as today. The mock content host and
    `homeWireContract.test.ts` take both at once, when home has them.
+   **Built**: `liveBuild` and `relativeTo` on the answer, `sources_sha` and
+   `relative_to=live` on the request, `relativeTo` on the socket nonce.
 2. **`projectSource` by version.** `GET /v1/project-source` with an `ETag`
    that names the KV write it reflects, and a 304 to `If-None-Match`; Val's
    publish-API proxy (`ValOpsHttp.publishApi`, `/publish-api`) then carries
    both headers, and the code tools revalidate per call instead of holding the
    first answer for the hook's life (`createStudioPublishClient`'s memo, kept
-   for the publish flow, which is one deploy by design).
+   for the publish flow, which is one deploy by design). **Built**: the tag
+   is the sha256 of the answer, which names the write it reflects.
 3. **Staged schemas.** A staging records each staged module's schema as
    `staged:<inputs hash>` (instead of the previous schema's sha:
    `stagedModuleRows`), and the overlay handed to a proposal's address says
    which modules those are (their version, or the inputs hash); Val's server
    then versions them `staged:<hash>` and `layered` reads them as pending.
    Val sends the inputs hash with the staging (`stagedModuleSources`' caller)
-   once home stores it.
+   once home stores it. **Built**, with one change: home computes the
+   inputs hash itself (`stagedInputs`, the hash a build of the staged files
+   is named for), so Val sends nothing new. The overlay's `staged` names
+   every staged module file (a module new in the proposal too) with
+   `staged:<inputs>`, derived from the staged files, and names the staging,
+   not whether the build serving the address was made of it. Val's reading
+   of it is phase 9's.
 
 ### Phase 9 without phases 6 and 7
 

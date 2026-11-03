@@ -1201,6 +1201,12 @@ export const Api = {
       req: {
         path: z.string().optional(),
         cookies: { val_session: z.string().optional() },
+        /*
+         * Carried to content, which answers 304 when it names the answer
+         * (`/project-source` does: valbuild/home sends its `ETag`). The
+         * `ETag` comes back as a header, and a 304 with no body.
+         */
+        headers: { "if-none-match": z.string().optional() },
       },
       /*
        * Content's status and body, carried through.
@@ -1211,7 +1217,14 @@ export const Api = {
        * `{ message }` rather than throwing, because a publish failing is
        * something the editor has to be told about in words.
        */
-      res: z.object({ status: z.number(), json: z.unknown() }),
+      res: z.union([
+        z.object({ status: z.number(), json: z.unknown() }),
+        /*
+         * Content said the caller holds the answer already (`If-None-Match`).
+         * No body on the wire: a 304 cannot carry one.
+         */
+        z.object({ status: z.literal(304), json: z.null().optional() }),
+      ]),
     },
     POST: {
       req: {

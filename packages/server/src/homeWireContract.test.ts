@@ -1,7 +1,7 @@
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
-import type { ValProposal } from "./proposal";
+import { proposalFromEnv, type ValProposal } from "./proposal";
 import { ProposalCodeModeRead } from "./proposalCodeMode";
 import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
@@ -796,6 +796,226 @@ test("a deployment going live is the same chain at a higher version, and the pro
   } finally {
     after.restore();
   }
+});
+
+/**
+ * `home` — the same `/applicable/patches`, asked by a PREVIOUS build with
+ * `relative_to=live` (valbuild/home `utils/liveBuild.ts`, phase 7 of
+ * `docs/plans/one-content-model.md`): for up to a minute after a publish the
+ * edge serves the build before it, and only `home` knows a newer build is
+ * live. It names that build with the base it reported (`liveBuild`), and
+ * answers the chain at it (`relativeTo: "live"`). The e2e mock does the same
+ * (`liveBuildOf` in `e2e/mock-content-host/server.ts`), and
+ * `scenarios/src/overlayAfterBuild.scenario.test.ts` (S26) drives it.
+ */
+const LIVE_BASE = "c0ffee".repeat(10) + "cafe";
+const HOME_APPLICABLE_PATCHES_AT_LIVE = {
+  ...HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT,
+  liveBuild: {
+    deployment: "publish:3f1e2d4c-0000-4000-8000-000000000001@k1",
+    version: 43,
+    sourcesSha: LIVE_BASE,
+    callerIsPrevious: true,
+  },
+  relativeTo: "live",
+};
+
+/** Ops answering `applicable/patches` with `patches` and a nonce otherwise. */
+function opsForStat(patches: unknown) {
+  const originalFetch = global.fetch;
+  const sent: SentRequest[] = [];
+  global.fetch = (async (
+    url: string,
+    init?: { headers?: HeadersInit; body?: string },
+  ) => {
+    sent.push({
+      url: String(url),
+      headers: Object.fromEntries(
+        Object.entries((init?.headers ?? {}) as Record<string, string>),
+      ),
+      body: init?.body === undefined ? undefined : JSON.parse(init.body),
+    });
+    const body = String(url).includes("/applicable/patches")
+      ? patches
+      : { nonce: "n1", url: "wss://content.val.build/ws" };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  const ops = new ValOpsHttp(
+    CONTENT_URL,
+    PROJECT,
+    { commit: "commit-sha", branch: "main" },
+    { apiKey: "key" },
+    { modules: [] } as never,
+    { config: {}, publishBuild: "build-old" },
+  );
+  return {
+    ops,
+    sent,
+    restore: () => {
+      global.fetch = originalFetch;
+    },
+  };
+}
+
+const STAT_PARAMS = {
+  baseSha: "b",
+  schemaSha: "s",
+  profileId: PROFILE,
+} as unknown as Parameters<ValOpsHttp["getStat"]>[0];
+
+test("a previous build's /stat names the live build's base, and asks for the chain at it", async () => {
+  const { ops, sent, restore } = opsForStat(HOME_APPLICABLE_PATCHES_AT_LIVE);
+  try {
+    const own = await ops.getSourcesSha();
+    const stat = await ops.getStat(STAT_PARAMS);
+    if (stat.type !== "use-websocket") {
+      throw new Error(`not a stat: ${JSON.stringify(stat)}`);
+    }
+    expect(stat.sourcesSha).toBe(LIVE_BASE);
+    expect(stat.sourcesSha).not.toBe(own);
+    const asked = new URL(sent[0].url).searchParams;
+    // Which build asks, its own base (a report), and at which build to answer.
+    expect(asked.get("build")).toBe("build-old");
+    expect(asked.get("sources_sha")).toBe(own);
+    expect(asked.get("relative_to")).toBe("live");
+    // Its socket follows the same chain.
+    expect(sent[1].url).toContain("/websocket/nonces");
+    expect((sent[1].body as Record<string, unknown>).relativeTo).toBe("live");
+  } finally {
+    restore();
+  }
+});
+
+test("a /stat answered at its own build, or by a content service that does not say, names its own base", async () => {
+  for (const answer of [
+    { ...HOME_APPLICABLE_PATCHES_AT_LIVE, relativeTo: "caller" },
+    {
+      ...HOME_APPLICABLE_PATCHES_AT_LIVE,
+      // Live, but its base not reported yet: it could not be named.
+      liveBuild: {
+        ...HOME_APPLICABLE_PATCHES_AT_LIVE.liveBuild,
+        sourcesSha: null,
+      },
+      relativeTo: "caller",
+    },
+    HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT,
+  ]) {
+    const { ops, restore } = opsForStat(answer);
+    try {
+      const stat = await ops.getStat(STAT_PARAMS);
+      if (stat.type !== "use-websocket") throw new Error("not a stat");
+      expect(stat.sourcesSha).toBe(await ops.getSourcesSha());
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("only /stat asks for the chain at the live build; every read reports the base", async () => {
+  const { ops, sent, restore } = opsForStat(HOME_APPLICABLE_PATCHES_AT_LIVE);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: false });
+    const asked = new URL(sent[0].url).searchParams;
+    expect(asked.get("relative_to")).toBeNull();
+    expect(asked.get("sources_sha")).toBe(await ops.getSourcesSha());
+    // A read applies the chain to this build's own base: never another's.
+    expect("chainBase" in res).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — `GET /v1/project-source` by version: a strong `ETag` (the sha256
+ * of the answer) and a 304 to `If-None-Match` (valbuild/home
+ * `getProjectSource.ts`). Val's publish proxy carries both ways; the code
+ * tools' reader (`createProjectSourceReader`) sends the tag it holds. The e2e
+ * mock does the same, and `scenarios/src/projectSource.scenario.test.ts`
+ * drives it through the app.
+ */
+test("the project's source is read by version through the publish proxy", async () => {
+  const etag = `"${"ab".repeat(32)}"`;
+  const originalFetch = global.fetch;
+  const sent: { url: string; headers: Headers }[] = [];
+  global.fetch = (async (url: string, init?: RequestInit) => {
+    sent.push({ url: String(url), headers: new Headers(init?.headers) });
+    if (String(url).endsWith("/publish-token")) {
+      return new Response(
+        JSON.stringify({
+          token: "publish-token",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          publicProjectId: "p",
+          productionUrl: null,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    const held = new Headers(init?.headers).get("if-none-match");
+    return held === etag
+      ? new Response(null, { status: 304, headers: { etag } })
+      : new Response(
+          JSON.stringify({ files: {}, publicFiles: null, publicPaths: [] }),
+          {
+            status: 200,
+            headers: { etag, "content-type": "application/json" },
+          },
+        );
+  }) as unknown as typeof fetch;
+  try {
+    const ops = new ValOpsHttp(
+      CONTENT_URL,
+      PROJECT,
+      { commit: "commit-sha", branch: "main" },
+      { apiKey: "key" },
+      { modules: [] } as never,
+    );
+    const first = await ops.publishApi("/project-source", { method: "GET" });
+    expect(first.status).toBe(200);
+    expect(first.etag).toBe(etag);
+    const again = await ops.publishApi("/project-source", {
+      method: "GET",
+      ifNoneMatch: etag,
+    });
+    expect(again.status).toBe(304);
+    expect(again.etag).toBe(etag);
+    const toContent = sent.filter((r) => r.url.endsWith("/v1/project-source"));
+    expect(toContent.map((r) => r.headers.get("if-none-match"))).toEqual([
+      null,
+      etag,
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+/**
+ * `home` — `VAL_OVERLAY`, as the platform hands it to a proposal's isolate
+ * once content says which modules' code is staged (`staged`, each with its
+ * schema version `staged:<inputs>`; valbuild/home `stagedSchemas`). Read by
+ * the server at the address in phase 9; until then it must parse as it did.
+ */
+test("an overlay that says which modules are staged is a proposal as before", () => {
+  const proposal = proposalFromEnv({
+    VAL_PROPOSAL: PROPOSAL.name,
+    VAL_BRANCH: PROPOSAL.branch,
+    VAL_OVERLAY: JSON.stringify({
+      version: 4,
+      commit: "save2",
+      modules: { "/content/a.val.ts": { title: "Spring" } },
+      files: { "content/a.val.ts": "export default 1;\n" },
+      staged: { "/content/a.val.ts": `staged:${"d".repeat(64)}` },
+    }),
+  });
+  expect(proposal).toEqual({
+    name: PROPOSAL.name,
+    branch: PROPOSAL.branch,
+    commit: "save2",
+    modules: { "/content/a.val.ts": { title: "Spring" } },
+    files: { "content/a.val.ts": "export default 1;\n" },
+  });
 });
 
 /** `home` — `Api["/patches"]["DELETE"]["res"]`, keyed by branch. */

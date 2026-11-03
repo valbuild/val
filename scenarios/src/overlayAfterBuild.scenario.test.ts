@@ -105,37 +105,34 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * base as the one its chain belongs on (`ValOps.chainBaseSha`). The Studio
    * already holds it, so nothing is fetched and nothing old is relayed.
    *
-   * FAILING on http, a finding kept as one. There the content service
-   * answers each build with the patches THAT build does not contain, so the
-   * previous build's base is the right one for its chain, and only something
-   * that knows which build is live can say the answer is from a build that
-   * has been replaced -- the content service, which does not say yet. What
-   * valbuild/home would need is in `docs/plans/one-content-model.md`, phase
-   * 7. (The page then stays on the old title: there is no later `/stat` for
-   * twenty minutes in the world, see `deployCode`.)
+   * And on http (phase 7, with valbuild/home's live build): there the content
+   * service answers each build with the patches THAT build does not contain,
+   * and only it knows a newer build is live. Every build reports its base
+   * (`sources_sha`), and `/stat` asks for the chain relative to the live
+   * build (`relative_to=live`): a previous build is answered at the live one,
+   * with its base, and names that (`OrderedPatchesMetadata.chainBase`). The
+   * world reports each build live as the platform does, by the name its
+   * server asks as (`publishBuild`).
    */
-  (server === "http" ? test.failing : test)(
-    "the overlay's /stat answered by the previous build: no flicker",
-    async () => {
-      const world = await createWorld({ config, modules: [before], server });
-      try {
-        await overlayAnsweredByPreviousBuild(world);
-        world.expectInvariants();
-        // One surface, so "converges" cannot see a page that ends on the
-        // previous build's title: say it.
-        expect(titles(world)).not.toContain("Old title");
-        expect(world.frames.last("title")).toBe("New title");
-        // The previous build's base is never fetched: its stat already
-        // named the base the Studio holds.
-        const overlay = world.network.log
-          .filter((e) => e.from.startsWith("studio:overlay"))
-          .map((e) => `${e.method} ${e.path.replace("/api/val", "")}`);
-        expect(overlay).not.toContain("PUT /sources/~");
-      } finally {
-        await world.dispose();
-      }
-    },
-  );
+  test("the overlay's /stat answered by the previous build: no flicker", async () => {
+    const world = await createWorld({ config, modules: [before], server });
+    try {
+      await overlayAnsweredByPreviousBuild(world);
+      world.expectInvariants();
+      // One surface, so "converges" cannot see a page that ends on the
+      // previous build's title: say it.
+      expect(titles(world)).not.toContain("Old title");
+      expect(world.frames.last("title")).toBe("New title");
+      // The previous build's base is never fetched: its stat already
+      // named the base the Studio holds.
+      const overlay = world.network.log
+        .filter((e) => e.from.startsWith("studio:overlay"))
+        .map((e) => `${e.method} ${e.path.replace("/api/val", "")}`);
+      expect(overlay).not.toContain("PUT /sources/~");
+    } finally {
+      await world.dispose();
+    }
+  });
 
   /**
    * Mechanism 2: the browser runs the previous build's CLIENT code.

@@ -67,6 +67,36 @@ export async function callJson(
           body: JSON.stringify(body),
         }),
   });
+  return answerOf(res);
+}
+
+/**
+ * One JSON READ through this origin, BY VERSION: `held` is the answer the
+ * caller holds, with its `ETag`, which goes as `If-None-Match`. While the
+ * answer is still that one (a 304, with no body) it is `held` again;
+ * otherwise the new body, `parse`d, with its `ETag` -- `null` when the answer
+ * named none, so there is nothing to hold it by. Errors as {@link callJson}
+ * throws them.
+ */
+export async function readJsonByVersion<T>(
+  fetchImpl: typeof fetch,
+  url: string,
+  held: { etag: string; value: T } | null,
+  parse: (body: unknown) => T,
+): Promise<{ etag: string | null; value: T }> {
+  const res = await fetchImpl(url, {
+    method: "GET",
+    // The session cookie is the whole credential this end has.
+    credentials: "same-origin",
+    ...(held !== null ? { headers: { "If-None-Match": held.etag } } : {}),
+  });
+  if (res.status === 304 && held !== null) return held;
+  const value = parse(await answerOf(res));
+  return { etag: res.headers.get("etag"), value };
+}
+
+/** An answer's JSON body, or a `StudioPublishError` with its own message. */
+async function answerOf(res: Response): Promise<unknown> {
   const text = await res.text();
   /*
    * A body that is not JSON is a gateway between here and content, not

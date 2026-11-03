@@ -137,6 +137,7 @@ import {
   type ProposalBuildOutcome,
 } from "../../../packages/ui/spa/proposals/proposalCode";
 import {
+  createProjectSourceReader,
   createStudioJobClient,
   type StudioJobClient,
 } from "@valbuild/shared/publish";
@@ -310,6 +311,13 @@ export type ProposalAt = {
      */
     evaluateIn?: { studio: Studio; modules: AnyModule[] | ValModules },
   ): Promise<CodeToolAnswer>;
+  /**
+   * The assistant's `read_file`, as the Studio runs it (`runCodeTool`): the
+   * proposal's own version of the file, else the site's, from its live source
+   * read BY VERSION as the Studio's code tools read it
+   * (`createProjectSourceReader`, through the app's `/publish-api`).
+   */
+  readFile(path: string): Promise<CodeToolAnswer>;
   /**
    * What the platform does after a save or a staging: serve the address from
    * a new isolate, with the overlay content's overlay step wrote
@@ -579,6 +587,8 @@ type HttpOptions = {
   contentVersion?: ValContentVersion;
   proposal?: ValProposal;
   projectSource?: Record<string, string>;
+  /** The build this server runs in, as the platform names it: see `nameBuild`. */
+  publishBuild?: string;
 };
 
 /** What session cookies are signed with: the app's `VAL_SECRET`. */
@@ -894,6 +904,20 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       },
     };
   }
+  /*
+   * http: each build is known by its name, as the platform names one
+   * (`VAL_BUILD`, Val's `publishBuild`): what the content service files a
+   * build's reported base under, and what tells a previous build still
+   * answering from the live one (S26). The page's readers and the app's
+   * server of one build share the options, as the bindings ask.
+   */
+  const buildName = (n: number) => `build-${n}`;
+  const nameBuild = (n: number) => {
+    if (host.mode === "http") {
+      host.http = { ...host.http, publishBuild: buildName(n) };
+    }
+  };
+  nameBuild(1);
   const serverFor = (registry: ValModules) =>
     withStaticFiles(
       host,
@@ -931,6 +955,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           deploymentId: build,
           deploymentState: "success",
           branch,
+          // The build it serves, by the name its server asks as.
+          build,
         }),
       });
       if (!res.ok) {
@@ -938,6 +964,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       }
     });
   };
+  // The build the world starts on went live before it, as a deployed app's
+  // did: so a build after it is told apart from it (S26).
+  reportLive(buildName(1));
   const deployCode = (modules: AnyModule[]): Deployment => {
     // The app's own code is evaluated again too: where a scenario names a
     // module by the object it wrote, the app now holds the new build's
@@ -950,10 +979,11 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     serverModules = modules;
     valModules = registryOf(modules);
     const previous = currentHandler;
+    nameBuild(builds + 1);
     currentHandler = serverFor(valModules);
     network.name(currentHandler, `build ${++builds}`);
     network.route(currentHandler);
-    reportLive(`build ${builds}`);
+    reportLive(buildName(builds));
     for (const reload of pages) reload();
     return { previous, current: currentHandler };
   };
@@ -1414,6 +1444,14 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       throw new Error("write_files does not build, typecheck or offer");
     };
     const built: Record<string, string | null>[] = [];
+    // One reader for the address's life, as the Studio's assistant keeps one.
+    const siteSource = createProjectSourceReader({
+      api: "/api/val",
+      fetchImpl: asFetch(withSession(host, network.fetchFor("studio:code"))),
+    });
+    const notReadFile = (): never => {
+      throw new Error("read_file does not build, typecheck, offer or write");
+    };
     /** The bundles the world's stand-in for the bundler made, by their code. */
     const bundles = new Map<string, ValModules>();
     const bundleAt = (code: string): ValModules => {
@@ -1470,6 +1508,24 @@ export async function createWorld(options: WorldOptions): Promise<World> {
             offerProposal: notWriteFiles,
             // As the Studio's assistant asks it (`useAI`): no names here.
             codeMode: () => readCodeMode(client, name, () => null),
+          },
+        ),
+      readFile: (path) =>
+        runCodeTool(
+          "read_file",
+          { path },
+          {
+            proposal: { name },
+            client,
+            siteSource,
+            build: {
+              start: notReadFile,
+              running: () => null,
+              report: notReadFile,
+              cancel: () => false,
+            },
+            typecheck: notReadFile,
+            offerProposal: notReadFile,
           },
         ),
       codeMode: (on) => client.setCodeMode(name, on),
@@ -1561,6 +1617,13 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     studio: (name) => startStudio(name, valModules),
     proposal,
     async loadPage(route, pageOptions) {
+      /*
+       * A page is opened after the platform has said the build it serves is
+       * live (`reportLive`): the minute a previous build still answers is the
+       * minute AFTER that (S26). The window before it -- a build serving that
+       * the content service has not heard of -- is not one a page load models.
+       */
+      await reportingLive;
       const request = () => pageRequest(host, route);
       // The page's browser bundle: the server's code unless the scenario gives
       // it another build's, and then hot-reloaded with the server's when the
