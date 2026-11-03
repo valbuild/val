@@ -154,9 +154,14 @@ all three until it was fixed, which made the locale form impossible to type and
 let `alt: null` compile against a required alt that then failed validation.
 
 `patch_id` also appears on a media source whose bytes are not committed yet. It
-is injected server-side, never authored, and `toExpression` drops it before
-writing a `.val.ts` — a whole-object write built from the client's optimistic
-view would otherwise print it into a user's file.
+is written by the engine that applies patches (`applyPatchRecord` in
+`@valbuild/shared`), where the file op lands, in Val's server and in the Studio
+alike (see [content-versions.md](./content-versions.md)); it is never
+authored, and `toExpression` drops it before writing a `.val.ts` — a
+whole-object write built from the client's optimistic view would otherwise
+print it into a user's file. A publish takes it out of the Studio's base again:
+the published patches are baked in without their `file` ops, because the file
+is where its path says now.
 
 **There is no multi-valued gallery-backed field.** `s.image(module)` picks one
 image from a gallery; nothing picks several. Adding it means a new schema type
@@ -526,9 +531,9 @@ sent it down the image arm and `useVal` handed a page an `Image`.
 **Every file is its own media object with its own `patch_id`.** The video, the
 poster and each caption track are uploaded by `file` ops whose `path` is the
 FIELD and whose `nestedFilePath` (`["poster"]`, `["captions", "2"]`) says where
-the `patch_id` goes. `ValOps` keys its patch-id injection by path AND nested
-path — keyed by path alone, the poster's op overwrote the video's and one of
-the two drafts would not resolve. `resolveVideo` is the one implementation of
+the `patch_id` goes. The engine keys where it writes `patch_id` by path AND
+nested path — keyed by path alone, the poster's op overwrote the video's and
+one of the two drafts would not resolve. `resolveVideo` is the one implementation of
 "a URL for each of them"; stega tags only the video's own `url`.
 
 **Editing is per property** (`add` on `posterTime`, `captions/1/label`, ...),

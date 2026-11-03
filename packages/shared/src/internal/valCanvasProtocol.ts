@@ -283,6 +283,11 @@ export type ValCanvasStudioMessage =
       /**
        * The whole module source. `unknown` because the page's own types are the
        * ones that give it meaning; nothing in between should be interpreting it.
+       *
+       * @deprecated A page of this release reads `read`; this is for a page
+       * of the release before. Goes in the release after the one that ships
+       * `read`, with the bridges' fallback that reads it: see
+       * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
        */
       source: unknown;
       /**

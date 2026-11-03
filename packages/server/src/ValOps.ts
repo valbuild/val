@@ -767,7 +767,7 @@ export abstract class ValOps {
    * sources move would put a value other code compares against into
    * disagreement with what it describes. Moving them means a `fs`-mode base SHA
    * changes within a server's lifetime for the first time, which is a signal the
-   * studio already knows how to read: `PatchStore.reconcileVanished` uses a
+   * studio already knows how to read: `PatchStore.settleVanished` uses a
    * moved base to tell "these patches were published" from "these patches were
    * discarded", and takes them out of the chain without reverting the fields —
    * which is what a second tab watching a publish needs and could not get
@@ -984,8 +984,12 @@ export abstract class ValOps {
 
   /**
    * The `sourcesSha` of the base this store's chain is relative to: what a
-   * `/stat` answer names, so the Studio puts the chain on that base
-   * (`BaseAlignment`).
+   * `/stat` answer names. Read by a Studio of the release before, which put
+   * the chain on that base (`BaseAlignment`), and compared by the fs and
+   * memory long poll with what a Studio echoes; this release's Studio takes
+   * each module's base from the manifest instead. Goes with `/stat`'s
+   * `sourcesSha` (see "Release-delayed deletions" in
+   * `docs/plans/one-content-model.md`).
    *
    * This instance's own, unless the store keeps one chain for every build
    * and a newer build of the project has been made since this one, in this

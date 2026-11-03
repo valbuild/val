@@ -337,6 +337,9 @@ export function applyValEvent(
         changed: store.receive(moduleFilePath as ModuleFilePath, read),
       };
     }
+    // A Studio of the release before sent the bare `source`. This fallback
+    // goes with the relay's `source` field: see "Release-delayed deletions"
+    // in `docs/plans/one-content-model.md`.
     const source = "source" in detail ? detail.source : undefined;
     if (isJson(source)) {
       return {

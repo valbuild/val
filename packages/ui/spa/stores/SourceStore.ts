@@ -896,8 +896,8 @@ export class SourceStore {
    * The version of the schema this Studio reads the module with, or
    * `undefined` for a module it has no schema for. The same hash the server
    * names a module's schema by, kept per schema object, so asking costs
-   * nothing. A base is only put under a module when it was made with this
-   * schema: see `BaseAlignment`.
+   * nothing. Where new code moved it ahead of the server's, the manifest's
+   * version of the module is not moved to: see `ManifestSource.codeMoved`.
    */
   schemaVersionOfModule(moduleFilePath: ModuleFilePath): string | undefined {
     const schema = this.schemaStore.get(moduleFilePath);

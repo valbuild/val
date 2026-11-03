@@ -645,7 +645,8 @@ export function ValProvider({
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
    * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
-   * which build answered; `jsonEntriesSha` is an input to a refetch it does not do yet.
+   * which build answered (read by nothing any more); `jsonEntriesSha` is an
+   * input to a refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -691,7 +692,9 @@ export function ValProvider({
     "data" in stat && stat.data ? stat.data.headVersion : undefined;
   /**
    * Which build answered: its chain is relative to the source with this sha.
-   * See `BaseAlignment`.
+   * Carried onto the snapshot and read by nothing since the manifest names
+   * each module's base (`ManifestSource`); goes with `/stat`'s `sourcesSha`
+   * (see "Release-delayed deletions" in `docs/plans/one-content-model.md`).
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;

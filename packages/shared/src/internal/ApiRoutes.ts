@@ -900,7 +900,23 @@ export const Api = {
       req: {
         body: z
           .object({
+            /**
+             * @deprecated Echoed by the Studio, and compared by the fs and
+             * memory long poll to see that another build answers. This
+             * release's Studio reads each module's version from
+             * `GET /manifest`; goes once the long poll compares the echoed
+             * version instead (see "Release-delayed deletions" in
+             * `docs/plans/one-content-model.md`).
+             */
             sourcesSha: z.string(),
+            /**
+             * @deprecated Echoed by the Studio, and compared by the fs and
+             * memory long poll to see that another build answers. This
+             * release's Studio reads each module's version from
+             * `GET /manifest`; goes once the long poll compares the echoed
+             * version instead (see "Release-delayed deletions" in
+             * `docs/plans/one-content-model.md`).
+             */
             schemaSha: z.string(),
             baseSha: z.string(),
             patches: z.array(z.string()).optional(),
@@ -940,7 +956,21 @@ export const Api = {
                 z.literal("did-change"),
               ]),
               baseSha: z.string(),
+              /**
+               * @deprecated Read by a Studio of the release before
+               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
+               * only echoes it, and reads each module's version from
+               * `GET /manifest`. Goes in two steps (see "Release-delayed
+               * deletions" in `docs/plans/one-content-model.md`).
+               */
               schemaSha: z.string(),
+              /**
+               * @deprecated Read by a Studio of the release before
+               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
+               * only echoes it, and reads each module's version from
+               * `GET /manifest`. Goes in two steps (see "Release-delayed
+               * deletions" in `docs/plans/one-content-model.md`).
+               */
               sourcesSha: z.string(),
               patches: z.array(PatchId),
               /**
@@ -1053,7 +1083,21 @@ export const Api = {
               url: z.string(),
               nonce: z.string(),
               baseSha: z.string(),
+              /**
+               * @deprecated Read by a Studio of the release before
+               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
+               * only echoes it, and reads each module's version from
+               * `GET /manifest`. Goes in two steps (see "Release-delayed
+               * deletions" in `docs/plans/one-content-model.md`).
+               */
               schemaSha: z.string(),
+              /**
+               * @deprecated Read by a Studio of the release before
+               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
+               * only echoes it, and reads each module's version from
+               * `GET /manifest`. Goes in two steps (see "Release-delayed
+               * deletions" in `docs/plans/one-content-model.md`).
+               */
               sourcesSha: z.string(),
               /**
                * The commit this deployment was built from.
@@ -1726,6 +1770,15 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * @deprecated The whole tree. Nothing of this release asks it: the Studio
+   * reads modules by version (`GET /manifest`, `GET /modules/~`), the draft
+   * readers and MCP read the head in-process. Kept, with `exclude_patches`
+   * (`BaseAlignment`'s fetch) and the ignored `validate_sources` and
+   * `validate_binary_files`, for a Studio of the release before; goes in the
+   * release after the one that ships this (see "Release-delayed deletions"
+   * in `docs/plans/one-content-model.md`).
+   */
   "/sources/~": {
     PUT: {
       req: {

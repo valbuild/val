@@ -546,9 +546,9 @@ export function chainOfMessage(
  * Kept APART from the stat the stores adopt. A `/stat` answer requested before
  * a socket message is older than it for the holds -- but it can also come from
  * a newer BUILD than the socket describes, so the stat itself is taken whole:
- * the chain pairs with the build metadata it was read with, or `BaseAlignment`
- * replays published patches onto the new base. Only these holds prefer the
- * socket.
+ * the chain pairs with the build metadata it was read with, and the manifest
+ * read after it names the versions that build serves. Only these holds prefer
+ * the socket.
  */
 export type ContentHolds = Pick<
   StatData,

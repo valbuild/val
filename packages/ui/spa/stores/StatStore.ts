@@ -103,6 +103,9 @@ export type StatSnapshot = {
    * to. Not read by the stores any more: what each module's base is comes
    * from the manifest, per module (`ManifestSource`). Kept on the snapshot
    * because the answer still carries it, for a Studio of the release before.
+   *
+   * @deprecated Goes with `/stat`'s `sourcesSha`: see "Release-delayed
+   * deletions" in `docs/plans/one-content-model.md`.
    */
   sourcesSha?: string;
 };

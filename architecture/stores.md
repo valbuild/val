@@ -47,16 +47,18 @@ silently when it does not.
   **recompute-and-compare**: the answer is computed again and the old object
   kept when it is the same answer.
 
-> The two worst bugs on this branch were both this rule broken. `substituteJsonEntries`
-> was copy-on-write, so one loaded `.jsonValues()` entry made `peek` of the module
-> root return a fresh object per call — and the page died with "Maximum update
-> depth exceeded" from inside a Radix ref callback that mentions nothing about
-> source.
+> The worst bug of the stores' rewrite was this rule broken. A copy-on-write
+> substitution of `.jsonValues()` entries (since deleted) made one loaded entry
+> turn `peek` of the module root into a fresh object per call — and the page died
+> with "Maximum update depth exceeded" from inside a Radix ref callback that
+> mentions nothing about source. The engine is copy-on-write too, which is why a
+> view is made in one place and handed out by key.
 
 ## What a field reads: the engine, at a version
 
-Since phases 5 and 7 of [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md)
-the source store holds each module's **base**, the base content of the
+How content is versioned and loaded for every reader, the Studio included,
+is [content-versions.md](./content-versions.md); this section is the
+Studio's side of it. The source store holds each module's **base**, the base content of the
 `.jsonValues()` entries it has read, the module at the version the **server**
 names for it (the manifest's: see "The Studio reads the server's version"
 below), and the **chain**, and everything a field reads is the Studio's VIEW
@@ -65,8 +67,7 @@ the server's version does not have yet -- over the server's module, through
 THE engine -- `applyPatchRecord` in `@valbuild/shared`, the one Val's server
 applies patches with. So where a file's `patch_id` lands, what an edit inside an entry does and
 what a whole entry added does are the server's rules, and the Studio's source
-carries `patch_id` where the server's does (the relay stamped it with
-`withFilePatchIds` before).
+carries `patch_id` where the server's does.
 
 - **A version per module, computed by the Studio** (`SourceStore.versionOf`):
   the schema it holds, the base its chain is applied to, and the chain of the

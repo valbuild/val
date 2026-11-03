@@ -11,6 +11,13 @@
 > [`openquestions.md`](./openquestions.md) holds what was undecided, and the
 > go/no-go it names has been answered: the browser measurements are in
 > [`../bench/README.md`](../bench/README.md), and the answer was yes.
+>
+> How the source store's CONTENT is loaded and versioned changed after this
+> was written (a base and chain through one engine, the server's manifest and
+> `GET /modules`, `withLocalEdits`): that is
+> [`architecture/content-versions.md`](../../../../architecture/content-versions.md),
+> and where this file says `sourcesSha`, a rebase or a replay of the chain,
+> read that page instead.
 
 ## The idea
 

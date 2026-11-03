@@ -10,6 +10,13 @@ expensive to re-derive from the code:
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
   reference stability is load-bearing.
+- [`architecture/content-versions.md`](../architecture/content-versions.md) —
+  the one content model every reader goes through: a module's base plus its
+  chain of patches through one engine, versions (`{ schema, base, chain }`)
+  and `seq`, the server's head, the manifest and `GET /modules`, the readers'
+  sources and `layered`, and how a draft page settles on `confirmed`. **Read
+  this before touching `fetchVal`/`useVal`, the relay, `ValHead`, or how the
+  Studio loads content.**
 - [`architecture/media.md`](../architecture/media.md) — `s.imagedir()` / `s.filedir()` / `s.fontdir()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly). Also `s.video()`: the one
@@ -469,9 +476,10 @@ What is NOT lazy, and cannot be: `s.view(x)` needs a static import of `x` to get
 its path, exactly as `s.keyOf(x)` does, so `x`'s bytes are in whatever bundle
 holds the page either way. `ValViewSchema` additionally RETAINS the module (a
 `KeyOfSchema` extracts and drops it) — that changes reachability, not loading,
-since an ES module binding lives for the process anyway. And see
-`architecture/quirks.md` for the one real eager load in the area, which predates
-views: draft-mode `fetchVal` fetches the whole tree per call.
+since an ES module binding lives for the process anyway. A draft-mode
+`fetchVal` does not load anything eagerly either: it reads the process's head,
+and a module nobody edited is read from the bundle without asking it (see
+`architecture/content-versions.md`).
 
 One trap when testing this: `stegaEncode` returns `any`, so
 `stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type

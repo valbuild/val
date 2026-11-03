@@ -353,8 +353,9 @@ finished build gets overwritten by the pending one it replaced.
 
 ## A draft `fetchVal` reads the head, and a module nobody edited is not read at all
 
-Until phase 6 of [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md)
-a draft-mode `fetchVal` asked a private Val server for the whole module tree
+The model is [content-versions.md](./content-versions.md). Until phase 6 of
+[`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md) a
+draft-mode `fetchVal` asked a private Val server for the whole module tree
 (`PUT /sources/~`), which applied every pending patch and previewed and
 validated every module on every request, then asked `/patches` and `/json`
 again for the `.jsonValues()` entries it showed. Now every reader in the
@@ -512,8 +513,8 @@ transaction that makes the change, and reports it with the head
 (`headVersion`, read in the same statement) and from every write, delete and
 publish. `StatStore` drops a snapshot at a lower version than one already
 received — and than any version this client's own save, discard or publish
-answered with (`noteHeadVersion`), checked again when a stat's preparation
-finishes — and `PatchSync` ignores a stat older than the head it holds. A
+answered with (`noteHeadVersion`) — and `PatchSync` ignores a stat older than
+the head it holds. A
 delete answers per branch, since one can span several; `DELETE /patches` on
 `ValServer` answers `{ deleted, headVersion }` only when asked
 (`reportHeadVersion`), because an open tab's older bundle parses the bare id
@@ -1200,12 +1201,11 @@ browser had already sent -- above all a `/stat` long poll, parked for up to
 20 s -- is answered by the old one. So for a while two builds answer one
 Studio, and the old one's evaluation of the modules is from before the change.
 
-The Studio used to put its chain on the `sourcesSha` a `/stat` named
-(`BaseAlignment`), and the old server named its own: the Studio fetched the
-old base and a draft page in the overlay showed new text, old text, new text
-(S26 in `scenarios/`). Since phase 7 the Studio moves to the versions the
-MANIFEST names (`ManifestSource`), per module, and in fs and memory mode the
-patches belong to the STORE, relative to what the newest build evaluated: so
+If the old server's view of the base reaches the Studio, a draft page in the
+overlay shows new text, old text, new text (S26 in `scenarios/`). The Studio
+moves to the versions the MANIFEST names (`ManifestSource`), per module, and
+in fs and memory mode the patches belong to the STORE, relative to what the
+newest build evaluated: so
 `GET /manifest` and `GET /modules` are answered by the head of the newest
 server made in the process for that root or patch store (`ValOps.newestOps`),
 whichever server the request reached, and `/stat` names that build's base
@@ -1450,9 +1450,10 @@ scenario world: S24).
    (S24b): when the Studio's base aligned, before the chain's records were
    fetched, so `sendPendingSources` found no patch to send, and the page
    rendered the published content (for a route only in a patch, `null`).
-   Fixed in phase 4: `sources-synced` waits until the store is in step --
-   aligned, and the chain it aligned to fetched and applied (`onceInStep`)
-   -- and until every module of the catch-up has been handed over.
+   Fixed: `sources-synced` waits until the store is in step -- the first
+   manifest adopted, and the chain's records fetched and applied
+   (`onceInStep`, `PatchStore.chainSettled`) -- and until every module of the
+   catch-up has been handed over.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
    consult it — and hydration is where `notFound()` is called. **Not fixed on
@@ -1489,14 +1490,14 @@ only ever filled from the browser (the studio pushes sources by `postMessage`;
 
 That is the actual shape of the remaining work: the server has to be able to
 supply draft sources during its own render — which `fetchVal` already does for
-server components, via `/sources/~` with patches applied. A client component's
-SSR pass has no equivalent, and giving it one is a good deal more than a prop.
+server components, from the process's head. A client component's SSR pass has
+no equivalent of its own, and giving it one is a good deal more than a prop.
 
 **On TanStack Start it has one now: `<ValProvider draft>`.** The site layout's
 loader calls `fetchValDraft()` through a server function, on the server only.
-That is the same per-request `/sources/~` read `fetchVal` makes, cut down to the
-modules the draft changes, and `null` after one cookie lookup for anyone not in
-draft mode. The provider seeds its store with it and starts with `draftMode`
+That is the head's draft, which `fetchVal` reads too, cut down to the modules
+the draft changes (`readDraftChanges`, with each module's version), and `null`
+after one cookie lookup for anyone not in draft mode. The provider seeds its store with it and starts with `draftMode`
 true, so the server renders the draft and the browser's hydration render reads
 the same sources from the loader data and agrees with it. The edit tags (the
 invisible characters that JSX auto-tagging turns into a `data-val-path`
@@ -1635,14 +1636,13 @@ the host page had a freshly uploaded image pointing at `/public/...`, where
 nothing is written until publish. The image then fails to load with no error at
 all: in a TanStack app `/val/...` is the Studio route, so the request 200s with
 the Studio's HTML and the `<img>` simply decodes nothing. Next hid this because
-its pages usually read through `fetchVal` in an RSC, which reads `/sources/~`
-server-side where the stamp is already there. `withFilePatchIds` in the relay
-stamped it for a while; since phase 5 of `docs/plans/one-content-model.md` the
-Studio reads through the server's engine (`applyPatchRecord`), which puts
-`patch_id` where the file lands, so the store carries it like the server's
-sources do -- and a publish takes it out again (`promotePublished` bakes the
-published patches into the base without their `file` ops: the file is where its
-path says now).
+its pages usually read through `fetchVal` in an RSC, whose draft comes from the
+server, where the stamp is already there. Since phase 5 of
+`docs/plans/one-content-model.md` the Studio reads through the server's engine
+(`applyPatchRecord`), which puts `patch_id` where the file lands, so the store
+carries it like the server's sources do -- and a publish takes it out again
+(`promotePublished` bakes the published patches into the base without their
+`file` ops: the file is where its path says now).
 
 **`notFound()` thrown from a COMPONENT is not caught by
 `defaultNotFoundComponent`.** It escapes to the error boundary instead: the

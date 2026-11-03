@@ -471,8 +471,11 @@ export type OverlayEvent =
       read: ModuleRead;
       /**
        * The same source as `read`, for a page from the release before,
-       * which reads this (a deploy rolling out). Goes when that release
-       * does: see "Each phase deletes" in the plan.
+       * which reads this (a deploy rolling out).
+       *
+       * @deprecated Goes in the release after the one that ships `read`,
+       * with the page's fallback that reads it (`applyValEvent`): see
+       * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
        */
       source: unknown;
     }

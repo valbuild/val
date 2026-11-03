@@ -9,14 +9,16 @@ number, because the numbers move with the code.
 
 1. **Measure the product's path.** The same rule as the scenarios
    (`.agent/rules.md`, test rule 3): a measurement calls the function the
-   product calls. `draftRead.ts` sends the request a draft-mode `fetchVal`
-   sends, to TanStack's real `initValServer` handler. `keystroke.ts` writes
-   through `patchStore.createPatch`, as a field does. A benchmark of a copy
-   measures the copy.
-2. **Print, do not assert a stopwatch.** These scripts are not tests, like
-   `searchIndex.perf.test.ts` and `draftRead.perf.test.ts` before them. A
-   timing assertion is flaky on a shared CI machine and silently loose
-   everywhere else.
+   product calls. `draftRead.ts`'s `reader` reads every module through
+   `serverDraftSource` over the runtime's head, as a draft-mode `fetchVal`
+   reads; its other operations send their requests to TanStack's real
+   `initValServer` handler. `keystroke.ts` writes through
+   `patchStore.createPatch`, as a field does. A benchmark of a copy measures
+   the copy.
+2. **Print, do not assert a stopwatch.** These scripts are not tests, and
+   `searchIndex.perf.test.ts` guards a growth rate, not a time. A timing
+   assertion is flaky on a shared CI machine and silently loose everywhere
+   else.
 3. **What CI checks is counted work, not time.** A budget that must hold on
    every push ("a keystroke applies one patch") is a count from the stores'
    activity channel (`RecordingActivity`), asserted in a scenario with
@@ -54,12 +56,18 @@ e2e/tanstack/scale.spec.ts`, with nothing on port 3458 first).
 from Node in it, so `draftRead.ts` and the isolate probe run the same code.
 
 `draftRead.ts`'s operations: `load` (modules loaded and `/stat` answered: the
-baseline), `draft` (`PUT /sources/~`, validated: what a draft-mode `fetchVal`
-asks on every request), `draft-novalidate` (the same without validation;
-previews are still computed), `base` (unpatched and unvalidated:
-BaseAlignment's fetch). Its inputs: `web` (valbuild/web), `synth:N` (about
-N MB of content in 20 record modules with rich text), `synth:1+650` (1 MB
-with a 650-patch chain).
+baseline); `reader` (every module through `serverDraftSource` over the head,
+in-process: what a draft-mode `fetchVal` reads since phase 6, and the number
+that matters for a page); `draft` (`PUT /sources/~` asking for validation:
+until phase 6 what a draft-mode `fetchVal` asked on every request, since then
+the head's whole tree, the flag ignored); `draft-novalidate` (the same
+without asking; before phase 6, previews still computed); `base` (unpatched:
+the whole-tree fetch a Studio of the release before makes). `draft`,
+`draft-novalidate` and `base` measure `PUT /sources/~`, which goes in the
+release after this plan ships (see "Release-delayed deletions" in the plan);
+they are kept to compare with the numbers before phase 6. Its inputs: `web`
+(valbuild/web), `synth:N` (about N MB of content in 20 record modules with
+rich text), `synth:1+650` (1 MB with a 650-patch chain).
 
 ## Heap, and the 128 MB isolate
 
@@ -113,8 +121,11 @@ relying on it.
 
 `isolate/` is a Worker that runs a draft read on Val's real server and
 nothing else, so the 128 MB limit can be found where Cloudflare enforces it.
-Phase 6 of `docs/plans/one-content-model.md` has to fit in it ("Within
-128 MB"), and its 16 MB budget for the head is a guess until this runs.
+It ran deployed before and after phase 6 of
+`docs/plans/one-content-model.md` (`results.md`, "The deployed isolate"):
+a draft page's read fits wherever the content loads at all, and the head's
+16 MB budget (`HEAD_BUDGET_BYTES`) was never approached. What is left is the
+same probe started through valbuild/home's loader (`worker_loaders`).
 
 **What it runs.** Each `GET /run?input=…&op=…` builds the input, starts Val's
 server in memory mode the way `@valbuild/server/browser` does

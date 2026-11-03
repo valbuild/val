@@ -3027,7 +3027,10 @@ export const ValServer = (
         // and treats /sources/~ as a pure un-patched read.
         const applyPatches = query.apply_patches !== false;
         if (query.exclude_patches === true) {
-          // The base alone: BaseAlignment's fetch.
+          // The base alone: what a Studio of the release before fetched
+          // (`BaseAlignment`). Nothing of this release asks it; it goes with
+          // `PUT /sources/~` (see "Release-delayed deletions" in
+          // `docs/plans/one-content-model.md`).
           const sources = await serverOps.getBaseSources();
           const versions = await serverOps.moduleVersions([], false);
           const modules: Record<

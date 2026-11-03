@@ -1,25 +1,17 @@
 # One content model: every reader, one version, one way to load
 
-> **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 to 5 built
-> (2026-11-02); of phase 7, the parts phase 6 does not block, and of phase 9
-> the parts phases 6 and 7 do not block (2026-11-03). The deployed 128 MB
-> check ran on a plain Worker (2026-11-03): a validated draft read of the
-> server before phase 6 is killed at about 59 MB of content beside 64 MB of
-> ballast and 75 MB without, so memory did not block phase 6. Phase 6 built
-> (2026-11-03): the store, one runtime per process, the head, `GET /modules`
-> with deltas, and a cheap `seq` in http mode (with valbuild/home). Re-run
-> deployed after it (2026-11-03, a plain Worker): a draft page (`reader`)
-> answers wherever the content loads at all -- 86 MB beside 64 MB of
-> ballast, 100,000 `.jsonValues()` entries with 650 patches, valbuild/web --
-> with the head holding at most 56 KB of its 16 MB budget; only the probe
-> through home's loader is left (decision 5). Phase 7's remainder built
-> (2026-11-03): the Studio reads the manifest and its server's modules, and
-> `BaseAlignment`, `__VAL_BASE__` and the client's replay are gone. Next:
-> phase 9's remainder, then 8.**
-> See
-> [Where we are](#where-we-are) for what is built, what runs, and what comes
-> next. A session that changes the design updates this file in the same PR as
-> the change.
+> **Status: built (2026-11-03).** Phases 0 to 7 and 9 are built, phase 10
+> measured the Studio at size and the first fixes its numbers called for are
+> in, and phase 8 wrote it down: **the model as it is now is
+> [`architecture/content-versions.md`](../../architecture/content-versions.md)**,
+> which a reader new to the code should read instead of this file. What is
+> left is three kinds of thing: the deletions that wait one release for the
+> wire ([Release-delayed deletions](#release-delayed-deletions)), the
+> genuinely open items ([Open](#open)), and the probe through home's loader
+> (decision 5). This file is the history: why each step was taken, and what
+> it found. See [Where we are](#where-we-are) for what is built and what runs.
+> A session that changes the design updates this file and
+> `architecture/content-versions.md` in the same PR as the change.
 
 Content is read in about fifty places (listed in
 [The inventory](#appendix-the-inventory)): the app's readers in and out of
@@ -42,8 +34,51 @@ a few lines and a broken invariant is caught by name.
 
 ## Where we are
 
-As of 2026-11-01, on the PR "Simplify content retrieval and improve test
-coverage" (valbuild/val#1006).
+As of 2026-11-03, on the PR "Simplify content retrieval and improve test
+coverage" (valbuild/val#1006), at the end of phase 8.
+
+**In one page** (the whole of it is
+[`architecture/content-versions.md`](../../architecture/content-versions.md)):
+
+- **One model.** A module's content is its base plus its chain of patches,
+  applied by ONE engine (`applyPatchRecord`, `applyChain` in
+  `@valbuild/shared/internal`), copy-on-write, in Val's server, the Studio and
+  the demo's in-tab server alike. Where a file's `patch_id` lands, what an
+  edit inside an unloaded `.jsonValues()` entry does and where a chain stops
+  are its rules and nobody else's.
+- **One version.** `ModuleVersion { schema, base, chain }` names a module's
+  content and `ProjectVersion { build, seq }` orders answers; versions are
+  computed when content changes and never when it is read. `EntryVersion`
+  names an entry, and `staged:<inputs>` a module staged after its build.
+- **One head per process.** `valRuntime` hands the API, the draft readers and
+  MCP the same data layer, whose `ValHead` holds the content at the newest
+  chain by version: a module nobody edited costs nothing, an edited one is
+  made once per version, "has the chain moved?" is `seq`.
+- **One way to load.** Every reader is `resolveVal` over a list of
+  `ContentSource`s with `layered` deciding which answers (and refusing
+  content made with another schema on the server). The Studio reads the
+  manifest after each `/stat` that moved and each module at the version it
+  names, from its memory, its bundle or `GET /modules` (a delta from what it
+  holds), with its own edits on top (`withLocalEdits`).
+- **A page converges on events.** The Studio relays reads with their
+  versions, says when it has sent everything (`sources-synced`), and says
+  how far the server has the editor's changes (`confirmed { seq }`); the
+  page refreshes once per confirmed `seq`. No timer refreshes a page.
+- **New code without a dialog.** One door for a registry
+  (`HostStore.reloadCode`); a build the platform made names its registry on
+  the manifest and is taken in place; anything else reloads the Studio by
+  itself once nothing is saving; an edit the code moved under is held, not
+  deleted; staged code is evaluated in the tab where it can be, and the
+  build carries its own inputs.
+- **Measured.** In a deployed 128 MB Worker a draft page's read now fits
+  wherever the content loads at all (86 MB beside 64 MB of ballast, 100,000
+  entries with 650 patches), with the head holding at most 56 KB. In the
+  Studio, nothing about opening and editing grows with the number of
+  entries; what loads every entry is linear and batched.
+- **Tested as a world.** Scenarios run the real server (memory, fs, http),
+  Studios, a page's two halves, the relay and the refresh loop on one fake
+  clock, checked against shared invariants and counted budgets (B01-B14),
+  with the content-shape matrix green in all three modes.
 
 **Built:**
 
@@ -1040,6 +1075,45 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     click, and pins that the browser bundle's schema versions are the
     server's (`e2e/tanstack/studio.spec.ts` the same for TanStack).
 
+- **Phase 8: documented** (2026-11-03).
+  [`architecture/content-versions.md`](../../architecture/content-versions.md)
+  describes the model as the code has it, for an engineer new to it, without
+  this plan; `architecture/README.md`, `stores.md`, `quirks.md`,
+  `patch-store.md`, `media.md` and `.agent/rules.md` (its "Read first" names
+  the new page) were brought up to date with it, and the code comments that
+  still described `BaseAlignment` as current were corrected. The wire kept
+  for a release is listed, with when it goes, in
+  [Release-delayed deletions](#release-delayed-deletions), and marked
+  `@deprecated` where it is declared. Nothing was deleted: everything a phase
+  could delete went in its own PR.
+  - **Found false while writing it, and corrected:** `.agent/rules.md` said a
+    draft-mode `fetchVal` fetches the whole tree per call (not since phase
+    6); `quirks.md` described `onceInStep` as "the base aligned" (it is the
+    first manifest adopted and the chain settled), said `/stat`'s adoption
+    waits on a preparation step (deleted with `BaseAlignment`), and said
+    `fetchValDraft` and Next's server components read `/sources/~` (they read
+    the head); `media.md` said `ValOps` injects `patch_id` server-side (the
+    engine writes it, in the Studio too); `patch-store.md` said nothing
+    refetches `/schema` because `schemaSha` holds still (nothing in the
+    Studio reads `/schema` at all); `scenarios/README.md` said Next has no
+    `fetchValDraft` and that S26's and S16's "why" pins are still skipped on
+    http (both are gone), and that the overlay's Studio is built from
+    `window.__VAL_BASE__` and HMR goes through `HostStore.receive` (both
+    replaced); `scenarios/measure/README.md` described `draft` as the
+    validated read a draft page asks and `base` as `BaseAlignment`'s fetch,
+    and the head's budget as a guess (measured since). In code comments:
+    `ValOps.chainBaseSha` and `ValProvider`'s `statSourcesSha` said the
+    Studio puts its chain on `/stat`'s base, `promoteCommittedSources` named
+    `PatchStore.reconcileVanished` (now `settleVanished`), and
+    `SourceStore.schemaVersionOfModule`, `ContentHolds` and the publish
+    job's holds pointed at `BaseAlignment`.
+  - **Two things the code does that the plan did not say**, now in the
+    page: the page's hooks apply no schema rule (only the server readers
+    set `schemaVersionOf`), and the relay still has two timers that are not
+    refreshes -- a 200 ms debounce of a burst of edits and a five second
+    fallback for a server that never lets the store get in step -- beside the
+    page's ten second `waitForLoad` timeout.
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -1064,44 +1138,137 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
 5. **The Node heap cap is enough for now**; one probe on a deployed loader
    comes before phase 6 fixes the head's budget.
 
-**Next, in order:**
+**Next:** nothing of the plan's phases is left. What waits for a release
+is [Release-delayed deletions](#release-delayed-deletions); what is not
+built is [Open](#open). (The order the plan was worked in, for the record:
+phase 0 and the plain bugs of decision 2, then phases 1 to 5, the parts of 7
+and 9 that 6 did not block, 6, the remainders of 7 and 9, 10's baseline and
+first fixes, and 8.)
 
-1. Finish phase 0: the content-shape grid (`.jsonValues()`, image, file and
-   video libraries, plain media fields, against every operation and reader),
-   the draft-read numbers, S24 and S25, and the hosted layers (decision 1).
-2. Fix the plain bugs (decision 2), and then the grid's failing cells, after
-   they have been discussed.
-3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
-   local form passes since phase 9's first part.
-4. ~~Phase 7's remainder~~ and ~~phase 9's remainder~~ (done; see
-   "Built"). **Next: phase 8** -- `architecture/content-versions.md`, and
-   the deletions that wait for a release: `/stat`'s `sourcesSha` and
-   `schemaSha` and `PUT /sources/~` (kept for a Studio of the release
-   before), `ValDraft.base`. Left from phase 9: the C11 gaps (a module new
-   in the proposal that the serving build has not got; a module whose
-   schema a staged import moved), evaluating staged code where the page
-   cannot run the builder, and "have the assistant move" a held edit.
-   Left from phase 7: another editor's
-   keystroke costs `/stat`, `GET /manifest` and `GET /modules` (and its
-   record, for the review) -- a manifest that carried the patches it moved
-   by would make it one; the patch store still fetches every record of the
-   chain for the review and the publish, so the client holds the records it
-   no longer replays. Left from phase 6: the deployed probe through home's
-   loader (decision 5; the plain Worker, valbuild/web and the head's budget
-   ran, see "Built"). Left from phase 5:
-   `entriesStatus`
-   and `allEntriesProgress` are still stable by recompute-and-compare (they
-   are not `peek`, and are cheap). (Phase 5's other leftovers -- `ValDraft` without
-   versions, entries without versions of their own -- were closed by phase
-   6.) Left from phase 4, and done after phase 5: Next's
-   `fetchValDraft`, returned from `initValRsc` (decided), on the
-   `readDraftChanges` TanStack's now reads through too; `examples/next`'s
-   root layout passes it, and `uncommitted-routes`' single-module case runs
-   on both apps. (Phase 3's leftover, `fetchValDraft` reading the tree and the
-   entries itself, went with phase 6's head.) Left from phase 2: `/stat` and the manifest
-   still name a module's whole chain where `/sources/~` names where it
-   stopped (they do not apply patches, so they cannot know); `/sources/~`'s
-   `patches.applied` still lists a patch that failed.
+## Release-delayed deletions
+
+What every phase could delete, it deleted in its own PR. These stay ONE
+release longer, because a Studio, a page or a server of the release before
+can be talking to one of this release while a deploy rolls out (the rule in
+[Each phase deletes what it replaced](#each-phase-deletes-what-it-replaced)).
+Each is marked `@deprecated` (or carries a comment saying so) where it is
+declared. "N" is the release that ships valbuild/val#1006; **"N+1" is the
+release after it**.
+
+1. **`PUT /sources/~`**, the whole route: its `exclude_patches`
+   (`BaseAlignment`'s fetch), `apply_patches`, the accepted-and-ignored
+   `validate_sources` and `validate_binary_files`, and the answer's
+   `preview`, `validationErrors` and `baseSource`.
+   - _Read in N by:_ a Studio of the release before (`BaseAlignment`).
+     Nothing in N's product: the Studio reads `GET /manifest` and
+     `GET /modules`, and the draft readers and MCP read the head in-process
+     (`ValHead.tree()` stays, for MCP).
+   - _Goes in:_ **N+1.** First move the tests that read server state through
+     it onto `GET /modules` or the manifest (`e2e/tanstack/serverState.ts`,
+     `e2e/http/draftAfterPublish.spec.ts`, `e2e/http/manifest.spec.ts`,
+     `e2e/renameMedia.spec.ts`, `e2e/tanstack/draftRender.spec.ts`, and the
+     `overlayAfterBuild`, `budgets` and `addedField` scenarios), drop
+     `measure/draftRead.ts`'s `draft`, `draft-novalidate` and `base`
+     operations, and check that valbuild/home asks it nowhere.
+2. **`/stat`'s `sourcesSha` and `schemaSha`**, in the request (the Studio's
+   echo) and in both answers (the long poll's and `use-websocket`); with them
+   `ValOps.chainBaseSha`, `StatSnapshot.sourcesSha` and `ValProvider`'s
+   `statSourcesSha`.
+   - _Read in N by:_ a Studio of the release before (`BaseAlignment`,
+     `SchemaFreshnessWatch`). N's Studio reads neither, but its answer schema
+     REQUIRES both (`StatData` in `useStatus.ts` and the `/stat` response in
+     `ApiRoutes.ts`: `z.string()`), it echoes them, and the fs and memory
+     long poll compares the echo to see another build (`ValOpsFS.getStat`,
+     `ValOpsMemory`).
+   - _Goes in:_ **two steps.** N+1: the Studio parses them as optional and
+     echoes them only when it got them, and the long poll tells a new build
+     from the answer's `version` (`build`, `seq`) instead of the echo; the
+     server still sends them. **N+2:** the server stops sending them, and the
+     request fields go once no Studio sends them.
+3. **The relay's `source`**: `source-update.source` on the overlay's
+   `val-event` and `sourceUpdate.source` on the canvas, and the page's
+   fallback that reads a bare `source` (`applyValEvent` in
+   `@valbuild/react/stega`).
+   - _Read in N by:_ a page of the release before reads `source` (N's Studio
+     sends it beside `read`); a Studio of the release before sends `source`
+     alone (N's page reads it through the fallback).
+   - _Goes in:_ **N+1**, both halves: a Studio of N already sends `read`,
+     which a page of N+1 reads, and a page of N reads `read`, which a Studio
+     of N+1 sends.
+4. **`ValDraft.base`** (the type only; not sent and not read since phase 7).
+   - _Read in N by:_ nothing; kept so a draft of the release before
+     type-checks.
+   - _Goes in:_ **N+1.**
+
+Not on the list, deliberately:
+
+- `initValContent`'s `patchStore`, `sourceFiles` and `http`: redundant with
+  one runtime per process, and working. Deprecating them is a public API
+  decision this plan did not take ([Public API](#public-api)).
+- `stagedModuleSources`' Source read from a staged `.val.ts`: not a leftover,
+  it is C11b's read path.
+- The old engine kept test-only (`packages/server/src/patch/legacyEngine.ts`)
+  for the conformance cases (`engineConformance.test.ts`): it goes with those
+  cases, which nothing schedules; no product code imports it.
+- `/stat`'s `jsonEntriesSha`: echoed and compared in fs mode, and not this
+  plan's.
+
+## Open
+
+Genuinely not built, each with what it would take:
+
+- **The C11 gaps** (phase 9). A module new in a proposal that the build
+  serving its address does not have at all, and a module whose own file is
+  not staged but whose schema a staged import moved (the overlay names only
+  staged module files). Both need the server to evaluate staged code, or the
+  content service to name the modules a staging moved, which only an
+  evaluation knows.
+- **Staged code where the page cannot run the builder.** The Studio is
+  usually not cross-origin isolated (`canBuildHere`), and there nothing is
+  evaluated and the schema arrives with a build. A builder tab or the server
+  bundling it, with the Studio evaluating the code it is handed, would also
+  let a held module (C11c) be saved before a build. The cost of an
+  evaluation is not measured ([Cost](#cost)).
+- **"Have the assistant move it"** for a held edit (S14). Held edits can be
+  discarded or made again by hand; the assistant is not offered them.
+- **"Used by" and the long tasks at 10,000 entries** (phase 10): 5.3 s in the
+  browser with 29 long tasks of up to 263 ms, the shell re-rendering per
+  applied batch, so "no long task over 50 ms" is not met there; the rest of
+  phase 10's map (cold start, scrolling the record list, the keystroke's root
+  copy at 100,000, the re-read after a publish at size) is reported, and
+  which to fix and which to document as limits is still to be decided
+  (`scenarios/measure/results.md`, "Phase 10").
+- **The probe through home's loader** (decision 5). The deployed probe ran on
+  a plain Worker; a site's isolate is started by home's loader
+  (`worker_loaders`), and if the two limits differ only the loader's counts.
+  `scenarios/measure/results.md`, "What to re-run deployed", item 3.
+- **S27, after phase 9**: the browser runs the previous build's client code
+  at hydration, before any overlay exists. It is home's loader's pinned
+  `app.js` fallback, decided to be fixed as its own change in valbuild/home
+  (`overlayAfterBuild.scenario.test.ts` keeps a skipped test and the pin of
+  why).
+- **The templates, after the release.** `valbuild/templates` pins
+  `@valbuild/*`; once N is on npm, bump every template (and its
+  `minimumReleaseAgeExclude`), and run each against the new version: open
+  `/val`, make and save an edit (`.agent/rules.md`, "Releasing").
+- **Smaller leftovers**, each a known cost rather than a bug:
+  - another editor's keystroke costs three requests (`/stat`,
+    `GET /manifest`, `GET /modules`) and its record for the review, where it
+    cost one: a manifest that carried the patches it moved by would make it
+    one;
+  - the patch store still fetches every record of the chain, for the review
+    and the publish, so the Studio holds records it no longer replays;
+  - the manifest names a module's version at its whole chain, where
+    `GET /modules` answers the version where its chain stopped (a patch that
+    does not apply): they differ until the Studio's discard of that patch
+    lands;
+  - `entriesStatus` is stable by recompute-and-compare, not by key (it is not
+    `peek`, and is cheap);
+  - the page's hooks apply no schema rule: a relayed module is compared by
+    version only to see whether it moved, so a Studio ahead of the page's
+    build (HMR first, staged code it evaluated) relays content made with its
+    own schema once it changes (a code change that moves no content relays
+    nothing: phase 5's `engineSchemaKey`).
 
 ## The goal
 
@@ -1829,19 +1996,19 @@ there; there is no flag to choose between the two, and no "remove later".
 - **Each phase lists what it deletes**, below, so a review can check the
   deletion happened rather than trust it.
 
-| #   | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Repos     |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| 0   | **The harness and the first scenario.** `packages/scenarios`; `createWorld` in memory and fs; `createSourceRelay` and `createRefreshLoop` extracted; the invariants and counted budgets; the refresh-race scenario (red). Measure today's draft read and a prototype head in `workerd` at 128 MB.                                                                                                                                                                                                                                                                                                                                                   | val       |
-| 1   | **Versions on the wire.** `ModuleVersion` (`schema`, `base`, `chain`) and `ProjectVersion` (`build`, `seq`); per-module SHAs; `seq` in fs and memory; the manifest with its ETag; every answer and frame carries a version. No behaviour changes.                                                                                                                                                                                                                                                                                                                                                                                                   | val       |
-| 2   | **One engine, server side.** `applyPatchRecord` in shared, copy-on-write; `getSources`, `getSourcesWithPatchesApplied` and `prepare`'s `moduleVersions` switched over; conformance cases pass on both engines.                                                                                                                                                                                                                                                                                                                                                                                                                                      | val       |
-| 3   | **The readers on sources.** `ContentSource`, `layered` (with the schema rule), `planOf`, `resolveVal`; the bundle, snapshot, overlay and seeded sources; `fetchVal`, `useVal` and the key and route readers of both frameworks on them; the relay sends reads. Removes the duplicated copies and the error-path bug.                                                                                                                                                                                                                                                                                                                                | val       |
-| 4   | **The page converges.** Overlay first; "confirmed up to this version" triggers the refresh; the page reports its bases and the Studio sends what differs; an optional `draft` prop for Next (additive); the safety refresh goes. The first scenario turns green.                                                                                                                                                                                                                                                                                                                                                                                    | val       |
-| 5   | **The Studio on the view.** `withLocalEdits` over `chainSource` (today's behaviour as a source); `SourceStore` on top, reference-stable by key; `substitutedSource` and `withFilePatchIds` go.                                                                                                                                                                                                                                                                                                                                                                                                                                                      | val       |
-| 6   | **The store, the runtime and the head.** `tiered`, `memoryTier`, `bundleTier`; `valRuntime` per process; the head in the store; `serverDraftSource`; `GET /modules` with deltas; validation and previews leave the read path; a cheap `seq` in http mode. Within 128 MB.                                                                                                                                                                                                                                                                                                                                                                            | val, home |
-| 7   | **The Studio loads from one place.** `manifestSource` and `originTier` replace `chainSource`; BaseAlignment and `__VAL_BASE__` go; the code tools' `projectSource` keyed by version; staged schemas (`staged:<hash>`) in code mode.                                                                                                                                                                                                                                                                                                                                                                                                                 | val, home |
-| 8   | **Document.** `architecture/content-versions.md`; `stores.md` and `quirks.md` updated; anything a phase could not delete in its own PR (only the wire and deprecations above), with the release it goes in.                                                                                                                                                                                                                                                                                                                                                                                                                                         | val       |
-| 9   | **Reloading the schema while the Studio runs.** See [the section below](#reloading-the-schema-while-the-studio-runs): one `reloadCode(registry)` for HMR and for a new build; a registry entry per build, named in the manifest; replaced, not merged; a registry that does not load leaves the Studio on the old one; edits that no longer apply are held, not deleted; `SchemaFreshnessWatch` and its dialog deleted; and [evaluating code after a write](#evaluating-code-after-a-write): the tab evaluates `val.modules` after each staging, records each changed module's Source with its schema, swaps the schema in and tells the assistant. | val, home |
-| 10  | **Performance at size, in the Studio.** See [the section below](#phase-10-performance-at-size-in-the-studio): generated projects with tens of thousands of `.jsonValues()` entries and thousands of media entries (local and remote), measured in the Studio from a cold start through editing, browsing, picking, uploading and publishing; budgets of counted work for each, a real-browser run for rendering and heap, and the fixes the measurements call for.                                                                                                                                                                                  | val, home |
+| #   | Phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Repos     | Status                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | --------------------------------------- |
+| 0   | **The harness and the first scenario.** `packages/scenarios`; `createWorld` in memory and fs; `createSourceRelay` and `createRefreshLoop` extracted; the invariants and counted budgets; the refresh-race scenario (red). Measure today's draft read and a prototype head in `workerd` at 128 MB.                                                                                                                                                                                                                                                                                                                                                   | val       | Done                                    |
+| 1   | **Versions on the wire.** `ModuleVersion` (`schema`, `base`, `chain`) and `ProjectVersion` (`build`, `seq`); per-module SHAs; `seq` in fs and memory; the manifest with its ETag; every answer and frame carries a version. No behaviour changes.                                                                                                                                                                                                                                                                                                                                                                                                   | val       | Done                                    |
+| 2   | **One engine, server side.** `applyPatchRecord` in shared, copy-on-write; `getSources`, `getSourcesWithPatchesApplied` and `prepare`'s `moduleVersions` switched over; conformance cases pass on both engines.                                                                                                                                                                                                                                                                                                                                                                                                                                      | val       | Done                                    |
+| 3   | **The readers on sources.** `ContentSource`, `layered` (with the schema rule), `planOf`, `resolveVal`; the bundle, snapshot, overlay and seeded sources; `fetchVal`, `useVal` and the key and route readers of both frameworks on them; the relay sends reads. Removes the duplicated copies and the error-path bug.                                                                                                                                                                                                                                                                                                                                | val       | Done                                    |
+| 4   | **The page converges.** Overlay first; "confirmed up to this version" triggers the refresh; the page reports its bases and the Studio sends what differs; an optional `draft` prop for Next (additive); the safety refresh goes. The first scenario turns green.                                                                                                                                                                                                                                                                                                                                                                                    | val       | Done                                    |
+| 5   | **The Studio on the view.** `withLocalEdits` over `chainSource` (today's behaviour as a source); `SourceStore` on top, reference-stable by key; `substitutedSource` and `withFilePatchIds` go.                                                                                                                                                                                                                                                                                                                                                                                                                                                      | val       | Done                                    |
+| 6   | **The store, the runtime and the head.** `tiered`, `memoryTier`, `bundleTier`; `valRuntime` per process; the head in the store; `serverDraftSource`; `GET /modules` with deltas; validation and previews leave the read path; a cheap `seq` in http mode. Within 128 MB.                                                                                                                                                                                                                                                                                                                                                                            | val, home | Done                                    |
+| 7   | **The Studio loads from one place.** `manifestSource` and `originTier` replace `chainSource`; BaseAlignment and `__VAL_BASE__` go; the code tools' `projectSource` keyed by version; staged schemas (`staged:<hash>`) in code mode.                                                                                                                                                                                                                                                                                                                                                                                                                 | val, home | Done                                    |
+| 8   | **Document.** `architecture/content-versions.md`; `stores.md` and `quirks.md` updated; anything a phase could not delete in its own PR (only the wire and deprecations above), with the release it goes in.                                                                                                                                                                                                                                                                                                                                                                                                                                         | val       | Done (this entry)                       |
+| 9   | **Reloading the schema while the Studio runs.** See [the section below](#reloading-the-schema-while-the-studio-runs): one `reloadCode(registry)` for HMR and for a new build; a registry entry per build, named in the manifest; replaced, not merged; a registry that does not load leaves the Studio on the old one; edits that no longer apply are held, not deleted; `SchemaFreshnessWatch` and its dialog deleted; and [evaluating code after a write](#evaluating-code-after-a-write): the tab evaluates `val.modules` after each staging, records each changed module's Source with its schema, swaps the schema in and tells the assistant. | val, home | Done                                    |
+| 10  | **Performance at size, in the Studio.** See [the section below](#phase-10-performance-at-size-in-the-studio): generated projects with tens of thousands of `.jsonValues()` entries and thousands of media entries (local and remote), measured in the Studio from a cold start through editing, browsing, picking, uploading and publishing; budgets of counted work for each, a real-browser run for rendering and heap, and the fixes the measurements call for.                                                                                                                                                                                  | val, home | Measured; first fixes in; the rest open |
 
 What each phase deletes (to be checked against the code when the phase
 starts; the names are as of 2026-11-01):
@@ -1856,6 +2023,7 @@ starts; the names are as of 2026-11-01):
 | 5   | `SourceStore`'s own patch rules in `applyEntries`; `substitutedSource`; `withFilePatchIds`; peek stability by recompute-and-compare.                                                                                                                                                                                                                                        |
 | 6   | The private `createValServer` in `initValRsc` and in `initValContent`, and MCP's `createOpsResolver`; `loadDraftSources`; `createReactCacheScope` and `createTanStackRequestScope`; the per-call `/json` in the key readers; `fetchValDraft`'s extra `/patches` and `/json`; whole-tree previews and validation in `PUT /sources/~`; MCP's rebuild per call in `loadState`. |
 | 7   | `BaseAlignment`; `__VAL_BASE__`; the Studio's `PUT /sources/~?apply_patches=false`; `chainSource`; the client's replay of the chain and its reconciliation of patches that vanished from `/stat`; the code tools' `projectSource` memo.                                                                                                                                     |
+| 8   | Nothing: what could not be deleted in its own phase waits one release for the wire, and is listed in [Release-delayed deletions](#release-delayed-deletions).                                                                                                                                                                                                               |
 | 9   | `SchemaFreshnessWatch`, `StatusStore.reportSchemaOutOfDate` and the dialog (deleted); the merge in `SchemaStore.receive` (deleted in phase 0); the Source-without-schema that `stagedModuleSources` sends with a staging (kept: home records it as `staged:<inputs>`, and it is C11b's read path).                                                                          |
 
 ### Phase 7 without phase 6
