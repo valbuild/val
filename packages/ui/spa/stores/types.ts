@@ -429,6 +429,12 @@ export type SystemEvent =
    */
   | { type: "patch:uploads"; inFlight: number }
   /**
+   * Published patches left the chain: their effect is in the base now
+   * (`PatchStore.forgetPublished`). Not a `patch:drop`, whose effect must
+   * disappear -- but everything kept per patch goes with them either way.
+   */
+  | { type: "patch:forget-published"; patches: PatchId[] }
+  /**
    * Source was rebuilt from base + the surviving chain.
    *
    * Its own event rather than a `source:patch-apply`: an apply says "this patch

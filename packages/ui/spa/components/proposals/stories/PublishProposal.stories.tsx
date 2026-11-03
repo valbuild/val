@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { action } from "storybook/actions";
 import { useEffect, useState } from "react";
 import {
   PublishProposalDialog,
   type MergeCheckView,
   type PublishProposalState,
 } from "../PublishProposalDialog";
+import type { CommitRefused } from "../CommitRefusedNotice";
 
 /**
  * Publish, in a proposal: merging it into the site. `docs/proposals.md` in
@@ -135,7 +137,7 @@ export const BlockedByTheSitesCode: Story = {
       changes: 4,
       unsaved: 0,
     },
-    onUpdateFromSite: () => console.log("update from the site"),
+    onUpdateFromSite: action("update from the site"),
   },
 };
 
@@ -168,8 +170,7 @@ export const BlockedByAPageTheSitePublished: Story = {
       changes: 3,
       unsaved: 0,
     },
-    onUpdateFromSite: (checkId: string) =>
-      console.log("update from the site", checkId),
+    onUpdateFromSite: action("update from the site"),
   },
 };
 
@@ -213,8 +214,8 @@ export const UpdateConflicts: Story = {
         },
       ],
     },
-    onResolve: (keep: ("site" | "proposal")[]) => console.log("keep", keep),
-    onCancelUpdate: () => console.log("not now"),
+    onResolve: action("keep"),
+    onCancelUpdate: action("not now"),
   },
 };
 
@@ -298,7 +299,7 @@ export const FailedRepositoryRefused = at({
 });
 
 /** Ada pushed to the proposal's branch, as the dialog shows her push. */
-const ADA_PUSHED = {
+const ADA_PUSHED: CommitRefused = {
   branch: "val/p/0123456789abcdef0123",
   branchUrl: "https://github.com/acme/site/tree/val/p/0123456789abcdef0123",
   who: "Ada Lovelace",
@@ -308,7 +309,7 @@ const ADA_PUSHED = {
     url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
     message: "Fix the hero's spacing\n\nThe gap above the heading was 2rem.",
   },
-  during: "publish" as const,
+  during: "publish",
 };
 
 /**

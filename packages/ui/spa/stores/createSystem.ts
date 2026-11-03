@@ -1181,6 +1181,18 @@ export function createSystem(options: SystemOptions): System {
       }
       if (released) reportHeld();
     }),
+    // Published: in the base, and never back in the chain. What was kept
+    // per patch goes with it -- `unapplicableAttempts` too, which a DROPPED
+    // patch keeps, since it can come back and the count is what ends that.
+    patchStore.events.on("patch:forget-published", (event) => {
+      let released = false;
+      for (const patchId of event.patches) {
+        fittedUnder.delete(patchId);
+        unapplicableAttempts.delete(patchId);
+        released = held.delete(patchId) || released;
+      }
+      if (released) reportHeld();
+    }),
   ];
 
   /**

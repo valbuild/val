@@ -1322,6 +1322,7 @@ export class PatchStore {
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
       this.withoutModuleIds.delete(patchId);
+      this.heldSince.delete(patchId);
       forgotten.push(patchId);
     }
     if (forgotten.length === 0) return;
@@ -1329,6 +1330,7 @@ export class PatchStore {
     this.ordered = this.ordered.filter((patchId) => !gone.has(patchId));
     this.bump();
     this.activity.work("patch:forget-published", undefined, forgotten.length);
+    this.events.emit({ type: "patch:forget-published", patches: forgotten });
     this.events.emit({ type: "patch:head", head: this.currentHead() });
   }
 
@@ -1372,6 +1374,7 @@ export class PatchStore {
       this.publishErrorById.delete(patchId);
       this.withoutModuleIds.delete(patchId);
       this.publishedIds.delete(patchId);
+      this.heldSince.delete(patchId);
       dropped.push(patchId);
     }
     if (dropped.length === 0) return;

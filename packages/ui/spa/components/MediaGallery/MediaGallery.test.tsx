@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MediaGallery } from "./MediaGallery";
+import { MediaGallery, selectedCellIndex } from "./MediaGallery";
 import type { MediaItem } from "./types";
 import { validationErrorsByEntry } from "../fields/galleryEntryErrors";
 import type { SourcePath } from "@valbuild/core";
@@ -228,5 +228,18 @@ describe("validationErrorsByEntry", () => {
       "/public/val/a.png": { entry: ["missing"], description: ["too long"] },
       "/public/val/b.png": { entry: ["not a number"], description: [] },
     });
+  });
+});
+
+describe("selectedCellIndex", () => {
+  const shown = [{ ref: "/a.png" }, { ref: "/b.png" }];
+
+  test("the selected entry's cell comes after the uploads", () => {
+    expect(selectedCellIndex("/b.png", shown, 3)).toBe(4);
+  });
+
+  test("a selected entry a search filtered out is no cell, not the last upload", () => {
+    expect(selectedCellIndex("/c.png", shown, 3)).toBe(-1);
+    expect(selectedCellIndex(null, shown, 3)).toBe(-1);
   });
 });

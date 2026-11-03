@@ -3009,6 +3009,7 @@ export function useAI(
         )) {
           if (questionMessageId === message.id) {
             pendingQuestionsRef.current.delete(toolCallId);
+            codeModeRequestsRef.current.delete(toolCallId);
           }
         }
         if (activeIdRef.current === message.id) {
@@ -3466,9 +3467,11 @@ Do not describe what you will do unless you do it for clarification — just do 
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       const request = codeModeRequestsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
+      // Answered: nothing presses it again (it is no longer pending), so it
+      // is not kept -- the card shows `moved` from the chat's own state.
+      codeModeRequestsRef.current.delete(toolCallId);
       if (messageId === undefined || request === undefined) return;
       const moved: CodeModeRequest = { ...request, state: next };
-      codeModeRequestsRef.current.set(toolCallId, moved);
       chatRef.current?.setCodeModeRequest(messageId, toolCallId, moved);
       const sent = sendWsMessage({
         type: "ai_tool_result",
@@ -3558,6 +3561,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         });
       }
       pendingQuestionsRef.current.clear();
+      codeModeRequestsRef.current.clear();
     },
     [sendWsMessage],
   );

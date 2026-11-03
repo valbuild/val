@@ -185,12 +185,11 @@ export function MediaGallery({
                 view === "list" ? null : kind === "videos" ? 10 : 8
               }
               aspect={kind === "videos" ? 9 / 16 : 1}
-              selectedIndex={
-                selectedRef === null
-                  ? -1
-                  : (view === "grid" ? uploads.length : 0) +
-                    shown.findIndex((item) => item.ref === selectedRef)
-              }
+              selectedIndex={selectedCellIndex(
+                selectedRef,
+                shown,
+                view === "grid" ? uploads.length : 0,
+              )}
               renderCell={(index) => {
                 if (view === "list") {
                   const item = shown[index];
@@ -438,6 +437,22 @@ const CELL_GAP = 4;
 const LIST_ROW_HEIGHT = 48;
 /** Under a tile's picture: its padding, the gap and the two lines of text. */
 const TILE_CHROME_HEIGHT = 52;
+
+/**
+ * Which cell is the selected entry: its place among the entries shown, after
+ * `before` cells that come first (the uploads, in the grid). `-1` when it is
+ * not shown -- filtered out by a search -- rather than `before - 1`, which
+ * scrolled to the last upload.
+ */
+export function selectedCellIndex(
+  selectedRef: string | null,
+  shown: readonly { ref: string }[],
+  before: number,
+): number {
+  if (selectedRef === null) return -1;
+  const at = shown.findIndex((item) => item.ref === selectedRef);
+  return at < 0 ? -1 : before + at;
+}
 
 /**
  * The tiles (or the list's rows) on screen, and no others: rows of as many

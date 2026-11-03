@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { action } from "storybook/actions";
 import { useState } from "react";
 import { RouteSelector, RouteSelectorRoute } from "./RouteField";
 import { placeholderImage } from "../stories/placeholderAssets";
@@ -71,7 +72,7 @@ export const Default: Story = {
   args: {
     routes: sampleRoutes,
     value: null,
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
 
@@ -79,7 +80,7 @@ export const WithSelectedRoute: Story = {
   args: {
     routes: sampleRoutes,
     value: "/home",
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
 
@@ -88,7 +89,7 @@ export const WithIncludePattern: Story = {
     routes: sampleRoutes,
     value: null,
     includePattern: /^\/blog\//,
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
 
@@ -97,7 +98,7 @@ export const WithExcludePattern: Story = {
     routes: sampleRoutes,
     value: null,
     excludePattern: /^\/blog\//,
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
 
@@ -105,7 +106,7 @@ export const Empty: Story = {
   args: {
     routes: [],
     value: null,
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
 
@@ -114,7 +115,7 @@ export const Loading: Story = {
     routes: [],
     value: null,
     isLoading: true,
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
 
@@ -145,6 +146,6 @@ export const TenThousandRoutes: Story = {
       preview: i % 3 === 0 ? { title: `Post number ${i}` } : null,
     })),
     value: "/blog/post-5000",
-    onChange: (route) => console.log("Select route:", route),
+    onChange: action("select route"),
   },
 };
