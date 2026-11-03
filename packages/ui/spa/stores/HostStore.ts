@@ -204,6 +204,14 @@ export class HostStore implements HostBridge {
    */
   /** How many registries {@link reloadCode} has been handed. */
   private reloads = 0;
+  /**
+   * The newest of those that was ADOPTED, by its place in that count. A
+   * registry adopts only when none handed over after it has: read in
+   * parallel, adopted in order. One that was refused -- another Val, not the
+   * manifest's, did not load -- moves nothing, so it does not supersede an
+   * earlier one still loading.
+   */
+  private adoptedReload = 0;
 
   async reloadCode(
     /** The registry, or how to import it: a build's entry (`BuildCode`). */
@@ -235,7 +243,7 @@ export class HostStore implements HostBridge {
         typeof registry === "function" ? await registry() : registry,
       );
     } catch (error) {
-      if (generation !== this.reloads) {
+      if (generation < this.adoptedReload) {
         return { status: "kept", reason: "superseded" };
       }
       const details = error instanceof Error ? error.message : String(error);
@@ -246,7 +254,7 @@ export class HostStore implements HostBridge {
     }
     // Read in parallel, adopted in order: an older registry whose imports
     // took longer must not land over a newer one (two HMR rounds in a row).
-    if (generation !== this.reloads) {
+    if (generation < this.adoptedReload) {
       return { status: "kept", reason: "superseded" };
     }
     if (expected !== undefined) {
@@ -259,6 +267,7 @@ export class HostStore implements HostBridge {
         };
       }
     }
+    this.adoptedReload = generation;
     const before = this.schemaStore.all();
     this.receive(modules, options);
     const after = this.schemaStore.all();
@@ -338,6 +347,53 @@ export class HostStore implements HostBridge {
   private serialized = new WeakMap<object, SerializedSchema>();
 
   /**
+   * Which module each entry whose code threw is, from what the last intake
+   * adopted: an entry is an `import()` and nothing else, so nothing in it
+   * says.
+   *
+   * By place only where the registry kept its shape -- as long as it was,
+   * every module that loaded where it was last time -- because a place is a
+   * name only while nothing moved: an entry added, removed or moved above a
+   * module that throws made it the module that used to be there, kept under
+   * the wrong name, and the one that threw dropped. Otherwise only when it
+   * is unambiguous: one entry threw, and one module of the last intake is
+   * missing from this one. Anything else is named by its place in the list,
+   * and keeps nothing.
+   */
+  private namesOfThrowers(modules: IntakeModule[]): Map<number, Adopted> {
+    const named = new Map<number, Adopted>();
+    const threw: number[] = [];
+    const loaded = new Set<string>();
+    let samePlaces = modules.length === this.adoptedAt.length;
+    for (const [index, module] of modules.entries()) {
+      if ("threw" in module) {
+        threw.push(index);
+        continue;
+      }
+      const path: string | undefined = Internal.getValPath(module);
+      if (path !== undefined) loaded.add(path);
+      if (path === undefined || this.adoptedAt[index]?.moduleFilePath !== path)
+        samePlaces = false;
+    }
+    if (threw.length === 0) return named;
+    if (samePlaces) {
+      for (const index of threw) {
+        const kept = this.adoptedAt[index];
+        if (kept !== undefined) named.set(index, kept);
+      }
+      return named;
+    }
+    const missing = this.adoptedAt.filter(
+      (previous): previous is Adopted =>
+        previous !== undefined && !loaded.has(previous.moduleFilePath),
+    );
+    if (threw.length === 1 && missing.length === 1) {
+      named.set(threw[0], missing[0]);
+    }
+    return named;
+  }
+
+  /**
    * Take a registry's modules in: their schemas, and the source their code
    * wrote as each module's base. Where the server is on another base -- a
    * content version, content published without a build, a proposal's saves
@@ -368,6 +424,7 @@ export class HostStore implements HostBridge {
     const adopted: ModuleFilePath[] = [];
     const failures: ModuleFailure[] = [];
     const adoptedAt: (Adopted | undefined)[] = [];
+    const throwers = this.namesOfThrowers(modules);
 
     for (const [index, module] of modules.entries()) {
       /**
@@ -378,7 +435,7 @@ export class HostStore implements HostBridge {
        * seeing it on the schema it last had, and is told why it did not move.
        */
       if ("threw" in module) {
-        const kept = this.adoptedAt[index];
+        const kept = throwers.get(index);
         if (
           kept === undefined ||
           serializedSchemas[kept.moduleFilePath] !== undefined

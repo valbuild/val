@@ -79,6 +79,62 @@ describe("a module whose code throws", () => {
     system.dispose();
   });
 
+  it("is kept under its own name when val.modules was reordered", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
+    system.host.receive(await loadValModules(registry(ok(home), ok(footer))));
+
+    // The footer moved to the top, and throws there.
+    system.host.receive(await loadValModules(registry(throws, ok(home))));
+
+    expect(system.host.failures()).toEqual([
+      {
+        moduleFilePath: "/footer.val.ts",
+        message: "footer.val.ts threw",
+        kept: true,
+      },
+    ]);
+    expect(system.sourceStore.moduleSource(mfp("/footer.val.ts"))).toEqual({
+      text: "Footer",
+    });
+    system.dispose();
+  });
+
+  it("is named by its place, and keeps nothing, when the list moved and it cannot be told which", async () => {
+    const about = c.define("/about.val.ts", s.object({ text: s.string() }), {
+      text: "About",
+    });
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
+    system.host.receive(
+      await loadValModules(registry(ok(home), ok(footer), ok(about))),
+    );
+
+    system.host.receive(
+      await loadValModules(registry(throws, throws, ok(home))),
+    );
+
+    expect(system.host.failures()).toEqual([
+      {
+        moduleFilePath: null,
+        message:
+          "Module number 1 in val.modules could not be loaded: footer.val.ts threw",
+      },
+      {
+        moduleFilePath: null,
+        message:
+          "Module number 2 in val.modules could not be loaded: footer.val.ts threw",
+      },
+    ]);
+    // Not the home module, under a failure that is not its own.
+    expect(system.sourceStore.moduleSource(mfp("/home.val.ts"))).toEqual({
+      title: "Hello",
+    });
+    system.dispose();
+  });
+
   it("is named by its place when it has never loaded", async () => {
     const system = createSystem({
       fetchPatches: async () => ({ patches: [] }),
