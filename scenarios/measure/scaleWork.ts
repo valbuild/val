@@ -41,6 +41,10 @@ import {
   type JsonValuesLoadQuery,
 } from "../../packages/ui/spa/components/jsonValuesLoadRequirements";
 import { getReferencedFiles } from "../../packages/ui/spa/components/getReferencedFiles";
+import {
+  getKeysOf,
+  keyOfScanTarget,
+} from "../../packages/ui/spa/components/getKeysOf";
 
 export type AnyModule = ValModule<SelectorSource>;
 
@@ -270,12 +274,14 @@ export function scaleProject(options: {
   const featured = c.define(
     FEATURED,
     s.object({
+      title: s.string(),
       post: s.keyOf(posts),
       hero: s.image(images),
       download: s.file(files),
       clip: s.video(videos),
     }),
     {
+      title: "Featured",
       post: postKeys[0],
       hero: { path: imagePaths[0] },
       download: { path: filePaths[0] },
@@ -612,4 +618,67 @@ export async function discardAll(system: System) {
   return system.discard(
     system.patchStore.allRecords().map((record) => record.patchId),
   );
+}
+
+/**
+ * The page that picks from the libraries, open: each field's source read
+ * (`useShallowSourceAtPath` per field), the ONE library entry each picked
+ * field reads (`fillFromGallery`'s lookup), the `keyOf` field's reads of the
+ * record it points at (its keys and its preview), and the reference scan the
+ * page's header makes where it makes one (`ArrayAndRecordTools`:
+ * `keyOfScanTarget`, then `useKeysOf` -> `getKeysOf`). Answers what that scan
+ * targets, `null` where it makes none.
+ */
+export async function openPickingPage(
+  system: System,
+  project: Pick<ScaleProject, "imagePaths" | "filePaths" | "videoPaths">,
+): Promise<{ unmount: Unmount; scan: { parent: string } | null }> {
+  const page = FEATURED as unknown as SourcePath;
+  const offs: Unmount[] = [
+    await mountSourceRead(system, page, instanceId("page")),
+  ];
+  for (const field of ["title", "post", "hero", "download", "clip"]) {
+    offs.push(
+      await mountSourceRead(
+        system,
+        sourcePathOfItem(page, field),
+        instanceId(`page-field:${field}`),
+      ),
+    );
+  }
+  for (const [library, ref] of [
+    [IMAGES, project.imagePaths[0]],
+    [FILES, project.filePaths[0]],
+    [VIDEOS, project.videoPaths[0]],
+  ] as const) {
+    offs.push(
+      await mountSourceRead(
+        system,
+        sourcePathOfItem(library, ref),
+        instanceId("page-gallery-entry"),
+      ),
+    );
+  }
+  offs.push(await keyOfDropdown(system, POSTS));
+  const schema = system.schemaStore.get(FEATURED);
+  const target = keyOfScanTarget({
+    path: page,
+    parentPath: page,
+    parentSchema: schema,
+    schema,
+    key: undefined,
+  });
+  if (target !== null) {
+    await loadForScan(system, { kind: "keyOf", module: target.parent });
+    getKeysOf(
+      system.schemaStore.all(),
+      system.sourceStore.allSources(),
+      target.parent,
+      target.key,
+    );
+  }
+  return {
+    unmount: () => offs.forEach((off) => off()),
+    scan: target === null ? null : { parent: target.parent },
+  };
 }

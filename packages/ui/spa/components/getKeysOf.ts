@@ -6,6 +6,7 @@ import {
   Internal,
 } from "@valbuild/core";
 import { traverseSchemas } from "./traverseSchemas";
+import { isParentRecord, isRecord } from "../hooks/schemaShape";
 
 // TODO: right now we only support keyOf MODULES that are records
 // We are planning to add support for keyOf selectors (i.e. nested properties of modules) that are records
@@ -143,4 +144,37 @@ function keyOfTargetsOf(schema: SerializedSchema): ReadonlySet<string> {
   go(schema);
   keyOfTargets.set(schema, targets);
   return targets;
+}
+
+/**
+ * What a record's tools (`ArrayAndRecordTools`) scan for `keyOf` references
+ * to, or `null` where nothing they show needs one: an entry of a record (its
+ * delete and rename guards, and its references) scans for the record and the
+ * entry's key, and a record (its references) for itself.
+ *
+ * Anything else -- the root of a page, which is where an editor types --
+ * scanned all the same and threw the answer away, and the scan walks the
+ * project's source again on every keystroke.
+ */
+export function keyOfScanTarget({
+  path,
+  parentPath,
+  parentSchema,
+  schema,
+  key,
+}: {
+  path: SourcePath;
+  /** `useParent`'s: the path itself, at a module's root. */
+  parentPath: SourcePath;
+  parentSchema: SerializedSchema | undefined;
+  schema: SerializedSchema | undefined;
+  /** The last segment of `path`: the entry's key, where it is one. */
+  key: string | undefined;
+}): { parent: ModuleFilePath; key: string | undefined } | null {
+  const parentIsRecord = isParentRecord(path, parentPath, parentSchema);
+  if (!parentIsRecord && !isRecord(schema)) return null;
+  return {
+    parent: parentPath as unknown as ModuleFilePath,
+    key: parentIsRecord ? key : undefined,
+  };
 }

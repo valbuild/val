@@ -32,6 +32,7 @@ import {
   useParent,
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
+import { keyOfScanTarget } from "./getKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
 import { mergeReferences } from "./useJsonValuesLoad";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
@@ -62,25 +63,14 @@ export function ArrayAndRecordTools({
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const parts = splitIntoInitAndLastParts(path);
   const last = parts[parts.length - 1];
-  const parentIsRecord = isParentRecord(
+  const scanTarget = keyOfScanTarget({
     path,
-    maybeParentPath,
-    parentSchemaAtPath,
-  );
-  /**
-   * Scanned for only where something below shows the answer: an entry of a
-   * record (its delete and rename guards, and its references) and a record
-   * (its references). Anything else -- the root of a page, which is where an
-   * editor types -- asked anyway and threw it away, and the scan walks the
-   * project's source again on every keystroke.
-   */
-  const showsRefs =
-    parentIsRecord ||
-    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined);
-  const refs = useKeysOf(
-    showsRefs ? (maybeParentPath as unknown as ModuleFilePath) : undefined,
-    parentIsRecord ? last?.part : undefined,
-  );
+    parentPath: maybeParentPath,
+    parentSchema: parentSchemaAtPath,
+    schema: "data" in schemaAtPath ? schemaAtPath.data : undefined,
+    key: last?.part,
+  });
+  const refs = useKeysOf(scanTarget?.parent, scanTarget?.key);
   const srcFolder = usePageRouterSrcFolder();
   /**
    * Memoised, because these arrays are PROPS that end up in a dependency list.
