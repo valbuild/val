@@ -155,6 +155,16 @@ that come BEFORE the ones already held, so appending them (what `receive` + a
 plain `patch:receive` would do) is wrong. `baseAndChain.test.ts` is every
 combination, over time, sampled at the end of each turn.
 
+What `/stat`'s `sourcesSha` names is the base its CHAIN is relative to, which
+is not always the answering build's own (`ValOps.chainBaseSha`). In fs and
+memory mode the chain is the store's, relative to what the newest build
+evaluated, so a previous build still answering -- a long poll parked on it
+across a hot reload -- names the newest build's base, and a Studio already on
+the new bundle fetches nothing (S26). In http mode each build is answered with
+the chain it lacks, so it names its own. BaseAlignment, the fetch and
+`__VAL_BASE__` go in phase 7 of the plan, once a base can be read by its
+version (phase 6's module endpoint); see "Phase 7 without phase 6" there.
+
 ## Where things live
 
 | you want                                   | look at                                           |

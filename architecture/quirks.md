@@ -1149,6 +1149,37 @@ Two things it relies on, which are easy to break:
 If you find yourself adding a refresh somewhere, check whether `confirmed`
 already covers it -- and never add one on a timer.
 
+## After a code change in dev, the build before it can still answer
+
+Hot reload makes a NEW Val server for the new code, but a request the
+browser had already sent -- above all a `/stat` long poll, parked for up to
+20 s -- is answered by the old one. So for a while two builds answer one
+Studio, and the old one's evaluation of the modules is from before the change.
+
+What the Studio puts its chain on is the `sourcesSha` a `/stat` names
+(`BaseAlignment`), and the old server used to name its own: the Studio
+fetched the old base (`PUT /sources/~?apply_patches=false`, from the old
+server too) and a draft page in the overlay showed new text, old text, new
+text (S26 in `scenarios/`). In fs and memory mode the patches belong to the
+STORE, relative to what the newest build evaluated, so `/stat` now names the
+base of the newest server made in the process for that root or patch store
+(`ValOps.chainBaseSha`).
+
+Two things that look like they would do instead, and do not:
+
+- **`seq` does not order builds.** A new build bumps it once, but the old
+  server answering afterwards reads the same counter, so its answers are at
+  the newest `seq` too.
+- **"Newest" is by when the server was MADE, not when it first answered.**
+  A server that is first asked after the new one (nothing had read it
+  before the change) would otherwise count as the newer of the two; that
+  version of the fix was tried, and the flicker stayed.
+
+On a hosted site the content service answers each build with the patches that
+build lacks, so there the old build's base is right for its chain and the
+flicker during a rollout is not fixed yet (see the plan, "Phase 7 without
+phase 6").
+
 ## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
 
 Spinners have been reported to look off centre while turning, in Chrome on a
