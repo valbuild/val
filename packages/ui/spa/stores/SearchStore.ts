@@ -14,6 +14,13 @@ import {
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
+import { yieldToMain } from "./yieldToMain";
+
+/**
+ * How long one slice of indexing may hold the thread: well under the 50 ms
+ * of a long task, so typing stays responsive while a big project is indexed.
+ */
+const INDEX_SLICE_MS = 12;
 
 /** What has to be cloned across the worker seam to index. */
 export type SourceSnapshot = Record<
@@ -147,7 +154,22 @@ export class SearchStore {
     for (const moduleFilePath of target) {
       this.activity.work("search:index-module", moduleFilePath);
       const entry = snapshot[moduleFilePath];
-      indexModule(this.index, moduleFilePath, entry.source, entry.schema);
+      // A slice at a time, with the thread let go between: indexing a
+      // library or a record of 10,000 entries is seconds of work, and this
+      // runs on the thread the editor types on. Each slice goes on from where
+      // the last stopped (`indexModule` keeps what it walked, by entry).
+      while (
+        !indexModule(
+          this.index,
+          moduleFilePath,
+          entry.source,
+          entry.schema,
+          performance.now() + INDEX_SLICE_MS,
+        )
+      ) {
+        this.activity.work("search:index-slice", moduleFilePath);
+        await yieldToMain();
+      }
       if (!this.indexed.has(moduleFilePath)) {
         added.push(moduleFilePath);
       }

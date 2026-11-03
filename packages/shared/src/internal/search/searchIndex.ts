@@ -112,10 +112,22 @@ export function indexModule(
   moduleFilePath: ModuleFilePath,
   source: Json,
   schema: SerializedSchema,
-): void {
+  /**
+   * Stop by this time (`performance.now()`), for a caller that must not hold
+   * the thread: answers `false` when it stopped with entries of a record
+   * module still to walk, and the same call again goes on from there. A
+   * module that is not a record is walked whole, whatever the time.
+   */
+  until?: number,
+): boolean {
   if (schema.type === "record" && isJsonRecord(source)) {
-    indexRecordModule(searchIndex, moduleFilePath, source, schema);
-    return;
+    return indexRecordModule(
+      searchIndex,
+      moduleFilePath,
+      source,
+      schema,
+      until,
+    );
   }
   removeModule(searchIndex, moduleFilePath);
   const docs = new Set<string>();
@@ -125,7 +137,11 @@ export function indexModule(
     const id = indexLeaf(searchIndex, leaf);
     if (id !== null) docs.add(id);
   });
+  return true;
 }
+
+/** How many entries are walked between two looks at the clock. */
+const ENTRIES_PER_CLOCK_CHECK = 32;
 
 /**
  * A module whose root is a record, indexed entry by entry: an entry whose
@@ -147,7 +163,8 @@ function indexRecordModule(
   moduleFilePath: ModuleFilePath,
   source: { readonly [key: string]: Json },
   schema: Extract<SerializedSchema, { type: "record" }>,
-): void {
+  until: number | undefined,
+): boolean {
   const { index, pathToLabel, docsByModule, entriesByModule } = searchIndex;
   let indexed = entriesByModule.get(moduleFilePath);
   let docs = docsByModule.get(moduleFilePath);
@@ -178,8 +195,16 @@ function indexRecordModule(
     entries.delete(key);
   }
   const path = (moduleFilePath + "?p=") as SourcePath;
+  let walked = 0;
   for (const key in source) {
     if (entries.has(key)) continue;
+    if (
+      until !== undefined &&
+      ++walked % ENTRIES_PER_CLOCK_CHECK === 0 &&
+      performance.now() > until
+    ) {
+      return false;
+    }
     const value = source[key];
     const entryDocs: string[] = [];
     traverseSchemaSource(
@@ -195,6 +220,7 @@ function indexRecordModule(
     );
     entries.set(key, { source: value, docs: entryDocs });
   }
+  return true;
 }
 
 function isJsonRecord(

@@ -193,6 +193,12 @@ export type WorkKind =
   | "search:gather-snapshot"
   /** One module was walked and its documents replaced. */
   | "search:index-module"
+  /**
+   * Indexing a module stopped at the end of its time slice and let the
+   * thread go, to go on in a later task. Seconds of indexing (a library of
+   * 10,000) are many of these, never one long task.
+   */
+  | "search:index-slice"
   | "search:build-index"
   | "search:query"
   /** One module was walked for referrers and its index slice replaced. */

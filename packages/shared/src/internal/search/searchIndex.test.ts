@@ -321,6 +321,24 @@ describe("indexing a record module again", () => {
     expect(added).toEqual(['/posts.val.ts?p="/a"."title"']);
   });
 
+  test("stops at its deadline, and goes on from there", () => {
+    const { searchIndex, added } = counting();
+    const source: Record<string, { title: string }> = {};
+    for (let i = 0; i < 200; i++) {
+      source[`/p${i}`] = titled(i === 199 ? "zeppelin" : `post ${i}`);
+    }
+    let slices = 0;
+    // A deadline already gone: one look at the clock's worth per call.
+    while (!indexModule(searchIndex, POSTS, source, schema, 0)) slices++;
+    expect(slices).toBeGreaterThan(1);
+    // Every entry walked exactly once over all the slices.
+    expect(added).toHaveLength(200);
+    expect(new Set(added).size).toBe(200);
+    expect(paths(searchIndex, "zeppelin")).toEqual([
+      '/posts.val.ts?p="/p199"."title"',
+    ]);
+  });
+
   test("the same documents as a walk of the whole module", () => {
     const source = {
       "/a": titled("alpha"),
