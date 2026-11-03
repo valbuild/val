@@ -1180,6 +1180,37 @@ build lacks, so there the old build's base is right for its chain and the
 flicker during a rollout is not fixed yet (see the plan, "Phase 7 without
 phase 6").
 
+## After a code change, an edit that does not apply may be held, not deleted
+
+A patch that does not apply is deleted, on the server too: it can never
+produce a value. That rule deleted editors' work after a code change, two
+ways, and both are now told apart from it (phase 9 of
+`docs/plans/one-content-model.md`):
+
+- **The Studio had the new field before the server did** (S10b). In
+  development HMR reaches the page and the server in either order; when the
+  page is first, the old server's `/stat` named its own base, BaseAlignment
+  fetched it -- no field -- and an edit to the field failed on it and was
+  deleted. Now a module whose schema new code moved the Studio to keeps the
+  base that code wrote until a build answers with the same schema. If you
+  see an edit "could not be applied" right after a code change, look at
+  whether the Studio's schema for that module and the answering build's
+  (`version.schema` on `PUT /sources/~`) differ, and which one moved.
+- **The code renamed or removed the field** (S14). The patch applied before
+  and does not now: it is held (`StatusStore.held`, the banner above the
+  Studio), and a publish is refused until it is discarded. The server's own
+  read of that module stops at it meanwhile (`applyChain` stops where the
+  Studio passes over), so a draft page does not show later edits to that
+  module until the held one is settled. A Studio opened AFTER the change
+  never saw the patch fit, and deletes it as before.
+
+And one that is not fixed: **an edit to a field only staged code has cannot
+be saved before the proposal is built** (C11b). The tab's evaluation lets the
+editor type into it, but the save before the next code write runs in Val's
+server at the proposal's address, which applies the pending patches to the
+module as the build it runs evaluated it. The assistant's next `write_files`
+is refused ("could not be saved first") until somebody builds.
+
 ## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
 
 Spinners have been reported to look off centre while turning, in Chrome on a

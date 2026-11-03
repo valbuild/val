@@ -135,6 +135,32 @@ number is needed anywhere.
 A patch that cannot be applied is **deleted** (server included) and logged: it can
 never produce a value, and leaving it blocks every later save to its module.
 
+**Unless the code moved under it.** A patch that applied under its module's
+previous schema and does not under the new one -- a field renamed or removed
+under a pending edit -- is **held** (`StatusStore.held`, `HeldEditsBanner`),
+not deleted: it is somebody's work. It stays in the chain, applies nowhere,
+and refuses a publish (`held-edits`, since the save would remove it) until
+the editor discards it or makes the change again where the field is now; an
+edit that applies again (the code moved back) is released. "Applied under
+which schema" is per patch, by `SchemaStore.version`, recorded when it applies
+(`fittedUnder` in `createSystem`), so a Studio that never saw a patch fit -- one
+opened after the change -- cannot tell, and deletes it as before: a patch
+carries no schema version on the wire.
+
+## New code comes in through one door
+
+`HostStore.reloadCode(registry)` is how a `val.modules` registry reaches the
+Studio, whatever brought it: the first one, HMR (`val-modules-updated`), and
+code the tab evaluated after a staging (`proposals/stagedCode.ts`). It reads
+the registry before it touches anything -- one that cannot be read leaves the
+Studio on the code it had and answers `kept` -- and answers which modules'
+schemas moved and which went. Replaced, not merged: a module no longer in the
+registry goes. Downstream only the modules that moved are touched, because
+`SchemaStore` and `SourceStore` compare by identity and an unchanged module
+hands over the objects it did last time -- by instance for HMR, by content
+(serialized schema and written source) for an imported bundle, whose
+instances are all new.
+
 ## Base and chain come from ONE build
 
 What the Studio shows is base + chain. The base is the source in the bundle it
@@ -155,6 +181,17 @@ that come BEFORE the ones already held, so appending them (what `receive` + a
 plain `patch:receive` would do) is wrong. `baseAndChain.test.ts` is every
 combination, over time, sampled at the end of each turn.
 
+**A base is only put under a module when it fits the Studio's schema, where
+the Studio is ahead.** When new code moved a module's schema in the Studio
+(HMR, or staged code the tab evaluated: `schema:init` after the first intake)
+and the build answering has not got that code yet, its base for that module
+was evaluated with the old schema -- it has no field the new code added. So
+BaseAlignment leaves that module out (`PUT /sources/~` answers each module's
+`version.schema`) and keeps the base the Studio's own code wrote, until a
+build answers with the same schema (S10b, C11). Where the SERVER is ahead (a
+deploy while the Studio was open) the build's base is the one that belongs
+under its chain, and is taken as before.
+
 What `/stat`'s `sourcesSha` names is the base its CHAIN is relative to, which
 is not always the answering build's own (`ValOps.chainBaseSha`). In fs and
 memory mode the chain is the store's, relative to what the newest build
@@ -174,7 +211,8 @@ version (phase 6's module endpoint); see "Phase 7 without phase 6" there.
 | source, versions, `.jsonValues()`          | `stores/SourceStore.ts`                           |
 | the view: the engine over base and chain   | `stores/studioView.ts`                            |
 | the chain, `/stat` reconciliation, uploads | `stores/PatchStore.ts`, `stores/PatchSync.ts`     |
-| wiring, publish, discard                   | `stores/createSystem.ts`                          |
+| wiring, publish, discard, held edits       | `stores/createSystem.ts`                          |
+| new code: `reloadCode(registry)`           | `stores/HostStore.ts`                             |
 | a fake server to test against              | `stores/testSystem.ts`                            |
 | what a store _did_, not what it announced  | the activity channel, `stores/activity.ts`        |
 

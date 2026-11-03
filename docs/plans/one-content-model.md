@@ -1,8 +1,9 @@
 # One content model: every reader, one version, one way to load
 
 > **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 to 5 built
-> (2026-11-02); of phase 7, the parts phase 6 does not block (2026-11-03),
-> while phase 6 waits for a deployed 128 MB check.** See
+> (2026-11-02); of phase 7, the parts phase 6 does not block, and of phase 9
+> the parts phases 6 and 7 do not block (2026-11-03), while phase 6 waits for
+> a deployed 128 MB check.** See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
 > the change.
@@ -565,6 +566,80 @@ coverage" (valbuild/val#1006).
     service of the release before ignores them; a Val of the release before
     sends none, and is answered as before).
 
+- **Phase 9, the parts phases 6 and 7 do not block** (2026-11-03). The
+  analysis is [Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7).
+  Built:
+  - **An edit the code moved under is held, not deleted** (S14). A patch
+    that applied under its module's previous schema (`SchemaStore.version`,
+    recorded per patch when it applies: `fittedUnder` in `createSystem`) and
+    does not under the new one is held (`StatusStore.held`): not deleted on
+    the server, shown above the Studio (`HeldEditsBanner`, with Discard), and
+    a publish is refused while it is held (`held-edits`), since the save would
+    remove it. An edit that applies again is released. A patch that never
+    fitted is deleted, as before; so is one a Studio never saw fit (opened
+    after the change), because a patch carries no schema version on the
+    wire.
+  - **The Studio's base, where new code put it ahead** (S10b local, C11).
+    For a module whose schema new code moved the Studio to (`schema:init`
+    after the first intake: HMR, or staged code the tab evaluated) and that
+    no build has answered with yet, BaseAlignment leaves out a base the
+    answering build evaluated with another schema (`PUT /sources/~`'s
+    `version.schema` per module) and keeps the one the Studio's own code
+    wrote. Where the SERVER is ahead (a deploy, a proposal built without the
+    tab evaluating it) the build's base is taken as before -- keeping the old
+    one there dropped what the build already contains. `addedField` (b)
+    passes in memory, fs and http (it was `test.failing`).
+  - **`reloadCode(registry)`** (`HostStore`): the one door for a registry --
+    the first, HMR (`ValStoreProvider`) and staged code. It reads the
+    registry before it touches anything (`kept`/`does-not-load`, shown to
+    the editor; a later registry wins over one still being read), and answers
+    the modules whose schema moved and the ones that went. An imported bundle
+    is compared by content (serialized schema and written source), since all
+    its instances are new; HMR by instance, so a `validate`-only change still
+    reaches validation. The plan's `expected: Manifest` argument and its
+    `not-the-manifest's` and `other-val-version` answers wait for a build's
+    registry (below).
+  - **The tab evaluates `val.modules` after each staging** (C11, C12).
+    `write_files` starts `runStagedCode` (`proposals/stagedCode.ts`): bundle
+    (`bundleValModules`), evaluate in a worker (`evaluateTree`), import the
+    same bundle in the Studio's realm, `reloadCode`. It answers with what
+    moved (`valModules`: `schemaChanged`, `removed`, `contentErrors` from the
+    worker's `readValModules`), or why the code does not run, in which case
+    the Studio keeps its schema; an evaluation that finishes after the
+    answer is told on the assistant's next tool answer (`untoldStagedCode`).
+    No new tool: `write_files`' answer and the next one carry it. Only where
+    the page can run the builder (`canBuildHere`): the Studio is usually not
+    cross-origin isolated, and there nothing is evaluated (`not-here`) and
+    the schema arrives with a build, as before.
+  - **Search and references** are marked stale on `schema:init`, as
+    validation and previews were.
+  - **Deleted:** nothing of phase 9's row yet, and that is the analysis's
+    answer: `SchemaFreshnessWatch`, `reportSchemaOutOfDate` and the dialog
+    are the only answer hosted until a build's registry can be swapped in;
+    the merge in `SchemaStore.receive` went in phase 0 (S13); the Source
+    `stagedModuleSources` sends is recorded by home with `staged:<inputs>`
+    now (home's phase 7 contract), so it is no longer a Source paired with
+    the previous schema -- replacing it with the tab's `{ source, schema }`
+    needs a field the contract does not have. Replaced in the same PR:
+    `HostStore.receive` as the Studio's intake of a registry (now under
+    `reloadCode`), `discardUnapplicable`'s delete of an edit the code moved
+    under.
+  - **A finding, kept `test.failing`: C11b.** The tab lets the editor type
+    into a field only staged code has, but the save before the next code
+    write runs in Val's server at the address, which applies the pending
+    patches to the module as the build it runs evaluated it -- without the
+    field -- and the commit fails, so the assistant's next `write_files` is
+    refused until somebody builds. The server would need a staged module's
+    base from the staged text, which the overlay's `staged` map (home's
+    contract) lets it recognise; see what is left.
+  - **Scenarios:** S10b (`addedField` b) and S14 pass in memory, fs and
+    http; S12 gains "a registry that cannot be read"; C11 and C12 are new
+    and pass; C11b fails as above. S16 stays skipped. B01-B10, the
+    content-shape matrix and overlayAfterBuild's pins are unchanged.
+  - **Public API:** unchanged. The wire: none between Val's packages or to
+    content. The assistant's tools: `write_files` answers a `valModules`
+    field, and any tool answer can carry one (as `typecheck_errors`).
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -597,9 +672,11 @@ coverage" (valbuild/val#1006).
 2. Fix the plain bugs (decision 2), and then the grid's failing cells, after
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
-   local form waits for phase 9 (an edit the server cannot apply yet is held, not deleted).
-4. Phases 6 to 9 (2 to 5 are built, and of 7 what 6 does not block; the
-   rest of 7 is listed under [Phase 7 without phase 6](#phase-7-without-phase-6)).
+   local form passes since phase 9's first part.
+4. Phases 6 to 9 (2 to 5 are built, of 7 what 6 does not block, and of 9
+   what 6 and 7 do not; the rest of 7 is listed under
+   [Phase 7 without phase 6](#phase-7-without-phase-6), the rest of 9 under
+   [Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)).
    Left from phase 5: the draft a page
    is rendered with carries no versions (`ValDraft`), so a page's first
    relay of each module is still compared by content and the page reports
@@ -1423,18 +1500,30 @@ Written 2026-11-03, when phase 6 waited for the deployed 128 MB check and
 phase 7's remainder (`originTier`, `manifestSource`, BaseAlignment and
 `__VAL_BASE__` going) waited for phase 6. What each part of phase 9 needs:
 
-| Part of phase 9                                                                                     | Needs 6 or 7?                      | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| An edit that no longer fits after a code change is held, not deleted (S14)                          | No                                 | The Studio knows when a module's schema moved (`SchemaStore.version`) and which patches fitted before it did; the choice is made where it deletes today (`discardUnapplicable`). What it cannot see: a patch it never saw fit (a Studio opened after the change), because a patch carries no schema version on the wire.                                                                                                                                   |
-| An edit to a field the server does not have yet is kept (S10b, local development)                   | No                                 | The base under a module has to be made with the schema the Studio reads it with. `PUT /sources/~` answers each module's version since phase 1, so BaseAlignment can leave out a module the answering build evaluated with another schema, and keep the one it has -- the bundle's, made with the Studio's own code.                                                                                                                                        |
-| `reloadCode(registry)`: one intake, for the first registry, HMR and staged code                     | No                                 | It is `HostStore.receive` made the only door, answering what it did (`reloaded`, with the modules that moved and went) or that it did nothing (`kept`, `does-not-load`).                                                                                                                                                                                                                                                                                   |
-| A new build's registry (`/_val/modules/<build>.js`, named by the manifest) and `not-the-manifest's` | **Yes (7)**, and the builds        | The Studio holds no manifest until `manifestSource`, so it has nothing to check a registry against; and no build emits the entry (`@valbuild/tanstack-build`, served by the platform).                                                                                                                                                                                                                                                                     |
-| `other-val-version` (an upgrade proposal reloads the Studio by itself)                              | **Yes**, with the build's registry | Only a build's registry can carry another Val; staged code is evaluated against the site's vendor layer.                                                                                                                                                                                                                                                                                                                                                   |
-| `SchemaFreshnessWatch`, `StatusStore.reportSchemaOutOfDate` and the dialog deleted (S16)            | **Yes**, with the build's registry | Hosted, a deploy is the only way new code reaches an open Studio, and until a build's registry can be swapped in the dialog is the only thing that stops the editor working on a schema the server no longer has. Deleted without it, the Studio would go on showing the old fields over the new build's content, silently. It is already not shown in code mode, where the schema changes with every build and the staged code is now swapped in (below). |
-| The merge in `SchemaStore.receive`                                                                  | --                                 | Gone already: an intake replaces (S13, phase 0's plain bugs).                                                                                                                                                                                                                                                                                                                                                                                              |
-| Search and references stale for the modules whose schema moved                                      | No                                 | `schema:init` names them; validation and previews listened, search and references did not.                                                                                                                                                                                                                                                                                                                                                                 |
-| The tab evaluates `val.modules` after each staging, swaps the schema in and tells the assistant     | No (where the page can build)      | `bundleValModules`, `evaluateTree` and `readValModules` exist (update with code). Only where the builder can run (`canBuildHere`), as for a build in the page.                                                                                                                                                                                                                                                                                             |
-| A staging records each changed module's Source WITH its schema (`staged:<hash>`)                    | No, but **home**                   | The content service has to store and serve the schema version beside the Source; Val then sends it with the staging, and the Source-without-schema `stagedModuleSources` sends goes. Waits for home's contract.                                                                                                                                                                                                                                            |
+| Part of phase 9                                                                                                    | Needs 6 or 7?                      | Why                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An edit that no longer fits after a code change is held, not deleted (S14)                                         | No                                 | The Studio knows when a module's schema moved (`SchemaStore.version`) and which patches fitted before it did; the choice is made where it deletes today (`discardUnapplicable`). What it cannot see: a patch it never saw fit (a Studio opened after the change), because a patch carries no schema version on the wire. **Built.**                                                                                                 |
+| An edit to a field the server does not have yet is kept (S10b, local development)                                  | No                                 | The base under a module has to be made with the schema the Studio reads it with. `PUT /sources/~` answers each module's version since phase 1, so BaseAlignment can leave out a module the answering build evaluated with another schema, where new code put the Studio ahead, and keep the base its own code wrote. **Built.**                                                                                                     |
+| `reloadCode(registry)`: one intake, for the first registry, HMR and staged code                                    | No                                 | It is `HostStore.receive` made the only door for a registry, answering what it did (`reloaded`, with the modules that moved and went) or that it did nothing (`kept`, `does-not-load`). **Built.**                                                                                                                                                                                                                                  |
+| A new build's registry (`/_val/modules/<build>.js`, named by the manifest) and `not-the-manifest's`                | **Yes (7)**, and the builds        | The Studio holds no manifest until `manifestSource`, so it has nothing to check a registry against; and no build emits the entry (`@valbuild/tanstack-build`, served by the platform).                                                                                                                                                                                                                                              |
+| `other-val-version` (an upgrade proposal reloads the Studio by itself)                                             | **Yes**, with the build's registry | Only a build's registry can carry another Val; staged code is evaluated against the site's vendor layer.                                                                                                                                                                                                                                                                                                                            |
+| `SchemaFreshnessWatch`, `StatusStore.reportSchemaOutOfDate` and the dialog deleted (S16)                           | **Yes**, with the build's registry | Hosted, a deploy is the only way new code reaches an open Studio, and until a build's registry can be swapped in the dialog is the only thing that stops the editor working on a schema the server no longer has. Deleted without it, the Studio would go on showing the old fields over the new build's content, silently. It is already not shown in code mode, where the staged code is now swapped in where the page can build. |
+| The merge in `SchemaStore.receive`                                                                                 | --                                 | Gone already: an intake replaces (S13, phase 0's plain bugs).                                                                                                                                                                                                                                                                                                                                                                       |
+| Search and references stale for the modules whose schema moved                                                     | No                                 | `schema:init` names them; validation and previews listened, search and references did not. **Built.**                                                                                                                                                                                                                                                                                                                               |
+| The tab evaluates `val.modules` after each staging, swaps the schema in and tells the assistant                    | No (where the page can build)      | `bundleValModules`, `evaluateTree` and `readValModules` exist (update with code). Only where the builder can run (`canBuildHere`), as for a build in the page. **Built** (C11, C12).                                                                                                                                                                                                                                                |
+| A staging records each changed module's Source WITH its schema                                                     | home: done its way                 | Home's phase 7 contract records a staged module's Source with `staged:<inputs>` (not the previous schema's sha) and names the staged modules in the overlay (`staged`). Sending the tab's real schema sha instead needs a field that contract does not have, so `stagedModuleSources`' Source stays.                                                                                                                                |
+| Val's server reads the overlay's `staged` (versions `staged:<inputs>`; saves a staged module from its staged text) | No, but a decision                 | The contract names the STAGING, not whether the build serving the address was made of it; the server needs its own build's inputs to tell. Then C11b passes: the save before a code write applies pending patches to the staged text, not to what the build evaluated.                                                                                                                                                              |
+
+**What is left of phase 9**, for after phases 6 and 7: a build's registry
+entry and `reloadCode` against the manifest (`not-the-manifest's`,
+`other-val-version`), and with it the deletion of `SchemaFreshnessWatch`,
+`reportSchemaOutOfDate`, the dialog and S16's pin -- and "no schema dialog"
+as an invariant of every scenario, which cannot hold while a deploy the
+Studio has not got still shows it. Unblocked but not built here: the
+server's reading of the overlay's `staged` (C11b), and evaluating staged
+code where the Studio cannot run the builder (a builder tab or the server
+bundling it, the Studio evaluating the code it is handed). Not measured: the
+cost of an evaluation (the plan's "Cost" below).
 
 Phase 2 can run beside phases 3 and 4. Phase 6 moves ahead of 2–5 if phase 0
 shows today's draft read already crosses 128 MB. http mode joins

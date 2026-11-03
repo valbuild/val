@@ -310,7 +310,11 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * SKIPPED: today it is BY DESIGN that the Studio reports "out-of-date"
    * (`SchemaFreshnessWatch`, after a 3 s grace and a fresh read), which shows
    * the one-way reload dialog. The plan deletes the dialog (phase 9,
-   * `reloadCode`), and this is the test that will say so. Pinned below.
+   * `reloadCode`), and this is the test that will say so. Not in phase 9's
+   * first part: hosted, the dialog is the only answer to a deploy until a
+   * build's registry can be swapped in, which needs the manifest in the
+   * Studio (`manifestSource`, phase 7 after phase 6) -- see "Phase 9 without
+   * phases 6 and 7" in the plan. Pinned below.
    */
   test.skip("S16 no schema dialog after a deploy the Studio has not got", async () => {
     world = await createWorld({ config, modules: [home], server });
