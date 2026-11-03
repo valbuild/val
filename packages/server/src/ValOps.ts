@@ -181,6 +181,28 @@ export type ValOpsOptions = {
    */
   snapshotJsonEntries?: Map<ModuleFilePath, Map<string, JSONValue>>;
   /**
+   * At a proposal's address: the modules whose staged code this build was
+   * NOT made of (`stagedAfterBuild` in `./proposal`), each with its schema
+   * version `staged:<inputs>`. This server has not got their schema, so:
+   *
+   * - their Source is read from their staged text ({@link readSources}),
+   *   over the snapshot, not taken from what the build evaluated;
+   * - their version is the staging's, on every answer, so a reader whose code
+   *   is this build never reads them for its own (`layered`'s schema rule);
+   * - a save applies to that text and that Source with no schema, and says
+   *   so per module (`moduleVersions[path].staged`);
+   * - one whose Source cannot be read from its text is HELD: a save that
+   *   touches it is refused, saying why (`heldStaged`, read by `prepare`).
+   */
+  stagedAfterBuild?: {
+    versions: Record<ModuleFilePath, string>;
+    /**
+     * The Source each staged module file declares, read without running it
+     * (`stagedModuleSources`): one it cannot read is left out.
+     */
+    readSources: () => Promise<Record<string, JSONValue>>;
+  };
+  /**
    * The TypeScript compiler, for {@link ValOps.prepare}: a publish rewrites
    * each `.val.ts` it touches as text. `loadTypeScriptKit` on Node.
    *
@@ -286,6 +308,12 @@ export abstract class ValOps {
   private buildVersion: string | null = null;
   /** Every module's `chain`, folded as the chain grows. See `ChainFold`. */
   private readonly chainFold = new ChainFold();
+  /**
+   * The modules staged after the build whose Source could not be read from
+   * their staged text, with why: a save that touches one is refused. See
+   * {@link ValOpsOptions.stagedAfterBuild}.
+   */
+  private heldStaged: Map<ModuleFilePath, string> = new Map();
 
   /**
    * Take a formatter for saves, when this instance was built without one.
@@ -458,7 +486,10 @@ export abstract class ValOps {
        * say the snapshot's content was the bundle's.
        */
       const siteLayer = this.options?.siteSnapshotSources;
-      const snapshotLayer = this.options?.snapshotSources;
+      const snapshotLayer = await this.withStagedSources(
+        this.options?.snapshotSources,
+        extracted.sources,
+      );
       /*
        * The bundle's own Source for every module either layer replaces: a
        * replaced `.jsonValues()` module's markers came as JSON, and an entry
@@ -491,6 +522,20 @@ export abstract class ValOps {
         }
         this.siteSourcesBeforeSnapshot = site;
       }
+      /*
+       * A module staged after the build is versioned as its staging: this
+       * build's schema is not the one its Source fits. Before the promotion,
+       * which keeps each module's schema version as it finds it.
+       */
+      for (const [path, version] of Object.entries(
+        this.options?.stagedAfterBuild?.versions ?? {},
+      )) {
+        const moduleFilePath = path as ModuleFilePath;
+        const known = this.baseVersions.get(moduleFilePath);
+        if (known !== undefined) {
+          this.baseVersions.set(moduleFilePath, { ...known, schema: version });
+        }
+      }
       if (siteLayer || snapshotLayer) {
         this.promoteCommittedSources({ ...siteLayer, ...snapshotLayer });
       }
@@ -513,6 +558,55 @@ export abstract class ValOps {
       schemas: this.schemas,
       moduleErrors: this.modulesErrors,
     };
+  }
+
+  /**
+   * The snapshot, with each module staged after the build read from its
+   * staged text over it (see {@link ValOpsOptions.stagedAfterBuild}). A
+   * module whose text says nothing this can read -- a Source built by code,
+   * a `.jsonValues()` record, whose entries a save routes through a schema
+   * this server has not got -- is held, and keeps what it had: its version
+   * says it is not this build's either way.
+   */
+  private async withStagedSources(
+    snapshot: Sources | undefined,
+    bundled: Sources,
+  ): Promise<Sources | undefined> {
+    const staged = this.options?.stagedAfterBuild;
+    if (staged === undefined) return snapshot;
+    const paths = Object.keys(staged.versions) as ModuleFilePath[];
+    if (paths.length === 0) return snapshot;
+    let read: Record<string, JSONValue> = {};
+    try {
+      read = await staged.readSources();
+    } catch (err) {
+      Internal.log.error("could not read the staged modules' Source", err);
+    }
+    const sources: Sources = { ...snapshot };
+    this.heldStaged = new Map();
+    for (const path of paths) {
+      const source = read[path];
+      if (bundled[path] === undefined) {
+        // Not in this build at all: nothing here serves it, or saves it.
+        continue;
+      }
+      if (source === undefined) {
+        this.heldStaged.set(
+          path,
+          `its staged code is not in the build serving this proposal, and its content is not written out in its .val.ts (it is made by code), so it can only be saved once the proposal is built. Build the proposal, then save.`,
+        );
+        continue;
+      }
+      if (holdsJsonEntryMarkers(source)) {
+        this.heldStaged.set(
+          path,
+          `its staged code is not in the build serving this proposal, and its .jsonValues() entries are saved through a schema only a build has. Build the proposal, then save.`,
+        );
+        continue;
+      }
+      sources[path] = source;
+    }
+    return sources;
   }
 
   /**
@@ -2047,6 +2141,8 @@ export abstract class ValOps {
     // Serialized schemas are needed to route ops that target `.jsonValues()`
     // entries (their content lives in `*.val.json`, not the `.val.ts`).
     const schemas = await this.getSchemas();
+    const stagedAfterBuild: Record<string, string | undefined> =
+      this.options?.stagedAfterBuild?.versions ?? {};
 
     const applySourceFilePatches = async (
       path: ModuleFilePath,
@@ -2077,9 +2173,21 @@ export abstract class ValOps {
           errors: PatchSourceError[];
         }
     > => {
+      const errors: PatchSourceError[] = [];
+      const held = this.heldStaged.get(path);
+      if (held !== undefined) {
+        errors.push({
+          message: `${path} cannot be saved here: ${held}`,
+          filePath: path,
+        });
+        return {
+          path,
+          errors,
+          skippedPatches: patches.map((p) => p.patchId),
+        };
+      }
       const sourceFileRes = await this.getSourceFile(path);
 
-      const errors: PatchSourceError[] = [];
       if (sourceFileRes.error) {
         errors.push({
           message: sourceFileRes.error.message,
@@ -2098,7 +2206,15 @@ export abstract class ValOps {
       let tsChanged = false;
       let serializedSchema: SerializedSchema | undefined = undefined;
       try {
-        serializedSchema = schemas[path]?.["executeSerialize"]();
+        /*
+         * Not for a module staged after the build: this build's schema is of
+         * other code. With none, every op is a `.val.ts` op -- which is what
+         * a module whose Source could be read from its text is (one with
+         * `.jsonValues()` entries is held, above).
+         */
+        serializedSchema = stagedAfterBuild[path]
+          ? undefined
+          : schemas[path]?.["executeSerialize"]();
       } catch {
         // Serialization errors are reported elsewhere; treat as "no schema".
         // Without this guard one unserializable schema (e.g. a `keyOf` with an
@@ -2808,10 +2924,7 @@ export abstract class ValOps {
      * stored is the same data the Studio shows, produced by the one
      * implementation of "apply these ops".
      */
-    const moduleVersions: Record<
-      ModuleFilePath,
-      { source: JSONValue | null; schema: SerializedSchema }
-    > = {};
+    const moduleVersions: PreparedCommit["moduleVersions"] = {};
     const { sources: sourcesAfter } = await this.getSources(patchAnalysis);
     for (const path of Object.keys(patchesByModule) as ModuleFilePath[]) {
       let serialized: SerializedSchema | undefined;
@@ -2831,6 +2944,11 @@ export abstract class ValOps {
         // has to be able to show. `null` is how that travels over the wire.
         source: source === undefined ? null : (source as JSONValue),
         schema: serialized,
+        // Its code is staged and not this build's: `schema` is of other code,
+        // and content records the staging's instead.
+        ...(stagedAfterBuild[path] !== undefined
+          ? { staged: stagedAfterBuild[path] }
+          : {}),
       };
     }
 
@@ -3362,6 +3480,22 @@ export abstract class ValOps {
   // #endregion history
 }
 
+/** A record holding `.jsonValues()` markers (`{ _type: "json" }`). */
+function holdsJsonEntryMarkers(source: JSONValue): boolean {
+  return (
+    typeof source === "object" &&
+    source !== null &&
+    !Array.isArray(source) &&
+    Object.values(source).some(
+      (value) =>
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        value["_type"] === "json",
+    )
+  );
+}
+
 function isOnlyRemoteCheckValidationError(
   validationError: ValidationError,
 ): boolean {
@@ -3541,7 +3675,17 @@ export type PreparedCommit = {
    */
   moduleVersions: Record<
     ModuleFilePath,
-    { source: JSONValue | null; schema: SerializedSchema }
+    {
+      source: JSONValue | null;
+      schema: SerializedSchema;
+      /**
+       * `staged:<inputs>`: the module's code is staged in the proposal and
+       * not in this build, so `schema` is not the one `source` fits; content
+       * records this as the version's schema instead (valbuild/home,
+       * "Staged schemas"). Absent for every other module.
+       */
+      staged?: string;
+    }
   >;
   /**
    * Diagnosis only: what the source file looks like with the appliable patches

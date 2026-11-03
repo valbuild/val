@@ -32,6 +32,7 @@ import {
   layeredSnapshot,
   proposalSnapshot,
   proposalSnapshotForReaders,
+  proposalAsBuilt,
   readDraftChanges,
   readerSchemaVersion,
   type DraftSources,
@@ -221,7 +222,12 @@ export function snapshotForReaders(
     | Pick<ValHttpMode, "proposal" | "contentVersion" | "projectSource">
     | undefined,
 ): Snapshot | undefined {
-  const source = layeredSnapshot(http?.proposal, http?.contentVersion);
+  const source = layeredSnapshot(
+    // Not a module staged after the build serving the address: its Source
+    // fits code these readers have not got. See `proposalAsBuilt`.
+    http?.proposal !== undefined ? proposalAsBuilt(http.proposal) : undefined,
+    http?.contentVersion,
+  );
   return source !== undefined
     ? proposalSnapshotForReaders(source, http?.projectSource)
     : undefined;

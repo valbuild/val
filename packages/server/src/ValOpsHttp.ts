@@ -2,6 +2,7 @@ import {
   proposalJsonEntries,
   layeredSnapshot,
   proposalSnapshot,
+  stagedAfterBuild,
   type ValContentVersion,
   type ValProposal,
 } from "./proposal";
@@ -647,6 +648,13 @@ export class ValOpsHttp extends ValOps {
       options?.proposal,
       options?.contentVersion,
     );
+    /*
+     * The modules whose staged code this build was not made of: read from
+     * their staged text, versioned as their staging. See `stagedAfterBuild`.
+     */
+    const proposal = options?.proposal;
+    const staged = proposal !== undefined ? stagedAfterBuild(proposal) : {};
+    const stagedPaths = Object.keys(staged);
     super(
       valModules,
       options && snapshot
@@ -654,6 +662,22 @@ export class ValOpsHttp extends ValOps {
             ...options,
             ...(options.proposal !== undefined
               ? { snapshotSources: proposalSnapshot(options.proposal) }
+              : {}),
+            ...(proposal !== undefined && stagedPaths.length > 0
+              ? {
+                  stagedAfterBuild: {
+                    versions: staged,
+                    readSources: () =>
+                      stagedModuleSources(
+                        Object.fromEntries(
+                          stagedPaths.map((path) => {
+                            const file = path.replace(/^\/+/, "");
+                            return [file, proposal.files[file] ?? null];
+                          }),
+                        ),
+                      ),
+                  },
+                }
               : {}),
             ...(options.contentVersion !== undefined
               ? {

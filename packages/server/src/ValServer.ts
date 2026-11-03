@@ -1407,12 +1407,19 @@ export const ValServer = (
     if (pending.length === 0) return null;
     const saved = await saveChanges(cookies, { patchIds: pending, message });
     if (saved.status === 200) return null;
+    const said =
+      "message" in saved.json && typeof saved.json.message === "string"
+        ? saved.json.message
+        : `the save answered ${saved.status}`;
+    /*
+     * Why, in the words of each module that could not be saved: "Failed to
+     * create commit" alone tells the assistant nothing it can act on, and a
+     * module held until the proposal is built says what to do (build).
+     */
+    const why = sourceFilePatchErrorsOf(saved.json);
     return {
       status: saved.status === 401 ? 401 : 409,
-      message:
-        "message" in saved.json && typeof saved.json.message === "string"
-          ? saved.json.message
-          : `the save answered ${saved.status}`,
+      message: why.length > 0 ? `${said}: ${why.join("; ")}` : said,
     };
   };
 
@@ -5438,4 +5445,38 @@ function carriedPublishAnswer(answer: {
       },
     };
   }
+}
+
+/**
+ * The per-module reasons a refused save gave (`details.sourceFilePatchErrors`
+ * on `/save`'s 400), each as its message: what a save before a code write
+ * passes on, so the assistant is told why rather than that it failed.
+ */
+function sourceFilePatchErrorsOf(json: unknown): string[] {
+  const details =
+    typeof json === "object" && json !== null && "details" in json
+      ? json.details
+      : undefined;
+  const byModule =
+    typeof details === "object" &&
+    details !== null &&
+    "sourceFilePatchErrors" in details
+      ? details.sourceFilePatchErrors
+      : undefined;
+  if (typeof byModule !== "object" || byModule === null) return [];
+  const messages: string[] = [];
+  for (const errors of Object.values(byModule)) {
+    if (!Array.isArray(errors)) continue;
+    for (const error of errors) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "message" in error &&
+        typeof error.message === "string"
+      ) {
+        messages.push(error.message);
+      }
+    }
+  }
+  return messages;
 }

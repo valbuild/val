@@ -144,6 +144,51 @@ const LEGACY_CONTROL_HOST = "platform.internal";
 const PROPOSAL_BLOCK = `/*
  * THE PROPOSAL this isolate serves the address of, when it does: its name and
  * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
+ * commit, its Source by module, its \`.val.ts\` text by path, and which
+ * modules' code is staged). Val reads that Source instead of the bundle's,
+ * commits a save to the proposal, and names the save as its position. And
+ * which staging this build was made of (\`VAL_BUILD_INPUTS\`), so Val can tell
+ * a staged module this build evaluated from one staged after it.
+ * valbuild/home \`docs/proposals.md\`, "Saving" and "Staged schemas".
+ *
+ * Parsed here rather than with \`proposalFromEnv\` from @valbuild/server,
+ * because this file is compiled against whatever @valbuild/tanstack the
+ * PROJECT installed, and one from before proposals has no such export -- it
+ * also ignores the \`proposal\` key below, and serves the base build, which
+ * is the best an old app can do. A snapshot that does not parse is thrown,
+ * not served as the base: a reviewer must not be shown the wrong content as
+ * though it were the proposal.
+ */
+const proposal = (() => {
+  const name = secret("VAL_PROPOSAL");
+  const branch = secret("VAL_BRANCH");
+  if (!name || !branch) return undefined;
+  const overlay: {
+    commit?: string | null;
+    modules?: Record<string, unknown>;
+    files?: Record<string, string>;
+    staged?: Record<string, string>;
+  } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
+  return {
+    name,
+    branch,
+    commit: overlay.commit ?? null,
+    modules: overlay.modules ?? {},
+    files: overlay.files ?? {},
+    staged: overlay.staged ?? {},
+    buildInputs: secret("VAL_BUILD_INPUTS") ?? null,
+  };
+})();
+`;
+/**
+ * {@link PROPOSAL_BLOCK} as it was generated before it read which modules
+ * are staged and what the build was made of: rewritten to the current block
+ * by {@link rebakeProposal}, exactly, so a site wired before it learns both
+ * at its next build. Never generated.
+ */
+const PROPOSAL_BLOCK_V1 = `/*
+ * THE PROPOSAL this isolate serves the address of, when it does: its name and
+ * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
  * commit, its Source by module and its \`.val.ts\` text by path). Val reads
  * that Source instead of the bundle's, commits a save to the proposal, and
  * names the save as its position. valbuild/home \`docs/proposals.md\`,
@@ -752,6 +797,12 @@ export function bakedJob(files: Record<string, string>): string | undefined {
  * as it is, and serves a proposal's address as its base build.
  */
 function rebakeProposal(source: string): string {
+  // A block from before staged code was read: the current one in its place,
+  // where it is exactly as generated.
+  const at = source.indexOf(PROPOSAL_BLOCK_V1);
+  if (at !== -1 && source.indexOf(PROPOSAL_BLOCK_V1, at + 1) === -1) {
+    return source.replace(PROPOSAL_BLOCK_V1, () => PROPOSAL_BLOCK);
+  }
   if (source.includes("const proposal = (() => {")) return source;
   const once = (needle: string) => {
     const at = source.indexOf(needle);

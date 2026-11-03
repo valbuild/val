@@ -208,6 +208,70 @@ describe("serving a proposal's address", () => {
     );
   });
 
+  /**
+   * The block as every site published before it has it: it read neither
+   * which modules' code is staged nor what the build was made of
+   * (`VAL_BUILD_INPUTS`), so Val there applied a save to a module staged
+   * after its build as the build evaluated it (C11b). The text is what
+   * shipped, character for character: the rebake replaces it only when it
+   * finds it exactly.
+   */
+  const SHIPPED_BLOCK = `/*
+ * THE PROPOSAL this isolate serves the address of, when it does: its name and
+ * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
+ * commit, its Source by module and its \`.val.ts\` text by path). Val reads
+ * that Source instead of the bundle's, commits a save to the proposal, and
+ * names the save as its position. valbuild/home \`docs/proposals.md\`,
+ * "Saving".
+ *
+ * Parsed here rather than with \`proposalFromEnv\` from @valbuild/server,
+ * because this file is compiled against whatever @valbuild/tanstack the
+ * PROJECT installed, and one from before proposals has no such export -- it
+ * also ignores the \`proposal\` key below, and serves the base build, which
+ * is the best an old app can do. A snapshot that does not parse is thrown,
+ * not served as the base: a reviewer must not be shown the wrong content as
+ * though it were the proposal.
+ */
+const proposal = (() => {
+  const name = secret("VAL_PROPOSAL");
+  const branch = secret("VAL_BRANCH");
+  if (!name || !branch) return undefined;
+  const overlay: {
+    commit?: string | null;
+    modules?: Record<string, unknown>;
+    files?: Record<string, string>;
+  } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
+  return {
+    name,
+    branch,
+    commit: overlay.commit ?? null,
+    modules: overlay.modules ?? {},
+    files: overlay.files ?? {},
+  };
+})();
+`;
+
+  test("a fresh file hands Val which modules are staged and what its build was made of", () => {
+    const source = wired()[VAL_SERVER_PATH];
+    expect(source).toContain("staged: overlay.staged ?? {},");
+    expect(source).toContain(
+      'buildInputs: secret("VAL_BUILD_INPUTS") ?? null,',
+    );
+  });
+
+  test("a file with the block as it shipped gets exactly what a fresh one has, once", () => {
+    const files = wired();
+    const fresh = files[VAL_SERVER_PATH];
+    const start = fresh.indexOf("/*\n * THE PROPOSAL");
+    const end = fresh.indexOf("/*\n * THE CONTENT VERSION");
+    expect(start).toBeGreaterThan(-1);
+    const shipped = fresh.slice(0, start) + SHIPPED_BLOCK + fresh.slice(end);
+    expect(shipped).not.toBe(fresh);
+    const rebaked = rebakeGit({ ...files, [VAL_SERVER_PATH]: shipped }, null);
+    expect(rebaked[VAL_SERVER_PATH]).toBe(fresh);
+    expect(rebakeGit(rebaked, null)[VAL_SERVER_PATH]).toBe(fresh);
+  });
+
   test("an edited file it cannot place the block in is left as it was", () => {
     const before = wiredBefore();
     const edited = {

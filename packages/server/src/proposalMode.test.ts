@@ -2,9 +2,11 @@ import { initVal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import { ValOpsHttp } from "./ValOpsHttp";
 import type { AuthorId, PreparedCommit } from "./ValOps";
 import {
+  proposalAsBuilt,
   proposalFromEnv,
   proposalSnapshot,
   proposalSnapshotForReaders,
+  stagedAfterBuild,
   type ValProposal,
 } from "./proposal";
 
@@ -1047,6 +1049,8 @@ describe("proposalFromEnv", () => {
       commit: null,
       modules: {},
       files: {},
+      staged: {},
+      buildInputs: null,
     });
   });
 
@@ -1081,6 +1085,81 @@ describe("proposalFromEnv", () => {
         VAL_OVERLAY: JSON.stringify({ commit: 7 }),
       }),
     ).toThrow(/commit must be a string or null/);
+  });
+
+  /*
+   * Which modules' code is staged, and which staging the build was made of
+   * (valbuild/home: the overlay's `staged`, and `VAL_BUILD_INPUTS` beside
+   * the build's hash). A module whose staging is the build's is the build's;
+   * any other staged module was staged after it.
+   */
+  const INPUTS = "a".repeat(64);
+  const LATER = "b".repeat(64);
+  const withStaged = (inputs?: string) =>
+    proposalFromEnv({
+      VAL_PROPOSAL: NAME,
+      VAL_BRANCH: `val/p/${NAME}`,
+      VAL_OVERLAY: JSON.stringify({
+        commit: "save-2",
+        modules: {},
+        files: {},
+        staged: { [PAGE]: `staged:${LATER}` },
+      }),
+      ...(inputs !== undefined ? { VAL_BUILD_INPUTS: inputs } : {}),
+    });
+
+  test("reads which modules are staged, and which staging the build was made of", () => {
+    const p = withStaged(INPUTS);
+    expect(p?.staged).toEqual({ [PAGE]: `staged:${LATER}` });
+    expect(p?.buildInputs).toBe(INPUTS);
+  });
+
+  test("a module staged after the build is one its build did not evaluate; one it was built from is not", () => {
+    const later = withStaged(INPUTS);
+    expect(later && stagedAfterBuild(later)).toEqual({
+      [PAGE]: `staged:${LATER}`,
+    });
+    const built = withStaged(LATER);
+    expect(built && stagedAfterBuild(built)).toEqual({});
+    // The base serving the address was made of no staging at all.
+    const base = withStaged();
+    expect(base?.buildInputs).toBeNull();
+    expect(base && stagedAfterBuild(base)).toEqual({
+      [PAGE]: `staged:${LATER}`,
+    });
+  });
+
+  test("the readers leave out the Source of a module staged after the build", () => {
+    const p = proposalFromEnv({
+      VAL_PROPOSAL: NAME,
+      VAL_BRANCH: `val/p/${NAME}`,
+      VAL_OVERLAY: JSON.stringify({
+        modules: {
+          [PAGE]: { title: "Staged" },
+          "/b.val.ts": { title: "Kept" },
+        },
+        staged: { [PAGE]: `staged:${LATER}` },
+      }),
+    });
+    expect(p && proposalSnapshotForReaders(proposalAsBuilt(p))).toEqual({
+      "/b.val.ts": { title: "Kept" },
+    });
+    // The server keeps it: it saves it, from its staged text.
+    expect(p && proposalSnapshot(p)).toEqual({
+      [PAGE]: { title: "Staged" },
+      "/b.val.ts": { title: "Kept" },
+    });
+  });
+
+  test("refuses a staged map or build inputs it cannot read, rather than guess which modules a build has", () => {
+    expect(() =>
+      proposalFromEnv({
+        VAL_PROPOSAL: NAME,
+        VAL_BRANCH: `val/p/${NAME}`,
+        VAL_OVERLAY: JSON.stringify({ staged: { [PAGE]: "schema-sha" } }),
+      }),
+    ).toThrow(/staged must name module files with staged:<inputs> versions/);
+    expect(() => withStaged("not-hex")).toThrow(/VAL_BUILD_INPUTS/);
   });
 });
 

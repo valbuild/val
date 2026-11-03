@@ -994,10 +994,13 @@ test("the project's source is read by version through the publish proxy", async 
 /**
  * `home` — `VAL_OVERLAY`, as the platform hands it to a proposal's isolate
  * once content says which modules' code is staged (`staged`, each with its
- * schema version `staged:<inputs>`; valbuild/home `stagedSchemas`). Read by
- * the server at the address in phase 9; until then it must parse as it did.
+ * schema version `staged:<inputs>`; valbuild/home `stagedSchemas`), and
+ * `VAL_BUILD_INPUTS` beside the build's hash: the staging the build serving
+ * the address was made of (the overlay's `codeInputs`, from content's
+ * `PUT /__api/proposals/:name/code` `stagedInputs`). Absent while the base
+ * serves the address.
  */
-test("an overlay that says which modules are staged is a proposal as before", () => {
+test("an overlay that says which modules are staged, and the build's inputs, are read", () => {
   const proposal = proposalFromEnv({
     VAL_PROPOSAL: PROPOSAL.name,
     VAL_BRANCH: PROPOSAL.branch,
@@ -1008,6 +1011,7 @@ test("an overlay that says which modules are staged is a proposal as before", ()
       files: { "content/a.val.ts": "export default 1;\n" },
       staged: { "/content/a.val.ts": `staged:${"d".repeat(64)}` },
     }),
+    VAL_BUILD_INPUTS: "c".repeat(64),
   });
   expect(proposal).toEqual({
     name: PROPOSAL.name,
@@ -1015,7 +1019,74 @@ test("an overlay that says which modules are staged is a proposal as before", ()
     commit: "save2",
     modules: { "/content/a.val.ts": { title: "Spring" } },
     files: { "content/a.val.ts": "export default 1;\n" },
+    staged: { "/content/a.val.ts": `staged:${"d".repeat(64)}` },
+    buildInputs: "c".repeat(64),
   });
+});
+
+test("an overlay from before either says nothing is staged, on a build of no staging", () => {
+  const proposal = proposalFromEnv({
+    VAL_PROPOSAL: PROPOSAL.name,
+    VAL_BRANCH: PROPOSAL.branch,
+    VAL_OVERLAY: JSON.stringify({ version: 4, commit: null, modules: {} }),
+  });
+  expect(proposal?.staged).toEqual({});
+  expect(proposal?.buildInputs).toBeNull();
+});
+
+/**
+ * `home` — `Api["/commit"]["POST"]["body"]["modules"][path].staged`: a save
+ * at a proposal's address of a module whose code is staged and not in the
+ * build that saved it names the staging, so content records `staged:<inputs>`
+ * as the version's schema instead of the build's (`writeCommitArchive`).
+ */
+test("a save of a module staged after the build names its staging, beside the build's schema", async () => {
+  const INPUTS = "e".repeat(64);
+  const AFTER = `staged:${"f".repeat(64)}`;
+  const proposal: ValProposal = {
+    ...PROPOSAL,
+    files: {
+      "content/page.val.ts": `import { c, s } from "../val.config";\n\nexport default c.define("/content/page.val.ts", s.object({ title: s.string(), button: s.string() }), { title: "Spring", button: "Buy" });\n`,
+    },
+    staged: { "/content/page.val.ts": AFTER },
+    buildInputs: INPUTS,
+  };
+  const { ops, sent, restore } = opsAnswering(
+    { updatedFiles: [], commit: "c-save", branch: PROPOSAL.branch },
+    200,
+    { proposal },
+  );
+  try {
+    await ops.commit(
+      {
+        ...EMPTY_PREPARED,
+        moduleVersions: {
+          ["/content/page.val.ts" as ModuleFilePath]: {
+            source: { title: "Spring", button: "Buy now" },
+            schema: {
+              type: "object",
+              items: {},
+              opt: false,
+            } as unknown as SerializedSchema,
+            staged: AFTER,
+          },
+        },
+      },
+      "Saved before the code was changed",
+      PROFILE,
+      "/public/val",
+    );
+    const body = sent.find((r) => r.url.endsWith("/save"))?.body as {
+      modules: Record<string, unknown>;
+    };
+    expect(body.modules["/content/page.val.ts"]).toEqual({
+      source: { title: "Spring", button: "Buy now" },
+      schema: { type: "object", items: {}, opt: false },
+      staged: AFTER,
+    });
+  } finally {
+    restore();
+  }
 });
 
 /** `home` — `Api["/patches"]["DELETE"]["res"]`, keyed by branch. */

@@ -4268,6 +4268,65 @@ const controlPlane: Handler = async (req, res, url) => {
     json(res, 200, proposalOverlay(proposal));
     return;
   }
+  /*
+   * What the platform hands the isolate at the proposal's address, as the
+   * loader's `dynamicEnv` names it: the proposal, its overlay as JSON, and
+   * which staging the build serving it was made of (`VAL_BUILD_INPUTS`, the
+   * overlay's `codeInputs` in home), when a build of its own serves it. Read
+   * by the scenario world with Val's `proposalFromEnv`.
+   */
+  const env = /^proposals\/([0-9a-f]{20})\/env$/.exec(action);
+  if (env !== null && req.method === "GET") {
+    const proposal = state.proposals.get(env[1]);
+    if (proposal === undefined) {
+      json(res, 404, { message: "No such proposal" });
+      return;
+    }
+    const {
+      name: _name,
+      branch: _branch,
+      ...handed
+    } = proposalOverlay(proposal);
+    json(res, 200, {
+      VAL_PROPOSAL: proposal.name,
+      VAL_BRANCH: proposal.branch,
+      VAL_OVERLAY: JSON.stringify(handed),
+      ...(proposal.built !== null
+        ? { VAL_BUILD_INPUTS: proposal.built.inputs }
+        : {}),
+    });
+    return;
+  }
+  /*
+   * The platform built what is staged NOW and serves it at the address: what
+   * a build a test does not run through `POST /proposals/:name/build` (the
+   * Studio's Build) leaves content holding. `hash` names the build.
+   */
+  const built = /^proposals\/([0-9a-f]{20})\/built$/.exec(action);
+  if (built !== null && req.method === "POST") {
+    const proposal = state.proposals.get(built[1]);
+    if (proposal === undefined) {
+      json(res, 404, { message: "No such proposal" });
+      return;
+    }
+    const body = await readJsonBody<{ hash?: string }>(req);
+    const inputs = stagedJson(proposal).inputs;
+    // A build of these inputs already served (the Studio's Build) stays.
+    if (proposal.built?.inputs !== inputs || body?.hash !== undefined) {
+      proposal.built =
+        inputs === null
+          ? null
+          : {
+              hash: body?.hash ?? sha(`built:${inputs}`).slice(0, 12),
+              inputs,
+            };
+    }
+    if (proposal.built !== null && proposal.git.takenIn !== null) {
+      proposal.git.takenIn.building = false;
+    }
+    json(res, 200, { ok: true, built: proposal.built });
+    return;
+  }
   if (action === "project-source" && req.method === "PUT") {
     // What a publish leaves the platform holding: the live build's files.
     const body = await readJsonBody<{

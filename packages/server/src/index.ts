@@ -52,6 +52,8 @@ export {
   layeredSnapshot,
   proposalSnapshot,
   proposalSnapshotForReaders,
+  proposalAsBuilt,
+  stagedAfterBuild,
 } from "./proposal";
 export type { ValContentVersion, ValProposal } from "./proposal";
 // Exported for a host that has to build the same config the API router builds:
