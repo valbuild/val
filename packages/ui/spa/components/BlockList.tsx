@@ -170,9 +170,10 @@ export function BlockList({
   /** Nesting level, used only for layout. */
   depth?: number;
   /**
-   * Whether the list draws its own "Add" under the last row. A nested list
-   * does not: its Add sits on the label row above it, where it is one line
-   * instead of a stack of Adds closing every level at once.
+   * Whether the list draws its own "Add" button: always for a record, and for
+   * an EMPTY array (with rows, the insert point under the last row is the
+   * array's Add). A nested list does not: its + sits on its label row, as a
+   * `Field`'s does.
    */
   showAdd?: boolean;
 }) {
@@ -260,12 +261,64 @@ function ArrayBlockList({
    * Where focus goes once the list has caught up with an edit made from the
    * keyboard. After an insert, into the new item: grip, Tab to the bar above
    * it, Enter, and you are typing in it. After a move, to the moved item's
-   * position picker, so moving it again is one more keypress.
+   * number (its menu), so moving it again is one more keypress; after a
+   * delete, to the number of the row that took its place.
    */
   const pendingFocus = useRef<{
     index: number;
     target: "body" | "position";
   } | null>(null);
+  type FocusRequest = { index: number; target: "body" | "position" };
+  // Puts focus on a row of THIS list once it has painted.
+  const focusRow = useCallback(({ index, target }: FocusRequest) => {
+    // After paint: the row for the index re-renders with its new content in
+    // the commit this runs after, but its fields mount lazily.
+    requestAnimationFrame(() => {
+      // THIS list's row: a nested list's rows carry the same attribute and
+      // can come first in the DOM (inside an earlier row of this one).
+      const container = containerRef.current;
+      const row = Array.from(
+        container?.querySelectorAll(`[data-block-index="${index}"]`) ?? [],
+      ).find(
+        (el) => el.parentElement?.closest("[data-block-list]") === container,
+      );
+      // The row's own controls come before any nested row's in the DOM, so
+      // the first match is this row's.
+      const element =
+        target === "position"
+          ? row?.querySelector<HTMLElement>("[data-block-position]")
+          : (row?.querySelector<HTMLElement>(
+              "[data-block-body] :is(input, textarea, [contenteditable='true'], [role='combobox'])",
+            ) ?? row?.querySelector<HTMLElement>("[data-block-grip]"));
+      element?.focus();
+    });
+  }, []);
+  /**
+   * An edit chosen from a row's menu has to wait for that menu to be GONE
+   * before focus moves: a closing menu is still mounted while it animates
+   * out, and when the edit shifts the rows under the pointer it takes focus
+   * back to itself (Radix focuses the menu when the pointer leaves an item),
+   * then unmounts and drops focus on the page. So the menu says when an edit
+   * starts and when it has closed, and the focus waits in between.
+   */
+  const menuClosing = useRef(false);
+  const deferredFocus = useRef<FocusRequest | null>(null);
+  const menuLifecycle = useMemo(
+    () => ({
+      beginMenuAction: () => {
+        menuClosing.current = true;
+      },
+      endMenuAction: () => {
+        menuClosing.current = false;
+        const deferred = deferredFocus.current;
+        deferredFocus.current = null;
+        if (deferred) {
+          focusRow(deferred);
+        }
+      },
+    }),
+    [focusRow],
+  );
   useEffect(() => {
     const pending = pendingFocus.current;
     if (
@@ -275,25 +328,13 @@ function ArrayBlockList({
     ) {
       return;
     }
-    const { index, target: focusTarget } = pending;
     pendingFocus.current = null;
-    // After paint: the row for the new index re-renders with its new content
-    // in the same commit this effect runs after, but its fields mount lazily.
-    requestAnimationFrame(() => {
-      const row = containerRef.current?.querySelector(
-        `[data-block-index="${index}"]`,
-      );
-      // The row's own controls come before any nested row's in the DOM, so
-      // the first match is this row's.
-      const target =
-        focusTarget === "position"
-          ? row?.querySelector<HTMLElement>("[data-block-position]")
-          : (row?.querySelector<HTMLElement>(
-              "[data-block-body] :is(input, textarea, [contenteditable='true'], [role='combobox'])",
-            ) ?? row?.querySelector<HTMLElement>("[data-block-grip]"));
-      target?.focus();
-    });
-  }, [sourcePaths]);
+    if (menuClosing.current) {
+      deferredFocus.current = pending;
+      return;
+    }
+    focusRow(pending);
+  }, [sourcePaths, focusRow]);
 
   const onMove = useCallback(
     (from: number, to: number) => {
@@ -391,10 +432,20 @@ function ArrayBlockList({
           readonly || isOverlay
             ? undefined
             : {
+                ...menuLifecycle,
                 onInsertAbove: () => insertAt(index),
                 onInsertBelow: () => insertAt(index + 1),
                 onMove: (to) => moveTo(index, to),
                 onDelete: () => {
+                  // Focus goes to the number of the row that takes its
+                  // place (or the new last one), not back to a trigger
+                  // whose row may be gone.
+                  if (items.length > 1) {
+                    pendingFocus.current = {
+                      index: Math.min(index, items.length - 2),
+                      target: "position",
+                    };
+                  }
                   addPatch(
                     [
                       {
@@ -436,6 +487,7 @@ function ArrayBlockList({
     <div
       id={path}
       ref={containerRef}
+      data-block-list=""
       className={cn("w-full", {
         [DENSE_FIELDS]: depth === 0,
         // Nothing to insert between while a row is in the air.
@@ -495,9 +547,8 @@ function ArrayBlockList({
 
 /**
  * An inline RECORD, drawn with the same rows as an inline array so the two
- * read as one thing: the key is the row's label where an array has its index,
- * and the row menu holds what a record can do to an entry (rename, duplicate,
- * delete) where an array's holds duplicate and delete.
+ * read as one thing: the key is the row's label (and its menu: rename,
+ * duplicate, delete) where an array has its number.
  *
  * There is no grip, because a record is not ordered — there is nowhere to
  * drag an entry to.
@@ -582,6 +633,10 @@ type RowLabel =
 
 /** What an array row's menu can do to it. */
 type ArrayRowActions = {
+  /** Called before an edit chosen from the menu, and once the menu has
+   * closed after it — see `menuLifecycle` in `ArrayBlockList`. */
+  beginMenuAction: () => void;
+  endMenuAction: () => void;
   onInsertAbove: () => void;
   onInsertBelow: () => void;
   onDuplicate: () => void;
@@ -634,8 +689,8 @@ function BlockRow({
   readonly?: boolean;
   onNavigate: (path: SourcePath) => void;
   /**
-   * What the row's handle opens when clicked. Absent when nothing may be done
-   * to the row (readonly, or the drag overlay's copy of it).
+   * A record row's menu, opened from its key. Absent when nothing may be done
+   * to the row (readonly).
    */
   menuItems?: (close: () => void) => React.ReactNode;
   /** An array row's menu: what it can do. Absent when it can do nothing. */
@@ -831,8 +886,9 @@ function BlockRow({
 /**
  * The bar in the gap between two rows: an insert there. Invisible at rest —
  * the gap is just a gap — and on hover or focus a plus appears in the middle
- * of it, between two short brand lines that fade out. The row menu's "Add above" / "Add below" are the same inserts for
- * anyone who does not find the gap.
+ * of it, between two short brand lines that fade out. The row menu's "Add
+ * above" / "Add below" are the same inserts for anyone who does not find the
+ * gap.
  *
  * Absolutely placed in the gap the list leaves for it, but in the DOM it sits
  * inside the row — "above" right after the row's grip, "below" after the
@@ -1008,10 +1064,9 @@ function ArrayRowMenu({
 }) {
   const portalContainer = useValPortal();
   const [formOpen, setFormOpen] = useState(false);
-  // Set when a choice moves the row or opens the form: the menu must not
-  // hand focus back to this trigger then. After a move it now names a
-  // different item (focus follows the moved one, see `pendingFocus`), and
-  // the form takes focus itself.
+  // Set when a choice edits the list or opens the form: the menu must not
+  // hand focus back to this trigger then. After an edit the list moves focus
+  // itself (`pendingFocus`), and the form takes focus itself.
   const keepFocus = useRef(false);
   // The form is anchored to the number, not opened by it, so Radix has no
   // trigger to give focus back to when it closes: that is done here.
@@ -1020,10 +1075,15 @@ function ArrayRowMenu({
   const { index, count } = label;
   const first = index === 0;
   const last = index === count - 1;
-  const move = (to: number) => {
+  // Every list edit from the menu: the menu must not hand focus back to
+  // this trigger (the row it names may have changed or gone), and the list
+  // holds its own focus hand-off until the menu has closed.
+  const edit = (action: () => void) => () => {
     keepFocus.current = true;
-    actions.onMove(to);
+    actions.beginMenuAction();
+    action();
   };
+  const move = (to: number) => edit(() => actions.onMove(to))();
   const itemClass = "gap-2";
   return (
     <Popover open={formOpen} onOpenChange={setFormOpen}>
@@ -1050,25 +1110,26 @@ function ArrayRowMenu({
               event.preventDefault();
               keepFocus.current = false;
             }
+            actions.endMenuAction();
           }}
         >
           <DropdownMenuItem
             className={itemClass}
-            onSelect={actions.onInsertAbove}
+            onSelect={edit(actions.onInsertAbove)}
           >
             <BetweenHorizontalStart className="w-3.5 h-3.5" />
             Add above
           </DropdownMenuItem>
           <DropdownMenuItem
             className={itemClass}
-            onSelect={actions.onInsertBelow}
+            onSelect={edit(actions.onInsertBelow)}
           >
             <BetweenHorizontalEnd className="w-3.5 h-3.5" />
             Add below
           </DropdownMenuItem>
           <DropdownMenuItem
             className={itemClass}
-            onSelect={actions.onDuplicate}
+            onSelect={edit(actions.onDuplicate)}
           >
             <Copy className="w-3.5 h-3.5" />
             Duplicate
@@ -1129,7 +1190,10 @@ function ArrayRowMenu({
             </DropdownMenuSub>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem className={itemClass} onSelect={actions.onDelete}>
+          <DropdownMenuItem
+            className={itemClass}
+            onSelect={edit(actions.onDelete)}
+          >
             <Trash2 className="w-3.5 h-3.5" />
             Delete
           </DropdownMenuItem>
@@ -1207,7 +1271,7 @@ function MoveToPositionForm({
       setValue(String(position));
       setNote({
         kind: "clamped",
-        text: `Changed to ${position}: positions go from 1 to ${count}. Press Move again to move it there.`,
+        text: `Changed to ${position}: positions are whole numbers from 1 to ${count}. Press Move again to move it there.`,
       });
       inputRef.current?.focus();
       return;

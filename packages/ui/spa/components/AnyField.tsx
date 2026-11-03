@@ -60,8 +60,8 @@ export function AnyField({
    */
   ignoreHidden?: boolean;
   /**
-   * Lay an OBJECT out the way an inline row lays out its own fields: small
-   * labels over the inputs, no card per field. For content shown in place
+   * Lay an OBJECT out the way an inline row lays out its own fields: a label
+   * over each input, no card per field. For content shown in place
    * inside a row — an inline keyOf's referenced entry — so it does not jump
    * back to full-size cards in the middle of a dense list. Other types ignore
    * it.
