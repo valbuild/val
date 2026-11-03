@@ -4163,6 +4163,14 @@ const controlPlane: Handler = async (req, res, url) => {
     state = emptyState();
     countedDeployments = [];
     buildBases = new Map();
+    /*
+     * A reset changes the chain -- every patch is gone -- so it moves the
+     * chain version, as every write and delete does. Val's server keeps the
+     * chain under it (`GET /chain/version`: the head's "has the chain
+     * moved?"), and a reset that left it where it was had the next spec's
+     * Studio read the previous spec's patches.
+     */
+    chainVersion += 1;
     json(res, 200, { ok: true });
     return;
   }

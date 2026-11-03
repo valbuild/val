@@ -52,22 +52,22 @@ validates in a worker (`ValidationStore`). The canvas page receives source over
 What is left for a server, counted from the `client(...)` calls in
 `packages/ui/spa`:
 
-| Route                                                                                                  | Who calls it                                                     | In the demo (memory mode, in the tab)                                              |
-| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `POST /stat` (×3)                                                                                      | `useStatus`, `createValSystem` (chain, schema freshness)         | memory mode's own answer: fs-shaped, long-polled on an in-process signal           |
-| `PUT /patches`                                                                                         | `createValSystem` save seam                                      | the real head check: 409 on a stale `parentRef`                                    |
-| `GET /patches` (×2)                                                                                    | `createValSystem`, `DraftChanges`                                | the stored records                                                                 |
-| `DELETE /patches`                                                                                      | discard                                                          | drop them                                                                          |
-| `GET /profiles`                                                                                        | `ValProvider`                                                    | today a 500 (no project); fix: an empty list when patches are local (build step 2) |
-| `GET /json`                                                                                            | `.jsonValues()` entries                                          | memory mode serves entries from the modules, as it does for app mode               |
-| `PUT /sources/~`                                                                                       | `BaseAlignment`, only when `/stat`'s `sourcesSha` ≠ the bundle's | not reached: the server reads the same modules as the bundle, so the shas match    |
-| `POST /direct-file-upload-settings`                                                                    | uploads                                                          | not reached: uploads are off                                                       |
-| `/save`, `/history/*`, `/ai/*`, `/admin/status`, `/remote/settings`, `/external-urls/check`, proposals | publish, History, assistant, Val Build access, link checks       | hidden in the demo; memory mode refuses what it does not support                   |
+| Route                                                                                                  | Who calls it                                                                                                             | In the demo (memory mode, in the tab)                                                     |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `POST /stat` (×3)                                                                                      | `useStatus`, `createValSystem` (chain, schema freshness)                                                                 | memory mode's own answer: fs-shaped, long-polled on an in-process signal                  |
+| `PUT /patches`                                                                                         | `createValSystem` save seam                                                                                              | the real head check: 409 on a stale `parentRef`                                           |
+| `GET /patches` (×2)                                                                                    | `createValSystem`, `DraftChanges`                                                                                        | the stored records                                                                        |
+| `DELETE /patches`                                                                                      | discard                                                                                                                  | drop them                                                                                 |
+| `GET /profiles`                                                                                        | `ValProvider`                                                                                                            | today a 500 (no project); fix: an empty list when patches are local (build step 2)        |
+| `GET /json`                                                                                            | `.jsonValues()` entries                                                                                                  | memory mode serves entries from the modules, as it does for app mode                      |
+| `GET /manifest`, `GET /modules/~`                                                                      | `ManifestSource` (phase 7 of `one-content-model.md`): after a stat, and a module the Studio does not hold the version of | the server's head; every module at the bundle's version, so `GET /modules` is not reached |
+| `POST /direct-file-upload-settings`                                                                    | uploads                                                                                                                  | not reached: uploads are off                                                              |
+| `/save`, `/history/*`, `/ai/*`, `/admin/status`, `/remote/settings`, `/external-urls/check`, proposals | publish, History, assistant, Val Build access, link checks                                                               | hidden in the demo; memory mode refuses what it does not support                          |
 
-Two hashes have to be right or the Studio will try to fetch things that do not
-exist: `/stat`'s `sourcesSha` must equal what `HostStore` folds from the
-bundle, and its `schemaSha` must equal the bundle's (see
-`SchemaFreshnessWatch`). With the real server in the tab both are computed by
+Two things have to be right or the Studio will try to fetch things that do not
+exist: the manifest's versions must be the bundle's (`ManifestSource` reads a
+module only at a version it does not hold), and `/stat`'s `schemaSha` must
+equal the bundle's (see `SchemaFreshnessWatch`). With the real server in the tab both are computed by
 the server's own code from the very modules the Studio loaded, so they agree by
 construction -- one of the reasons for option B.
 
@@ -247,8 +247,9 @@ commits, proposal state. Two ways through it:
   optional system factory; the demo passes `createDemoSystem`. `/stat` and
   `/profiles` are still answered by a tiny demo `ValClient`, but from the
   SAME memory server object, so the two cannot disagree. The `/stat` answer has
-  to carry the bundle's own `sourcesSha` and `schemaSha` (otherwise
-  `BaseAlignment` and `SchemaFreshnessWatch` go looking for another build),
+  to carry the bundle's own `schemaSha` (otherwise `SchemaFreshnessWatch`
+  goes looking for another build; since phase 7 the bases come from the
+  manifest, by version),
   read from the system's `HostStore` rather than computed twice. And it has to
   block until the chain changes, like fs mode does, or `useStatus` re-polls in
   a tight loop.
