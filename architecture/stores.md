@@ -106,6 +106,15 @@ stops waiting passes an `AbortSignal` and the unsent batches are dropped;
 `retryEntries` is Try again. Budgeted in `scale.scenario.test.ts`
 (`source:fetch-json-entries`, `source:apply-json-entries`).
 
+An entry is read on a BASE, and the answer is for that base: every request
+carries the base it was asked on (`SourceStore.entryBases`, a counter of the
+tab's own, moved wherever the base moves -- a manifest's new base, a publish
+baked in, a re-intake, a module gone). An answer that lands on a base the
+module has moved off since is asked for again, under the promise its readers
+already wait on, rather than applied: applied, the old base's content was the
+new base's for good, because nothing asks for an entry that is already here
+(`jsonValuesBaseMove.test.ts`).
+
 ## Waking: per path, and never yourself
 
 Notification is per **path**, not per module — typing one character used to wake

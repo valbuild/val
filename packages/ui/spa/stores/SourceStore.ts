@@ -384,6 +384,15 @@ export class SourceStore {
    */
   private baseJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
   private baseEntriesEpoch = new Map<ModuleFilePath, number>();
+  /**
+   * Per module, which base its `.jsonValues()` entries are being read on:
+   * moved whenever the base moves under them ({@link entryBaseMoved}). A
+   * `GET /json` carries the one it was asked on, and an answer that comes
+   * back to another is asked for again rather than applied -- it is the old
+   * base's content, and applied it would be the new base's for good, since
+   * nothing asks for an entry that is already here.
+   */
+  private entryBases = new Map<ModuleFilePath, number>();
 
   /**
    * The published realm (see {@link publishedView}) of a module whose chain
@@ -1018,6 +1027,18 @@ export class SourceStore {
   }
 
   /**
+   * The base this module's entries are read on moved: what is in flight, or
+   * has landed and is not applied, was read on the one before. See
+   * {@link entryBases}.
+   */
+  private entryBaseMoved(moduleFilePath: ModuleFilePath): void {
+    this.entryBases.set(
+      moduleFilePath,
+      (this.entryBases.get(moduleFilePath) ?? 0) + 1,
+    );
+  }
+
+  /**
    * The patches an entry's held edits do not fit, newly found in `view`: the
    * engine could not know, because the entry's base was not loaded when they
    * were applied. Reported as failed like any patch that does not apply, so
@@ -1083,6 +1104,8 @@ export class SourceStore {
      * asks again except an explicit `retryEntry`.
      */
     const clearedFailures = this.clearEntryFailures(moduleFilePath);
+    // An answer on its way was read from the files as they were.
+    this.entryBaseMoved(moduleFilePath);
     if (!this.baseJsonEntries.has(moduleFilePath)) {
       if (clearedFailures) this.bump(moduleFilePath);
       return;
@@ -1331,6 +1354,18 @@ export class SourceStore {
       started.push(key);
     }
     if (started.length === 0) return waits;
+    this.queueReads(moduleFilePath, started);
+    return waits;
+  }
+
+  /**
+   * Send these keys, already marked loading, with this tick's other reads of
+   * the module.
+   */
+  private queueReads(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+  ): void {
     this.fetchMoved(moduleFilePath);
     let queued = this.readsThisTick.get(moduleFilePath);
     if (queued === undefined) {
@@ -1350,8 +1385,7 @@ export class SourceStore {
         }
       });
     }
-    queued.push(...started);
-    return waits;
+    queued.push(...keys);
   }
 
   /** This entry is being fetched from now on: `peek` says `entry-loading`. */
@@ -1386,6 +1420,7 @@ export class SourceStore {
     for (let i = 0; i < keys.length; i++) {
       this.activity.work("source:load-json-entry", moduleFilePath);
     }
+    const on = this.entryBases.get(moduleFilePath) ?? 0;
     let results: Record<string, JsonEntryResult>;
     try {
       // `loadEntries` and `loadAllEntries` start nothing without the seam.
@@ -1403,7 +1438,7 @@ export class SourceStore {
       landed = [];
       this.landed.set(moduleFilePath, landed);
     }
-    landed.push({ keys, results, bulk: kind === "bulk" });
+    landed.push({ keys, results, bulk: kind === "bulk", on });
     if (kind === "read") {
       this.applyLanded(moduleFilePath);
       return;
@@ -1457,10 +1492,18 @@ export class SourceStore {
     this.landed.delete(moduleFilePath);
     const received: [string, Json][] = [];
     const settled: string[] = [];
+    const again: string[] = [];
+    const base = this.entryBases.get(moduleFilePath) ?? 0;
     let failed = false;
     let bulk = 0;
     for (const answer of landed) {
       if (answer.bulk) bulk++;
+      if (answer.on !== base) {
+        // Read on a base this module has moved off: neither its content nor
+        // its failures are this base's.
+        again.push(...answer.keys);
+        continue;
+      }
       for (const key of answer.keys) {
         const result: JsonEntryResult = answer.results[key] ?? {
           status: "error",
@@ -1487,10 +1530,48 @@ export class SourceStore {
     }
     this.fetchMoved(moduleFilePath);
     const job = this.bulkLoads.get(moduleFilePath);
+    if (again.length > 0) this.askAgain(moduleFilePath, again, job);
     if (bulk > 0 && job !== undefined) {
       job.inFlight -= bulk;
       this.settleBulkLoad(moduleFilePath, job);
     }
+  }
+
+  /**
+   * Ask again, on the base the module is on now, for keys whose answer was
+   * read on the one before. Whoever waits for them -- a `get`, a bulk load --
+   * goes on waiting for THIS answer: they are still loading, under the
+   * promise they had.
+   */
+  private askAgain(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+    job: BulkLoad | undefined,
+  ): void {
+    const read = this.baseJsonEntries.get(moduleFilePath);
+    const resend: string[] = [];
+    for (const key of keys) {
+      const cacheKey = entryKey(moduleFilePath, key);
+      const loading = this.loadingEntries.get(cacheKey);
+      if (loading === undefined) continue;
+      // Gone with its module, or here already: nothing to ask for.
+      if (
+        this.views.get(moduleFilePath) === undefined ||
+        read?.has(key) === true
+      ) {
+        this.loadingEntries.delete(cacheKey);
+        loading.settle();
+        continue;
+      }
+      job?.shared.push(loading.promise);
+      resend.push(key);
+    }
+    this.activity.work(
+      "source:refetch-json-entries",
+      moduleFilePath,
+      resend.length,
+    );
+    if (resend.length > 0) this.queueReads(moduleFilePath, resend);
   }
 
   /**
@@ -1596,6 +1677,8 @@ export class SourceStore {
       keys: string[];
       results: Record<string, JsonEntryResult>;
       bulk: boolean;
+      /** The base it was read on: see {@link entryBases}. */
+      on: number;
     }[]
   >();
   /** Modules with an apply waiting for its turn ({@link yieldToMain}). */
@@ -2087,6 +2170,7 @@ export class SourceStore {
         content = at.content;
       }
       this.activity.work("source:promote-to-base", moduleFilePath);
+      this.entryBaseMoved(moduleFilePath);
       this.baseSources[moduleFilePath] = content.source;
       this.bakeEntries(moduleFilePath, content);
       this.bumpBase(moduleFilePath);
@@ -2342,9 +2426,11 @@ export class SourceStore {
           });
           this.bumpBase(moduleFilePath);
           // `.jsonValues()` entry content read on the base before is not
-          // this base's: dropped, so the next read fetches it again.
+          // this base's: dropped, so the next read fetches it again -- and
+          // so is what is still on its way from it.
+          this.entryBaseMoved(moduleFilePath);
+          this.clearEntryFailures(moduleFilePath);
           if (this.baseJsonEntries.has(moduleFilePath)) {
-            this.clearEntryFailures(moduleFilePath);
             this.baseJsonEntries.delete(moduleFilePath);
             this.entriesMoved(moduleFilePath);
           }
@@ -2643,6 +2729,7 @@ export class SourceStore {
       this.receivedSources.delete(moduleFilePath);
       this.baseJsonEntries.delete(moduleFilePath);
       this.clearEntryFailures(moduleFilePath);
+      this.entryBaseMoved(moduleFilePath);
       this.entriesMoved(moduleFilePath);
       this.refresh(moduleFilePath);
       this.bump(moduleFilePath);
@@ -2689,6 +2776,7 @@ export class SourceStore {
           heldVersion.source !== held ||
           heldVersion.version !== version
         ) {
+          if (held !== undefined) this.entryBaseMoved(moduleFilePath);
           this.baseSources[moduleFilePath] = base;
           this.baseVersions.set(moduleFilePath, { source: base, version });
           this.bumpBase(moduleFilePath);

@@ -93,6 +93,12 @@ export type WorkKind =
    */
   | "source:share-json-entry-load"
   /**
+   * Entries whose answer was read on a base the module has since moved off,
+   * asked for again on the new one rather than applied. `count` is the
+   * entries.
+   */
+  | "source:refetch-json-entries"
+  /**
    * One module was computed again from its base and its surviving chain: the
    * cost of dropping a patch. The applies it took, if the version before the
    * dropped patch was not kept, are counted as applies.
