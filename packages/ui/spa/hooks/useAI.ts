@@ -18,6 +18,14 @@ import type { ParentRef, PickedElement } from "@valbuild/shared/internal";
  */
 const ops = new JSONOps();
 import { useValSystem } from "../stores/react/SystemContext";
+import {
+  markStagedCodeTold,
+  runStagedCode,
+  stagedCodeNotice,
+  untoldStagedCode,
+  type StagedCodeOutcome,
+} from "../proposals/stagedCode";
+import { studioStagedCodeDeps } from "../proposals/studioStagedCode";
 import type {
   AIChatHandle,
   AskUserQuestionAnswer,
@@ -762,6 +770,9 @@ export function useAI(
     aiSessionImagesToPatchFile,
   } = useAIContext();
   const valSystem = useValSystem();
+  // For the socket's handlers, which outlive a render: the system as it is now.
+  const valSystemRef = useRef(valSystem);
+  valSystemRef.current = valSystem;
   /*
    * The sketchpad tools (`components/sketchpad/sketchpadTools.ts`): the
    * server's sketchpads, and the shell's state of them when there is one, so
@@ -2424,6 +2435,28 @@ export function useAI(
               };
             },
             offerProposal: requestProposal,
+            // After a staging, this tab evaluates `val.modules` and swaps the
+            // schema in, so a field just added can be edited before a build
+            ...(proposalName !== null && valSystemRef.current !== null
+              ? {
+                  evaluateStaged: () => {
+                    const system = valSystemRef.current?.system;
+                    if (system === undefined) {
+                      return Promise.resolve<StagedCodeOutcome>({
+                        status: "not-here",
+                      });
+                    }
+                    return runStagedCode(
+                      proposalName,
+                      studioStagedCodeDeps(
+                        proposalName,
+                        codeClients.proposals,
+                        system,
+                      ),
+                    );
+                  },
+                }
+              : {}),
             design: designRef.current !== null,
             // The design tab's code is the tab's own: no code mode there.
             ...(designRef.current === null && proposalName !== null
@@ -2462,19 +2495,32 @@ export function useAI(
                 ? untold
                 : null;
             if (notice !== null) markTypeErrorsTold(notice.inputs);
+            // The tab's evaluation of the staged code finished after the
+            // write that started it answered: it is told on this answer
+            const staged =
+              proposalName === null ? null : untoldStagedCode(proposalName);
+            if (staged !== null) markStagedCodeTold(staged);
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId,
               result:
-                notice === null
+                notice === null && staged === null
                   ? result
                   : {
                       result,
-                      typecheck_errors: {
-                        newErrors: notice.errors.length,
-                        errors: notice.errors.slice(0, 20),
-                        next: "The background typecheck found these in what is staged. Fix them before you build.",
-                      },
+                      ...(notice !== null
+                        ? {
+                            typecheck_errors: {
+                              newErrors: notice.errors.length,
+                              errors: notice.errors.slice(0, 20),
+                              next: "The background typecheck found these in what is staged. Fix them before you build.",
+                            },
+                          }
+                        : {}),
+                      ...(staged !== null
+                        ? { valModules: stagedCodeNotice(staged) }
+                        : {}),
+                    },
                     },
               ...(isError ? { isError: true } : {}),
             });

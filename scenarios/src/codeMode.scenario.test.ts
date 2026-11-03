@@ -43,6 +43,13 @@ const after = c.define(
   { title: "Hello", button: { label: "Buy" } },
 );
 
+/** The same module, evaluated again: a new instance, the same content. */
+const afterAgain = c.define(
+  HOME,
+  s.object({ title: s.string(), button: s.object({ label: s.string() }) }),
+  { title: "Hello", button: { label: "Buy" } },
+);
+
 const beforeText = (title: string) => `import { c, s } from "../val.config";
 
 export default c.define(
@@ -226,6 +233,146 @@ describe("code mode, in a proposal on http", () => {
     expect(files.files[HOME_FILE]).toContain('"Buy now"');
     expect(files.files[HOME_FILE]).toContain('"Spring"');
     world.frames.expectNeverGoesBack();
+    expect(editor.errors()).toEqual([]);
+  });
+
+  /**
+   * C11 A field the assistant adds can be typed into before the proposal is
+   * built (phase 9, "Evaluating code after a write").
+   *
+   * After `write_files` stages a `.val.ts` that adds a field, the tab
+   * evaluates `val.modules` (`runStagedCode`): the bundle loads, the Studio
+   * swaps the new schema in (`reloadCode`), and `write_files` answers with
+   * the module whose schema moved. The server at the address still runs the
+   * build before the staging, whose base has no such field -- so the Studio
+   * keeps the base its own (evaluated) code wrote for that module
+   * (BaseAlignment's schema rule) and the edit applies at once. It is the
+   * build's too once the platform builds what is staged.
+   */
+  test("C11 a field the assistant adds can be typed into before a build", async () => {
+    const { world, proposal, editor } = await open();
+    world.page("/", { draftMode: false }).reads("proposal", async (val) => {
+      const read = await val.fetchVal(after);
+      return read.button?.label ?? "(absent)";
+    });
+    await proposal.codeMode(true);
+    editor.reads("field", after, ["button", "label"]);
+
+    const staged = await proposal.stage(
+      { [HOME_FILE]: afterText("Hello", "Buy") },
+      "A button",
+      { studio: editor, modules: [after] },
+    );
+    expect(staged.isError).toBe(false);
+    expect(staged.result).toMatchObject({
+      valModules: { status: "evaluated", schemaChanged: [HOME] },
+    });
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Buy");
+
+    await editor.edit(after, ["button", "label"], "Buy now");
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Buy now");
+
+    // The assistant builds what it staged; then the next code write saves the
+    // edit first, and the build after it has it. That write's code evaluates
+    // to new instances of the same modules: nothing moved, so nothing is
+    // swapped (compared by content, not by instance).
+    await proposal.redeploy();
+    await world.settle();
+    const again = await proposal.stage({ [HERO_FILE]: heroText }, undefined, {
+      studio: editor,
+      modules: [afterAgain],
+    });
+    expect(again.isError).toBe(false);
+    expect(again.result).toMatchObject({
+      valModules: { status: "evaluated", schemaChanged: [] },
+    });
+    await proposal.redeploy();
+    await world.settle();
+    await world.observe();
+
+    expect(world.frames.last("field")).toBe("Buy now");
+    expect(world.frames.last("proposal")).toBe("Buy now");
+    expect(world.network.log.filter((e) => e.method === "DELETE")).toEqual([]);
+    world.frames.expectNeverGoesBack();
+    expect(editor.errors()).toEqual([]);
+  });
+
+  /**
+   * C11b FAILS, and is marked so: an edit to a field only the STAGED code has
+   * cannot be saved until the proposal is built.
+   *
+   * The edit is kept -- in the Studio and on the server, pending -- but the
+   * save before the next code write runs in Val's server at the address,
+   * which runs the build from before the staging: `prepare` applies the
+   * pending patches to the module as THAT build evaluated it, which has no
+   * `button`, and the commit fails ("Path refers to non-existing
+   * object/array"). So the assistant's next `write_files` is refused ("the
+   * changes waiting to be saved could not be saved first") until somebody
+   * builds. What would make it pass: the server reading a staged module's
+   * base from the staged text rather than from its build, which is what the
+   * overlay's `staged` map (home's phase 7 contract) lets it tell -- the
+   * staged schemas part of phase 7, not built here.
+   */
+  test.failing(
+    "C11b the next code write saves an edit to a field only staged code has",
+    async () => {
+      const { world, proposal, editor } = await open();
+      await proposal.codeMode(true);
+      await proposal.stage(
+        { [HOME_FILE]: afterText("Hello", "Buy") },
+        "A button",
+        { studio: editor, modules: [after] },
+      );
+      await world.settle();
+      await editor.edit(after, ["button", "label"], "Buy now");
+      await world.settle();
+
+      expect((await proposal.stage({ [HERO_FILE]: heroText })).isError).toBe(
+        false,
+      );
+      const files = await proposal.client.files(proposal.name);
+      expect(files.files[HOME_FILE]).toContain('"Buy now"');
+    },
+  );
+
+  /**
+   * C12 Staged code that does not run leaves the Studio on the schema it had,
+   * and the assistant is told why.
+   */
+  test("C12 a staged .val.ts that throws: the Studio keeps its schema, and the assistant is told", async () => {
+    const { world, proposal, editor } = await open();
+    await proposal.codeMode(true);
+    const schemas = editor.system.schemaStore.all();
+
+    const staged = await proposal.stage(
+      { [HOME_FILE]: "export default oops(;\n" },
+      "Broken",
+      {
+        studio: editor,
+        modules: {
+          config,
+          modules: [
+            {
+              def: () =>
+                Promise.reject(new Error("home.val.ts: oops is not defined")),
+            },
+          ],
+        },
+      },
+    );
+    expect(staged.isError).toBe(false);
+    expect(staged.result).toMatchObject({
+      valModules: {
+        status: "does-not-evaluate",
+        error: "home.val.ts: oops is not defined",
+      },
+    });
+    await world.settle();
+    expect(editor.system.schemaStore.all()).toBe(schemas);
     expect(editor.errors()).toEqual([]);
   });
 

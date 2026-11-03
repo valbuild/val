@@ -10,6 +10,11 @@ export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import { lintWithValRules, pathsToLint } from "./lintCode";
 import { codeModeOffMessage, type CodeModeNow } from "./codeMode";
+import {
+  markStagedCodeTold,
+  stagedCodeNotice,
+  type StagedCodeOutcome,
+} from "./stagedCode";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -812,7 +817,21 @@ export type CodeToolDeps = {
    * Absent where code mode does not apply (the design tab).
    */
   codeMode?: () => Promise<CodeModeNow>;
+  /**
+   * Evaluate the staged code in this tab and swap its schema in
+   * (`runStagedCode`): started after each `write_files`, and its outcome
+   * goes with the answer when it is done in time. Absent: nothing is
+   * evaluated, and the schema arrives with a build.
+   */
+  evaluateStaged?: () => Promise<StagedCodeOutcome>;
 };
+
+/**
+ * How long `write_files` waits for the staged code's evaluation before it
+ * answers without it: seconds is normal, and the outcome otherwise reaches
+ * the assistant with its next tool answer (`untoldStagedCode`).
+ */
+const STAGED_CODE_WAIT_SECONDS = 20;
 
 /**
  * The tools that change the proposal's code: refused while code mode is off.
@@ -914,6 +933,27 @@ export async function runCodeTool(
       const mode = await deps.codeMode();
       if (!mode.on) return fail(codeModeOffMessage(mode));
     }
+    /** `work`, or `null` once `seconds` have passed without it. */
+    const within = async <T>(
+      work: Promise<T>,
+      seconds: number,
+    ): Promise<T | null> => {
+      let clear = () => {};
+      const timeout =
+        deps.sleep !== undefined
+          ? deps.sleep(seconds * 1000).then(() => null)
+          : new Promise<null>((resolve) => {
+              // Cleared when the work wins: a wait left behind would hold
+              // the page for minutes after it is answered.
+              const timer = setTimeout(() => resolve(null), seconds * 1000);
+              clear = () => clearTimeout(timer);
+            });
+      try {
+        return await Promise.race([work, timeout]);
+      } finally {
+        clear();
+      }
+    };
     if (name === "write_files") {
       if (deps.proposal === null) {
         deps.offerProposal();
@@ -944,6 +984,17 @@ export async function runCodeTool(
         written,
         message,
       );
+      // The tab evaluates `val.modules` as the staging left it, and swaps the
+      // schema in: what moved, or why it does not run, goes with this answer
+      // when it is done in time, else with the next one.
+      const evaluation = deps.evaluateStaged?.();
+      const evaluated =
+        evaluation === undefined
+          ? undefined
+          : await within(evaluation, STAGED_CODE_WAIT_SECONDS);
+      if (evaluated !== undefined && evaluated !== null) {
+        markStagedCodeTold(evaluated);
+      }
       return {
         result: {
           success: true,
@@ -954,6 +1005,17 @@ export async function runCodeTool(
             : deps.design === true
               ? "The preview shows them as a quick preview by itself. Build only when the change needs one, once, when the request is done."
               : "Call build_proposal when the change is complete, so the preview shows it.",
+          ...(evaluated === undefined
+            ? {}
+            : {
+                valModules:
+                  evaluated === null
+                    ? {
+                        status: "evaluating",
+                        note: "The Studio is still reading val.modules; what it finds comes with your next tool answer.",
+                      }
+                    : stagedCodeNotice(evaluated),
+              }),
         },
         isError: false,
       };
@@ -1053,27 +1115,6 @@ export async function runCodeTool(
         isError: false,
       };
     }
-    /** `work`, or `null` once `seconds` have passed without it. */
-    const within = async <T>(
-      work: Promise<T>,
-      seconds: number,
-    ): Promise<T | null> => {
-      let clear = () => {};
-      const timeout =
-        deps.sleep !== undefined
-          ? deps.sleep(seconds * 1000).then(() => null)
-          : new Promise<null>((resolve) => {
-              // Cleared when the work wins: a wait left behind would hold
-              // the page for minutes after it is answered.
-              const timer = setTimeout(() => resolve(null), seconds * 1000);
-              clear = () => clearTimeout(timer);
-            });
-      try {
-        return await Promise.race([work, timeout]);
-      } finally {
-        clear();
-      }
-    };
     if (name === "build_proposal") {
       if (deps.proposal === null) {
         deps.offerProposal();

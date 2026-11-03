@@ -97,8 +97,13 @@ type Adopted = {
   serializedSchema: SerializedSchema;
   source: Json;
   instance: Schema<SelectorSource>;
-  /** `source` when it is the bundle's own, not a served one. */
-  bundleSource?: Json;
+  /** The module itself, to read what its code wrote when it is asked. */
+  module: ValModule<SelectorSource>;
+  /**
+   * The source the module's own code wrote, as JSON: kept when it is the
+   * source (nothing served), or once it has been compared.
+   */
+  written?: Json;
 };
 
 export class HostStore implements HostBridge {
@@ -181,6 +186,8 @@ export class HostStore implements HostBridge {
     registry: ValModules,
     /** See {@link receive}'s `served`. */
     served?: Record<ModuleFilePath, Json>,
+    /** See {@link receive}'s `options`. */
+    options: { byContent?: boolean } = {},
   ): Promise<CodeReload> {
     const generation = ++this.reloads;
     let modules: IntakeModule[];
@@ -202,7 +209,7 @@ export class HostStore implements HostBridge {
       return { status: "kept", reason: "superseded" };
     }
     const before = this.schemaStore.all();
-    this.receive(modules, served);
+    this.receive(modules, served, options);
     const after = this.schemaStore.all();
     const changed: ModuleFilePath[] = [];
     for (const moduleFilePath of Object.keys(after)) {
@@ -237,7 +244,23 @@ export class HostStore implements HostBridge {
      * fetch replaced it, and reached a draft page whenever it got there first.
      */
     served?: Record<ModuleFilePath, Json>,
+    options: {
+      /**
+       * Compare a new instance with what was adopted for its path by its
+       * serialized schema and source, not by identity: for a registry whose
+       * instances are all new (`reloadCode`'s staged code).
+       */
+      byContent?: boolean;
+    } = {},
   ): void {
+    const previousByPath = new Map<ModuleFilePath, Adopted>();
+    if (options.byContent === true) {
+      for (const previous of this.adoptedAt) {
+        if (previous !== undefined) {
+          previousByPath.set(previous.moduleFilePath, previous);
+        }
+      }
+    }
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     const sources: Record<ModuleFilePath, Json> = {};
     const adopted: ModuleFilePath[] = [];
@@ -334,20 +357,49 @@ export class HostStore implements HostBridge {
         // JSON round-trip so what crosses is provably clone-safe — no instance
         // can leak downstream by being reachable from a source value.
         const servedSource = served?.[moduleFilePath];
-        const bundleSource =
-          servedSource !== undefined
-            ? undefined
-            : (same?.bundleSource ??
-              (JSON.parse(JSON.stringify(Internal.getSource(module))) as Json));
-        sources[moduleFilePath] = servedSource ?? bundleSource ?? null;
+        let written =
+          same?.written ??
+          (servedSource === undefined || options.byContent === true
+            ? writtenBy(module)
+            : undefined);
+        let source = servedSource ?? written ?? null;
+        /*
+         * A registry that is all new instances -- staged code, a bundle
+         * imported again -- says nothing by identity: every module would
+         * count as changed, and every module's validation, previews and view
+         * be done again for a write that touched one. There, a module whose
+         * serialized schema and written source are the ones it had hands over
+         * the very objects it handed over before -- the base it had included,
+         * served or not -- as an unchanged instance does, and only the
+         * instance (its closures) is replaced. A change to a custom
+         * `validate` alone is not seen this way; HMR, which keeps the
+         * instances of what it did not re-evaluate, compares by identity.
+         */
+        const before =
+          same === undefined && options.byContent === true
+            ? previousByPath.get(moduleFilePath)
+            : undefined;
+        if (
+          before !== undefined &&
+          JSON.stringify(before.serializedSchema) ===
+            JSON.stringify(serializedSchemas[moduleFilePath]) &&
+          JSON.stringify(before.written ?? writtenBy(before.module)) ===
+            JSON.stringify(written)
+        ) {
+          serializedSchemas[moduleFilePath] = before.serializedSchema;
+          written = before.written;
+          source = servedSource ?? before.source;
+        }
+        sources[moduleFilePath] = source;
         this.instances[moduleFilePath] = schema;
         adopted.push(moduleFilePath);
         adoptedAt[index] = {
           moduleFilePath,
           serializedSchema: serializedSchemas[moduleFilePath],
-          source: sources[moduleFilePath],
+          source,
           instance: schema,
-          ...(bundleSource !== undefined ? { bundleSource } : {}),
+          module,
+          ...(written !== undefined ? { written } : {}),
         };
       } catch (error) {
         failures.push({
@@ -589,4 +641,13 @@ export class HostStore implements HostBridge {
 /** A schema store's key: the module's path, which is absolute. */
 function isModuleFilePath(path: string): path is ModuleFilePath {
   return path.startsWith("/");
+}
+
+/**
+ * What a module's own code wrote, as JSON. A round trip, so what crosses is
+ * provably clone-safe: no instance can leak downstream by being reachable
+ * from a source value.
+ */
+function writtenBy(module: ValModule<SelectorSource>): Json {
+  return JSON.parse(JSON.stringify(Internal.getSource(module))) as Json;
 }

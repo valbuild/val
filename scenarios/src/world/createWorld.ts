@@ -74,6 +74,12 @@ import {
 // not its stores. Each of these is what the Studio runs, unchanged.
 import { createValSystem } from "../../../packages/ui/spa/stores/react/createValSystem";
 import type { CodeReload } from "../../../packages/ui/spa/stores/HostStore";
+import {
+  reloadStaged,
+  runStagedCode,
+  stagedProject,
+} from "../../../packages/ui/spa/proposals/stagedCode";
+import { readValModules } from "../../../packages/ui/spa/proposals/readValModules";
 import { statSnapshotOf } from "../../../packages/ui/spa/stores/react/statSnapshotOf";
 import {
   parseSocketMessage,
@@ -292,6 +298,17 @@ export type ProposalAt = {
   stage(
     files: Record<string, string | null>,
     message?: string,
+    /**
+     * The tab's evaluation of the staged code (`runStagedCode`), in this
+     * Studio, as the Studio's assistant runs it after each `write_files`.
+     * The bundler and the browser's `import` are the world's edge: the
+     * bundle `modules` is what the staged files evaluate to. What the worker
+     * reads of it (`readValModules`) and what the Studio does with it
+     * (`reloadCode`) are the product's. The modules, when given as modules,
+     * are also what the platform's next build of the staged files serves
+     * (`redeploy`).
+     */
+    evaluateIn?: { studio: Studio; modules: AnyModule[] | ValModules },
   ): Promise<CodeToolAnswer>;
   /**
    * What the platform does after a save or a staging: serve the address from
@@ -1397,15 +1414,49 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       throw new Error("write_files does not build, typecheck or offer");
     };
     const built: Record<string, string | null>[] = [];
+    /** The bundles the world's stand-in for the bundler made, by their code. */
+    const bundles = new Map<string, ValModules>();
+    const bundleAt = (code: string): ValModules => {
+      const registry = bundles.get(code);
+      if (registry === undefined) throw new Error(`No bundle ${code}`);
+      return registry;
+    };
     return {
       name,
       branch,
       client,
-      stage: (files, message) =>
+      stage: (files, message, evaluateIn) =>
         runCodeTool(
           "write_files",
           { files, ...(message !== undefined ? { message } : {}) },
           {
+            ...(evaluateIn !== undefined
+              ? {
+                  evaluateStaged: () =>
+                    runStagedCode(name, {
+                      project: stagedProject(name, client, async () => null),
+                      // The bundler, at the edge: what the files evaluate to.
+                      bundle: async () => {
+                        const code = `world-bundle:${bundles.size}`;
+                        const evaluated = evaluateIn.modules;
+                        if (Array.isArray(evaluated)) {
+                          // And what a build of the staged files serves
+                          // (`redeploy`), as `changeCode` says it.
+                          serverModules = evaluated;
+                          bundles.set(code, registryOf(evaluated));
+                        } else {
+                          bundles.set(code, evaluated);
+                        }
+                        return { code };
+                      },
+                      // What the worker runs on the imported bundle.
+                      evaluate: (code) =>
+                        readValModules({ default: bundleAt(code) }, () => null),
+                      importRegistry: async (code) => bundleAt(code),
+                      reloadCode: reloadStaged(evaluateIn.studio.system.host),
+                    }),
+                }
+              : {}),
             proposal: { name },
             client,
             siteSource: async () => null,
