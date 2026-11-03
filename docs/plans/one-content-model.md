@@ -1034,7 +1034,11 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     not built. A build's registry imported in a real browser is not driven
     by an e2e test (the example apps are not platform builds): the import
     is `import()` of a URL, as staged code's is, and the rest is pinned by
-    `buildCode.test.ts` and the scenarios.
+    `buildCode.test.ts` and the scenarios. The reload in place of the
+    dialog is: `e2e/http/buildCode.spec.ts` (the Next.js app in http mode,
+    whose manifest names no registry) reloads the page with nothing to
+    click, and pins that the browser bundle's schema versions are the
+    server's (`e2e/tanstack/studio.spec.ts` the same for TanStack).
 
 **Decided on 2026-11-01**, beyond what the sections below say:
 

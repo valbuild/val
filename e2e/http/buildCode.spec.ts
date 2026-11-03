@@ -78,7 +78,11 @@ test("a deploy the Studio cannot take in place reloads the page, with nothing to
 }) => {
   let deployed = false;
   await page.route("**/api/val/manifest**", async (route) => {
-    const response = await route.fetch();
+    // Once "deployed", always the whole answer: the Studio's ETag names a
+    // manifest the newer build would not have answered.
+    const headers = { ...route.request().headers() };
+    if (deployed) delete headers["if-none-match"];
+    const response = await route.fetch({ headers });
     if (!deployed || response.status() !== 200) {
       return route.fulfill({ response });
     }
@@ -111,9 +115,15 @@ test("a deploy the Studio cannot take in place reloads the page, with nothing to
     timeout: 60_000,
   });
   deployed = true;
-  // A deploy arrives as a commit, which the content service announces over
-  // the socket, and the Studio asks `/stat` and then the manifest again.
-  await mock.pushCommit({ commitMessage: "a deploy with a new schema" });
+  // What the canvas does when a page of a newer build loads in it: read the
+  // manifest now (`checkCodeNow`), rather than at the next `/stat`.
+  await page.evaluate(() => {
+    const stores: unknown = Reflect.get(window, "__VAL_STORES__");
+    const system: unknown = Reflect.get(Object(stores), "system");
+    const check: unknown = Reflect.get(Object(system), "checkCodeNow");
+    if (typeof check !== "function") throw new Error("no checkCodeNow");
+    check.call(system);
+  });
   await reloaded;
   await expect(studio.getByText("A new version has been deployed")).toHaveCount(
     0,
