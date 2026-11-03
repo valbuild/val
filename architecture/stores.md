@@ -199,8 +199,11 @@ evaluated, so a previous build still answering -- a long poll parked on it
 across a hot reload -- names the newest build's base, and a Studio already on
 the new bundle fetches nothing (S26). In http mode each build is answered with
 the chain it lacks, so it names its own. BaseAlignment, the fetch and
-`__VAL_BASE__` go in phase 7 of the plan, once a base can be read by its
-version (phase 6's module endpoint); see "Phase 7 without phase 6" there.
+`__VAL_BASE__` go in phase 7 of the plan, now that a base can be read by its
+version: `GET /modules/~<path>?v=<the base's moduleKey>`, phase 6's module
+endpoint, answers one module at a version from the server's head, or as the
+patches from the version the Studio holds (`have`). See "Phase 7 without
+phase 6" there.
 
 ## Where things live
 

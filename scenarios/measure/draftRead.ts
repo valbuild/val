@@ -4,8 +4,11 @@
  * Phase 0 of `docs/plans/one-content-model.md`: the numbers the head's design
  * and its 128 MB budget are argued from. It measures the PRODUCT's request, not
  * a model of it: TanStack's real `initValServer` route handler in memory mode,
- * asked what a draft-mode `fetchVal` asks (`loadDraftSources`: the whole tree,
- * patches applied, validated, previewed).
+ * asked what a draft-mode `fetchVal` asked until phase 6 (`PUT /sources/~`:
+ * the whole tree, patches applied, validated, previewed), and -- `reader` --
+ * what a draft-mode `fetchVal` reads since: the runtime's head, through
+ * `serverDraftSource`, for every module of the project (a page that reads
+ * them all), the first read after the chain moved and the ones after it.
  *
  * Not a test: it prints. Run from `scenarios/`:
  *
@@ -23,10 +26,15 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { performance } from "perf_hooks";
 import v8 from "v8";
-import type { ValModules } from "@valbuild/core";
+import { Internal, type ValModules } from "@valbuild/core";
 import { createValClient, type ValClient } from "@valbuild/shared/internal";
 import { InMemoryPatchStore, initValServer } from "@valbuild/tanstack/server";
-import { loadValModules } from "@valbuild/server";
+import {
+  createValRuntime,
+  loadValModules,
+  serverDraftSource,
+  type ValRuntime,
+} from "@valbuild/server";
 import {
   DESCRIBE,
   MB,
@@ -51,6 +59,18 @@ const INPUTS = [
 ] as const;
 type Input = (typeof INPUTS)[number];
 
+/**
+ * `draftReadWork.ts`'s operations, and `reader`, which reads in-process and
+ * so is Node's alone (the isolate probe asks over HTTP).
+ */
+type NodeOperation = Operation | "reader";
+const NODE_OPERATIONS: NodeOperation[] = [...OPERATIONS, "reader"];
+const NODE_DESCRIBE: Record<NodeOperation, string> = {
+  ...DESCRIBE,
+  reader:
+    "every module through serverDraftSource, as a draft-mode fetchVal reads since phase 6: the head",
+};
+
 // ---------------------------------------------------------------------------
 // Inputs: the synthetic ones are in `draftReadWork.ts`, shared with the
 // Cloudflare isolate probe.
@@ -71,10 +91,26 @@ async function loadInput(input: Input): Promise<LoadedInput> {
 // ---------------------------------------------------------------------------
 // One run
 
-async function serverFor(valModules: ValModules): Promise<ValClient> {
+async function serverFor(
+  valModules: ValModules,
+): Promise<{ client: ValClient; runtime: Promise<ValRuntime> }> {
+  const patchStore = new InMemoryPatchStore();
+  // The readers' runtime: the one `initValServer` builds its server on, for
+  // the same modules and options.
+  const runtime = createValRuntime(
+    valModules,
+    "/api/val",
+    {
+      ...config,
+      sourceFiles: {},
+      patchStore,
+      unsafelyAllowUnauthenticated: true,
+    },
+    config,
+  );
   const { valApiHandler } = initValServer(valModules, config, {
     sourceFiles: {},
-    patchStore: new InMemoryPatchStore(),
+    patchStore,
     unsafelyAllowUnauthenticated: true,
     draftMode: {
       isEnabled: async () => true,
@@ -82,10 +118,32 @@ async function serverFor(valModules: ValModules): Promise<ValClient> {
       disable: async () => {},
     },
   });
-  return createValClient("/api/val", null, {
+  const client = createValClient("/api/val", null, {
     fetch: (input, init) =>
       valApiHandler(new Request(new URL(input, "http://localhost").href, init)),
   });
+  return { client, runtime };
+}
+
+/** Every module through the draft source a draft-mode `fetchVal` reads. */
+async function readAll(runtime: Promise<ValRuntime>, valModules: ValModules) {
+  const source = serverDraftSource({
+    runtime,
+    session: undefined,
+    modules: true,
+  });
+  await Promise.all(
+    valModules.modules.map(async (entry) => {
+      const path = Internal.getValPath((await entry.def()).default);
+      if (path === undefined) return;
+      const moduleFilePath = Internal.splitModuleFilePathAndModulePath(path)[0];
+      for (;;) {
+        const read = source.module(moduleFilePath);
+        if (read.status !== "pending") return;
+        await read.ready;
+      }
+    }),
+  );
 }
 
 function heapMB(): number {
@@ -94,17 +152,22 @@ function heapMB(): number {
 }
 
 /** One input and operation, in this process: times, and heap retained. */
-async function measure(input: Input, op: Operation, repeats: number) {
+async function measure(input: Input, op: NodeOperation, repeats: number) {
   const before = heapMB();
   const { valModules, bytes, patches, target } = await loadInput(input);
-  const client = await serverFor(valModules);
+  const { client, runtime } = await serverFor(valModules);
   await seedChain(client, patches, target);
   await runOperation(client, "load");
   const loaded = heapMB();
   const times: number[] = [];
   for (let i = 0; i < repeats; i++) {
     const start = performance.now();
-    await runOperation(client, op);
+    if (op === "reader") {
+      // A request's own source, as each request makes one.
+      await readAll(runtime, valModules);
+    } else {
+      await runOperation(client, op);
+    }
     times.push(performance.now() - start);
   }
   const after = heapMB();
@@ -122,7 +185,7 @@ async function measure(input: Input, op: Operation, repeats: number) {
 }
 
 /** The smallest old-generation limit (MB) the run completes in. */
-function minimumHeap(input: Input, op: Operation): number | null {
+function minimumHeap(input: Input, op: NodeOperation): number | null {
   const passes = (limit: number) => {
     const child = spawnSync(
       process.execPath,
@@ -158,7 +221,7 @@ async function main() {
   const [mode, inputArg, opArg, repeatsArg] = process.argv.slice(2);
   if (mode === "run") {
     const input = INPUTS.find((i) => i === inputArg);
-    const op = OPERATIONS.find((o) => o === opArg);
+    const op = NODE_OPERATIONS.find((o) => o === opArg);
     if (input === undefined || op === undefined) {
       throw new Error(`unknown input or operation: ${inputArg} ${opArg}`);
     }
@@ -176,7 +239,7 @@ async function main() {
   const timeOnly = inputArg === "--time-only";
   const rows = [];
   for (const input of INPUTS) {
-    for (const op of OPERATIONS) {
+    for (const op of NODE_OPERATIONS) {
       if (op === "base" && input.includes("+")) continue;
       const timed = spawnSync(
         process.execPath,
@@ -194,7 +257,9 @@ async function main() {
       process.stderr.write(`${input} ${op}: ${JSON.stringify(rows.at(-1))}\n`);
     }
   }
-  process.stdout.write(`${JSON.stringify({ describe: DESCRIBE, rows })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ describe: NODE_DESCRIBE, rows })}\n`,
+  );
 }
 
 void main().catch((error: unknown) => {

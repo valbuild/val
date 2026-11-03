@@ -30,8 +30,9 @@ export const OPERATIONS: Operation[] = [
 export const DESCRIBE: Record<Operation, string> = {
   load: "modules loaded and the server answering /stat (the baseline)",
   draft:
-    "PUT /sources/~ validated: what a draft-mode fetchVal asks, once per request",
-  "draft-novalidate": "the same without validation (previews still computed)",
+    "PUT /sources/~ asking for validation: until phase 6, what a draft-mode fetchVal asked once per request; since, the whole tree from the head, and the flag is ignored",
+  "draft-novalidate":
+    "the same without validation (until phase 6, previews still computed)",
   base: "PUT /sources/~ unpatched and unvalidated: BaseAlignment's fetch",
 };
 

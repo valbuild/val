@@ -333,7 +333,7 @@ export abstract class ValOps {
   /**
    * Take a formatter for saves, when this instance was built without one.
    *
-   * One instance serves every Val server in a process (`sharedValOps`), and
+   * One instance serves every Val server in a process (`valRuntime`), and
    * the readers that build it first never save, so they pass no formatter;
    * the API route that saves does. An instance that already has one keeps it.
    */

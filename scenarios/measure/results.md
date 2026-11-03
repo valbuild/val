@@ -320,3 +320,94 @@ is the whole request, the input's generation included.
   investigated: the machines' load differed, and this is one request per
   size, not a median. Starting the server (every module's version and the
   first `/stat`) costs more than one read.
+
+## Phase 6: the head, before and after
+
+### The draft read in Node
+
+2026-11-03, Claude Code cloud container (Linux, 4 cores, Node 22),
+`pnpm exec tsx measure/draftRead.ts all --time-only` from `scenarios/`,
+before (at 9aa0f309d) and after phase 6. Medians of five reads in one
+process; "first" is the slowest of the five, which is the first. **Before
+ran on a quiet machine (load 0.03); after started quiet (0.4) and ended at
+4.3**, another session's Playwright suite starting part way, so the
+`PUT /sources/~` rows after are a ceiling. `reader` is new: every module of
+the project through `serverDraftSource`, which is what a draft-mode
+`fetchVal` reads since phase 6 (the runtime's head; a module whose newest
+version is the build's own passes, and the reader's bundle answers it).
+
+| Input                   | Content | Draft read before (`PUT /sources/~`, validated) | `PUT /sources/~` after (head, no validation) | `reader` after: first / median |
+| ----------------------- | ------- | ----------------------------------------------- | -------------------------------------------- | ------------------------------ |
+| valbuild/web            | 0.23 MB | 39 ms                                           | 4.4 ms                                       | 3.1 ms / 0.42 ms               |
+| synthetic               | 1 MB    | 24 ms                                           | 8.5 ms                                       | 4.2 ms / 0.17 ms               |
+| synthetic               | 5 MB    | 115 ms                                          | 41 ms                                        | 6.1 ms / 0.09 ms               |
+| synthetic               | 10 MB   | 289 ms                                          | 124 ms                                       | 2.1 ms / 0.09 ms               |
+| synthetic               | 21 MB   | 504 ms                                          | 213 ms                                       | 1.9 ms / 0.08 ms               |
+| synthetic + 650 patches | 1 MB    | 42 ms                                           | 12 ms                                        | 26 ms / 0.21 ms                |
+
+Before, unvalidated (`draft-novalidate`): 8 / 11 / 52 / 112 / 231 / 21 ms.
+
+- **What a draft page pays went from linear in the site to nothing.** A
+  draft-mode `fetchVal` used to cost about 24 ms per MB of content on every
+  request, whatever it read. Now a request asks "has the chain moved?" and
+  is answered from what the head holds: under half a millisecond for every
+  module of valbuild/web, and less for synthetic content that nobody edited
+  (it is all read from the bundle, so its size does not show).
+- **The first read after an edit makes the edited module once.** 650 patches
+  on one module: 26 ms for the read that makes it, then 0.2 ms; a keystroke
+  extends the version before by one patch (B06, B12).
+- **The heap a read retains** ("after" minus "loaded", in the raw output):
+  before, about 1.8 times the content (+38.7 MB at 21 MB); `reader` after,
+  +0.05 MB at 21 MB, +0.6 MB with 650 patches -- the head holds the edited
+  module's copied paths, and nothing for the rest. `PUT /sources/~` still
+  builds its answer (+38 MB at 21 MB), and is now asked only by the Studio's
+  BaseAlignment, which phase 7 replaces with `GET /modules`.
+- `PUT /sources/~` itself is about 2.4 times faster without previews and
+  validation, and the 650-patch row shows the head: 44 ms the first time,
+  12 ms after.
+
+### workerd on this machine, after (NOT the limit)
+
+2026-11-03, `pnpm dlx wrangler@4.133.0 dev --env "" --port 8790` from
+`measure/isolate/`, driven with `isolateProbe.ts run --url
+http://127.0.0.1:8790 --inputs synth:1,synth:5,synth:10,synth:21,synth:43,synth:86,synth:1+650
+--repeats 3` (warm isolate: one isolate answered every request). The probe
+asks over HTTP (`createInTabValFetch`), so its `draft` is `PUT /sources/~`
+-- since phase 6 the whole tree from the head, unvalidated, serialized --
+not what a draft reader reads in-process. **Local workerd does not enforce
+128 MB** (see "The deployed isolate"), and the machine was loaded (4.4 to
+7.1), so these say the probe and the head run in workerd, and nothing about
+the limit.
+
+| Content            | `draft` (three reads, isolate clock) | Before phase 6 (one read, earlier run) |
+| ------------------ | ------------------------------------ | -------------------------------------- |
+| 1 MB               | 10 / 8 / 8 ms                        | 19 ms                                  |
+| 5 MB               | 34 / 31 / 31 ms                      | 102 ms                                 |
+| 10 MB              | 93 / 90 / 68 ms                      | 164 ms                                 |
+| 22 MB              | 194 / 168 / 220 ms                   | 635 ms                                 |
+| 46 MB              | 574 / 525 / 391 ms                   | 944 ms (43 MB)                         |
+| 93 MB              | 1069 / 1050 / 989 ms                 | 1.7 s (86 MB)                          |
+| 1 MB + 650 patches | 46 / 8 / 6 ms                        | 37 ms                                  |
+
+### What to re-run deployed
+
+The deployed probe ("The deployed isolate", above) measured the server before
+phase 6. To measure the head where Cloudflare enforces 128 MB:
+
+1. Deploy the probe at this commit (`$W deploy --env ""`, and `--env web`
+   with a valbuild/web checkout beside this repository), and run the same
+   ladders as before, with ballast 0, 32 and 64 MB, `wrangler tail` running:
+   `isolateProbe.ts run --url … --ballast N --out …`, then `summarize`. Its
+   `draft` is now the head's whole tree unvalidated; compare the kill points
+   with the table above (59-75 MB before).
+2. Add an operation that reads as a draft reader does, in-process
+   (`serverDraftSource` over every module, as `draftRead.ts`'s `reader`), so
+   the isolate's cost of a draft PAGE is measured, not of `/sources/~`: the
+   probe runs the server through `@valbuild/server/browser`, which builds no
+   runtime registry, so this needs the browser entry to hand out its ops'
+   head. Expect it far under every kill: it holds the edited modules only.
+3. Run it through home's loader (`worker_loaders`), as decision 5 asks, with
+   a 650-patch chain and with a `.jsonValues()` record of 10,000 entries
+   (phase 10's `scaleWork.ts` shapes), and confirm the head's 16 MB budget
+   (`HEAD_BUDGET_BYTES`) is where the isolate keeps outliving a read beside
+   the app's own heap.

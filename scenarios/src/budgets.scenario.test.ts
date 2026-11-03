@@ -182,7 +182,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * when the editor types once and everything reads it again,
    * then one version is hashed on the server: the module's chain extended
    * by the new patch, once for every reader in the process (they share one
-   * data layer, `sharedValOps`); and one in the Studio, which computes the
+   * runtime, `valRuntime`); and one in the Studio, which computes the
    * version of what it shows (phase 5). Nothing else moved: not a schema, not
    * a base.
    */

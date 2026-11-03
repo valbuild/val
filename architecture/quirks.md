@@ -351,30 +351,41 @@ appends socket messages. Both feed the same fold, which keeps the last entry per
 commit sha — so anything reading that list has to sort before folding, or a
 finished build gets overwritten by the pending one it replaced.
 
-## `fetchVal` in draft mode loads EVERY module, once per call
+## A draft `fetchVal` reads the head, and a module nobody edited is not read at all
 
-The server's draft source (`serverDraftSource` in `@valbuild/server`, which
-`fetchVal` in next `rsc` and tanstack `server` both read through `resolveVal`)
-asks `/sources/~` with `path: "/"` — the whole tree — and answers each module
-out of the result. So a draft render that calls
-`fetchVal` three times fetches and validates every module in the project three
-times, no matter how small the three selectors are.
+Until phase 6 of [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md)
+a draft-mode `fetchVal` asked a private Val server for the whole module tree
+(`PUT /sources/~`), which applied every pending patch and previewed and
+validated every module on every request, then asked `/patches` and `/json`
+again for the `.jsonValues()` entries it showed. Now every reader in the
+process -- both frameworks' readers, the API routes and MCP -- reads ONE head
+(`ValHead`, on the data layer of the process's one runtime, `valRuntime`).
+Three things about it that are not obvious:
 
-Two things keep it from being a production problem, and neither makes it a
-non-problem:
+- **A module whose newest version is the bundle's is not read.** The draft
+  source passes it (`Draft.kind === "bundle"`) and the reader's own bundle
+  answers, as a visitor's does. So a draft read of an unedited page costs one
+  "has the chain moved?" -- not a module.
+- **"Has the chain moved?" is `seq` alone** (`ValOps.chainSeq`): the store's
+  counter in fs and memory mode, `GET /v1/{project}/chain/version` on the
+  content service in http mode. A content service that predates that route
+  answers 404, and the head then reads the whole chain on every read, as
+  before -- correct, and slower. The chain is fetched only when `seq` or the
+  base moved, and a module is made once per version, by EXTENDING the
+  version before by the new patches when the chain grew at its end.
+- **The head is per process, not per request, and that is safe**: draft
+  content is not per user. Who may read it is decided per request
+  (`ValRuntime.authorize`, the API's own `sessionAuth`), before the head is
+  asked anything. The per-request memo that used to stand in for this
+  (`createReactCacheScope`, `createTanStackRequestScope`) is gone with the
+  private servers it memoised.
 
-- It is **draft mode only**. With Val disabled the reader never touches the
-  server: there is no draft source, and the read is the statically imported
-  module (and a snapshot over it) and nothing else.
-- The client readers do NOT do this. `useVal` subscribes to exactly
-  `getModuleIds(selector)`, so a page subscribes to the page.
-
-It predates `s.view()` and is the same on `main`. Narrowing it is not a
-one-liner: `getModuleIds` can name several modules (a gallery-backed image
-references another), and `/sources/~` takes ONE `path`, so it is either N
-requests or a new list parameter — and the endpoint also does validation and
-patch resolution whose scope would move with it. Measure a draft render before
-assuming this is the slow part, and do it in its own change.
+What a draft page CAN still cost: a module with patches is made once per
+version (a keystroke: the new patch on the version before; a discard in the
+middle of its chain: replayed from its base), and kept within the head's
+byte budget (16 MB, `HEAD_BUDGET_BYTES`; the last two versions of each
+module). B06, B11 and B12 in `scenarios/src/budgets.scenario.test.ts` count
+it.
 
 ## `.jsonValues()`
 
@@ -1478,52 +1489,6 @@ the server render and on hydration.
 `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case, (3), runs on both apps -- it was `test.fixme` until both
 layouts passed `draft` (and fails on Next without it).
-
-## `fetchVal` in draft mode reads every module, ONCE per request
-
-A draft-mode `fetchVal` does not resolve the selector you handed it. It asks
-`PUT /sources/~` for the whole module tree and then picks its modules out of the
-answer — so a page reading one string pays for the project. That part is still
-true and is not what changed.
-
-What changed is the "per call". The reader used to make that request once per
-`fetchVal`, so a page with three reads paid three times for three identical
-answers, and `fetchValRouteUrl` made it worse by calling `fetchVal` again on top
-of the caller's own. The answer cannot differ between reads in one request — the
-query is fixed and the session is fixed — so it is now read once and shared.
-Measured on a synthetic 60-module project, a three-read render went from 187ms
-to 70ms (2.7x); `packages/next/src/rsc/draftRead.perf.test.ts` prints it.
-
-**The memo is scoped to the REQUEST, and that is a correctness rule, not a
-tidiness one.** The body it holds is a draft — unpublished patches, read with
-the caller's session cookie. Every caller allowed to read drafts gets the same
-one (it was per author while patch groups existed), but whether a caller is
-allowed is decided per session, so a memo that outlived the request would hand
-the draft to the next visitor without asking.
-So the memo holds no module-level state: the box comes from React's `cache()` in
-an RSC and from a `WeakMap` keyed on the `Request` in TanStack Start, and when
-neither is available (`null`) it computes every time, which is what the code did
-before. Ineffective is the safe failure here; shared is not. The key is the
-session, so a box that somehow outlived its request misses rather than answering
-wrongly.
-
-**Narrowing the request's `path` does NOT make the server do less, so the reader
-does not bother.** `/sources/~` evaluates, previews and validates every module
-and only THEN filters the response by `req.path` — the two TODOs at
-`ValServer.ts`'s `/sources/~` say exactly that. Measured: at 60 modules,
-`path: "/"` took 53.6ms and a single-module path 53.5ms, for 932KB against 15KB.
-And those bytes are not transferred by anyone: `fetchVal` calls the server
-in process, so the response object is never serialised. Narrowing would also
-give each caller a different answer to cache, which would cost the saving above
-to buy nothing. If you want the server to do less, the work is in `/sources/~`
-itself — and note that `validateSources` deliberately needs every module loaded
-anyway, to build the gallery-conflict map and the cross-module snapshot, so
-scoping it changes which errors are reported rather than just how fast.
-
-None of this touches production. With Val disabled the reader never calls the
-server at all: it has no draft source, and reads the statically imported
-module. And it does not touch the client readers, which were already scoped —
-`useVal` subscribes to exactly `getModuleIds(selector)` (`planOf`).
 
 ## TanStack Start
 

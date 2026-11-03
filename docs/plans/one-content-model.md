@@ -3,10 +3,14 @@
 > **Status: proposed 2026-11-01; phase 0 nearly done; phases 1 to 5 built
 > (2026-11-02); of phase 7, the parts phase 6 does not block, and of phase 9
 > the parts phases 6 and 7 do not block (2026-11-03). The deployed 128 MB
-> check ran on a plain Worker (2026-11-03): a validated draft read of today's
-> server is killed at about 59 MB of content beside 64 MB of ballast and
-> 75 MB without, so memory does not block phase 6; the same probe through
-> home's loader, and with valbuild/web, is still to run (decision 5).** See
+> check ran on a plain Worker (2026-11-03): a validated draft read of the
+> server before phase 6 is killed at about 59 MB of content beside 64 MB of
+> ballast and 75 MB without, so memory did not block phase 6. Phase 6 built
+> (2026-11-03): the store, one runtime per process, the head, `GET /modules`
+> with deltas, and a cheap `seq` in http mode (with valbuild/home); the
+> deployed probe through home's loader, and with valbuild/web, is still to
+> run (decision 5), now against the head. Phase 7's remainder can start.**
+> See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
 > the change.
@@ -668,6 +672,128 @@ coverage" (valbuild/val#1006).
     content. The assistant's tools: `write_files` answers a `valModules`
     field, and any tool answer can carry one (as `typecheck_errors`).
 
+- **The store, the runtime and the head** (phase 6, 2026-11-03; with
+  valbuild/home PR #371). Every reader in a process reads ONE head: the
+  content at the newest chain, in a store of modules by version. The pieces:
+  - **The store** (`@valbuild/shared/internal`, `content/moduleStore.ts`):
+    `StoredModule` (a version, the engine's `ModuleContent`, the patch ids
+    its chain is made of, and the bytes it holds beyond the build's own),
+    `ModuleTier`, `tiered` (asks each tier in turn, writes a slower answer to
+    the faster ones), `memoryTier` (a byte budget, least recently read let
+    go first, the last N versions per module, `latest(path)` to extend from)
+    and `bundleTier` (answers only a key whose version is the build's own,
+    with the build's own object, for nothing). `EntryVersion`: a
+    `.jsonValues()` entry's own version -- the record's schema and base, the
+    key, and the chain of the patches that touched THAT entry -- so an entry
+    no patch touched keeps its version while the record's chain grows.
+  - **The head** (`@valbuild/server`, `head.ts`, `ValHead`): one per data
+    layer (`ValOps.head`), so one per process for a project. Its store is
+    `[memoryTier(16 MB, 2 per module), bundleTier(the build), bundleTier(the
+base the build serves: a content version, a proposal's saves, a publish
+adopted)]`. "Has the chain moved?" is `ValOps.chainSeq`: the store's
+    `seq` in fs and memory mode, `GET /v1/{project}/chain/version` in http
+    mode (valbuild/home: `readChainVersion`, one indexed row; a content
+    service that predates it answers 404 and the head reads the chain each
+    time, as before). The chain is fetched only when `seq` or the base moved,
+    and a fetch under way at the `seq` a read saw is joined. A module is made
+    when it is read and has patches: from the newest version held when its
+    chain is a start of this one (a keystroke: one apply), else from its base
+    (a discard, a publish, an eviction). Bytes are what a version holds
+    beyond its base (`heldBeyond`: the containers copy-on-write made and the
+    strings patches brought, walked only where the two differ). Entries are
+    resolved once per version and key. What it answers: `module`, `entries`
+    (`/json`, the single-entry readers), `draft` (what a reader gets: `bundle`
+    when the newest version is the build's own, else the head's source in its
+    wire shape with the entries the chain touched or a publish wrote filled
+    in), `changed` (what `fetchValDraft` sends), `tree` (`PUT /sources/~`,
+    MCP), and `answer` (`GET /modules`).
+  - **The runtime** (`valRuntime`, was `sharedValOps`): `{ ops, authorize }`
+    per `valModules` and options, what `nodePlatform.createOps` hands
+    `ValServer`, what `createValRuntime` (beside `createValServer`) hands the
+    readers, and what MCP's registry reads. `authorize(session)` is the API's
+    own rule (`sessionAuth`, extracted from `ValServer`'s `getAuth`), plus a
+    signed-in editor in http mode, as `/sources/~` required.
+  - **The readers** (`draftReads.ts`): `serverDraftSource({ runtime, session,
+modules })` reads `head.draft` (a module) and `head.entries` (an entry,
+    with its `EntryVersion` on the `EntryRead`), one wait each; a module whose
+    newest version is the build's own PASSES, so the reader's bundle answers
+    and nothing is read for it. `readDraftChanges` sends `head.changed()`'s
+    modules with their versions. Both frameworks' readers take
+    `{ runtime, isEnabled, getHeaders, getCookies }` (TanStack's also the
+    snapshot); `initValRsc` and `initValContent` build the runtime with
+    `createValRuntime`.
+  - **`GET /modules/~<path>[?v=<moduleKey>][&have=<moduleKey>]`** (ApiRoutes
+    `/modules/~`): one module at `v` (the newest by default; a base is the
+    empty chain; an older version while the head still holds it), as
+    `{ kind: "module", version, source, entries, failed? }` -- `.jsonValues()`
+    markers without their `import()`, and the entries its chain touched,
+    read, each with its `EntryVersion` -- or, when `have` names the same
+    schema and base and a start of the chain, as `{ kind: "delta", from, to,
+patches }`. `Cache-Control: immutable` when `v` was asked. A version not
+    held: 404 with `current`. Compatible both ways: new, and nothing reads
+    it yet (phase 7's `originTier` will); `/sources/~` keeps its shape for
+    the Studios of this release and the one before.
+  - **`ValDraft.versions`** (decided: additive, optional): the version of
+    each module in `sources`. `createDraftStore` seeds them, and the page's
+    store compares two reads by version whenever both carry one
+    (`ValExternalStore.receive`'s `sameContent`) -- the first relay of a
+    module the page was rendered with included -- and by content only when
+    one has none (a server or Studio of the release before). A version names
+    what a reader renders (the module's source and the entries its chain
+    touched, which the Studio's relay and the server's draft both send in
+    place of their markers), so two relays at one version are no longer
+    compared by content either. `draftHoldsVersions` reports them beside
+    `draftHolds`.
+  - **Validation and previews left the read path.** `PUT /sources/~`
+    computes neither (its `validate_sources` and `validate_binary_files` are
+    accepted and ignored): the Studio previews from its own schema instances
+    and validates in its worker and through `/validate`; a draft reader never
+    used either.
+  - **Deleted:** the private `createValServer` in `initValRsc` and in
+    `initValContent`; MCP's `createOpsResolver` (its credential checks are
+    `refuseCaller`, the data layer the runtime's); `loadDraftSources`,
+    `draftTree`, `DraftSources`, `DraftValServer`, `GetDraftSourcesScope`;
+    `createReactCacheScope`, `createTanStackRequestScope` and the
+    request-scoped memo under them (`memoizePerRequest`, in shared); the
+    per-call `/json` in the key readers (`loadDraftJsonEntry`);
+    `fetchValDraft`'s extra `/patches` and `/json` (`withDraftJsonEntries`,
+    `hasDraftJsonEntries`, `hasJsonEntriesFromServer`); `ValOps.getPreviews`
+    and the whole-tree previews and validation in `PUT /sources/~`; MCP's
+    rebuild per call in `loadState` (`head.tree()` now); and the tests of
+    those (`draftRead.perf.test.ts`, the `requestScope` and `sourcesMemo`
+    tests of both frameworks); the readers' other tests now run against a
+    real runtime in memory mode instead of a fake server.
+  - **Budgets** (`budgets.scenario.test.ts`, memory, fs and http): B06 holds
+    the server to ONE apply per edit however often it is read (it counted an
+    apply per read: the head made that a stricter budget); B11 the head holds
+    nothing for modules nobody edited, and after forty keystrokes one module,
+    two versions, no more than two copied roots and the typed values; B12 a
+    request of three draft reads asks "has the chain moved?" at most once per
+    read, reads no chain while nothing moved, and the chain once and one
+    module once after an edit; B13 `GET /modules` answers a keystroke in a
+    module of 200 items with one patch, under a twentieth of the whole
+    module, reads a base by its version, and 404s a version it does not
+    hold. `world.head()` reads what the head holds; `head:seq`,
+    `head:chain` and `head:materialize` are counted work. B01-B10 and the
+    content-shape matrix pass unchanged.
+  - **Measured** (`scenarios/measure/results.md`, "Phase 6"): a draft read
+    of every module, as a draft-mode `fetchVal` reads now (`reader`), takes
+    0.08-0.4 ms once the head has it (valbuild/web: 0.42 ms; 21 MB of
+    synthetic content: 0.08 ms), where the validated whole-tree read before
+    took 39 ms and 504 ms on every request; the first read after an edit to
+    a module of 650 patches makes it once (26 ms). The heap a draft read
+    retains went from about 1.8 times the content (+39 MB at 21 MB) to what
+    was edited (+0.05 MB). `PUT /sources/~` without previews and validation
+    is about 2.4 times faster. Local workerd runs the head (not the limit);
+    the deployed probe and the loader are to re-run (what, in `results.md`).
+  - **Public API:** one addition, `ValDraft.versions` (optional, filled by
+    the server). `@valbuild/server` exports `createValRuntime`, `valRuntime`,
+    `ValHead` and the draft readers' new shapes (internal, as the rest of
+    them); `sharedValOps` and the draft readers' old helpers are gone (they
+    were added on this branch). The wire: `/modules/~` is new; `/sources/~`
+    answers no `preview` and no `validationErrors` (both were optional); to
+    content, `GET /chain/version` (optional both ways).
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -701,28 +827,33 @@ coverage" (valbuild/val#1006).
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form passes since phase 9's first part.
-4. Phases 6 to 9 (2 to 5 are built, of 7 what 6 does not block, and of 9
-   what 6 and 7 do not; the rest of 7 is listed under
-   [Phase 7 without phase 6](#phase-7-without-phase-6), the rest of 9 under
-   [Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)).
-   Left from phase 5: the draft a page
-   is rendered with carries no versions (`ValDraft`), so a page's first
-   relay of each module is still compared by content and the page reports
-   the modules it holds by path, not by version -- a `versions` field on
-   `ValDraft` would close both and is an addition to a public type, so it
-   waits for a decision; entries have no versions of their own (phase 6),
-   so two relays at one version are compared by content too; `entriesStatus`
+4. **Phase 7's remainder, now that phase 6 is built**: `originTier` over
+   `GET /modules` in the Studio's store, `manifestSource` (reading the
+   manifest "since `seq` N") with `withLocalEdits` over it, so `chainSource`
+   goes and with it the client's replay and its reconciliation of vanished
+   patches; then `BaseAlignment`, the Studio's `PUT /sources/~?apply_patches=false`
+   and `__VAL_BASE__`. Listed under
+   [Phase 7 without phase 6](#phase-7-without-phase-6). Then the rest of 9
+   ([Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)) and 8. Left from phase 6: the deployed probe through home's loader, and with
+   valbuild/web's content (decision 5; `results.md`, "Phase 6", says what to
+   run); the Studio does not yet skip, in its catch-up, a module the page
+   holds at the version it would send (`draftHoldsVersions` is there for
+   it; the page already compares by version, so it costs a message, not a
+   comparison); `/stat` still reads the whole chain in http mode on every
+   call (the head's cheap `seq` is not used there yet). Left from phase 5:
+   `entriesStatus`
    and `allEntriesProgress` are still stable by recompute-and-compare (they
    are not `peek`, and are cheap); the confirmed boundary between
    `chainSource` and `withLocalEdits` decides nothing yet but which kept
    version is extended -- it matters in phase 7, when `chainSource` becomes
-   the server's answer. Left from phase 4, and done after phase 5: Next's
+   the server's answer. (Phase 5's other leftovers -- `ValDraft` without
+   versions, entries without versions of their own -- were closed by phase
+   6.) Left from phase 4, and done after phase 5: Next's
    `fetchValDraft`, returned from `initValRsc` (decided), on the
    `readDraftChanges` TanStack's now reads through too; `examples/next`'s
    root layout passes it, and `uncommitted-routes`' single-module case runs
-   on both apps. Left from phase 3: `fetchValDraft` still
-   reads the tree and the entries itself (through the same functions as
-   `serverDraftSource`), until phase 6's head. Left from phase 2: `/stat` and the manifest
+   on both apps. (Phase 3's leftover, `fetchValDraft` reading the tree and the
+   entries itself, went with phase 6's head.) Left from phase 2: `/stat` and the manifest
    still name a module's whole chain where `/sources/~` names where it
    stopped (they do not apply patches, so they cannot know); `/sources/~`'s
    `patches.applied` still lists a patch that failed.
@@ -1189,6 +1320,20 @@ In http mode the runtime needs a cheap "has the chain moved?", `seq` alone,
 from a small content-service endpoint or pushed. Today `/stat` fetches the
 whole patch list on every call.
 
+As built in phase 6 (see "Built"): the runtime is `valRuntime` (`{ ops,
+authorize }`), and the head is `ValHead` on the runtime's data layer, which
+`ValServer` is built on too, so the API's `/sources/~`, `/json` and
+`/modules` read it as the readers and MCP do. The tiers are memory (16 MB,
+two versions per module), the build's own modules, and the base the build
+serves where it is not the build's (a content version, a proposal's saves,
+a publish adopted in the process): the "content version" tier above is that
+base, already in the data layer, rather than a tier of its own. The cheap
+`seq` is an endpoint (`GET /v1/{project}/chain/version`), not a push: a
+page's server has no socket. A draft reader does not ask the head for a
+module whose newest version is the build's own: it reads its bundle, so
+"an unpatched module costs nothing" holds for the read as well as for the
+memory.
+
 ### 7. How code changes travel
 
 | Reader     | A module's schema changed                                                                                                                                                                             | Only `build` changed |
@@ -1480,7 +1625,9 @@ of phase 7 needs from phase 6 (`tiered`, `memoryTier`, `bundleTier`, the head,
 | The code tools' `projectSource` keyed by version                                               | No, but **home**                                   | There was no version to key it by: `/v1/project-source` carried none, Val's publish-API proxy carried no headers back, and the Studio knows the site's newest commit only at the site's address (`headCommitSha`), not at a proposal's, where code mode runs. **Built** with home's `ETag` (below): keyed by the answer's own tag, revalidated per call.                                                                                                                                                                                 |
 | Staged schemas (`staged:<hash>`)                                                               | No, but **home** (and phase 9 for the real schema) | The server at a proposal's address cannot tell a staged `.val.ts` (code) from a content save: the overlay it is handed (`VAL_OVERLAY`: `commit`, `modules`, `files`) says neither which modules were staged after its build nor their inputs hash, and a content save rewrites the same `.val.ts` text. And a version the server marks `staged:` is only effective once the readers that read the snapshot and the Studio read versions from the server (`snapshotSource` has none; the Studio computes its own until `manifestSource`). |
 
-**What is left of phase 7 for after phase 6**, in order: `originTier` in the
+**What is left of phase 7 for after phase 6** (phase 6 is built: the module
+endpoint reads a base by version and answers deltas, so this can start), in
+order: `originTier` in the
 Studio's store, `manifestSource` (reading the manifest "since `seq` N") with
 `withLocalEdits` over it, so `chainSource` goes and with it the client's
 replay and its reconciliation of vanished patches; then `BaseAlignment`, the
@@ -1661,9 +1808,9 @@ written earlier, so each phase's change is measured against them.
 
 ## Open questions
 
-- **The http-mode `seq`.** A new content-service endpoint, or pushed over the
-  WebSocket? The endpoint is simpler; the WebSocket is open in the Studio but
-  not in a page's server. (Phase 1 found that `headVersion` was not bumped
+- ~~**The http-mode `seq`.** A new content-service endpoint, or pushed over the
+  WebSocket?~~ Answered by phase 6: an endpoint (`GET /chain/version`), since
+  a page's server has no socket. (Phase 1 found that `headVersion` was not bumped
   by a deployment; valbuild/home now bumps it once per deployment going
   live, and S11's "a new build is counted" passes on http. Left open: a new
   build answers at the old `seq` until the service hears it went live --
@@ -1822,6 +1969,9 @@ readers (signatures and results); `ValProvider`'s props, `suspend` included
   `@valbuild/server`'s `draftReads.ts`; TanStack adds the proposal's
   snapshot and the draft's base.)
 - `stegaEncode` in `@valbuild/react/stega` takes an optional `version`.
+- `ValDraft.versions` (decided in phase 6): the version of each module in
+  the draft, filled by the server, so a page compares the Studio's relay with
+  what it was rendered with by version. Optional both ways.
 
 **Kept although they become redundant:** `initValContent`'s `patchStore`,
 `sourceFiles` and `http`. With one runtime per process they say what
@@ -1837,7 +1987,9 @@ this plan.
   fix).
 - MCP reads the same content version as the Studio on a hosted site (a fix).
 - A draft `fetchVal` no longer validates and previews the whole site on the way
-  (nothing a page used).
+  (nothing a page used). Since phase 6 it reads the process's head, and a
+  module nobody edited not at all. `PUT /sources/~` answers no previews and
+  no validation errors.
 - In the Studio: no schema dialog; edits that no longer fit a new schema are
   held, not deleted.
 

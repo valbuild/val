@@ -220,9 +220,9 @@ export function readsOfFetchValDraft(
  * The draft a page in this request should start from, or `null` for none.
  *
  * `null` -- and no read at all -- unless draft mode is on: a visitor pays one
- * cookie lookup. Otherwise the SAME read every `fetchVal` in the request
- * shares (`draftTree`, memoised per request), cut down to the modules the
- * draft changes. See `ValDraft`. The read is `readDraftChanges` in
+ * cookie lookup. Otherwise the runtime's head, which every `fetchVal` reads,
+ * cut down to the modules the draft changes, with the version of each. See
+ * `ValDraft`. The read is `readDraftChanges` in
  * `@valbuild/server`, which `@valbuild/next/rsc`'s `fetchValDraft` is too;
  * this adds a proposal's snapshot and the draft's base, which Next has not.
  *

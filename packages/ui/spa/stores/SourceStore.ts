@@ -772,7 +772,7 @@ export class SourceStore {
    * entry the chain wrote or edited, and every one whose marker says the
    * bundle's copy is not current (`Internal.isJsonFromServer`: a publish wrote
    * it, on a host that has not rebuilt). Exactly the entries the server's
-   * draft read fills for a page (`withDraftJsonEntries` in `@valbuild/server`).
+   * draft read fills for a page (`ValHead.draft` in `@valbuild/server`).
    * The ones still a marker here, by entry key.
    */
   entriesToRelay(moduleFilePath: ModuleFilePath): string[] {
