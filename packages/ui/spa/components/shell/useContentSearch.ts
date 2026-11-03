@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { useValSystem } from "../../stores/react/SystemContext";
-import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
+import {
+  useAllJsonValuesLoad,
+  type JsonValuesLoadStatus,
+} from "../useJsonValuesLoad";
 import { useGetNavPath } from "../ValFieldProvider";
 import { SearchResult } from "./GlobalSearch";
 import { localeScopeAt } from "@valbuild/shared/internal";
@@ -23,6 +26,12 @@ export type ContentSearchState = {
   results: SearchResult[];
   /** True while the index is answering, or while there is more to index. */
   isSearching: boolean;
+  /**
+   * The `.jsonValues()` entries a search has to load before its answer is
+   * whole: how far that has got (a progress bar), or what failed (Try again).
+   * `success` when there is nothing to load or no query.
+   */
+  load: JsonValuesLoadStatus;
 };
 
 /**
@@ -145,5 +154,6 @@ export function useContentSearch(
     // until the index has everything.
     isSearching:
       hasQuery && (isQuerying || jsonEntriesLoad.status === "loading"),
+    load: jsonEntriesLoad,
   };
 }

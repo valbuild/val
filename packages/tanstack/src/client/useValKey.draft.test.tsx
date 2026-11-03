@@ -161,7 +161,7 @@ describe("useValKey at a proposal's address", () => {
 
 /*
  * After a content-only publish the server renders a draft page's entries from
- * the content version (`snapshotJsonEntry`), and the Studio's overlay sends the
+ * the content version (`snapshotSource`), and the Studio's overlay sends the
  * module with markers in place of entries it has not loaded. A marker is "the
  * draft view cannot say", so the page has to fall back the way the server did
  * -- to the snapshot, then the build -- or hydration swaps the published entry

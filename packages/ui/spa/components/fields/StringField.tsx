@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
 import { ReadonlyGuard } from "./ReadonlyGuard";
 import { useDebouncedFieldWrite } from "./useDebouncedFieldWrite";
+import { stringFieldPatch } from "./stringFieldPatch";
 
 export function StringField({
   path,
@@ -42,7 +43,7 @@ export function StringField({
    * See `useDebouncedFieldWrite`.
    */
   const write = useDebouncedFieldWrite<string>((value) => {
-    addPatch([{ op: "replace", path: patchPath, value }], type);
+    addPatch(stringFieldPatch(patchPath, value), type);
   });
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =

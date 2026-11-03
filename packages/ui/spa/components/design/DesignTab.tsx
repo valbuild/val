@@ -29,7 +29,11 @@ import {
 } from "../../proposals/useProposalBuild";
 import { changedFiles, type ChangedFile } from "../../design/changedFiles";
 import { lineDiff, type DiffLine } from "../../design/lineDiff";
-import { previewUrl, siteDesignTabUrl } from "../../design/designTabUrl";
+import {
+  previewUrl,
+  proposalStudioUrl,
+  siteDesignTabUrl,
+} from "../../design/designTabUrl";
 import {
   modifierLabel,
   type PickedElement,
@@ -292,9 +296,7 @@ export function DesignTab({ name }: { name: string }) {
       <DesignTabView
         proposal={{ displayName, address }}
         previewHref={previewSrc}
-        studioUrl={
-          address !== null ? new URL("/val", address).toString() : null
-        }
+        studioUrl={address !== null ? proposalStudioUrl(address) : null}
         route={route}
         onRouteChange={setRoute}
         pages={pages}

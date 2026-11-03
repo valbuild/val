@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 // FIRST, and it must stay first: see the note in `testPolyfills`.
 import "../../stores/react/testPolyfills";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CodeModeButton, type TopBarCodeMode } from "./CodeModeButton";
 import type { ProposalSummary, StudioLocation } from "./types";
 
@@ -90,5 +90,58 @@ describe("CodeModeButton's menu, asked for from elsewhere", () => {
       />,
     );
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
+
+describe("CodeModeButton in a proposal", () => {
+  test("off, pressing it turns code mode on", () => {
+    const onToggle = jest.fn();
+    render(
+      <CodeModeButton
+        location={inProposal}
+        proposals={[proposal]}
+        codeMode={{ ...codeMode(0), onToggle }}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Turn on code mode" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  test("on, it is pressed, says who turned it on, and offers the view and Turn off", () => {
+    const onToggle = jest.fn();
+    const onViewChange = jest.fn();
+    render(
+      <CodeModeButton
+        location={inProposal}
+        proposals={[proposal]}
+        codeMode={{
+          ...codeMode(0),
+          on: true,
+          onToggle,
+          onViewChange,
+          view: "code",
+          turnedOn: { by: "Kari Nordmann", ago: "10 minutes ago" },
+        }}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Code mode is on" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(button);
+    expect(screen.getByRole("menu").textContent).toMatch(
+      /Code mode on: turned on by Kari Nordmann, 10 minutes ago/,
+    );
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: /Content editor/ }),
+    );
+    expect(onViewChange).toHaveBeenCalledWith("content");
+    // Turning it on and off is everyone's; the view stays one's own.
+    expect(onToggle).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /Turn off code mode/ }),
+    );
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });

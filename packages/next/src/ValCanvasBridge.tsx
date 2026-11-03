@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Internal } from "@valbuild/core";
+import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
@@ -64,8 +64,20 @@ const RESCAN_INTERVAL_MS = 5000;
 export function ValCanvasBridge({
   draftMode,
   isRefreshing,
+  holds,
+  holdsVersions,
 }: {
   draftMode: boolean;
+  /**
+   * The modules this page holds a draft of (`<ValProvider draft>`), reported
+   * with `ready`: the studio sends each of them in its catch-up. See `ready`
+   * in the canvas protocol.
+   */
+  holds?: readonly ModuleFilePath[];
+  /** The version it holds each at, where its draft says: see `ready`. */
+  holdsVersions?: Partial<
+    Record<ModuleFilePath, { schema: string; base: string; chain: string }>
+  >;
   /**
    * Whether the server tree is being re-rendered because of an edit.
    *
@@ -216,8 +228,12 @@ export function ValCanvasBridge({
       type: "ready",
       draftMode,
       url: window.location.href,
+      ...(holds !== undefined && holds.length > 0 ? { holds: [...holds] } : {}),
+      ...(holdsVersions !== undefined && Object.keys(holdsVersions).length > 0
+        ? { holdsVersions }
+        : {}),
     });
-  }, [post, draftMode]);
+  }, [post, draftMode, holds, holdsVersions]);
 
   /**
    * Re-scan whenever the page could have moved.
@@ -421,9 +437,8 @@ export function ValCanvasBridge({
          * `ValNextProvider` listens for this event on its own window to make an
          * inline edit visible behind the overlay; the only thing different here
          * is that the edit was made in another window. Re-dispatching rather
-         * than reaching into the store keeps one path into the page — including
-         * the `router.refresh()` it throttles behind it, which is what brings a
-         * server component's own re-read across.
+         * than reaching into the store keeps one path into the page. (What
+         * re-reads the server's own content is `confirmed`, below.)
          */
         window.dispatchEvent(
           new CustomEvent("val-event", {
@@ -431,6 +446,8 @@ export function ValCanvasBridge({
               type: "source-update",
               moduleFilePath: message.moduleFilePath,
               source: message.source,
+              // Absent from a Studio of the release before.
+              ...(message.read !== undefined ? { read: message.read } : {}),
             },
           }),
         );
@@ -442,6 +459,16 @@ export function ValCanvasBridge({
         window.dispatchEvent(
           new CustomEvent("val-event", {
             detail: { type: "sources-synced" },
+          }),
+        );
+        return;
+      }
+      if (message.type === "confirmed") {
+        // How far the server holds the editor's changes: what the provider
+        // re-reads its server-rendered content on. Relayed like the two above.
+        window.dispatchEvent(
+          new CustomEvent("val-event", {
+            detail: { type: "confirmed", seq: message.seq },
           }),
         );
         return;

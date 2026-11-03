@@ -7,6 +7,7 @@ import type { ResolveRemoteFileAuthResult } from "./valServerConfig";
 import type { JwtResult } from "./jwt";
 import type { ProbeResult } from "./linkCheck/probeUrl";
 import type { checkModuleForStudio, fixForStudio } from "./studioValidation";
+import type { TypeScriptKit } from "./patch/ts/loadTypeScriptKit";
 
 /**
  * What `ValServer` needs from the machine it runs on.
@@ -49,6 +50,19 @@ export type ValServerPlatform = {
   resolveRemoteFileAuth: (
     options: ValServerConfig,
   ) => Promise<ResolveRemoteFileAuthResult>;
+  /**
+   * The TypeScript compiler, for the one route that parses a `.val.ts` itself:
+   * `/history/json`, which reads a module's text at a commit to find a
+   * `.jsonValues()` entry's file. (A publish needs it too, and gets it from
+   * `createOps`: see `ValOpsOptions.typescript`.)
+   *
+   * A platform, because it is 10.8 MB of a 12.9 MB Worker bundle, and a
+   * bundler that does not split chunks inlines a dynamic `import()` -- so the
+   * only way to keep it out of a server that never uses it is for that server
+   * never to name it. `loadTypeScriptKit` on Node; absent in a browser, which
+   * has no history to read (memory mode has none), and the route says so.
+   */
+  typescript?: () => Promise<TypeScriptKit>;
   /**
    * The Studio's full check (`/validate`, `/validate/fix`). It reads files'
    * bytes and asks remote hosts, so it needs Node; absent in a browser, where

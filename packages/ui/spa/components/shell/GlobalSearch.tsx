@@ -11,6 +11,8 @@ import {
 import { cn } from "../designSystem/cn";
 import { ShellData } from "./types";
 import { Spinner } from "../designSystem/spinner";
+import type { JsonValuesLoadStatus } from "../useJsonValuesLoad";
+import { ContentLoadError, ContentLoadProgress } from "../ContentLoadStatus";
 
 /** One thing the global search can take you to. */
 export type SearchResult = {
@@ -139,8 +141,17 @@ export type GlobalSearchProps = {
   recentResults?: SearchResult[];
   /** True while the content index is still answering, or still filling. */
   isSearchingContent?: boolean;
+  /**
+   * The content a search has to load before its answer is whole
+   * (`.jsonValues()` entries): a bar with the counts while it loads, and what
+   * failed, with Try again, if a batch did. Results are shown as they come
+   * meanwhile, and the search stays usable.
+   */
+  contentLoad?: JsonValuesLoadStatus;
   /** Called as the query changes, so the app can run the content search. */
   onQueryChange?: (query: string) => void;
+  /** What is in the box when it opens. Empty unless a story says otherwise. */
+  initialQuery?: string;
   onSelect: (result: SearchResult) => void;
   onClose: () => void;
 };
@@ -157,11 +168,13 @@ export function GlobalSearch({
   contentResults,
   recentResults,
   isSearchingContent,
+  contentLoad,
   onQueryChange,
+  initialQuery = "",
   onSelect,
   onClose,
 }: GlobalSearchProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   // The content search is the app's to run, and it needs the query. Reported
   // from an effect rather than from the input's handler so it also fires for
   // the empty query, which is what clears the previous answer.
@@ -265,6 +278,22 @@ export function GlobalSearch({
             esc
           </kbd>
         </div>
+        {query.trim() !== "" && contentLoad?.status === "loading" && (
+          <ContentLoadProgress
+            label="Loading content to search"
+            loaded={contentLoad.loaded}
+            total={contentLoad.total}
+            className="px-4 py-2 border-b border-border-float shrink-0"
+          />
+        )}
+        {query.trim() !== "" && contentLoad?.status === "error" && (
+          <ContentLoadError
+            what="these results"
+            message={contentLoad.message}
+            retry={contentLoad.retry}
+            className="px-4 py-2 border-b border-border-float shrink-0"
+          />
+        )}
         <div
           ref={listRef}
           className="flex-1 min-h-0 overflow-y-auto py-1.5 scrollbar-slim"
@@ -328,12 +357,15 @@ export function GlobalSearch({
            * `.jsonValues()` index fills in batches, so an answer at 20% is not
            * the final one. Without this the list looks complete when it is not.
            */}
-          {isSearchingContent && matches.length > 0 && (
-            <p className="flex items-center gap-1.5 px-4 py-2 text-[0.6875rem] text-fg-secondary-alt">
-              <Spinner size={12} />
-              Still searching content…
-            </p>
-          )}
+          {isSearchingContent &&
+            matches.length > 0 &&
+            // The bar above says it, with how far.
+            contentLoad?.status !== "loading" && (
+              <p className="flex items-center gap-1.5 px-4 py-2 text-[0.6875rem] text-fg-secondary-alt">
+                <Spinner size={12} />
+                Still searching content…
+              </p>
+            )}
         </div>
         <div className="flex items-center gap-3 h-8 px-3 shrink-0 border-t border-border-float text-[0.625rem] text-fg-secondary-alt">
           <span>↑↓ to navigate</span>

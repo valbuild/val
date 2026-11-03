@@ -40,10 +40,24 @@
  */
 export type WorkKind =
   // --- source: the clone and apply costs the rewrite exists to remove -------
-  /** A whole module was deep-cloned. The headline cost in the diagnosis. */
+  /**
+   * A whole module was deep-cloned: once per module an intake hands over, and
+   * never per patch any more -- the engine copies along a patch's path.
+   */
   | "source:clone-module"
-  /** `applyPatch` ran over one module for one patch record. */
+  /** The engine (`applyPatchRecord`) applied one patch record to its module. */
   | "source:apply-patch"
+  /**
+   * What the engine copied for this store, in bytes (`count`): its
+   * `engine:clone-bytes`, attributed to the Studio, since the engine counts per
+   * process. A keystroke copies its path, not its module.
+   */
+  | "engine:clone-bytes"
+  /**
+   * Versions this store hashed (`count`): a schema or a base when it arrives,
+   * one link of a chain per patch applied. Never on a read.
+   */
+  | "version:hash"
   /** The listener registry was walked once, to find who to wake. */
   | "source:scan-listeners"
   /** One registered listener was invoked. The fan-out measure. */
@@ -52,22 +66,42 @@ export type WorkKind =
   | "source:skip-unloaded"
   /** One `get()` walked the module to a path. */
   | "source:read-path"
+  /**
+   * A module's `.jsonValues()` entries were counted: which are still markers,
+   * which failed, how many there are. `count` is the keys walked. Once per
+   * view of a module, never per read: a progress bar asks on every render.
+   */
+  | "source:count-entries"
   /** One `.jsonValues()` entry's content was delivered into the store. */
   | "source:receive-json-entry"
-  /** One `.jsonValues()` entry fetch was started. The request count. */
+  /**
+   * One `.jsonValues()` entry was asked for: a key in a `GET /json`. Several
+   * go in one request (`source:fetch-json-entries`).
+   */
   | "source:load-json-entry"
+  /** One `GET /json` for `.jsonValues()` entries. `count` is its keys. */
+  | "source:fetch-json-entries"
+  /**
+   * The entries that had landed for a module were applied as one batch: ONE
+   * rebuild of its view, whatever their number. `count` is the entries.
+   * Never more of these than of `source:fetch-json-entries`.
+   */
+  | "source:apply-json-entries"
   /**
    * A reader joined an entry fetch already in flight. This one being high while
    * `source:load-json-entry` stays at one is the dedup working.
    */
   | "source:share-json-entry-load"
-  /** Entry content was folded into a module's source for an in-realm walk. */
-  | "source:substitute-json-entries"
   /**
-   * One module was reset to base and its surviving chain re-applied.
-   *
-   * The cost of dropping a patch, and proportional to the MODULE rather than to
-   * the patch — which is why it is not counted as an apply.
+   * Entries whose answer was read on a base the module has since moved off,
+   * asked for again on the new one rather than applied. `count` is the
+   * entries.
+   */
+  | "source:refetch-json-entries"
+  /**
+   * One module was computed again from its base and its surviving chain: the
+   * cost of dropping a patch. The applies it took, if the version before the
+   * dropped patch was not kept, are counted as applies.
    */
   | "source:rebuild-module"
   /**
@@ -106,28 +140,29 @@ export type WorkKind =
   | "patch:save-retry"
   /** Patches removed from the chain. `count` is how many. */
   | "patch:drop"
+  // --- the manifest: what each module IS on the server (`manifestSource.ts`)
+  /** One `GET /manifest`: "since" the one held, a 304 while nothing moved. */
+  | "manifest:fetch"
   /**
-   * One round trip asking the server whether patches stat stopped naming still
-   * exist. `count` is how many ids it asked about.
-   *
-   * Worth its own kind rather than reusing `patch:fetch`: this one is not on any
-   * demand path, it fires only when the chain and stat disagree, and a test that
-   * wants to prove the disagreement is settled by ASKING rather than by guessing
-   * has to be able to see it happen.
+   * A version the manifest named was one this Studio computed itself: its own
+   * edit, confirmed. Nothing was asked for it.
    */
-  | "patch:verify-vanished"
+  | "manifest:memory-hit"
+  /** One `GET /modules`: a module, or the patches from the version held. */
+  | "manifest:origin"
   /** Published patches taken out of the chain, source left alone. */
   | "patch:forget-published"
   // --- status: what the editor is told --------------------------------------
   | "status:report-error"
+  // --- a new build's code (`buildCode.ts`) ------------------------------------
+  /** A build's registry imported and handed to `reloadCode`: once per build. */
+  | "code:import-build"
   /**
-   * The client's schema went stale against the server's.
-   *
-   * Counted because it GATES writes, so a run where it happens is a run where
-   * saving stopped — which is worth being able to see in a ledger rather than
-   * inferring from an absence of saves.
+   * The Studio reloaded the page to take a build's code, which it could not
+   * take in place (another Val, no entry). Counted because a scenario must
+   * see it happen, or see that it did not.
    */
-  | "status:schema-out-of-date"
+  | "code:reload-studio"
   // --- schema --------------------------------------------------------------
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------
@@ -165,6 +200,12 @@ export type WorkKind =
   | "search:gather-snapshot"
   /** One module was walked and its documents replaced. */
   | "search:index-module"
+  /**
+   * Indexing a module stopped at the end of its time slice and let the
+   * thread go, to go on in a later task. Seconds of indexing (a library of
+   * 10,000) are many of these, never one long task.
+   */
+  | "search:index-slice"
   | "search:build-index"
   | "search:query"
   /** One module was walked for referrers and its index slice replaced. */
@@ -236,6 +277,20 @@ export class RecordingActivity implements ActivitySink {
         continue;
       }
       total++;
+    }
+    return total;
+  }
+
+  /**
+   * The sum of `count` (one for a record without one) since `since`: for the
+   * kinds that measure an amount, `engine:clone-bytes` and `version:hash`.
+   */
+  total(kind: WorkKind, options?: { since?: number }): number {
+    const since = options?.since ?? 0;
+    let total = 0;
+    for (let index = since; index < this.records.length; index++) {
+      const record = this.records[index];
+      if (record.kind === kind) total += record.count ?? 1;
     }
     return total;
   }

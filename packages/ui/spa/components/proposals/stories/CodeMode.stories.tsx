@@ -504,3 +504,210 @@ export const PhoneCodeModeOn = shell({
   codeMode: { on: true },
   saveBuilds: true,
 });
+
+/**
+ * Code mode on, by someone else: the `</>` is pressed for everyone in the
+ * proposal, and the switcher's menu says who turned it on and when. This
+ * person stays in the content editor -- the view is each person's -- and
+ * their edits are saved before each of the assistant's code writes.
+ */
+export const OnBySomeoneElseInTheEditor = shell({
+  location: inProposal({ unsaved: 2 }),
+  selectionId: mockSelectionIds.home,
+  codeMode: { on: true, contentView: true, turnedOnBy: "Kari Nordmann" },
+  saveBuilds: true,
+  switcherOpen: true,
+});
+
+/**
+ * The `</>` pressed while code mode is on: who turned it on, which view this
+ * person sees, and Turn off -- for everyone, discarding nothing.
+ */
+export const CodeModeMenu = shell({
+  location: inProposal({ unsaved: 0 }),
+  codeMode: { on: true, turnedOnBy: "you", menuOpen: true },
+  saveBuilds: true,
+  renderChat: codeChat(MESSAGES),
+});
+
+/**
+ * Save is the one main button; its menu holds Commit (a project connected to
+ * git) and Publish. In code mode there is no "Fix N": Save saves invalid
+ * content too, and Publish is refused until it is fixed.
+ */
+export const SaveMenuWithCommit = shell({
+  location: inProposal({ unsaved: 2 }),
+  codeMode: { on: true, contentView: true },
+  saveBuilds: true,
+  commit: {},
+  validationErrors: 2,
+  menuOpen: true,
+});
+
+/** Nothing saved since the last Commit: Commit says so, and waits. */
+export const SaveMenuCommitted = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: { upToDate: true },
+  menuOpen: true,
+});
+
+/**
+ * Commit refused: somebody else pushed to the proposal's branch. Who, when,
+ * a link to their commit, and Build on their push -- no Try again, since
+ * pressing again would be refused the same way. Press it: their push comes
+ * in, one file keeps the proposal's version, the preview is rebuilt, and
+ * Commit again goes on top of their commit.
+ */
+export const CommitRefusedSomeonePushed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: true,
+});
+
+/** Bringing their push into the proposal. */
+export const CommitBuildingOnTheirPush = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: { kind: "building" },
+});
+
+/**
+ * Their push is in: two files both changed kept the proposal's version, and
+ * one change a proposal cannot hold is named. The preview is still being
+ * rebuilt; Commit does not wait for it.
+ */
+export const CommitBuiltOnTheirPush = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "built",
+    kept: ["content/home.val.ts", "src/components/Hero.tsx"],
+    notTaken: [".github/workflows/deploy.yml"],
+    rewritten: false,
+    rebuild: { state: "running" },
+  },
+});
+
+/**
+ * Their push is in, but the preview could not be rebuilt with their code:
+ * Build again, and Commit still goes.
+ */
+export const CommitBuiltOnTheirPushPreviewFailed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "built",
+    kept: [],
+    notTaken: [],
+    rewritten: true,
+    rebuild: {
+      state: "failed",
+      message: "src/components/Hero.tsx: Unexpected token (12:4)",
+      canRetry: true,
+    },
+  },
+});
+
+/** GitHub could not be reached: nothing came in, and Try again does it again. */
+export const CommitBuildOnTheirPushFailed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "GitHub could not be reached, so their push was not brought in. Nothing changed in the proposal.",
+    offer: { kind: "retry" },
+  },
+});
+
+/**
+ * Their push changes more files than one take-in holds: asking again cannot
+ * help, so nothing is offered but their commit, where a developer sorts it out.
+ */
+export const CommitBuildOnTheirPushTooBig = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "Their push changes 1,204 files, and Val brings in at most 1,000 at a time. A developer can split it, or merge it into the proposal's branch by hand.",
+    offer: null,
+  },
+});
+
+/** The session ran out while bringing it in: Sign in, and come back here. */
+export const CommitBuildOnTheirPushSignedOut = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message: "Your session has run out, so their push was not brought in.",
+    offer: { kind: "sign-in", url: "#sign-in" },
+  },
+});
+
+/**
+ * Signed in, and not allowed to change the proposal (not a member of the
+ * project): the owners by name and an email to them -- not Sign in, which
+ * presents the same credential again.
+ */
+export const CommitBuildOnTheirPushNotAllowed = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "You are not allowed to change this proposal, so their push was not brought in. You are not a member of this project. Ask an owner of acme to add you.",
+    offer: {
+      kind: "not-allowed",
+      owners: [{ name: "Grace Hopper", email: "grace@acme.example" }],
+      projectUrl: "#project",
+    },
+  },
+});
+
+/**
+ * Their code does not build, and building again cannot help (the build
+ * said so): the error, and the assistant to fix it.
+ */
+export const CommitBuildOnTheirPushDoesNotBuild = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "built",
+    kept: [],
+    notTaken: [],
+    rewritten: false,
+    rebuild: {
+      state: "failed",
+      message: "src/components/Hero.tsx: Unexpected token (12:4)",
+      canRetry: false,
+    },
+  },
+});
+
+/**
+ * The project's plan refuses writes (a trial that ended): Billing, where it
+ * is fixed -- not Sign in, which would be refused the same way.
+ */
+export const CommitBuildOnTheirPushPlanRefused = shell({
+  location: inProposal({ unsaved: 0 }),
+  saveBuilds: true,
+  commit: {},
+  commitRefused: {
+    kind: "failed",
+    message:
+      "Their push was not brought in: The trial has ended. Add a card to keep changing content.",
+    offer: { kind: "billing", url: "#billing" },
+  },
+});

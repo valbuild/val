@@ -3,6 +3,7 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
+  ProjectVersionSchema,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -255,6 +256,15 @@ export const StatData = z.object({
   commits: z.array(ValCommit).optional(),
   deployments: z.array(ValDeployment).optional(),
   mode: z.union([z.literal("fs"), z.literal("http")]),
+  /**
+   * The project version this answer is relative to (`build`, `seq`); see
+   * `ProjectVersion` in `@valbuild/shared/internal`. The stores keep its
+   * `seq` (`StatSnapshot.seq`): what the relay tells a page the server holds
+   * its edits up to (`confirmed`, phase 4 of
+   * `docs/plans/one-content-model.md`). Absent from a server that predates
+   * it.
+   */
+  version: ProjectVersionSchema.optional(),
 });
 export type StatData = z.infer<typeof StatData>;
 
@@ -386,16 +396,7 @@ export function useStatus(client: ValClient) {
       if (stat.status === "error") {
         Internal.log.debug("Stat error", stat.status, "error:", stat.error);
       }
-      // Never wait longer than a publish that has not reached the site yet can
-      // afford: `/stat` is the only thing that reports which commit the site
-      // actually serves.
-      const wait =
-        refreshRef.current && stat.status !== "error"
-          ? 0
-          : Math.min(
-              stat.wait,
-              awaitingDeploymentInterval(stat.data, Date.now()),
-            );
+      const wait = statWait(stat, refreshRef.current, Date.now()) ?? 0;
       if (wait === 0) {
         refreshRef.current = false;
         Internal.log.debug(
@@ -545,9 +546,9 @@ export function chainOfMessage(
  * Kept APART from the stat the stores adopt. A `/stat` answer requested before
  * a socket message is older than it for the holds -- but it can also come from
  * a newer BUILD than the socket describes, so the stat itself is taken whole:
- * the chain pairs with the build metadata it was read with, or `BaseAlignment`
- * replays published patches onto the new base. Only these holds prefer the
- * socket.
+ * the chain pairs with the build metadata it was read with, and the manifest
+ * read after it names the versions that build serves. Only these holds prefer
+ * the socket.
  */
 export type ContentHolds = Pick<
   StatData,
@@ -667,6 +668,237 @@ export function awaitingDeploymentInterval(
   );
 }
 
+/**
+ * What a `/stat` request says the Studio already knows: the last answer's
+ * shas and patches, so the server can answer "no change" (or, in fs mode,
+ * long-poll until there is one). `null` on the first request.
+ *
+ * Its own function so the scenario harness (`scenarios/`) asks exactly what
+ * the Studio asks.
+ */
+export function statRequestBody(data: StatData | undefined) {
+  if (!data) {
+    return null;
+  }
+  return {
+    schemaSha: data.schemaSha,
+    sourcesSha: data.sourcesSha,
+    baseSha: data.baseSha,
+    patches: data.patches,
+    // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
+    // no other sha here can see that (a jsonValues module's source is markers).
+    jsonEntriesSha: data.jsonEntriesSha,
+  };
+}
+
+/**
+ * Ask `/stat`, saying what the Studio already knows ({@link statRequestBody}).
+ *
+ * One function for what the poll in {@link useStatus} sends and what the
+ * scenario harness (`scenarios/`) sends, so the two cannot ask differently.
+ */
+export function requestStat(client: ValClient, stat: StatState) {
+  return client("/stat", "POST", {
+    body: statRequestBody("data" in stat ? stat.data : undefined),
+  });
+}
+
+/** An answer to {@link requestStat}. */
+export type StatAnswer = Awaited<ReturnType<typeof requestStat>>;
+
+/**
+ * How long the poll waits before asking `/stat` again, or `null` while it is
+ * not waiting (it has not asked yet, or a request is out).
+ *
+ * Never longer than a publish that has not reached the site yet can afford:
+ * `/stat` is the only thing that reports which commit the site actually
+ * serves. A refresh asked for (see `refresh` in {@link useStatus}) is now,
+ * unless the last answer was an error, which keeps its back-off.
+ */
+export function statWait(
+  stat: StatState,
+  refreshAsked: boolean,
+  now: number,
+): number | null {
+  if (
+    stat.status !== "updated-request-again" &&
+    stat.status !== "error" &&
+    stat.status !== "ws-message-received"
+  ) {
+    return null;
+  }
+  if (refreshAsked && stat.status !== "error") {
+    return 0;
+  }
+  return Math.min(stat.wait, awaitingDeploymentInterval(stat.data, now));
+}
+
+/**
+ * The state an answer to `/stat` leaves the poll in, or `null` when the answer
+ * does not move it: signed out (the session is the hook's business), or a 200
+ * of a kind the poll does not know.
+ *
+ * - **Long polling** (fs and memory mode, no socket): ask again at once -- the
+ *   server holds the request until something changes, so waiting here would
+ *   only add to it.
+ * - **With a socket**: the socket brings the changes, and `/stat` is asked
+ *   again only every {@link WebSocketStatInterval}.
+ * - **503**: the last answer stands, as it does for every other error
+ *   ({@link createError}): an outage is not news that a publish ended, and
+ *   dropping the data released every change content had said a running
+ *   publish holds.
+ *
+ * One function for the hook and the scenario harness (`scenarios/`).
+ */
+export function statStateAfterAnswer(
+  prev: StatState,
+  res: StatAnswer,
+  hasSocket: boolean,
+  now: number,
+): StatState | null {
+  if (res.status === 401) {
+    return null;
+  }
+  if (res.status === 503) {
+    return {
+      status: "error",
+      error: "Service unavailable",
+      data: "data" in prev ? prev.data : undefined,
+      retries: ("retries" in prev ? prev.retries : 0) + 1,
+      waitStart: now,
+      wait: 5000,
+    };
+  }
+  if (res.status !== 200) {
+    return createError(prev, res.json.message);
+  }
+  if (
+    res.json.type === "did-change" ||
+    res.json.type === "no-change" ||
+    res.json.type === "request-again"
+  ) {
+    return {
+      status: "updated-request-again",
+      data: res.json,
+      waitStart: now,
+      wait: hasSocket ? WebSocketStatInterval : 0,
+    };
+  }
+  if (res.json.type === "use-websocket") {
+    // Whole: see `ContentHolds` for why only the holds prefer the socket.
+    return {
+      ...prev,
+      status: "updated-request-again",
+      data: res.json,
+      waitStart: now,
+      wait: WebSocketStatInterval,
+    };
+  }
+  return null;
+}
+
+/** A message on the content service's socket, as the Studio reads it. */
+export type SocketMessage = z.infer<typeof WebSocketServerMessage>;
+
+/**
+ * A socket message's text, read, or `null` when it is not one the Studio
+ * knows (logged). One parser for the hook and the scenario harness.
+ */
+export function parseSocketMessage(data: string): SocketMessage | null {
+  try {
+    const parsed = WebSocketServerMessage.safeParse(JSON.parse(data));
+    if (!parsed.success) {
+      Internal.log.error("Could not parse WebSocket message", parsed.error);
+      return null;
+    }
+    return parsed.data;
+  } catch (e) {
+    Internal.log.error("Could not parse WebSocket message", e);
+    return null;
+  }
+}
+
+/**
+ * The state a socket message leaves the poll in, or `null` when the message
+ * does not move it (`subscribed`, `publish-job`, or no stat to move yet).
+ *
+ * A `patches` message replaces the chain ({@link chainOfMessage}); a
+ * `commit` or `deployment` adds to the stat's list. None of them moves the
+ * next `/stat` sooner: it stays {@link WebSocketStatInterval} after the last.
+ *
+ * One function for the hook and the scenario harness (`scenarios/`).
+ */
+export function statStateAfterSocketMessage(
+  prev: StatState,
+  message: SocketMessage,
+  now: number,
+): StatState | null {
+  if (!("data" in prev) || !prev.data) return null;
+  const timing = {
+    waitStart: "waitStart" in prev ? prev.waitStart : now,
+    wait:
+      "waitStart" in prev
+        ? Math.max(0, prev.waitStart + WebSocketStatInterval - now)
+        : WebSocketStatInterval,
+  };
+  if (message.type === "patches") {
+    return {
+      status: "ws-message-received",
+      data: { ...prev.data, ...chainOfMessage(prev.data, message) },
+      ...timing,
+    };
+  }
+  if (message.type === "commit") {
+    const commits = (prev.data.commits || []).concat(message.commit);
+    return {
+      status: "ws-message-received",
+      data: {
+        ...prev.data,
+        commits,
+        /*
+         * The publish head moves HERE too, not only on a poll.
+         *
+         * This message is how another author's publish reaches this client,
+         * and `headCommitSha` was only ever set by a `/stat` response -- so
+         * between the two, a publish from this tab carried a head the server
+         * had already moved past and came back 409. Derived with the same
+         * `newestCommitSha` the server compares with, rather than assuming
+         * the message is the newest: commits arrive in whatever order the
+         * socket delivers them.
+         */
+        headCommitSha: newestCommitSha(commits) ?? prev.data.headCommitSha,
+      },
+      ...timing,
+    };
+  }
+  if (message.type === "deployment") {
+    return {
+      status: "ws-message-received",
+      data: {
+        ...prev.data,
+        deployments: (prev.data.deployments || []).concat({
+          commitSha: message.deployment.commitSha,
+          deploymentId: message.deployment.deploymentId,
+          deploymentState: message.deployment.deploymentState,
+          createdAt: message.deployment.createdAt,
+          updatedAt: message.deployment.updatedAt,
+          // The git message, where the content service sends one. Copied
+          // field by field here, so leaving it out dropped it as surely as
+          // the schema stripping it would have. See `ValDeployment`.
+          commitMessage: message.deployment.commitMessage,
+        }),
+      },
+      ...timing,
+    };
+  }
+  if (message.type === "publish-job" || message.type === "subscribed") {
+    return null;
+  }
+  const exhaustiveCheck: never = message;
+  Internal.log.warn("Unknown WebSocket message", exhaustiveCheck);
+  return null;
+}
+
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
@@ -684,23 +916,9 @@ async function execStat(
   const id = ++statIdRef.current;
   const socketPatchesAtRequest = socketPatchesRef.current;
   const requestedAt = Date.now();
-  let body = null;
-  if ("data" in stat && stat.data) {
-    body = {
-      schemaSha: stat.data.schemaSha,
-      sourcesSha: stat.data.sourcesSha,
-      baseSha: stat.data.baseSha,
-      patches: stat.data.patches,
-      // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
-      // no other sha here can see that (a jsonValues module's source is markers).
-      jsonEntriesSha: stat.data.jsonEntriesSha,
-    };
-  }
 
   setAuthenticationLoadingIfNotAuthenticated();
-  return client("/stat", "POST", {
-    body: body,
-  })
+  return requestStat(client, stat)
     .then((res) => {
       if (res.status === 401) {
         setIsAuthenticated("login-required");
@@ -710,26 +928,19 @@ async function execStat(
       }
       if (res.status === 503) {
         setServiceUnavailable(true);
-        setStat((prev) => ({
-          status: "error",
-          error: "Service unavailable",
-          /*
-           * The last answer stands, as it does for every other error
-           * (`createError`): an outage is not news that a publish ended, and
-           * dropping the data released every change content had said a
-           * running publish holds.
-           */
-          data: "data" in prev ? prev.data : undefined,
-          retries: ("retries" in prev ? prev.retries : 0) + 1,
-          waitStart: Date.now(),
-          wait: 5000,
-        }));
+        const now = Date.now();
+        setStat((prev) => statStateAfterAnswer(prev, res, false, now) ?? prev);
         return;
       }
       setServiceUnavailable(false);
       if (statIdRef.current !== 0 && statIdRef.current !== id) {
         return;
       }
+      const hasSocket = webSocketRef.current !== null;
+      const now = Date.now();
+      setStat(
+        (prev) => statStateAfterAnswer(prev, res, hasSocket, now) ?? prev,
+      );
       if (res.status === 200) {
         if (
           // we could have less types on json, but these are supposed to be more descriptive
@@ -737,12 +948,6 @@ async function execStat(
           res.json.type === "no-change" ||
           res.json.type === "request-again"
         ) {
-          setStat({
-            status: "updated-request-again",
-            data: res.json,
-            waitStart: Date.now(),
-            wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
-          });
           const answer = res.json;
           setHolds(
             (prev) =>
@@ -755,14 +960,6 @@ async function execStat(
           );
         } else if (res.json.type === "use-websocket") {
           const answer = res.json;
-          // Whole: see `ContentHolds` for why only the holds prefer the socket.
-          setStat((prev) => ({
-            ...prev,
-            status: "updated-request-again",
-            data: answer,
-            waitStart: Date.now(),
-            wait: WebSocketStatInterval,
-          }));
           setHolds(
             (prev) =>
               holdsOfAnswer(
@@ -790,137 +987,27 @@ async function execStat(
             );
           };
           webSocketRef.current.onmessage = (event) => {
-            try {
-              const messageRes = WebSocketServerMessage.safeParse(
-                JSON.parse(event.data),
-              );
-              if (!messageRes.success) {
-                Internal.log.error(
-                  "Could not parse WebSocket message",
-                  messageRes.error,
-                );
-                return;
-              }
-              const message = messageRes.data;
-              if (message.type === "patches") {
-                socketPatchesRef.current++;
-                setHolds((prev) => holdsOfMessage(prev, message), Date.now());
-                setStat((prev) => {
-                  if ("data" in prev && prev.data) {
-                    return {
-                      status: "ws-message-received",
-                      data: {
-                        ...prev.data,
-                        ...chainOfMessage(prev.data, message),
-                      },
-                      waitStart:
-                        "waitStart" in prev ? prev.waitStart : Date.now(),
-                      wait:
-                        "waitStart" in prev
-                          ? Math.max(
-                              0,
-                              prev.waitStart +
-                                WebSocketStatInterval -
-                                Date.now(),
-                            )
-                          : WebSocketStatInterval,
-                    };
-                  }
-                  return prev;
-                });
-              } else if (message.type === "publish-job") {
-                onPublishJob({
-                  id: message.job.id,
-                  status: message.job.status ?? null,
-                });
-              } else if (message.type === "subscribed") {
-                Internal.log.debug("Subscribed!");
-              } else if (message.type === "commit") {
-                Internal.log.debug("Commit", message.commit);
-                setStat((prev) => {
-                  if ("data" in prev && prev.data) {
-                    const commits = (prev.data.commits || []).concat(
-                      message.commit,
-                    );
-                    // we don't want to set the wait time to 0 here, because we want to keep the polling
-                    return {
-                      status: "ws-message-received",
-                      data: {
-                        ...prev.data,
-                        commits,
-                        /*
-                         * The publish head moves HERE too, not only on a poll.
-                         *
-                         * This message is how another author's publish reaches
-                         * this client, and `headCommitSha` was only ever set by
-                         * a `/stat` response — so between the two, a publish
-                         * from this tab carried a head the server had already
-                         * moved past and came back 409. Derived with the same
-                         * `newestCommitSha` the server compares with, rather
-                         * than assuming the message is the newest: commits
-                         * arrive in whatever order the socket delivers them.
-                         */
-                        headCommitSha:
-                          newestCommitSha(commits) ?? prev.data.headCommitSha,
-                      },
-                      waitStart:
-                        "waitStart" in prev ? prev.waitStart : Date.now(),
-                      wait:
-                        "waitStart" in prev
-                          ? Math.max(
-                              0,
-                              prev.waitStart +
-                                WebSocketStatInterval -
-                                Date.now(),
-                            )
-                          : WebSocketStatInterval,
-                    };
-                  }
-                  return prev;
-                });
-              } else if (message.type === "deployment") {
-                Internal.log.debug("Deployment", message.deployment);
-                setStat((prev) => {
-                  if ("data" in prev && prev.data) {
-                    return {
-                      status: "ws-message-received",
-                      data: {
-                        ...prev.data,
-                        deployments: (prev.data.deployments || []).concat({
-                          commitSha: message.deployment.commitSha,
-                          deploymentId: message.deployment.deploymentId,
-                          deploymentState: message.deployment.deploymentState,
-                          createdAt: message.deployment.createdAt,
-                          updatedAt: message.deployment.updatedAt,
-                          // The git message, where the content service sends
-                          // one. Copied field by field here, so leaving it out
-                          // dropped it as surely as the schema stripping it
-                          // would have. See `ValDeployment`.
-                          commitMessage: message.deployment.commitMessage,
-                        }),
-                      },
-                      waitStart:
-                        "waitStart" in prev ? prev.waitStart : Date.now(),
-                      wait:
-                        "waitStart" in prev
-                          ? Math.max(
-                              0,
-                              prev.waitStart +
-                                WebSocketStatInterval -
-                                Date.now(),
-                            )
-                          : WebSocketStatInterval,
-                    };
-                  }
-                  return prev;
-                });
-              } else {
-                const exhaustiveCheck: never = message;
-                Internal.log.warn("Unknown WebSocket message", exhaustiveCheck);
-              }
-            } catch (e) {
-              Internal.log.error("Could not parse WebSocket message", e);
+            const message = parseSocketMessage(String(event.data));
+            if (message === null) return;
+            if (message.type === "patches") {
+              socketPatchesRef.current++;
+              setHolds((prev) => holdsOfMessage(prev, message), Date.now());
+            } else if (message.type === "publish-job") {
+              onPublishJob({
+                id: message.job.id,
+                status: message.job.status ?? null,
+              });
+            } else if (message.type === "subscribed") {
+              Internal.log.debug("Subscribed!");
+            } else if (message.type === "commit") {
+              Internal.log.debug("Commit", message.commit);
+            } else if (message.type === "deployment") {
+              Internal.log.debug("Deployment", message.deployment);
             }
+            setStat(
+              (prev) =>
+                statStateAfterSocketMessage(prev, message, Date.now()) ?? prev,
+            );
           };
           const currentWebSocket = webSocketRef.current;
           webSocketRef.current.onclose = () => {
@@ -939,8 +1026,6 @@ async function execStat(
             );
           };
         }
-      } else {
-        setStat((prev) => createError(prev, res.json.message));
       }
     })
     .catch((err) => {

@@ -3,8 +3,9 @@ import { initVal, type ValModules } from "@valbuild/core";
 /**
  * The readers are configured SEPARATELY, and that is the whole finding.
  *
- * `initValContent` builds a Val server of its own -- it resolves content by
- * asking it, not by calling the API over HTTP -- so a host that configures
+ * `initValContent` reads through the runtime it builds for its `val.modules`
+ * (`createValRuntime`) -- it resolves content from its head, not by calling the
+ * API over HTTP -- so a host that configures
  * `initValServer` and nothing here leaves this half of Val inferring a mode.
  * On a host with no filesystem that is a reader looking for a working tree
  * that is not there, and it went unnoticed because a published read still
@@ -15,7 +16,7 @@ import { initVal, type ValModules } from "@valbuild/core";
  * reaches these readers unless it is handed to them here.
  *
  * Asserted at the seam rather than through a rendered draft: what has to hold
- * is that the options REACH `createValServer`. A test that drove the fetchers
+ * is that the options REACH `createValRuntime`. A test that drove the fetchers
  * would need a request context, a session cookie and draft mode on, and would
  * still be asserting this.
  */
@@ -25,7 +26,7 @@ import { initVal, type ValModules } from "@valbuild/core";
 //
 // The parameters are named rather than a rest array so that reading the third
 // one back is typed, which is the whole assertion here.
-const mockCreateValServer = jest.fn(
+const mockCreateValRuntime = jest.fn(
   (
     _valModules: unknown,
     _route: unknown,
@@ -34,14 +35,14 @@ const mockCreateValServer = jest.fn(
     // Never settles, so nothing here depends on a real server being buildable.
   ): Promise<never> => new Promise(() => {}),
 );
-jest.mock("@valbuild/server", () => ({
-  ...jest.requireActual("@valbuild/server"),
-  createValServer: (
+jest.mock("@valbuild/server/internal", () => ({
+  ...jest.requireActual("@valbuild/server/internal"),
+  createValRuntime: (
     valModules: unknown,
     route: unknown,
     options: Record<string, unknown>,
     ...rest: unknown[]
-  ) => mockCreateValServer(valModules, route, options, ...rest),
+  ) => mockCreateValRuntime(valModules, route, options, ...rest),
 }));
 
 import { initValContent } from "./initValContent";
@@ -70,13 +71,13 @@ const HTTP = {
 };
 
 const optionsPassed = (): Record<string, unknown> => {
-  const call = mockCreateValServer.mock.calls.at(-1);
-  if (!call) throw new Error("createValServer was never called");
+  const call = mockCreateValRuntime.mock.calls.at(-1);
+  if (!call) throw new Error("createValRuntime was never called");
   return call[2];
 };
 
 describe("initValContent and the host's own source", () => {
-  beforeEach(() => mockCreateValServer.mockClear());
+  beforeEach(() => mockCreateValRuntime.mockClear());
 
   test("sourceFiles reaches the reader's server", () => {
     initValContent(config, valModules, { sourceFiles: SOURCE });
@@ -114,7 +115,7 @@ describe("initValContent and the host's own source", () => {
 });
 
 describe("initValContent in http mode", () => {
-  beforeEach(() => mockCreateValServer.mockClear());
+  beforeEach(() => mockCreateValRuntime.mockClear());
 
   test("the http config reaches the reader's server", () => {
     initValContent(config, valModules, { http: HTTP });

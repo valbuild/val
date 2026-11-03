@@ -7,16 +7,24 @@ import {
   evaluateModuleSource,
   jsonValuesRecordKeys,
 } from "./jsonValuesModule";
+import { getJsonEntryAtCommit } from "../../history/getJsonEntryAtCommit";
 
 /**
- * Everything `ValOps.prepare` needs from the TypeScript compiler, in one module
- * so that it is loaded when a publish asks for it rather than with the server.
+ * Everything Val's server needs from the TypeScript compiler, in one module:
+ * what a publish needs (`ValOps.prepare`) and what the history reader needs
+ * (`/history/json`, which reads a `.val.ts` at a commit to find an entry's
+ * file).
  *
- * The compiler is most of the server's weight in a browser: the demo's in-tab
- * server was a 3.6 MB chunk, nearly all of it this, and the demo never
- * publishes. `prepare` imports this module dynamically, which a bundler turns
- * into a chunk of its own; `noNodeFromBrowser.test.ts` fails if TypeScript
- * becomes statically reachable from `@valbuild/server/browser` again.
+ * The compiler is 10.8 MB of source -- 84% of Val's server as a Worker
+ * bundles it -- and a server in a browser tab or a memory-mode Worker never
+ * publishes from it. So it is not imported by the request handlers at all,
+ * not even dynamically: a bundler that does not split chunks (wrangler,
+ * esbuild with one output file) inlines a dynamic `import()` and ships the
+ * compiler anyway. It reaches the server through `ValServerPlatform`'s
+ * `typescript` (the platform) and `ValOpsOptions.typescript` (the data layer),
+ * both of which `nodePlatform` fills with `loadTypeScriptKit`, and the browser
+ * platform leaves empty. `noNodeFromBrowser.test.ts` fails, naming the chain,
+ * if TypeScript becomes reachable from `@valbuild/server/browser` again.
  */
 
 const tsOps = new TSOps((document) => {
@@ -40,4 +48,5 @@ export {
   jsonValuesRecordKeys,
   insertValJsonEntry,
   removeValJsonEntry,
+  getJsonEntryAtCommit,
 };

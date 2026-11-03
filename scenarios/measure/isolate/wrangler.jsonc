@@ -1,0 +1,44 @@
+{
+  // The Cloudflare isolate probe: Val's draft read on its real server, in a
+  // deployed Worker, where the 128 MB limit is enforced. See "The deployed
+  // isolate probe" in scenarios/measure/README.md before deploying.
+  "$schema": "https://unpkg.com/wrangler@4.133.0/config-schema.json",
+  "name": "val-isolate-probe",
+  "main": "worker.ts",
+  // As valbuild/home's loader.
+  "compatibility_date": "2026-08-20",
+  // A probe, not a site: its URL is <name>.<account subdomain>.workers.dev.
+  "workers_dev": true,
+  // A draft read of 10 MB is about 0.7 s of CPU in Node. The default limit
+  // (30 s on the Standard usage model) would do, but this says the probe is
+  // after the memory limit, not the CPU one. Not available on the Free plan,
+  // where the CPU limit is 10 ms and every run here ends `exceededCpu`: the
+  // probe needs Workers Paid.
+  "limits": { "cpu_ms": 300000 },
+  // Off: the probe is the only thing in its isolate, and logs would be held
+  // in it. The outcome is read with `wrangler tail`.
+  "observability": { "enabled": false },
+
+  // Only `--env web` imports these. Aliases cannot be set per environment.
+  "alias": {
+    // valbuild/web, checked out beside this repository. Relative to this file.
+    "val-probe-web": "../../../../web/val.modules.ts",
+    "@valbuild/next": "./webNext.ts",
+  },
+
+  "env": {
+    // The same probe with valbuild/web's modules bundled in: `input=web`.
+    "web": {
+      "name": "val-isolate-probe-web",
+      "main": "worker.web.ts",
+      "workers_dev": true,
+      "limits": { "cpu_ms": 300000 },
+      "observability": { "enabled": false },
+      // web's val.config.ts reads these for the Studio's commit info.
+      "define": {
+        "process.env.VERCEL_GIT_COMMIT_REF": "undefined",
+        "process.env.VERCEL_GIT_COMMIT_SHA": "undefined",
+      },
+    },
+  },
+}

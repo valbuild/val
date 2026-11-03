@@ -264,7 +264,9 @@ describe("a module joining or leaving the set of routers reaches route fields", 
 
     // Same keys, so nothing about the SOURCE moved; the route resolves against
     // routers only, and this record has just left that set.
-    await rig.sourceStore.testReceive([asPlainRecord()]);
+    // The whole project, as every intake is: one carrying only the changed
+    // module now removes the others (S13).
+    await rig.sourceStore.testReceive([asPlainRecord(), linksModule()]);
 
     expect(rig.validationStore.peek(LINKS)).not.toBe(before);
     // With no router left, the resolver reports the route as unverifiable
@@ -284,7 +286,9 @@ describe("a module joining or leaving the set of routers reaches route fields", 
 
     // The dependent never saw this module as a router, so no stored keys can
     // register the change; it is the router SET that moved.
-    await rig.sourceStore.testReceive([asRouter()]);
+    // The whole project, as every intake is: one carrying only the changed
+    // module now removes the others (S13).
+    await rig.sourceStore.testReceive([asRouter(), linksModule()]);
 
     expect(rig.validationStore.peek(LINKS)).not.toBe(before);
     expect(await surfaced(rig, LINKS)).toEqual({});
@@ -302,10 +306,82 @@ describe("a change to a referenced module's schema reaches the referrer", () => 
     // The referenced module arrives again — an HMR round, a reload. Its keys
     // are the same, so a key comparison sees nothing; its schema is what a
     // resolution reads the record's type from, and that is now a new object.
-    await rig.sourceStore.testReceive([pagesModule()]);
+    // The whole project, as every intake is: one carrying only the changed
+    // module now removes the others (S13).
+    await rig.sourceStore.testReceive([pagesModule(), navModule()]);
 
     expect(rig.validationStore.peek(NAV)).not.toBe(before);
     expect(await surfaced(rig, NAV)).toEqual({});
+    rig.dispose();
+  });
+});
+
+/**
+ * The three tests above re-intake the WHOLE project since S13 (an intake now
+ * replaces), so the module they check is received again too, and they no
+ * longer prove that the change in the OTHER module is what invalidated it.
+ * These do: the referrer is handed over as the very same object, and only the
+ * referenced module is new.
+ */
+describe("a full intake: the referrer is invalidated by what it depends on, not by being received", () => {
+  /**
+   * The control. Nothing changed: the same module objects again. The
+   * referrer's validation result should be kept, because nothing it depends
+   * on moved.
+   *
+   * X1, fixed: `SchemaStore.receive` and `SourceStore.receive` bumped EVERY
+   * module an intake carries, changed or not, so every intake invalidated
+   * every module -- and the two tests below could not tell the dependency
+   * path from the referrer's own re-intake, which is why this control
+   * exists. Both now compare what they are handed with what they were
+   * handed, and `HostStore` hands back the same objects for a module whose
+   * instance did not change.
+   */
+  it("keeps the referrer's result when nothing changed", async () => {
+    const rig = initTestSystem();
+    const pages = pagesModule();
+    const nav = navModule();
+    await rig.sourceStore.testReceive([pages, nav]);
+    await surfaced(rig, NAV);
+    const before = rig.validationStore.peek(NAV);
+
+    await rig.sourceStore.testReceive([pages, nav]);
+
+    expect(rig.validationStore.peek(NAV)).toBe(before);
+    rig.dispose();
+  });
+
+  it("invalidates the unchanged referrer when the referenced module is new", async () => {
+    const rig = initTestSystem();
+    const nav = navModule();
+    await rig.sourceStore.testReceive([pagesModule(), nav]);
+    await surfaced(rig, NAV);
+    const before = rig.validationStore.peek(NAV);
+
+    // Only the referenced module is new (an HMR round of pages.val.ts); the
+    // referrer is the same object.
+    await rig.sourceStore.testReceive([pagesModule(), nav]);
+
+    expect(rig.validationStore.peek(NAV)).not.toBe(before);
+    expect(await surfaced(rig, NAV)).toEqual({});
+    rig.dispose();
+  });
+
+  it("recomputes the unchanged referrer against the referenced module's new content", async () => {
+    const rig = initTestSystem();
+    const nav = navModule();
+    await rig.sourceStore.testReceive([pagesModule(), nav]);
+    expect(await surfaced(rig, NAV)).toEqual({});
+
+    // pages.val.ts changes in code and loses "/home", which nav points at.
+    const { c, s } = initVal();
+    const pagesWithoutHome = c.define("/pages.val.ts", s.record(s.string()), {
+      "/about": "About",
+    });
+    await rig.sourceStore.testReceive([pagesWithoutHome, nav]);
+
+    const errors = await surfaced(rig, NAV);
+    expect(Object.keys(errors)).toEqual([NAV_PRIMARY]);
     rig.dispose();
   });
 });

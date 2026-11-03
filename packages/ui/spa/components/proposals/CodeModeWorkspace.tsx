@@ -43,6 +43,7 @@ export function CodeModeWorkspace({
   diffOf,
   initialView = "preview",
   initialDevice = "desktop",
+  filesError = null,
 }: {
   /** The page in the preview. */
   route: string;
@@ -58,6 +59,8 @@ export function CodeModeWorkspace({
   diffOf: (path: string) => DiffLine[];
   initialView?: "preview" | "changes";
   initialDevice?: CodeModeDevice;
+  /** The changes could not be read: said in Changes, with a way to try again. */
+  filesError?: { message: string; onRetry: () => void } | null;
 }) {
   const [view, setView] = useState(initialView);
   const [device, setDevice] = useState(initialDevice);
@@ -143,6 +146,23 @@ export function CodeModeWorkspace({
           >
             {preview}
           </div>
+        </div>
+      ) : filesError !== null ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8">
+          <p className="max-w-sm text-center text-sm text-fg-secondary">
+            The code changes could not be read.
+          </p>
+          <button
+            type="button"
+            onClick={filesError.onRetry}
+            className="inline-flex h-8 items-center rounded-md border border-border-float px-3 text-xs font-medium text-fg-primary hover:bg-bg-float-raised"
+          >
+            Try again
+          </button>
+          <details className="max-w-sm text-xs text-fg-secondary-alt">
+            <summary className="cursor-pointer">Details</summary>
+            {filesError.message}
+          </details>
         </div>
       ) : files.length === 0 || file === undefined ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-8">

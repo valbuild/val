@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { action } from "storybook/actions";
 import { useEffect, useState } from "react";
 import {
   PublishProposalDialog,
   type MergeCheckView,
   type PublishProposalState,
 } from "../PublishProposalDialog";
+import type { CommitRefused } from "../CommitRefusedNotice";
 
 /**
  * Publish, in a proposal: merging it into the site. `docs/proposals.md` in
@@ -135,7 +137,7 @@ export const BlockedByTheSitesCode: Story = {
       changes: 4,
       unsaved: 0,
     },
-    onUpdateFromSite: () => console.log("update from the site"),
+    onUpdateFromSite: action("update from the site"),
   },
 };
 
@@ -168,8 +170,7 @@ export const BlockedByAPageTheSitePublished: Story = {
       changes: 3,
       unsaved: 0,
     },
-    onUpdateFromSite: (checkId: string) =>
-      console.log("update from the site", checkId),
+    onUpdateFromSite: action("update from the site"),
   },
 };
 
@@ -213,8 +214,8 @@ export const UpdateConflicts: Story = {
         },
       ],
     },
-    onResolve: (keep: ("site" | "proposal")[]) => console.log("keep", keep),
-    onCancelUpdate: () => console.log("not now"),
+    onResolve: action("keep"),
+    onCancelUpdate: action("not now"),
   },
 };
 
@@ -280,6 +281,97 @@ export const MergedWithChangesMoved: Story = {
 export const Failed = at({
   kind: "failed",
   message: "A page failed to render with these changes.",
+});
+
+/**
+ * GitHub refused the commit Publish makes first, for good (a branch
+ * protection rule): pressing again cannot help, so the dialog links the
+ * branch instead of offering Try again.
+ */
+export const FailedRepositoryRefused = at({
+  kind: "failed",
+  message:
+    "GitHub refused the push to val/p/0123456789abcdef0123: protected branch hook declined.",
+  seeWhy: {
+    label: "Open the branch",
+    url: "https://github.com/acme/site/tree/val/p/0123456789abcdef0123",
+  },
+});
+
+/** Ada pushed to the proposal's branch, as the dialog shows her push. */
+const ADA_PUSHED: CommitRefused = {
+  branch: "val/p/0123456789abcdef0123",
+  branchUrl: "https://github.com/acme/site/tree/val/p/0123456789abcdef0123",
+  who: "Ada Lovelace",
+  ago: "5 minutes ago",
+  commit: {
+    sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+    url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+    message: "Fix the hero's spacing\n\nThe gap above the heading was 2rem.",
+  },
+  during: "publish",
+};
+
+/**
+ * The commit Publish makes first was refused: someone else pushed to the
+ * proposal's branch. Who, when, their commit -- and Build on their push,
+ * since Publish again would be refused the same way.
+ */
+export const RefusedSomeonePushed = at({
+  kind: "someone-pushed",
+  refused: ADA_PUSHED,
+  buildOn: { kind: "idle" },
+});
+
+/** Bringing their push into the proposal. */
+export const BuildingOnTheirPush = at({
+  kind: "someone-pushed",
+  refused: ADA_PUSHED,
+  buildOn: { kind: "building" },
+});
+
+/**
+ * Their push is in. They and the proposal both changed one file, and the
+ * proposal's version was kept; the preview is being rebuilt; Publish again.
+ */
+export const BuiltOnTheirPush = at({
+  kind: "someone-pushed",
+  refused: ADA_PUSHED,
+  buildOn: {
+    kind: "built",
+    kept: ["content/home.val.ts"],
+    notTaken: [],
+    rewritten: false,
+    rebuild: { state: "running" },
+  },
+});
+
+/**
+ * Building on their push failed because GitHub could not be reached: Try
+ * again presses it again.
+ */
+export const BuildOnTheirPushFailed = at({
+  kind: "someone-pushed",
+  refused: ADA_PUSHED,
+  buildOn: {
+    kind: "failed",
+    message:
+      "GitHub could not be reached, so their push was not brought in. Nothing changed in the proposal.",
+    offer: { kind: "retry" },
+  },
+});
+
+/**
+ * The same refusal, of a Publish pressed on the site -- the design tab --
+ * where Build on their push cannot be pressed (only the proposal's own
+ * address may take a push in). Who, when, their commit, and Open the
+ * proposal: its Studio, where Publish offers Build on their push. No Try
+ * again, which would be refused the same way.
+ */
+export const RefusedSomeonePushedOnSite = at({
+  kind: "someone-pushed-on-site",
+  refused: ADA_PUSHED,
+  proposalStudio: "https://0123456789abcdef0123--acme.valstart.dev/val",
 });
 
 /** The checks did not answer: Try again. */

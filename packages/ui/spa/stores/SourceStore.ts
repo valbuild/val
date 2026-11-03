@@ -1,18 +1,22 @@
 import {
   Internal,
   type Json,
-  type JsonObject,
   type ModuleFilePath,
   type PatchId,
+  type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
-import { result } from "@valbuild/core/fp";
+import { deepClone, type JSONValue } from "@valbuild/core/patch";
 import {
-  applyPatch,
-  deepClone,
-  JSONOps,
-  type JSONValue,
-} from "@valbuild/core/patch";
+  baseVersionOf,
+  JSON_ENTRIES_BATCH_MAX,
+  engineWork,
+  entryState,
+  schemaVersionOf,
+  versionHashCount,
+  type ModuleContent,
+  type ModuleVersion,
+} from "@valbuild/shared/internal";
 import { StoreBus } from "./StoreBus";
 import { touchesPath, type ChangedPath } from "./pathMatch";
 import type {
@@ -26,11 +30,36 @@ import type {
 import type { SchemaStore } from "./SchemaStore";
 import { APPLIED_ELSEWHERE_SHA, type PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
-
-const ops = new JSONOps();
+import {
+  JSON_ENTRY_KEYS_PER_REQUEST,
+  chunkJsonEntryKeys,
+  type FetchJsonEntries,
+  type JsonEntryResult,
+} from "./react/jsonEntriesBatch";
+import { yieldToMain } from "./yieldToMain";
+import {
+  VersionRing,
+  applyOnBase,
+  baseAt,
+  chainTouches,
+  engineSchemaKey,
+  fetchKeyOf,
+  isJsonObject,
+  resolveAt,
+  extendBy,
+  serverAt,
+  viewOf,
+  withLocalEdits,
+  type ModuleAt,
+  type ModuleInputs,
+  type ModuleView,
+  type ResolvedEntries,
+} from "./studioView";
+import type { OriginModule } from "./originTier";
 
 /**
- * Fetch one `.jsonValues()` entry's content (`GET /json` in the app).
+ * Fetch one `.jsonValues()` entry's content (`GET /json` in the app), as the
+ * BASE has it: without patches, which the Studio applies itself.
  *
  * Injected like the other seams. Absent means this system cannot read INTO an
  * entry — the read reports an error rather than pretending the path is absent,
@@ -52,42 +81,23 @@ export type FetchJsonEntry = (
  * two are a pair: `get` asks for content and accepts the cost, `peek` observes
  * and cannot cost anything.
  *
- * ## `ready` carries the value, and that settles an open question
+ * ## `ready` carries the value
  *
- * `openquestions.md` item 1 asked whether the host realm should get a synchronous
- * read. The async `get` makes a mounting field render TWICE — once with nothing,
- * then again a microtask later when the value lands — which is the one place the
- * browser measurement showed the stores doing more work than the engine (32
- * component renders on mount against 16). The question priced the fix at "a
- * second read API and a rule about which one a field may use".
+ * This IS the synchronous read: a field's `getSnapshot` peeks, which renders
+ * once; a field that peeks and is told `entry-missing` calls `get`, which
+ * fetches. **`peek` to render, `get` to demand.**
  *
- * Neither is needed, because both already exist. This IS the synchronous read:
- * `peek` already resolves the path all the way to the value and then discards it,
- * so carrying it costs nothing — source is in the host realm precisely so a read
- * needs no clone. And the rule is the one `peek` was created with: **`peek` to
- * render, `get` to demand.** A field's `getSnapshot` peeks, which is synchronous
- * and therefore renders once; a field that peeks and is told `entry-missing` calls
- * `get`, which fetches.
- *
- * What is NOT offered is an `unchanged` fast path. Passing the revision you hold
- * buys nothing here: the point of `unchanged` is to avoid marshalling a value
- * across a seam, and nothing is marshalled in-realm. Adding it would be a second
- * way to ask one question, which is exactly the cost the open question was worried
- * about.
- *
- * `get` stays async regardless. Not for a future worker — source is host-realm by
- * design — but because a `.jsonValues()` entry fetch is a real network round trip
- * and no signature can pretend otherwise.
+ * `get` stays async regardless: a `.jsonValues()` entry fetch is a real network
+ * round trip and no signature can pretend otherwise.
  */
 export type SourcePeek =
   | {
       status: "ready";
       revision: Revision;
       /**
-       * The value at the path. A reference into the store's own source, not a
-       * copy: cloning here would reintroduce the per-read cost the host realm
-       * exists to avoid. Callers must not mutate it — the same contract every
-       * other in-realm read in this system has.
+       * The value at the path. A reference into the store's own content, not a
+       * copy. Callers must not mutate it — the same contract every other
+       * in-realm read in this system has.
        */
       data: Json;
     }
@@ -99,39 +109,20 @@ export type SourcePeek =
   /** Inside an entry whose fetch is in flight. */
   | { status: "entry-loading"; key: string }
   /**
-   * Inside an entry whose last fetch FAILED.
+   * Inside an entry whose last fetch FAILED, or that an edit in the chain does
+   * not fit.
    *
    * Distinct from `entry-missing` because the two demand opposite things of a
    * caller: missing means "ask for it", failed means "stop asking and say so".
-   * Collapsing them is how a failed entry becomes a spinner that never resolves —
-   * the caller retries, the retry fails, and nothing ever changes.
+   * Collapsing them is how a failed entry becomes a spinner that never resolves.
    */
   | { status: "entry-failed"; key: string; message: string };
-
-type Resolved =
-  | { status: "found"; value: Json }
-  | { status: "absent" }
-  /**
-   * The path continues INSIDE a `.jsonValues()` entry whose content has not been
-   * fetched. Deliberately its own status rather than folded into `absent` or
-   * `error`: it is the one outcome the store can do something about, and the
-   * only one where saying "not found" would be a lie that also stops the fetch
-   * from ever being asked for.
-   */
-  | { status: "needs-entry"; key: string }
-  | { status: "error"; message: string };
 
 /**
  * How a batch of patches arrives at the source store.
  *
  * Three variants, and the difference between them is exactly one thing: who is
- * woken when the source moves. That question used to be answered in three
- * places — the origin picked at one call site, the creator looked up at
- * another, and a comment explaining why a drop overrides both at a third — so
- * "does a field see its own edit land?" could only be reconstructed by reading
- * all of them.
- *
- * Naming the cases is the point. A reader of {@link SourceStore.intake} can see
+ * woken when the source moves. A reader of {@link SourceStore.intake} can see
  * the whole rule at once, and a fourth way for a patch to arrive has to say
  * which of these it behaves like.
  */
@@ -140,47 +131,38 @@ export type PatchIntake =
    * Made HERE, by a field instance in this session.
    *
    * `creatorOf` is asked per patch rather than passed as one id, because a
-   * batch can carry patches from different instances — a replay does. The
-   * instance that made a patch is left asleep when it lands; everyone else on
-   * the path, including a second instance rendering the same path, is woken.
+   * batch can carry patches from different instances. The instance that made a
+   * patch is left asleep when it lands; everyone else on the path, including a
+   * second instance rendering the same path, is woken.
    */
   | {
       kind: "local";
       records: PatchRecord[];
       creatorOf: (patchId: PatchId) => string | undefined;
     }
-  /**
-   * Made elsewhere — another tab, another editor, the CLI.
-   *
-   * Foreign to every field here by definition, so there is no instance to leave
-   * asleep and none is looked for.
-   */
+  /** Made elsewhere — another tab, another editor, the CLI. */
   | { kind: "foreign"; records: PatchRecord[] }
   /**
    * Gone: refused by the server, discarded, or dropped as unapplicable.
    *
-   * The effect has to come back out of source, which means rebuilding the
-   * module from base plus what survives — a JSON patch is not invertible, so
-   * "remove the middle one" can only mean recompute. Everyone is woken,
-   * INCLUDING the author, and that is not an exception to the rule above: the
-   * field that typed the value is exactly the one now showing something that
-   * does not exist anywhere.
+   * The module is computed again from its base and what survives — the
+   * version before the newest patch, when that is the one that went, is kept
+   * ({@link VersionRing}). Everyone whose value moved is woken, INCLUDING the
+   * author: the field that typed the value is exactly the one now showing
+   * something that does not exist anywhere.
    */
   | {
       kind: "revoked";
       patchIds: readonly PatchId[];
       modules: readonly ModuleFilePath[];
+      /**
+       * Gone for a reason this tab cannot tell (`patch:drop`'s `vanished`):
+       * the `.jsonValues()` entries they wrote into are read again rather
+       * than kept as they were loaded. See `forgetEntriesOf`.
+       */
+      vanished: boolean;
     };
 
-/**
- * Owns the patched source, and owns "who is listening where".
- *
- * Both in one store on purpose: because the same code applies the patch and
- * decides who to tell, the invariant *"if an event went out, the source behind
- * it is already applied"* holds by construction rather than by convention. A
- * field woken by an event can read immediately and cannot get a pre-patch
- * value.
- */
 /** The shape {@link SourceStore.entriesStatus} answers with. */
 type EntriesStatus = {
   status: "complete" | "incomplete" | "error";
@@ -188,11 +170,8 @@ type EntriesStatus = {
 };
 
 /**
- * Are two entry statuses the same answer?
- *
- * Compared field by field rather than by `JSON.stringify`: the error list is
- * small and ordered by the walk, so this is both cheaper and honest about what
- * "the same" means here.
+ * Are two entry statuses the same answer? Compared field by field: the error
+ * list is small and ordered by the walk.
  */
 function sameEntriesStatus(a: EntriesStatus, b: EntriesStatus): boolean {
   if (a.status !== b.status || a.errors.length !== b.errors.length) {
@@ -225,142 +204,219 @@ type ChainEntry = {
  * `appliedAt` is `null` for a patch the server knows about and has not
  * committed, and `undefined` for one created locally, which by definition has
  * not — so BOTH mean "still pending" and only a commit sha means shipped.
- * Writing `appliedAt !== null` catches the local case as applied, which counts
- * every patch this tab just wrote as published.
  */
 function isApplied(record: PatchRecord): boolean {
   return record.appliedAt !== null && record.appliedAt !== undefined;
 }
 
+/** A module's view, and what it was made from. */
+type Viewed = {
+  view: ModuleView;
+  /** The base entries it read, by their epoch. */
+  entriesEpoch: number;
+};
+
+/** What a `peek` answered, and what it was answered at. */
+type Peeked = {
+  view: ModuleView | undefined;
+  schema: SerializedSchema | undefined;
+  n: number;
+  fetchEpoch: number;
+  peek: SourcePeek;
+};
+
+/** The schema version of a module with none: nothing reads it. */
+const NO_SCHEMA = "";
+
+/**
+ * `decidedAt` of a module no manifest has decided anything about: the
+ * bundle's base before the first one, or a base new code moved here since.
+ * Every patch of its chain is shown on top.
+ */
+const NOTHING_DECIDED = -1;
+
+/** How many computed chains are remembered per module: see `SourceStore.knownChain`. */
+const CHAINS_KEPT = 64;
+
+/** The server's version below a module's view, as `withLocalEdits` reads it. */
+type Below = {
+  /** The patch ids it is made of. */
+  readonly tried: readonly PatchId[];
+  /** Its content, made only when the kept versions do not extend it. */
+  readonly at: () => ModuleAt;
+  readonly decidedAt: number;
+};
+
+/** A module at the version the server named for it. See `SourceStore.adoptServer`. */
+export type ServerBelow = {
+  /** As the server names it: its schema, which may not be this Studio's. */
+  readonly version: ModuleVersion;
+  /** The patch ids its chain is made of, in chain order. */
+  readonly applied: readonly PatchId[];
+  /**
+   * Its content, under this Studio's schema. `null` for a version this
+   * Studio computed itself on the way to what it shows (its own edits, a
+   * save confirmed while it typed on): what it shows extends it, so its
+   * content is made only if something needs it on its own -- a discard
+   * of what came after it.
+   */
+  at: ModuleAt | null;
+  /**
+   * The manifest that decided it (`PatchStore.nextManifestEpoch`): a patch
+   * this Studio held before that manifest was asked for, and that this
+   * version does not have, is gone.
+   */
+  readonly decidedAt: number;
+};
+
+/**
+ * Owns the patched source, and owns "who is listening where".
+ *
+ * Both in one store on purpose: because the same code computes the module and
+ * decides who to tell, the invariant *"if an event went out, the source behind
+ * it is already computed"* holds by construction rather than by convention. A
+ * field woken by an event can read immediately and cannot get a pre-patch
+ * value.
+ *
+ * ## What it holds, and what it reads through
+ *
+ * It holds each module's BASE (the source as authored or as the server sent
+ * it, `.jsonValues()` entries as markers), the base content of the entries it
+ * has read, the module at the version the SERVER names for it (the manifest's,
+ * `manifestSource.ts`; the bundle's until one has been adopted), and the
+ * module's CHAIN. Everything a field reads is the Studio's view of those
+ * (`studioView.ts`): {@link withLocalEdits} -- the chain's patches the
+ * server's version does not have -- over the server's module, through THE
+ * engine (`applyPatchRecord` in `@valbuild/shared`, which Val's server applies
+ * patches with), at a version computed here ({@link versionOf}). There are no patch rules of its own here
+ * any more: where a file's `patch_id` lands, what an edit inside an entry does,
+ * what a whole entry added does -- the engine's, so the Studio and the server
+ * cannot disagree about them.
+ */
 export class SourceStore {
   readonly events = new StoreBus<SystemEvent>();
 
   /**
-   * Source with the applied chain folded in — the only source anyone reads.
-   *
-   * The base source is deliberately NOT kept alongside it. A rebase (HMR
-   * swapping a module's source under existing patches, or `PUT /sources/~`)
-   * needs it, and this prototype does not implement rebase — holding a base
-   * that nothing ever reads would read as though it did.
-   */
-  private sources: Record<ModuleFilePath, Json> = {};
-
-  /**
-   * The source as authored, before any patch.
-   *
-   * Now genuinely kept, because `receive()` genuinely rebuilds from it. It
-   * replaces an `appliedIds` array that was written twice and never read — the
-   * state a rebuild needs, declared but unused, which is what made the "lands as
-   * soon as the module arrives" comment below false.
+   * The source as authored, before any patch: what each module's chain is
+   * applied to. `.jsonValues()` entries are markers here.
    */
   private baseSources: Record<ModuleFilePath, Json> = {};
+
+  /** Each base's version, by the object it was hashed from. */
+  private baseVersions = new Map<
+    ModuleFilePath,
+    { source: Json; version: string }
+  >();
+
+  /** Each serialized schema's version, and what the engine reads of it. */
+  private schemaVersions = new WeakMap<
+    object,
+    { version: string; engine: string }
+  >();
+
+  /**
+   * What {@link receive} was last handed for each module, as given (not the
+   * clone it keeps), and the base's revision once it had it: how the next
+   * intake tells a module that came along unchanged from one that moved.
+   */
+  private receivedSources = new Map<
+    ModuleFilePath,
+    { source: Json; baseRevision: number | undefined }
+  >();
 
   /**
    * Every patch this store has seen for a module, in order, whether or not it
    * applied.
    *
    * Retained so that a module arriving late, or arriving AGAIN with new base
-   * text (HMR, `PUT /sources/~`), can be rebuilt as base + chain. Without it a
+   * text (HMR, `PUT /sources/~`), can be computed as base + chain. Without it a
    * patch announced before its module loaded was dropped and could never land,
    * and re-intake silently discarded the user's pending edits.
    */
   private chains = new Map<ModuleFilePath, ChainEntry[]>();
 
   /**
-   * Whether the project's modules have arrived.
-   *
-   * Intake is the whole project at once, so after it a module that is not
-   * loaded is a module the project does not have. Before it, the same thing
-   * only means "not yet".
+   * Whether the project's modules have arrived. Intake is the whole project at
+   * once, so after it a module that is not loaded is a module the project does
+   * not have. Before it, the same thing only means "not yet".
    */
   private intakeSeen = false;
 
   /**
-   * How far each module's source has moved. THE comparator for reads.
-   *
-   * Deliberately here rather than on the patch chain: it is bumped from the two
-   * places that assign to `this.sources`, so every way source can change is
-   * covered by construction. The chain version could not do that — it cannot see
-   * a base-source replacement, so a commit, `PUT /sources/~`, HMR or a
-   * `.jsonValues()` entry file change moved the value while it sat still.
-   *
-   * Adding a third way to change source (entry-content substitution) means adding
-   * one `bump()` next to that assignment, not remembering to notify another store.
+   * How far each module's source has moved. THE comparator for reads, bumped
+   * wherever a module's view is replaced by one that reads differently, and
+   * where an entry's failure is forgotten.
    */
   private revisions = new Map<ModuleFilePath, number>();
-  /**
-   * The last object {@link peek} returned per path, so an unchanged answer is
-   * `===` on the next call.
-   *
-   * Grows with the number of DISTINCT paths anything has peeked, which is bounded
-   * by the project: a path that is peeked once and never again holds one small
-   * object. Not worth evicting, and evicting on unlisten would be wrong — plenty
-   * of callers peek without listening.
-   */
-  private peeked = new Map<SourcePath, SourcePeek>();
-  /** The same, for {@link peekBase}. Separate map: different question, same path. */
-  private peekedBase = new Map<SourcePath, SourcePeek>();
+
+  /** Each module's view: what every read walks. See `studioView.ts`. */
+  private views = new Map<ModuleFilePath, Viewed>();
+
+  /** The last two versions of each module (risk 9: the heap guard). */
+  private ring = new VersionRing();
+
+  /** Held entry edits, resolved: see {@link ResolvedEntries}. */
+  private resolvedEntries: ResolvedEntries = new WeakMap();
 
   /**
-   * Loaded `.jsonValues()` entry content, keyed by module then entry key.
+   * The last answer {@link peek} gave per path, with what it was answered at.
    *
-   * A jsonValues module's own source carries only opaque `{_type:"json"}`
-   * markers; the content lives in separate `*.val.json` files. Holding it HERE,
-   * and substituting it on read, is the point: everything downstream — fields,
-   * renders, validation, the search walk — then sees real content without any of
-   * them knowing markers exist. The current engine keeps this beside source and
-   * substitutes in `getPatchedSource`; this is that, moved to where source lives.
+   * Reference-stable BY KEY: the same view of the module, the same schema, the
+   * same revision and the same entry fetches give the same object back,
+   * without the answer being worked out again. Every way the answer can move
+   * replaces one of those four, in one place each -- the view in
+   * {@link refresh}, the revision in {@link bump}, the fetches in
+   * {@link fetchMoved}, the schema in `SchemaStore` -- so nothing has to
+   * remember to invalidate it.
+   *
+   * Grows with the number of DISTINCT paths anything has peeked, which is
+   * bounded by the project.
    */
-  private jsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  private peeked = new Map<SourcePath, Peeked>();
+  /** The same, for {@link peekBase}. Separate map: different question, same path. */
+  private peekedBase = new Map<SourcePath, Peeked>();
+
   /**
-   * The same content as the server sent it, before any local patch.
-   *
-   * `jsonEntries` above is the PATCHED content: `storePatched` writes each
-   * applied patch's result back into it, because that is what every reader of the
-   * patched realm has to see. Which left `peekBase` with nothing of its own —
-   * it read `baseSources` and then substituted the patched entries into it, so
-   * for any path inside an entry the "before" side of a compare WAS the after
-   * side, byte for byte. Only `.jsonValues()` modules were affected, because they
-   * are the only ones whose content is substituted rather than in source.
-   *
-   * So base entry content is kept apart, exactly as `baseSources` is kept apart
-   * from `sources`, and for the same reason: the two realms are two answers, and
-   * one map cannot hold both.
+   * The BASE content of `.jsonValues()` entries this store has read, by module
+   * then entry key: what the server answered for them without patches. Not
+   * part of a version: entries get versions of their own in the plan's phase 6.
+   * Mutated in place, with {@link baseEntriesEpoch} moved each time.
    */
   private baseJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  private baseEntriesEpoch = new Map<ModuleFilePath, number>();
   /**
-   * Base plus the patches that have SHIPPED, for modules whose chain still holds
-   * any. See {@link publishedRealm}.
-   *
-   * Its own realm, with its own entry map, for the reason `baseJsonEntries` is
-   * kept apart from `jsonEntries`: `substitutedSource` caches on the source
-   * object, so no object may be shared with another realm.
+   * Per module, which base its `.jsonValues()` entries are being read on:
+   * moved whenever the base moves under them ({@link entryBaseMoved}). A
+   * `GET /json` carries the one it was asked on, and an answer that comes
+   * back to another is asked for again rather than applied -- it is the old
+   * base's content, and applied it would be the new base's for good, since
+   * nothing asks for an entry that is already here.
    */
-  private publishedSources: Record<ModuleFilePath, Json> = {};
-  private publishedJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
-  /** What each {@link publishedSources} entry was computed from. */
-  private publishedFrom = new Map<
+  private entryBases = new Map<ModuleFilePath, number>();
+
+  /**
+   * The published realm (see {@link publishedView}) of a module whose chain
+   * holds shipped patches, and what it was computed from.
+   */
+  private published = new Map<
     ModuleFilePath,
-    { base: Json; baseN: number; applied: string; applies: boolean }
+    {
+      base: Json;
+      entriesEpoch: number;
+      schema: SerializedSchema | undefined;
+      applied: string;
+      view: ModuleView;
+    }
   >();
   /**
    * How far each module's BASE realm has moved: `baseSources` or
-   * `baseJsonEntries` written.
-   *
-   * Not `revisions`, which moves on every pending keystroke as well. Keyed on
-   * that, {@link publishedRealm} re-applied every shipped patch to a clone of
-   * the whole module per edit — to answer a question whose inputs had not
-   * changed.
+   * `baseJsonEntries` written. Not `revisions`, which moves on every pending
+   * keystroke as well.
    */
   private baseRevisions = new Map<ModuleFilePath, number>();
   /**
    * Each module's shipped chain entries, so {@link peekBase} — called once per
    * subscribed path — does not scan the whole chain on every call.
-   *
-   * Valid while the chain is the same array at the same length and no record's
-   * `appliedAt` has moved. That is every way a chain changes: removals replace
-   * the array, intake pushes onto it, and only {@link markApplied} rewrites a
-   * record, which bumps that module's {@link appliedVersions} entry.
    */
   private shippedCache = new Map<
     ModuleFilePath,
@@ -374,53 +430,66 @@ export class SourceStore {
   >();
   /** Per module, so a publish in one does not invalidate every other's cache. */
   private appliedVersions = new Map<ModuleFilePath, number>();
-  /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
-  private loadingEntries = new Map<string, Promise<void>>();
   /**
-   * Entries whose last fetch FAILED, and why.
-   *
-   * Kept because `peek` has to be able to say so. Without it a hook that peeks
-   * cannot tell "not fetched yet" from "fetch failed" — both look like
-   * `entry-missing` — so a failed entry renders a spinner forever while the
-   * effect that would retry sees nothing new to do. The failure was already
-   * known here and was being returned to one caller and then dropped.
-   *
-   * Cleared on a successful fetch and on a fresh attempt, so a retry that works
-   * stops reporting the old failure.
+   * In-flight entry fetches, by base key, so N readers of one entry cause ONE
+   * fetch. Settled when the batch that brought the entry has been applied.
    */
-  private entryFailures = new Map<string, string>();
-  /** Substituted source, cached against the revision it was computed at. */
+  private loadingEntries = new Map<
+    string,
+    { promise: Promise<void>; settle: () => void }
+  >();
   /**
-   * The substituted source, keyed on the source object it was computed FROM.
-   *
-   * Keyed on the input rather than on the module because two maps are walked:
-   * `peek` reads `sources` and `peekBase` reads `baseSources`. A module-keyed
-   * cache would have each alternating call evict the other's entry and rebuild —
-   * which is the instability this cache exists to remove, reintroduced one level
-   * up. Keying on the input gives each map its own entry for free.
-   *
-   * The revision is still part of the validity test: an entry arriving mutates
-   * the `jsonEntries` map in place, so the input object is unchanged and only the
-   * revision can say the answer moved.
-   *
-   * A `WeakMap`, so a source object replaced by a patch takes its entry with it.
-   *
-   * Keying on the input is also what keeps the two realms' answers apart now that
-   * each substitutes its OWN entry map: `sources[m]` and `baseSources[m]` are
-   * always distinct objects (every write to either clones), so a cached
-   * substitution can never be handed to the other realm. Anything that starts
-   * sharing one object between the two maps breaks that silently.
+   * Entries whose last fetch FAILED, and why, by base key. Kept because `peek`
+   * has to be able to say so: without it a failed entry renders a spinner
+   * forever while the effect that would retry sees nothing new to do. Cleared
+   * on a successful fetch and on a fresh attempt.
    */
-  private substituted = new WeakMap<object, { n: number; source: Json }>();
+  private entryFailures = new CountedMap<string, string>();
+  /**
+   * What {@link markersOf} and {@link entriesProgress} found in a module's
+   * view, kept per view object and read again only when the view or a fetch's
+   * outcome moved.
+   *
+   * Every progress hook asks on every render, and a keystroke re-renders them
+   * all: counted afresh, a `.jsonValues()` record of 10,000 posts was walked a
+   * few times per keystroke in a module nobody had edited -- most of a
+   * second's freeze per character on a page that only pointed at it.
+   */
+  private entriesCounted = new WeakMap<
+    ModuleView,
+    {
+      failureWrites: number;
+      markers: { key: string; failure: string | undefined }[];
+      progress?: { total: number; loaded: number; failed: number };
+    }
+  >();
+  /** Moved whenever a module's entry fetches start, finish or fail: for {@link peek}. */
+  private fetchEpochs = new Map<ModuleFilePath, number>();
+  /** Patches an entry's error has been reported for, so it is reported once. */
+  private reportedEntryErrors = new Set<PatchId>();
+  /**
+   * Each module at the version the server names for it: what
+   * {@link withLocalEdits} goes over. Absent: the bundle's base, before a
+   * manifest named one. See {@link adoptServer}.
+   */
+  private server = new Map<ModuleFilePath, ServerBelow>();
+
+  /**
+   * Whether a manifest has said a patch is gone: it is not in the server's
+   * version of its module, the manifest that named that version was asked for
+   * after this Studio held the patch (`decidedAt`), and it is not one of this
+   * Studio's own unsaved ones. From `PatchStore.decidedGone`. Such a patch is
+   * not applied on top: the server's version is the truth about it.
+   */
+  private decidedGone: (patchId: PatchId, decidedAt: number) => boolean = () =>
+    false;
 
   /**
    * One `EventTarget` per REGISTERED path, not per module.
    *
    * This is the registry that makes "no messages" a guarantee: a listener on a
    * path the patch did not touch is never invoked at all, so it costs nothing
-   * and cannot be woken by a sibling's keystroke. The alternative — one target
-   * per module with listeners filtering themselves — makes every mounted field
-   * in a module run on every edit in that module.
+   * and cannot be woken by a sibling's keystroke.
    */
   private listenerTargets = new Map<
     SourcePath,
@@ -428,41 +497,24 @@ export class SourceStore {
   >();
 
   /**
-   * The registered paths, grouped by module.
-   *
-   * Redundant with `listenerTargets` on purpose, and the redundancy is paid for:
-   * `listenedPaths(module)` is asked once per render refresh, and a browser
-   * measurement showed the obvious implementation — walk every registered path
-   * and split each one — making a mount O(fields x modules). Mounting 260 fields
-   * across 141 modules cost 3.3ms in registry scanning alone, against 0.2ms for
-   * the engine this replaces. Per-module makes it O(paths in that module).
+   * The registered paths, grouped by module. Redundant with `listenerTargets`
+   * on purpose: `listenedPaths(module)` is asked once per render refresh, and
+   * walking every registered path made a mount O(fields x modules).
    */
   private listenersByModule = new Map<ModuleFilePath, Set<SourcePath>>();
 
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly activity: ActivitySink = noopActivity,
-    private readonly fetchJsonEntry?: FetchJsonEntry,
+    private readonly fetchJsonEntries?: FetchJsonEntries,
   ) {}
 
   /**
-   * A counter over EVERY module, moved by every `bump`.
-   *
-   * For a whole-project reader — "all sources", the nav tree, search — whose
-   * snapshot has to be a stable value that changes when anything could have.
-   * A number, so it is stable by construction; the same reasoning as
-   * `SchemaStore.version`.
+   * A counter over EVERY module, moved by every `bump`. For a whole-project
+   * reader — "all sources", the nav tree, search — whose snapshot has to be a
+   * stable value that changes when anything could have.
    */
   private globalRevision = 0;
-
-  /**
-   * Modules whose change is computed but not yet announced. See {@link batched}.
-   *
-   * Only ever non-empty inside a batch: the revisions have already moved, so a
-   * read during one is correct — what is deferred is the telling, not the doing.
-   */
-  private deferredAnnouncements = new Set<ModuleFilePath>();
-  private batchDepth = 0;
 
   /** Record that the base realm of this module was written. See {@link baseRevisions}. */
   private bumpBase(moduleFilePath: ModuleFilePath): void {
@@ -478,74 +530,15 @@ export class SourceStore {
       (this.revisions.get(moduleFilePath) ?? 0) + 1,
     );
     this.globalRevision++;
-    // No substitution entry to drop: it is keyed on the source object and
-    // validated against the revision this line just moved.
     this.allSourcesAt = null;
-    if (this.batchDepth > 0) {
-      this.deferredAnnouncements.add(moduleFilePath);
-      return;
-    }
     // The one place a revision moves is the one place this is announced. See
-    // `source:change` in `types.ts` for why it is not the union of the five
-    // specific events.
+    // `source:change` in `types.ts`.
     this.events.emit({ type: "source:change", moduleFilePath });
   }
 
   /**
-   * Run `fn`, announcing the modules it changed ONCE at the end instead of once
-   * per change.
-   *
-   * For an operation that is one thing to its caller but many writes underneath.
-   * Loading a `.jsonValues()` record's entries is the case that forced it: each
-   * entry is its own request, each arrival bumped the module, and every bump woke
-   * every whole-project subscriber in the app. A 121-entry record therefore
-   * re-rendered the open module 121 times in a burst — doubled by StrictMode —
-   * and the ref churn under it nested deep enough to trip React's update-depth
-   * limit. The route died with "Maximum update depth exceeded" from inside a
-   * Radix ref callback, which names nothing about entries; only counting the
-   * renders found it.
-   *
-   * Deferring the ANNOUNCEMENT and not the write is what makes this safe: the
-   * revisions, the `substituted` cache and `allSourcesAt` are all updated as each
-   * entry lands, so anything that reads mid-batch sees current data. Only the
-   * events wait.
-   *
-   * Flushed in a `finally` before the returned promise settles, so a caller that
-   * awaits this and then asserts on events sees them — deliberately not a
-   * `setTimeout`, which would emit after the await and make that racy.
-   *
-   * The cost: a progress indicator fed by `source:change` advances once per
-   * batch rather than per entry. Worth it against 121 whole-project re-renders,
-   * and a dedicated progress event is the fix if the bar needs to animate.
-   */
-  private async batched<T>(fn: () => Promise<T>): Promise<T> {
-    this.batchDepth++;
-    try {
-      return await fn();
-    } finally {
-      this.batchDepth--;
-      if (this.batchDepth === 0 && this.deferredAnnouncements.size > 0) {
-        const modules = [...this.deferredAnnouncements];
-        this.deferredAnnouncements.clear();
-        for (const moduleFilePath of modules) {
-          this.events.emit({ type: "source:change", moduleFilePath });
-        }
-        this.events.emit({
-          type: "source:patch-apply",
-          success: [],
-          failed: [],
-          withoutModule: [],
-          modules,
-        });
-      }
-    }
-  }
-
-  /**
    * Where `globalRevision` stood when {@link allSources} was last built, or
-   * `null` if it must be rebuilt. Cleared by `bump`, which is what makes the
-   * memo safe: it is invalidated from the same single place that invalidates
-   * everything else about a module's source.
+   * `null` if it must be rebuilt. Cleared by `bump`.
    */
   private allSourcesAt: {
     n: number;
@@ -558,20 +551,12 @@ export class SourceStore {
   }
 
   /**
-   * Every loaded module's source, as a read would see it.
-   *
-   * Substituted, so `.jsonValues()` content that has been fetched is present —
-   * a whole-project consumer must see the same values a field does, or the nav
-   * tree and the field disagree about what exists.
+   * Every loaded module's source, as a read would see it: `.jsonValues()`
+   * content that has been fetched is present, so a whole-project consumer sees
+   * the same values a field does.
    *
    * Reference-stable across an unchanged `globalRevision`, because this is a
-   * `useSyncExternalStore` snapshot too. Memoised rather than recomputed-and-
-   * compared, unlike `peek`: this walk is O(project), and comparing two
-   * whole-project records is no cheaper than building one.
-   *
-   * The engine's `getAllSourcesSnapshot` deep-cloned every module on every
-   * rebuild. This does not: the store owns these objects and nothing downstream
-   * writes to them, so a clone bought only the cost of copying the project.
+   * `useSyncExternalStore` snapshot too.
    */
   allSources(): Record<ModuleFilePath, Json> {
     const cached = this.allSourcesAt;
@@ -579,13 +564,8 @@ export class SourceStore {
       return cached.sources;
     }
     const sources: Record<ModuleFilePath, Json> = {};
-    for (const moduleFilePath of Object.keys(
-      this.sources,
-    ) as ModuleFilePath[]) {
-      const source = this.moduleSource(moduleFilePath);
-      if (source !== undefined) {
-        sources[moduleFilePath] = source;
-      }
+    for (const [moduleFilePath, { view }] of this.views) {
+      sources[moduleFilePath] = view.source;
     }
     this.allSourcesAt = { n: this.globalRevision, sources };
     return sources;
@@ -593,25 +573,20 @@ export class SourceStore {
 
   /**
    * `.jsonValues()` entries across the whole project: how many there are, how
-   * many are here, how many failed.
-   *
-   * Summed from {@link entriesProgress}, so a progress indicator cannot
-   * disagree with what a read of any single module would find.
+   * many are here, how many failed. Summed from {@link entriesProgress}.
    */
   allEntriesProgress(): { total: number; loaded: number; failed: number } {
     let total = 0;
     let loaded = 0;
     let failed = 0;
-    for (const moduleFilePath of Object.keys(
-      this.sources,
-    ) as ModuleFilePath[]) {
+    for (const moduleFilePath of this.views.keys()) {
       const at = this.entriesProgress(moduleFilePath);
       total += at.total;
       loaded += at.loaded;
       failed += at.failed;
     }
     const next = { total, loaded, failed };
-    // Stable for the same reason as `entriesStatus` above: a progress hook reads
+    // Stable for the same reason as `entriesStatus`: a progress hook reads
     // this on every render.
     const previous = this.allEntriesProgressCache;
     if (
@@ -632,45 +607,399 @@ export class SourceStore {
     failed: number;
   } | null = null;
 
+  // #region versions and the view
+
   /**
-   * Deliver one entry's content. Bumps the module, because this changes what
-   * reads return — the third way source can change, alongside a patch and a base
-   * replacement, and the reason the revision lives in this store.
+   * Work done for this module, attributed to this store: the engine's
+   * (`engine:clone-bytes`) and the versions it hashed (`version:hash`). The
+   * engine counts per process, and Val's server runs in the same one in the
+   * scenarios, so the Studio says what was its own.
+   */
+  private counted<T>(moduleFilePath: ModuleFilePath, fn: () => T): T {
+    const hashes = versionHashCount();
+    const bytes = engineWork().cloneBytes;
+    try {
+      return fn();
+    } finally {
+      const hashed = versionHashCount() - hashes;
+      if (hashed > 0) {
+        this.activity.work("version:hash", moduleFilePath, hashed);
+      }
+      const copied = engineWork().cloneBytes - bytes;
+      if (copied > 0) {
+        this.activity.work("engine:clone-bytes", moduleFilePath, copied);
+      }
+    }
+  }
+
+  /** A schema's version, hashed once per schema object: when it arrives. */
+  private schemaVersionFor(schema: SerializedSchema | undefined): {
+    version: string;
+    engine: string;
+  } {
+    if (schema === undefined) return { version: NO_SCHEMA, engine: "" };
+    const known = this.schemaVersions.get(schema);
+    if (known !== undefined) return known;
+    const computed = {
+      version: schemaVersionOf(schema),
+      engine: engineSchemaKey(schema),
+    };
+    this.schemaVersions.set(schema, computed);
+    return computed;
+  }
+
+  /** The base's version, hashed once per base object: when it arrives. */
+  private baseVersionFor(moduleFilePath: ModuleFilePath, base: Json): string {
+    const known = this.baseVersions.get(moduleFilePath);
+    if (known !== undefined && known.source === base) return known.version;
+    const version = baseVersionOf(base);
+    this.baseVersions.set(moduleFilePath, { source: base, version });
+    return version;
+  }
+
+  private inputsOf(
+    moduleFilePath: ModuleFilePath,
+    base: Json,
+    schema: SerializedSchema | undefined,
+  ): ModuleInputs {
+    const schemaVersion = this.schemaVersionFor(schema);
+    return {
+      schema,
+      schemaVersion: schemaVersion.version,
+      engineKey: schemaVersion.engine,
+      base,
+      baseVersion: this.baseVersionFor(moduleFilePath, base),
+      onApply: (patchId) => this.activity.work("source:apply-patch", patchId),
+    };
+  }
+
+  /**
+   * The module at the server's version, under this Studio's schema: the
+   * manifest's, or the bundle's base before one named it.
+   */
+  private belowOf(moduleFilePath: ModuleFilePath, inputs: ModuleInputs): Below {
+    const below = this.server.get(moduleFilePath);
+    if (below === undefined || below.version.base !== inputs.baseVersion) {
+      return {
+        tried: [],
+        at: () => baseAt(inputs),
+        decidedAt: NOTHING_DECIDED,
+      };
+    }
+    return {
+      tried: below.applied,
+      at: () => this.materializeBelow(moduleFilePath, below, inputs),
+      decidedAt: below.decidedAt,
+    };
+  }
+
+  /**
+   * The content of the server's version below, under this Studio's schema:
+   * as held, or -- for a version known only by its patches, one this Studio
+   * computed -- the kept version of exactly those patches, or else the base
+   * with them applied (counted). Kept once made.
+   */
+  private materializeBelow(
+    moduleFilePath: ModuleFilePath,
+    below: ServerBelow,
+    inputs: ModuleInputs,
+  ): ModuleAt {
+    let at = below.at;
+    if (at === null) {
+      const kept = this.ring.longestPrefix(
+        moduleFilePath,
+        inputs,
+        below.applied,
+        below.applied.length,
+      );
+      if (kept !== null && kept.tried.length === below.applied.length) {
+        at = kept;
+      } else {
+        const byId = new Map<PatchId, PatchRecord>();
+        for (const { record } of this.chains.get(moduleFilePath) ?? []) {
+          byId.set(record.patchId, record);
+        }
+        const records: PatchRecord[] = [];
+        for (const patchId of below.applied) {
+          const record = byId.get(patchId);
+          if (record !== undefined) records.push(record);
+        }
+        at = applyOnBase(inputs, records);
+      }
+      below.at = at;
+    }
+    return at.engine === inputs.engineKey &&
+      at.version.schema === inputs.schemaVersion
+      ? at
+      : {
+          ...at,
+          engine: inputs.engineKey,
+          version: { ...at.version, schema: inputs.schemaVersion },
+        };
+  }
+
+  /**
+   * The module's patches the server's version below does not have, in chain
+   * order: what this Studio shows on top (`withLocalEdits`). Its OWN edits,
+   * unless a manifest said they are gone -- another editor's patch is shown
+   * once the server's version has it, never replayed here. All of the chain
+   * when nothing below has been decided: before the first manifest, after
+   * new code moved the base here, on a module new code put this Studio ahead
+   * on, or with no server to ask.
+   */
+  private localOf(moduleFilePath: ModuleFilePath, below: Below): PatchRecord[] {
+    const chain = this.chains.get(moduleFilePath) ?? [];
+    if (chain.length === 0) return [];
+    const inBelow = new Set<PatchId>(below.tried);
+    const local: PatchRecord[] = [];
+    for (const { record, origin } of chain) {
+      if (inBelow.has(record.patchId)) continue;
+      if (
+        below.decidedAt !== NOTHING_DECIDED &&
+        (origin === "external" ||
+          this.decidedGone(record.patchId, below.decidedAt))
+      ) {
+        continue;
+      }
+      local.push(record);
+    }
+    return local;
+  }
+
+  /**
+   * Compute this module's view again from its base, its chain and the base
+   * entries read, and keep it: THE place a view is made. Extends the last
+   * version where it can, so a keystroke is one engine apply.
+   *
+   * Returns the view it replaced, for the caller to announce and wake.
+   */
+  private refresh(moduleFilePath: ModuleFilePath): {
+    before: ModuleView | undefined;
+    after: ModuleView | undefined;
+  } {
+    const before = this.views.get(moduleFilePath)?.view;
+    const base = this.baseSources[moduleFilePath];
+    if (base === undefined) {
+      this.views.delete(moduleFilePath);
+      this.ring.forget(moduleFilePath);
+      return { before, after: undefined };
+    }
+    const schema = this.schemaStore.get(moduleFilePath);
+    const inputs = this.inputsOf(moduleFilePath, base, schema);
+    const below = this.belowOf(moduleFilePath, inputs);
+    const at = this.counted(moduleFilePath, () =>
+      withLocalEdits(
+        moduleFilePath,
+        below,
+        this.localOf(moduleFilePath, below),
+        inputs,
+        this.ring,
+      ),
+    );
+    this.rememberChain(moduleFilePath, at);
+    return { before, after: this.viewAt(moduleFilePath, at, schema) };
+  }
+
+  /**
+   * The chains this Studio computed for each module, by the version's chain:
+   * the patches each is made of. What a manifest naming one of them is
+   * answered from when the version's content is no longer kept -- a save
+   * confirmed while the editor typed on names a version the Studio passed
+   * through, and nothing has to be fetched or applied for it
+   * ({@link knownChain}). The last {@link CHAINS_KEPT} per module.
+   */
+  private computedChains = new Map<
+    ModuleFilePath,
+    Map<string, { base: string; engine: string; applied: readonly PatchId[] }>
+  >();
+
+  private rememberChain(moduleFilePath: ModuleFilePath, at: ModuleAt): void {
+    let chains = this.computedChains.get(moduleFilePath);
+    if (chains === undefined) {
+      chains = new Map();
+      this.computedChains.set(moduleFilePath, chains);
+    }
+    if (chains.has(at.version.chain)) return;
+    chains.set(at.version.chain, {
+      base: at.version.base,
+      engine: at.engine,
+      applied: at.applied,
+    });
+    if (chains.size > CHAINS_KEPT) {
+      const oldest = chains.keys().next();
+      if (oldest.done !== true) chains.delete(oldest.value);
+    }
+  }
+
+  /** The view of `at`, kept: the same object while nothing it reads moved. */
+  private viewAt(
+    moduleFilePath: ModuleFilePath,
+    at: ModuleAt,
+    schema: SerializedSchema | undefined,
+  ): ModuleView {
+    const entriesEpoch = this.baseEntriesEpoch.get(moduleFilePath) ?? 0;
+    const kept = this.views.get(moduleFilePath);
+    if (
+      kept !== undefined &&
+      kept.view.at === at &&
+      kept.view.schema === schema &&
+      kept.entriesEpoch === entriesEpoch
+    ) {
+      return kept.view;
+    }
+    const view = this.counted(moduleFilePath, () =>
+      viewOf(
+        at,
+        this.baseJsonEntries.get(moduleFilePath),
+        schema,
+        this.resolvedEntries,
+      ),
+    );
+    this.views.set(moduleFilePath, { view, entriesEpoch });
+    return view;
+  }
+
+  /** The view again, for a change that moved only the base entries read. */
+  private refreshEntries(moduleFilePath: ModuleFilePath): {
+    before: ModuleView | undefined;
+    after: ModuleView | undefined;
+  } {
+    const kept = this.views.get(moduleFilePath);
+    if (kept === undefined) return this.refresh(moduleFilePath);
+    return {
+      before: kept.view,
+      after: this.viewAt(moduleFilePath, kept.view.at, kept.view.schema),
+    };
+  }
+
+  /**
+   * Whether the module's SOURCE moved in `after`: the value, or what stands
+   * behind a marker -- what `source:change` announces. Not the version alone:
+   * a publish moves the base, and a code change the schema, under a value
+   * that does not move, and neither may repaint. (Readers of a module whose
+   * schema arrived or changed are woken by {@link wakeChanged} all the same.)
+   */
+  private static moved(
+    before: ModuleView | undefined,
+    after: ModuleView | undefined,
+  ): boolean {
+    if (before === undefined || after === undefined) return before !== after;
+    return (
+      before.source !== after.source ||
+      before.entryErrors.size !== after.entryErrors.size
+    );
+  }
+
+  /**
+   * The version the Studio shows this module at: the schema it holds, the base
+   * its chain is applied to, and the chain of the patches that applied --
+   * unconfirmed ones included, so it is the server's version for the same
+   * chain once the server has it. Computed when the module changes, never here
+   * (risk 3 in the plan).
+   */
+  versionOf(moduleFilePath: ModuleFilePath): ModuleVersion | undefined {
+    return this.views.get(moduleFilePath)?.view.at.version;
+  }
+
+  /**
+   * The version of the schema this Studio reads the module with, or
+   * `undefined` for a module it has no schema for. The same hash the server
+   * names a module's schema by, kept per schema object, so asking costs
+   * nothing. Where new code moved it ahead of the server's, the manifest's
+   * version of the module is not moved to: see `ManifestSource.codeMoved`.
+   */
+  schemaVersionOfModule(moduleFilePath: ModuleFilePath): string | undefined {
+    const schema = this.schemaStore.get(moduleFilePath);
+    if (schema === undefined) return undefined;
+    return this.schemaVersionFor(schema).version;
+  }
+
+  /** How many versions of this module are kept: at most two (the heap guard). */
+  retainedVersions(moduleFilePath: ModuleFilePath): number {
+    return this.ring.size(moduleFilePath);
+  }
+
+  /**
+   * The entries that must be read before this module goes to a page: the ones
+   * whose content in this view differs from what a page's bundle has -- every
+   * entry the chain wrote or edited, and every one whose marker says the
+   * bundle's copy is not current (`Internal.isJsonFromServer`: a publish wrote
+   * it, on a host that has not rebuilt). Exactly the entries the server's
+   * draft read fills for a page (`ValHead.draft` in `@valbuild/server`).
+   * The ones still a marker here, by entry key.
+   */
+  entriesToRelay(moduleFilePath: ModuleFilePath): string[] {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined || !isJsonObject(view.source)) return [];
+    const keys: string[] = [];
+    for (const [key, value] of Object.entries(view.source)) {
+      if (!Internal.isJson(value)) continue;
+      if (chainTouches(view, key) || Internal.isJsonFromServer(value)) {
+        keys.push(key);
+      }
+    }
+    return keys;
+  }
+
+  // #region entries
+
+  /**
+   * Deliver one entry's BASE content -- what the server has for it without
+   * patches (the Studio reads entries with `apply_patches: false`). The chain's
+   * edits into it apply on read (`studioView.ts`): an edit made while the
+   * entry was not loaded was held by the engine for exactly this moment.
    */
   receiveJsonEntry(
     moduleFilePath: ModuleFilePath,
     key: string,
     content: Json,
   ): void {
-    let byKey = this.jsonEntries.get(moduleFilePath);
+    this.receiveJsonEntries(moduleFilePath, [[key, content]]);
+  }
+
+  /**
+   * Deliver many entries' base content at once: ONE view of the module, one
+   * revision, one wake and one announcement for all of them.
+   *
+   * Per entry, a record of N entries loaded whole was quadratic: the view of
+   * the record (its root of N keys copied, every loaded entry filled in) was
+   * rebuilt for each arriving entry -- about 44 s for 10,000 (phase 10). A
+   * batch is what a request brought, or what several brought by the time the
+   * store got to them, so a full load rebuilds the view once per batch.
+   */
+  receiveJsonEntries(
+    moduleFilePath: ModuleFilePath,
+    entries: readonly (readonly [key: string, content: Json])[],
+  ): void {
+    if (entries.length === 0) return;
+    let byKey = this.baseJsonEntries.get(moduleFilePath);
     if (byKey === undefined) {
       byKey = new Map();
-      this.jsonEntries.set(moduleFilePath, byKey);
+      this.baseJsonEntries.set(moduleFilePath, byKey);
     }
-    byKey.set(key, content);
-    /*
-     * And the same content as the base, cloned.
-     *
-     * This IS the base: it is what the server answered, before any local patch —
-     * the Studio reads entries with `apply_patches: false`. Cloned because
-     * `storePatched` overwrites the patched copy in place, and sharing the object
-     * would make the base follow every edit, which is the bug this exists to fix.
-     */
-    let baseByKey = this.baseJsonEntries.get(moduleFilePath);
-    if (baseByKey === undefined) {
-      baseByKey = new Map();
-      this.baseJsonEntries.set(moduleFilePath, baseByKey);
+    for (const [key, content] of entries) {
+      byKey.set(key, content);
+      this.activity.work("source:receive-json-entry", moduleFilePath);
     }
-    baseByKey.set(key, deepClone(content as JSONValue));
-    this.bumpBase(moduleFilePath);
-    this.activity.work("source:receive-json-entry", moduleFilePath);
+    this.entriesMoved(moduleFilePath);
+    this.activity.work(
+      "source:apply-json-entries",
+      moduleFilePath,
+      entries.length,
+    );
+    const { before, after } = this.refreshEntries(moduleFilePath);
     this.bump(moduleFilePath);
-    if (this.batchDepth > 0) {
-      // `batched` emits one of these for the whole batch. Emitting here as well
-      // would invalidate every render and every validation in the module once
-      // per entry, which is the storm this exists to stop.
-      return;
+    const failed = this.entryErrorsOf(moduleFilePath, after);
+    if (failed.length > 0) {
+      this.events.emit({
+        type: "source:patch-apply",
+        success: [],
+        failed,
+        withoutModule: [],
+        modules: [moduleFilePath],
+      });
     }
+    this.wakeChanged(moduleFilePath, before);
     this.events.emit({
       type: "source:patch-apply",
       success: [],
@@ -680,6 +1009,91 @@ export class SourceStore {
     });
   }
 
+  /** The base entries this module has read moved. */
+  private entriesMoved(moduleFilePath: ModuleFilePath): void {
+    this.baseEntriesEpoch.set(
+      moduleFilePath,
+      (this.baseEntriesEpoch.get(moduleFilePath) ?? 0) + 1,
+    );
+    this.bumpBase(moduleFilePath);
+  }
+
+  /** An entry fetch of this module started, finished or failed. */
+  private fetchMoved(moduleFilePath: ModuleFilePath): void {
+    this.fetchEpochs.set(
+      moduleFilePath,
+      (this.fetchEpochs.get(moduleFilePath) ?? 0) + 1,
+    );
+  }
+
+  /**
+   * The base this module's entries are read on moved: what is in flight, or
+   * has landed and is not applied, was read on the one before. See
+   * {@link entryBases}.
+   */
+  private entryBaseMoved(moduleFilePath: ModuleFilePath): void {
+    this.entryBases.set(
+      moduleFilePath,
+      (this.entryBases.get(moduleFilePath) ?? 0) + 1,
+    );
+  }
+
+  /**
+   * The patches an entry's held edits do not fit, newly found in `view`: the
+   * engine could not know, because the entry's base was not loaded when they
+   * were applied. Reported as failed like any patch that does not apply, so
+   * the editor's change that cannot land is discarded rather than kept.
+   */
+  private entryErrorsOf(
+    moduleFilePath: ModuleFilePath,
+    view: ModuleView | undefined,
+  ): { patchId: PatchId; message: string }[] {
+    if (view === undefined || view.entryErrors.size === 0) return [];
+    const inChain = new Set(
+      (this.chains.get(moduleFilePath) ?? []).map(
+        (entry) => entry.record.patchId,
+      ),
+    );
+    const failed: { patchId: PatchId; message: string }[] = [];
+    for (const { patchId, message } of view.entryErrors.values()) {
+      if (patchId === undefined || !inChain.has(patchId)) continue;
+      if (this.reportedEntryErrors.has(patchId)) continue;
+      this.reportedEntryErrors.add(patchId);
+      failed.push({ patchId, message });
+    }
+    return failed;
+  }
+
+  /**
+   * Forget the loaded `.jsonValues()` entries a VANISHED patch wrote into, so
+   * the next read asks the server again.
+   *
+   * A patch vanishes when another tab discarded it -- or published it, which
+   * no sha says when only an entry changed: the module's source is its
+   * markers either way. Kept as it was loaded, the entry went back to its
+   * content from BEFORE the publish, on every page the overlay relays to. Read
+   * again, it is right in both cases.
+   */
+  private forgetEntriesOf(record: PatchRecord): void {
+    const base = this.baseJsonEntries.get(record.moduleFilePath);
+    let forgot = false;
+    let inFlight = false;
+    for (const op of record.patch) {
+      const keys = [op.path[0]];
+      if (op.op === "move" || op.op === "copy") keys.push(op.from[0]);
+      for (const key of keys) {
+        if (typeof key !== "string") continue;
+        forgot = (base?.delete(key) ?? false) || forgot;
+        inFlight =
+          inFlight ||
+          this.loadingEntries.has(entryKey(record.moduleFilePath, key));
+      }
+    }
+    // One on its way was read before the patch went: as stale as one here.
+    if (inFlight) this.entryBaseMoved(record.moduleFilePath);
+    if (forgot) this.entriesMoved(record.moduleFilePath);
+  }
+
   /**
    * Drop this module's loaded entry content.
    *
@@ -687,52 +1101,32 @@ export class SourceStore {
    * can see it — the module's source is markers and the content sits behind a
    * thunk `JSON.stringify` drops. Coarse by necessity (the fingerprint cannot say
    * WHICH entry) and cheap because of it: dropping content causes no fetches,
-   * only the next read of an entry does.
-   *
-   * It COULD be per entry, and cheaply: the key↔file mapping is CANONICAL —
-   * `/content/kb.val.ts` + key `kb-000` is `/content/kb/kb-000.val.json`, per
-   * `getNewJsonEntryPaths`. So a changed file localises to exactly one key by
-   * derivation, no server metadata needed: 1 refetch instead of 120.
-   *
-   * Blocked on enforcement, not on the derivation. Nothing validates that an
-   * entry's import target IS the canonical path — `examples/next` itself points
-   * key `kb-000` at `entry-000.val.json` and passes — so the derivation cannot be
-   * trusted yet. See `openquestions.md` item 9b.
+   * only the next read of an entry does. See `openquestions.md` item 9b.
    */
   markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
     /**
-     * A recorded FAILURE is stale news too, and clearing it is the whole point.
-     *
+     * A recorded FAILURE is stale news too, and clearing it is the whole point:
      * `peek` reports `entry-failed` so that readers stop asking, and nothing
-     * asks again except an explicit `retryEntry`. That is right for a failure
-     * nothing has contradicted — and it would be a permanent one if the moment
-     * the file changed on disk were not the moment to forget it. So this runs
-     * BEFORE the early return: a module whose every entry failed has nothing in
-     * `jsonEntries` at all, which is exactly the case that needs it most.
+     * asks again except an explicit `retryEntry`.
      */
     const clearedFailures = this.clearEntryFailures(moduleFilePath);
-    if (!this.jsonEntries.has(moduleFilePath)) {
+    // An answer on its way was read from the files as they were.
+    this.entryBaseMoved(moduleFilePath);
+    if (!this.baseJsonEntries.has(moduleFilePath)) {
       if (clearedFailures) this.bump(moduleFilePath);
       return;
     }
-    this.jsonEntries.delete(moduleFilePath);
-    // The base copy too: the file on disk changed, so what the server last said
-    // about it is exactly what is now stale.
     this.baseJsonEntries.delete(moduleFilePath);
-    this.bumpBase(moduleFilePath);
+    this.entriesMoved(moduleFilePath);
+    const { before } = this.refreshEntries(moduleFilePath);
     this.bump(moduleFilePath);
+    this.wakeChanged(moduleFilePath, before);
   }
 
   /**
    * Forget what this module's entries failed with. Returns whether any did.
-   *
-   * The one thing that turns `entry-failed` back into `entry-missing`, short of
-   * someone pressing retry — so it is called from the two places that are new
-   * evidence about the content: the file changing on disk
-   * ({@link markJsonEntriesStale}) and the server resending the module
-   * ({@link receive}). Without it, "stop asking" quietly means "never again",
-   * and an entry that failed once during a dev-server restart stays broken for
-   * the life of the tab.
+   * Called from the two places that are new evidence about the content: the
+   * file changing on disk and the server resending the module.
    */
   private clearEntryFailures(moduleFilePath: ModuleFilePath): boolean {
     if (this.entryFailures.size === 0) return false;
@@ -743,108 +1137,602 @@ export class SourceStore {
       this.entryFailures.delete(key);
       cleared = true;
     }
+    if (cleared) this.fetchMoved(moduleFilePath);
     return cleared;
+  }
+
+  /**
+   * The base entry a read of the entry at `key` waits for: its own key, or
+   * the one a rename moved it from. `undefined` when no fetch can fill it --
+   * it is here, or it is content the chain wrote, or an error.
+   */
+  private fetchKey(view: ModuleView, key: string): string | undefined {
+    if (!isJsonObject(view.source)) return undefined;
+    if (!Object.prototype.hasOwnProperty.call(view.source, key)) {
+      return undefined;
+    }
+    if (!Internal.isJson(view.source[key])) return undefined;
+    if (view.entryErrors.has(key)) return undefined;
+    return fetchKeyOf(view, key);
   }
 
   /**
    * Load these `.jsonValues()` entries, and only the ones not already here.
    *
    * For a caller that knows WHICH entries it is about to need — a virtualized
-   * record list scrolling a window of rows into view. Reading each one through
-   * `get` would work, and is what a field does; this exists because the list
-   * knows the whole window at once and issuing them together lets
-   * {@link loadEntry} share the in-flight fetches rather than serialise them.
+   * record list scrolling a window of rows into view. Silent on failure by
+   * design: a failed entry is recorded and reported by `peek` as
+   * `entry-failed`, which is where a row shows it.
    *
-   * Silent on failure by design: a failed entry is recorded in `entryFailures`
-   * and reported by `peek` as `entry-failed`, which is where a row shows it. A
-   * rejected promise here would make a prefetch of twenty rows fail because one
-   * of them did.
+   * Asked for at once, and coalesced per module per tick with every other
+   * read of this tick (a record's rows each `get` their own entry in one
+   * render pass) into as few `GET /json` as the URL allows
+   * (`chunkJsonEntryKeys`): one request for a window of rows, not one per
+   * row. What a request brings is applied as one batch
+   * ({@link receiveJsonEntries}) as soon as it lands.
    *
    * ## An entry that FAILED is not asked for again
    *
-   * The same rule `peek` draws between `entry-missing` ("ask for it") and
-   * `entry-failed` ("stop asking and say so"), applied to the bulk path — which
-   * did not observe it, because a failure is recorded in `entryFailures` and
-   * never in `jsonEntries`, so a `has(key)` test calls it wanted forever.
-   *
-   * That was a fetch storm rather than a wasted call. `ValOverlayEmitter`
-   * re-derives the entries a module's patches touch and calls this on every
+   * `ValOverlayEmitter` asks for the entries a module needs on every
    * `source:change` burst, so one entry the server cannot resolve produced a
-   * `GET /json` every 200ms for as long as the tab was open — which is what
-   * "when there are errors everything is loading" looked like from the outside.
-   *
-   * {@link retryEntry} stays the one door back in: it clears the failure first,
-   * and it goes to {@link loadEntry} directly rather than through here.
+   * `GET /json` every 200ms for as long as the tab was open. {@link retryEntry}
+   * stays the one door back in.
    */
   async loadEntries(
     moduleFilePath: ModuleFilePath,
     keys: readonly string[],
   ): Promise<void> {
-    const here = this.jsonEntries.get(moduleFilePath);
-    const wanted = keys.filter(
-      (key) =>
-        here?.has(key) !== true &&
-        !this.entryFailures.has(entryKey(moduleFilePath, key)),
+    if (this.fetchJsonEntries === undefined) return;
+    await Promise.all(
+      this.requestEntries(
+        moduleFilePath,
+        this.wantedEntries(moduleFilePath, keys),
+      ),
     );
-    if (wanted.length === 0) return;
-    /**
-     * Coalesced per module per tick, then announced once.
-     *
-     * The engine did this too — its call site in `VirtualizedRecordList` said
-     * "coalesced by the engine into one request per module per tick, so a fast
-     * scroll that crosses several windows does not fan out" — and porting the
-     * call to the store dropped it. That turned out to be load-bearing for more
-     * than request count: a virtualized `.jsonValues()` record asks for the
-     * window it is showing, and every arrival re-renders those rows, which moves
-     * the window, which asks again. One announcement per tick is what lets that
-     * settle; per call it walked the whole record and blew React's update depth.
-     */
-    let pending = this.pendingEntryLoads.get(moduleFilePath);
-    if (pending === undefined) {
-      const keysWanted = new Set<string>();
-      const request = (async () => {
-        // One turn for every caller in this tick to join, then one fetch and one
-        // announcement for all of them.
-        await Promise.resolve();
-        this.pendingEntryLoads.delete(moduleFilePath);
-        await this.batched(() =>
-          Promise.all(
-            [...keysWanted].map((key) => this.loadEntry(moduleFilePath, key)),
-          ),
-        );
-      })();
-      pending = { keys: keysWanted, request };
-      this.pendingEntryLoads.set(moduleFilePath, pending);
-    }
-    for (const key of wanted) {
-      pending.keys.add(key);
-    }
-    await pending.request;
   }
 
-  /** In-flight coalesced entry loads, per module. See {@link loadEntries}. */
-  private pendingEntryLoads = new Map<
-    ModuleFilePath,
-    { keys: Set<string>; request: Promise<void> }
-  >();
+  /**
+   * Every `.jsonValues()` entry this module has, loaded. The deliberate
+   * exception to demand-driven reading, for the callers that genuinely need
+   * the whole module: search, a reference scan ("used by", a rename guard), a
+   * compare view.
+   *
+   * ## In batches, in the background, and never in one long task
+   *
+   * A record of 10,000 entries cannot be one request, and its entries cannot
+   * be applied one at a time (each rebuilt the record's view: quadratic, 44 s
+   * at 10,000). So the keys go out {@link BULK_KEYS_PER_REQUEST} to a request,
+   * at most {@link BULK_REQUESTS_IN_FLIGHT} requests at a time across the
+   * whole store -- the browser has six connections to a host, and the rest
+   * are for what the editor does meanwhile -- and what has arrived is applied
+   * as ONE batch per module, after a {@link yieldToMain}: a click, a keystroke
+   * or a frame gets a turn between two batches, so the Studio stays usable
+   * while it loads. The progress is `entriesProgress`, counted from the view.
+   *
+   * Lower priority than a read: an entry someone opens while this runs is
+   * asked for at once (`get`, {@link loadEntries}), not after the batches
+   * queued before it. The batches are formed as they go out, so it is not
+   * asked for twice.
+   *
+   * One load per module: a second caller joins the one running. `signal`
+   * says the caller has stopped waiting (search closed, the inspector left):
+   * when no caller is left, the batches not yet sent are dropped, and those
+   * in flight land as usual. A caller without one waits for the end.
+   *
+   * Resolves when every entry is here or has failed (`entriesStatus` says
+   * which), or when the load was given up.
+   */
+  async loadAllEntries(
+    moduleFilePath: ModuleFilePath,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<void> {
+    if (this.fetchJsonEntries === undefined) return;
+    const { signal } = options;
+    if (signal?.aborted === true) return;
+    let job = this.bulkLoads.get(moduleFilePath);
+    if (job === undefined) {
+      const keys = this.wantedEntries(
+        moduleFilePath,
+        this.markerKeys(moduleFilePath),
+      );
+      let finish: () => void = () => {};
+      const done = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      job = {
+        keys,
+        next: 0,
+        inFlight: 0,
+        interest: 0,
+        shared: [],
+        done,
+        finish,
+      };
+      this.bulkLoads.set(moduleFilePath, job);
+    }
+    const joined = job;
+    joined.interest++;
+    signal?.addEventListener(
+      "abort",
+      () => {
+        joined.interest--;
+        if (
+          joined.interest > 0 ||
+          this.bulkLoads.get(moduleFilePath) !== joined
+        )
+          return;
+        // Nobody is waiting: what has not gone out does not go.
+        joined.next = joined.keys.length;
+        this.settleBulkLoad(moduleFilePath, joined);
+      },
+      { once: true },
+    );
+    this.settleBulkLoad(moduleFilePath, joined);
+    this.pumpBulkLoads();
+    await joined.done;
+  }
 
   /**
-   * Every `.jsonValues()` entry this module has, loaded.
-   *
-   * The deliberate exception to demand-driven reading, and the callers are the
-   * ones that genuinely need the whole module: search over a project, a
-   * validation pass, a compare view that has to diff every entry. All of them
-   * would otherwise walk the module and find markers, and report a partial
-   * answer as if it were complete.
+   * Ask again for these entries, whose fetches failed: the "Try again" of a
+   * load that could not finish. The failures are forgotten first (or the load
+   * would skip them, see {@link loadEntries}); a few go out at once, many go
+   * the way {@link loadAllEntries} sends them, so a server that was down for
+   * a while is not answered with a request per entry, all at once.
    */
-  async loadAllEntries(moduleFilePath: ModuleFilePath): Promise<void> {
-    const source = this.sources[moduleFilePath];
-    if (source === undefined || !isJsonObject(source)) return;
-    const keys: string[] = [];
-    for (const [key, value] of Object.entries(source)) {
-      if (Internal.isJson(value)) keys.push(key);
+  async retryEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+  ): Promise<void> {
+    const view = this.views.get(moduleFilePath)?.view;
+    let cleared = false;
+    for (const key of keys) {
+      const fetchKey =
+        view === undefined ? key : (fetchKeyOf(view, key) ?? key);
+      cleared =
+        this.entryFailures.delete(entryKey(moduleFilePath, fetchKey)) ||
+        cleared;
     }
-    await this.loadEntries(moduleFilePath, keys);
+    if (cleared) {
+      this.fetchMoved(moduleFilePath);
+      // From "failed" to "loading" for whoever shows it, now rather than when
+      // the first answer lands.
+      this.bump(moduleFilePath);
+    }
+    if (keys.length <= JSON_ENTRY_KEYS_PER_REQUEST) {
+      await this.loadEntries(moduleFilePath, keys);
+    } else {
+      await this.loadAllEntries(moduleFilePath);
+    }
+  }
+
+  /** The keys of this module's view that are still markers. */
+  private markerKeys(moduleFilePath: ModuleFilePath): string[] {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined || !isJsonObject(view.source)) return [];
+    const keys: string[] = [];
+    for (const key of Object.keys(view.source)) {
+      if (Internal.isJson(view.source[key])) keys.push(key);
+    }
+    return keys;
+  }
+
+  /**
+   * The base entries reading `keys` needs and nobody has: not read, not
+   * failed (see {@link loadEntries}). By the key they are fetched by.
+   */
+  private wantedEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: Iterable<string>,
+  ): string[] {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined) return [];
+    const read = this.baseJsonEntries.get(moduleFilePath);
+    const wanted = new Set<string>();
+    for (const key of keys) {
+      const fetchKey = this.fetchKey(view, key);
+      if (fetchKey === undefined) continue;
+      if (read?.has(fetchKey) === true) continue;
+      if (this.entryFailures.has(entryKey(moduleFilePath, fetchKey))) continue;
+      wanted.add(fetchKey);
+    }
+    return [...wanted];
+  }
+
+  /**
+   * Fetch these base entries now, or wait for the fetch already carrying
+   * them: N readers of one entry cause ONE fetch. One promise per key, settled
+   * when its batch has been applied (or has failed).
+   */
+  private requestEntries(
+    moduleFilePath: ModuleFilePath,
+    fetchKeys: readonly string[],
+  ): Promise<void>[] {
+    const waits: Promise<void>[] = [];
+    const started: string[] = [];
+    for (const key of fetchKeys) {
+      const inFlight = this.loadingEntries.get(entryKey(moduleFilePath, key));
+      if (inFlight !== undefined) {
+        this.activity.work("source:share-json-entry-load", moduleFilePath);
+        waits.push(inFlight.promise);
+        continue;
+      }
+      waits.push(this.startLoading(moduleFilePath, key));
+      started.push(key);
+    }
+    if (started.length === 0) return waits;
+    this.queueReads(moduleFilePath, started);
+    return waits;
+  }
+
+  /**
+   * Send these keys, already marked loading, with this tick's other reads of
+   * the module.
+   */
+  private queueReads(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+  ): void {
+    this.fetchMoved(moduleFilePath);
+    let queued = this.readsThisTick.get(moduleFilePath);
+    if (queued === undefined) {
+      queued = [];
+      this.readsThisTick.set(moduleFilePath, queued);
+      /**
+       * Coalesced per module per tick. Load-bearing for more than request
+       * count: a virtualized `.jsonValues()` record asks for the window it is
+       * showing, and every arrival re-renders those rows, which moves the
+       * window, which asks again. One batch per tick is what lets that settle.
+       */
+      queueMicrotask(() => {
+        const keys = this.readsThisTick.get(moduleFilePath) ?? [];
+        this.readsThisTick.delete(moduleFilePath);
+        for (const chunk of chunkJsonEntryKeys(keys)) {
+          void this.fetchEntries(moduleFilePath, chunk, "read");
+        }
+      });
+    }
+    queued.push(...keys);
+  }
+
+  /** This entry is being fetched from now on: `peek` says `entry-loading`. */
+  private startLoading(moduleFilePath: ModuleFilePath, key: string) {
+    const cacheKey = entryKey(moduleFilePath, key);
+    // Cleared before the attempt, so a retry is not reported as failed while
+    // it is in flight.
+    this.entryFailures.delete(cacheKey);
+    let settle: () => void = () => {};
+    const promise = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.loadingEntries.set(cacheKey, { promise, settle });
+    return promise;
+  }
+
+  /**
+   * One `GET /json` for these keys, and what it brought handed to
+   * {@link arrive}. A read's batch is applied as it lands; a bulk load's
+   * after a yield, with whatever else has landed by then.
+   */
+  private async fetchEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+    kind: "read" | "bulk",
+  ): Promise<void> {
+    this.activity.work(
+      "source:fetch-json-entries",
+      moduleFilePath,
+      keys.length,
+    );
+    for (let i = 0; i < keys.length; i++) {
+      this.activity.work("source:load-json-entry", moduleFilePath);
+    }
+    const on = this.entryBases.get(moduleFilePath) ?? 0;
+    let results: Record<string, JsonEntryResult>;
+    try {
+      // `loadEntries` and `loadAllEntries` start nothing without the seam.
+      results = await this.fetchJsonEntries!(moduleFilePath, keys);
+    } catch (err) {
+      // A throwing seam must not leave readers awaiting forever: a read that
+      // never settles is the one shape a field can neither render nor retry.
+      const message =
+        err instanceof Error ? err.message : "Unknown error reading entries";
+      results = {};
+      for (const key of keys) results[key] = { status: "error", message };
+    }
+    let landed = this.landed.get(moduleFilePath);
+    if (landed === undefined) {
+      landed = [];
+      this.landed.set(moduleFilePath, landed);
+    }
+    landed.push({ keys, results, bulk: kind === "bulk", on });
+    if (kind === "read") {
+      this.applyLanded(moduleFilePath);
+      return;
+    }
+    if (!this.bulkBatchIsDue(moduleFilePath, landed)) return;
+    if (this.applyScheduled.has(moduleFilePath)) return;
+    this.applyScheduled.add(moduleFilePath);
+    void yieldToMain().then(() => {
+      this.applyScheduled.delete(moduleFilePath);
+      this.applyLanded(moduleFilePath);
+    });
+  }
+
+  /**
+   * Whether what a bulk load has landed is enough to apply: a twentieth of
+   * the load (at least {@link MIN_BULK_APPLY} entries), or everything still
+   * to come for it.
+   *
+   * Applied per request, a load of 10,000 was a hundred applies, and each one
+   * re-renders whatever reads the whole project -- most of a long task each
+   * in the browser. Paced like this it is about twenty however large the
+   * record, each with a twentieth of it, and the progress bar moves in
+   * twentieths.
+   */
+  private bulkBatchIsDue(
+    moduleFilePath: ModuleFilePath,
+    landed: readonly { keys: string[]; bulk: boolean }[],
+  ): boolean {
+    const job = this.bulkLoads.get(moduleFilePath);
+    if (job === undefined) return true;
+    let entries = 0;
+    let requests = 0;
+    for (const answer of landed) {
+      if (!answer.bulk) continue;
+      entries += answer.keys.length;
+      requests++;
+    }
+    const sending = job.next < job.keys.length;
+    if (!sending && requests >= job.inFlight) return true;
+    return entries >= Math.max(MIN_BULK_APPLY, Math.ceil(job.keys.length / 20));
+  }
+
+  /**
+   * Apply every answer that has landed for this module, as ONE batch: one
+   * view, one revision, one wake ({@link receiveJsonEntries}). Then the
+   * fetches end, so a reader woken by either sees the content.
+   */
+  private applyLanded(moduleFilePath: ModuleFilePath): void {
+    const landed = this.landed.get(moduleFilePath);
+    if (landed === undefined || landed.length === 0) return;
+    this.landed.delete(moduleFilePath);
+    const received: [string, Json][] = [];
+    const settled: string[] = [];
+    const again: string[] = [];
+    const base = this.entryBases.get(moduleFilePath) ?? 0;
+    let failed = false;
+    let bulk = 0;
+    for (const answer of landed) {
+      if (answer.bulk) bulk++;
+      if (answer.on !== base) {
+        // Read on a base this module has moved off: neither its content nor
+        // its failures are this base's.
+        again.push(...answer.keys);
+        continue;
+      }
+      for (const key of answer.keys) {
+        const result: JsonEntryResult = answer.results[key] ?? {
+          status: "error",
+          message: `Entry not found: ${key} in ${moduleFilePath}`,
+        };
+        if (result.status === "ok") {
+          received.push([key, result.content]);
+        } else {
+          this.entryFailures.set(entryKey(moduleFilePath, key), result.message);
+          failed = true;
+        }
+        settled.push(key);
+      }
+    }
+    this.receiveJsonEntries(moduleFilePath, received);
+    // A failure reads differently too (`entry-failed`, `entriesStatus`), and
+    // a whole-project reader has to hear of it even when nothing arrived.
+    if (failed && received.length === 0) this.bump(moduleFilePath);
+    for (const key of settled) {
+      const cacheKey = entryKey(moduleFilePath, key);
+      const loading = this.loadingEntries.get(cacheKey);
+      this.loadingEntries.delete(cacheKey);
+      loading?.settle();
+    }
+    this.fetchMoved(moduleFilePath);
+    const job = this.bulkLoads.get(moduleFilePath);
+    if (again.length > 0) this.askAgain(moduleFilePath, again, job);
+    if (bulk > 0 && job !== undefined) {
+      job.inFlight -= bulk;
+      this.settleBulkLoad(moduleFilePath, job);
+    }
+  }
+
+  /**
+   * Ask again, on the base the module is on now, for keys whose answer was
+   * read on the one before. Whoever waits for them -- a `get`, a bulk load --
+   * goes on waiting for THIS answer: they are still loading, under the
+   * promise they had.
+   */
+  private askAgain(
+    moduleFilePath: ModuleFilePath,
+    keys: readonly string[],
+    job: BulkLoad | undefined,
+  ): void {
+    const read = this.baseJsonEntries.get(moduleFilePath);
+    const resend: string[] = [];
+    for (const key of keys) {
+      const cacheKey = entryKey(moduleFilePath, key);
+      const loading = this.loadingEntries.get(cacheKey);
+      if (loading === undefined) continue;
+      // Gone with its module, or here already: nothing to ask for.
+      if (
+        this.views.get(moduleFilePath) === undefined ||
+        read?.has(key) === true
+      ) {
+        this.loadingEntries.delete(cacheKey);
+        loading.settle();
+        continue;
+      }
+      job?.shared.push(loading.promise);
+      resend.push(key);
+    }
+    this.activity.work(
+      "source:refetch-json-entries",
+      moduleFilePath,
+      resend.length,
+    );
+    if (resend.length > 0) this.queueReads(moduleFilePath, resend);
+  }
+
+  /**
+   * Send the next bulk batches, up to {@link BULK_REQUESTS_IN_FLIGHT}, in the
+   * order the loads were asked for.
+   */
+  private pumpBulkLoads(): void {
+    while (this.bulkInFlight < BULK_REQUESTS_IN_FLIGHT) {
+      let next: { moduleFilePath: ModuleFilePath; keys: string[] } | null =
+        null;
+      for (const [moduleFilePath, job] of this.bulkLoads) {
+        const keys = this.nextBulkBatch(moduleFilePath, job);
+        if (keys.length > 0) {
+          job.inFlight++;
+          next = { moduleFilePath, keys };
+          break;
+        }
+        this.settleBulkLoad(moduleFilePath, job);
+      }
+      if (next === null) return;
+      for (const key of next.keys) this.startLoading(next.moduleFilePath, key);
+      this.fetchMoved(next.moduleFilePath);
+      this.bulkInFlight++;
+      void this.fetchEntries(next.moduleFilePath, next.keys, "bulk").finally(
+        () => {
+          this.bulkInFlight--;
+          this.pumpBulkLoads();
+        },
+      );
+    }
+  }
+
+  /**
+   * The next keys of a bulk load that still need a fetch, as many as one
+   * request carries. Formed when it goes out, not when the load was asked
+   * for, so an entry a read fetched meanwhile is not asked for again; one
+   * already in flight is waited for instead.
+   */
+  private nextBulkBatch(
+    moduleFilePath: ModuleFilePath,
+    job: BulkLoad,
+  ): string[] {
+    const read = this.baseJsonEntries.get(moduleFilePath);
+    const candidates: string[] = [];
+    const at: number[] = [];
+    let i = job.next;
+    for (
+      ;
+      i < job.keys.length && candidates.length < BULK_KEYS_PER_REQUEST;
+      i++
+    ) {
+      const key = job.keys[i];
+      const cacheKey = entryKey(moduleFilePath, key);
+      if (read?.has(key) === true) continue;
+      if (this.entryFailures.has(cacheKey)) continue;
+      const inFlight = this.loadingEntries.get(cacheKey);
+      if (inFlight !== undefined) {
+        job.shared.push(inFlight.promise);
+        continue;
+      }
+      candidates.push(key);
+      at.push(i);
+    }
+    const [batch = []] = chunkJsonEntryKeys(candidates, BULK_KEYS_PER_REQUEST);
+    // What did not fit in the URL goes in the next one.
+    job.next = batch.length < candidates.length ? at[batch.length] : i;
+    return batch;
+  }
+
+  /**
+   * Finish a bulk load whose keys have all gone out and come back. Before it
+   * says done, one more look: an entry dropped while it ran (a file changed
+   * on disk, `markJsonEntriesStale`) is a marker again, and "every entry" has
+   * to mean every entry when somebody is still waiting.
+   */
+  private settleBulkLoad(moduleFilePath: ModuleFilePath, job: BulkLoad): void {
+    if (this.bulkLoads.get(moduleFilePath) !== job) return;
+    if (job.next < job.keys.length || job.inFlight > 0) return;
+    if (job.interest > 0) {
+      const more = this.wantedEntries(
+        moduleFilePath,
+        this.markerKeys(moduleFilePath),
+      ).filter(
+        (key) => !this.loadingEntries.has(entryKey(moduleFilePath, key)),
+      );
+      if (more.length > 0) {
+        job.keys = more;
+        job.next = 0;
+        queueMicrotask(() => this.pumpBulkLoads());
+        return;
+      }
+    }
+    this.bulkLoads.delete(moduleFilePath);
+    void Promise.all(job.shared).then(job.finish);
+  }
+
+  /** Reads of this tick, per module, not yet sent: see {@link requestEntries}. */
+  private readsThisTick = new Map<ModuleFilePath, string[]>();
+  /** Answers that have landed and are not applied yet, per module. */
+  private landed = new Map<
+    ModuleFilePath,
+    {
+      keys: string[];
+      results: Record<string, JsonEntryResult>;
+      bulk: boolean;
+      /** The base it was read on: see {@link entryBases}. */
+      on: number;
+    }[]
+  >();
+  /** Modules with an apply waiting for its turn ({@link yieldToMain}). */
+  private applyScheduled = new Set<ModuleFilePath>();
+  /** The running {@link loadAllEntries}, one per module, in the order asked. */
+  private bulkLoads = new Map<ModuleFilePath, BulkLoad>();
+  /** Bulk requests in flight, across every module. */
+  private bulkInFlight = 0;
+
+  /**
+   * The markers a module's view still holds, and what stands behind each: what
+   * {@link entriesStatus}, {@link entriesProgress} and {@link hasUnloadedEntries}
+   * count. From the view, so "complete" cannot be true while a read would
+   * still find a marker.
+   */
+  private markersOf(
+    moduleFilePath: ModuleFilePath,
+  ): { key: string; failure: string | undefined }[] | null {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined) return null;
+    if (!isJsonObject(view.source)) return [];
+    const counted = this.entriesCounted.get(view);
+    if (
+      counted !== undefined &&
+      counted.failureWrites === this.entryFailures.writes
+    ) {
+      return counted.markers;
+    }
+    const markers: { key: string; failure: string | undefined }[] = [];
+    const keys = Object.keys(view.source);
+    this.activity.work("source:count-entries", moduleFilePath, keys.length);
+    for (const key of keys) {
+      const value = view.source[key];
+      if (!Internal.isJson(value)) continue;
+      const error = view.entryErrors.get(key);
+      const fetchKey = fetchKeyOf(view, key) ?? key;
+      markers.push({
+        key,
+        failure:
+          error?.message ??
+          this.entryFailures.get(entryKey(moduleFilePath, fetchKey)),
+      });
+    }
+    this.entriesCounted.set(view, {
+      failureWrites: this.entryFailures.writes,
+      markers,
+    });
+    return markers;
   }
 
   /**
@@ -852,19 +1740,8 @@ export class SourceStore {
    *
    * For a guard that must not act on a partial view of the project: a reference
    * scan that reports "no referrers" because it never saw half the content is
-   * worse than one that says it is still loading.
-   *
-   * Three answers, and the middle one matters: `incomplete` means keep waiting,
-   * `error` names the entries that will never arrive without a retry. A caller
-   * that could not tell them apart would either wait forever or act on a gap.
-   *
-   * Computed from source and the loaded map on every call rather than tracked,
-   * for the same reason {@link entriesProgress} is: these numbers come from
-   * where a read gets its answer, so "complete" cannot be true while a read
-   * would still find a marker. The engine kept a stale-entry set and an
-   * in-flight set alongside the content and had to consult all three in the
-   * right order; here a re-fetched entry is simply deleted, so it reads as not
-   * loaded, which it is.
+   * worse than one that says it is still loading. `incomplete` means keep
+   * waiting, `error` names the entries that will never arrive without a retry.
    */
   entriesStatus(moduleFilePaths: readonly ModuleFilePath[]): {
     status: "complete" | "incomplete" | "error";
@@ -877,27 +1754,15 @@ export class SourceStore {
     }[] = [];
     let incomplete = false;
     for (const moduleFilePath of moduleFilePaths) {
-      const source = this.sources[moduleFilePath];
-      if (source === undefined) {
-        // The module's source has not arrived, so its key set is unknown and
-        // nothing here can be claimed loaded. Transient: intake loads every
-        // module.
+      const markers = this.markersOf(moduleFilePath);
+      if (markers === null) {
+        // The module's source has not arrived, so its key set is unknown.
         incomplete = true;
         continue;
       }
-      if (!isJsonObject(source)) {
-        // Here, but not a record to enumerate — a nullable jsonValues record
-        // whose value is null. It has no entries, so it contributes nothing;
-        // reporting `incomplete` would freeze a guard at "checking" forever.
-        continue;
-      }
-      const here = this.jsonEntries.get(moduleFilePath);
-      for (const [key, value] of Object.entries(source)) {
-        if (!Internal.isJson(value)) continue;
-        if (here?.has(key) === true) continue;
-        const message = this.entryFailures.get(entryKey(moduleFilePath, key));
-        if (message !== undefined) {
-          errors.push({ moduleFilePath, key, message });
+      for (const { key, failure } of markers) {
+        if (failure !== undefined) {
+          errors.push({ moduleFilePath, key, message: failure });
           continue;
         }
         incomplete = true;
@@ -908,16 +1773,10 @@ export class SourceStore {
         ? { status: "error", errors }
         : { status: incomplete ? "incomplete" : "complete", errors };
     /**
-     * Reference-stable, by recompute-and-compare — the same contract as
-     * {@link peek} and for the same reason: this is read on a render path, and a
-     * hook that returns a fresh object every render is a render loop as soon as
-     * anything downstream puts it in an effect's dependencies. `useKeysOf` did
-     * exactly that, through `useReferenceScanStatus`, and the record route it
-     * feeds re-rendered until React gave up with "Maximum update depth
-     * exceeded".
-     *
-     * Keyed on the requested modules, because the answer is about them: two
-     * callers asking about different sets must not evict each other.
+     * Reference-stable, by recompute-and-compare: this is read on a render
+     * path, and a hook that returns a fresh object every render is a render
+     * loop as soon as anything downstream puts it in an effect's dependencies.
+     * Keyed on the requested modules.
      */
     const cacheKey = moduleFilePaths.join("\n");
     const previous = this.entriesStatusCache.get(cacheKey);
@@ -931,35 +1790,103 @@ export class SourceStore {
   private entriesStatusCache = new Map<string, EntriesStatus>();
 
   /**
-   * Why this entry's last fetch failed, if it did.
-   *
-   * `peek` already reports it for a path INSIDE the entry. This answers for the
-   * entry itself, which is what a record row needs: the row knows its key and has
-   * no path to peek at until the content it is waiting for arrives.
+   * Why this entry's last fetch failed, if it did. For a record row, which
+   * knows its key and has no path to peek at until the content arrives.
    */
   entryError(moduleFilePath: ModuleFilePath, key: string): string | undefined {
-    return this.entryFailures.get(entryKey(moduleFilePath, key));
+    const view = this.views.get(moduleFilePath)?.view;
+    const fetchKey = view === undefined ? key : (fetchKeyOf(view, key) ?? key);
+    return (
+      view?.entryErrors.get(key)?.message ??
+      this.entryFailures.get(entryKey(moduleFilePath, fetchKey))
+    );
   }
 
   /**
    * Does this module hold `.jsonValues()` markers with no content loaded?
-   *
-   * Asked by anything that WALKS source and must report its answer as partial:
-   * the search index skips markers, and validation cannot claim a module is valid
-   * whose content it never saw.
+   * Asked by anything that WALKS source and must report its answer as partial.
    */
   hasUnloadedEntries(moduleFilePath: ModuleFilePath): boolean {
-    const source = this.sources[moduleFilePath];
-    if (source === undefined || !isJsonObject(source)) {
-      return false;
-    }
-    const loaded = this.jsonEntries.get(moduleFilePath);
-    for (const [key, value] of Object.entries(source)) {
-      if (!Internal.isJson(value)) continue;
-      if (loaded?.has(key) !== true) return true;
-    }
-    return false;
+    return (this.markersOf(moduleFilePath)?.length ?? 0) > 0;
   }
+
+  /**
+   * How many `.jsonValues()` entries a module has, and how many are here. For
+   * a progress indicator. Counted rather than tracked, so they cannot disagree
+   * with what a read would find.
+   */
+  entriesProgress(moduleFilePath: ModuleFilePath): {
+    total: number;
+    loaded: number;
+    failed: number;
+  } {
+    const view = this.views.get(moduleFilePath)?.view;
+    if (view === undefined || !isJsonObject(view.at.content.source)) {
+      return { total: 0, loaded: 0, failed: 0 };
+    }
+    const markers = this.markersOf(moduleFilePath) ?? [];
+    // `markersOf` just counted this view (or found it counted), so the
+    // progress is kept beside its markers and goes stale with them.
+    const counted = this.entriesCounted.get(view);
+    if (counted?.progress !== undefined) return counted.progress;
+    let total = 0;
+    const content = view.at.content.source;
+    const keys = Object.keys(content);
+    this.activity.work("source:count-entries", moduleFilePath, keys.length);
+    for (const key of keys) {
+      if (!Internal.isJson(content[key])) continue;
+      // Content the chain wrote whole (a new entry) is not an entry to load.
+      if (entryState(view.at.content, key)?.kind === "content") continue;
+      total++;
+    }
+    const failed = markers.filter((marker) => marker.failure !== undefined);
+    const progress = {
+      total,
+      loaded: total - markers.length,
+      failed: failed.length,
+    };
+    if (counted !== undefined) counted.progress = progress;
+    return progress;
+  }
+
+  /**
+   * Ask again for an entry whose fetch failed. The only way out of
+   * `entry-failed`: it clears the failure first, or `loadEntry` would return
+   * the recorded error without attempting anything.
+   */
+  async retryEntry(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
+    const view = this.views.get(moduleFilePath)?.view;
+    const fetchKey = view === undefined ? key : (fetchKeyOf(view, key) ?? key);
+    if (this.entryFailures.delete(entryKey(moduleFilePath, fetchKey))) {
+      this.fetchMoved(moduleFilePath);
+    }
+    return this.loadEntry(moduleFilePath, fetchKey);
+  }
+
+  /** Fetch one BASE entry, by its key, with this tick's other reads. */
+  private async loadEntry(
+    moduleFilePath: ModuleFilePath,
+    key: string,
+  ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
+    if (this.fetchJsonEntries === undefined) {
+      return {
+        status: "error",
+        message: `Cannot read inside '${key}' of ${moduleFilePath}: no jsonValues fetch is configured. Refusing rather than reporting the path absent.`,
+      };
+    }
+    await Promise.all(this.requestEntries(moduleFilePath, [key]));
+    // The fetch's outcome, shared or not, rather than an assumed success. A
+    // definite failure, never a promise that never settles.
+    const failure = this.entryFailures.get(entryKey(moduleFilePath, key));
+    return failure === undefined
+      ? { status: "ok" }
+      : { status: "error", message: failure };
+  }
+
+  // #region reading
 
   /**
    * Status without side effects. See {@link SourcePeek}: `get` triggers a fetch,
@@ -967,70 +1894,77 @@ export class SourceStore {
    *
    * ## Reference-stable, and that is part of the contract
    *
-   * Peeking the same unchanged path twice returns the SAME OBJECT. Callers rely on
-   * it: `useSyncExternalStore` requires a snapshot that only changes when the
-   * value does, and a fresh object per call makes React re-render forever. The
-   * same requirement bit `ValidationStore.peek` and `PreviewStore.peek`, and all
-   * three now honour it — "safe to call on a render path" has to mean this, or it
-   * means nothing.
+   * Peeking the same unchanged path twice returns the SAME OBJECT:
+   * `useSyncExternalStore` requires a snapshot that only changes when the
+   * value does, and a fresh object per call makes React re-render forever.
    *
-   * ## Why compare rather than invalidate
-   *
-   * The tempting implementation is a memo cleared wherever the answer could
-   * change. That list is longer than it looks: the module's source (`bump`), its
-   * SCHEMA arriving (another store), entry content landing, a fetch starting, a
-   * fetch failing. Five places, one of them across a store boundary, and a missed
-   * one is a field frozen on a stale value with nothing to say so.
-   *
-   * So the answer is always recomputed — `peek` is cheap, it is a path walk — and
-   * only the OBJECT is reused, when the recomputed answer is the same answer. No
-   * invalidation list to keep complete, and a new way for source to change cannot
-   * break it. The same reasoning as `PatchSetChain`'s prefix test.
+   * Stable BY KEY (see {@link peeked}): the answer is worked out once per view
+   * of the module, schema, revision and entry fetches, and handed back as it
+   * was while none of those moved. The view is replaced only where a module
+   * is computed ({@link refresh}), and the engine copies along a patch's path
+   * and shares the rest, so the value at a path no patch touched is the same
+   * object in the next view too.
    */
   peek(path: SourcePath): SourcePeek {
-    const next = this.computePeek(path, this.sources, this.jsonEntries);
-    const previous = this.peeked.get(path);
-    if (previous !== undefined && samePeek(previous, next)) {
-      return previous;
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(path);
+    const view = this.views.get(moduleFilePath)?.view;
+    return this.peekIn(this.peeked, path, moduleFilePath, modulePath, view);
+  }
+
+  private peekIn(
+    cache: Map<SourcePath, Peeked>,
+    path: SourcePath,
+    moduleFilePath: ModuleFilePath,
+    modulePath: string,
+    view: ModuleView | undefined,
+  ): SourcePeek {
+    const schema = this.schemaStore.get(moduleFilePath);
+    const n = this.revisions.get(moduleFilePath) ?? 0;
+    const fetchEpoch = this.fetchEpochs.get(moduleFilePath) ?? 0;
+    const kept = cache.get(path);
+    if (
+      kept !== undefined &&
+      kept.view === view &&
+      kept.schema === schema &&
+      kept.n === n &&
+      kept.fetchEpoch === fetchEpoch
+    ) {
+      return kept.peek;
     }
-    this.peeked.set(path, next);
-    return next;
+    const peek = this.computePeek(moduleFilePath, modulePath, view, schema);
+    cache.set(path, { view, schema, n, fetchEpoch, peek });
+    return peek;
   }
 
   private computePeek(
-    path: SourcePath,
-    from: Record<ModuleFilePath, Json>,
-    /*
-     * The entry content to substitute into `from`, which must be the copy that
-     * belongs to the same realm. Passed rather than looked up because that
-     * pairing is the whole correctness condition: substituting the patched
-     * entries into `baseSources` is what made a compare show the same value on
-     * both sides.
-     */
-    entriesFrom: Map<ModuleFilePath, Map<string, Json>>,
+    moduleFilePath: ModuleFilePath,
+    modulePath: string,
+    view: ModuleView | undefined,
+    schema: SerializedSchema | undefined,
   ): SourcePeek {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(path);
-    const source = from[moduleFilePath];
-    if (
-      source === undefined ||
-      this.schemaStore.get(moduleFilePath) === undefined
-    ) {
+    if (view === undefined || schema === undefined) {
       return { status: "module-loading" };
     }
-    const resolved = resolveAtModulePath(
-      this.substitutedSource(moduleFilePath, source, entriesFrom),
-      modulePath,
-    );
+    const resolved = resolveAt(view.source, modulePath);
     if (resolved.status === "needs-entry") {
-      const cacheKey = entryKey(moduleFilePath, resolved.key);
+      const error = view.entryErrors.get(resolved.key);
+      if (error !== undefined) {
+        return {
+          status: "entry-failed",
+          key: resolved.key,
+          message: error.message,
+        };
+      }
+      const fetchKey = fetchKeyOf(view, resolved.key) ?? resolved.key;
+      const cacheKey = entryKey(moduleFilePath, fetchKey);
       if (this.loadingEntries.has(cacheKey)) {
         return { status: "entry-loading", key: resolved.key };
       }
       const failed = this.entryFailures.get(cacheKey);
       if (failed !== undefined) {
-        // Checked BEFORE reporting `entry-missing`, so a caller that retries on
-        // missing does not loop on a fetch that is never going to work.
+        // Checked BEFORE reporting `entry-missing`, so a caller that retries
+        // on missing does not loop on a fetch that is never going to work.
         return { status: "entry-failed", key: resolved.key, message: failed };
       }
       return { status: "entry-missing", key: resolved.key };
@@ -1039,122 +1973,7 @@ export class SourceStore {
     if (resolved.status === "found") {
       return { status: "ready", revision, data: resolved.value };
     }
-    if (resolved.status === "absent") return { status: "absent", revision };
-    return { status: "module-loading" };
-  }
-
-  /**
-   * Put a patched, substituted module back where its parts belong.
-   *
-   * The inverse of {@link substitutedSource}: source keeps its markers, and the
-   * content of a loaded entry goes back into `jsonEntries`. Without this split, a
-   * patched module would carry entry content INLINE — and since
-   * `substituteJsonEntries` only substitutes where a marker still stands, that
-   * content would then shadow the entry map and quietly become the truth, which
-   * is a different module shape than the one the server has.
-   *
-   * A key the patch REMOVED loses its entry content too. A key the patch ADDED is
-   * left inline, which is correct: a newly added record key is ordinary content
-   * until `--fix` extracts it to a `*.val.json`.
-   */
-  private storePatched(
-    moduleFilePath: ModuleFilePath,
-    raw: Json,
-    patched: Json,
-    /*
-     * The realm to write into, defaulting to the live one.
-     *
-     * Passed the same way — and for the same reason — as `substitutedSource`
-     * takes the entry map it substitutes from: the two are inverses, and a split
-     * that wrote to one realm what was substituted from the other would put
-     * entry content where a marker belongs. `promotePublished` is the caller
-     * that needs the base realm.
-     */
-    into?: {
-      sources: Record<ModuleFilePath, Json>;
-      entries: Map<ModuleFilePath, Map<string, Json>>;
-    },
-  ): void {
-    const sources = into?.sources ?? this.sources;
-    const entries = (into?.entries ?? this.jsonEntries).get(moduleFilePath);
-    if (
-      entries === undefined ||
-      entries.size === 0 ||
-      !isJsonObject(patched) ||
-      !isJsonObject(raw)
-    ) {
-      sources[moduleFilePath] = patched;
-      return;
-    }
-    const nextSource: Record<string, Json> = { ...patched };
-    for (const key of [...entries.keys()]) {
-      if (!(key in nextSource)) {
-        entries.delete(key);
-        continue;
-      }
-      // Only a key that was SUBSTITUTED gets split back out. One that holds
-      // ordinary content in source was never the entry map's to begin with.
-      if (!Internal.isJson(raw[key])) {
-        continue;
-      }
-      entries.set(key, nextSource[key]);
-      nextSource[key] = raw[key];
-    }
-    sources[moduleFilePath] = nextSource;
-    // The substitution cache is keyed on the source object it was built from,
-    // and that object is now a different one — but the revision this patch is
-    // about to bump is what invalidates it, so nothing to clear here.
-  }
-
-  private async loadEntry(
-    moduleFilePath: ModuleFilePath,
-    key: string,
-  ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
-    if (this.fetchJsonEntry === undefined) {
-      return {
-        status: "error",
-        message: `Cannot read inside '${key}' of ${moduleFilePath}: no jsonValues fetch is configured. Refusing rather than reporting the path absent.`,
-      };
-    }
-    const cacheKey = entryKey(moduleFilePath, key);
-    const inFlight = this.loadingEntries.get(cacheKey);
-    if (inFlight !== undefined) {
-      // N readers of one entry cause ONE fetch.
-      this.activity.work("source:share-json-entry-load", moduleFilePath);
-      await inFlight;
-      // The shared fetch's outcome, not an assumed success. Reporting `ok` for a
-      // load that failed sent the caller on to resolve a path whose marker is
-      // still there, so the real reason was replaced by "was loaded but its
-      // content is still missing".
-      const shared = this.entryFailures.get(cacheKey);
-      return shared === undefined
-        ? { status: "ok" }
-        : { status: "error", message: shared };
-    }
-    let failure: string | undefined;
-    // Cleared before the attempt, so a retry is not reported as failed while it
-    // is in flight — `peek` would otherwise answer `entry-failed` for a fetch
-    // that is currently working.
-    this.entryFailures.delete(cacheKey);
-    const request = (async () => {
-      this.activity.work("source:load-json-entry", moduleFilePath);
-      const res = await this.fetchJsonEntry!(moduleFilePath, key);
-      if (res.status === "error") {
-        failure = res.message;
-        this.entryFailures.set(cacheKey, res.message);
-        return;
-      }
-      this.receiveJsonEntry(moduleFilePath, key, res.content);
-    })().finally(() => {
-      this.loadingEntries.delete(cacheKey);
-    });
-    this.loadingEntries.set(cacheKey, request);
-    await request;
-    // A definite failure, never a promise that never settles: a hanging read is
-    // the one shape a field can neither render nor retry.
-    return failure === undefined
-      ? { status: "ok" }
-      : { status: "error", message: failure };
+    return { status: "absent", revision };
   }
 
   /** This module's shipped chain entries, in chain order. See {@link shippedCache}. */
@@ -1188,100 +2007,67 @@ export class SourceStore {
 
   /**
    * The realm {@link peekBase} reads: the base, with every SHIPPED patch still in
-   * the chain applied on top of it.
+   * the chain applied on top of it, through the same engine.
    *
    * The base alone is not what has been published. In `http` mode a published
    * patch stays in the chain, with `appliedAt` set, until the next deployment
-   * moves the base — so between publish and deploy `baseSources` is the text
-   * from BEFORE the publish. Comparing against it made "A"→"B", publish, "B"→"A"
-   * look like nothing to publish: the value on screen matched the stale base,
-   * `useHasNetChanges` disabled Publish, and the change back to "A" could not
-   * ship even though the repository says "B".
+   * moves the base — so between publish and deploy the base is the text from
+   * BEFORE the publish. Comparing against it made "A"→"B", publish, "B"→"A"
+   * look like nothing to publish.
    *
-   * `fs` mode never reaches the rebuild: a publish there bakes the patches into
-   * the base (`promotePublished`) and takes them out of the chain.
-   *
-   * Recomputed only when its inputs move: the base realm ({@link baseRevisions})
-   * and which of the chain's patches have shipped (`markApplied` moves that
-   * without a bump). Never on a pending edit, which touches neither.
+   * Computed only when its inputs move: the base, the base entries read, the
+   * schema, and which of the chain's patches have shipped. Never on a pending
+   * edit, which touches none of them.
    */
-  private publishedRealm(moduleFilePath: ModuleFilePath): {
-    sources: Record<ModuleFilePath, Json>;
-    entries: Map<ModuleFilePath, Map<string, Json>>;
-  } {
-    const baseRealm = {
-      sources: this.baseSources,
-      entries: this.baseJsonEntries,
-    };
+  private publishedView(
+    moduleFilePath: ModuleFilePath,
+  ): ModuleView | undefined {
     const base = this.baseSources[moduleFilePath];
+    if (base === undefined) return undefined;
+    const schema = this.schemaStore.get(moduleFilePath);
     const { shipped, applied } = this.shippedEntries(moduleFilePath);
-    if (base === undefined || shipped.length === 0) {
-      return baseRealm;
-    }
-    const publishedRealm = {
-      sources: this.publishedSources,
-      entries: this.publishedJsonEntries,
-    };
-    const baseN = this.baseRevisions.get(moduleFilePath) ?? 0;
-    const from = this.publishedFrom.get(moduleFilePath);
+    const entriesEpoch = this.baseEntriesEpoch.get(moduleFilePath) ?? 0;
+    const kept = this.published.get(moduleFilePath);
     if (
-      from !== undefined &&
-      from.base === base &&
-      from.baseN === baseN &&
-      from.applied === applied
+      kept !== undefined &&
+      kept.base === base &&
+      kept.schema === schema &&
+      kept.entriesEpoch === entriesEpoch &&
+      kept.applied === applied
     ) {
-      return from.applies ? publishedRealm : baseRealm;
+      return kept.view;
     }
-    // Recorded before the apply, so a patch that cannot be applied is logged
-    // once per change of inputs rather than on every peek.
-    const computed = { base, baseN, applied, applies: false };
-    this.publishedFrom.set(moduleFilePath, computed);
-    // The SUBSTITUTED base, for the reason `promotePublished` gives.
-    let next: JSONValue = deepClone(
-      this.substitutedSource(
-        moduleFilePath,
-        base,
-        this.baseJsonEntries,
-      ) as JSONValue,
-    );
-    for (const entry of shipped) {
-      const patchableOps = entry.record.patch.filter((op) => op.op !== "file");
-      if (patchableOps.length === 0) continue;
-      this.activity.work("source:apply-patch", entry.record.patchId);
-      const res = applyPatch(deepClone(next), ops, patchableOps);
-      if (!result.isOk(res)) {
+    const records = shipped.map((entry) => entry.record);
+    const view = this.counted(moduleFilePath, () => {
+      const inputs = this.inputsOf(moduleFilePath, base, schema);
+      let at =
+        records.length === 0 ? baseAt(inputs) : applyOnBase(inputs, records);
+      if (at.failed.length > 0) {
         /*
          * The server applied it and this could not. The base is the best
-         * answer left: it is what this store said before shipped patches were
-         * counted, and the next intake replaces it anyway.
+         * answer left, and the next intake replaces it anyway.
          */
         Internal.log.error(
           "could not apply a published change to the base. Comparisons against what is published may be stale until the next load.",
-          { moduleFilePath, patchId: entry.record.patchId, error: res.error },
+          { moduleFilePath, failed: at.failed },
         );
-        delete this.publishedSources[moduleFilePath];
-        this.publishedJsonEntries.delete(moduleFilePath);
-        return baseRealm;
+        at = baseAt(inputs);
       }
-      next = res.value;
-    }
-    const baseEntries = this.baseJsonEntries.get(moduleFilePath);
-    if (baseEntries === undefined) {
-      this.publishedJsonEntries.delete(moduleFilePath);
-    } else {
-      this.publishedJsonEntries.set(
-        moduleFilePath,
-        new Map(
-          [...baseEntries].map(([key, value]) => [
-            key,
-            deepClone(value as JSONValue),
-          ]),
-        ),
+      return viewOf(
+        at,
+        this.baseJsonEntries.get(moduleFilePath),
+        schema,
+        this.resolvedEntries,
       );
-    }
-    this.storePatched(moduleFilePath, base, next, publishedRealm);
-    computed.applies = true;
-    return publishedRealm;
+    });
+    this.published.set(moduleFilePath, {
+      base,
+      entriesEpoch,
+      schema,
+      applied,
+      view,
+    });
+    return view;
   }
 
   /**
@@ -1290,135 +2076,43 @@ export class SourceStore {
    *
    * For a diff or compare view: "what did this look like before I touched it",
    * and for the Publish gate: "would publishing change anything". Walks the
-   * {@link publishedRealm} rather than `sources`, and is otherwise the same walk,
-   * so the two answers are comparable by construction.
-   *
-   * Reference-stable like {@link peek}, and it has to be for the same reason: a
-   * compare view is a `useSyncExternalStore` consumer too.
+   * {@link publishedView} and is otherwise the same walk as {@link peek}, so
+   * the two answers are comparable by construction, and reference-stable the
+   * same way.
    */
   peekBase(path: SourcePath): SourcePeek {
-    const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-    const realm = this.publishedRealm(moduleFilePath);
-    const next = this.computePeek(path, realm.sources, realm.entries);
-    const previous = this.peekedBase.get(path);
-    if (previous !== undefined && samePeek(previous, next)) {
-      return previous;
-    }
-    this.peekedBase.set(path, next);
-    return next;
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(path);
+    return this.peekIn(
+      this.peekedBase,
+      path,
+      moduleFilePath,
+      modulePath,
+      this.publishedView(moduleFilePath),
+    );
   }
 
-  /**
-   * How many `.jsonValues()` entries a module has, and how many are here.
-   *
-   * For a progress indicator. Counted rather than tracked incrementally: the two
-   * numbers come from the source and the loaded map, so they cannot disagree with
-   * what a read would find — which an incremental counter could, and would then be
-   * a progress bar that finishes before the content arrives.
-   */
-  entriesProgress(moduleFilePath: ModuleFilePath): {
-    total: number;
-    loaded: number;
-    failed: number;
-  } {
-    const source = this.sources[moduleFilePath];
-    if (source === undefined || !isJsonObject(source)) {
-      return { total: 0, loaded: 0, failed: 0 };
-    }
-    const here = this.jsonEntries.get(moduleFilePath);
-    let total = 0;
-    let loaded = 0;
-    let failed = 0;
-    for (const [key, value] of Object.entries(source)) {
-      if (!Internal.isJson(value)) continue;
-      total++;
-      if (here?.has(key) === true) {
-        loaded++;
-      } else if (this.entryFailures.has(entryKey(moduleFilePath, key))) {
-        failed++;
-      }
-    }
-    return { total, loaded, failed };
-  }
-
-  /**
-   * Ask again for an entry whose fetch failed.
-   *
-   * The only way out of `entry-failed`: `peek` reports it and every reader stops
-   * asking, deliberately, so that a permanent failure is not a retry loop. Someone
-   * has to be able to say "try again", and it has to clear the failure first or
-   * `loadEntry` would return the recorded error without attempting anything.
-   */
-  async retryEntry(
-    moduleFilePath: ModuleFilePath,
-    key: string,
-  ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
-    this.entryFailures.delete(entryKey(moduleFilePath, key));
-    return this.loadEntry(moduleFilePath, key);
-  }
-
-  /**
-   * Make the patched value the BASE value, for modules whose patches just landed.
-   *
-   * For the moment after a publish. The patches are now in the repository, so the
-   * chain that produced this value is about to be dropped — and dropping it while
-   * the base is still the pre-publish text would revert every published field on
-   * screen until the next source fetch arrives. The engine calls this "baking",
-   * and needs ~20 lines for it; here it is an assignment, because the store
-   * already keeps base and patched apart.
-   *
-   * No `bump`: the VALUE does not change. That is the entire point — the base
-   * swaps out from under the patched view atomically and nothing repaints. A
-   * revision bump would wake every field to tell it nothing happened.
-   *
-   * The next real `receive()` overwrites this with the authoritative text, so if
-   * the server's version differs from what was on screen, that read is what heals
-   * it.
-   */
-  promoteToBase(modules: readonly ModuleFilePath[]): void {
-    for (const moduleFilePath of modules) {
-      const patched = this.sources[moduleFilePath];
-      if (patched === undefined) continue;
-      this.activity.work("source:promote-to-base", moduleFilePath);
-      this.baseSources[moduleFilePath] = deepClone(patched as JSONValue);
-      this.bumpBase(moduleFilePath);
-      // The entry content is part of the value, so it bakes with it. Left behind,
-      // a published edit inside a `.jsonValues()` entry would keep showing in a
-      // compare as an outstanding change against the pre-publish text.
-      const patchedEntries = this.jsonEntries.get(moduleFilePath);
-      if (patchedEntries !== undefined) {
-        this.baseJsonEntries.set(
-          moduleFilePath,
-          new Map(
-            [...patchedEntries].map(([key, value]) => [
-              key,
-              deepClone(value as JSONValue),
-            ]),
-          ),
-        );
-      }
-    }
-  }
+  // #region publishing
 
   /**
    * Bake SOME of a module's chain into the base, and keep the rest.
    *
-   * {@link promoteToBase} bakes the whole displayed value, which is right only
-   * when everything on screen shipped. Auto-save makes that no longer the normal
-   * case: it publishes the snapshot it named, and a field carries on being typed
-   * into while the request is in flight, so the patches that shipped are a PREFIX
-   * of the chain rather than all of it.
+   * For the moment after a publish. The patches are now in the repository, so
+   * the chain that produced the value is about to lose them — and losing them
+   * while the base is the pre-publish text would revert every published field
+   * on screen until the next source fetch arrives.
    *
-   * Baking the whole value there is a silent double-apply — the tail's effect
-   * goes into the base AND the tail stays in the chain to be applied again on
-   * top. Invisible for a `replace`, which is most typing, and content-corrupting
-   * for an array `add`: the item appears twice, and nothing reports anything.
+   * Auto-save publishes the snapshot it named while a field carries on being
+   * typed into, so the patches that shipped are a PREFIX of the chain rather
+   * than all of it. Baking the whole value there is a silent double-apply —
+   * the tail's effect goes into the base AND the tail stays in the chain to be
+   * applied again on top. So the new base is base + the published prefix,
+   * through the engine, WITHOUT their `file` ops: the published files are
+   * where the source names them now, not in a patch, and a `patch_id` left in
+   * the base would point the field's URL at a patch that is gone.
    *
-   * So the new base is recomputed as base + the published prefix, and the tail
-   * stays in the chain where it belongs. The displayed value does not move —
-   * base + published + surviving is what it already was — which is the same
-   * property {@link promoteToBase} has and the reason neither of them bumps a
-   * revision.
+   * When everything shipped and carried no file, the new base IS what is on
+   * screen -- the same objects, nothing applied again, nothing repaints.
    */
   promotePublished(
     publishedIds: readonly PatchId[],
@@ -1434,106 +2128,104 @@ export class SourceStore {
         // None of this module's chain shipped. Nothing to bake.
         continue;
       }
-      if (surviving.length === 0) {
-        // Everything shipped, so what is on screen IS the new base and no
-        // recompute is needed. The common case, and the cheap one.
-        this.promoteToBase([moduleFilePath]);
-        this.chains.set(moduleFilePath, []);
-        continue;
-      }
       const base = this.baseSources[moduleFilePath];
       if (base === undefined) {
-        // Never loaded, so there is no base to move. The chain edit still has to
-        // happen or the published patches re-land when it does load.
+        // Never loaded, so there is no base to move. The chain edit still has
+        // to happen or the published patches re-land when it does load.
         this.chains.set(moduleFilePath, surviving);
         continue;
       }
-      /*
-       * The SUBSTITUTED base, not the raw one — the same choice the apply path
-       * makes, and for the same reason.
-       *
-       * Raw base holds `.jsonValues()` markers and the entry content lives in
-       * `baseJsonEntries`, so a published edit at `["/a", "title"]` applied to
-       * the raw base fails on a `{_type: "json"}` that has no `title`. That put
-       * a jsonValues module in the one state this method exists to prevent: the
-       * chain trimmed, the base never moved, and the published edit in neither.
-       */
-      let next: JSONValue = deepClone(
-        this.substitutedSource(
-          moduleFilePath,
-          base,
-          this.baseJsonEntries,
-        ) as JSONValue,
+      const shipped = chain
+        .filter((entry) => published.has(entry.record.patchId))
+        .map((entry) => entry.record);
+      const withFiles = shipped.some((record) =>
+        record.patch.some((op) => op.op === "file"),
       );
-      let rebuilt = true;
-      for (const entry of chain) {
-        if (!published.has(entry.record.patchId)) continue;
-        // `file` ops carry bytes, not source edits — the same filter the apply
-        // path uses.
-        const patchableOps = entry.record.patch.filter(
-          (op) => op.op !== "file",
+      const shown = this.views.get(moduleFilePath)?.view;
+      let content: ModuleContent;
+      if (
+        surviving.length === 0 &&
+        !withFiles &&
+        shown !== undefined &&
+        shown.at.failed.length === 0 &&
+        shown.at.tried.length === chain.length
+      ) {
+        content = shown.at.content;
+      } else {
+        const schema = this.schemaStore.get(moduleFilePath);
+        const records = shipped.map((record) => ({
+          ...record,
+          patch: record.patch.filter((op) => op.op !== "file"),
+        }));
+        const at = this.counted(moduleFilePath, () =>
+          applyOnBase(this.inputsOf(moduleFilePath, base, schema), records),
         );
-        if (patchableOps.length === 0) continue;
-        this.activity.work("source:apply-patch", entry.record.patchId);
-        const res = applyPatch(deepClone(next), ops, patchableOps);
-        if (!result.isOk(res)) {
+        if (at.failed.length > 0) {
           /*
-           * The server applied it and this could not.
-           *
-           * Bailing out rather than storing a half-built base: a base that is
-           * neither the old one nor the new one is worse than a stale one, and a
-           * stale one is what the next intake replaces anyway. The mismatch
-           * itself is worth knowing about — the two sides apply the same ops to
-           * the same JSON, so they should not disagree.
+           * The server applied it and this could not. The chain KEEPS what
+           * was published, because the base did not move: trimming here would
+           * leave the edit in neither base nor chain. The next stat reconciles
+           * the chain against what the server holds.
            */
           Internal.log.error(
-            "could not rebuild the base after a partial save. The value on screen is right; the base behind it is stale until the next load.",
-            { moduleFilePath, patchId: entry.record.patchId, error: res.error },
+            "could not rebuild the base after a save. The value on screen is right; the base behind it is stale until the next load.",
+            { moduleFilePath, failed: at.failed },
           );
-          rebuilt = false;
-          break;
+          continue;
         }
-        next = res.value;
-      }
-      if (!rebuilt) {
-        /*
-         * The chain KEEPS what was published, because the base did not move.
-         *
-         * Trimming here would leave the edit in neither base nor chain, so the
-         * next rebuild would show the value as it was before it shipped —
-         * silently losing on screen a change that is on disk. Holding it costs
-         * nothing: the server no longer has these ids, so the next save cannot
-         * name them, and the next stat reconciles the chain against what the
-         * server actually holds.
-         */
-        continue;
+        content = at.content;
       }
       this.activity.work("source:promote-to-base", moduleFilePath);
-      // Split back into the base realm the same way an apply is split back into
-      // the live one, so entry content lands in `baseJsonEntries` and the marker
-      // stays in `baseSources`. Without it a published edit INSIDE an entry kept
-      // showing in a compare as an outstanding change.
-      this.storePatched(moduleFilePath, base, next, {
-        sources: this.baseSources,
-        entries: this.baseJsonEntries,
-      });
+      this.entryBaseMoved(moduleFilePath);
+      this.baseSources[moduleFilePath] = content.source;
+      this.bakeEntries(moduleFilePath, content);
       this.bumpBase(moduleFilePath);
       this.chains.set(moduleFilePath, surviving);
+      const { before, after } = this.refresh(moduleFilePath);
+      if (SourceStore.moved(before, after)) {
+        this.bump(moduleFilePath);
+        this.wakeChanged(moduleFilePath, before);
+      }
     }
   }
 
   /**
-   * Forget these patches WITHOUT rebuilding source.
-   *
-   * The counterpart to the drop that `patch:drop` triggers, and the difference is
-   * the whole reason both exist. A dropped patch was refused: its effect must
-   * disappear, so source is rebuilt from base plus what survives. A PUBLISHED
-   * patch's effect must stay: it is in the base now, so rebuilding would be
-   * correct only if the base had already been refetched, and until then it would
-   * revert the value on screen.
-   *
-   * So: take them out of the chain and leave `sources` alone. Pair it with
-   * {@link promoteToBase} and the displayed value never moves.
+   * The base entries after a bake: what the engine made each entry the chain
+   * touched. One whose edits were held on a base never read is forgotten, so
+   * the next read asks the server, which has the published content.
+   */
+  private bakeEntries(
+    moduleFilePath: ModuleFilePath,
+    content: ModuleContent,
+  ): void {
+    if (content.entries.size === 0) return;
+    let byKey = this.baseJsonEntries.get(moduleFilePath);
+    if (byKey === undefined) {
+      byKey = new Map();
+      this.baseJsonEntries.set(moduleFilePath, byKey);
+    }
+    const base = new Map(byKey);
+    const view = this.counted(moduleFilePath, () =>
+      viewOf(baseAtContent(content), base, undefined, this.resolvedEntries),
+    );
+    for (const [key, state] of content.entries) {
+      const filled =
+        isJsonObject(view.source) && !Internal.isJson(view.source[key])
+          ? view.source[key]
+          : undefined;
+      if (state.kind === "deleted" || filled === undefined) {
+        byKey.delete(key);
+      } else {
+        byKey.set(key, filled);
+      }
+    }
+    this.entriesMoved(moduleFilePath);
+  }
+
+  /**
+   * Forget these patches WITHOUT computing anything again: they are
+   * published, and their effect is in the base the next manifest names. The
+   * modules are computed when that base arrives ({@link adoptServer}).
    */
   forgetPublished(patchIds: readonly PatchId[]): void {
     const published = new Set(patchIds);
@@ -1548,56 +2240,252 @@ export class SourceStore {
   }
 
   /**
-   * Replace the base AND the chain on it, in one step.
-   *
-   * For a base from another build (`BaseAlignment`). {@link receive} alone
-   * replays the chain this store already holds and leaves new patches to
-   * arrive after it, which is right when the base moves forward and wrong when
-   * it moves back: an older build's base needs patches that come BEFORE the
-   * ones held here, and appending them applies them on top of edits that were
-   * made on top of them.
-   *
-   * So the chain of every module in `sources` is replaced by the one given,
-   * in its order. An entry that was already here keeps its origin and creator,
-   * so a field is not woken by its own edit being replayed. A module outside
-   * `sources` keeps its base, and only gains the patches it has never had.
+   * Whether the manifest adopted for this patch's module says it is gone:
+   * the server's version of the module does not have it, and that manifest
+   * was asked for after this Studio held it. `false` when nothing has been
+   * decided for the module (no manifest yet, or a base new code moved here).
    */
-  rebase(sources: Record<ModuleFilePath, Json>, chain: PatchRecord[]): void {
-    const previous = new Map<PatchId, ChainEntry>();
-    for (const entries of this.chains.values()) {
-      for (const entry of entries) {
-        previous.set(entry.record.patchId, entry);
+  isGone(
+    patchId: PatchId,
+    moduleFilePath: ModuleFilePath | undefined,
+  ): boolean {
+    if (moduleFilePath === undefined) return false;
+    const below = this.server.get(moduleFilePath);
+    const base = this.baseOf(moduleFilePath);
+    if (
+      below === undefined ||
+      base === undefined ||
+      below.version.base !== base.version ||
+      below.applied.includes(patchId)
+    ) {
+      return false;
+    }
+    return this.decidedGone(patchId, below.decidedAt);
+  }
+
+  /**
+   * The server's version this module was moved to, as adopted, whatever base
+   * the store holds now: what a re-intake that put the bundle's base back is
+   * undone with (`ManifestSource`), in the same turn.
+   */
+  adoptedServer(moduleFilePath: ModuleFilePath): {
+    version: ModuleVersion;
+    at: ModuleAt | { applied: readonly PatchId[] };
+  } | null {
+    const below = this.server.get(moduleFilePath);
+    if (below === undefined) return null;
+    return {
+      version: below.version,
+      at: below.at ?? { applied: below.applied },
+    };
+  }
+
+  /** The version the server named for this module, as adopted, if one has. */
+  serverVersionOf(moduleFilePath: ModuleFilePath): ModuleVersion | undefined {
+    return this.server.get(moduleFilePath)?.version;
+  }
+
+  /**
+   * The server's version this module is on, as adopted, with its content --
+   * to extend by a delta (the origin tier's `have`), or to put back under a
+   * re-intake. `null` before a manifest named one, or on another base.
+   */
+  serverModuleOf(
+    moduleFilePath: ModuleFilePath,
+  ): { version: ModuleVersion; at: ModuleAt } | null {
+    const below = this.server.get(moduleFilePath);
+    const base = this.baseSources[moduleFilePath];
+    if (below === undefined || base === undefined) return null;
+    const inputs = this.inputsOf(
+      moduleFilePath,
+      base,
+      this.schemaStore.get(moduleFilePath),
+    );
+    if (below.version.base !== inputs.baseVersion) return null;
+    return {
+      version: below.version,
+      at: this.counted(moduleFilePath, () =>
+        this.materializeBelow(moduleFilePath, below, inputs),
+      ),
+    };
+  }
+
+  /**
+   * A version this Studio computed for a module, at this base and chain: the
+   * memory tier. Its content when it is still kept (`VersionRing`); its
+   * patches when only those are (`computedChains`) -- a save confirmed while
+   * the editor typed on names a version passed on the way, and what is shown
+   * extends it. `null` when this Studio never computed it.
+   */
+  knownChain(
+    moduleFilePath: ModuleFilePath,
+    version: Pick<ModuleVersion, "base" | "chain">,
+  ): { at: ModuleAt } | { applied: readonly PatchId[] } | null {
+    const engine = this.schemaVersionFor(
+      this.schemaStore.get(moduleFilePath),
+    ).engine;
+    const kept = this.ring.atVersion(
+      moduleFilePath,
+      { engineKey: engine },
+      version,
+    );
+    if (kept !== null) return { at: kept };
+    const known = this.computedChains.get(moduleFilePath)?.get(version.chain);
+    if (
+      known !== undefined &&
+      known.base === version.base &&
+      known.engine === engine
+    ) {
+      return { applied: known.applied };
+    }
+    return null;
+  }
+
+  /** The base held for this module, and its version. */
+  baseOf(
+    moduleFilePath: ModuleFilePath,
+  ): { source: Json; version: string } | undefined {
+    const source = this.baseSources[moduleFilePath];
+    if (source === undefined) return undefined;
+    return {
+      source,
+      version: this.baseVersionFor(moduleFilePath, source),
+    };
+  }
+
+  /**
+   * A module the origin answered, under this Studio's schema for it: what
+   * {@link adoptServer} takes. `base` is the base it is on.
+   */
+  atOfServer(
+    moduleFilePath: ModuleFilePath,
+    module: OriginModule,
+    base: Json,
+  ): ModuleAt {
+    const schema = this.schemaStore.get(moduleFilePath);
+    return serverAt(module, this.inputsOf(moduleFilePath, base, schema));
+  }
+
+  /**
+   * The module `at` extended by a delta the server answered, or `null` when a
+   * patch of it does not apply here. Counted as the Studio's work.
+   */
+  extendServer(
+    moduleFilePath: ModuleFilePath,
+    at: ModuleAt,
+    records: readonly { patchId: PatchId; patch: PatchRecord["patch"] }[],
+    base: Json,
+  ): ModuleAt | null {
+    const schema = this.schemaStore.get(moduleFilePath);
+    const inputs = this.inputsOf(moduleFilePath, base, schema);
+    return this.counted(moduleFilePath, () =>
+      extendBy(
+        at,
+        records.map((record) => ({
+          patchId: record.patchId,
+          moduleFilePath,
+          patch: record.patch,
+        })),
+        inputs,
+      ),
+    );
+  }
+
+  /**
+   * Adopt what the server's manifest names, in ONE turn: per module, the
+   * module at the server's version (and the base it is on, where that moved),
+   * and for every module the manifest was asked for after `decidedAt`
+   * patches this Studio held -- so a patch of the chain the server's version
+   * does not have is gone, unless it is this Studio's own and not saved yet.
+   *
+   * This is where another editor's edit, a publish, a discard elsewhere and a
+   * base from another build reach the source: as the server's answer, by
+   * version, never as a replay of `/stat`'s list on a base that may be
+   * another build's (what `BaseAlignment` existed to prevent). Readers are
+   * woken where their read moved (`===`), and the patch store is told where
+   * each patch of the chain stands.
+   */
+  adoptServer(
+    adopted: ReadonlyMap<
+      ModuleFilePath,
+      {
+        version: ModuleVersion;
+        /** Its content, or the patches of a version this Studio computed. */
+        at: ModuleAt | { applied: readonly PatchId[] };
+        /** A base the module moved to: its source, markers and all. */
+        base?: Json;
+      }
+    >,
+    decided: readonly ModuleFilePath[],
+    decidedAt: number,
+  ): void {
+    const touched = new Set<ModuleFilePath>();
+    for (const [moduleFilePath, next] of adopted) {
+      if (next.base !== undefined) {
+        const held = this.baseOf(moduleFilePath);
+        if (held === undefined || held.version !== next.version.base) {
+          this.activity.work("source:clone-module", moduleFilePath);
+          this.baseSources[moduleFilePath] = next.base;
+          this.baseVersions.set(moduleFilePath, {
+            source: next.base,
+            version: next.version.base,
+          });
+          this.bumpBase(moduleFilePath);
+          // `.jsonValues()` entry content read on the base before is not
+          // this base's: dropped, so the next read fetches it again -- and
+          // so is what is still on its way from it.
+          this.entryBaseMoved(moduleFilePath);
+          this.clearEntryFailures(moduleFilePath);
+          if (this.baseJsonEntries.has(moduleFilePath)) {
+            this.baseJsonEntries.delete(moduleFilePath);
+            this.entriesMoved(moduleFilePath);
+          }
+        }
+      }
+      if (this.baseSources[moduleFilePath] === undefined) continue;
+      const at = "version" in next.at ? next.at : null;
+      this.server.set(moduleFilePath, {
+        version: next.version,
+        applied: at !== null ? at.applied : next.at.applied,
+        at,
+        decidedAt,
+      });
+      touched.add(moduleFilePath);
+    }
+    for (const moduleFilePath of decided) {
+      if (touched.has(moduleFilePath)) continue;
+      const below = this.server.get(moduleFilePath);
+      if (below === undefined || below.decidedAt === decidedAt) continue;
+      this.server.set(moduleFilePath, { ...below, decidedAt });
+      // Only a module with patches beyond its server version can read
+      // differently for a new decision.
+      const chain = this.chains.get(moduleFilePath);
+      if (chain === undefined || chain.length === 0) continue;
+      const applied = new Set<PatchId>(below.applied);
+      if (chain.some((entry) => !applied.has(entry.record.patchId))) {
+        touched.add(moduleFilePath);
       }
     }
-    const rebased = new Set<string>(Object.keys(sources));
-    for (const moduleFilePath of [...this.chains.keys()]) {
-      if (rebased.has(moduleFilePath)) this.chains.delete(moduleFilePath);
-    }
-    // `.jsonValues()` entry content is not in `sources` -- the module's source
-    // is markers -- and what is loaded came from the build that answered when
-    // it was read. Dropped, so the next read fetches it from this one; entry
-    // patches then replay on that, not on the previous build's content.
-    for (const moduleFilePath of [...this.jsonEntries.keys()]) {
-      if (rebased.has(moduleFilePath))
-        this.markJsonEntriesStale(moduleFilePath);
-    }
-    this.receive(sources);
-    const entries: ChainEntry[] = [];
-    for (const record of chain) {
-      const known = previous.get(record.patchId);
-      if (!rebased.has(record.moduleFilePath) && known !== undefined) continue;
-      entries.push(known ?? { record, origin: "external" });
-    }
-    for (const entry of entries) {
-      const moduleFilePath = entry.record.moduleFilePath;
-      const moduleChain = this.chains.get(moduleFilePath);
-      if (moduleChain === undefined) {
-        this.chains.set(moduleFilePath, [entry]);
-      } else {
-        moduleChain.push(entry);
+    const rebuilt: {
+      moduleFilePath: ModuleFilePath;
+      before: ModuleView | undefined;
+    }[] = [];
+    for (const moduleFilePath of touched) {
+      const { before, after } = this.refresh(moduleFilePath);
+      if (SourceStore.moved(before, after)) {
+        this.bump(moduleFilePath);
       }
+      rebuilt.push({ moduleFilePath, before });
+      const chain = this.chains.get(moduleFilePath);
+      if (after !== undefined && chain !== undefined && chain.length > 0) {
+        this.announceChain(moduleFilePath, chain, after);
+      }
+      if (after !== undefined)
+        this.loadNewlyHeld(moduleFilePath, before, after);
     }
-    this.applyEntries(entries);
+    for (const { moduleFilePath, before } of rebuilt) {
+      this.wakeChanged(moduleFilePath, before);
+    }
   }
 
   /** Where this module's source has got to. */
@@ -1608,18 +2496,16 @@ export class SourceStore {
     };
   }
 
+  // #region intake
+
   /**
    * The three ways a patch reaches source, as three constructors of
-   * {@link PatchIntake}.
-   *
-   * This used to be three handlers that each assembled the origin and the
-   * creator differently, with the reasoning for each in a comment beside it —
-   * so "does this patch wake the field that made it?" could only be answered by
-   * reading all three and holding the convention between them. The union makes
-   * each case a named thing, and {@link intake} the one place that decides what
-   * a name means.
+   * {@link PatchIntake}. And where the chain's confirmed part ends: a patch the
+   * patch store no longer holds as pending is one the server has.
    */
   listenTo(patchStore: PatchStore): () => void {
+    this.decidedGone = (patchId, decidedAt) =>
+      patchStore.decidedGone(patchId, decidedAt);
     const offReceive = patchStore.events.on("patch:receive", (event) => {
       this.intake({
         kind: "foreign",
@@ -1638,9 +2524,11 @@ export class SourceStore {
         kind: "revoked",
         patchIds: event.patches,
         modules: event.modules,
+        vanished: event.vanished,
       });
     });
     return () => {
+      this.decidedGone = () => false;
       offReceive();
       offCreate();
       offDrop();
@@ -1649,24 +2537,18 @@ export class SourceStore {
 
   /**
    * Take patches in. THE door into source, and the only place that decides who
-   * a patch wakes.
-   *
-   * Each variant of {@link PatchIntake} answers the same question differently,
-   * and the differences are the whole of the "internal vs external" rule:
+   * a patch wakes:
    *
    * - `local` — this session made it, so the field INSTANCE that made it is
    *   left asleep and every other reader of the path is woken. A controlled
    *   input re-rendered by its own keystroke loses the caret.
-   * - `foreign` — it came from the server, so it is news to every field here by
-   *   definition and there is nobody to suppress.
-   * - `revoked` — it was refused or deleted, so its effect has to come back OUT
-   *   of source. The author is woken too, and that is not an exception: the
-   *   field that typed the value is precisely the one now showing something
-   *   that no longer exists.
+   * - `foreign` — it came from the server, so it is news to every field here.
+   * - `revoked` — it was refused or deleted, so its effect comes back OUT of
+   *   source. Everyone whose value moved is woken, the author too.
    */
   intake(intake: PatchIntake): void {
     if (intake.kind === "revoked") {
-      this.dropFromChains(intake.patchIds, intake.modules);
+      this.dropFromChains(intake.patchIds, intake.modules, intake.vanished);
       return;
     }
     this.applyPatches(
@@ -1681,10 +2563,8 @@ export class SourceStore {
    *
    * The chain holds its own reference to each `PatchRecord`, so marking one
    * applied in `PatchStore` is invisible here. The displayed value does not
-   * move — the patch was already applied — but {@link peekBase} does: it counts
-   * shipped patches as published. Its readers — the "before" side of a compare
-   * — subscribe per path, so without a wake they keep the pre-publish snapshot
-   * until something else happens to touch the path.
+   * move, but {@link peekBase} does: it counts shipped patches as published, and
+   * its readers subscribe per path.
    */
   markApplied(patchIds: readonly PatchId[]): void {
     if (patchIds.length === 0) return;
@@ -1708,9 +2588,7 @@ export class SourceStore {
       }
     }
     if (shippedTouched.length > 0) {
-      // No `bump`: the displayed value did not move, which is the reason
-      // `promoteToBase` does not bump either. A reader of `peek` re-reads the
-      // same object and does not re-render.
+      // No `bump`: the displayed value did not move.
       this.wakeListeners(shippedModules, [
         {
           origin: "external",
@@ -1722,36 +2600,28 @@ export class SourceStore {
   }
 
   /**
-   * Forget these patches and rebuild the modules they touched.
+   * Forget these patches and compute the modules they were in again.
    *
-   * An applied patch cannot be un-applied: a JSON patch is not invertible in
-   * general (a `replace` does not record what it replaced), so "remove the
-   * middle patch" can only mean recompute base + the surviving chain. That is
-   * the same rebase `receive()` does, which is why the chain is kept in the
-   * first place — and it is the reason a drop is affordable at all.
+   * A JSON patch is not invertible in general, so "remove the middle patch"
+   * can only mean recompute base + the surviving chain -- from the version
+   * before the dropped patch when that one is kept ({@link VersionRing}), so
+   * discarding the newest edit applies nothing.
    *
-   * Listeners are woken with origin `external`. A dropped patch is news to every
-   * field including the one that made it: the field that typed the value is
-   * exactly the one now showing something that no longer exists, so leaving it
-   * asleep — the suppression the normal path applies — would leave the wrong
-   * value on screen.
+   * Readers are woken where their value moved (`===`: the engine shares what
+   * it did not touch), with origin `external`: a dropped patch is news to
+   * every field including the one that made it.
    */
   private dropFromChains(
     patchIds: readonly PatchId[],
     modules: readonly ModuleFilePath[],
+    vanished: boolean,
   ): void {
     const dropped = new Set(patchIds);
-    const rebuilt: ModuleFilePath[] = [];
-    /**
-     * The paths the dropped patches touched.
-     *
-     * Collected from the chain entries being removed, because those are the only
-     * remaining copy: `PatchStore.drop` has already deleted the records by the
-     * time this event arrives, and the event carries ids and modules rather than
-     * ops. Needed for the wake — a dropped `replace` changes exactly the paths it
-     * originally changed, so those are the readers that are now wrong.
-     */
-    const touched: SourcePath[] = [];
+    const rebuilt: {
+      moduleFilePath: ModuleFilePath;
+      before: ModuleView | undefined;
+      after: ModuleView | undefined;
+    }[] = [];
     for (const moduleFilePath of modules) {
       const chain = this.chains.get(moduleFilePath);
       if (chain !== undefined) {
@@ -1760,174 +2630,206 @@ export class SourceStore {
         );
         if (surviving.length === chain.length) {
           // Nothing of this module's chain was dropped, so its source is
-          // already right. Skipping keeps a rebuild from bumping a revision
-          // and waking every reader for no change.
+          // already right.
           continue;
         }
-        for (const entry of chain) {
-          if (!dropped.has(entry.record.patchId)) continue;
-          touched.push(...touchedSourcePaths(entry.record));
+        if (vanished) {
+          for (const entry of chain) {
+            if (dropped.has(entry.record.patchId)) {
+              this.forgetEntriesOf(entry.record);
+            }
+          }
         }
         this.chains.set(moduleFilePath, surviving);
+        /*
+         * A dropped patch the server's version has: that version is not what
+         * the server will hold once the drop lands. Back to the base, with
+         * what survives on top -- from the version before it, where that is
+         * kept, so discarding the newest edit applies nothing -- until the
+         * next manifest names the version without it.
+         */
+        const below = this.server.get(moduleFilePath);
+        if (
+          below !== undefined &&
+          below.applied.some((patchId) => dropped.has(patchId))
+        ) {
+          this.server.delete(moduleFilePath);
+        }
       }
-      const base = this.baseSources[moduleFilePath];
-      if (base === undefined) {
-        // Never loaded, so there is no source to rebuild. The chain edit above
+      if (this.baseSources[moduleFilePath] === undefined) {
+        // Never loaded, so there is no source to compute. The chain edit above
         // still had to happen, or the patch would re-land when it does load.
         continue;
       }
       this.activity.work("source:rebuild-module", moduleFilePath);
-      this.sources[moduleFilePath] = deepClone(base as JSONValue);
-      /*
-       * And the entry content back to base, for the same reason source goes back.
-       *
-       * `storePatched` writes each applied patch's result into `jsonEntries`, so a
-       * rebuild that only reset source left every edit INSIDE a `.jsonValues()`
-       * entry standing — the dropped patch's effect survived the drop, in the one
-       * place the rebuild could not see.
-       */
-      const baseEntries = this.baseJsonEntries.get(moduleFilePath);
-      if (baseEntries !== undefined) {
-        this.jsonEntries.set(
-          moduleFilePath,
-          new Map(
-            [...baseEntries].map(([key, value]) => [
-              key,
-              deepClone(value as JSONValue),
-            ]),
-          ),
-        );
-      }
+      const { before, after } = this.refresh(moduleFilePath);
       this.bump(moduleFilePath);
-      rebuilt.push(moduleFilePath);
+      rebuilt.push({ moduleFilePath, before, after });
     }
-    if (rebuilt.length > 0) {
-      // Announced BEFORE re-applying, so a consumer sees "these modules went
-      // back to base" and then the applies that follow, in that order. The
-      // reverse order would show the surviving patches landing on a value that,
-      // as far as any consumer could tell, still had the dropped one in it.
-      this.events.emit({ type: "source:patch-drop", modules: rebuilt });
-      for (const moduleFilePath of rebuilt) {
-        const chain = this.chains.get(moduleFilePath);
-        if (chain === undefined || chain.length === 0) continue;
-        this.applyEntries(
-          // Origin forced to `external` for the reason in the doc comment: the
-          // author of a dropped patch is a reader who must be woken, not
-          // suppressed.
-          chain.map((entry) => ({
-            record: entry.record,
-            origin: "external",
-            creatorFieldId: undefined,
-          })),
-        );
+    for (const id of patchIds) this.reportedEntryErrors.delete(id);
+    if (rebuilt.length === 0) return;
+    // Announced BEFORE the applies, so a consumer sees "these modules went
+    // back" and then what survives, in that order.
+    this.events.emit({
+      type: "source:patch-drop",
+      modules: rebuilt.map((r) => r.moduleFilePath),
+    });
+    for (const { moduleFilePath, after } of rebuilt) {
+      const chain = this.chains.get(moduleFilePath);
+      if (chain === undefined || chain.length === 0 || after === undefined) {
+        continue;
       }
-      // AFTER the re-apply, and unconditionally rather than left to it.
-      //
-      // The re-apply wakes the paths the SURVIVING patches touch, which is not
-      // the same set — dropping a module's only patch leaves nothing to apply,
-      // and the paths that patch had changed would then be woken by nobody. So
-      // the drop does its own wake, with no `creatorFieldId`: a dropped patch is
-      // news to every reader including its author, who is precisely the one
-      // still showing a value that no longer exists.
-      if (touched.length > 0) {
-        this.wakeListeners(new Set(rebuilt), [
-          { origin: "external", creatorFieldId: undefined, paths: touched },
-        ]);
+      this.announceChain(moduleFilePath, chain, after);
+    }
+    for (const { moduleFilePath, before } of rebuilt) {
+      this.wakeChanged(moduleFilePath, before);
+    }
+  }
+
+  /**
+   * Tell the patch store where each patch of a module's chain stands in
+   * `view`: what the head settles on, for a chain computed again.
+   */
+  private announceChain(
+    moduleFilePath: ModuleFilePath,
+    chain: readonly ChainEntry[],
+    view: ModuleView,
+  ): void {
+    const applied = new Set(view.at.applied);
+    const failedById = new Map(
+      view.at.failed.map((failure) => [failure.patchId, failure.message]),
+    );
+    const success: PatchId[] = [];
+    const failed: { patchId: PatchId; message: string }[] = [];
+    for (const { record } of chain) {
+      if (applied.has(record.patchId)) success.push(record.patchId);
+      const message = failedById.get(record.patchId);
+      if (message !== undefined) {
+        failed.push({ patchId: record.patchId, message });
       }
+    }
+    failed.push(...this.entryErrorsOf(moduleFilePath, view));
+    if (success.length === 0 && failed.length === 0) return;
+    this.events.emit({
+      type: "source:patch-apply",
+      success,
+      failed,
+      withoutModule: [],
+      modules: success.length > 0 ? [moduleFilePath] : [],
+    });
+  }
+
+  /**
+   * These modules left the project: their source goes, base and loaded
+   * entries with it. Their chains stay -- a change to a module that is not in
+   * the project is the editor's to discard, and the file may come back -- and
+   * the next {@link receive} reports them as `withoutModule`.
+   */
+  forget(modules: readonly ModuleFilePath[]): void {
+    for (const moduleFilePath of modules) {
+      if (this.baseSources[moduleFilePath] === undefined) continue;
+      delete this.baseSources[moduleFilePath];
+      this.baseVersions.delete(moduleFilePath);
+      this.server.delete(moduleFilePath);
+      this.published.delete(moduleFilePath);
+      this.receivedSources.delete(moduleFilePath);
+      this.baseJsonEntries.delete(moduleFilePath);
+      this.clearEntryFailures(moduleFilePath);
+      this.entryBaseMoved(moduleFilePath);
+      this.entriesMoved(moduleFilePath);
+      this.refresh(moduleFilePath);
+      this.bump(moduleFilePath);
     }
   }
 
   receive(sources: Record<ModuleFilePath, Json>): void {
     this.intakeSeen = true;
-    // Cloned so the caller cannot keep a handle on what the store now owns and
-    // mutate it from outside.
-    for (const [moduleFilePath, source] of Object.entries(sources)) {
-      this.activity.work("source:clone-module", moduleFilePath);
-      const base = deepClone(source as JSONValue);
-      this.baseSources[moduleFilePath as ModuleFilePath] = base;
-      this.bumpBase(moduleFilePath as ModuleFilePath);
-      this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
+    const received: {
+      moduleFilePath: ModuleFilePath;
+      before: ModuleView | undefined;
+      after: ModuleView | undefined;
+    }[] = [];
+    for (const [path, source] of Object.entries(sources)) {
+      const moduleFilePath = path as ModuleFilePath;
       /*
-       * And the entry content back to base, as a rebuild does.
-       *
-       * The replay below applies the whole chain again. Left holding the
-       * PATCHED entry content, it applied every edit inside a `.jsonValues()`
-       * entry once more per intake — an array `add` doubled, then tripled.
+       * The very object received last time is the same module, so no reader
+       * is holding anything that moved: `HostStore` hands one back for a
+       * module whose instance an HMR round did not re-create. Compared, not
+       * tracked. A base from the server is a new object every time -- and
+       * when it hashes to the base already held, it is that base (the same
+       * version is the same content), and the one held is kept, so nothing
+       * built on it moves.
        */
-      const baseEntries = this.baseJsonEntries.get(
-        moduleFilePath as ModuleFilePath,
-      );
-      if (baseEntries !== undefined) {
-        this.jsonEntries.set(
-          moduleFilePath as ModuleFilePath,
-          new Map(
-            [...baseEntries].map(([key, value]) => [
-              key,
-              deepClone(value as JSONValue),
-            ]),
-          ),
-        );
+      const previously = this.receivedSources.get(moduleFilePath);
+      const sameObject =
+        previously !== undefined &&
+        previously.source === source &&
+        previously.baseRevision === this.baseRevisions.get(moduleFilePath);
+      if (!sameObject) {
+        // Cloned so the caller cannot keep a handle on what the store now owns
+        // and mutate it from outside.
+        this.activity.work("source:clone-module", moduleFilePath);
+        const base = deepClone(source as JSONValue);
+        const held = this.baseSources[moduleFilePath];
+        const heldVersion =
+          held === undefined
+            ? undefined
+            : this.baseVersions.get(moduleFilePath);
+        const version = this.counted(moduleFilePath, () => baseVersionOf(base));
+        if (
+          held === undefined ||
+          heldVersion === undefined ||
+          heldVersion.source !== held ||
+          heldVersion.version !== version
+        ) {
+          if (held !== undefined) this.entryBaseMoved(moduleFilePath);
+          this.baseSources[moduleFilePath] = base;
+          this.baseVersions.set(moduleFilePath, { source: base, version });
+          this.bumpBase(moduleFilePath);
+        }
       }
+      this.receivedSources.set(moduleFilePath, {
+        source,
+        baseRevision: this.baseRevisions.get(moduleFilePath),
+      });
       /*
-       * A recorded entry FAILURE does not survive a re-intake.
-       *
-       * `peek` reports `entry-failed` so readers stop asking, which is right
-       * for a failure nothing has contradicted — and the server resending this
-       * module contradicts it. Without this, an entry that failed once (a dev
-       * server mid-restart, a network blip) would stay failed for the life of
-       * the tab, because nothing else asks again.
+       * A recorded entry FAILURE does not survive a re-intake: the server
+       * resending this module contradicts it.
        */
-      this.clearEntryFailures(moduleFilePath as ModuleFilePath);
-      // The base was replaced, so every reader of this module is holding
-      // something that may no longer be right — whatever the patch chain did.
-      this.bump(moduleFilePath as ModuleFilePath);
+      const clearedFailures = this.clearEntryFailures(moduleFilePath);
+      const { before, after } = this.refresh(moduleFilePath);
+      if (SourceStore.moved(before, after) || clearedFailures) {
+        this.bump(moduleFilePath);
+      }
+      received.push({ moduleFilePath, before, after });
     }
     this.events.emit({
       type: "source:init",
       sources: Object.keys(sources) as ModuleFilePath[],
+      moved: received
+        .filter(({ before, after }) => SourceStore.moved(before, after))
+        .map(({ moduleFilePath }) => moduleFilePath),
     });
-    // The rebase. Base source has just been replaced under whatever patches
-    // already exist, so the chain has to be re-applied on top of it or the new
-    // base silently wins and the user's pending edits vanish.
-    //
-    // Emitted as its own `source:patch-apply` after `source:init` rather than
-    // being folded into it: consumers that invalidate on init have already been
-    // told the module changed, and the apply is what tells the patch store which
-    // ids landed — which is how the head settles for a patch that arrived
-    // before its module.
-    for (const moduleFilePath of Object.keys(sources) as ModuleFilePath[]) {
+    // Emitted as its own `source:patch-apply` after `source:init`: the apply
+    // is what tells the patch store which ids landed — which is how the head
+    // settles for a patch that arrived before its module.
+    for (const { moduleFilePath, after } of received) {
       const chain = this.chains.get(moduleFilePath);
-      if (chain === undefined || chain.length === 0) continue;
-      this.applyEntries(chain);
+      if (chain === undefined || chain.length === 0 || after === undefined) {
+        continue;
+      }
+      this.announceChain(moduleFilePath, chain, after);
     }
     // And the chains of modules the project does not have, which were waiting
     // for this intake to say so. See `withoutModule` in `applyEntries`.
     const withoutModule = [...this.chains].flatMap(([moduleFilePath, chain]) =>
-      this.sources[moduleFilePath] === undefined ? chain : [],
+      this.baseSources[moduleFilePath] === undefined ? chain : [],
     );
     this.applyEntries(withoutModule);
-    // And wake everyone reading these modules.
-    //
-    // Intake replaces the value at EVERY path in the module, and `bump` above has
-    // already moved the revision — but nothing had told the listeners, so a field
-    // that mounted before its module arrived was never woken and rendered
-    // `loading` forever. That is the normal startup order, and it stayed invisible
-    // until a React hook subscribed per path: every existing test either received
-    // before listening, or read on demand rather than waiting to be told.
-    //
-    // The module file path is the touched path, which matches everything
-    // registered inside that module — `touchesPath` is prefix-wise within a
-    // module — and the whole module genuinely did change.
-    //
-    // Origin `external` with no creator: intake is nobody's own edit, so there is
-    // no instance to leave asleep.
-    const loaded = (Object.keys(sources) as ModuleFilePath[]).filter(
-      (moduleFilePath) => this.sources[moduleFilePath] !== undefined,
-    );
-    if (loaded.length > 0) {
-      this.wakeListeners(new Set(loaded), [
-        { origin: "external", creatorFieldId: undefined, paths: loaded },
-      ]);
+    // And wake everyone whose read moved: a field that mounted before its
+    // module arrived reads `module-loading` until it is told.
+    for (const { moduleFilePath, before } of received) {
+      this.wakeChanged(moduleFilePath, before);
     }
   }
 
@@ -1935,94 +2837,68 @@ export class SourceStore {
    * Read one path, quoting the head you believe is current.
    *
    * The handshake is what makes the read safe to do asynchronously: an answer
-   * computed against a head that has since moved comes back as
-   * `resolved-out-of-date` carrying the new head, so a slow reply can never
-   * overwrite a newer value. Without it, a read racing a patch would silently
-   * win with stale data.
+   * computed against a head that has since moved comes back with the new head,
+   * so a slow reply can never overwrite a newer value.
    */
   async get(path: SourcePath, revision: Revision | null): Promise<SourceRead> {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(path);
     const current = this.revisionOf(moduleFilePath);
-    const source = this.sources[moduleFilePath];
+    const view = this.views.get(moduleFilePath)?.view;
     // The cheap answer: what you hold is still right, so nothing is marshalled.
-    // This is the only reason to pass a head — once source is across a worker
-    // seam it is the difference between a read costing a clone and costing
-    // nothing. It is checked before `module-loading` only for a loaded module,
-    // so an unloaded one still says so rather than claiming to be unchanged.
     if (
       revision !== null &&
-      // Same module AND same count. The module check means a revision for some
-      // other module can never produce a false `unchanged` — the one way this
-      // fast path could silently mislead.
       revision.module === moduleFilePath &&
       revision.n === current.n &&
-      source !== undefined &&
+      view !== undefined &&
       this.schemaStore.get(moduleFilePath) !== undefined
     ) {
       return { status: "unchanged", revision: current };
     }
     // `absent` is only ever returned when we know enough to say so. Without
-    // the schema we do not: a module whose schema has not loaded may resolve
-    // this path once it has. Collapsing the two is the bug this split exists
-    // to prevent.
+    // the schema we do not.
     if (
-      source === undefined ||
+      view === undefined ||
       this.schemaStore.get(moduleFilePath) === undefined
     ) {
       return { status: "module-loading" };
     }
     this.activity.work("source:read-path", path);
-    let resolved = resolveAtModulePath(
-      this.substitutedSource(moduleFilePath, source),
-      modulePath,
-    );
+    let resolved = resolveAt(view.source, modulePath);
     if (resolved.status === "needs-entry") {
       // The READ is the demand signal for entry content, and it waits for it.
-      //
-      // Not a `module-loading` reply the caller has to re-issue: nothing tells a
-      // caller when to retry, so a field would either poll or hang. `get` is
-      // already async, so "loading" is a state the CALL is in — the awaited
-      // promise is the loading state, and `peek` is there for anything that
-      // wants to observe it without paying for it.
-      const load = await this.loadEntry(moduleFilePath, resolved.key);
+      const error = view.entryErrors.get(resolved.key);
+      if (error !== undefined) {
+        return { status: "error", message: error.message };
+      }
+      const fetchKey = fetchKeyOf(view, resolved.key) ?? resolved.key;
+      const load = await this.loadEntry(moduleFilePath, fetchKey);
       if (load.status === "error") {
         return { status: "error", message: load.message };
       }
-      // Re-resolved from the store rather than from `source`: the load bumped
-      // the revision and the substitution cache, so `source` is a stale handle.
-      const loaded = this.sources[moduleFilePath];
+      // Read again from the store: the load replaced the view.
+      const loaded = this.views.get(moduleFilePath)?.view;
       if (loaded === undefined) {
         return { status: "module-loading" };
       }
-      resolved = resolveAtModulePath(
-        this.substitutedSource(moduleFilePath, loaded),
-        modulePath,
-      );
+      resolved = resolveAt(loaded.source, modulePath);
       if (resolved.status === "needs-entry") {
-        // At most ONE load per read, by construction rather than by a depth
-        // counter: `.jsonValues()` is root-only, so one entry is all a path can
-        // need. Reaching here means the fetch reported success and delivered
-        // nothing, which is a bug in the seam — reported, not retried, because a
-        // retry loop here is an unbounded fetch storm.
+        // At most ONE load per read: `.jsonValues()` is root-only, so one
+        // entry is all a path can need. Reaching here means the fetch reported
+        // success and delivered nothing -- reported, not retried.
         return {
           status: "error",
-          message: `Entry '${resolved.key}' of ${moduleFilePath} was loaded but its content is still missing.`,
+          message:
+            loaded.entryErrors.get(resolved.key)?.message ??
+            `Entry '${resolved.key}' of ${moduleFilePath} was loaded but its content is still missing.`,
         };
       }
     }
-    // Read AFTER any load, because a load moves the revision. Handing back the
-    // pre-load revision would make the very next read of this path report
-    // `unchanged` against source that had in fact changed underneath it.
+    // Read AFTER any load, because a load moves the revision.
     const resolvedAt = this.revisionOf(moduleFilePath);
     if (resolved.status === "absent") {
       return { status: "absent", revision: resolvedAt };
     }
-    if (resolved.status === "error") {
-      return { status: "error", message: resolved.message };
-    }
-    // The head travels with the value. A reader with two reads in flight keeps
-    // the newest head it has accepted and drops the rest — see `isNewerHead`.
     return {
       status: "resolved-head",
       data: resolved.value,
@@ -2031,85 +2907,40 @@ export class SourceStore {
   }
 
   /**
-   * Is this head still the current one?
-   *
-   * The same question `get` answers, without the value. For a slow watchdog:
-   * monotonic acceptance handles out-of-order replies, but nothing handles a
-   * notification that was never delivered, so something has to be able to ask
-   * cheaply. Async like every other field-facing read, so moving source behind a
-   * worker does not rewrite the caller.
+   * Is this head still the current one? The same question `get` answers,
+   * without the value. For a slow watchdog.
    */
   async isCurrent(revision: Revision): Promise<boolean> {
     return revision.n === this.revisionOf(revision.module).n;
   }
 
   /**
-   * The patched source for one module, for other stores in this realm.
-   *
-   * Deliberately NOT cloned: cloning per caller is exactly the cost this whole
-   * rewrite exists to remove. In-realm callers (search, validation, patch sets)
-   * only read, and they are all in this file's tree — the boundary that has to
-   * be defended is the one to the main thread, and that is `get()`.
+   * The module's BASE source as this store holds it: what the chain applies
+   * to, `.jsonValues()` entries as markers and nothing filled in. What the
+   * module's base version is a hash of. A reference into the store; do not
+   * mutate.
    */
-  moduleSource(moduleFilePath: ModuleFilePath): Json | undefined {
-    const source = this.sources[moduleFilePath];
-    if (source === undefined) return undefined;
-    const entries = this.jsonEntries.get(moduleFilePath);
-    if (entries === undefined || entries.size === 0) return source;
-    // Cached against the revision it was computed at, because every in-realm
-    // consumer of a `.jsonValues()` module asks for the same substituted source:
-    // the search walk, schema validation and the custom-validate walk would
-    // otherwise each rebuild it, per module, per pass.
-    return this.substitutedSource(moduleFilePath, source);
+  baseSourceOf(moduleFilePath: ModuleFilePath): Json | undefined {
+    return this.baseSources[moduleFilePath];
   }
 
   /**
-   * `source` with every loaded `.jsonValues()` entry in place, reference-stable
-   * for as long as the answer is.
-   *
-   * Every reader of a `.jsonValues()` module goes through here, and the stability
-   * is the load-bearing part rather than the saved work. `substituteJsonEntries`
-   * is copy-on-write: the moment ONE entry is loaded it returns a fresh `{...source}`,
-   * so calling it per read made `peek` of the module root answer with a new object
-   * every time. `samePeek` compares the value by identity, so it reported a change
-   * on every call, and a `useSyncExternalStore` whose snapshot always changes
-   * re-renders until React gives up with "Maximum update depth exceeded".
-   *
-   * That is why the cache is consulted on the READ path and not only by the
-   * in-realm walks it was first written for.
+   * The patched source for one module, as fields read it, for other stores in
+   * this realm and for the relay. Deliberately NOT cloned: in-realm callers
+   * only read. Reference-stable while the module's view is.
    */
-  private substitutedSource(
-    moduleFilePath: ModuleFilePath,
-    source: Json,
-    from: Map<ModuleFilePath, Map<string, Json>> = this.jsonEntries,
-  ): Json {
-    const entries = from.get(moduleFilePath);
-    if (entries === undefined || entries.size === 0) return source;
-    if (!isJsonObject(source)) return source;
-    const n = this.revisions.get(moduleFilePath) ?? 0;
-    const cached = this.substituted.get(source);
-    if (cached !== undefined && cached.n === n) {
-      return cached.source;
-    }
-    this.activity.work("source:substitute-json-entries", moduleFilePath);
-    const substituted = substituteJsonEntries(source, entries);
-    this.substituted.set(source, { n, source: substituted });
-    return substituted;
+  moduleSource(moduleFilePath: ModuleFilePath): Json | undefined {
+    return this.views.get(moduleFilePath)?.view.source;
   }
 
   loadedModules(): ModuleFilePath[] {
-    return Object.keys(this.sources) as ModuleFilePath[];
+    return [...this.views.keys()];
   }
 
   /**
    * Every path currently registered in this module. THE demand signal, read
-   * rather than pushed.
-   *
-   * The render store needs it to scope a render to what is actually on screen,
-   * and reading it means the scope is DERIVED from live state rather than
-   * accumulated: it shrinks when a field unmounts, so a row scrolled past stops
-   * being paid for. An accumulated scope could only grow, which over a session
-   * converges back on rendering the whole module.
+   * rather than pushed: it shrinks when a field unmounts, so a row scrolled
+   * past stops being paid for.
    */
   listenedPaths(moduleFilePath: ModuleFilePath): SourcePath[] {
     const paths = this.listenersByModule.get(moduleFilePath);
@@ -2118,18 +2949,14 @@ export class SourceStore {
 
   /**
    * Register interest in one path. The returned function unregisters, and the
-   * path's target is dropped once nobody is left on it — an unbounded registry
-   * would make the intersection on every patch slower over a session.
+   * path's target is dropped once nobody is left on it.
    */
   addListener(
     path: SourcePath,
     /**
      * The field INSTANCE registering. Two instances can show one path — a studio
      * field and an inline overlay — and what is internal to one is foreign to the
-     * other, so suppression has to be per instance. One `EventTarget` per
-     * (path, fieldId) is what makes "wake everyone except the one that caused
-     * it" expressible at all: a single target per path could only be dispatched
-     * to wholesale.
+     * other, so suppression has to be per instance.
      */
     fieldId: string,
     listener: (event: FieldEvent) => void,
@@ -2159,8 +2986,7 @@ export class SourceStore {
     registered.target.addEventListener(FIELD_EVENT, handler);
     registered.count++;
     const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-    // Announced so demand-driven consumers can act on it. The render store is
-    // the reason this exists: a field mounting is what asks for a render.
+    // Announced so demand-driven consumers can act on it.
     this.events.emit({ type: "source:listen", path, moduleFilePath });
     let removed = false;
     return () => {
@@ -2169,17 +2995,10 @@ export class SourceStore {
       registered.target.removeEventListener(FIELD_EVENT, handler);
       registered.count--;
       this.events.emit({ type: "source:unlisten", path, moduleFilePath });
-      // `EventTarget` exposes no listener count, so the store keeps its own.
-      // Dropping empty entries matters: the intersection below walks every
-      // registered path on every patch, so a registry that only ever grows
-      // would make a long session progressively slower.
       if (registered.count <= 0 && fields.get(fieldId) === registered) {
         fields.delete(fieldId);
         if (fields.size === 0 && this.listenerTargets.get(path) === fields) {
           this.listenerTargets.delete(path);
-          // Kept in step with `listenerTargets`, which is the risk of holding
-          // the same fact twice: a path left here after its target is gone would
-          // widen every later render scope to cover a field that unmounted.
           const stillInModule = this.listenersByModule.get(listenModule);
           if (stillInModule !== undefined) {
             stillInModule.delete(path);
@@ -2223,111 +3042,85 @@ export class SourceStore {
   }
 
   /**
-   * Apply already-recorded entries. Used both for new patches and for the
-   * replay in `receive()`, so one code path decides what "applied" means.
+   * Compute the modules these chain entries are in, and say what happened to
+   * each entry. Used for new patches, for a rebase's new ones, and for the
+   * patches of modules the project does not have.
+   *
+   * A new patch extends the version before it: one engine apply, whatever the
+   * module's size and however long its chain (`studioView.ts`).
    */
-  private applyEntries(
-    entries: {
-      record: PatchRecord;
-      origin: PatchOrigin;
-      creatorFieldId?: string;
-    }[],
-  ): void {
+  private applyEntries(entries: readonly ChainEntry[]): void {
     if (entries.length === 0) return;
     const success: PatchId[] = [];
     const failed: { patchId: PatchId; message: string }[] = [];
     const withoutModule: PatchId[] = [];
-    const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
-
-    // Grouped by (origin, creator): a replay can mix a local edit and a foreign
+    // Grouped by (origin, creator): a batch can mix a local edit and a foreign
     // one, and the creator decides which single listener stays asleep.
     const wokenBy: {
       origin: PatchOrigin;
       creatorFieldId?: string;
       paths: SourcePath[];
     }[] = [];
-    for (const { record, origin, creatorFieldId } of entries) {
-      const raw = this.sources[record.moduleFilePath];
-      /**
-       * Applied to the SUBSTITUTED module, not the raw one.
-       *
-       * Raw source holds `.jsonValues()` markers; the entry content lives in
-       * `jsonEntries` and is only stitched in on read. Applying to raw meant a
-       * patch at `["/a", "title"]` was applied to `{_type: "json"}`, which has no
-       * `title` — so every edit INSIDE an entry failed with "Cannot replace
-       * object element which does not exist".
-       *
-       * That was survivable while a failed apply was only invisible: the patch
-       * still reached the server, which applies it to the backing `*.val.json`
-       * correctly, so the edit came back on reload. It stopped being survivable
-       * when an unapplicable patch started being deleted.
-       */
-      const current =
-        raw === undefined
-          ? undefined
-          : this.substitutedSource(record.moduleFilePath, raw);
-      if (current === undefined || raw === undefined) {
+    const byModule = new Map<ModuleFilePath, ChainEntry[]>();
+    for (const entry of entries) {
+      const moduleFilePath = entry.record.moduleFilePath;
+      const inModule = byModule.get(moduleFilePath);
+      if (inModule === undefined) byModule.set(moduleFilePath, [entry]);
+      else inModule.push(entry);
+    }
+    for (const [moduleFilePath, inModule] of byModule) {
+      if (this.baseSources[moduleFilePath] === undefined) {
         /*
          * Once the project's modules are in, a module that is not among them
          * is not coming: its file was renamed or deleted with this change
-         * still unpublished. That is an answer, and saying nothing held the
-         * editor on "Loading unpublished changes…" for the life of the tab.
-         * If the file does come back, the intake that brings it replays this
-         * chain, and the patch applies.
+         * still unpublished. That is an answer. If the file does come back,
+         * the intake that brings it computes this chain, and the patch applies.
          */
         if (this.intakeSeen) {
-          withoutModule.push(record.patchId);
+          withoutModule.push(...inModule.map((entry) => entry.record.patchId));
           continue;
         }
-        // The module is not loaded, so there is nothing to apply the patch to
-        // yet. Not a failure: `receive()` rebuilds from base + chain, so this
-        // patch lands as soon as the module arrives.
-        this.activity.work("source:skip-unloaded", record.moduleFilePath);
+        // Not loaded yet: `receive()` computes base + chain when it arrives.
+        this.activity.work("source:skip-unloaded", moduleFilePath);
         continue;
       }
-      // `file` ops carry binary data, not a document mutation — the JSON patch
-      // ops cannot express them and `applyPatch` rejects them outright.
-      const patchableOps = record.patch.filter((op) => op.op !== "file");
-      if (patchableOps.length === 0) {
-        success.push(record.patchId);
-        continue;
-      }
-      // Two units of work, counted separately on purpose: the clone is
-      // proportional to the MODULE and the apply is proportional to the PATCH,
-      // so a redundant clone and a redundant apply are different bugs.
-      this.activity.work("source:clone-module", record.moduleFilePath);
-      this.activity.work("source:apply-patch", record.patchId);
-      const res = applyPatch(
-        deepClone(current as JSONValue),
-        ops,
-        patchableOps,
+      const { before, after } = this.refresh(moduleFilePath);
+      if (after === undefined) continue;
+      const applied = new Set(after.at.applied);
+      const failedById = new Map(
+        after.at.failed.map((failure) => [failure.patchId, failure.message]),
       );
-      if (result.isOk(res)) {
-        this.storePatched(record.moduleFilePath, raw, res.value);
-        this.bump(record.moduleFilePath);
-        success.push(record.patchId);
-        changedModules.add(record.moduleFilePath);
-        const paths = touchedSourcePaths(record);
-        touched.push(...paths);
-        const existing = wokenBy.find(
-          (group) =>
-            group.origin === origin && group.creatorFieldId === creatorFieldId,
-        );
-        if (existing === undefined) {
-          wokenBy.push({ origin, creatorFieldId, paths: [...paths] });
-        } else {
-          existing.paths.push(...paths);
+      for (const { record, origin, creatorFieldId } of inModule) {
+        if (applied.has(record.patchId)) {
+          success.push(record.patchId);
+          const paths = touchedSourcePaths(record);
+          const existing = wokenBy.find(
+            (group) =>
+              group.origin === origin &&
+              group.creatorFieldId === creatorFieldId,
+          );
+          if (existing === undefined) {
+            wokenBy.push({ origin, creatorFieldId, paths: [...paths] });
+          } else {
+            existing.paths.push(...paths);
+          }
+          continue;
         }
-      } else {
-        failed.push({ patchId: record.patchId, message: res.error.message });
+        const message = failedById.get(record.patchId);
+        if (message !== undefined) {
+          failed.push({ patchId: record.patchId, message });
+        }
       }
+      failed.push(...this.entryErrorsOf(moduleFilePath, after));
+      if (SourceStore.moved(before, after)) {
+        this.bump(moduleFilePath);
+        changedModules.add(moduleFilePath);
+      }
+      this.loadEditedEntries(moduleFilePath, after, inModule);
     }
 
-    // An apply in which nothing HAPPENED is not news, and every consumer would
-    // otherwise have to defend against an event whose payloads are all empty.
-    // Reached whenever every record targeted a module that is not loaded —
-    // which is a deferral rather than a loss.
+    // An apply in which nothing HAPPENED is not news.
     if (
       success.length === 0 &&
       failed.length === 0 &&
@@ -2338,8 +3131,7 @@ export class SourceStore {
 
     // Emitted BEFORE the field events, and the ordering is load-bearing:
     // dispatch is synchronous, so the patch store has folded this result into
-    // its head by the time we read it below. Field events therefore carry the
-    // head that already includes the patch that caused them.
+    // its head by the time a woken field reads it.
     this.events.emit({
       type: "source:patch-apply",
       success,
@@ -2348,19 +3140,62 @@ export class SourceStore {
       modules: [...changedModules],
     });
 
-    if (touched.length === 0) return;
+    if (wokenBy.length === 0) return;
     this.wakeListeners(changedModules, wokenBy);
   }
 
   /**
-   * Wake every listener on a changed path, except the one that caused it.
-   *
-   * Extracted from {@link applyEntries} because a DROP has to wake the same way
-   * an apply does — and dropping the last patch of a module reaches this with
-   * nothing to apply at all. The first version of the drop path relied on the
-   * re-apply of the surviving chain to do the waking, which meant that dropping
-   * a module's only patch reset its source to base and told nobody: the field
-   * showing the rejected value kept showing it.
+   * Ask for the `.jsonValues()` entries these patches edited whose base is not
+   * here: the engine holds such an edit until it is, and nothing else may ask
+   * -- a page showing the entry, or the editor's own field opened later, would
+   * show it without the edit until somebody did. Asked now rather than on the
+   * next read, so an edit that does not fit its entry is found (and
+   * discarded) while the editor is still there.
+   */
+  private loadEditedEntries(
+    moduleFilePath: ModuleFilePath,
+    view: ModuleView,
+    entries: readonly ChainEntry[],
+  ): void {
+    if (!isJsonObject(view.source)) return;
+    const keys = new Set<string>();
+    for (const { record } of entries) {
+      for (const op of record.patch) {
+        const key = op.path[0];
+        if (op.op === "file" || typeof key !== "string") continue;
+        if (Internal.isJson(view.source[key]) && chainTouches(view, key)) {
+          keys.add(key);
+        }
+      }
+    }
+    if (keys.size > 0) void this.loadEntries(moduleFilePath, [...keys]);
+  }
+
+  /**
+   * Ask for the base of the `.jsonValues()` entries the server's version holds
+   * edits for that `before` did not, as {@link loadEditedEntries} does for a
+   * patch applied here: the engine holds such an edit until the base entry is
+   * read, the view shows the entry's marker until then, and nothing else
+   * would ask -- a page shown the module would wait on it for good.
+   */
+  private loadNewlyHeld(
+    moduleFilePath: ModuleFilePath,
+    before: ModuleView | undefined,
+    after: ModuleView,
+  ): void {
+    if (!isJsonObject(after.source)) return;
+    const keys: string[] = [];
+    for (const [key, state] of after.at.content.entries) {
+      if (state.kind !== "waiting" || state.ops === null) continue;
+      if (before?.at.content.entries.get(key) === state) continue;
+      if (Internal.isJson(after.source[key])) keys.push(key);
+    }
+    if (keys.length > 0) void this.loadEntries(moduleFilePath, keys);
+  }
+
+  /**
+   * Wake every listener on a changed path, except the one that caused it: for
+   * patches applied, whose paths say what they changed.
    */
   private wakeListeners(
     changedModules: Set<ModuleFilePath>,
@@ -2369,27 +3204,13 @@ export class SourceStore {
       creatorFieldId?: string;
       /**
        * What changed, at either granularity — see `ChangedPath`. A patch names
-       * exact paths; intake can only name modules, and a module matches
-       * everything registered inside it.
+       * exact paths; a module matches everything registered inside it.
        */
       paths: ChangedPath[];
     }[],
   ): void {
-    // Scoped to the modules that actually changed, not the whole registry.
-    //
-    // Equivalent by construction rather than by approximation: every path in
-    // `touched` came from a record whose module is in `changedModules`, and
-    // `touchesPath` only ever matches within one module — so a registered path
-    // in some other module could not have matched, and skipping it cannot lose
-    // a wake.
-    //
-    // This was a measured defect, not a tidy-up. With one page open — 60 fields
-    // of one module, 1202 mounted across the project — a burst of 40 keystrokes
-    // walked the full registry 40 times, ~48k comparisons, and the stores came
-    // out SLOWER than the engine on that scenario. The design's own note said
-    // the scan was O(registered paths) while promising cost proportional to
-    // affected fields; those are not the same thing and the browser found the
-    // gap.
+    // Scoped to the modules that actually changed, not the whole registry: a
+    // registered path in some other module could not have matched.
     const candidates = new Set<SourcePath>();
     for (const moduleFilePath of changedModules) {
       const registered = this.listenersByModule.get(moduleFilePath);
@@ -2406,82 +3227,100 @@ export class SourceStore {
         touchesPath(group.paths, path),
       );
       if (touching.length === 0) continue;
-      // Per matched path, not per registered path: only paths that are actually
-      // being woken pay for the split.
       const [wokenModule] = Internal.splitModuleFilePathAndModulePath(path);
       const revision = this.revisionOf(wokenModule);
       for (const [fieldId, entry] of byField) {
-        /**
-         * The first group this field did NOT cause.
-         *
-         * Defensive, and honestly so: this used to take the first group that
-         * touched the path and skip the field if that group was its own, which
-         * is wrong in principle — a second group from a different creator should
-         * still wake it. No test fails without this, because the only place that
-         * hands `applyEntries` a mixed-creator batch is `receive`'s rebase, and
-         * `receive` follows it with a blanket wake of every listener in the
-         * module. So the old rule was masked rather than harmless. Asking each
-         * listener whether ANY touching group is somebody else's costs the same
-         * and stops depending on that coincidence.
-         */
+        // The first group this field did NOT cause: everyone except the
+        // instance that caused it is woken.
         const wokenByGroup = touching.find(
           (group) => group.creatorFieldId !== fieldId,
         );
-        // Everyone except the instance that caused it — which is what makes a
-        // studio field and an inline overlay on one path both update, while the
-        // instance being typed into is not interrupted by its own keystroke.
         if (wokenByGroup === undefined) continue;
-        this.activity.work("source:wake-listener", path);
-        const detail: FieldEvent = {
+        this.dispatch(entry.target, {
           type: `${wokenByGroup.origin}-patch`,
           path,
           revision,
-        };
-        entry.target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
+        });
       }
     }
+  }
+
+  /**
+   * Wake every listener in this module whose read moved since `before`: for a
+   * module computed again (a drop, an intake, an entry read, a publish), where
+   * no patch says what changed. Compared with `===` -- the engine copies along
+   * a patch's path and shares the rest, so a value that did not move is the
+   * same object (risk 5 in the plan). Origin `external`: nobody's own edit.
+   */
+  private wakeChanged(
+    moduleFilePath: ModuleFilePath,
+    before: ModuleView | undefined,
+  ): void {
+    const after = this.views.get(moduleFilePath)?.view;
+    if (before === after) return;
+    const registered = this.listenersByModule.get(moduleFilePath);
+    if (registered === undefined) return;
+    this.activity.work("source:scan-listeners", undefined, registered.size);
+    const everything =
+      before === undefined ||
+      after === undefined ||
+      before.schema !== after.schema;
+    const revision = this.revisionOf(moduleFilePath);
+    for (const path of [...registered]) {
+      if (!everything && before !== undefined && after !== undefined) {
+        const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+        if (sameRead(before, after, modulePath)) continue;
+      }
+      const byField = this.listenerTargets.get(path);
+      if (byField === undefined) continue;
+      for (const entry of byField.values()) {
+        this.dispatch(entry.target, {
+          type: "external-patch",
+          path,
+          revision,
+        });
+      }
+    }
+  }
+
+  private dispatch(target: EventTarget, detail: FieldEvent): void {
+    this.activity.work("source:wake-listener", detail.path);
+    target.dispatchEvent(new CustomEvent(FIELD_EVENT, { detail }));
   }
 }
 
 const FIELD_EVENT = "val:field-changed";
 
-/**
- * Is this the same peek answer?
- *
- * The value is compared by IDENTITY, which is exact for the case that matters:
- * `peek` returns a reference into the store's own source, so an unchanged value is
- * the same object, and an unchanged primitive is `===` regardless.
- *
- * **The known imprecision**, recorded because it is real: `applyPatch` clones the
- * module it patches, so after an edit to a SIBLING path, an object-valued path in
- * the same module resolves to a new object that is structurally identical to the
- * old one. This reports it as changed. It cannot produce a wrong value — the value
- * is right either way — but it can cost one extra render of an object-valued field
- * whose contents did not move. Fixing it needs structural sharing in the apply or
- * a content hash per path, and neither is worth doing before something measures
- * it.
- */
-function samePeek(a: SourcePeek, b: SourcePeek): boolean {
-  if (a.status !== b.status) {
-    return false;
+/** Whether a read of `modulePath` answers the same in both views. */
+function sameRead(
+  before: ModuleView,
+  after: ModuleView,
+  modulePath: string,
+): boolean {
+  const a = resolveAt(before.source, modulePath);
+  const b = resolveAt(after.source, modulePath);
+  if (a.status !== b.status) return false;
+  if (a.status === "found" && b.status === "found") return a.value === b.value;
+  if (a.status === "needs-entry" && b.status === "needs-entry") {
+    return (
+      a.key === b.key &&
+      before.entryErrors.get(a.key)?.message ===
+        after.entryErrors.get(b.key)?.message
+    );
   }
-  if (a.status === "ready" && b.status === "ready") {
-    return a.data === b.data && a.revision.n === b.revision.n;
-  }
-  if (a.status === "absent" && b.status === "absent") {
-    return a.revision.n === b.revision.n;
-  }
-  if (a.status === "entry-failed" && b.status === "entry-failed") {
-    return a.key === b.key && a.message === b.message;
-  }
-  if (
-    (a.status === "entry-missing" && b.status === "entry-missing") ||
-    (a.status === "entry-loading" && b.status === "entry-loading")
-  ) {
-    return a.key === b.key;
-  }
-  // `module-loading` carries nothing, so two of them are the same answer.
-  return a.status === "module-loading";
+  return true;
+}
+
+/** A module at `content`, as a base: for reading what a bake made. */
+function baseAtContent(content: ModuleContent): ModuleAt {
+  return {
+    version: { schema: NO_SCHEMA, base: "", chain: "" },
+    engine: "",
+    content,
+    tried: [],
+    applied: [],
+    failed: [],
+  };
 }
 
 /**
@@ -2490,7 +3329,6 @@ function samePeek(a: SourcePeek, b: SourcePeek): boolean {
  * Op paths are patch paths (`["field"]`); listeners register source paths
  * (`/test.val.ts?"field"`), so each op path is converted and qualified with the
  * module. `move`/`copy` change two places, so both ends are reported.
- *
  */
 export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
   const paths: SourcePath[] = [];
@@ -2503,7 +3341,12 @@ export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
     );
   };
   for (const op of record.patch) {
-    if (op.op === "file") continue;
+    if (op.op === "file") {
+      // Where the file's `patch_id` lands: the field (and, for a poster or
+      // captions, the video's own path, which is the op's).
+      add(op.path);
+      continue;
+    }
     add(op.path);
     if (op.op === "move" || op.op === "copy") {
       add(op.from);
@@ -2513,10 +3356,6 @@ export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
     // value at each of them changed without any of them appearing in an op
     // path. Reporting the container covers them, because `touchesPath` matches
     // an ancestor of a registered path as well as a descendant.
-    //
-    // Only for the ops that shift: a `replace` at an index changes that index
-    // alone, and reporting its container would wake every sibling in the array
-    // on every keystroke — the module-granular fan-out this design replaces.
     if (op.op === "add" || op.op === "remove" || op.op === "move") {
       addShiftedContainer(op.path);
     }
@@ -2525,11 +3364,9 @@ export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
 
   /**
    * Report the parent of an op path when the last segment is an array index.
-   *
-   * Whether the container really is an array is not knowable from the op alone,
-   * so a numeric key on an object also reports its parent. That is a false
-   * positive costing one extra wake, against a false negative that leaves a
-   * field displaying a value the store no longer holds.
+   * A numeric key on an object also reports its parent: a false positive
+   * costing one extra wake, against a false negative that leaves a field
+   * displaying a value the store no longer holds.
    */
   function addShiftedContainer(patchPath: string[]): void {
     if (patchPath.length === 0) return;
@@ -2540,92 +3377,67 @@ export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
 }
 
 /**
- * Walk `modulePath` through a source that is ALREADY substituted.
- *
- * Substituting here was the natural place for it and was wrong: this is called
- * once per read, and the substitution is copy-on-write, so every read of a
- * module with loaded entries produced a new object. The caller now passes
- * `substitutedSource`, which is reference-stable — see its comment for what the
- * instability cost.
- *
- * A marker still standing in the substituted source is therefore an entry nobody
- * has fetched, which is exactly what the `needs-entry` check below reads it as.
+ * A `Map` that counts its writes, so what is worked out from it can be kept
+ * and told when it went stale without being worked out again to compare.
  */
-function resolveAtModulePath(source: Json, modulePath: string): Resolved {
-  const parts = Internal.splitModulePath(modulePath as never);
-  let current: Json = source;
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (current === null || typeof current !== "object") {
-      return { status: "absent" };
-    }
-    if (Array.isArray(current)) {
-      const index = Number(part);
-      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
-        return { status: "absent" };
-      }
-      current = current[index];
-      continue;
-    }
-    if (!(part in current)) {
-      return { status: "absent" };
-    }
-    current = (current as Record<string, Json>)[part];
-    // A marker that survived substitution is content nobody has fetched.
-    //
-    // Only when the caller wants to go DEEPER: reading the entry path itself is
-    // answered with the marker, because the marker is what the source holds
-    // there, and a read of the record's own value must not trigger N fetches.
-    //
-    // `.jsonValues()` is root-only, so the entry key is always the first segment
-    // — which is why `i === 0` is a condition and not an assertion: a marker
-    // found deeper is not an entry and this function cannot name its key.
-    if (i === 0 && i < parts.length - 1 && Internal.isJson(current)) {
-      return { status: "needs-entry", key: part };
-    }
+class CountedMap<K, V> extends Map<K, V> {
+  /** Moves on every `set`, and on every `delete` or `clear` that removed something. */
+  writes = 0;
+
+  override set(key: K, value: V): this {
+    this.writes++;
+    return super.set(key, value);
   }
-  return { status: "found", value: current };
+
+  override delete(key: K): boolean {
+    const deleted = super.delete(key);
+    if (deleted) this.writes++;
+    return deleted;
+  }
+
+  override clear(): void {
+    if (this.size > 0) this.writes++;
+    super.clear();
+  }
 }
 
 /**
- * `source` with every loaded `.jsonValues()` entry's content in place of its
- * marker.
- *
- * Root-only and marker-guarded, matching the schema: content is only ever
- * substituted where the source actually holds a marker, so a stale cache entry
- * for a key that has since become a normal value cannot resurrect it.
- *
- * Copy-on-write — the input is returned untouched when there is nothing to
- * substitute, which is every module in a project that uses no `.jsonValues()`.
+ * How many bulk `GET /json` ({@link SourceStore.loadAllEntries}) may be in
+ * flight at once, across the store. A browser opens about six connections to
+ * a host; the rest are for what the editor does while a search loads: the
+ * entries a click opens, `/stat`, saving.
  */
-function substituteJsonEntries(
-  source: Json,
-  entries: Map<string, Json> | undefined,
-): Json {
-  if (entries === undefined || entries.size === 0) return source;
-  if (!isJsonObject(source)) return source;
-  let copy: Record<string, Json> | null = null;
-  for (const [key, content] of entries) {
-    if (!Internal.isJson(source[key])) continue;
-    if (copy === null) {
-      copy = { ...source };
-    }
-    copy[key] = content;
-  }
-  return copy ?? source;
-}
+const BULK_REQUESTS_IN_FLIGHT = 3;
 
 /**
- * A keyed JSON object, as opposed to an array or a primitive.
- *
- * A predicate rather than the three checks inline, because `Array.isArray`
- * narrows to `any[]` and so does NOT remove `JsonArray` (`readonly Json[]`) from
- * the union — the checks read as though they narrow and then do not. Mirrors
- * `isRecordSource` in `validation/customValidate.ts`.
+ * How many keys a bulk request asks for: as many as the route takes. The URL
+ * budget (`chunkJsonEntryKeys`) is what usually decides, at a few dozen keys.
+ * Larger than a read's batch because nothing waits on one particular bulk
+ * request, and every request is a batch the view is rebuilt for.
  */
-function isJsonObject(value: Json): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const BULK_KEYS_PER_REQUEST = JSON_ENTRIES_BATCH_MAX;
+
+/**
+ * The fewest entries a bulk load applies at once, before its last batch: see
+ * `SourceStore.bulkBatchIsDue`.
+ */
+const MIN_BULK_APPLY = 200;
+
+/** One running {@link SourceStore.loadAllEntries}. */
+type BulkLoad = {
+  /** The base keys to load, by the key they are fetched by. */
+  keys: string[];
+  /** The first of `keys` not yet considered for a request. */
+  next: number;
+  /** Requests sent and not yet applied. */
+  inFlight: number;
+  /** Callers still waiting; at none, what has not gone out is dropped. */
+  interest: number;
+  /** Fetches of its keys that something else started first. */
+  shared: Promise<void>[];
+  done: Promise<void>;
+  finish: () => void;
+};
 
 /** Cache key for one entry of one module. `\0` cannot occur in either half. */
 function entryKey(moduleFilePath: ModuleFilePath, key: string): string {

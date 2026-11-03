@@ -32,7 +32,14 @@ function apply<T, E>(
     case "copy":
       return ops.copy(document, op.from, op.path);
     case "test": {
-      if (!ops.test(document, op.path, op.value)) {
+      // `ops.test` answers with a Result: an error when the path does not
+      // exist, and `false` when the value there is not deeply equal. Both
+      // fail the patch (RFC 6902, 4.6).
+      const tested = ops.test(document, op.path, op.value);
+      if (result.isErr(tested)) {
+        return tested;
+      }
+      if (!tested.value) {
         return result.err(new PatchError("Test failed"));
       }
       return result.ok(document);

@@ -18,6 +18,7 @@ import { usePlanNotice } from "./planLimits/usePlanNotice";
 import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
+import type { Owner } from "./planLimits/studioAccess";
 import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
@@ -143,6 +144,7 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
+import { CodeModeWorkspaceConnected } from "../proposals/CodeModeWorkspaceConnected";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -158,6 +160,9 @@ import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvid
  * signing out) is delegated to the components that already own it rather than
  * reimplemented against the new layout.
  */
+/** Stable, so the proposals bar's callbacks do not move with every render. */
+const NO_OWNERS: Owner[] = [];
+
 export function ValShell() {
   const shellData = useShellData();
   const authenticationState = useAuthenticationState();
@@ -1354,10 +1359,13 @@ function ValShellBody({
     upgrade,
     upgradeSettings,
     siteUrl: proposalSiteUrl,
+    codeWorkspace,
   } = useProposalsBar({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
     onCompare: openSiteCompare,
+    owners: studioAccess.access?.owners ?? NO_OWNERS,
+    projectUrl: studioAccess.access?.projectUrl ?? null,
   });
 
   /**
@@ -1541,7 +1549,21 @@ function ValShellBody({
         <Shell
           sketchpad={sketchpads.sketchpad}
           onSketchPage={sketchpads.onSketchPage}
-          workspaceOverride={sketchpads.workspaceOverride}
+          /*
+           * The Sketchpad when it is open; otherwise code mode's workspace,
+           * for the person whose view it is (`CodeModeView`).
+           */
+          workspaceOverride={
+            sketchpads.workspaceOverride ??
+            (codeWorkspace !== null ? (
+              <CodeModeWorkspaceConnected
+                name={codeWorkspace.name}
+                build={codeWorkspace.build}
+                pages={canvasRoutes}
+                initialRoute={canvasUrl ?? "/"}
+              />
+            ) : undefined)
+          }
           renderHistory={renderHistory}
           data={data}
           theme={resolvedTheme}
@@ -1657,6 +1679,7 @@ function ValShellBody({
           getMediaFileUrl={getMediaFileUrl}
           searchContentResults={contentSearch.results}
           isSearchingContent={contentSearch.isSearching}
+          searchContentLoad={contentSearch.load}
           onSearchQueryChange={setSearchQuery}
           // A content hit is a path inside a module, so it is opened directly.
           onOpenSearchResult={(result) => openPath(result.id as SourcePath)}

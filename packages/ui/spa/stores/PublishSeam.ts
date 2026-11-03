@@ -93,6 +93,13 @@ export type PublishOptions = {
    */
   pressAs?: PressAs;
   exact?: boolean;
+  /**
+   * Save even with validation errors: a save in a proposal in code mode
+   * (`docs/plans/one-content-model.md`, "Code mode"). A proposal is not the
+   * site and its errors stay shown; publishing it to the site is still
+   * refused with them.
+   */
+  invalidAllowed?: boolean;
 };
 
 /**
@@ -243,6 +250,12 @@ export type PublishResult =
    * the answer was simply about a document that has since moved.
    */
   | { status: "refused"; reason: "chain-moved" }
+  /**
+   * Edits that stopped fitting their module when its code changed are held
+   * (`HeldEdit`), and a save would remove them to write the rest. Refused
+   * until the editor discards them or moves them where the field went.
+   */
+  | { status: "refused"; reason: "held-edits"; patchIds: PatchId[] }
   /**
    * Somebody else published while this was being decided.
    *

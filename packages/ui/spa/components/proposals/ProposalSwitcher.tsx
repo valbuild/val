@@ -2,6 +2,7 @@ import {
   Check,
   ChevronDown,
   CircleArrowUp,
+  CodeXml,
   GitBranch,
   GitCompare,
   Globe,
@@ -56,6 +57,7 @@ export function ProposalSwitcher({
   loading = false,
   leaving = null,
   problem = null,
+  codeModeLine = null,
   defaultOpen = false,
 }: {
   location: StudioLocation;
@@ -90,6 +92,11 @@ export function ProposalSwitcher({
    * the top of the menu. See `PreviewProblem`.
    */
   problem?: PreviewProblem | null;
+  /**
+   * While the proposal is in code mode: "Code mode on: turned on by Kari,
+   * 10 minutes ago", under its name. Everyone in it sees it.
+   */
+  codeModeLine?: string | null;
   /** For stories: show the menu open. */
   defaultOpen?: boolean;
 }) {
@@ -193,6 +200,12 @@ export function ProposalSwitcher({
                     .filter((part) => part !== null)
                     .join(" · ")}
                 </div>
+                {codeModeLine !== null && (
+                  <div className="mt-1 flex items-center gap-1 text-[0.6875rem] text-fg-proposal">
+                    <CodeXml size={12} className="shrink-0" />
+                    <span className="truncate">{codeModeLine}</span>
+                  </div>
+                )}
               </div>
               {showProblem && problem !== null && (
                 <PreviewProblemCard
