@@ -7,6 +7,7 @@
 > server before phase 6 is killed at about 59 MB of content beside 64 MB of
 > ballast and 75 MB without, so memory did not block phase 6. Phase 6 built
 > (2026-11-03): the store, one runtime per process, the head, `GET /modules`
+<<<<<<< HEAD
 > with deltas, and a cheap `seq` in http mode (with valbuild/home). Re-run
 > deployed after it (2026-11-03, a plain Worker): a draft page (`reader`)
 > answers wherever the content loads at all -- 86 MB beside 64 MB of
@@ -14,6 +15,14 @@
 > with the head holding at most 56 KB of its 16 MB budget; only the probe
 > through home's loader is left (decision 5). Phase 7's remainder can
 > start.**
+=======
+> with deltas, and a cheap `seq` in http mode (with valbuild/home); the
+> deployed probe through home's loader, and with valbuild/web, is still to
+> run (decision 5), now against the head. Phase 7's remainder built
+> (2026-11-03): the Studio reads the manifest and its server's modules, and
+> `BaseAlignment`, `__VAL_BASE__` and the client's replay are gone. Next:
+> phase 9's remainder, then 8.**
+>>>>>>> 0c17a95a2 (plan, architecture, scenarios README, changeset: phase 7's remainder built)
 > See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
@@ -831,6 +840,111 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     answers no `preview` and no `validationErrors` (both were optional); to
     content, `GET /chain/version` (optional both ways).
 
+- **Phase 7's remainder: the Studio loads from one place** (2026-11-03).
+  What a field shows is the module at the version the server's manifest
+  names, with this Studio's own edits the server has not got on top. The
+  pieces:
+  - **`manifestSource`** (`stores/manifestSource.ts`, `ManifestSource`):
+    after each `/stat` the stores adopt whose `seq` moved, it reads
+    `GET /manifest` "since `seq` N" (the ETag held as `If-None-Match`: a 304
+    while nothing moved), reads each module at the version named, and moves
+    the source store to all of them in ONE turn (`SourceStore.adoptServer`).
+    After the stat, not before it: the patch store takes the stat's list at
+    once, as it always has (the head a save names, the records the review
+    lists, the timing of every test that drives a stat), and the content
+    follows the manifest. One read at a time; a stat during one reads again
+    after it. A read that fails decides nothing, and the next stat asks
+    again whatever its `seq`.
+  - **The store's tiers, in the Studio**: the memory tier is the
+    `VersionRing` -- a version this Studio computed itself is found by its
+    content, or, when the editor typed on past it, by its patches alone
+    (`SourceStore.knownChain`, the last 64 chains computed per module): a
+    save confirmed mid-typing names a version passed on the way, what is
+    shown extends it, and its content is made only if a discard needs it
+    (`ServerBelow.at: null`, `materializeBelow`). Then the bundle's own
+    module (the empty chain on the bundle's base: nothing read). Then the
+    **`originTier`** (`stores/originTier.ts`): `GET /modules/~<path>?v=`,
+    with the server's version held of the same schema and base as `have`,
+    so another editor's keystroke is one patch on the wire. A base the
+    bundle was not built with is read by its version (the empty chain),
+    then the patches from it. Not the shared `tiered`: the Studio's memory
+    holds `ModuleAt`s (a content plus what applied and what failed), and
+    the three are asked in that order in `ManifestSource.resolve`.
+  - **`withLocalEdits`** over the server's module (`studioView.ts`): the
+    module's patches the server's version does not have, in chain order --
+    this Studio's own, unless the manifest said they are gone. Another
+    editor's patch is shown once the server's version has it, never
+    replayed here: its record still arrives (`GET /patches`, for the review,
+    the head and the publish), and is not applied. Where nothing has been
+    decided -- before the first manifest, after a re-intake moved the base,
+    on a module new code put the Studio ahead on, a system with no server --
+    every patch of the chain is on top, as before.
+  - **Vanished patches, by the version.** A patch a `/stat` stopped naming is
+    gone when the server's version of its module does not have it and the
+    manifest naming that version was ASKED FOR after this Studio held the
+    patch (record received, or save confirmed): `PatchStore.decidedGone`,
+    ordered by `nextManifestEpoch`, a counter of the tab's own. Settled at the
+    stat and again when its manifest lands (`PatchStore.manifestAdopted`).
+  - **A previous build still answering** (S26): in fs and memory
+    `GET /manifest` and `GET /modules` are answered by the NEWEST build's
+    head (`ValOps.newestOps`), whichever server instance the request reached
+    -- the store's chain is relative to it. In http a previous build knows
+    from the content service that a newer one is live (`liveBuild`,
+    `OrderedPatches.superseded`) and says so on the manifest (`superseded`);
+    the Studio does not move to its versions.
+  - **`/stat` reads the chain only when it moved, in http mode** (phase 6's
+    leftover): `ValOpsHttp.statChain` keeps the chain relative to the live
+    build under the chain version (`GET /chain/version`), read first.
+    `/manifest` reads through the head too, which already did.
+  - **The catch-up skips a module the page holds at the Studio's version**
+    (phase 6's leftover): a draft page reports its versions beside `holds`
+    (`draftHoldsVersions` on the overlay's `draftMode` event and the canvas's
+    `ready`, optional both ways), and neither the catch-up nor a change
+    collected before the store was in step sends such a module.
+  - **Deleted:** `BaseAlignment` and `baseAndChain.test.ts` (what it pinned is
+    `manifestSource.test.ts` now, and S26); the Studio's
+    `PUT /sources/~?apply_patches=false` (`fetchBaseSources`); `chainSource`,
+    `studioModule` and the confirmed boundary by `isPending`; the stat
+    preparer `BaseAlignment` ran in (`StatStore.setPreparer`, `readopt`, and
+    its unit test); `PatchStore`'s `reconcileVanished` round trip, `stage`,
+    `takeStaged`, `holdsAll`, `shippedOutside`, `omittedUnplaced`,
+    `resolveOmitted` and the `patch:verify-vanished` work kind;
+    `SourceStore.rebase`; `HostStore.bundleBase`, its `sourcesSha` fold and
+    the served base `reloadCode` took; `window.__VAL_BASE__` in both
+    providers and both `ValModulesClient` window types; `draftBase` and the
+    `base` `fetchValDraft` sent (`ValDraft.base` is `@deprecated`, unread,
+    kept on the type for a release); `e2e/http/baseAlignment.spec.ts` (now
+    `manifest.spec.ts`, the real wiring of the manifest and a base by version).
+  - **Scenarios:** every scenario and matrix cell passes in memory, fs and
+    http: B01-B14, the content-shape matrix, S26 (all modes), S16 unchanged
+    (skipped, phase 9's). New: S28's converse (`sync`). B12 counts the chain
+    read over the edit: the editor's own manifest read after its save goes
+    through the same head, so it usually reads the chain before the page's
+    request does. B09 (forty keystrokes, forty applies) is what made the
+    memory tier answer by patches as well as content.
+  - **Measured** (`scale.scenario.test.ts` at 1,000): publishing one post went
+    from 313 ms (local) and 777 ms (remote refs) -- the whole-tree
+    `PUT /sources/~` BaseAlignment fetched once the base moved -- to 34 ms,
+    one `GET /modules` of the module published; every other surface gains
+    one `GET /manifest` per stat (0.4 to 1.5 ms). A keystroke in the Studio
+    (`measure/keystroke.ts`) is unchanged within noise. Another editor's
+    keystroke costs three requests where it cost one: `/stat`'s, the
+    manifest's and the module's patch (and its record for the review).
+  - **Public API:** unchanged; `ValDraft.base` deprecated. The wire, all
+    optional both ways: `GET /modules` answers `patches` (the ids a whole
+    module's chain is made of) and an entry error's `patchId`;
+    `GET /manifest` answers `superseded`; the overlay's `draftMode` event
+    and the canvas's `ready` carry `holdsVersions`. `PUT /sources/~` and
+    `/stat`'s `sourcesSha` stay, for a Studio of the release before.
+  - **Ready for phase 9's remainder:** the Studio holds the manifest it is
+    at (`ManifestSource.current()`: `project.build` and every module's
+    version), and moves only to what it names -- what `reloadCode` needs to
+    be checked against. Not built, because nothing would read it: a
+    `registry` field on the manifest naming the build's entry
+    (`/_val/modules/<build>.js`), which no build emits yet
+    (`@valbuild/tanstack-build`), and its comparison with the build this
+    Studio's code came from.
+
 **Decided on 2026-11-01**, beyond what the sections below say:
 
 1. **Hosted layers are covered by feeding them in** (S06, S20, S21): Val's
@@ -864,6 +978,7 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
    they have been discussed.
 3. ~~Wire code mode onto the UI #1010 added~~ (done; see "Built"). S10b's
    local form passes since phase 9's first part.
+<<<<<<< HEAD
 4. **Phase 7's remainder, now that phase 6 is built**: `originTier` over
    `GET /modules` in the Studio's store, `manifestSource` (reading the
    manifest "since `seq` N") with `withLocalEdits` over it, so `chainSource`
@@ -877,12 +992,24 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
    it; the page already compares by version, so it costs a message, not a
    comparison); `/stat` still reads the whole chain in http mode on every
    call (the head's cheap `seq` is not used there yet). Left from phase 5:
+=======
+4. ~~Phase 7's remainder~~ (done; see "Built"). **Next: phase 9's
+   remainder** ([Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)):
+   a build's registry entry named in the manifest, `reloadCode` against the
+   manifest (`not-the-manifest's`, `other-val-version`), and with it the
+   deletion of `SchemaFreshnessWatch`, `reportSchemaOutOfDate`, the dialog
+   and S16's pin; **then phase 8**. Left from phase 7: another editor's
+   keystroke costs `/stat`, `GET /manifest` and `GET /modules` (and its
+   record, for the review) -- a manifest that carried the patches it moved
+   by would make it one; the patch store still fetches every record of the
+   chain for the review and the publish, so the client holds the records it
+   no longer replays. Left from phase 6: the deployed probe through home's
+   loader, and with valbuild/web's content (decision 5; `results.md`, "Phase
+   6", says what to run). Left from phase 5:
+>>>>>>> 0c17a95a2 (plan, architecture, scenarios README, changeset: phase 7's remainder built)
    `entriesStatus`
    and `allEntriesProgress` are still stable by recompute-and-compare (they
-   are not `peek`, and are cheap); the confirmed boundary between
-   `chainSource` and `withLocalEdits` decides nothing yet but which kept
-   version is extended -- it matters in phase 7, when `chainSource` becomes
-   the server's answer. (Phase 5's other leftovers -- `ValDraft` without
+   are not `peek`, and are cheap). (Phase 5's other leftovers -- `ValDraft` without
    versions, entries without versions of their own -- were closed by phase
    6.) Left from phase 4, and done after phase 5: Next's
    `fetchValDraft`, returned from `initValRsc` (decided), on the
@@ -1320,6 +1447,13 @@ today's behaviour as a source, `chainSource` (the bundle plus the whole chain,
 replayed in the browser with the engine), so its consumers move onto the view
 early and the later switch is one line.
 
+As built in phase 7 (see "Built"): the manifest is read after each stat
+whose `seq` moved (`ManifestSource`), the modules it names come from the
+Studio's memory (the `VersionRing`, by content or by patches), its bundle
+or `originTier`, and `withLocalEdits` puts this Studio's own edits on top;
+`chainSource` is gone. The page reports its base per module by version
+(`holdsVersions`), as drawn above.
+
 As built in phase 5 (see "Built"): `chainSource` and `withLocalEdits` are
 functions over the store's base and chain in `stores/studioView.ts`, not
 `ContentSource`s yet -- the Studio has one source until phase 7, and nothing
@@ -1661,9 +1795,8 @@ of phase 7 needs from phase 6 (`tiered`, `memoryTier`, `bundleTier`, the head,
 | The code tools' `projectSource` keyed by version                                               | No, but **home**                                   | There was no version to key it by: `/v1/project-source` carried none, Val's publish-API proxy carried no headers back, and the Studio knows the site's newest commit only at the site's address (`headCommitSha`), not at a proposal's, where code mode runs. **Built** with home's `ETag` (below): keyed by the answer's own tag, revalidated per call.                                                                                                                                                                                 |
 | Staged schemas (`staged:<hash>`)                                                               | No, but **home** (and phase 9 for the real schema) | The server at a proposal's address cannot tell a staged `.val.ts` (code) from a content save: the overlay it is handed (`VAL_OVERLAY`: `commit`, `modules`, `files`) says neither which modules were staged after its build nor their inputs hash, and a content save rewrites the same `.val.ts` text. And a version the server marks `staged:` is only effective once the readers that read the snapshot and the Studio read versions from the server (`snapshotSource` has none; the Studio computes its own until `manifestSource`). |
 
-**What is left of phase 7 for after phase 6** (phase 6 is built: the module
-endpoint reads a base by version and answers deltas, so this can start), in
-order: `originTier` in the
+**What was left of phase 7 for after phase 6** -- **built** 2026-11-03, see
+"Phase 7's remainder" under Built -- in order: `originTier` in the
 Studio's store, `manifestSource` (reading the manifest "since `seq` N") with
 `withLocalEdits` over it, so `chainSource` goes and with it the client's
 replay and its reconciliation of vanished patches; then `BaseAlignment`, the
@@ -1728,8 +1861,9 @@ phase 7's remainder (`originTier`, `manifestSource`, BaseAlignment and
 | A staging records each changed module's Source WITH its schema                                                     | home: done its way                 | Home's phase 7 contract records a staged module's Source with `staged:<inputs>` (not the previous schema's sha) and names the staged modules in the overlay (`staged`). Sending the tab's real schema sha instead needs a field that contract does not have, so `stagedModuleSources`' Source stays.                                                                                                                                |
 | Val's server reads the overlay's `staged` (versions `staged:<inputs>`; saves a staged module from its staged text) | No, but a decision                 | The contract names the STAGING, not whether the build serving the address was made of it; the server needs its own build's inputs to tell. Decided: the build carries them (`VAL_BUILD_INPUTS`). **Built** (C11b, C11c): a module staged after the build is read and saved from its staged text, versioned `staged:<inputs>`, left out of the readers' snapshot, and held when its text cannot be read.                             |
 
-**What is left of phase 9**, for after phases 6 and 7: a build's registry
-entry and `reloadCode` against the manifest (`not-the-manifest's`,
+**What is left of phase 9**, now that phases 6 and 7 are built: a build's
+registry entry and `reloadCode` against the manifest (the Studio holds the
+manifest it is at, `ManifestSource.current()`) (`not-the-manifest's`,
 `other-val-version`), and with it the deletion of `SchemaFreshnessWatch`,
 `reportSchemaOutOfDate`, the dialog and S16's pin -- and "no schema dialog"
 as an invariant of every scenario, which cannot hold while a deploy the
