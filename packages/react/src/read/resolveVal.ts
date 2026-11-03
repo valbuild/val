@@ -77,6 +77,11 @@ const plans = new WeakMap<object, ReadPlan>();
  * `getModuleIds`: a module is a module-level constant, so its plan is made
  * once for the life of the process.
  */
+/** A module id `getModuleIds` collected: a module's path. */
+function isModuleFilePath(id: string): id is ModuleFilePath {
+  return id.startsWith("/");
+}
+
 export function planOf(selector: unknown): ReadPlan {
   const root: unknown = Internal.viewHandleModule(selector) ?? selector;
   const cacheable = typeof root === "object" && root !== null;
@@ -86,7 +91,7 @@ export function planOf(selector: unknown): ReadPlan {
   }
   // The ids `getModuleIds` collects are module paths, as `useVal`
   // subscribed to them.
-  const modules = getModuleIds(root).map((id) => id as ModuleFilePath);
+  const modules = getModuleIds(root).filter(isModuleFilePath);
   const own = new Map<ModuleFilePath, ValModule<SelectorSource>>();
   let record: ModuleFilePath | null = null;
   const rootPath = Internal.isValModule(root)

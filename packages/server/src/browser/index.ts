@@ -6,12 +6,4 @@
  * Node-only parts of the server reach it through `ValServerPlatform`, and this
  * entry passes the browser's.
  */
-export {
-  createInTabVal,
-  createInTabValFetch,
-  type InTabFetch,
-  type InTabValOptions,
-} from "./inTabFetch";
-export { serverDraftSource } from "../draftReads";
-export type { ValRuntime } from "../valRuntime";
-export type { ValHead } from "../head";
+export { createInTabValFetch, type InTabFetch } from "./inTabFetch";

@@ -13,7 +13,6 @@ import {
   valModulesEntryPath,
   type BuildRegistry,
 } from "@valbuild/shared/internal";
-import { valModulesEntryFile as builderEntryFile } from "@valbuild/tanstack-build/constants";
 import { createSystem, type System } from "./createSystem";
 import { createFakeManifest } from "./testManifest";
 import {
@@ -151,8 +150,10 @@ afterEach(() => {
 });
 
 test("the build and the server name a build's registry by the same name", () => {
-  expect(builderEntryFile("b2")).toBe(sharedEntryFile("b2"));
-  expect(valModulesEntryPath("b2")).toBe(`/_app/${builderEntryFile("b2")}`);
+  // The builder does not export its name for it (not API): it pins this
+  // literal in `valModules.test.ts`, and `@valbuild/shared` pins it too.
+  expect(sharedEntryFile("b2")).toBe("val-modules-b2.js");
+  expect(valModulesEntryPath("b2")).toBe("/_app/val-modules-b2.js");
 });
 
 test("a new build's registry is taken in before its manifest, and nothing reloads", async () => {

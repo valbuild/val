@@ -15,11 +15,5 @@
  * An entrypoint rather than literals in those places because these ARE the
  * contract with the builder, and a copy is what drifts.
  */
-export {
-  ENTRY,
-  ENTRY_SHIM,
-  ROUTES_DIR,
-  TREE,
-  valModulesEntryFile,
-} from "../projectPaths";
+export { ENTRY, ENTRY_SHIM, ROUTES_DIR, TREE } from "../projectPaths";
 export { ARTIFACT_KEYS, ARTIFACT_PREFIXES } from "../artifactKeys";

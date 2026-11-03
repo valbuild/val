@@ -10,8 +10,8 @@ import { useRouter, usePathname } from "next/navigation";
 import Script from "next/script";
 import React, { useEffect } from "react";
 import { ValOverlayProvider } from "./ValOverlayContext";
+import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import {
-  SET_AUTO_TAG_JSX_ENABLED,
   applyValEvent,
   createDraftStore,
   draftHolds,
@@ -20,7 +20,7 @@ import {
   startRefreshLoop,
   type RefreshLoop,
   type ValDraft,
-} from "@valbuild/react/stega";
+} from "@valbuild/react/internal";
 import type { ValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
@@ -549,7 +549,12 @@ export const ValNextProvider = (props: {
            * the page already shows does not count.
            */
           if (outcome.changed) {
-            refreshLoopRef.current?.changed();
+            if (outcome.fromPreviousStudio === true) {
+              // A Studio of the release before: it never confirms.
+              refreshLoopRef.current?.changedByPreviousStudio();
+            } else {
+              refreshLoopRef.current?.changed();
+            }
           }
         };
         window.addEventListener(

@@ -1,5 +1,5 @@
 import { Json, ModuleFilePath } from "@valbuild/core";
-import { ValExternalStore } from "@valbuild/react/stega";
+import { ValExternalStore } from "@valbuild/react/internal";
 import React from "react";
 
 /*

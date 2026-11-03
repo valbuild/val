@@ -28,7 +28,7 @@ export type LocatedRead = {
 };
 
 /** What `layered` gives back: one view over the sources, first answer wins. */
-export type View = {
+export type LayeredView = {
   readonly sources: readonly ContentSource[];
   module(path: ModuleFilePath): LocatedRead;
   /** An entry, from the sources after `after` (all of them by default). */
@@ -55,7 +55,26 @@ export function layered(
    * as it would have without waiting.
    */
   settled?: ReadonlySet<Promise<void>>,
-): View {
+): LayeredView {
+  /**
+   * THE schema rule: content made with another schema than this code has is
+   * not read with it. `null`: read it. `next`: read the next source. A
+   * promise: the code is changing (`codeChanged`), wait for it.
+   */
+  const schemaRule = (
+    path: ModuleFilePath,
+    version: { schema: string } | null | undefined,
+    from: string,
+  ): Promise<void> | "next" | null => {
+    if (version === null || version === undefined || !rule) return null;
+    const own = rule.schemaOf(path);
+    if (own === null || own === version.schema) return null;
+    if (rule.codeChanged) return rule.codeChanged(path, version.schema);
+    Internal.log.debug(
+      `${path} from ${from} was made with another schema than this code has; reading the next source`,
+    );
+    return "next";
+  };
   return {
     sources,
     module(path) {
@@ -65,22 +84,11 @@ export function layered(
         const read = source.module(path);
         if (read.status === "pass") continue;
         if (read.status === "pending" && settled?.has(read.ready)) continue;
-        if (read.status === "ready" && read.version !== null && rule) {
-          const own = rule.schemaOf(path);
-          if (own !== null && own !== read.version.schema) {
-            if (rule.codeChanged) {
-              return {
-                read: {
-                  status: "pending",
-                  ready: rule.codeChanged(path, read.version.schema),
-                },
-                at,
-              };
-            }
-            Internal.log.debug(
-              `${path} from ${read.from} was made with another schema than this code has; reading the next source`,
-            );
-            continue;
+        if (read.status === "ready") {
+          const ruled = schemaRule(path, read.version, read.from);
+          if (ruled === "next") continue;
+          if (ruled !== null) {
+            return { read: { status: "pending", ready: ruled }, at };
           }
         }
         return { read, at };
@@ -92,6 +100,13 @@ export function layered(
         const read = sources[at]?.entry(path, key);
         if (read === undefined || read.status === "pass") continue;
         if (read.status === "pending" && settled?.has(read.ready)) continue;
+        if (read.status === "ready") {
+          // The same rule as a module's: an entry carries its record's
+          // schema version.
+          const ruled = schemaRule(path, read.version, read.from);
+          if (ruled === "next") continue;
+          if (ruled !== null) return { status: "pending", ready: ruled };
+        }
         return read;
       }
       return { status: "pass" };

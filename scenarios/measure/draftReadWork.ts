@@ -17,7 +17,10 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import { PatchId, type ValClient } from "@valbuild/shared/internal";
-import { serverDraftSource, type ValRuntime } from "@valbuild/server/browser";
+import {
+  serverDraftSource,
+  type ValRuntime,
+} from "@valbuild/server/internal/browser";
 import { POSTS, postKey, scaleConfig, scaleProject } from "./scaleProject";
 
 export type Operation = "load" | "draft" | "draft-novalidate" | "base";

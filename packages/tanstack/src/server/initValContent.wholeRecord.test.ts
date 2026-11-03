@@ -7,7 +7,8 @@ import {
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { raw, stegaDecodeStrings } from "@valbuild/react/stega";
-import { InMemoryPatchStore, createValRuntime } from "@valbuild/server";
+import { InMemoryPatchStore } from "@valbuild/server";
+import { createValRuntime } from "@valbuild/server/internal";
 import { initFetchValKeyStega, initFetchValStega } from "./initValContent";
 
 const { s, c, config } = initVal();

@@ -35,8 +35,8 @@ const mockCreateValRuntime = jest.fn(
     // Never settles, so nothing here depends on a real server being buildable.
   ): Promise<never> => new Promise(() => {}),
 );
-jest.mock("@valbuild/server", () => ({
-  ...jest.requireActual("@valbuild/server"),
+jest.mock("@valbuild/server/internal", () => ({
+  ...jest.requireActual("@valbuild/server/internal"),
   createValRuntime: (
     valModules: unknown,
     route: unknown,

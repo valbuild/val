@@ -29,11 +29,8 @@ import v8 from "v8";
 import type { ValModules } from "@valbuild/core";
 import { createValClient, type ValClient } from "@valbuild/shared/internal";
 import { InMemoryPatchStore, initValServer } from "@valbuild/tanstack/server";
-import {
-  createValRuntime,
-  loadValModules,
-  type ValRuntime,
-} from "@valbuild/server";
+import { loadValModules } from "@valbuild/server";
+import { createValRuntime, type ValRuntime } from "@valbuild/server/internal";
 import {
   DESCRIBE,
   MB,

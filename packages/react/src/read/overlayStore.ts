@@ -292,7 +292,18 @@ export type ValEventOutcome =
    * own -- the server may not have it yet -- only, before the first
    * `confirmed`, that the page's render is behind the Studio's.
    */
-  | { type: "updated"; changed: boolean }
+  | {
+      type: "updated";
+      changed: boolean;
+      /**
+       * Sent by a Studio of the release before: a bare `source`, from a
+       * Studio that never says `confirmed` -- so the page refreshes on the
+       * change itself (`RefreshLoop.changedByPreviousStudio`), as that
+       * release's page did. Goes with the relay's `source` (see
+       * "Release-delayed deletions" in `docs/plans/one-content-model.md`).
+       */
+      fromPreviousStudio?: true;
+    }
   | { type: "invalid"; detail: unknown };
 
 /**
@@ -327,14 +338,14 @@ export function applyValEvent(
   if (detail.type === "source-update") {
     const moduleFilePath =
       "moduleFilePath" in detail ? detail.moduleFilePath : undefined;
-    if (typeof moduleFilePath !== "string") {
+    if (!isModuleFilePath(moduleFilePath)) {
       return { type: "invalid", detail };
     }
     const read = "read" in detail ? heldRead(detail.read) : undefined;
     if (read !== undefined) {
       return {
         type: "updated",
-        changed: store.receive(moduleFilePath as ModuleFilePath, read),
+        changed: store.receive(moduleFilePath, read),
       };
     }
     // A Studio of the release before sent the bare `source`. This fallback
@@ -344,11 +355,17 @@ export function applyValEvent(
     if (isJson(source)) {
       return {
         type: "updated",
-        changed: store.update(moduleFilePath as ModuleFilePath, source),
+        changed: store.update(moduleFilePath, source),
+        fromPreviousStudio: true,
       };
     }
   }
   return { type: "invalid", detail };
+}
+
+/** A relayed module path, checked: it crossed a window, as data. */
+function isModuleFilePath(value: unknown): value is ModuleFilePath {
+  return typeof value === "string" && value.startsWith("/");
 }
 
 /** A relayed read, checked: it crossed a window, as data. */

@@ -1,4 +1,4 @@
-import { createProjectSourceReader } from "./publishClient";
+import { createProjectSourceReader } from "../internal/publish/projectSource";
 
 /**
  * The site's source by version (`createProjectSourceReader`): what the

@@ -159,7 +159,7 @@ export function overlaySource(
 type BundledEntry =
   | { status: "loading"; ready: Promise<void> }
   | { status: "loaded"; content: unknown }
-  | { status: "failed"; error: unknown };
+  | { status: "failed"; error: unknown; at: number };
 
 /**
  * Every bundled entry's import, started once and kept, by the MODULE OBJECT
@@ -169,9 +169,13 @@ type BundledEntry =
  * build's entries for good.
  *
  * Kept for the process, as the imports themselves are: the module object
- * keeps them alive, and with it the entries the page has read.
+ * keeps them alive, and with it the entries the page has read. A failed
+ * import is kept for {@link RETRY_FAILED_ENTRY_AFTER_MS}, then tried again.
  */
 const bundledEntries = new WeakMap<object, Map<string, BundledEntry>>();
+
+/** How long a failed entry import answers "failed" before it is tried again. */
+export const RETRY_FAILED_ENTRY_AFTER_MS = 5_000;
 
 function bundledEntry(module: object, key: string): EntryRead {
   let entries = bundledEntries.get(module);
@@ -191,7 +195,7 @@ function bundledEntry(module: object, key: string): EntryRead {
         kept.set(key, { status: "loaded", content: imported.default });
       },
       (error: unknown) => {
-        kept.set(key, { status: "failed", error });
+        kept.set(key, { status: "failed", error, at: Date.now() });
       },
     );
     entry = { status: "loading", ready };
@@ -201,6 +205,14 @@ function bundledEntry(module: object, key: string): EntryRead {
     return { status: "pending", ready: entry.ready };
   }
   if (entry.status === "failed") {
+    // A chunk that failed to load (a deploy, a dropped connection) is
+    // imported again by a read after a while, rather than failing every
+    // read until the page is reloaded -- and not by every read before
+    // that, each of which would suspend a component again.
+    if (Date.now() - entry.at >= RETRY_FAILED_ENTRY_AFTER_MS) {
+      entries.delete(key);
+      return bundledEntry(module, key);
+    }
     return { status: "failed", error: entry.error };
   }
   return { status: "ready", content: entry.content, from: "bundle" };

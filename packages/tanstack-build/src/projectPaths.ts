@@ -33,8 +33,10 @@ export const ENTRY_SHIM = `export { routeTree } from './routeTree.gen'\n`;
  * on an older build imports it to take this build's code in without
  * reloading the page. The server running the build names it on its
  * manifest by the same name (`valModulesEntryPath` in
- * `@valbuild/shared/internal`; a test in `@valbuild/ui` pins the two equal).
- * See `valModulesEntry`.
+ * `@valbuild/shared/internal`). Neither package depends on the other, so each
+ * pins the same literal, `val-modules-<build>.js`: `valModules.test.ts` here,
+ * `buildRegistry.test.ts` there. Not exported: the name is a contract
+ * between the two, not API. See `valModulesEntry`.
  */
 export function valModulesEntryFile(build: string): string {
   return `val-modules-${build}.js`;

@@ -29,7 +29,14 @@ import { builtinModules } from "module";
 
 const SRC = path.resolve(__dirname, "..");
 const PACKAGES = path.resolve(SRC, "..", "..");
-const ENTRY = path.join(SRC, "browser", "index.ts");
+/**
+ * The entries a tab loads: the public one, and the internal one the isolate
+ * probe (`scenarios/measure/isolate/`) reads the in-tab server's runtime from.
+ */
+const ENTRIES = [
+  path.join(SRC, "browser", "index.ts"),
+  path.join(SRC, "internal", "browser", "index.ts"),
+];
 
 /**
  * The workspace packages the server imports, mapped to the source of the entry
@@ -110,9 +117,12 @@ function resolveRelative(from: string, specifier: string): string | null {
 
 type Reached = { file: string; via: string[] };
 
-function reachableFrom(entry: string): Map<string, Reached> {
+function reachableFrom(entries: readonly string[]): Map<string, Reached> {
   const reached = new Map<string, Reached>();
-  const queue: Reached[] = [{ file: entry, via: [entry] }];
+  const queue: Reached[] = entries.map((entry) => ({
+    file: entry,
+    via: [entry],
+  }));
   while (queue.length > 0) {
     const current = queue.shift();
     if (!current || reached.has(current.file)) continue;
@@ -159,7 +169,7 @@ function isNodeOnly(specifier: string): boolean {
 }
 
 describe("@valbuild/server/browser is browser-safe", () => {
-  const reached = reachableFrom(ENTRY);
+  const reached = reachableFrom(ENTRIES);
 
   test("nothing it reaches imports a Node builtin", () => {
     const offenders: string[] = [];
@@ -232,7 +242,7 @@ describe("@valbuild/server/browser is browser-safe", () => {
   test("the Node entry still has the compiler", () => {
     // The other half of the test above: the compiler left the browser's graph
     // by moving to Node's, not by being dropped. A publish needs it.
-    const files = [...reachableFrom(path.join(SRC, "index.ts")).keys()].map(
+    const files = [...reachableFrom([path.join(SRC, "index.ts")]).keys()].map(
       relative,
     );
     expect(files).toContain(path.join("patch", "ts", "loadTypeScriptKit.ts"));
@@ -242,7 +252,7 @@ describe("@valbuild/server/browser is browser-safe", () => {
   test("the Node entry is the other half", () => {
     // The split is only real if the Node-only code still exists, reached from
     // the package's main entry instead.
-    const files = [...reachableFrom(path.join(SRC, "index.ts")).keys()].map(
+    const files = [...reachableFrom([path.join(SRC, "index.ts")]).keys()].map(
       relative,
     );
     expect(files).toContain("nodePlatform.ts");

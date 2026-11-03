@@ -77,12 +77,42 @@ export function useResolved<T>(
     if (r.status === "ready") {
       return r.value;
     }
-    // Returns only once the wait is over (it throws to suspend until then),
-    // and then the read is made again: what it waited for is in, or -- a
-    // source still waiting on it -- did not come, and is passed over.
-    React.use(r.ready);
-    settled.add(r.ready);
+    // Every wait the read met, together, as the server awaits them: one
+    // suspension for a whole record's entries, not one per entry (each a
+    // render that resolves the whole read again). Returns only once they
+    // are all over (it throws to suspend until then), and then the read is
+    // made again: what it waited for is in, or -- a source still waiting on
+    // it -- did not come, and is passed over.
+    React.use(allOf(r.waits));
+    for (const wait of r.waits) settled.add(wait);
   }
+}
+
+/**
+ * The waits a read met, as one promise -- the SAME promise for the same
+ * waits, render after render, which `React.use` needs (one made afresh each
+ * render is never seen to settle). Kept beside the first wait.
+ */
+const combined = new WeakMap<
+  Promise<void>,
+  { waits: readonly Promise<void>[]; all: Promise<void> }[]
+>();
+
+function allOf(waits: readonly Promise<void>[]): Promise<void> {
+  const [first] = waits;
+  if (first === undefined) return Promise.resolve();
+  if (waits.length === 1) return first;
+  const held = combined.get(first) ?? [];
+  const found = held.find(
+    (entry) =>
+      entry.waits.length === waits.length &&
+      entry.waits.every((wait, i) => wait === waits[i]),
+  );
+  if (found !== undefined) return found.all;
+  const all = Promise.all(waits).then(() => undefined);
+  held.push({ waits: [...waits], all });
+  combined.set(first, held);
+  return all;
 }
 
 /**

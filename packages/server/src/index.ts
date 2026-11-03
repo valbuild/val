@@ -27,29 +27,13 @@ export type {
   ReadonlyRecordHasNoWrites,
   Returns,
 } from "./externalRecords";
-export {
-  createValApiRouter,
-  createValRuntime,
-  createValServer,
-  safeReadGit,
-} from "./ValRouter";
-// What the server-side readers of @valbuild/next and @valbuild/tanstack read
-// the draft from: the runtime's head, one copy for both frameworks.
-export {
-  draftForRequest,
-  readDraftChanges,
-  readerSchemaVersion,
-  serverDraftSource,
-} from "./draftReads";
-export type { DraftModuleRead } from "./draftReads";
+export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 export {
   contentFromEnv,
   proposalFromEnv,
   layeredSnapshot,
   proposalSnapshot,
   proposalSnapshotForReaders,
-  proposalAsBuilt,
-  stagedAfterBuild,
 } from "./proposal";
 export type { ValContentVersion, ValProposal } from "./proposal";
 // Exported for a host that has to build the same config the API router builds:
@@ -57,19 +41,6 @@ export type { ValContentVersion, ValProposal } from "./proposal";
 // while the Studio thinks it is in proxy mode reads different content from the
 // same project.
 export { initHandlerOptions, createValOps } from "./valServerConfig";
-export { valRuntime, type ValRuntime } from "./valRuntime";
-export {
-  ValHead,
-  headWork,
-  HEAD_BUDGET_BYTES,
-  HEAD_VERSIONS_PER_MODULE,
-  type Draft,
-  type HeadChain,
-  type HeadEntries,
-  type HeadModule,
-  type HeadTree,
-  type ModuleAnswer,
-} from "./head";
 // Which credential talks to the content host about remote files: the app's api
 // key, else the developer's own `val login` token off disk. Exported for
 // `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api

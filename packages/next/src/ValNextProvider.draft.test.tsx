@@ -7,7 +7,8 @@ import { act } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { Internal, initVal, type ModuleFilePath } from "@valbuild/core";
-import { raw, stegaClean, type ValDraft } from "@valbuild/react/stega";
+import { raw, stegaClean } from "@valbuild/react/stega";
+import { type ValDraft } from "@valbuild/react/internal";
 import { initValClient } from "./client/initValClient";
 import { ValNextProvider } from "./ValNextProvider";
 
@@ -173,6 +174,41 @@ describe("ValProvider's draft prop on Next", () => {
       await act(async () => {
         jest.advanceTimersByTime(60_000);
       });
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /**
+   * A Studio of the release before, open on this page while a deploy rolls
+   * out: it relays a bare `source` and never says `confirmed`. The hooks
+   * show its edit (the relay's fallback), and the server components refresh
+   * on the edit, as that release's page did -- waiting for a `confirmed`
+   * would wait for ever. "Release-delayed deletions" in
+   * `docs/plans/one-content-model.md`.
+   */
+  test("a Studio of the release before, which never confirms: its edit shows, and refreshes", async () => {
+    jest.useFakeTimers();
+    try {
+      document.cookie = `${Internal.VAL_ENABLE_COOKIE_NAME}=true`;
+      await act(async () => {
+        root = createRoot(container);
+        root.render(tree({ draft }));
+      });
+      const send = (detail: unknown) =>
+        act(() => {
+          window.dispatchEvent(new CustomEvent("val-event", { detail }));
+        });
+      send({
+        type: "source-update",
+        moduleFilePath: path,
+        source: {
+          "/notes/committed": { title: "committed page" },
+          "/notes/uncommitted": { title: "edited by the previous Studio" },
+        },
+      });
+      expect(raw(shown(container) ?? "")).toBe("edited by the previous Studio");
       expect(mockRefresh).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();

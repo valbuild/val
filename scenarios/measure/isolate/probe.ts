@@ -22,7 +22,10 @@
  * replaces them; `fresh=1` replaces them anyway.
  */
 import type { ValConfig, ValModules } from "@valbuild/core";
-import { createInTabVal, type ValRuntime } from "@valbuild/server/browser";
+import {
+  createInTabVal,
+  type ValRuntime,
+} from "@valbuild/server/internal/browser";
 import { createValClient, type ValClient } from "@valbuild/shared/internal";
 import {
   MB,

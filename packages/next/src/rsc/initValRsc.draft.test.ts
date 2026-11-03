@@ -7,12 +7,12 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
+import { InMemoryPatchStore } from "@valbuild/server";
 import {
-  InMemoryPatchStore,
   createValRuntime,
   headWork,
   type ValRuntime,
-} from "@valbuild/server";
+} from "@valbuild/server/internal";
 import type { ComponentProps } from "react";
 import type { ValNextProvider } from "../ValNextProvider";
 import { initFetchValDraft } from "./initValRsc";

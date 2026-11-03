@@ -1,8 +1,8 @@
-import type { ValDraft } from "@valbuild/react/stega";
+import type { ValDraft } from "@valbuild/react/internal";
 
 /**
  * What a draft page shows, read by the server for the request that renders
- * it: see `ValDraft` in `@valbuild/react/stega`, where it moved when
+ * it: see `ValDraft` in `@valbuild/react` (its `read`), where it moved when
  * `@valbuild/next`'s `ValProvider` took a `draft` too. Exported from here as
  * it always was.
  */

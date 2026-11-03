@@ -164,7 +164,7 @@ import {
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
-import { createProjectSourceReader } from "@valbuild/shared/publish";
+import { createProjectSourceReader } from "@valbuild/shared/internal";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",

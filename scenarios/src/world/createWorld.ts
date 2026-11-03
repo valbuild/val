@@ -35,34 +35,36 @@ import { dirname, join } from "node:path";
 import {
   encodeJwt,
   getExpire,
-  headWork,
   loadValModules as evaluateProject,
   proposalFromEnv,
   type ValContentVersion,
   type ValProposal,
 } from "@valbuild/server";
+import { headWork } from "@valbuild/server/internal";
 import {
   InMemoryPatchStore,
   initValContent,
   initValServer,
 } from "@valbuild/tanstack/server";
 import {
+  getModuleIds,
+  raw,
+  type DecodeVal,
+  type Resolvable,
+  type ResolvedVal,
+} from "@valbuild/react/stega";
+import {
   ValExternalStore,
   applyValEvent,
   awaitResolved,
-  getModuleIds,
-  raw,
   readWork,
   readsOfFetchVal,
   resolveModuleEntry,
   resolveVal,
-  type DecodeVal,
   type ReadEnv,
   type ReadOf,
   type Ready,
   type Resolution,
-  type Resolvable,
-  type ResolvedVal,
   // The page's half of the relay, both frameworks': the draft store a
   // provider starts from, what it reports, and when it refreshes.
   createDraftStore,
@@ -72,7 +74,7 @@ import {
   startRefreshLoop,
   type RefreshLoop,
   type ValDraft,
-} from "@valbuild/react/stega";
+} from "@valbuild/react/internal";
 // The Studio's own code, by path: `@valbuild/ui` exports the built Studio,
 // not its stores. Each of these is what the Studio runs, unchanged.
 import { createValSystem } from "../../../packages/ui/spa/stores/react/createValSystem";
@@ -143,10 +145,10 @@ import {
   type ProposalBuildOutcome,
 } from "../../../packages/ui/spa/proposals/proposalCode";
 import {
-  createProjectSourceReader,
   createStudioJobClient,
   type StudioJobClient,
 } from "@valbuild/shared/publish";
+import { createProjectSourceReader } from "@valbuild/shared/internal";
 import { readCodeMode } from "../../../packages/ui/spa/proposals/codeMode";
 import {
   commitProposal,

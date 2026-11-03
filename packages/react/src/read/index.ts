@@ -29,7 +29,7 @@ export {
   layered,
   type LocatedRead,
   type SchemaRule,
-  type View,
+  type LayeredView,
 } from "./layered";
 export {
   mapResolution,

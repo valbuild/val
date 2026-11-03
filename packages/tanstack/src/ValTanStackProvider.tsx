@@ -20,6 +20,11 @@ import { ValScript } from "./ValScript";
 import { ValOverlayProvider } from "./ValOverlayContext";
 import {
   SET_AUTO_TAG_JSX_ENABLED,
+  isReactDevelopmentBuild,
+  stegaLeakMessage,
+  watchStegaLeaks,
+} from "@valbuild/react/stega";
+import {
   applyValEvent,
   createDraftStore,
   draftHolds,
@@ -27,10 +32,7 @@ import {
   isDraft,
   startRefreshLoop,
   type RefreshLoop,
-  isReactDevelopmentBuild,
-  stegaLeakMessage,
-  watchStegaLeaks,
-} from "@valbuild/react/stega";
+} from "@valbuild/react/internal";
 import type { ValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
@@ -767,7 +769,12 @@ export const ValTanStackProvider = (props: {
            * the page already shows does not count.
            */
           if (outcome.changed) {
-            refreshLoopRef.current?.changed();
+            if (outcome.fromPreviousStudio === true) {
+              // A Studio of the release before: it never confirms.
+              refreshLoopRef.current?.changedByPreviousStudio();
+            } else {
+              refreshLoopRef.current?.changed();
+            }
           }
         };
         window.addEventListener(

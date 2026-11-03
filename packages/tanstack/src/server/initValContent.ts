@@ -1,18 +1,20 @@
 import {
   type JsonEntryContentOf,
-  type Ready,
-  type ReadEnv,
   type Resolvable,
   type ResolvedVal,
   type RouteValueOf,
   SET_AUTO_TAG_JSX_ENABLED,
+} from "@valbuild/react/stega";
+import {
+  type Ready,
+  type ReadEnv,
   awaitResolved,
   fetchValFrom,
   isJsonValuesRecordSchema,
   resolveVal,
   resolveValEntry,
   snapshotSource,
-} from "@valbuild/react/stega";
+} from "@valbuild/react/internal";
 import {
   ModuleFilePath,
   ValConfig,
@@ -24,16 +26,18 @@ import {
 } from "@valbuild/core";
 import { type ContentSource } from "@valbuild/shared/internal";
 import {
-  createValRuntime,
-  draftForRequest,
   layeredSnapshot,
   proposalSnapshotForReaders,
+  type ValPatchStore,
+} from "@valbuild/server";
+import {
+  createValRuntime,
+  draftForRequest,
   proposalAsBuilt,
   readDraftChanges,
   readerSchemaVersion,
-  type ValPatchStore,
   type ValRuntime,
-} from "@valbuild/server";
+} from "@valbuild/server/internal";
 import { VERSION } from "../version";
 import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";

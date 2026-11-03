@@ -85,6 +85,10 @@ export * from "./theme/accentRamp";
  */
 export * from "./publish/contentApi";
 export * from "./publish/protocol";
+// The site's source by version, for the Studio's code tools: not this
+// package's publish API (`@valbuild/shared/publish` re-exports
+// `publishApiOf` and `PublishApiAt` from here).
+export * from "./publish/projectSource";
 export * from "./patchSets/PatchSets";
 export * from "./patchSets/selectionClosure";
 export * from "./patchSets/schemaTypesOfPath";

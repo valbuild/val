@@ -57,7 +57,7 @@ export type { RouteSplitter } from "./routeSplit";
  * declaration -- and the one that is not the builder's, because the fact is a
  * property of the PROJECT layout rather than of the build.
  */
-export { ENTRY, ROUTES_DIR, TREE, valModulesEntryFile } from "./projectPaths";
+export { ENTRY, ROUTES_DIR, TREE } from "./projectPaths";
 
 /**
  * Filename of the entry chunk, in every target.

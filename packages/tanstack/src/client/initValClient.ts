@@ -9,11 +9,13 @@ import {
 } from "@valbuild/core";
 import {
   type JsonEntryContentOf,
-  type ReadEnv,
-  type Resolution,
   type Resolvable,
   type ResolvedVal,
   type RouteValueOf,
+} from "@valbuild/react/stega";
+import {
+  type ReadEnv,
+  type Resolution,
   type ValExternalStore,
   isJsonValuesRecordSchema,
   mapResolution,
@@ -24,7 +26,7 @@ import {
   useResolved,
   useResolvedEntry,
   useResolvedVal,
-} from "@valbuild/react/stega";
+} from "@valbuild/react/internal";
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";

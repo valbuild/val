@@ -13,9 +13,10 @@
  * instead of being told to reload the page.
  *
  * The convention is the builder's and this file's together: the builder
- * writes the file (`valModulesEntryFile` in `@valbuild/tanstack-build`'s
- * constants, which does not depend on this package), and a test in
- * `@valbuild/ui`, which depends on both, pins the two names equal.
+ * writes the file (`valModulesEntryFile` in `@valbuild/tanstack-build`, which
+ * does not depend on this package), and each side pins the same literal,
+ * `val-modules-<build>.js` (`buildRegistry.test.ts` here, `valModules.test.ts`
+ * there).
  */
 
 /** The file a build's registry is emitted as, among its client chunks. */

@@ -1,10 +1,7 @@
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
-import {
-  valRuntime,
-  type ValOps,
-  type ValServerConfig,
-} from "@valbuild/server";
+import { type ValOps, type ValServerConfig } from "@valbuild/server";
+import { valRuntime } from "@valbuild/server/internal";
 import type { SerializedSchema, ModuleFilePath } from "@valbuild/core";
 import type { ValToolDeps, ValToolImpl, ValToolState } from "./defineTool";
 import { readTools } from "./readTools";
@@ -291,9 +288,12 @@ export async function loadState(
     ops.head.serializedSchemas(),
   ]);
   const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
+  // Keys of `serialized` are the module paths it was written under.
+  const isModuleFilePath = (key: string): key is ModuleFilePath =>
+    Object.prototype.hasOwnProperty.call(serialized, key);
   for (const [path, schema] of Object.entries(serialized)) {
-    if (schema !== undefined) {
-      serializedSchemas[path as ModuleFilePath] = schema;
+    if (schema !== undefined && isModuleFilePath(path)) {
+      serializedSchemas[path] = schema;
     }
   }
   return {

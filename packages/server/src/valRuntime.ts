@@ -15,8 +15,12 @@ type AnyValOps = ValOpsFS | ValOpsHttp | ValOpsMemory;
  * process, and the head" in `docs/plans/one-content-model.md`.
  *
  * The API route (`initValServer`), the draft readers (`initValContent`,
- * `initValRsc`) and MCP (`initValMcp`) all read through it, so a save moves
- * every reader. It holds the data layer, whose head (`ops.head`) is the
+ * `initValRsc`) and MCP (`initValMcp`) all read through it when they are
+ * given the same options, so a save moves every reader. MCP takes no
+ * options of its own (it builds them from the config), so it shares the
+ * runtime in fs and http mode -- where the config and the environment are
+ * the whole of them -- and not in memory mode, whose patch store the host
+ * hands to the others. It holds the data layer, whose head (`ops.head`) is the
  * content at the newest chain, kept by version: one head for every editor,
  * since draft content is not per user -- the session only decides who may
  * see it ({@link ValRuntime.authorize}).
