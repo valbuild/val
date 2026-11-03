@@ -1793,6 +1793,12 @@ shapes are correct, not that they are fast.
   and progress shown for anything long.
 - **100,000: measured only.** Where and how it breaks.
 
+**Search and "used by" at 10k (decided 2026-11-03):** taking time is
+acceptable when the Studio shows a progress bar and never blocks -- entries
+load in batches that yield to the main thread (no long task over 50 ms), and
+the rest of the Studio stays usable meanwhile. Server-side search is not
+needed for that.
+
 **When a surface misses its target: report, decide later.** Phase 10
 measures and reports first -- every surface (cold start, list, gallery,
 picker, keystroke, search, validation, upload, publish) as fine, degraded or
