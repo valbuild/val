@@ -23,34 +23,23 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { performance } from "perf_hooks";
 import v8 from "v8";
-import {
-  Internal,
-  initVal,
-  modules as defineModules,
-  type ModuleFilePath,
-  type SelectorSource,
-  type ValModule,
-  type ValModules,
-} from "@valbuild/core";
-import {
-  PatchId,
-  createValClient,
-  type ValClient,
-} from "@valbuild/shared/internal";
+import type { ValModules } from "@valbuild/core";
+import { createValClient, type ValClient } from "@valbuild/shared/internal";
 import { InMemoryPatchStore, initValServer } from "@valbuild/tanstack/server";
 import { loadValModules } from "@valbuild/server";
-
-type Operation = "load" | "draft" | "draft-novalidate" | "base";
-const OPERATIONS: Operation[] = ["load", "draft", "draft-novalidate", "base"];
-
-/** What each operation is, in the product's terms. */
-const DESCRIBE: Record<Operation, string> = {
-  load: "modules loaded and the server answering /stat (the baseline)",
-  draft:
-    "PUT /sources/~ validated: what a draft-mode fetchVal asks, once per request",
-  "draft-novalidate": "the same without validation (previews still computed)",
-  base: "PUT /sources/~ unpatched and unvalidated: BaseAlignment's fetch",
-};
+import {
+  DESCRIBE,
+  MB,
+  OPERATIONS,
+  contentBytes,
+  runOperation,
+  seedChain,
+  syntheticConfig as config,
+  syntheticInput,
+  parseSyntheticInput,
+  type LoadedInput,
+  type Operation,
+} from "./draftReadWork";
 
 const INPUTS = [
   "web",
@@ -62,103 +51,21 @@ const INPUTS = [
 ] as const;
 type Input = (typeof INPUTS)[number];
 
-const MB = 1024 * 1024;
-
 // ---------------------------------------------------------------------------
-// Inputs
+// Inputs: the synthetic ones are in `draftReadWork.ts`, shared with the
+// Cloudflare isolate probe.
 
-const { s, c, config } = initVal({});
-
-const item = s.object({
-  title: s.string(),
-  summary: s.string(),
-  body: s.richtext({ bold: true }),
-  tags: s.array(s.string()),
-});
-
-/** About `megabytes` of content, in 20 record modules of equal size. */
-function synthetic(megabytes: number): {
-  modules: ValModule<SelectorSource>[];
-  bytes: number;
-} {
-  const moduleCount = 20;
-  const perModule = (megabytes * MB) / moduleCount;
-  const sample = entry(0, 0);
-  const entryBytes = JSON.stringify(sample).length + 12;
-  const entries = Math.max(1, Math.round(perModule / entryBytes));
-  const modules: ValModule<SelectorSource>[] = [];
-  let bytes = 0;
-  for (let m = 0; m < moduleCount; m++) {
-    const source: Record<string, ReturnType<typeof entry>> = {};
-    for (let i = 0; i < entries; i++) source[`entry-${i}`] = entry(m, i);
-    bytes += JSON.stringify(source).length;
-    modules.push(c.define(`/content/m${m}.val.ts`, s.record(item), source));
-  }
-  return { modules, bytes };
-}
-
-function entry(m: number, i: number) {
-  return {
-    title: `Module ${m}, entry ${i}`,
-    summary: `A summary of entry ${i} in module ${m}. `.repeat(6),
-    body: [
-      {
-        tag: "p" as const,
-        children: [
-          `Paragraph one of entry ${i}. `.repeat(4),
-          {
-            tag: "span" as const,
-            styles: ["bold" as const],
-            children: ["Bold words"],
-          },
-        ],
-      },
-      {
-        tag: "p" as const,
-        children: [`Paragraph two of entry ${i}. `.repeat(4)],
-      },
-    ],
-    tags: ["alpha", "beta", "gamma"],
-  };
-}
-
-async function loadInput(input: Input): Promise<{
-  valModules: ValModules;
-  bytes: number;
-  patches: number;
-  /** Where a chain of patches goes: the first module. */
-  target: ModuleFilePath | null;
-}> {
+async function loadInput(input: Input): Promise<LoadedInput> {
   if (input === "web") {
     // valbuild/web, a real production site, evaluated the way `val validate`
     // does it (node:vm). Its own config is in the registry.
     const valModules = loadValModules(path.resolve("/home/user/web"));
-    let bytes = 0;
-    for (const entry of valModules.modules) {
-      const module = (await entry.def()).default;
-      bytes += JSON.stringify(Internal.getSource(module) ?? null).length;
-    }
+    const bytes = await contentBytes(valModules);
     return { valModules, bytes, patches: 0, target: null };
   }
-  const [size, chain] = input.slice("synth:".length).split("+");
-  const { modules, bytes } = synthetic(Number(size));
-  return {
-    valModules: defineModules(
-      config,
-      modules.map((module) => ({
-        def: () => Promise.resolve({ default: module }),
-      })),
-    ),
-    bytes,
-    patches: chain === undefined ? 0 : Number(chain),
-    target: moduleFilePathOf(modules[0]),
-  };
-}
-
-function moduleFilePathOf(module: ValModule<SelectorSource>): ModuleFilePath {
-  const sourcePath = Internal.getValPath(module);
-  if (sourcePath === undefined) throw new Error("a module without a path");
-  return Internal.splitModuleFilePathAndModulePath(sourcePath)[0];
+  const parsed = parseSyntheticInput(input);
+  if (parsed === null) throw new Error(`unknown input: ${input}`);
+  return syntheticInput(parsed.megabytes, parsed.patches);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,69 +86,6 @@ async function serverFor(valModules: ValModules): Promise<ValClient> {
     fetch: (input, init) =>
       valApiHandler(new Request(new URL(input, "http://localhost").href, init)),
   });
-}
-
-async function seedChain(
-  client: ValClient,
-  count: number,
-  path: ModuleFilePath | null,
-): Promise<void> {
-  if (count === 0 || path === null) return;
-  const stat = await client("/stat", "POST", { body: null });
-  if (stat.status !== 200 || !("baseSha" in stat.json)) {
-    throw new Error(`/stat answered ${stat.status}`);
-  }
-  for (let i = 0; i < count; i++) {
-    const saved = await client("/patches", "PUT", {
-      body: {
-        parentRef: { type: "head", headBaseSha: stat.json.baseSha },
-        patches: [
-          {
-            path,
-            patchId: PatchId.parse(
-              `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
-            ),
-            patch: [
-              {
-                op: "replace",
-                path: [`entry-${i % 50}`, "title"],
-                value: `Edit ${i}`,
-              },
-            ],
-          },
-        ],
-      },
-    });
-    if (saved.status !== 200) throw new Error(`PUT /patches: ${saved.status}`);
-  }
-}
-
-async function runOperation(client: ValClient, op: Operation): Promise<void> {
-  if (op === "load") {
-    const stat = await client("/stat", "POST", { body: null });
-    if (stat.status !== 200) throw new Error(`/stat answered ${stat.status}`);
-    return;
-  }
-  const res = await client("/sources/~", "PUT", {
-    path: undefined,
-    query:
-      op === "base"
-        ? {
-            apply_patches: false,
-            exclude_patches: true,
-            validate_sources: false,
-            validate_binary_files: false,
-          }
-        : {
-            apply_patches: undefined,
-            exclude_patches: undefined,
-            validate_sources: op === "draft",
-            validate_binary_files: false,
-          },
-  });
-  if (res.status !== 200) {
-    throw new Error(`/sources/~ answered ${res.status}`);
-  }
 }
 
 function heapMB(): number {

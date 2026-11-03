@@ -158,3 +158,65 @@ each run's median, with the range of the three:
   entry costs the entry's path and one copy of the record's root for the
   view (`viewOf`); before, it cloned the module with every loaded entry in
   it.
+
+## The deployed isolate
+
+Not run yet: the probe (`isolate/`, see "The deployed isolate probe" in
+README.md) is ready to deploy, and needs Cloudflare credentials. What is
+below is LOCAL, and none of it is evidence about the 128 MB limit.
+
+### The probe's bundle
+
+2026-11-03, `pnpm dlx wrangler@4.133.0 deploy --dry-run --outdir … --metafile`,
+then `isolateProbe.ts bundle`. Unminified, as deployed.
+
+| Build          | Total      | Gzipped   | TypeScript | zod     | core    | shared  | server  | web     |
+| -------------- | ---------- | --------- | ---------- | ------- | ------- | ------- | ------- | ------- |
+| synthetic only | 12,864 KiB | 2,106 KiB | 10,785 KiB | 600 KiB | 508 KiB | 396 KiB | 366 KiB | -       |
+| `--env web`    | 13,390 KiB | 2,177 KiB | 10,789 KiB | 600 KiB | 509 KiB | 396 KiB | 366 KiB | 515 KiB |
+
+- **84% of Val's server, as a Worker bundles it, is the TypeScript
+  compiler**, imported by `ValServer.ts` through
+  `history/getJsonEntryAtCommit.ts`. It is in every isolate that runs Val's
+  server, and in the demo's browser bundle. V8 compiles lazily, but the
+  source (about 10.5 MB) is held either way, so it is part of what the app
+  leaves Val. Whether a draft read needs it at all is a question for phase 6.
+- Also in it and not used by a draft read: `modern-screenshot` (60 KiB,
+  `shared/internal`'s `pageScreenshot.ts`) and `flexsearch` (80 KiB).
+
+### workerd on this machine (NOT the limit)
+
+2026-11-03, Claude Code cloud container (Linux, 4 cores), `wrangler dev`
+(wrangler 4.133.0, workerd 1.20260916.1), `isolateProbe.ts run` with its
+defaults (`fresh=1`: each request builds its input; one request per row).
+Another session was editing `packages/server` at the time, so wrangler
+reloaded the Worker twice (one new isolate, at 80 MB `base`), and the machine
+was not quiet. "Op" is the isolate's own clock, which moves locally; "start"
+is the server starting and answering `/stat` (and seeding the chain); client
+is the whole request, the input's generation included.
+
+| Input                                   | Content | Draft read | Without validation | Base only | Start  | Client (draft) |
+| --------------------------------------- | ------- | ---------- | ------------------ | --------- | ------ | -------------- |
+| valbuild/web (`--env web`, median of 5) | 0.23 MB | 20 ms      | 7 ms               | 5 ms      | 20 ms  | 134 ms         |
+| synthetic                               | 1 MB    | 19 ms      | 7 ms               | 17 ms     | 60 ms  | 94 ms          |
+| synthetic                               | 2 MB    | 48 ms      | 13 ms              | 22 ms     | 125 ms | 196 ms         |
+| synthetic                               | 5 MB    | 102 ms     | 41 ms              | 33 ms     | 339 ms | 478 ms         |
+| synthetic                               | 10 MB   | 164 ms     | 130 ms             | 178 ms    | 752 ms | 987 ms         |
+| synthetic                               | 16 MB   | 431 ms     | 143 ms             | 191 ms    | 1.1 s  | 1.7 s          |
+| synthetic                               | 21 MB   | 635 ms     | 226 ms             | 344 ms    | 1.3 s  | 2.2 s          |
+| synthetic                               | 32 MB   | 694 ms     | 454 ms             | 579 ms    | 2.1 s  | 3.0 s          |
+| synthetic                               | 43 MB   | 944 ms     | 501 ms             | 902 ms    | 2.7 s  | 4.0 s          |
+| synthetic                               | 65 MB   | 1.2 s      | 744 ms             | 669 ms    | 3.4 s  | 5.0 s          |
+| synthetic                               | 86 MB   | 1.7 s      | 917 ms             | 877 ms    | 4.7 s  | 6.8 s          |
+| synthetic + 650 patches                 | 1 MB    | 37 ms      | 20 ms              | 6 ms      | 113 ms | 159 ms         |
+
+- **Every size passed, up to 86 MB of content**, which in Node keeps about
+  1.8 times its size on the heap after the read. And a separate check held
+  600 MB of heap ballast in one isolate (RSS 1.3 GB) with a 200. **So local
+  workerd does not enforce 128 MB**, and these rows say nothing about where
+  the limit is. The README's open question is closed by this.
+- The draft read here costs about 20 ms per MB, where `draftRead.ts` in
+  Node measured about 65 ms per MB (phase 3, quiet machine). Not
+  investigated: the machines' load differed, and this is one request per
+  size, not a median. Starting the server (every module's version and the
+  first `/stat`) costs more than one read.
