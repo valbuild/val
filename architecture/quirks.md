@@ -1113,6 +1113,39 @@ with a fabricated chain, one-patch `GET /patches`: 8ms at 1 patch, 15ms at 200,
 it too. Enough to notice on a long chain, nowhere near enough to explain a request
 that appears to hang.
 
+## A WebSocket that never connects stops a Next page from hydrating
+
+Symptom: under `next dev`, a page in the canvas renders its HTML, loads every
+chunk, throws nothing and never hydrates — no React root on `document`, so it
+never reports to the Studio, which says "No answer from the page". The same
+page on its own hydrates. TanStack is unaffected.
+
+Two things combine:
+
+- **Chrome opens one WebSocket handshake per host and port at a time** (RFC
+  6455, section 4.1). A socket stuck CONNECTING holds every later one to the
+  same host behind it, and the Studio and the page in its canvas share one.
+- **`next dev` (16) delivers the React debug channel over its HMR socket**,
+  and hydration waits for it: `app-index` awaits a Flight decode that will not
+  resolve without those chunks (`reactDebugChannel`, on by default).
+
+What was stuck was Vite's own client in the Studio. It opens its socket on the
+origin the Studio was loaded from — the app's, through the `/api/val/static`
+proxy, which cannot upgrade it — and Next never answers the handshake. Nothing
+in the Studio accepts hot updates, so for a long time the client was simply not
+loaded. Then a dynamic `import()` of a computed URL arrived (`importBundle` in
+`stagedCode.ts`): in dev Vite rewrites that to call `injectQuery` from
+`/@vite/client`, which loads the client, which opens the socket.
+`spaDevServerOptions` (`packages/ui/src/spaDevServer.ts`) now sends that
+socket straight to `:5173`, which answers it; `spaDevServer.test.ts` holds the
+config to that.
+
+How it was found, for the next one: in the frame, `Object.keys(document)` had
+no `__reactContainer$…`, and Playwright's `websocket` events showed the
+frame's `/_next/hmr` socket created only as the document was torn down. A
+`curl` with `Upgrade: websocket` to `localhost:3456/api/val/static/` hangs; the
+same to `/_next/hmr` answers `101` at once.
+
 ## A draft page refreshes when the server has the edit, not when it is typed
 
 An edit is applied to the Studio's store the moment you type it and written to
