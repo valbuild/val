@@ -107,7 +107,7 @@ export type MemoryTier = ModuleTier & {
 export type MemoryTierStats = {
   /** Bytes held, by the measure each value was put with. */
   bytes: number;
-  /** Values held. */
+  /** Versions held: values a chain made (not bases written up from a slower tier). */
   versions: number;
   /** Modules with at least one version held. */
   modules: number;
@@ -204,18 +204,28 @@ export function memoryTier(opts: {
       return newest === undefined ? null : (held.get(newest)?.value ?? null);
     },
     stats() {
+      // Versions: what a chain made. A base written up from a slower tier is
+      // the build's own object (counted at no bytes), held beside them, and
+      // not one of the module's versions.
       let mostVersions = 0;
       let mostBytes = 0;
+      let versions = 0;
+      let modules = 0;
       for (const ring of rings.values()) {
-        mostVersions = Math.max(mostVersions, ring.length);
+        const made = ring.filter(
+          (key) => versionOf(key)?.chain !== EMPTY_CHAIN,
+        );
+        versions += made.length;
+        if (made.length > 0) modules++;
+        mostVersions = Math.max(mostVersions, made.length);
         let moduleBytes = 0;
         for (const key of ring) moduleBytes += held.get(key)?.bytes ?? 0;
         mostBytes = Math.max(mostBytes, moduleBytes);
       }
       return {
         bytes,
-        versions: held.size,
-        modules: rings.size,
+        versions,
+        modules,
         mostVersionsOfOneModule: mostVersions,
         mostBytesOfOneModule: mostBytes,
         evicted,

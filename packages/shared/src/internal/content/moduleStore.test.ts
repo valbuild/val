@@ -113,6 +113,11 @@ describe("tiered", () => {
     expect(await store.get(moduleKey(HOME, at(EMPTY_CHAIN)))).not.toBeNull();
     expect(memory.get(moduleKey(HOME, v1.version))).toBe(v1);
     expect(memory.get(moduleKey(HOME, v2.version))).toBe(v2);
+    // Two versions held: the base beside them is the bundle's own object.
+    expect(memory.stats()).toMatchObject({
+      versions: 2,
+      mostVersionsOfOneModule: 2,
+    });
   });
 
   test("the bundle answers its own version only", async () => {
