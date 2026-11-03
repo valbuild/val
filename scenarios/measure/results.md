@@ -454,24 +454,24 @@ target, **degraded** misses it but works, **broken** freezes, crashes or
 does not finish. "Stores" is `scale.ts` (local refs; remote is within 10-30%
 everywhere except where said), "browser" the Playwright run.
 
-| Surface                                 | 1,000                                                                                                          | 10,000                                                                                                                                          | 100,000                                                                                             |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Cold start to the first field           | **degraded**: stores 37 ms; browser 5.0 s (dev, unbundled), longest task 450 ms; 70 MB heap                    | **degraded**: stores 163-300 ms; browser 6.2 s, longest task 2.1 s; 99 MB                                                                       | **broken**: browser 34 s with a 26 s freeze, 416 MB; stores 1.9-3.1 s (server start 1.3-2.5 s more) |
-| Open the record list                    | **degraded**: 19 GET /json (the window, gated); stores 33 ms; browser 0.57 s, longest task 190 ms              | **degraded**: the same 19 requests; stores 82 ms; browser 1.2 s, longest task 575 ms                                                            | **broken**: browser 35 s (with a reload), longest task 15.7 s; still 19 requests; stores 1.1 s      |
-| Scroll the record list                  | **degraded**: 9 long tasks, longest 200 ms; one GET /json per row that comes on screen                         | **degraded**: 9 long tasks, longest 634 ms; the list's `scrollTop` came back to 1,500 px after 40 steps of 1,500 (not investigated)             | **broken**: browser 42 s for 40 steps, longest task 8 s                                             |
-| Open one post                           | **fine**: under 1 ms, nothing requested (the record's reference scans name no module here)                     | **fine**                                                                                                                                        | **fine**                                                                                            |
-| Keystroke in a post (stores)            | **fine**: median 1.1 ms, p90 3.6                                                                               | **fine**: 2.3 ms, p90 4.6                                                                                                                       | **degraded**: 42 ms, p90 52 (the view copies the record's root of 100,000 keys per apply)           |
-| Typing on the page that picks (browser) | **degraded**: 3 long tasks while typing 10 characters, longest 227 ms                                          | **broken** (freezes): longest task 1.1 s, 2.0 s of long tasks in 2.2 s of typing (a field on a page pointing at the libraries; cause not found) | **broken**: a 14 s freeze typing 10 characters                                                      |
-| Image library: open the gallery         | **degraded**: every tile rendered (1,000 `<img>`), longest task 382 ms                                         | **broken**: 10,000 `<img>`, 6.9 s, longest task 2.3 s, heap +115 MB                                                                             | **broken**: 125 s, 100,000 `<img>`, 1.8 GB of heap                                                  |
-| Image library: scroll the gallery       | **degraded**: longest task 162 ms; 3,900 thumbnail requests (404s refetched)                                   | **broken**: 105 s for 40 steps, 131 long tasks (17 s), 9,400 thumbnail requests                                                                 | **broken**: the tab crashed                                                                         |
-| Open the picker (source read)           | **fine**: 0.5 ms (the list is virtualized; not driven in the browser)                                          | **fine**: 1.6 ms                                                                                                                                | **fine**: 30 ms                                                                                     |
-| Pick from the library                   | **fine**: 3 ms, one patch, the field reads the ONE library entry by its path (`fillFromGallery` lookup)        | **fine**: 3 ms                                                                                                                                  | **fine**: 4-6 ms                                                                                    |
-| `keyOf` dropdown                        | **degraded**: renders all 1,001 options, longest task 284 ms; previews only the 19 loaded posts                | **broken** (freezes): 10,001 options, 6.3 s, longest task 2.35 s                                                                                | **broken**: did not open in 15 s (longest task 24 s); stores 75 ms                                  |
-| Search, one query                       | **degraded**: loads every post first (1,000 GET /json, 0.64 MB); stores 1.3 s; browser 0.74 s to first results | **degraded**: 10,000 GET /json (6.5 MB), stores 47-51 s, heap +134-190 MB; browser 14.9 s, longest task 3.3 s                                   | **broken**: the process ran out of 8 GB of heap after about 200 s, loading                          |
-| Gallery: select an image ("used by")    | **degraded**: loads every post (a post can pick the image): 981 requests, 0.9 s                                | **degraded**: 9,981 requests, 43.5 s (not checked in the browser whether progress is shown)                                                     | **broken**: out of 8 GB of heap, loading                                                            |
-| Validate everything (Studio)            | **fine**: 26 ms, loaded content only (unloaded posts are not validated in the Studio)                          | **fine**: 140-170 ms                                                                                                                            | **degraded**: 1.5-1.8 s                                                                             |
-| Discard all                             | **fine**: 6 ms                                                                                                 | **fine**: 9 ms                                                                                                                                  | **fine**: 58-102 ms                                                                                 |
-| Publish one post                        | **fine**: 77 ms; then the Studio re-reads the whole project, `PUT /sources/~`: 314 KB                          | **degraded**: 223-317 ms; the re-read is 3.2 MB (7.8 MB remote)                                                                                 | **degraded**: 2.0-2.8 s; the re-read is 32 MB (79 MB remote)                                        |
+| Surface                                 | 1,000                                                                                                                                                  | 10,000                                                                                                                                       | 100,000                                                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Cold start to the first field           | **degraded**: stores 37 ms; browser 5.0 s (dev, unbundled), longest task 450 ms; 70 MB heap                                                            | **degraded**: stores 163-300 ms; browser 6.2 s, longest task 2.1 s; 99 MB                                                                    | **broken**: browser 34 s with a 26 s freeze, 416 MB; stores 1.9-3.1 s (server start 1.3-2.5 s more)                      |
+| Open the record list                    | **degraded**: 19 GET /json (the window, gated); stores 33 ms; browser 0.57 s, longest task 190 ms                                                      | **degraded**: the same 19 requests; stores 82 ms; browser 1.2 s, longest task 575 ms                                                         | **broken**: browser 35 s (with a reload), longest task 15.7 s; still 19 requests; stores 1.1 s                           |
+| Scroll the record list                  | **degraded**: 9 long tasks, longest 200 ms; one GET /json per row that comes on screen                                                                 | **degraded**: 9 long tasks, longest 634 ms; the list's `scrollTop` came back to 1,500 px after 40 steps of 1,500 (not investigated)          | **broken**: browser 42 s for 40 steps, longest task 8 s                                                                  |
+| Open one post                           | **fine**: under 1 ms, nothing requested (the record's reference scans name no module here)                                                             | **fine**                                                                                                                                     | **fine**                                                                                                                 |
+| Keystroke in a post (stores)            | **fine**: median 1.1 ms, p90 3.6                                                                                                                       | **fine**: 2.3 ms, p90 4.6                                                                                                                    | **degraded**: 42 ms, p90 52 (the view copies the record's root of 100,000 keys per apply)                                |
+| Typing on the page that picks (browser) | **degraded** (dev build) after the fix: longest task 69 ms typing 10 characters (227 ms before); its store work is the same as next to libraries of 10 | **fine** after the fix: longest task 75-124 ms (1.1 s before); the cause was four whole-project derivations per keystroke, see "After" below | **fine** after the fix: longest task 59 ms in a profiled run, 256 ms in the spec under load (a 14 s freeze before)       |
+| Image library: open the gallery         | **fine** after the fix: the tiles on screen (about 35), 0.4 s; 1,000 `<img>` before                                                                    | **fine** after the fix: 0.3 s, longest task 207 ms, 28 `<img>`, 88 MB (6.9 s, 10,000 `<img>`, 212 MB before)                                 | **fine** after the fix: 0.9 s, longest task 843 ms (the items for 100,000 entries), 28 `<img>` (125 s and 1.8 GB before) |
+| Image library: scroll the gallery       | **degraded** (dev build) after the fix: longest task 82-93 ms; 860 thumbnail requests (3,900 before)                                                   | **fine** after the fix: no task over 146 ms, 1,400 thumbnail requests (105 s and 9,400 before)                                               | **fine** after the fix: longest task 135 ms (the tab crashed before)                                                     |
+| Open the picker (source read)           | **fine**: 0.5 ms (the list is virtualized; not driven in the browser)                                                                                  | **fine**: 1.6 ms                                                                                                                             | **fine**: 30 ms                                                                                                          |
+| Pick from the library                   | **fine**: 3 ms, one patch, the field reads the ONE library entry by its path (`fillFromGallery` lookup)                                                | **fine**: 3 ms                                                                                                                               | **fine**: 4-6 ms                                                                                                         |
+| `keyOf` dropdown                        | **fine** after the fix: opens in 0.1-0.2 s with the options on screen (19); 1,001 before                                                               | **fine** after the fix: 0.2-0.3 s, 19 options, longest task 96 ms (6.3 s and 10,001 before)                                                  | **fine** after the fix: 0.24 s, 19 options (did not open before); stores 75 ms                                           |
+| Search, one query                       | **degraded**: loads every post first (1,000 GET /json, 0.64 MB); stores 1.3 s; browser 0.74 s to first results                                         | **degraded**: 10,000 GET /json (6.5 MB), stores 47-51 s, heap +134-190 MB; browser 14.9 s, longest task 3.3 s                                | **broken**: the process ran out of 8 GB of heap after about 200 s, loading                                               |
+| Gallery: select an image ("used by")    | **degraded**: loads every post (a post can pick the image): 981 requests, 0.9 s                                                                        | **degraded**: 9,981 requests, 43.5 s (not checked in the browser whether progress is shown)                                                  | **broken**: out of 8 GB of heap, loading                                                                                 |
+| Validate everything (Studio)            | **fine**: 26 ms, loaded content only (unloaded posts are not validated in the Studio)                                                                  | **fine**: 140-170 ms                                                                                                                         | **degraded**: 1.5-1.8 s                                                                                                  |
+| Discard all                             | **fine**: 6 ms                                                                                                                                         | **fine**: 9 ms                                                                                                                               | **fine**: 58-102 ms                                                                                                      |
+| Publish one post                        | **fine**: 77 ms; then the Studio re-reads the whole project, `PUT /sources/~`: 314 KB                                                                  | **degraded**: 223-317 ms; the re-read is 3.2 MB (7.8 MB remote)                                                                              | **degraded**: 2.0-2.8 s; the re-read is 32 MB (79 MB remote)                                                             |
 
 Counted at every size (`scale.scenario.test.ts`, the same at 1k, 10k and
 100k, local and remote): cold start makes two `/stat` and no `GET /json`,
@@ -601,6 +601,96 @@ Looks structural:
 - **What the Studio validates is what it has loaded**: at any size the
   posts nobody opened are not validated in the Studio (the server's publish
   gate is the check), and the `keyOf` dropdown names only the loaded posts.
+
+### After: the gallery, the reference dropdowns and the typing freeze
+
+Fixed 2026-11-03 (`1e4bf4eaf`, `cda48c1b3`, `cff7204d5`, budgets in
+`84fd22d86`). The browser numbers are `e2e/tanstack/scale.spec.ts` against a
+copy of `examples/tanstack` served from a worktree at the branch's head (so
+the other session's edits to the same checkout could not reload the page
+mid-run), one run each, with that session's suites running alongside (load
+4-8 on 4 cores): treat the milliseconds as an upper bound.
+
+**The typing freeze.** A Chromium CPU profile of typing on the page that
+picks (`Profiler.start` over CDP around the ten keystrokes) put 1.45 s of
+the 2.2 s in React renders, all of it in four whole-project derivations that
+every keystroke re-ran and none of which is about the module being edited:
+
+| Where                                                                                                | Per 10 keystrokes at 10k, before | What it did                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ArrayAndRecordTools` -> `useJsonEntriesProgress` -> `SourceStore.allEntriesProgress` -> `markersOf` | 547 ms                           | counted every `.jsonValues()` marker of every module on every READ, and every progress hook reads on every render: the 10,000 posts, several times a keystroke |
+| `ArrayAndRecordTools` -> `useKeysOf` -> `getKeysOf` -> `traverseSchemas`                             | 293 ms                           | the page header's `keyOf` scan walked every module's source (30,000 library entries) at the root of an OBJECT page, which shows no references                  |
+| `KeySelector`                                                                                        | 341 ms                           | built 10,001 option elements on every render of the `keyOf` field, closed or open (they were written inline under the popover)                                 |
+| `ValShell` -> `useShellData` -> `toMediaFiles`                                                       | 152 ms                           | listed and sorted every library's files again whenever the patch list or the validation errors moved                                                           |
+
+Fixed in the product: markers and progress are counted once per view of a
+module (`source:count-entries`) and kept until the view or a fetch's outcome
+moves; the header scans only where something shows the answer
+(`keyOfScanTarget`), and a scan walks only modules whose schema can hold a
+`keyOf` to the target (`keyOfScanScope`); the dropdown's options are built
+only while it is open, and only those on screen; the shell's file lists are
+a memo of their own over the galleries' source, and
+`useShallowModulesAtPaths` hands back the same answer while its modules are
+unchanged. After, the same profile at 10k: longest task 84 ms, 146 ms of
+long tasks, nothing in it that walks a library; at 100k the one thing left
+that grows is `ValidationStore`'s `keysOf` of the record the `keyOf` points
+at (19 ms, once per validation pass, not per keystroke).
+
+**Windowing.** The gallery's grid and list, and the reference dropdowns
+(`KeySelector`, `RouteSelector`, now `WindowedOptionList`), render only what
+is on screen through the virtualizer the record list and the media picker
+use (`@tanstack/react-virtual`), past the record list's threshold of 50. The
+dropdown filters itself (every word of the search, in order), keeps the
+focus in its search (and now gets it on open, which inside the shadow root
+Radix could not give it), moves with the arrow keys, Home and End, scrolls
+the active option into the window and names it with
+`aria-activedescendant`, each option carrying `aria-setsize`/`aria-posinset`;
+it opens on the field's value. The gallery's columns are worked out as its
+`auto-fill` grid would make them; an entry opened from elsewhere is scrolled
+to; Tab walks the tiles in order. `ModuleGallery` indexes the validation
+errors and the pending patches by entry in one pass each instead of walking
+all of them for every entry, and keeps its items until what they are made
+of changes.
+
+| Surface (browser): ms (longest task, long-task total) | 1,000 before                                | 1,000 after                | 10,000 before                                | 10,000 after                      | 100,000 before                     | 100,000 after                               |
+| ----------------------------------------------------- | ------------------------------------------- | -------------------------- | -------------------------------------------- | --------------------------------- | ---------------------------------- | ------------------------------------------- |
+| Typing 10 characters, 40 ms apart                     | 2,201 (227, 442)                            | 2,110 (69, 184)            | 2,226 (1,110, 1,981)                         | 2,199 (83, 361)                   | 14,661 (13,739, 15,643)            | 2,182 (256, 609); profiled alone: (59, 172) |
+| `keyOf` dropdown: open                                | 837 (284, 386), 1,001 options               | 162 (77, 77), 19 options   | 6,323 (2,351, 4,643), 10,001 options         | 309 (96, 96), 19 options          | did not open in 15 s               | 241 (96, 96), 19 options                    |
+| Open the image gallery                                | 786 (382, 474), 1,000 `<img>`               | 406 (158, 295), 28 `<img>` | 6,933 (2,304, 4,436), 10,000 `<img>`, 212 MB | 279 (207, 207), 28 `<img>`, 88 MB | 124,582 (26,939, 74,350), 1,806 MB | 887 (843, 843), 28 `<img>`, 249 MB          |
+| Scroll the gallery, 40 steps                          | 13,974 (162, 162), 3,932 thumbnail requests | 5,168 (93, 730), 860       | 105,440 (743, 17,184), 9,386                 | 5,892 (146, 1,263), 1,395         | the tab crashed                    | 5,672 (135, 1,131), 1,395                   |
+
+A tile whose picture 404s shows its name instead of an `<img>`, so `<img>`
+counts the tiles with a picture: about 35 tiles are on screen at
+1,280 × 720. The scroll's wall time has a floor of 3 s (40 steps 50 ms apart,
+then a second's wait). The 100k heap includes every post, which "used by"
+loaded in the step before.
+
+Budgets, so none of it comes back:
+
+- `scenarios/src/scalePage.scenario.test.ts` (the world): ten keystrokes on
+  the page that picks cost the same work next to libraries of N entries as
+  next to libraries of 10 -- requests, the engine's copies, versions hashed,
+  listeners woken, entries counted (`source:count-entries`), previews,
+  validations -- local and remote; the page makes no reference scan, and a
+  scan for references to the record it points at walks the page alone.
+- `packages/ui/spa/stores/entriesProgress.test.ts`: a module's entries are
+  counted once however often they are asked about, not again for a
+  keystroke in another module, and again when an entry arrives or fails.
+- `packages/ui/spa/components/fields/KeySelector.test.tsx` (jsdom, a 300 px
+  list of 36 px options): no option while closed; open, the window and its
+  overscan of 10,000; a key 10,000 down found by search and by End and
+  picked with Enter; it opens on a value 7,000 down; "New entry" is reached
+  whatever the search.
+- `packages/ui/spa/components/MediaGallery/MediaGallery.test.tsx` (jsdom, a
+  1,000 × 600 grid): the tiles and `<img>` on screen, not the 10,000
+  entries, in the grid and in the list; a click picks; a search finds the
+  last entry; an entry opened from elsewhere is rendered.
+
+Seen while measuring, not fixed here: search (`system.search`) never
+answered in the browser at the branch's head at 1k and 10k (the dialog
+stays on "Searching…" with every post loaded; with this commit's entry
+counting switched off it hangs the same way), and the page reloaded itself
+once during the 10k search step.
 
 ### Not measured, and why
 
