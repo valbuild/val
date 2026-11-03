@@ -9,6 +9,7 @@ import {
 import type { CodeReload, HostStore } from "./HostStore";
 import type { SourceStore } from "./SourceStore";
 import type { PatchSync } from "./PatchSync";
+import type { PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
 
 /**
@@ -63,7 +64,8 @@ export type ManifestCode = {
  *   self-hosted TanStack Start), a build with another Val
  *   (`other-val-version`), a registry that does not load: the page is
  *   reloaded, without asking, once {@link STUDIO_RELOAD_GRACE_MS} has passed
- *   with the schemas still apart and no edit is on its way to the server.
+ *   with the schemas still apart and no edit is on its way to the server --
+ *   neither a patch nor the bytes of one (`PatchStore.uploadsInFlight`).
  *
  * What the watch knew, kept:
  *
@@ -98,6 +100,7 @@ export class BuildCode {
     private readonly host: HostStore,
     private readonly sourceStore: SourceStore,
     private readonly patchSync: PatchSync,
+    private readonly patchStore: PatchStore,
     private readonly options: {
       /** `fs`: local development, where HMR brings new code. */
       mode: () => "fs" | "http";
@@ -214,18 +217,31 @@ export class BuildCode {
     if (this.moved(this.latest.manifest, this.latest.ahead).length === 0) {
       return;
     }
-    if (this.patchSync.currentState().status !== "in-sync") {
-      // An edit is on its way to the server: reloaded now, it would be lost.
+    if (
+      this.patchSync.currentState().status !== "in-sync" ||
+      this.patchStore.uploadsInFlight() > 0
+    ) {
+      // An edit is on its way to the server -- its bytes, or the patch
+      // itself: reloaded now, it would be lost. An upload comes first and
+      // the patch exists only after it, so "in sync" is not enough.
       if (this.waitingForSave !== null) return;
-      this.waitingForSave = this.patchSync.events.on(
-        "patch:sync-state",
-        (event) => {
-          if (event.state.status !== "in-sync") return;
-          this.waitingForSave?.();
-          this.waitingForSave = null;
-          this.reloadIfStillMoved();
-        },
-      );
+      const again = () => {
+        if (
+          this.patchSync.currentState().status !== "in-sync" ||
+          this.patchStore.uploadsInFlight() > 0
+        ) {
+          return;
+        }
+        this.waitingForSave?.();
+        this.waitingForSave = null;
+        this.reloadIfStillMoved();
+      };
+      const offSync = this.patchSync.events.on("patch:sync-state", again);
+      const offUploads = this.patchStore.events.on("patch:uploads", again);
+      this.waitingForSave = () => {
+        offSync();
+        offUploads();
+      };
       return;
     }
     this.reloading = true;

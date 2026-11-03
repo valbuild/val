@@ -423,6 +423,12 @@ export type SystemEvent =
    */
   | { type: "patch:sync-state"; state: SyncState }
   /**
+   * A patch's files started or finished moving: `inFlight` is how many
+   * `createPatch` calls are uploading (or deleting) bytes now. See
+   * `PatchStore.uploadsInFlight`.
+   */
+  | { type: "patch:uploads"; inFlight: number }
+  /**
    * Source was rebuilt from base + the surviving chain.
    *
    * Its own event rather than a `source:patch-apply`: an apply says "this patch

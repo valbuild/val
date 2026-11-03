@@ -807,7 +807,7 @@ export function createSystem(options: SystemOptions): System {
   }
 
   // A new build's code, taken in before the manifest that names it is.
-  const buildCode = new BuildCode(host, sourceStore, patchSync, {
+  const buildCode = new BuildCode(host, sourceStore, patchSync, patchStore, {
     mode: () => mode,
     ...(options.importRegistry !== undefined
       ? { importRegistry: options.importRegistry }

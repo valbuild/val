@@ -18,6 +18,7 @@ import { createSystem, type System } from "./createSystem";
 import { createFakeManifest } from "./testManifest";
 import { STUDIO_RELOAD_GRACE_MS } from "./buildCode";
 import type { FetchManifest } from "./manifestSource";
+import type { UploadFile } from "./PatchStore";
 
 /**
  * A new build's code, into an open Studio (`BuildCode`, phase 9 of
@@ -62,6 +63,7 @@ function setup(options: {
   mode: "fs" | "http";
   registry?: (build: "b1" | "b2") => BuildRegistry | undefined;
   imported?: () => ValModules;
+  uploadFile?: UploadFile;
 }) {
   let build: "b1" | "b2" = "b1";
   const builds = { b1: before(), b2: after() };
@@ -96,6 +98,16 @@ function setup(options: {
     fetchModule: fake.fetchModule,
     fetchPatches: async () => ({ patches: [] }),
     createPatchId: () => "p" as PatchId,
+    ...(options.uploadFile !== undefined
+      ? {
+          uploadFile: options.uploadFile,
+          savePatches: async ({ patches, parentRef }) => ({
+            status: "saved",
+            newPatchIds: patches.map((patch) => patch.patchId),
+            parentRef,
+          }),
+        }
+      : {}),
     importRegistry: async (entry) => {
       imports.push(entry);
       return options.imported?.() ?? registryOf(builds.b2);
@@ -251,5 +263,44 @@ test("a registry that does not load falls back to reloading the page", async () 
   await studio.stat();
   expect(studio.schemaIs(before())).toBe(true);
   await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS);
+  expect(studio.reloads()).toBe(1);
+});
+
+test("an image on its way holds the reload until it has landed", async () => {
+  let landed: () => void = () => {};
+  const studio = setup({
+    mode: "http",
+    uploadFile: (request) =>
+      request.data === null
+        ? Promise.resolve({ status: "ok" })
+        : new Promise((resolve) => {
+            landed = () => resolve({ status: "ok" });
+          }),
+  });
+  await studio.stat();
+  // The bytes go up before the patch exists: nothing is pending meanwhile.
+  const creating = studio.system.patchStore.createPatch(MODULE, [
+    { op: "add", path: ["image"], value: { path: "/public/val/a.png" } },
+    {
+      op: "file",
+      path: ["image"],
+      filePath: "/public/val/a.png",
+      value: "data:image/png;base64,AAAA",
+      remote: false,
+    },
+  ]);
+  await settle();
+  expect(studio.system.patchStore.uploadsInFlight()).toBe(1);
+
+  studio.deploy();
+  await studio.stat();
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS * 2);
+  expect(studio.reloads()).toBe(0);
+
+  landed();
+  await creating;
+  await settle();
+  await jest.advanceTimersByTimeAsync(0);
+  expect(studio.system.patchStore.uploadsInFlight()).toBe(0);
   expect(studio.reloads()).toBe(1);
 });

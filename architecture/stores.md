@@ -213,7 +213,9 @@ fields.
 - **Anything else** (Next.js, a self-hosted TanStack Start, another Val, a
   registry that did not load): the page reloads itself, without asking, once
   the schemas have stayed apart for `STUDIO_RELOAD_GRACE_MS` and no edit is
-  on its way to the server -- and only if this Studio's code and the
+  on its way to the server, an image's bytes included
+  (`PatchStore.uploadsInFlight`: they go up before the patch exists, so
+  "in sync" alone is true while they do) -- and only if this Studio's code and the
   server's have agreed once, so a page that loads on a build the server does
   not run never reloads into the same page.
 

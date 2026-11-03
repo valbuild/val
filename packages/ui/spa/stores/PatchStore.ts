@@ -953,126 +953,152 @@ export class PatchStore {
       };
     }
     const upload = this.uploadFile;
-
-    const uploaded: { filePath: string; remote: boolean }[] = [];
-    if (upload) {
-      for (const op of toUpload) {
-        this.activity.work("patch:upload-file", op.filePath);
-        const fileIndex = uploaded.length;
-        const res = await upload({
-          patchId,
-          parentRef,
-          filePath: op.filePath,
-          data: op.value,
-          type: fileType,
-          remote: op.remote,
-          metadata: op.metadata,
-          onProgress:
-            onProgress === undefined
-              ? undefined
-              : (bytesUploaded, totalBytes) =>
-                  onProgress(
-                    bytesUploaded,
-                    totalBytes,
-                    fileIndex,
-                    toUpload.length,
-                  ),
-        });
-        if (res.status === "error") {
-          // Roll back what did land, then refuse. No patch is created, so
-          // nothing references anything missing.
-          const rolledBack: string[] = [];
-          const orphaned: string[] = [];
-          for (const done of uploaded) {
-            this.activity.work("patch:rollback-file", done.filePath);
-            const undo = await upload({
-              patchId,
-              parentRef,
-              filePath: done.filePath,
-              data: null,
-              type: fileType,
-              // The op's OWN remoteness. Hardcoding `false` handed a remote ref
-              // to a seam that only splits it into a real path when told the ref
-              // is remote, so the delete targeted a path nothing had written —
-              // and still reported success.
-              remote: done.remote,
-            });
-            if (undo.status === "ok") {
-              rolledBack.push(done.filePath);
-            } else {
-              orphaned.push(done.filePath);
+    // Bytes on their way: a reload now would lose them (`uploadsInFlight`).
+    const carriesFiles =
+      upload !== undefined && (toUpload.length > 0 || toDelete.length > 0);
+    if (carriesFiles) this.uploadsMoved(1);
+    try {
+      const uploaded: { filePath: string; remote: boolean }[] = [];
+      if (upload) {
+        for (const op of toUpload) {
+          this.activity.work("patch:upload-file", op.filePath);
+          const fileIndex = uploaded.length;
+          const res = await upload({
+            patchId,
+            parentRef,
+            filePath: op.filePath,
+            data: op.value,
+            type: fileType,
+            remote: op.remote,
+            metadata: op.metadata,
+            onProgress:
+              onProgress === undefined
+                ? undefined
+                : (bytesUploaded, totalBytes) =>
+                    onProgress(
+                      bytesUploaded,
+                      totalBytes,
+                      fileIndex,
+                      toUpload.length,
+                    ),
+          });
+          if (res.status === "error") {
+            // Roll back what did land, then refuse. No patch is created, so
+            // nothing references anything missing.
+            const rolledBack: string[] = [];
+            const orphaned: string[] = [];
+            for (const done of uploaded) {
+              this.activity.work("patch:rollback-file", done.filePath);
+              const undo = await upload({
+                patchId,
+                parentRef,
+                filePath: done.filePath,
+                data: null,
+                type: fileType,
+                // The op's OWN remoteness. Hardcoding `false` handed a remote ref
+                // to a seam that only splits it into a real path when told the ref
+                // is remote, so the delete targeted a path nothing had written —
+                // and still reported success.
+                remote: done.remote,
+              });
+              if (undo.status === "ok") {
+                rolledBack.push(done.filePath);
+              } else {
+                orphaned.push(done.filePath);
+              }
             }
+            return {
+              status: "upload-failed",
+              message: res.message,
+              rolledBack,
+              orphaned,
+            };
           }
-          return {
-            status: "upload-failed",
-            message: res.message,
-            rolledBack,
-            orphaned,
-          };
+          uploaded.push({ filePath: op.filePath, remote: op.remote === true });
         }
-        uploaded.push({ filePath: op.filePath, remote: op.remote === true });
       }
-    }
 
-    // Stamped here rather than left to default downstream. The patch-set store
-    // orders the review list by this and shows newest first, so an unstamped
-    // local edit fell back to the epoch and sorted below every other change —
-    // the exact outcome the comment on that fallback said must not happen.
-    const record: PatchRecord = {
-      patchId,
-      moduleFilePath,
-      // The HASHED ops, never the bytes. `splitPatchFileOps` explains why the
-      // server silently produces no file if this is got wrong.
-      patch: patchOps,
-      meta,
-      createdAt: new Date().toISOString(),
-      // Stamped for the same reason `createdAt` is, and with the same value the
-      // server is about to record: `PUT /patches` takes the author from the
-      // session cookie this client is authenticated with, so the two agree.
-      //
-      // Without it a patch made here had no author until the page was reloaded,
-      // and a locally created record is never re-fetched — `onStatPatchIds` asks
-      // only for ids it has no data for. So in `http` mode every change the user
-      // had just made showed as "Unknown author" beside the ones they made
-      // before, which is the one reading of the review screen that is never
-      // true.
-      authorId: this.authorSource(),
-    };
-    this.dataById.set(patchId, record);
-    this.originById.set(patchId, "internal");
-    // Pending from the instant it exists. A locally created patch has by
-    // definition not reached the server, and the alternative — marking it
-    // pending when a save is attempted — leaves a window in which an edit is
-    // real, unsaved, and indistinguishable from a saved one.
-    this.pendingIds.add(patchId);
-    if (fieldId !== undefined) {
-      this.creatorByPatchId.set(patchId, fieldId);
-    }
-    if (sessionId !== undefined) {
-      this.sessionByPatchId.set(patchId, sessionId);
-    }
-    this.ordered = [...this.ordered, patchId];
-    this.bump();
-    this.activity.work("patch:create", patchId);
-    this.events.emit({ type: "patch:create", patches: [patchId] });
-
-    // Deletes run only now that the patch that stops referencing these files
-    // has landed. A failure here leaves an orphan, which is wasted bytes; doing
-    // it earlier could leave the old source pointing at bytes already gone.
-    if (upload) {
-      for (const op of toDelete) {
-        this.activity.work("patch:delete-file", op.filePath);
-        await upload({
-          patchId,
-          parentRef,
-          filePath: op.filePath,
-          data: null,
-          type: fileType,
-          remote: op.remote,
-        });
+      // Stamped here rather than left to default downstream. The patch-set store
+      // orders the review list by this and shows newest first, so an unstamped
+      // local edit fell back to the epoch and sorted below every other change —
+      // the exact outcome the comment on that fallback said must not happen.
+      const record: PatchRecord = {
+        patchId,
+        moduleFilePath,
+        // The HASHED ops, never the bytes. `splitPatchFileOps` explains why the
+        // server silently produces no file if this is got wrong.
+        patch: patchOps,
+        meta,
+        createdAt: new Date().toISOString(),
+        // Stamped for the same reason `createdAt` is, and with the same value the
+        // server is about to record: `PUT /patches` takes the author from the
+        // session cookie this client is authenticated with, so the two agree.
+        //
+        // Without it a patch made here had no author until the page was reloaded,
+        // and a locally created record is never re-fetched — `onStatPatchIds` asks
+        // only for ids it has no data for. So in `http` mode every change the user
+        // had just made showed as "Unknown author" beside the ones they made
+        // before, which is the one reading of the review screen that is never
+        // true.
+        authorId: this.authorSource(),
+      };
+      this.dataById.set(patchId, record);
+      this.originById.set(patchId, "internal");
+      // Pending from the instant it exists. A locally created patch has by
+      // definition not reached the server, and the alternative — marking it
+      // pending when a save is attempted — leaves a window in which an edit is
+      // real, unsaved, and indistinguishable from a saved one.
+      this.pendingIds.add(patchId);
+      if (fieldId !== undefined) {
+        this.creatorByPatchId.set(patchId, fieldId);
       }
+      if (sessionId !== undefined) {
+        this.sessionByPatchId.set(patchId, sessionId);
+      }
+      this.ordered = [...this.ordered, patchId];
+      this.bump();
+      this.activity.work("patch:create", patchId);
+      this.events.emit({ type: "patch:create", patches: [patchId] });
+
+      // Deletes run only now that the patch that stops referencing these files
+      // has landed. A failure here leaves an orphan, which is wasted bytes; doing
+      // it earlier could leave the old source pointing at bytes already gone.
+      if (upload) {
+        for (const op of toDelete) {
+          this.activity.work("patch:delete-file", op.filePath);
+          await upload({
+            patchId,
+            parentRef,
+            filePath: op.filePath,
+            data: null,
+            type: fileType,
+            remote: op.remote,
+          });
+        }
+      }
+      return { status: "created", record };
+    } finally {
+      if (carriesFiles) this.uploadsMoved(-1);
     }
-    return { status: "created", record };
+  }
+
+  /**
+   * How many {@link createPatch} calls are moving bytes right now: uploading
+   * a patch's files before it exists, or deleting the ones it stopped
+   * referencing after. The patch is not in the chain until its uploads are
+   * done, so "every edit is on the server" (`in-sync`) is true while an image
+   * is still on its way -- and a page reloaded then loses it. What a reload
+   * waits for, beside the save (`BuildCode`).
+   */
+  uploadsInFlight(): number {
+    return this.uploading;
+  }
+
+  private uploading = 0;
+
+  private uploadsMoved(by: 1 | -1): void {
+    this.uploading += by;
+    this.events.emit({ type: "patch:uploads", inFlight: this.uploading });
   }
 
   /**
