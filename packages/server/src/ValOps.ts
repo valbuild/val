@@ -82,6 +82,7 @@ import {
   type EntryState,
   type ModuleContent,
   baseVersionOf,
+  sameModuleVersion,
   schemaVersionOf,
   type ModuleVersion,
   type ProjectVersion,
@@ -763,6 +764,70 @@ export abstract class ValOps {
     const build = this.buildVersion ?? "";
     const own = await this.ownSeq(build);
     return { build, seq: own ?? headVersion ?? 0 };
+  }
+
+  /**
+   * The last few manifests this instance answered, by ETag: what a
+   * "since `seq` N" read is a delta from (`GET /manifest?since=N`). A few,
+   * not one: two Studios polling a project hold different ones. In this
+   * instance only -- a manifest another process answered is not here, and
+   * is answered whole.
+   */
+  private answeredManifests: {
+    etag: string;
+    project: ProjectVersion;
+    modules: Record<ModuleFilePath, ModuleVersion>;
+  }[] = [];
+
+  /** Keep a manifest this instance answered. See {@link manifestSince}. */
+  rememberManifest(
+    etag: string,
+    project: ProjectVersion,
+    modules: Record<ModuleFilePath, ModuleVersion>,
+  ): void {
+    if (this.answeredManifests.some((held) => held.etag === etag)) return;
+    this.answeredManifests.push({ etag, project, modules });
+    if (this.answeredManifests.length > ValOps.ANSWERED_MANIFESTS) {
+      this.answeredManifests.shift();
+    }
+  }
+
+  private static readonly ANSWERED_MANIFESTS = 4;
+
+  /**
+   * The modules of `modules` whose version moved since the manifest this
+   * instance answered with `etag` at `since`, or `null` when that one is not
+   * held (answered elsewhere, too long ago) or was another build's: then the
+   * answer is the whole manifest. Three strings compared per module; nothing
+   * hashed.
+   */
+  manifestSince(
+    etag: string,
+    since: number,
+    project: ProjectVersion,
+    modules: Record<ModuleFilePath, ModuleVersion>,
+  ): Record<ModuleFilePath, ModuleVersion> | null {
+    const held = this.answeredManifests.find((m) => m.etag === etag);
+    if (
+      held === undefined ||
+      held.project.seq !== since ||
+      held.project.build !== project.build
+    ) {
+      return null;
+    }
+    const moved: Record<ModuleFilePath, ModuleVersion> = {};
+    for (const [path, version] of Object.entries(modules) as [
+      ModuleFilePath,
+      ModuleVersion,
+    ][]) {
+      const before = held.modules[path];
+      if (before === undefined || !sameModuleVersion(before, version)) {
+        moved[path] = version;
+      }
+    }
+    // One build's modules are one set: a module cannot leave without a new
+    // build, which is answered whole.
+    return moved;
   }
 
   /**

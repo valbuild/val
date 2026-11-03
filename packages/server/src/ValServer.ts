@@ -1994,6 +1994,8 @@ export const ValServer = (
      * content changed, so answering hashes nothing; the ETag is the build,
      * the base fold, `seq` and the chain fold's epoch, concatenated. Read
      * through `readAtVersion`, like every answer that carries the chain.
+     * With `?since=N`, a delta from the manifest the client holds, when
+     * this instance answered it (`ValOps.manifestSince`).
      */
     "/manifest": {
       GET: async (req) => {
@@ -2018,10 +2020,29 @@ export const ValServer = (
         );
         const etag = await serverOps.manifestTag(project);
         const headers = { ETag: etag, "Cache-Control": "no-cache" };
-        if (req.headers["if-none-match"] === etag) {
+        const held = req.headers["if-none-match"];
+        if (held === etag) {
           return { status: 304, headers };
         }
-        return { status: 200, headers, json: { project, modules } };
+        serverOps.rememberManifest(etag, project, modules);
+        /*
+         * "Since seq N": the modules that moved since the manifest the
+         * client holds -- the one its ETag names, answered at N -- when this
+         * instance answered it. Otherwise whole, which is always correct.
+         */
+        const since =
+          req.query.since !== undefined ? Number(req.query.since) : NaN;
+        if (held !== undefined && Number.isSafeInteger(since)) {
+          const moved = serverOps.manifestSince(held, since, project, modules);
+          if (moved !== null) {
+            return {
+              status: 200,
+              headers,
+              json: { project, modules: moved, tag: etag, since },
+            };
+          }
+        }
+        return { status: 200, headers, json: { project, modules, tag: etag } };
       },
     },
 

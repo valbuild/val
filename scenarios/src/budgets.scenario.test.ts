@@ -22,8 +22,9 @@ jest.mock("../../packages/ui/spa/validation/schemaValidationBridge", () =>
  * timed, so CI can hold them. Catalogue ids B01, B02, B04, B05, and the
  * engine's B06 (`engine:apply-patch`, `engine:clone-bytes`), and the
  * readers' B07 (`read:resolve`, `read:encode`), and a draft page's
- * refreshes, B08, and the versions a Studio keeps, B09. (B03, a draft read
- * in a 128 MB isolate, is a benchmark, not here.)
+ * refreshes, B08, and the versions a Studio keeps, B09, and what a
+ * manifest since the last one names, B10. (B03, a draft read in a 128 MB
+ * isolate, is a benchmark, not here.)
  *
  * Since phase 5 a Studio applies patches with the same engine as the server
  * and computes its own versions, in the same process: `world.expectWork`
@@ -195,6 +196,36 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
 
     world.expectWork(since, { "version:hash": { exactly: 1 } });
     editor.expectWork(studioSince, { "version:hash": { exactly: 1 } });
+  });
+
+  /**
+   * B10 A manifest since the last one names what moved, and nothing else.
+   *
+   * Given a project of two modules and the manifest a client holds,
+   * when nothing moves, then asking "since `seq` N" with it is a 304 (risk
+   * 10 in the plan: a quiet project sends nothing); and when one module is
+   * edited, the answer names that module alone, as a delta from N, at the
+   * version the whole manifest names for it -- and hashes nothing beyond the
+   * write's own link.
+   */
+  test("B10 a manifest since the last one names only what moved", async () => {
+    world = await createWorld({ config, modules: [homeVal, listVal], server });
+    const editor = await world.studio("editor");
+    await world.settle();
+    const held = await world.manifest();
+    expect(await world.manifest(held)).toBeNull();
+
+    await editor.edit(homeVal, ["title"], "Typed");
+    await world.settle();
+    const whole = await world.manifest();
+    const since = world.workPosition();
+    const delta = await world.manifest(held);
+    world.expectWork(since, { "version:hash": { exactly: 0 } });
+
+    expect(delta?.since).toBe(held.project.seq);
+    expect(Object.keys(delta?.modules ?? {})).toEqual([HOME]);
+    expect(delta?.modules[HOME]).toEqual(whole.modules[HOME]);
+    expect(delta?.project).toEqual(whole.project);
   });
 
   /**

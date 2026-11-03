@@ -39,6 +39,8 @@ describe("/manifest", () => {
   const Manifest = z.object({
     project: ProjectVersionSchema,
     modules: z.record(z.string(), ModuleVersionSchema),
+    tag: z.string().optional(),
+    since: z.number().optional(),
   });
   const Tree = z.object({
     modules: z.record(
@@ -98,8 +100,9 @@ describe("/manifest", () => {
           ...init,
         }),
       );
-    const manifest = async (etag?: string) => {
-      const res = await send("GET", "/manifest", {
+    const manifest = async (etag?: string, since?: number) => {
+      const query = since !== undefined ? `?since=${since}` : "";
+      const res = await send("GET", `/manifest${query}`, {
         headers: new Headers(
           etag !== undefined ? { "if-none-match": etag } : {},
         ),
@@ -159,6 +162,8 @@ describe("/manifest", () => {
     const { manifest, edit } = start();
     const first = await manifest();
     expect(first.etag).toEqual(expect.any(String));
+    // In the body too, for a client that reads only the body (`ValClient`).
+    expect(first.json?.tag).toBe(first.etag);
     expect((await manifest(first.etag)).status).toBe(304);
 
     await edit(p1, "Hello world");
@@ -219,6 +224,63 @@ describe("/manifest", () => {
       seqs.push((await next.manifest()).json?.project.seq);
     }
     expect(new Set(seqs)).toEqual(new Set([after.json?.project.seq]));
+  });
+
+  test("since seq N: only the modules that moved since the manifest the client holds", async () => {
+    const { manifest, edit } = start();
+    const held = await manifest();
+    await edit(p1, "Hello world");
+    const delta = await manifest(held.etag, held.json?.project.seq);
+    expect(delta.status).toBe(200);
+    expect(delta.json?.since).toBe(held.json?.project.seq);
+    expect(Object.keys(delta.json?.modules ?? {})).toEqual([
+      "/content/home.val.ts",
+    ]);
+    expect(delta.json?.modules["/content/home.val.ts"]?.chain).toBe(
+      chainOf([p1]),
+    );
+    // Nothing moved since the delta: 304, as without `since`.
+    expect((await manifest(delta.etag, delta.json?.project.seq)).status).toBe(
+      304,
+    );
+    // And a delta costs no hashing beyond the write's own.
+    await edit(p2, "Hello again");
+    const before = versionHashCount();
+    await manifest(delta.etag, delta.json?.project.seq);
+    expect(versionHashCount() - before).toBe(1);
+  });
+
+  test("since seq N from a manifest this server did not answer: the whole manifest", async () => {
+    const { manifest, edit } = start();
+    const held = await manifest();
+    await edit(p1, "Hello world");
+    for (const [etag, since] of [
+      ['"from-another-process"', held.json?.project.seq],
+      // The seq does not match the manifest the ETag names.
+      [held.etag, (held.json?.project.seq ?? 0) + 7],
+    ] as const) {
+      const whole = await manifest(etag, since);
+      expect(whole.status).toBe(200);
+      expect(whole.json?.since).toBeUndefined();
+      expect(Object.keys(whole.json?.modules ?? {}).sort()).toEqual([
+        "/content/footer.val.ts",
+        "/content/home.val.ts",
+      ]);
+    }
+  });
+
+  test("since seq N across a new build: the whole manifest", async () => {
+    const store = new InMemoryPatchStore();
+    const old = start([home, footer], store);
+    const held = await old.manifest();
+    const next = start([homeWithCta, footer], store);
+    // The ETag is the old build's, which the new instance never answered.
+    const answer = await next.manifest(held.etag, held.json?.project.seq);
+    expect(answer.json?.since).toBeUndefined();
+    expect(Object.keys(answer.json?.modules ?? {}).sort()).toEqual([
+      "/content/footer.val.ts",
+      "/content/home.val.ts",
+    ]);
   });
 
   /**

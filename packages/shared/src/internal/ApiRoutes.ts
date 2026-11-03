@@ -813,6 +813,16 @@ export const Api = {
    * It has its own ETag, so a client that sends it back (`If-None-Match`)
    * gets a 304 and no body while nothing has moved. Computed from versions
    * kept as content changes: answering it hashes nothing.
+   *
+   * "Since `seq` N" (`?since=N`, with the ETag of the manifest the client
+   * holds, which was answered at `seq` N, as `If-None-Match`): the modules
+   * whose version moved since that manifest, and no others, with `since: N`
+   * on the answer to say it is a delta. The ETag is in the body too (`tag`),
+   * for a client that reads answers through `ValClient`, which hands over
+   * the body and not the headers. Answered whole -- no `since` -- when the server no
+   * longer holds the manifest that ETag names (another process, another
+   * build, too long ago), and by a server of the release before, which
+   * ignores the parameter. Optional both ways.
    */
   "/manifest": {
     GET: {
@@ -822,6 +832,9 @@ export const Api = {
         },
         headers: {
           "if-none-match": z.string().optional(),
+        },
+        query: {
+          since: onlyOneStringQueryParam.optional(),
         },
       },
       res: z.union([
@@ -835,6 +848,14 @@ export const Api = {
           json: z.object({
             project: ProjectVersionSchema,
             modules: z.record(ModuleFilePath, ModuleVersionSchema),
+            /** This answer's ETag, as the header has it. */
+            tag: z.string().optional(),
+            /**
+             * Present on a delta only: the `seq` of the manifest it is
+             * relative to, whose modules that are not named here did not
+             * move. Absent: every module is named.
+             */
+            since: z.number().optional(),
           }),
         }),
         /*

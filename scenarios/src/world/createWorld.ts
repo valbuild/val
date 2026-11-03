@@ -220,8 +220,11 @@ export type World = {
   /**
    * The server's manifest (`GET /manifest`, through the network, as an
    * editor's browser asks it): every module's version and the project's.
+   * With `since`, "since `seq` N" from that manifest: a delta when the
+   * server can (`since` on the answer), `null` when nothing moved (304).
    */
   manifest(): Promise<Manifest>;
+  manifest(since: Manifest): Promise<Manifest | null>;
   /**
    * Where the world's counted work stands now, for {@link expectWork}: work
    * done by Val's own code outside the Studios (the server and the readers),
@@ -251,6 +254,10 @@ export type World = {
 export type Manifest = {
   project: ProjectVersion;
   modules: Partial<Record<ModuleFilePath, ModuleVersion>>;
+  /** Its ETag. */
+  tag?: string;
+  /** On a delta: the `seq` of the manifest it is relative to. */
+  since?: number;
 };
 
 /** See {@link World.workPosition}. */
@@ -1475,6 +1482,25 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     };
   };
   const proposal = proposalAt();
+  async function readManifest(): Promise<Manifest>;
+  async function readManifest(since: Manifest): Promise<Manifest | null>;
+  async function readManifest(since?: Manifest): Promise<Manifest | null> {
+    await reportingLive;
+    const client = createValClient("/api/val", null, {
+      fetch: withSession(host, network.fetchFor("world:manifest")),
+    });
+    const res = await client("/manifest", "GET", {
+      headers: { "if-none-match": since?.tag },
+      query: {
+        since: since !== undefined ? String(since.project.seq) : undefined,
+      },
+    });
+    if (since !== undefined && res.status === 304) return null;
+    if (res.status !== 200) {
+      throw new Error(`GET /manifest answered ${res.status}`);
+    }
+    return res.json;
+  }
   return {
     server:
       host.mode === "fs"
@@ -1808,19 +1834,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     expectInvariants() {
       frames.expectInvariants();
     },
-    async manifest() {
-      await reportingLive;
-      const client = createValClient("/api/val", null, {
-        fetch: withSession(host, network.fetchFor("world:manifest")),
-      });
-      const res = await client("/manifest", "GET", {
-        headers: { "if-none-match": undefined },
-      });
-      if (res.status !== 200) {
-        throw new Error(`GET /manifest answered ${res.status}`);
-      }
-      return res.json;
-    },
+    manifest: readManifest,
     workPosition: serverWork,
     expectWork(since, budget) {
       const over: string[] = [];
