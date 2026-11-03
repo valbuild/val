@@ -1416,6 +1416,7 @@ there; there is no flag to choose between the two, and no "remove later".
 | 7   | **The Studio loads from one place.** `manifestSource` and `originTier` replace `chainSource`; BaseAlignment and `__VAL_BASE__` go; the code tools' `projectSource` keyed by version; staged schemas (`staged:<hash>`) in code mode.                                                                                                                                                                                                                                                                                                                                                                                                                 | val, home |
 | 8   | **Document.** `architecture/content-versions.md`; `stores.md` and `quirks.md` updated; anything a phase could not delete in its own PR (only the wire and deprecations above), with the release it goes in.                                                                                                                                                                                                                                                                                                                                                                                                                                         | val       |
 | 9   | **Reloading the schema while the Studio runs.** See [the section below](#reloading-the-schema-while-the-studio-runs): one `reloadCode(registry)` for HMR and for a new build; a registry entry per build, named in the manifest; replaced, not merged; a registry that does not load leaves the Studio on the old one; edits that no longer apply are held, not deleted; `SchemaFreshnessWatch` and its dialog deleted; and [evaluating code after a write](#evaluating-code-after-a-write): the tab evaluates `val.modules` after each staging, records each changed module's Source with its schema, swaps the schema in and tells the assistant. | val, home |
+| 10  | **Performance at size, in the Studio.** See [the section below](#phase-10-performance-at-size-in-the-studio): generated projects with tens of thousands of `.jsonValues()` entries and thousands of media entries (local and remote), measured in the Studio from a cold start through editing, browsing, picking, uploading and publishing; budgets of counted work for each, a real-browser run for rendering and heap, and the fixes the measurements call for.                                                                                                                                                                                  | val, home |
 
 What each phase deletes (to be checked against the code when the phase
 starts; the names are as of 2026-11-01):
@@ -1528,6 +1529,96 @@ cost of an evaluation (the plan's "Cost" below).
 Phase 2 can run beside phases 3 and 4. Phase 6 moves ahead of 2–5 if phase 0
 shows today's draft read already crosses 128 MB. http mode joins
 `describe.each` once `e2e/mock-content-host` can be started in-process.
+
+## Phase 10: performance at size, in the Studio
+
+_Added 2026-11-03, at the end of the plan, after asking whether performance
+and scaling had been validated with tens of thousands of `.jsonValues()`
+entries and remote images or files. They have not._
+
+### What has been measured, and what it does not cover
+
+| Measured (see `scenarios/measure/results.md`) | What it is                                                                               | What it leaves out                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| A draft read on Val's server, 1 to 86 MB      | 20 inline `s.record` modules of equal size, plus 1 MB with 650 patches, and valbuild/web | No `.jsonValues()` entries, no media, and the server only  |
+| One write in the Studio, 9 KB to 5 MB         | One inline record module, up to about 40,000 keys at the root                            | No `.jsonValues()`, no media, no rendering; the store only |
+| Copy-on-write (B06)                           | A module of 200 items                                                                    | Nothing at size                                            |
+| The isolate bundle and local workerd          | Bundle size; workerd does not enforce 128 MB                                             | The deployed limit (waiting for a token)                   |
+| MCP's search index                            | Linear to about 13 MB                                                                    | The Studio's own search                                    |
+
+So nothing yet says how the Studio behaves with 10,000 to 100,000
+`.jsonValues()` entries, or with thousands of images, files or videos in an
+`s.imagedir()` / `s.filedir()` / `s.videodir()`, remote or local. The scenario
+world runs the content-shape matrix at a handful of entries: it proves the
+shapes are correct, not that they are fast.
+
+### Where size is likely to cost, to be measured rather than assumed
+
+- **`.jsonValues()` records**
+  - The Studio holds a marker per entry and loads an entry when it is read.
+    What reads every entry anyway: the record's list and the nav's rows
+    (previews are computed per module with a listener — are they windowed to
+    what is on screen?), `entriesStatus` and `allEntriesProgress` (still
+    recompute-and-compare after phase 5), validation, search, a `keyOf`
+    reference's dropdown, the Pages tree and sitemap for a router with
+    10,000 routes, and Discard all.
+  - Copy-on-write copies the root of a module per patch: 40,000 root keys is
+    19 ms a keystroke today. A record of 100,000 entries is 100,000 root keys.
+  - The server: `/json` per entry, `PUT /sources/~` returning every marker,
+    publishing one entry of 100,000.
+- **Media libraries, local and remote**
+  - The gallery grid and the picker: rows rendered, thumbnails requested
+    (remote ones from the content host, pending ones through
+    `/api/val/files`), and whether either is windowed.
+  - `fillFromGallery` and `useFilePatchIds` per field: a lookup by path, or a
+    walk of the library.
+  - Pending uploads: the patch store holds file data until publish; many
+    pending remote uploads, and `saveOrUploadFiles(upload-remote)` at publish.
+  - Bulk upload: `ModuleGallery` uploads dropped files one after another.
+  - Validation of remote files (`validateRemoteFiles` is a stub today) and
+    `list-unused-files` at size.
+- **The Studio from cold:** the first load of schemas and sources for the
+  whole project, the validation worker's first pass, the browser's heap, and
+  time until the first field can be edited.
+- **Long chains in the Studio:** thousands of pending patches, `/stat`, and
+  the history and changes panels.
+- **Hosted:** the deployed isolate probe extended with these shapes, and the
+  size of the content service's answers.
+
+### How
+
+1. **Generated projects of the real shapes.** Extend
+   `scenarios/measure/draftReadWork.ts`'s generators with a `.jsonValues()`
+   router of N entries and image, file and video libraries of N entries
+   (local and remote refs), with fields that pick from them — the same shapes
+   as the content-shape matrix, at 1,000, 10,000 and 100,000.
+2. **Counted work in the scenario world**, as budgets: rows rendered,
+   previews computed, entry imports, requests per action, bytes copied per
+   keystroke, versions held. These are what CI can gate on (`expectWork`),
+   for example "opening a record of 100,000 entries computes previews only for
+   the rows on screen and makes no request per entry".
+3. **Time and heap** with `scenarios/measure`, sequentially on a quiet
+   machine, printed rather than asserted.
+4. **A real browser** (Playwright on `examples/tanstack` with a generated
+   fixture, behind `VAL_E2E_FIXTURES`): time to first editable field, long
+   tasks while scrolling a list or gallery, heap after browsing, and the
+   network requests made.
+5. **Fix what the numbers show**, each fix with the budget that pins it.
+
+### Targets, to agree before the work starts
+
+Suggested, not decided: with 100,000 `.jsonValues()` entries and 10,000
+media entries in one project, the Studio shows the first field in under
+2 s on a mid-range laptop, a keystroke stays under 16 ms, scrolling a list or
+gallery has no long task over 50 ms, browsing does not request or import
+entries that are not on screen, and the tab stays under 500 MB of heap.
+
+### When
+
+After phase 9, because phases 6 and 7 change the store and how the Studio
+loads (entry versions, the module endpoint, `originTier`), which is most of
+what these numbers depend on. The generators and the counted budgets can be
+written earlier, so each phase's change is measured against them.
 
 ## Open questions
 
