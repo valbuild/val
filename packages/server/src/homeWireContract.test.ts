@@ -853,7 +853,7 @@ const HOME_APPLICABLE_PATCHES_AT_LIVE = {
 };
 
 /** Ops answering `applicable/patches` with `patches` and a nonce otherwise. */
-function opsForStat(patches: unknown) {
+function opsForStat(patches: unknown, chainVersion?: () => number) {
   const originalFetch = global.fetch;
   const sent: SentRequest[] = [];
   global.fetch = (async (
@@ -867,9 +867,14 @@ function opsForStat(patches: unknown) {
       ),
       body: init?.body === undefined ? undefined : JSON.parse(init.body),
     });
+    if (String(url).includes("/chain/version") && chainVersion === undefined) {
+      return new Response("Not found", { status: 404 });
+    }
     const body = String(url).includes("/applicable/patches")
       ? patches
-      : { nonce: "n1", url: "wss://content.val.build/ws" };
+      : String(url).includes("/chain/version") && chainVersion !== undefined
+        ? { headVersion: chainVersion() }
+        : { nonce: "n1", url: "wss://content.val.build/ws" };
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -908,14 +913,50 @@ test("a previous build's /stat names the live build's base, and asks for the cha
     }
     expect(stat.sourcesSha).toBe(LIVE_BASE);
     expect(stat.sourcesSha).not.toBe(own);
-    const asked = new URL(sent[0].url).searchParams;
+    // By path: `/stat` asks "has the chain moved?" (`/chain/version`) first,
+    // and reads the chain only when it has.
+    const chainRead = sent.find((r) => r.url.includes("/applicable/patches"));
+    const nonce = sent.find((r) => r.url.includes("/websocket/nonces"));
+    if (chainRead === undefined || nonce === undefined) {
+      throw new Error(`not asked: ${JSON.stringify(sent.map((r) => r.url))}`);
+    }
+    const asked = new URL(chainRead.url).searchParams;
     // Which build asks, its own base (a report), and at which build to answer.
     expect(asked.get("build")).toBe("build-old");
     expect(asked.get("sources_sha")).toBe(own);
     expect(asked.get("relative_to")).toBe("live");
     // Its socket follows the same chain.
-    expect(sent[1].url).toContain("/websocket/nonces");
-    expect((sent[1].body as Record<string, unknown>).relativeTo).toBe("live");
+    expect((nonce.body as Record<string, unknown>).relativeTo).toBe("live");
+  } finally {
+    restore();
+  }
+});
+
+/*
+ * `/stat` reads the chain only when it moved: "has it?" is the chain version
+ * alone (`GET /chain/version`, valbuild/home `readChainVersion`), the head's
+ * cheap `seq`. Every Studio polls `/stat`, and each socket message makes it
+ * ask; the whole chain on each was the content service's busiest call.
+ */
+test("/stat reads the chain again only when its version moved", async () => {
+  let version = 7;
+  const { ops, sent, restore } = opsForStat(
+    HOME_APPLICABLE_PATCHES_AT_LIVE,
+    () => version,
+  );
+  try {
+    const chainReads = () =>
+      sent.filter((r) => r.url.includes("/applicable/patches")).length;
+    await ops.getStat(STAT_PARAMS);
+    await ops.getStat(STAT_PARAMS);
+    expect(chainReads()).toBe(1);
+    version = 8;
+    const stat = await ops.getStat(STAT_PARAMS);
+    expect(chainReads()).toBe(2);
+    if (stat.type !== "use-websocket") {
+      throw new Error(`not a stat: ${JSON.stringify(stat)}`);
+    }
+    expect(stat.sourcesSha).toBe(LIVE_BASE);
   } finally {
     restore();
   }

@@ -172,7 +172,7 @@ type ModuleFacts = {
 type ResolvedEntry =
   | { kind: "content"; content: ReadonlyJSONValue }
   | { kind: "missing" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; patchId?: PatchId };
 
 /** A module as the head answers it. */
 export type HeadModule = {
@@ -918,7 +918,13 @@ export class ValHead {
             ? { content: read.content as Json, version }
             : read.kind === "missing"
               ? { deleted: true, version }
-              : { error: read.message, version };
+              : {
+                  error: read.message,
+                  ...(read.patchId !== undefined
+                    ? { patchId: read.patchId }
+                    : {}),
+                  version,
+                };
       }
     }
     return {
@@ -927,6 +933,7 @@ export class ValHead {
         version: target.version,
         source: isRecordOfMarkers(source) ? stripped(source) : source,
         entries,
+        patches: [...target.patches],
         ...(facts.failed !== null ? { failed: facts.failed } : {}),
       },
     };
@@ -951,7 +958,12 @@ export type ModuleAnswerEntries = Record<
   string,
   | { content: Json; version: EntryVersion }
   | { deleted: true; version: EntryVersion }
-  | { error: string; version: EntryVersion }
+  | {
+      error: string;
+      /** The patch that made it unreadable, when known. */
+      patchId?: PatchId;
+      version: EntryVersion;
+    }
 >;
 
 /** What `GET /modules` answers: see `ModuleAnswer` in the plan. */
@@ -963,6 +975,12 @@ export type ModuleAnswer =
       source: Json;
       /** The entries its chain touched, read. Every other entry is the base's. */
       entries: ModuleAnswerEntries;
+      /**
+       * The patch ids its chain is made of, in chain order: what a client
+       * holding it knows the server already has (the Studio's own edits
+       * beyond them are its local layer, `withLocalEdits`).
+       */
+      patches: PatchId[];
       /** Where its chain stopped, when a patch did not apply. */
       failed?: { patchId: PatchId; message: string };
     }

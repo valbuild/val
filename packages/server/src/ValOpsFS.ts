@@ -136,6 +136,10 @@ export class ValOpsFS extends ValOps {
    * The base the store's chain is relative to: the newest build's, made in
    * this process (see `ValOps.chainBaseSha`).
    */
+  override newestOps(): ValOps {
+    return newestByRoot.get(fsPath.resolve(this.rootDir)) ?? this;
+  }
+
   override async chainBaseSha(): Promise<SourcesSha> {
     const newest = newestByRoot.get(fsPath.resolve(this.rootDir));
     if (newest === undefined || newest === this) return this.getSourcesSha();

@@ -446,6 +446,10 @@ export class ValOpsMemory extends ValOps {
    * The base the store's chain is relative to: the newest build's, made in
    * this process (see `ValOps.chainBaseSha`).
    */
+  override newestOps(): ValOps {
+    return newestOnStore.get(this.store) ?? this;
+  }
+
   override async chainBaseSha(): Promise<SourcesSha> {
     const newest = newestOnStore.get(this.store);
     if (newest === undefined || newest === this) return this.getSourcesSha();

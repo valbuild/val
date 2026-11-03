@@ -2112,6 +2112,38 @@ export class ValOpsHttp extends ValOps {
     }
   }
 
+  /**
+   * The chain `/stat` answers, relative to the live build, read again only
+   * when the chain version moved (`chainSeq`: one small read of the content
+   * service). Every Studio polls `/stat`, and each socket message makes it
+   * ask; reading the whole chain for each was the content service's busiest
+   * call. A deployment going live moves the version too, so "relative to the
+   * live build" cannot go stale under the same version.
+   *
+   * The version is read BEFORE the chain, so a write in between leaves the
+   * kept chain newer than the version it is kept under -- read again on the
+   * next call, never served stale.
+   */
+  private async statChain(): Promise<OrderedPatchesMetadata> {
+    const seq = await this.chainSeq();
+    const kept = this.keptStatChain;
+    if (seq !== null && kept !== null && kept.seq === seq) {
+      return kept.chain;
+    }
+    const chain = await this.fetchPatchesInternal({
+      excludePatchOps: true,
+      patchIds: undefined,
+      relativeToLive: true,
+    });
+    if (seq !== null && !chain.error && !chain.errors?.length) {
+      this.keptStatChain = { seq, chain };
+    }
+    return chain;
+  }
+
+  private keptStatChain: { seq: number; chain: OrderedPatchesMetadata } | null =
+    null;
+
   async getStat(
     params: {
       baseSha: BaseSha;
@@ -2174,11 +2206,7 @@ export class ValOpsHttp extends ValOps {
      * one a Studio holding the new bundle already has. Otherwise this build's
      * own, as always.
      */
-    const allPatchData = await this.fetchPatchesInternal({
-      excludePatchOps: true,
-      patchIds: undefined,
-      relativeToLive: true,
-    });
+    const allPatchData = await this.statChain();
     const currentSourcesSha =
       allPatchData.chainBase ?? (await this.getSourcesSha());
     if (
@@ -2736,6 +2764,9 @@ export class ValOpsHttp extends ValOps {
               : {}),
             ...(data.heldBackPatches !== undefined
               ? { heldBackPatches: data.heldBackPatches }
+              : {}),
+            ...(data.liveBuild?.callerIsPrevious === true
+              ? { superseded: true }
               : {}),
             /*
              * Answered at the live build, whose base it names: the base this

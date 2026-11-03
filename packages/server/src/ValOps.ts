@@ -1008,6 +1008,20 @@ export abstract class ValOps {
   }
 
   /**
+   * The data layer whose head answers what each module IS for this store's
+   * chain (`GET /manifest`, `GET /modules`): this one, unless the store keeps
+   * one chain for every build and a newer build was made since, in this
+   * process (fs and memory; see {@link chainBaseSha}). An instance still
+   * answering then -- a long poll parked on it across a hot reload, a request
+   * routed to the previous build -- would name its own, older bases, and a
+   * Studio reading them would show the content from before the code change
+   * (S26).
+   */
+  newestOps(): ValOps {
+    return this;
+  }
+
+  /**
    * The host's own name for the build it runs, when it has one (a platform's
    * build, a commit). `null`: the fold of what the modules evaluated to.
    */
@@ -3774,6 +3788,13 @@ export type OrderedPatches = {
    * from an older content service. Only `ValOpsHttp` fills it.
    */
   heldBackPatches?: PatchId[];
+  /**
+   * The content service has counted a NEWER build of the branch live: this
+   * one is a previous build still answering (S26; valbuild/home
+   * `utils/liveBuild.ts`). Its chain is right for its own base, which is not
+   * what the site serves any more. Only `ValOpsHttp` fills it.
+   */
+  superseded?: boolean;
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;

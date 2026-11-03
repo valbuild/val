@@ -1974,25 +1974,36 @@ export const ValServer = (
         if (isHttpOps(serverOps) && !("id" in auth)) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        const [patchOps, project] = await readAtVersion(() =>
-          serverOps.fetchPatches({
-            patchIds: undefined,
-            excludePatchOps: true,
-          }),
-        );
-        if (patchOps.error) {
-          return { status: 500, json: { message: patchOps.error.message } };
+        // Through the head: "has the chain moved?" is its cheap `seq`
+        // (`ValOps.chainSeq`), and the chain is read only when it moved --
+        // in http mode one small read of the content service, not the
+        // whole chain on every poll of every Studio. The NEWEST build's
+        // head where the store keeps one chain for every build (fs,
+        // memory): a previous build still answering would name its own,
+        // older bases (S26, `ValOps.newestOps`).
+        const ops = serverOps.newestOps();
+        const synced = await ops.head.sync();
+        if ("error" in synced) {
+          if (synced.error.unauthorized) {
+            return { status: 401, json: { message: synced.error.message } };
+          }
+          return { status: 500, json: { message: synced.error.message } };
         }
-        const modules = await serverOps.moduleVersions(
-          draftOverlay(patchOps.patches, patchOps.commits),
-        );
-        const etag = await serverOps.manifestTag(project);
+        const { project, versions: modules } = synced.ok;
+        /*
+         * A previous build still answering in http mode (S26): its versions
+         * are right for its own bases, and the site serves another build's.
+         * Said, so a Studio does not move to them; it asks again, and is
+         * answered by the live build soon.
+         */
+        const superseded = synced.ok.fetched.superseded === true;
+        const etag = await ops.manifestTag(project);
         const headers = { ETag: etag, "Cache-Control": "no-cache" };
         const held = req.headers["if-none-match"];
         if (held === etag) {
           return { status: 304, headers };
         }
-        serverOps.rememberManifest(etag, project, modules);
+        ops.rememberManifest(etag, project, modules);
         /*
          * "Since seq N": the modules that moved since the manifest the
          * client holds -- the one its ETag names, answered at N -- when this
@@ -2001,16 +2012,31 @@ export const ValServer = (
         const since =
           req.query.since !== undefined ? Number(req.query.since) : NaN;
         if (held !== undefined && Number.isSafeInteger(since)) {
-          const moved = serverOps.manifestSince(held, since, project, modules);
+          const moved = ops.manifestSince(held, since, project, modules);
           if (moved !== null) {
             return {
               status: 200,
               headers,
-              json: { project, modules: moved, tag: etag, since },
+              json: {
+                project,
+                modules: moved,
+                tag: etag,
+                since,
+                ...(superseded ? { superseded } : {}),
+              },
             };
           }
         }
-        return { status: 200, headers, json: { project, modules, tag: etag } };
+        return {
+          status: 200,
+          headers,
+          json: {
+            project,
+            modules,
+            tag: etag,
+            ...(superseded ? { superseded } : {}),
+          },
+        };
       },
     },
 
@@ -3138,7 +3164,8 @@ export const ValServer = (
           return { status: 401, json: { message: "Unauthorized" } };
         }
         const path = req.path as ModuleFilePath;
-        const answer = await serverOps.head.answer(path, {
+        // The newest build's head, as `/manifest` (`ValOps.newestOps`).
+        const answer = await serverOps.newestOps().head.answer(path, {
           ...(req.query.v !== undefined ? { v: req.query.v } : {}),
           ...(req.query.have !== undefined ? { have: req.query.have } : {}),
         });

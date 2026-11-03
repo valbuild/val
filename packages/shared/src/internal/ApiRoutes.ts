@@ -859,6 +859,15 @@ export const Api = {
              * move. Absent: every module is named.
              */
             since: z.number().optional(),
+            /**
+             * The build that answered is a previous build still answering
+             * (http mode: the content service counted a newer one live).
+             * Its versions are right for its own bases, which the site does
+             * not serve any more: a Studio does not move to them, and asks
+             * again. Optional: absent from a live build and a server of the
+             * release before.
+             */
+            superseded: z.boolean().optional(),
           }),
         }),
         /*
@@ -1841,10 +1850,18 @@ export const Api = {
                   }),
                   z.object({
                     error: z.string(),
+                    /** The patch that made it unreadable, when known. */
+                    patchId: PatchId.optional(),
                     version: EntryVersionSchema,
                   }),
                 ]),
               ),
+              /**
+               * The patch ids its chain is made of, in chain order: what a
+               * client holding this knows the server already has. Optional:
+               * a server of the release before sends none.
+               */
+              patches: z.array(PatchId).optional(),
               failed: z
                 .object({ patchId: PatchId, message: z.string() })
                 .optional(),
