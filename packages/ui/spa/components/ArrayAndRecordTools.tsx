@@ -33,7 +33,7 @@ import {
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
-import { mergeReferences } from "./useJsonValuesLoad";
+import { mergeReferences, ReferencesResult } from "./useJsonValuesLoad";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
@@ -50,13 +50,43 @@ import { useEmptyOf } from "../hooks/useEmptyOf";
 import { declaredKeySetOf } from "@valbuild/core";
 
 type Variant = "module" | "field";
-export function ArrayAndRecordTools({
-  path,
-  variant,
-}: {
-  path: SourcePath;
-  variant: Variant;
-}) {
+
+/**
+ * What can be done to a record ENTRY from where it is shown: renamed,
+ * duplicated or deleted, and which references gate that. `null` when the path
+ * is not an entry of a record.
+ */
+export type RecordEntryTools = {
+  parentPath: SourcePath;
+  key: string;
+  routePattern: RoutePattern[] | null;
+  /** keyOf references and, for a page, route references — merged. */
+  references: ReferencesResult;
+  keyDescription: string | undefined;
+  canChange: boolean;
+  canDuplicate: boolean;
+  canDelete: boolean;
+};
+
+/** What adding an entry to a RECORD needs. `null` when the path is not one. */
+export type RecordAddTools = {
+  routePattern: RoutePattern[] | null;
+  keyDescription: string | undefined;
+  /** keyOf references to this record, for the references popover. */
+  refs: SourcePath[];
+  canAdd: boolean;
+};
+
+/**
+ * The decisions behind {@link ArrayAndRecordTools}, without its buttons, so a
+ * surface that draws the same actions differently (the block list's row menu)
+ * cannot come to disagree about when they are allowed: fixed routes, declared
+ * keys and incomplete reference scans are all decided here, once.
+ */
+export function useArrayAndRecordTools(path: SourcePath): {
+  entry: RecordEntryTools | null;
+  add: RecordAddTools | null;
+} {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchemaAtPath } = useParent(path);
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
@@ -176,44 +206,79 @@ export function ArrayAndRecordTools({
       ? schemaAtPath.data.key?.description
       : undefined;
 
+  const isEntry = isParentRecord(path, maybeParentPath, parentSchemaAtPath);
+  const isRecordHere = isRecord(schemaHere);
+  return {
+    entry: isEntry
+      ? {
+          parentPath: maybeParentPath,
+          key: last.text,
+          routePattern: parentRoutePattern,
+          references: allRefs,
+          keyDescription: parentKeyDescription,
+          canChange: canParentChange,
+          canDuplicate: canParentDuplicate,
+          canDelete: canParentDelete,
+        }
+      : null,
+    add: isRecordHere
+      ? {
+          routePattern,
+          keyDescription: currentKeyDescription,
+          refs: refs.refs,
+          canAdd,
+        }
+      : null,
+  };
+}
+
+export function ArrayAndRecordTools({
+  path,
+  variant,
+}: {
+  path: SourcePath;
+  variant: Variant;
+}) {
+  const schemaAtPath = useSchemaAtPath(path);
+  const { entry, add } = useArrayAndRecordTools(path);
   return (
     <span className="inline-flex gap-2 items-center">
-      {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
+      {entry && (
         <>
-          <ReferencesPopover refs={allRefs.refs} variant={variant} />
-          {canParentChange && (
+          <ReferencesPopover refs={entry.references.refs} variant={variant} />
+          {entry.canChange && (
             <ChangeRecordPopover
-              defaultValue={last.text}
-              parentPath={maybeParentPath}
+              defaultValue={entry.key}
+              parentPath={entry.parentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              routePattern={parentRoutePattern}
-              references={allRefs}
-              keyDescription={parentKeyDescription}
+              routePattern={entry.routePattern}
+              references={entry.references}
+              keyDescription={entry.keyDescription}
             >
               <Edit size={getIconSize(variant)} />
             </ChangeRecordPopover>
           )}
-          {canParentDuplicate && (
+          {entry.canDuplicate && (
             <DuplicateRecordPopover
-              defaultValue={last.text}
-              parentPath={maybeParentPath}
+              defaultValue={entry.key}
+              parentPath={entry.parentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              routePattern={parentRoutePattern}
-              keyDescription={parentKeyDescription}
+              routePattern={entry.routePattern}
+              keyDescription={entry.keyDescription}
             >
               <Copy size={getIconSize(variant)} />
             </DuplicateRecordPopover>
           )}
-          {canParentDelete && (
+          {entry.canDelete && (
             <DeleteRecordPopover
               path={path}
-              parentPath={maybeParentPath}
+              parentPath={entry.parentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              references={allRefs}
-              confirmationMessage={`This will delete the ${last.text} record.`}
+              references={entry.references}
+              confirmationMessage={`This will delete the ${entry.key} record.`}
             >
               <Trash size={getIconSize(variant)} />
             </DeleteRecordPopover>
@@ -223,16 +288,16 @@ export function ArrayAndRecordTools({
       {isArray("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
         <AddArrayButton path={path} variant={variant} />
       )}
-      {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
+      {add && (
         <>
-          <ReferencesPopover refs={refs.refs} variant={variant} />
-          {canAdd && (
+          <ReferencesPopover refs={add.refs} variant={variant} />
+          {add.canAdd && (
             <AddRecordPopover
               path={path}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              routePattern={routePattern}
-              keyDescription={currentKeyDescription}
+              routePattern={add.routePattern}
+              keyDescription={add.keyDescription}
             >
               <Plus size={getIconSize(variant)} />
             </AddRecordPopover>

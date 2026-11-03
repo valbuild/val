@@ -13,7 +13,7 @@ import { initVal, Schema, SelectorSource, SourcePath } from "@valbuild/core";
  * instead of the record would pass every test there and still draw preview
  * rows for a record that declared itself inline. That seam is this file.
  *
- * The list is stubbed to a marker and each in-place entry is the stubbed
+ * Both lists are stubbed to markers and each in-place entry is the stubbed
  * `AnyField`, so the claim is the choice and nothing about how either looks.
  */
 const mockSchema = jest.fn();
@@ -67,6 +67,10 @@ jest.mock("../../components/Field", () => ({
   __esModule: true,
   Field: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+jest.mock("../../components/BlockList", () => ({
+  __esModule: true,
+  BlockList: () => <div data-testid="block-list" />,
+}));
 jest.mock("./ModuleGallery", () => ({
   __esModule: true,
   ModuleGallery: () => <div data-testid="module-gallery" />,
@@ -110,11 +114,18 @@ function mount(record: Schema<SelectorSource>) {
 }
 
 describe("RecordFields picks its layout from the RECORD's render", () => {
-  test("an inline record edits each entry in place", () => {
+  test("an inline record is edited in the block list, like an inline array", () => {
     mount(s.record(s.object({ name: s.string() })).render({ as: "inline" }));
     render(<RecordFields path={PATH} />);
-    expect(screen.queryAllByTestId("any-field")).toHaveLength(2);
+    expect(screen.queryByTestId("block-list")).not.toBeNull();
     expect(screen.queryByTestId("record-list")).toBeNull();
+  });
+
+  test("an entry the caller asked to inline is still edited in place", () => {
+    mount(s.record(s.object({ name: s.string() })));
+    render(<RecordFields path={PATH} inline />);
+    expect(screen.queryAllByTestId("any-field")).toHaveLength(2);
+    expect(screen.queryByTestId("block-list")).toBeNull();
   });
 
   test("a record with no render keeps the list of rows", () => {
