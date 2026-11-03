@@ -7,9 +7,13 @@
 > server before phase 6 is killed at about 59 MB of content beside 64 MB of
 > ballast and 75 MB without, so memory did not block phase 6. Phase 6 built
 > (2026-11-03): the store, one runtime per process, the head, `GET /modules`
-> with deltas, and a cheap `seq` in http mode (with valbuild/home); the
-> deployed probe through home's loader, and with valbuild/web, is still to
-> run (decision 5), now against the head. Phase 7's remainder can start.**
+> with deltas, and a cheap `seq` in http mode (with valbuild/home). Re-run
+> deployed after it (2026-11-03, a plain Worker): a draft page (`reader`)
+> answers wherever the content loads at all -- 86 MB beside 64 MB of
+> ballast, 100,000 `.jsonValues()` entries with 650 patches, valbuild/web --
+> with the head holding at most 56 KB of its 16 MB budget; only the probe
+> through home's loader is left (decision 5). Phase 7's remainder can
+> start.**
 > See
 > [Where we are](#where-we-are) for what is built, what runs, and what comes
 > next. A session that changes the design updates this file in the same PR as
@@ -800,8 +804,25 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     a module of 650 patches makes it once (26 ms). The heap a draft read
     retains went from about 1.8 times the content (+39 MB at 21 MB) to what
     was edited (+0.05 MB). `PUT /sources/~` without previews and validation
-    is about 2.4 times faster. Local workerd runs the head (not the limit);
-    the deployed probe and the loader are to re-run (what, in `results.md`).
+    is about 2.4 times faster. Local workerd runs the head (not the limit).
+  - **Measured deployed** (`results.md`, "Deployed, after phase 6";
+    2026-11-03, a plain Worker on Workers Paid, wrangler 4.133.0, bundle
+    2,099 KiB, 2,619 KiB with valbuild/web). A draft page reading every
+    module through `serverDraftSource` over the head (`reader`, new in the
+    probe, through `@valbuild/server/browser`'s `createInTabVal`) was never
+    killed in its own right: it answered 86.2 MB of synthetic content, the
+    largest step, beside 0, 32 and 64 MB of ballast, as `load` did, where
+    the validated whole-tree read a draft page asked before phase 6 is
+    killed at 75, 59 and 59 MB. `.jsonValues()` routers of 10,000 and
+    100,000 posts, with and without 650 patches, and valbuild/web answered
+    every operation at every ballast. The head held at most 55,944 bytes
+    (26,400 for 650 patches on 10,000 posts), 0.3% of its 16 MB budget,
+    which is therefore not the number that decides the ceiling: the content
+    the bundle holds is. `/sources/~` is killed where it was, less
+    validation (with 32 MB of ballast, 59.1 MB before, 69.9 MB now), and
+    replaces the isolate at the same sizes (16-43 MB); phase 7 removes its
+    last caller. **Conclusion: memory is not a constraint on phase 6's read
+    path at any size measured.** Not yet: the same through home's loader.
   - **Public API:** one addition, `ValDraft.versions` (optional, filled by
     the server). `@valbuild/server` exports `createValRuntime`, `valRuntime`,
     `ValHead` and the draft readers' new shapes (internal, as the rest of
@@ -850,9 +871,8 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
    patches; then `BaseAlignment`, the Studio's `PUT /sources/~?apply_patches=false`
    and `__VAL_BASE__`. Listed under
    [Phase 7 without phase 6](#phase-7-without-phase-6). Then the rest of 9
-   ([Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)) and 8. Left from phase 6: the deployed probe through home's loader, and with
-   valbuild/web's content (decision 5; `results.md`, "Phase 6", says what to
-   run); the Studio does not yet skip, in its catch-up, a module the page
+   ([Phase 9 without phases 6 and 7](#phase-9-without-phases-6-and-7)) and 8. Left from phase 6: the deployed probe through home's loader (decision 5;
+   the plain Worker, valbuild/web and the head's budget ran, see "Built"); the Studio does not yet skip, in its catch-up, a module the page
    holds at the version it would send (`draftHoldsVersions` is there for
    it; the page already compares by version, so it costs a message, not a
    comparison); `/stat` still reads the whole chain in http mode on every

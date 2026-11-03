@@ -236,6 +236,122 @@ kill: a budget that holds, not one with room to spare, and it holds better
 once validation leaves the read path. What remains of the check is the same
 probe through home's loader, and with valbuild/web's content.
 
+### Deployed, after phase 6
+
+2026-11-03, the same probe and account as "Deployed, synthetic content"
+above (a plain Worker, Workers Paid), re-deployed at the commit that records
+this with `pnpm dlx wrangler@4.133.0 deploy --env ""` and `--env web`, and
+deleted after. Bundle, as wrangler printed it on upload: 2,099 KiB (388 KiB
+gzipped), and 2,619 KiB (458 KiB) with valbuild/web (`54bb776`). Driven from
+a Claude Code cloud container with `isolateProbe.ts run` (`fresh=1`, one
+request per row), `wrangler tail --format json` on both Workers throughout,
+joined with `summarize`. 333 requests; every failure was `exceededMemory` in
+the tail (74), except three 503s the tail has no event for; no
+`exceededCpu`.
+
+What changed since the run above: `draft` (`PUT /sources/~`) is now the
+head's whole tree, unvalidated, so it and `draft-novalidate` are one
+request. New: `reader`, every module read in-process through
+`serverDraftSource` over the head of the server the requests go to -- what a
+draft-mode `fetchVal` reads since phase 6, and the number that matters for a
+site; and `json:N`, phase 10's project (`scaleProject.ts`): a `.jsonValues()`
+router of N posts and image, file and video libraries of N entries each,
+local refs. Every answer reports what the head holds (`head.bytes`, the
+measure its 16 MB budget is charged with).
+
+Largest content answered / smallest that ended `exceededMemory`, synthetic
+(ladder 1, 2, 5, 10, 15, 20, 30, 40, 60, 80 MB; bisected with 65, 70, 75 and,
+at 64 MB of ballast, 45, 50, 55):
+
+| Ballast | `load`          | `draft` (whole tree)                 | `draft-novalidate` | `base`         | `reader`        |
+| ------- | --------------- | ------------------------------------ | ------------------ | -------------- | --------------- |
+| none    | 86.2 MB / never | 69.9 / 75.3 MB (before: 69.9 / 75.3) | 69.9 / 75.3 MB     | 69.9 / 75.3 MB | 86.2 MB / never |
+| 32 MB   | 86.2 MB / never | 64.5 / 69.9 MB (before: 53.7 / 59.1) | 64.5 / 69.9 MB     | 64.5 / 69.9 MB | 86.2 MB / never |
+| 64 MB   | 86.2 MB / never | 53.7 / 59.1 MB (before: 53.7 / 59.1) | 53.7 / 59.1 MB     | 53.7 / 59.1 MB | 86.2 MB / never |
+
+The same, with a chain of 650 patches on one module (`synth:N+650`; 10, 20,
+40, 60 and 80 MB, not bisected). Each request also makes the 650 saves
+through the API at that size, so a kill here is the saves and the read
+together:
+
+| Ballast | `reader`                           | `draft`                                         |
+| ------- | ---------------------------------- | ----------------------------------------------- |
+| none    | 86.2 MB / never                    | 64.5 / 86.2 MB                                  |
+| 32 MB   | 64.5 / 86.2 MB (killed both tries) | 64.5 MB (on the retry; first try killed) / 86.2 |
+| 64 MB   | 86.2 MB / never                    | 42.9 / 64.5 MB                                  |
+
+Phase 10's project (`json:1000`, `json:10000`, `json:10000+650`,
+`json:30000+650`, `json:100000`, `json:100000+650`; `load`, `draft`,
+`reader`): **every request answered at every ballast**, up to 100,000 posts
+(31.6 MB of module source -- the three libraries and the entries' markers --
+with the posts' own content behind 100,000 `c.json()` thunks) and 650
+patches on the posts. valbuild/web (0.23 MB, `--env web`, three requests per
+op): every operation answered at 0, 32 and 64 MB of ballast, one isolate per
+ballast, nothing replaced.
+
+**The isolate is replaced after the read** -- the request after it gets a new
+isolate, with no `exceededMemory` for the one before (see above). The
+smallest size where it happened (and the largest where it did not):
+
+| Ballast | `draft` (whole tree)                | `reader`           | `load`              | `json:100000`                   |
+| ------- | ----------------------------------- | ------------------ | ------------------- | ------------------------------- |
+| none    | 42.9 MB (32.1 not; before: 42.9 MB) | 86.2 MB (64.5 not) | not seen up to 64.5 | never                           |
+| 32 MB   | 32.1 MB (21.3 not; before: 32.1 MB) | 64.5 MB (42.9 not) | 64.5 MB (42.9 not)  | after `draft` only              |
+| 64 MB   | 15.9 MB (10.5 not; before: 15.9 MB) | 42.9 MB (32.1 not) | 42.9 MB (32.1 not)  | after every op, `load` included |
+
+**The head**: the most it held after any request was 55,944 bytes
+(`synth:80+650`, one module, two versions); with 650 patches on the 10,000-
+and 100,000-post routers, 26,400 bytes after `reader` (the 50 edited
+entries' copied paths) and 400 bytes after `draft`. Nothing was evicted
+anywhere. That is 0.3% of `HEAD_BUDGET_BYTES` (16 MB).
+
+Times: the tail's `cpuTime` is the whole request, and with `fresh=1` that is
+mostly building the input and starting the server, which varied about four
+times between isolates at one size (`synth:20` `draft`: 11.1 s of CPU in the
+ballast-0 ladder, 2.6 s in the 64 MB one). So the tail does not separate the
+operation here; `json:10000+650` was 0.5-1.8 s a request, whole. The
+isolate's own clock is coarse in a deployed Worker (many reads report 2,000
+ms flat), so only its extremes say anything: `reader` took 0-1 ms on
+unedited content at every size (every module is the bundle's); with 650
+patches, the first read that makes the edited module took 10-68 ms up to
+64.5 MB beside 32 and 64 MB of ballast, and 1.7-2.3 s at 64.5 and 86.2 MB in
+the other runs. Not investigated; the module it makes is a twentieth of the
+content.
+
+- **What a draft page costs no longer has a ceiling of its own.** `reader`
+  was never killed in its own right: it passes wherever `load` -- building
+  the modules and starting the server -- passes, 86.2 MB at every ballast,
+  and is replaced at the same sizes `load` is. Before phase 6 a draft page
+  asked the whole-tree read on every request, which is killed at 59-75 MB
+  and replaces the isolate from 16-43 MB.
+- **The whole tree costs what it cost, less validation.** `draft` now
+  equals `draft-novalidate` everywhere; that moved its kill with 32 MB of
+  ballast from 59.1 to 69.9 MB and changed nothing else, and the
+  replacement sizes are the earlier run's to the megabyte. Phase 7 removes
+  its last caller (BaseAlignment).
+- **The head's 16 MB budget is not where the limit is.** Real edits hold
+  tens of kilobytes (the head charges the paths a patch copied, not the
+  module), so the budget is two to three orders of magnitude above what was
+  reached, and the isolate's limit is the content the bundle holds, as for
+  `load`. Nothing here filled the head to its budget; doing so would take
+  patches that write megabytes of new values.
+- **Ballast still counts for less than its size** (64 MB of it moved the
+  whole-tree kill by 16 MB), and the line is noisy near the edge: with 650
+  patches, 86.2 MB `reader` was killed twice beside 32 MB and answered
+  beside 64 MB.
+
+**Not run: the loader.** Still a plain Worker, not an isolate started by
+home's loader (`worker_loaders`), which decision 5 asks for. If the two
+limits differ, only the loader's counts.
+
+**Conclusion.** After phase 6 a draft-mode page fits in a deployed 128 MB
+isolate wherever the content itself does: up to 86.2 MB of synthetic content
+(the largest step) beside 64 MB of ballast, 100,000 `.jsonValues()` entries
+with 650 patches, and valbuild/web, with the head holding at most 56 KB. The
+whole-tree read (`/sources/~`) is killed where it was (59-75 MB), less
+validation, and is no longer on a page's path. The 16 MB head budget holds
+with room to spare; it is not the number that decides the ceiling.
+
 The bundle and workerd sections below are LOCAL, and none of them is evidence
 about the 128 MB limit.
 
@@ -390,6 +506,10 @@ the limit.
 | 1 MB + 650 patches | 46 / 8 / 6 ms                        | 37 ms                                  |
 
 ### What to re-run deployed
+
+Items 1 and 2 ran on 2026-11-03, and the 650-patch and 10,000-entry checks of
+item 3 on a plain Worker: "Deployed, after phase 6", above. What is left is
+item 3's loader. As it was written:
 
 The deployed probe ("The deployed isolate", above) measured the server before
 phase 6. To measure the head where Cloudflare enforces 128 MB:

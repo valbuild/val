@@ -26,13 +26,12 @@ import { spawnSync } from "child_process";
 import path from "path";
 import { performance } from "perf_hooks";
 import v8 from "v8";
-import { Internal, type ValModules } from "@valbuild/core";
+import type { ValModules } from "@valbuild/core";
 import { createValClient, type ValClient } from "@valbuild/shared/internal";
 import { InMemoryPatchStore, initValServer } from "@valbuild/tanstack/server";
 import {
   createValRuntime,
   loadValModules,
-  serverDraftSource,
   type ValRuntime,
 } from "@valbuild/server";
 import {
@@ -41,6 +40,7 @@ import {
   OPERATIONS,
   contentBytes,
   runOperation,
+  readEveryModule,
   seedChain,
   syntheticConfig as config,
   syntheticInput,
@@ -125,27 +125,6 @@ async function serverFor(
   return { client, runtime };
 }
 
-/** Every module through the draft source a draft-mode `fetchVal` reads. */
-async function readAll(runtime: Promise<ValRuntime>, valModules: ValModules) {
-  const source = serverDraftSource({
-    runtime,
-    session: undefined,
-    modules: true,
-  });
-  await Promise.all(
-    valModules.modules.map(async (entry) => {
-      const path = Internal.getValPath((await entry.def()).default);
-      if (path === undefined) return;
-      const moduleFilePath = Internal.splitModuleFilePathAndModulePath(path)[0];
-      for (;;) {
-        const read = source.module(moduleFilePath);
-        if (read.status !== "pending") return;
-        await read.ready;
-      }
-    }),
-  );
-}
-
 function heapMB(): number {
   globalThis.gc?.();
   return v8.getHeapStatistics().used_heap_size / MB;
@@ -154,9 +133,10 @@ function heapMB(): number {
 /** One input and operation, in this process: times, and heap retained. */
 async function measure(input: Input, op: NodeOperation, repeats: number) {
   const before = heapMB();
-  const { valModules, bytes, patches, target } = await loadInput(input);
+  const generated = await loadInput(input);
+  const { valModules, bytes, patches } = generated;
   const { client, runtime } = await serverFor(valModules);
-  await seedChain(client, patches, target);
+  await seedChain(client, generated);
   await runOperation(client, "load");
   const loaded = heapMB();
   const times: number[] = [];
@@ -164,7 +144,7 @@ async function measure(input: Input, op: NodeOperation, repeats: number) {
     const start = performance.now();
     if (op === "reader") {
       // A request's own source, as each request makes one.
-      await readAll(runtime, valModules);
+      await readEveryModule(runtime, valModules);
     } else {
       await runOperation(client, op);
     }

@@ -22,20 +22,34 @@
  * replaces them; `fresh=1` replaces them anyway.
  */
 import type { ValConfig, ValModules } from "@valbuild/core";
-import { createInTabValFetch } from "@valbuild/server/browser";
+import { createInTabVal, type ValRuntime } from "@valbuild/server/browser";
 import { createValClient, type ValClient } from "@valbuild/shared/internal";
 import {
   MB,
   OPERATIONS,
   DESCRIBE,
   contentBytes,
-  parseSyntheticInput,
+  generatedInput,
+  readEveryModule,
   runOperation,
   seedChain,
-  syntheticInput,
   type LoadedInput,
   type Operation,
 } from "../draftReadWork";
+
+/**
+ * `draftReadWork.ts`'s operations over HTTP, and `reader`: a draft page that
+ * reads every module in-process, through `serverDraftSource` over the head
+ * of the server the requests go to (`createInTabVal`'s runtime), as a
+ * draft-mode `fetchVal` reads since phase 6.
+ */
+export type ProbeOperation = Operation | "reader";
+export const PROBE_OPERATIONS: ProbeOperation[] = [...OPERATIONS, "reader"];
+const PROBE_DESCRIBE: Record<ProbeOperation, string> = {
+  ...DESCRIBE,
+  reader:
+    "every module through serverDraftSource over the server's head, in-process: what a draft-mode fetchVal reads since phase 6",
+};
 
 export type ProbeOptions = {
   /** valbuild/web's modules, when this build bundles them; `input=web`. */
@@ -49,10 +63,17 @@ export type ProbeRun = {
   id: string | null;
   isolate: IsolateInfo;
   input: string;
-  op: Operation;
+  op: ProbeOperation;
   contentBytes: number;
   modules: number;
   patches: number;
+  /** `.jsonValues()` entries in the input (`json:N`), whose content is not in `contentBytes`. */
+  entries: number;
+  /**
+   * What the head holds after the operation, by its own measure: the bytes
+   * its budget (`HEAD_BUDGET_BYTES`, 16 MB) is charged with.
+   */
+  head: { bytes: number; versions: number; modules: number; evicted: number };
   ballastMB: number;
   /** Whether this request built the input, or found it held from the last. */
   built: boolean;
@@ -86,6 +107,7 @@ type Held = {
   loaded: LoadedInput;
   modules: number;
   client: ValClient;
+  runtime: ValRuntime;
 };
 
 export function createProbe(options: ProbeOptions): {
@@ -109,6 +131,8 @@ export function createProbe(options: ProbeOptions): {
   const inputs = [
     "synth:<MB>",
     "synth:<MB>+<patches>",
+    "json:<entries>",
+    "json:<entries>+<patches>",
     ...(options.web ? ["web"] : []),
   ];
 
@@ -122,9 +146,9 @@ export function createProbe(options: ProbeOptions): {
       const bytes = await contentBytes(options.web);
       return { valModules: options.web, bytes, patches: 0, target: null };
     }
-    const parsed = parseSyntheticInput(input);
-    if (parsed === null) throw new Error(`unknown input: ${input}`);
-    return syntheticInput(parsed.megabytes, parsed.patches);
+    const generated = await generatedInput(input);
+    if (generated === null) throw new Error(`unknown input: ${input}`);
+    return generated;
   }
 
   async function run(url: URL): Promise<Response> {
@@ -134,7 +158,7 @@ export function createProbe(options: ProbeOptions): {
     try {
       const input = url.searchParams.get("input") ?? "synth:1";
       const opParam = url.searchParams.get("op") ?? "draft";
-      const op = OPERATIONS.find((o) => o === opParam);
+      const op = PROBE_OPERATIONS.find((o) => o === opParam);
       if (op === undefined) throw new Error(`unknown op: ${opParam}`);
       const repeats = Math.max(1, Number(url.searchParams.get("repeats") ?? 1));
       const ballastMB = Math.max(
@@ -165,8 +189,11 @@ export function createProbe(options: ProbeOptions): {
         stage = "start";
         t = performance.now();
         // The modules carry the config they were defined with.
-        const client = serverFor(loaded.valModules, loaded.valModules.config);
-        await seedChain(client, loaded.patches, loaded.target);
+        const { client, runtime } = serverFor(
+          loaded.valModules,
+          loaded.valModules.config,
+        );
+        await seedChain(client, loaded);
         await runOperation(client, "load");
         await tick();
         startMs = performance.now() - t;
@@ -175,6 +202,7 @@ export function createProbe(options: ProbeOptions): {
           loaded,
           modules: loaded.valModules.modules.length,
           client,
+          runtime,
         };
       }
       if (held === null) throw new Error("nothing held after building");
@@ -183,7 +211,15 @@ export function createProbe(options: ProbeOptions): {
       const times: number[] = [];
       for (let i = 0; i < repeats; i++) {
         const t = performance.now();
-        await runOperation(held.client, op);
+        if (op === "reader") {
+          // A request's own source, as each request makes one.
+          await readEveryModule(
+            Promise.resolve(held.runtime),
+            held.loaded.valModules,
+          );
+        } else {
+          await runOperation(held.client, op);
+        }
         await tick();
         times.push(performance.now() - t);
       }
@@ -196,6 +232,8 @@ export function createProbe(options: ProbeOptions): {
         contentBytes: held.loaded.bytes,
         modules: held.modules,
         patches: held.loaded.patches,
+        entries: held.loaded.entries ?? 0,
+        head: headStats(held.runtime),
         ballastMB: ballast.mb,
         built,
         ms: { build: buildMs, start: startMs, op: times },
@@ -223,7 +261,7 @@ export function createProbe(options: ProbeOptions): {
           usage:
             "GET /run?input=synth:5&op=draft&repeats=1&ballast=0&fresh=0&id=<any>",
           inputs,
-          ops: DESCRIBE,
+          ops: PROBE_DESCRIBE,
           isolate: isolateInfo(),
           note: "Memory is judged by the outcome in `wrangler tail` (exceededMemory), not by this response. See scenarios/measure/README.md.",
         });
@@ -233,10 +271,29 @@ export function createProbe(options: ProbeOptions): {
   };
 }
 
-/** Val's server as `@valbuild/server/browser` starts it, behind `ValClient`. */
-function serverFor(valModules: ValModules, config: ValConfig): ValClient {
-  const inTabFetch = createInTabValFetch(valModules, { config });
-  return createValClient("/api/val", null, { fetch: inTabFetch });
+/**
+ * Val's server as `@valbuild/server/browser` starts it, behind `ValClient`,
+ * and the runtime it reads through: its head is what `reader` reads.
+ */
+function serverFor(
+  valModules: ValModules,
+  config: ValConfig,
+): { client: ValClient; runtime: ValRuntime } {
+  const inTab = createInTabVal(valModules, { config });
+  return {
+    client: createValClient("/api/val", null, { fetch: inTab.fetch }),
+    runtime: inTab.runtime,
+  };
+}
+
+function headStats(runtime: ValRuntime): ProbeRun["head"] {
+  const stats = runtime.ops.head.stats();
+  return {
+    bytes: stats.bytes,
+    versions: stats.versions,
+    modules: stats.modules,
+    evicted: stats.evicted,
+  };
 }
 
 /**

@@ -18,8 +18,12 @@
 import fs from "fs";
 import nodePath from "path";
 import { performance } from "perf_hooks";
-import { OPERATIONS, type Operation } from "./draftReadWork";
-import type { ProbeFailure, ProbeRun } from "./isolate/probe";
+import {
+  PROBE_OPERATIONS,
+  type ProbeFailure,
+  type ProbeOperation,
+  type ProbeRun,
+} from "./isolate/probe";
 
 /** Content sizes, in MB, stepped through in order. */
 const DEFAULT_LADDER = [1, 2, 5, 10, 15, 20, 30, 40, 60, 80];
@@ -60,7 +64,7 @@ function out(line: string): void {
 type RunRecord = {
   id: string;
   input: string;
-  op: Operation;
+  op: ProbeOperation;
   attempt: number;
   url: string;
   status: number;
@@ -78,10 +82,10 @@ async function run(args: Args): Promise<void> {
     inputs.length > 0
       ? inputs
       : [...DEFAULT_LADDER.map((mb) => `synth:${mb}`), "synth:1+650"];
-  const ops = (str(args, "ops") ?? OPERATIONS.join(","))
+  const ops = (str(args, "ops") ?? PROBE_OPERATIONS.join(","))
     .split(",")
     .map((name) => {
-      const op = OPERATIONS.find((o) => o === name);
+      const op = PROBE_OPERATIONS.find((o) => o === name);
       if (op === undefined) throw new Error(`unknown op: ${name}`);
       return op;
     });
@@ -93,7 +97,7 @@ async function run(args: Args): Promise<void> {
   const label = str(args, "label") ?? new Date().toISOString().slice(0, 19);
   const outPath = str(args, "out");
   const records: RunRecord[] = [];
-  const failuresInARow = new Map<Operation, number>();
+  const failuresInARow = new Map<ProbeOperation, number>();
   let n = 0;
 
   out(`probe ${base}, label ${label}, ballast ${ballast} MB`);
@@ -130,7 +134,7 @@ async function run(args: Args): Promise<void> {
 
 async function request(
   url: string,
-  meta: { id: string; input: string; op: Operation; attempt: number },
+  meta: { id: string; input: string; op: ProbeOperation; attempt: number },
 ): Promise<RunRecord> {
   const start = performance.now();
   let status = 0;
@@ -181,7 +185,7 @@ function describeRecord(record: RunRecord): string {
   if (!body.ok) {
     return `${what}: HTTP ${record.status}, failed at ${body.stage}: ${body.error}`;
   }
-  return `${what}: ${mb(body.contentBytes)} MB, op ${body.ms.op.map(Math.round).join("/")} ms, build ${Math.round(body.ms.build)} ms, start ${Math.round(body.ms.start)} ms, isolate ${body.isolate.id.slice(0, 8)} #${body.isolate.requests}, client ${record.clientMs} ms`;
+  return `${what}: ${mb(body.contentBytes)} MB${body.entries ? ` + ${body.entries} entries` : ""}, head ${mb(body.head.bytes)} MB, op ${body.ms.op.map(Math.round).join("/")} ms, build ${Math.round(body.ms.build)} ms, start ${Math.round(body.ms.start)} ms, isolate ${body.isolate.id.slice(0, 8)} #${body.isolate.requests}, client ${record.clientMs} ms`;
 }
 
 function mb(bytes: number): string {
@@ -276,14 +280,16 @@ function summaryTable(
   tail: Map<string, TailEvent>,
 ): string {
   const rows = [
-    "| Input | Op | Content | HTTP | Outcome (tail) | CPU (tail) | Wall (tail) | Op (isolate clock) | Isolate | Client |",
-    "| ----- | -- | ------- | ---- | -------------- | ---------- | ----------- | ------------------ | ------- | ------ |",
+    "| Input | Op | Content | Head | HTTP | Outcome (tail) | CPU (tail) | Wall (tail) | Op (isolate clock) | Isolate | Client |",
+    "| ----- | -- | ------- | ---- | ---- | -------------- | ---------- | ----------- | ------------------ | ------- | ------ |",
   ];
   for (const record of records) {
     const body = record.body;
     const event = tail.get(record.id);
     const ok = "ok" in body && body.ok;
     const content = ok ? `${mb(body.contentBytes)} MB` : "";
+    // Runs recorded before the probe reported its head have none.
+    const head = ok && body.head ? `${mb(body.head.bytes)} MB` : "";
     const opMs = ok ? body.ms.op.map(Math.round).join("/") + " ms" : "";
     const isolate =
       "isolate" in body
@@ -296,7 +302,7 @@ function summaryTable(
           ? ""
           : `${body.stage}: ${body.error}`.slice(0, 60);
     rows.push(
-      `| ${record.input} | ${record.op}${record.attempt > 1 ? " (retry)" : ""} | ${content} | ${record.status}${failure ? ` ${failure}` : ""} | ${event?.outcome ?? "(no tail)"} | ${event?.cpuTime !== undefined ? `${event.cpuTime} ms` : ""} | ${event?.wallTime !== undefined ? `${event.wallTime} ms` : ""} | ${opMs} | ${isolate} | ${record.clientMs} ms |`,
+      `| ${record.input} | ${record.op}${record.attempt > 1 ? " (retry)" : ""} | ${content} | ${head} | ${record.status}${failure ? ` ${failure}` : ""} | ${event?.outcome ?? "(no tail)"} | ${event?.cpuTime !== undefined ? `${event.cpuTime} ms` : ""} | ${event?.wallTime !== undefined ? `${event.wallTime} ms` : ""} | ${opMs} | ${isolate} | ${record.clientMs} ms |`,
     );
   }
   return rows.join("\n");

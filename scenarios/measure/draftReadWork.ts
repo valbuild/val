@@ -17,6 +17,8 @@ import {
   type ValModules,
 } from "@valbuild/core";
 import { PatchId, type ValClient } from "@valbuild/shared/internal";
+import { serverDraftSource, type ValRuntime } from "@valbuild/server/browser";
+import { POSTS, postKey, scaleConfig, scaleProject } from "./scaleProject";
 
 export type Operation = "load" | "draft" | "draft-novalidate" | "base";
 export const OPERATIONS: Operation[] = [
@@ -119,7 +121,65 @@ export type LoadedInput = {
   patches: number;
   /** Where a chain of patches goes: the first module. */
   target: ModuleFilePath | null;
+  /**
+   * The field patch `i` of the chain replaces, in `target`. A title of one
+   * of the first 50 entries, so the chain keeps editing the same few.
+   */
+  patchPath?: (i: number) => string[];
+  /** `.jsonValues()` entries in the input (their content is not in `bytes`). */
+  entries?: number;
 };
+
+/**
+ * `json:N` or `json:N+P`: phase 10's project (`scaleProject`, local media) at
+ * N, a `.jsonValues()` router of N posts and three media libraries of N
+ * entries each, with a chain of P patches on the posts.
+ */
+export function parseJsonValuesInput(
+  input: string,
+): { entries: number; patches: number } | null {
+  const match = /^json:(\d+)(?:\+(\d+))?$/.exec(input);
+  if (match === null) return null;
+  const entries = Number(match[1]);
+  if (!(entries > 0)) return null;
+  return {
+    entries,
+    patches: match[2] === undefined ? 0 : Number(match[2]),
+  };
+}
+
+/** A `json:N[+P]` input, as modules a server is started with. */
+export async function jsonValuesInput(
+  entries: number,
+  patches: number,
+): Promise<LoadedInput> {
+  const project = scaleProject({ entries, media: "local" });
+  const valModules = defineModules(
+    scaleConfig,
+    project.modules.map((module) => ({
+      def: () => Promise.resolve({ default: module }),
+    })),
+  );
+  return {
+    valModules,
+    bytes: await contentBytes(valModules),
+    patches,
+    target: POSTS,
+    patchPath: (i) => [postKey(i % 50), "title"],
+    entries,
+  };
+}
+
+/** Any input but `web`: `synth:…` or `json:…`. */
+export async function generatedInput(
+  input: string,
+): Promise<LoadedInput | null> {
+  const synth = parseSyntheticInput(input);
+  if (synth !== null) return syntheticInput(synth.megabytes, synth.patches);
+  const json = parseJsonValuesInput(input);
+  if (json !== null) return jsonValuesInput(json.entries, json.patches);
+  return null;
+}
 
 /** A `synth:N[+P]` input, as modules a server is started with. */
 export function syntheticInput(
@@ -162,10 +222,12 @@ function moduleFilePathOf(module: ValModule<SelectorSource>): ModuleFilePath {
 /** `count` patches on `path`, each its own `PUT /patches`, as the Studio saves. */
 export async function seedChain(
   client: ValClient,
-  count: number,
-  path: ModuleFilePath | null,
+  loaded: LoadedInput,
 ): Promise<void> {
+  const { patches: count, target: path } = loaded;
   if (count === 0 || path === null) return;
+  const patchPath =
+    loaded.patchPath ?? ((i: number) => [`entry-${i % 50}`, "title"]);
   const stat = await client("/stat", "POST", { body: null });
   if (stat.status !== 200 || !("baseSha" in stat.json)) {
     throw new Error(`/stat answered ${stat.status}`);
@@ -183,7 +245,7 @@ export async function seedChain(
             patch: [
               {
                 op: "replace",
-                path: [`entry-${i % 50}`, "title"],
+                path: patchPath(i),
                 value: `Edit ${i}`,
               },
             ],
@@ -224,4 +286,35 @@ export async function runOperation(
   if (res.status !== 200) {
     throw new Error(`/sources/~ answered ${res.status}`);
   }
+}
+
+/**
+ * A draft PAGE that reads every module of the project, in-process, as a
+ * draft-mode `fetchVal` reads since phase 6: through `serverDraftSource`
+ * over the runtime's head, one source per request. A module whose newest
+ * version is the bundle's own passes (the reader's bundle answers it); an
+ * edited one is the head's. `.jsonValues()` entries are not read: a page
+ * reads the entries it shows.
+ */
+export async function readEveryModule(
+  runtime: Promise<ValRuntime>,
+  valModules: ValModules,
+): Promise<void> {
+  const source = serverDraftSource({
+    runtime,
+    session: undefined,
+    modules: true,
+  });
+  await Promise.all(
+    valModules.modules.map(async (entry) => {
+      const path = Internal.getValPath((await entry.def()).default);
+      if (path === undefined) return;
+      const moduleFilePath = Internal.splitModuleFilePathAndModulePath(path)[0];
+      for (;;) {
+        const read = source.module(moduleFilePath);
+        if (read.status !== "pending") return;
+        await read.ready;
+      }
+    }),
+  );
 }

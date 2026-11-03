@@ -120,10 +120,18 @@ Phase 6 of `docs/plans/one-content-model.md` has to fit in it ("Within
 server in memory mode the way `@valbuild/server/browser` does
 (`createInTabValFetch`: `ValServer`, the router and `ValOpsMemory` with the
 browser's `ValServerPlatform`, since a Worker has no `fs`), and sends the
-operation through `ValClient`, as a draft-mode `fetchVal` does. Inputs and
-operations are `draftRead.ts`'s, from `draftReadWork.ts`: `synth:<MB>` of any
-size, `synth:<MB>+<patches>`, and `web` (valbuild/web's modules, in the
-`--env web` build only). `fresh=1` (the driver's default) drops what the
+operation through `ValClient`, as a draft-mode `fetchVal` did until phase 6.
+Inputs and operations are `draftRead.ts`'s, from `draftReadWork.ts`:
+`synth:<MB>` of any size, `synth:<MB>+<patches>`, `json:<entries>[+<patches>]`
+(phase 10's project from `scaleProject.ts`: a `.jsonValues()` router of that
+many posts and three media libraries of that many entries, local refs, the
+chain on the posts), and `web` (valbuild/web's modules, in the `--env web`
+build only). One more operation is the probe's own: `reader` reads every
+module in-process through `serverDraftSource`, over the head of the server
+the requests go to, as a draft-mode `fetchVal` reads since phase 6 (the
+browser entry's `createInTabVal` hands out that server's runtime). Every
+answer carries what the head holds after the operation (`head.bytes`, by the
+measure its 16 MB budget is charged with). `fresh=1` (the driver's default) drops what the
 isolate held and builds the input again; otherwise the isolate keeps the last
 input's modules and server between requests, as a site's isolate keeps its
 bundle and (after phase 6) one runtime. `ballast=<MB>` holds that many MB of
@@ -215,6 +223,7 @@ $W tail val-isolate-probe --format json > /tmp/tail.json &
 
 # From scenarios/: the ladder (1 to 80 MB, every operation, then 1 MB + 650
 # patches), then the same with 32 and 64 MB of ballast for the app's heap.
+# The head's budget: --inputs synth:20+650,…,json:10000+650 --ops reader,draft.
 NODE_USE_ENV_PROXY=1 pnpm exec tsx measure/isolateProbe.ts run \
   --url https://val-isolate-probe.<subdomain>.workers.dev --label deployed --out /tmp/runs.jsonl
 NODE_USE_ENV_PROXY=1 pnpm exec tsx measure/isolateProbe.ts run \
