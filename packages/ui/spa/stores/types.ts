@@ -231,12 +231,6 @@ export type SystemEvent =
       path: SourcePath;
       moduleFilePath: ModuleFilePath;
     }
-  /**
-   * `/stat` named a schema other than the last one it named. On RECEIVE, not
-   * adoption: a stat held back while another build's base is fetched still
-   * says which schema that build runs. See `SchemaFreshnessWatch`.
-   */
-  | { type: "stat:schema"; schemaSha: string }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
   | {
       type: "stat:receive";
@@ -398,8 +392,8 @@ export type SystemEvent =
       refusal: { message: string; error: PlanRefusalErrorT };
     }
   /**
-   * Something the editor should be told changed: an error, the network, the
-   * schema's freshness. One event for all of them because a UI shows them
+   * Something the editor should be told changed: an error, the network,
+   * held edits. One event for all of them because a UI shows them
    * together — see `StatusStore`.
    */
   | { type: "status:change" }

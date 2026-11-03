@@ -303,40 +303,75 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * S16 A schema change the Studio has not got never stops the editor.
    *
    * Given a Studio, and a server that gets new code the Studio does not
-   * (a deploy, hosted: no HMR reaches the open tab),
+   * (a deploy: no HMR reaches the open tab),
    * when the Studio's poll reaches the new server,
-   * then nothing stops the editor: no schema dialog.
+   * then nothing stops the editor -- no dialog, no reload of the page -- and
+   * the Studio runs the new code: hosted (http), the build's own registry,
+   * which its manifest names and the Studio imports and takes in before it
+   * adopts that manifest (`BuildCode`); in local development (fs, memory)
+   * HMR, whenever it comes.
    *
-   * SKIPPED: today it is BY DESIGN that the Studio reports "out-of-date"
-   * (`SchemaFreshnessWatch`, after a 3 s grace and a fresh read), which shows
-   * the one-way reload dialog. The plan deletes the dialog (phase 9,
-   * `reloadCode`), and this is the test that will say so. Not in phase 9's
-   * first part: hosted, the dialog is the only answer to a deploy until a
-   * build's registry can be swapped in, which needs the manifest in the
-   * Studio (`manifestSource`, phase 7 after phase 6) -- see "Phase 9 without
-   * phases 6 and 7" in the plan. Pinned below.
+   * It was skipped until phase 9's remainder, pinning the one-way "A new
+   * version has been deployed" dialog (`SchemaFreshnessWatch`), the only
+   * answer to a deploy until a build's code could be taken in place. "No
+   * Studio stopped by a schema change" is now an invariant of every scenario
+   * (`Studio.reloads`, checked when the world is disposed).
    */
-  test.skip("S16 no schema dialog after a deploy the Studio has not got", async () => {
+  test("S16 no schema dialog after a deploy the Studio has not got", async () => {
     world = await createWorld({ config, modules: [home], server });
     const editor = await world.studio("editor");
-    await deployAndWaitOutTheGrace(world);
-    expect(editor.system.status.current().schema).toBe("current");
+    const imports = () => editor.work.count("code:import-build");
+    await deployAndWaitPastThePoll(world);
+
+    if (server === "http") {
+      // The build's code, in place, once.
+      expect(imports()).toBe(1);
+    } else {
+      // Nothing to import in local development: HMR brings it.
+      expect(imports()).toBe(0);
+      await editor.receiveCode([homeWithCta]);
+      await world.settle();
+    }
+    editor.reads("cta", homeWithCta, ["cta"]);
+    await world.observe();
+    expect(world.frames.last("cta")).toBe("Buy");
+    expect(editor.errors()).toEqual([]);
+    expect(editor.reloads()).toBe(0);
+    world.expectInvariants();
+  });
+});
+
+/**
+ * S16 (a deploy the platform did not make) A Next.js app, or a TanStack
+ * Start app hosted elsewhere: no build names a registry, so a Studio cannot
+ * take the new code in place. It reloads its page -- without a dialog,
+ * once the schemas have stayed apart past the grace and every edit is on
+ * the server -- rather than showing the old fields over the new build's
+ * content. Hosted only: in local development HMR brings the code.
+ */
+describe("on http, deployed elsewhere", () => {
+  let world: World | null = null;
+  afterEach(async () => {
+    await world?.dispose();
+    world = null;
   });
 
-  // Not on http, for the reason in `overlayAfterBuild`'s "why it flickers":
-  // a hosted Studio hears of a deploy through the socket, and the world's
-  // `deployCode` tells it only that the build went live, never that one was
-  // building.
-  (server === "http" ? test.skip : test)(
-    "S16 why: SchemaFreshnessWatch reports the schema out of date",
-    async () => {
-      world = await createWorld({ config, modules: [home], server });
-      const editor = await world.studio("editor");
-      expect(editor.system.status.current().schema).toBe("current");
-      await deployAndWaitOutTheGrace(world);
-      expect(editor.system.status.current().schema).toBe("out-of-date");
-    },
-  );
+  test("S16 a deploy the platform did not make reloads the Studio, once, after its edit is saved", async () => {
+    world = await createWorld({
+      config,
+      modules: [home],
+      server: "http",
+      deployedBy: "elsewhere",
+    });
+    const editor = await world.studio("editor");
+    await editor.edit(home, ["title"], "Edited");
+    await deployAndWaitPastThePoll(world);
+    expect(editor.work.count("code:import-build")).toBe(0);
+    expect(editor.system.patchSync.currentState().status).toBe("in-sync");
+    expect(editor.reloads()).toBe(1);
+    // Expected here, and only here: what the invariant checks at dispose.
+    editor.expectReloads(1);
+  });
 });
 
 function registryWithThrowingFooter(): ValModules {
@@ -359,13 +394,16 @@ function registryThatThrows(): ValModules {
   };
 }
 
-/** A deploy the Studio does not get, then past the poll and the watch's grace. */
-async function deployAndWaitOutTheGrace(world: World) {
+/**
+ * A deploy the Studio does not get, then past the poll and past the grace
+ * after which a Studio that cannot take a build's code in place would
+ * reload its page (`STUDIO_RELOAD_GRACE_MS`).
+ */
+async function deployAndWaitPastThePoll(world: World) {
   world.deployCode([homeWithCta]);
   // The poll parked on the old server runs out; the next reaches the new one.
   await world.clock.advance(21_000);
   await world.settle();
-  // `SCHEMA_DISAGREEMENT_GRACE_MS`, then the fresh read.
   await world.clock.advance(4_000);
   await world.settle();
 }

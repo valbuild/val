@@ -148,14 +148,15 @@ export type WorkKind =
   | "patch:forget-published"
   // --- status: what the editor is told --------------------------------------
   | "status:report-error"
+  // --- a new build's code (`buildCode.ts`) ------------------------------------
+  /** A build's registry imported and handed to `reloadCode`: once per build. */
+  | "code:import-build"
   /**
-   * The client's schema went stale against the server's.
-   *
-   * Counted because it GATES writes, so a run where it happens is a run where
-   * saving stopped — which is worth being able to see in a ledger rather than
-   * inferring from an absence of saves.
+   * The Studio reloaded the page to take a build's code, which it could not
+   * take in place (another Val, no entry). Counted because a scenario must
+   * see it happen, or see that it did not.
    */
-  | "status:schema-out-of-date"
+  | "code:reload-studio"
   // --- schema --------------------------------------------------------------
   | "schema:receive"
   // --- host: the only place user closures run ------------------------------

@@ -15,6 +15,7 @@ import {
   createValClient,
   engineWork,
   schemaVersionOf,
+  valModulesEntryPath,
   versionHashCount,
   type ModuleVersion,
   type ProjectVersion,
@@ -227,7 +228,11 @@ export type World = {
     modules: AnyModule[],
     files?: Record<string, string | null>,
   ): Promise<void>;
-  /** The invariants every scenario is held to. See `frames.ts`. */
+  /**
+   * The invariants every scenario is held to. See `frames.ts`; and no Studio
+   * stopped by a schema change (no schema dialog, ever: `Studio.reloads`),
+   * which {@link dispose} checks too, for every scenario.
+   */
   expectInvariants(): void;
   /**
    * The server's manifest (`GET /manifest`, through the network, as an
@@ -471,6 +476,16 @@ export type Studio = {
    */
   receiveCode(modules: AnyModule[]): Promise<CodeReload>;
   /**
+   * How many times this Studio reloaded its page to take a build's code it
+   * could not take in place (`BuildCode`). Zero is an invariant of every
+   * scenario, checked when the world is disposed: a schema change never
+   * stops the editor (the dialog that did is gone, phase 9). A scenario
+   * that expects one says so with {@link expectReloads}.
+   */
+  reloads(): number;
+  /** This Studio is expected to reload its page `count` times. */
+  expectReloads(count: number): void;
+  /**
    * A registry reaches the Studio, as `<ValModulesClient>` registers one: for
    * a registry whose modules are not all plain (a `def` that rejects, as a
    * module whose code throws does). {@link receiveCode} is this, for modules.
@@ -620,6 +635,15 @@ export type WorldOptions = {
    * `sourceFiles` in memory mode, as an app's host would.
    */
   sourceText?: Record<string, string>;
+  /**
+   * http: who made the builds the world deploys. `"the platform"` (the
+   * default): each is named (`VAL_BUILD`, Val's `publishBuild`), and its
+   * server names its registry on the manifest, which a Studio imports
+   * (`BuildCode`). `"elsewhere"`: a deploy the platform did not make -- a
+   * Next.js app, a self-hosted TanStack Start -- which names neither, so a
+   * Studio reloads its page to take the new code.
+   */
+  deployedBy?: "the platform" | "elsewhere";
 };
 
 export type ServerMode = "memory" | "fs" | "http";
@@ -976,12 +1000,25 @@ export async function createWorld(options: WorldOptions): Promise<World> {
    */
   const buildName = (n: number) => `build-${n}`;
   const nameBuild = (n: number) => {
-    if (host.mode === "http") {
+    if (host.mode === "http" && options.deployedBy !== "elsewhere") {
       host.http = { ...host.http, publishBuild: buildName(n) };
     }
   };
   nameBuild(1);
-  const serverFor = (registry: ValModules) =>
+  /**
+   * http: every build's registry, at the entry its server names on the
+   * manifest (`valModulesEntryPath`), as the platform serves what
+   * `@valbuild/tanstack-build` emitted beside the build's client chunks:
+   * what a Studio opened on an older build imports (`BuildCode`).
+   */
+  const buildEntries = new Map<string, ValModules>();
+  const serverFor = (registry: ValModules) => {
+    if (host.mode === "http" && host.http.publishBuild !== undefined) {
+      buildEntries.set(valModulesEntryPath(host.http.publishBuild), registry);
+    }
+    return serverForBuild(registry);
+  };
+  const serverForBuild = (registry: ValModules) =>
     withStaticFiles(
       host,
       initValServer(registry, serverConfig, {
@@ -1199,7 +1236,27 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     polling: Promise<void>;
     /** Messages its socket has brought (http mode), for `settle`. */
     socketMessages: () => number;
+    /** Reloaded its page as often as the scenario said it would. */
+    reloadsAsExpected: () => boolean;
   }> = [];
+  /**
+   * "No schema dialog, ever" (phase 9): no Studio is stopped by a schema
+   * change. The dialog is gone; what would stop an editor now is a Studio
+   * reloading its page, which only a build it cannot take in place does.
+   */
+  const expectNoStudioStopped = () => {
+    const stopped = studios.filter((entry) => !entry.reloadsAsExpected());
+    if (stopped.length > 0) {
+      throw new Error(
+        `✕ no Studio is stopped by a schema change: ${stopped
+          .map(
+            ({ studio }) =>
+              `studio "${studio.name}" reloaded its page ${studio.reloads()} time(s)`,
+          )
+          .join(", ")}`,
+      );
+    }
+  };
   /**
    * The world's counted work, Val's server's alone: the engine and the
    * hashing count per process, and since phase 5 a Studio applies patches
@@ -1264,7 +1321,18 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     const validator = new SchemaValidator();
     let seq = 0;
     const work = new RecordingActivity(() => ++seq);
+    let reloads = 0;
+    let expectedReloads = 0;
     const system = createValSystem(client, {
+      // The build's entry, as the browser imports it from the site's origin.
+      importRegistry: async (entry) => {
+        const registry = buildEntries.get(entry);
+        if (registry === undefined) throw new Error(`404: ${entry}`);
+        return registry;
+      },
+      reloadStudio: () => {
+        reloads++;
+      },
       activity: work,
       writes: true,
       mode: host.mode === "http" ? "http" : "fs",
@@ -1443,6 +1511,10 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       },
       receiveCode: (modules) => system.host.reloadCode(registryOf(modules)),
       receiveRegistry: (registry) => system.host.reloadCode(registry),
+      reloads: () => reloads,
+      expectReloads(count) {
+        expectedReloads = count;
+      },
       work,
       expectWork(since, budget) {
         const over: string[] = [];
@@ -1495,6 +1567,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       },
       socketMessages: () => socketMessages,
       polling,
+      reloadsAsExpected: () => reloads === expectedReloads,
     });
     return studio;
   };
@@ -2047,6 +2120,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     },
     expectInvariants() {
       frames.expectInvariants();
+      expectNoStudioStopped();
     },
     manifest: readManifest,
     async modules(module, opts = {}) {
@@ -2199,6 +2273,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         await network.idle();
         await host.contentHost.stop();
       }
+      // Checked for every scenario, whether it asked for the invariants or
+      // not: see `expectNoStudioStopped`.
+      expectNoStudioStopped();
     },
   };
 }

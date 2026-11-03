@@ -19,6 +19,7 @@ import {
 import { assetModule, isAsset, resolveAsset } from "./assets";
 import { sha256Hex } from "./hash";
 import { buildInputId } from "./inputId";
+import { valModulesEntry } from "./valModules";
 import { transformEnvMarkers } from "./envTransforms";
 import { transformRemoveDevtools } from "./removeDevtools";
 import { transformRouteNodes } from "./routeNodes";
@@ -56,7 +57,7 @@ export type { RouteSplitter } from "./routeSplit";
  * declaration -- and the one that is not the builder's, because the fact is a
  * property of the PROJECT layout rather than of the build.
  */
-export { ENTRY, ROUTES_DIR, TREE } from "./projectPaths";
+export { ENTRY, ROUTES_DIR, TREE, valModulesEntryFile } from "./projectPaths";
 
 /**
  * Filename of the entry chunk, in every target.
@@ -1018,6 +1019,16 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
   );
   const client = performance.now() - clientStarted;
 
+  /*
+   * The build's `val.modules` registry, as an ES module of its own beside
+   * the client chunks and named after the build: what a Studio opened on an
+   * older build imports to take this one's code in, rather than reloading
+   * the page (`valModulesEntry`). The build's name is a hash of its inputs,
+   * so it is known before anything is emitted.
+   */
+  const hash = await buildInputId(input);
+  const registryEntry = await valModulesEntry(input, hash, warnings);
+
   // Paths are relative to `rsc/app.js`, one directory down, so both layers are
   // addressed with a leading `../`. Getting this wrong does not fail the build;
   // the cold isolate simply refuses to boot.
@@ -1053,7 +1064,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     serverCode: serverBuild.code,
     clientCode: clientBuild.code,
     serverChunks: serverBuild.chunks,
-    clientChunks: clientBuild.chunks,
+    clientChunks: { ...clientBuild.chunks, ...registryEntry },
     assetFiles,
     publicFiles,
     cssCode: styles,
@@ -1071,7 +1082,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     // byte of the output has to change it: the layers (a dependency change
     // must not keep the previous set), and every file, not just the entries.
     // See `buildInputId`.
-    hash: await buildInputId(input),
+    hash,
     // Every emitted byte, not just the entries, and the layer revisions.
     outputHash: (
       await sha256Hex(
@@ -1084,6 +1095,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
           ...[serverBuild, clientBuild, rscBuild].flatMap((built) =>
             built ? [built.code, ...Object.entries(built.chunks).flat()] : [],
           ),
+          ...Object.entries(registryEntry).flat(),
         ].join("\u0000"),
       )
     ).slice(0, 32),

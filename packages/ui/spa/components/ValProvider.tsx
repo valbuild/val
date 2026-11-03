@@ -1,5 +1,4 @@
 import { createRequestPublish } from "../publish/requestPublish";
-import { useCodeModeState } from "../proposals/codeMode";
 import {
   createStudioJobClient,
   isTransientPublishError,
@@ -94,7 +93,6 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
-import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
 import { StudioOutOfDateDialog } from "./StudioOutOfDateDialog";
 import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
@@ -647,8 +645,7 @@ export function ValProvider({
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
    * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
-   * which build answered and `schemaSha` which schema it runs;
-   * `jsonEntriesSha` is an input to a refetch it does not do yet.
+   * which build answered; `jsonEntriesSha` is an input to a refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -698,9 +695,6 @@ export function ValProvider({
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
-  /** Which schema that build runs. See `SchemaFreshnessWatch`. */
-  const statSchemaSha =
-    "data" in stat && stat.data ? stat.data.schemaSha : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -713,7 +707,6 @@ export function ValProvider({
             headPatchId: statPatchHead,
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
-            schemaSha: statSchemaSha,
           }
         : null,
     [
@@ -725,7 +718,6 @@ export function ValProvider({
       statPatchHead,
       statHeadVersion,
       statSourcesSha,
-      statSchemaSha,
     ],
   );
 
@@ -1675,7 +1667,6 @@ export function ValProvider({
                           <ProjectLocalesProvider>
                             {children}
                           </ProjectLocalesProvider>
-                          <SchemaOutOfDateGate />
                           <StudioOutOfDateGate />
                         </ValFieldProvider>
                       </ValRemoteProvider>
@@ -1717,27 +1708,7 @@ function StudioOutOfDateGate() {
 }
 
 /**
- * The schema on the server no longer matches the one this Studio holds.
- *
- * Once true it stays true — see `SchemaFreshness` in `StatusStore`. There is no
- * way back without a reload, because every open field was resolved against a
- * schema that has been replaced, and a gate that could flicker off would let the
- * user keep editing against one that is gone.
- */
-function SchemaOutOfDateGate() {
-  const status = useValStatus();
-  /*
-   * Not in code mode, where a schema changes with every build: a modal that
-   * stops the editor and reloads the page cannot be how that arrives
-   * (`docs/plans/one-content-model.md`, "The dialog goes").
-   */
-  const inCodeMode = useCodeModeState().proposal?.on === true;
-  if (status.schema !== "out-of-date" || inCodeMode) return null;
-  return <SchemaOutOfDateDialog />;
-}
-
-/**
- * Everything the editor is TOLD: errors, the network, the schema's freshness.
+ * Everything the editor is TOLD: errors, the network, held edits.
  *
  * One subscription for all of them, because `StatusStore` emits one event for
  * all of them — a UI shows them together, and splitting them into four
@@ -1763,7 +1734,6 @@ const EMPTY_STATUS: StatusSnapshot = {
   errors: [],
   networkErrorSince: null,
   schemaError: null,
-  schema: "current",
   held: [],
 };
 

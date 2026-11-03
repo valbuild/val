@@ -19,16 +19,6 @@ export type TransientError = {
 };
 
 /**
- * Whether the schema the client holds is still the one the server has.
- *
- * `out-of-date` is a GATE, not a warning: a patch written against a schema that
- * has been redeployed can be applied to source the server will reject, or worse
- * accepted against a shape that no longer means the same thing. So it stops
- * writes rather than annotating them.
- */
-export type SchemaFreshness = "current" | "out-of-date";
-
-/**
  * An edit that stopped fitting its module when the module's code changed: a
  * field renamed or removed under a pending edit to it.
  *
@@ -50,7 +40,6 @@ export type StatusSnapshot = {
   /** When the network started failing, or `null`. See `reportNetworkError`. */
   networkErrorSince: number | null;
   schemaError: string | null;
-  schema: SchemaFreshness;
   /** See {@link HeldEdit}. In chain order. */
   held: readonly HeldEdit[];
 };
@@ -88,7 +77,6 @@ export class StatusStore {
   private snapshot: StatusSnapshot | null = null;
   private networkErrorSince: number | null = null;
   private schemaError: string | null = null;
-  private freshness: SchemaFreshness = "current";
   private held: readonly HeldEdit[] = [];
   private nextId = 0;
 
@@ -161,21 +149,6 @@ export class StatusStore {
   }
 
   /**
-   * The server's schema is not the one this client holds.
-   *
-   * One-way on purpose: a client whose schema went stale cannot decide for itself
-   * that it is fresh again, because the only thing that would make it fresh is a
-   * reload. Announcing recovery it cannot deliver would leave writes enabled
-   * against a schema it still does not have.
-   */
-  reportSchemaOutOfDate(): void {
-    if (this.freshness === "out-of-date") return;
-    this.freshness = "out-of-date";
-    this.activity.work("status:schema-out-of-date");
-    this.announce();
-  }
-
-  /**
    * The edits held because their module's code changed under them: the whole
    * list, replaced. See {@link HeldEdit}.
    */
@@ -201,7 +174,6 @@ export class StatusStore {
         errors: this.transient,
         networkErrorSince: this.networkErrorSince,
         schemaError: this.schemaError,
-        schema: this.freshness,
         held: this.held,
       };
     }

@@ -1997,6 +1997,14 @@ export const ValServer = (
          * answered by the live build soon.
          */
         const superseded = synced.ok.fetched.superseded === true;
+        /*
+         * Where this build's code is, for a Studio opened on another build
+         * (phase 9): it imports it and reloads in place. The answering
+         * build's, not the newest's: in http mode a previous build says it
+         * is superseded and its manifest is not adopted at all, and in fs
+         * and memory mode there is no entry -- HMR brings the code.
+         */
+        const registry = serverOps.buildRegistry();
         const etag = await ops.manifestTag(project);
         const headers = { ETag: etag, "Cache-Control": "no-cache" };
         const held = req.headers["if-none-match"];
@@ -2023,6 +2031,7 @@ export const ValServer = (
                 tag: etag,
                 since,
                 ...(superseded ? { superseded } : {}),
+                ...(registry !== null ? { registry } : {}),
               },
             };
           }
@@ -2035,6 +2044,7 @@ export const ValServer = (
             modules,
             tag: etag,
             ...(superseded ? { superseded } : {}),
+            ...(registry !== null ? { registry } : {}),
           },
         };
       },

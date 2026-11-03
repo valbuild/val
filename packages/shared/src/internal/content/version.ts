@@ -53,6 +53,14 @@ export type ProjectVersion = {
   seq: number;
 };
 
+/**
+ * What the schema version of a module staged after the build serving a
+ * proposal starts with: `staged:<inputs>`. Val's server has not got that
+ * module's schema, so it names the staging instead; a Studio compares no
+ * build's code against it.
+ */
+export const STAGED_SCHEMA_PREFIX = "staged:";
+
 /** The chain of no patches. */
 export const EMPTY_CHAIN = "";
 

@@ -66,8 +66,9 @@ What is left for a server, counted from the `client(...)` calls in
 
 Two things have to be right or the Studio will try to fetch things that do not
 exist: the manifest's versions must be the bundle's (`ManifestSource` reads a
-module only at a version it does not hold), and `/stat`'s `schemaSha` must
-equal the bundle's (see `SchemaFreshnessWatch`). With the real server in the tab both are computed by
+module only at a version it does not hold, and takes a build's code in, or
+reloads, where a module's schema there is not the bundle's: `BuildCode`). With
+the real server in the tab it is computed by
 the server's own code from the very modules the Studio loaded, so they agree by
 construction -- one of the reasons for option B.
 
@@ -247,9 +248,9 @@ commits, proposal state. Two ways through it:
   optional system factory; the demo passes `createDemoSystem`. `/stat` and
   `/profiles` are still answered by a tiny demo `ValClient`, but from the
   SAME memory server object, so the two cannot disagree. The `/stat` answer has
-  to carry the bundle's own `schemaSha` (otherwise `SchemaFreshnessWatch`
-  goes looking for another build; since phase 7 the bases come from the
-  manifest, by version),
+  to carry the bundle's own `schemaSha` (a Studio before phase 9 compared it
+  to reload; since phase 7 the bases come from the manifest, by version, and
+  since phase 9 a new build's code too),
   read from the system's `HostStore` rather than computed twice. And it has to
   block until the chain changes, like fs mode does, or `useStatus` re-polls in
   a tight loop.

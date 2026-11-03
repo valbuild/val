@@ -2,6 +2,7 @@ import type { ModuleFilePath, ValModules } from "@valbuild/core";
 import type { Evaluated } from "@valbuild/shared/internal";
 import { proposalProject } from "@valbuild/shared/publish";
 import type { CodeReload, HostStore } from "../stores/HostStore";
+import { registryOfEntry } from "../stores/react/loadValModules";
 import type { ProposalsClient } from "./proposalsClient";
 
 /**
@@ -173,42 +174,6 @@ export function stagedCodeNotice(outcome: StagedCodeOutcome): unknown {
         note: "This page cannot run the builder, so the Studio gets the new schema when the proposal is built.",
       };
   }
-}
-
-/**
- * The Val modules bundle, read in this realm: `val.modules.ts`'s default
- * export, `modules(config, [...])`. The modules it makes come from the
- * site's copy of `@valbuild/core`; the Studio reads them with its own, which
- * works because their symbols are `Symbol.for` (`isValModule`).
- */
-export function registryOfEntry(entry: unknown): ValModules {
-  const registry =
-    typeof entry === "object" && entry !== null && "default" in entry
-      ? entry.default
-      : undefined;
-  if (!isValModules(registry)) {
-    throw new Error(
-      "val.modules.ts does not export modules(config, [...]) as its default.",
-    );
-  }
-  return registry;
-}
-
-function isValModules(value: unknown): value is ValModules {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "config" in value &&
-    "modules" in value &&
-    Array.isArray(value.modules) &&
-    value.modules.every(
-      (entry: unknown) =>
-        typeof entry === "object" &&
-        entry !== null &&
-        "def" in entry &&
-        typeof entry.def === "function",
-    )
-  );
 }
 
 /**

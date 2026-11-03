@@ -1,5 +1,4 @@
 import {
-  computeSchemaSha,
   Internal,
   previewScope,
   type Json,
@@ -23,6 +22,10 @@ import type { SchemaStore } from "./SchemaStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
 import { loadValModules } from "./react/loadValModules";
+import {
+  STAGED_SCHEMA_PREFIX,
+  schemaVersionOf,
+} from "@valbuild/shared/internal";
 
 /**
  * REALM: host. Cannot ever move to a worker.
@@ -60,12 +63,16 @@ export type IntakeModule =
  * `failures` what could not be read -- a module whose code throws is kept as
  * it was (S12), and named there.
  *
- * `kept`: nothing was touched, and the Studio runs the code it had. Only
- * `does-not-load` today: the registry itself could not be read. The plan's
- * other two reasons -- a build with another Val (`other-val-version`) and a
- * registry from a build the manifest does not name (`not-the-manifest's`) --
- * come with a build's own registry, after `manifestSource` (see "Phase 9
- * without phases 6 and 7" in `docs/plans/one-content-model.md`).
+ * `kept`: nothing was touched, and the Studio runs the code it had, because
+ *
+ * - `does-not-load`: the registry itself could not be read (or imported);
+ * - `other-val-version`: it is a build's, and that build runs another Val
+ *   than this Studio -- its code cannot be swapped in under stores of
+ *   another release, so the Studio reloads the page instead (`BuildCode`);
+ * - `not-the-manifest's`: it is a build's, and its schemas are not the ones
+ *   the manifest it was named by says -- a registry from another build than
+ *   the manifest the Studio is moving to. Not adopted; the next manifest
+ *   decides.
  */
 export type CodeReload =
   | {
@@ -74,9 +81,25 @@ export type CodeReload =
       removed: ModuleFilePath[];
       failures: readonly ModuleFailure[];
     }
-  | { status: "kept"; reason: "does-not-load"; details: string }
+  | {
+      status: "kept";
+      reason: "does-not-load" | "other-val-version" | "not-the-manifest's";
+      details: string;
+    }
   /** A later registry arrived while this one was read: that one decides. */
   | { status: "kept"; reason: "superseded" };
+
+/**
+ * The build a registry is expected to be: what the manifest that named it
+ * says (`registry` and `modules` on `GET /manifest`). See
+ * {@link HostStore.reloadCode}.
+ */
+export type ExpectedBuild = {
+  /** The `@valbuild/core` the build runs. */
+  core: string;
+  /** Every module's schema version, as the manifest names it. */
+  modules: Readonly<Record<ModuleFilePath, { schema: string }>>;
+};
 
 /** A module intake could not read, and why. See {@link HostStore.failures}. */
 export type ModuleFailure = {
@@ -165,8 +188,9 @@ export class HostStore implements HostBridge {
   /**
    * Put a `val.modules` registry in place: THE way new code reaches the
    * Studio, whatever brought it -- the first registry, HMR
-   * (`val-modules-updated`), or the code the tab evaluated after a staging
-   * (`evaluateStagedCode`). One path, so all three are the same intake, and
+   * (`val-modules-updated`), the code the tab evaluated after a staging
+   * (`evaluateStagedCode`), or a new build's own registry, named by the
+   * manifest (`BuildCode`). One path, so all four are the same intake, and
    * every scenario that changes code drives it.
    *
    * The registry is read BEFORE anything is touched: a registry that cannot
@@ -182,14 +206,34 @@ export class HostStore implements HostBridge {
   private reloads = 0;
 
   async reloadCode(
-    registry: ValModules,
-    /** See {@link receive}'s `options`. */
-    options: { byContent?: boolean } = {},
+    /** The registry, or how to import it: a build's entry (`BuildCode`). */
+    registry: ValModules | (() => Promise<ValModules>),
+    options: {
+      /** See {@link receive}'s `options`. */
+      byContent?: boolean;
+      /**
+       * The build this registry has to be, for a build's own registry: the
+       * manifest that named it. Another Val is not imported at all
+       * (`other-val-version`), and a registry whose schemas are not the
+       * manifest's is not adopted (`not-the-manifest's`).
+       */
+      expected?: ExpectedBuild;
+    } = {},
   ): Promise<CodeReload> {
     const generation = ++this.reloads;
+    const expected = options.expected;
+    if (expected !== undefined && expected.core !== Internal.VERSION.core) {
+      return {
+        status: "kept",
+        reason: "other-val-version",
+        details: `The new build runs @valbuild/core ${expected.core}, and this Studio runs ${Internal.VERSION.core ?? "an unknown version"}.`,
+      };
+    }
     let modules: IntakeModule[];
     try {
-      modules = await loadValModules(registry);
+      modules = await loadValModules(
+        typeof registry === "function" ? await registry() : registry,
+      );
     } catch (error) {
       if (generation !== this.reloads) {
         return { status: "kept", reason: "superseded" };
@@ -204,6 +248,16 @@ export class HostStore implements HostBridge {
     // took longer must not land over a newer one (two HMR rounds in a row).
     if (generation !== this.reloads) {
       return { status: "kept", reason: "superseded" };
+    }
+    if (expected !== undefined) {
+      const mismatch = this.notTheManifests(modules, expected);
+      if (mismatch !== null) {
+        return {
+          status: "kept",
+          reason: "not-the-manifest's",
+          details: mismatch,
+        };
+      }
     }
     const before = this.schemaStore.all();
     this.receive(modules, options);
@@ -227,6 +281,61 @@ export class HostStore implements HostBridge {
       failures: this.moduleFailures,
     };
   }
+
+  /**
+   * Why `modules` are not the build `expected` names, or `null` when they
+   * are: every module's schema version equal to the manifest's, and no
+   * module in one that is not in the other. A module the manifest versions
+   * `staged:` (code staged after the build serving a proposal) is not
+   * compared: no build's registry has that code. Nor is one whose code
+   * throws here: it is kept as it was (S12), and named as a failure.
+   */
+  private notTheManifests(
+    modules: IntakeModule[],
+    expected: ExpectedBuild,
+  ): string | null {
+    const seen = new Set<string>();
+    const differ: string[] = [];
+    for (const module of modules) {
+      if ("threw" in module) continue;
+      const path = Internal.getValPath(module) as string | undefined;
+      const schema = Internal.getSchema(module);
+      if (path === undefined || schema === undefined) continue;
+      seen.add(path);
+      const named = expected.modules[path as ModuleFilePath]?.schema;
+      if (named !== undefined && named.startsWith(STAGED_SCHEMA_PREFIX))
+        continue;
+      const version = schemaVersionOf(
+        this.serialize(path as ModuleFilePath, schema),
+      );
+      if (named !== version) differ.push(path);
+    }
+    for (const [path, version] of Object.entries(expected.modules)) {
+      if (seen.has(path) || version.schema.startsWith(STAGED_SCHEMA_PREFIX))
+        continue;
+      differ.push(path);
+    }
+    if (differ.length === 0) return null;
+    return `The new build's code does not have the schemas its server named for ${differ.join(", ")}.`;
+  }
+
+  /**
+   * A schema instance, serialized once: a build's registry is compared with
+   * its manifest before it is taken in, and taken in right after.
+   */
+  private serialize(
+    moduleFilePath: ModuleFilePath,
+    schema: Schema<SelectorSource>,
+  ): SerializedSchema {
+    const known = this.serialized.get(schema);
+    if (known !== undefined) return known;
+    this.activity.work("host:serialize-schema", moduleFilePath);
+    const serialized = schema["executeSerialize"]();
+    this.serialized.set(schema, serialized);
+    return serialized;
+  }
+
+  private serialized = new WeakMap<object, SerializedSchema>();
 
   /**
    * Take a registry's modules in: their schemas, and the source their code
@@ -344,8 +453,10 @@ export class HostStore implements HostBridge {
         if (same !== undefined) {
           serializedSchemas[moduleFilePath] = same.serializedSchema;
         } else {
-          this.activity.work("host:serialize-schema", moduleFilePath);
-          serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
+          serializedSchemas[moduleFilePath] = this.serialize(
+            moduleFilePath,
+            schema,
+          );
         }
         // JSON round-trip so what crosses is provably clone-safe — no instance
         // can leak downstream by being reachable from a source value.
@@ -443,14 +554,6 @@ export class HostStore implements HostBridge {
     this.sourceStore.forget(removed);
     this.sourceStore.receive(sources);
     this.bundle = sources;
-    // Recomputed on every intake, an HMR re-run included: it is the schema
-    // this page is RUNNING, which is what `SchemaFreshnessWatch` compares.
-    this.runningSchemaSha = computeSchemaSha(
-      adopted.map((path) => ({
-        path,
-        serializedSchema: serializedSchemas[path],
-      })),
-    );
     // After the source store has the bundle's source, so a listener that puts
     // the server's base back under a module the server is on another base
     // for (`ManifestSource`) has the last word.
@@ -466,21 +569,6 @@ export class HostStore implements HostBridge {
   }
 
   private bundle: Record<ModuleFilePath, Json> | null = null;
-
-  /**
-   * The `schemaSha` of the schemas this page is running, or `null` before
-   * intake.
-   *
-   * The same fold the server runs over its build's modules (`computeSchemaSha`),
-   * over the same modules in the same order — the ones that serialized, in
-   * `val.modules` order — so a `/stat` from a build with another schema says so
-   * by not being equal to this.
-   */
-  schemaSha(): string | null {
-    return this.runningSchemaSha;
-  }
-
-  private runningSchemaSha: string | null = null;
 
   async preview(
     moduleFilePath: ModuleFilePath,

@@ -2,6 +2,7 @@ import { loadRolldown } from "./rolldown";
 import type { BuildTarget } from "./contract";
 import { dirname, resolve, resolveInFiles } from "./paths";
 import { aliasMap } from "./tsconfigPaths";
+import { valModulesEntryFile } from "./projectPaths";
 
 /**
  * A project's `val.modules.ts`, bundled to run: every `.val.ts` it imports,
@@ -131,4 +132,51 @@ export async function bundleValModules(input: {
     );
   }
   return { code: chunks[0]!.code };
+}
+
+/**
+ * A build's `val.modules` registry, as the build emits it beside its client
+ * chunks: `{ "val-modules-<build>.js": code }`, served at `/_app/` with
+ * them, its npm imports pointing at the site's vendor chunks on its own
+ * origin (`/_vendor/`, `/_pvendor/<rev>/`) as the client bundle's do.
+ *
+ * What a Studio opened on an older build imports, once the server's
+ * manifest names it (`registry`, from the build's name the platform hands
+ * the server: `VAL_BUILD`), to take this build's schemas in WITHOUT
+ * reloading the page: `HostStore.reloadCode` in `@valbuild/ui`, and phase 9
+ * of `docs/plans/one-content-model.md` in valbuild/val.
+ *
+ * Empty -- and the build goes on -- for a project with no `val.modules.ts`,
+ * or one whose Val modules cannot be bundled for the browser (a `.val.ts`
+ * importing something server-only): such a build has no entry, and a Studio
+ * that cannot import one reloads the page instead, as it did before. Said
+ * in the build's warnings.
+ */
+export async function valModulesEntry(
+  input: { files: Record<string, string>; target: BuildTarget },
+  build: string,
+  warnings: string[],
+): Promise<Record<string, string>> {
+  const entry = ["val.modules.ts", "val.modules.js"].find(
+    (path) => path in input.files,
+  );
+  if (entry === undefined) return {};
+  try {
+    const { code } = await bundleValModules({
+      files: input.files,
+      target: input.target,
+      // Root-relative, as the client bundle names its vendor chunks: the
+      // entry is served on the site's own origin.
+      origin: "",
+      entry,
+    });
+    return { [valModulesEntryFile(build)]: code };
+  } catch (error) {
+    warnings.push(
+      `The Val modules were not emitted for the Studio, so an open Studio reloads the page to take this build's code: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return {};
+  }
 }

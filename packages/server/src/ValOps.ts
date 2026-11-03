@@ -36,7 +36,10 @@ import {
   deepClone,
 } from "@valbuild/core/patch";
 import type { HistoryError } from "./history/HistoryError";
-import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
+import type {
+  BuildRegistry,
+  PlanRefusalErrorT,
+} from "@valbuild/shared/internal";
 import type {
   AffectedFile,
   StoredModuleVersion,
@@ -1026,6 +1029,17 @@ export abstract class ValOps {
    * build, a commit). `null`: the fold of what the modules evaluated to.
    */
   protected hostBuild(): string | null {
+    return null;
+  }
+
+  /**
+   * Where the code of the build this store runs in can be imported from,
+   * by a Studio opened on another build (`registry` on `GET /manifest`):
+   * only a build the platform made and names has an entry of its own
+   * (`valModulesEntryPath`). `null` everywhere else -- local development,
+   * where HMR brings the code, and a deploy the platform did not build.
+   */
+  buildRegistry(): BuildRegistry | null {
     return null;
   }
 

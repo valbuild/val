@@ -41,6 +41,7 @@ describe("/manifest", () => {
     modules: z.record(z.string(), ModuleVersionSchema),
     tag: z.string().optional(),
     since: z.number().optional(),
+    registry: z.object({ entry: z.string(), core: z.string() }).optional(),
   });
   const Tree = z.object({
     modules: z.record(
@@ -156,6 +157,11 @@ describe("/manifest", () => {
     expect(after.json?.project.seq).toBeGreaterThan(
       before.json?.project.seq ?? Infinity,
     );
+  });
+
+  test("names no build's registry outside a build the platform made: HMR brings the code", async () => {
+    const { manifest } = start();
+    expect((await manifest()).json?.registry).toBeUndefined();
   });
 
   test("answers 304 to its own ETag while nothing moved, and 200 once something did", async () => {

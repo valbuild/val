@@ -9,6 +9,7 @@ import {
   EMPTY_CHAIN,
   baseModuleContent,
   sameModuleVersion,
+  type BuildRegistry,
   type ModuleVersion,
   type ProjectVersion,
 } from "@valbuild/shared/internal";
@@ -70,6 +71,8 @@ export type ManifestFetchAnswer =
       tag?: string;
       /** A delta: only the modules that moved since the manifest held. */
       since?: number;
+      /** Where the answering build's code is (`BuildCode`). */
+      registry?: BuildRegistry;
     }
   /** 304: nothing moved since the manifest held. */
   | { kind: "unchanged" }
@@ -93,7 +96,17 @@ type Manifest = {
   project: ProjectVersion;
   modules: Record<ModuleFilePath, ModuleVersion>;
   tag: string | undefined;
+  registry?: BuildRegistry;
 };
+
+/**
+ * Shown every manifest read before it is adopted, to bring in the code it
+ * names where the Studio does not run it (`BuildCode.follow`).
+ */
+export type FollowCode = (
+  manifest: Manifest,
+  ahead: ReadonlySet<ModuleFilePath>,
+) => Promise<void>;
 
 type Resolved = {
   version: ModuleVersion;
@@ -158,6 +171,7 @@ export class ManifestSource {
     private readonly fetchManifest: FetchManifest | undefined,
     private readonly fetchModule: FetchModule | undefined,
     private readonly activity: ActivitySink = noopActivity,
+    private readonly followCode?: FollowCode,
   ) {}
 
   /**
@@ -271,6 +285,17 @@ export class ManifestSource {
     });
   }
 
+  /**
+   * Read the manifest now, whatever the last stat said: for when something
+   * says the server may have moved on before a stat does -- a page in the
+   * preview loaded (`CanvasFrame`), and it is the build that page came from
+   * whose fields the editor is about to pick. A 304 while nothing moved.
+   */
+  refresh(): void {
+    if (!this.statSeen) return;
+    this.follow(undefined);
+  }
+
   /** Whether a read is under way: for a test to wait on. */
   settled(): Promise<void> {
     return this.loading ?? Promise.resolve();
@@ -367,7 +392,13 @@ export class ManifestSource {
           ? { ...held.modules, ...answer.modules }
           : answer.modules,
         tag: answer.tag,
+        ...(answer.registry !== undefined ? { registry: answer.registry } : {}),
       };
+    }
+    // The code first: a module whose schema the build moved is resolved
+    // with the build's schema, not read into the old one.
+    if (this.followCode !== undefined) {
+      await this.followCode(manifest, this.ahead);
     }
     const resolved = new Map<ModuleFilePath, Resolved>();
     const decided: ModuleFilePath[] = [];

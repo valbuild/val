@@ -5,9 +5,9 @@ import type { SystemEvent } from "./types";
 /**
  * The subset of the `/stat` response this prototype reacts to.
  *
- * `schemaSha` says which schema the build that answered runs, so a Studio
- * running another is told to reload (`SchemaFreshnessWatch`); `seq` whether
- * the project moved, so the manifest is read again (`ManifestSource`).
+ * `seq` says whether the project moved, so the manifest is read again
+ * (`ManifestSource`) -- and with it, whether the build that answered runs
+ * code this Studio does not (`BuildCode`).
  *
  * `baseSha` IS here, because the write path needs it and nothing else can supply
  * it: a `PUT /patches` against an empty chain names `{ type: "head", headBaseSha }`
@@ -105,13 +105,6 @@ export type StatSnapshot = {
    * because the answer still carries it, for a Studio of the release before.
    */
   sourcesSha?: string;
-  /**
-   * The answering build's `schemaSha` — the same fold `HostStore` runs over the
-   * bundle's schemas, so the two can be compared. See `SchemaFreshnessWatch`.
-   *
-   * Optional: absent means "not reported", and nothing is concluded from it.
-   */
-  schemaSha?: string;
 };
 
 /**
@@ -140,8 +133,6 @@ export class StatStore {
   /** {@link confirmedSeqOf} the ADOPTED stat. */
   private seq: number | undefined = undefined;
   private baseSha: string | null = null;
-  /** See {@link currentSchemaSha}. */
-  private schemaSha: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
   /**
@@ -185,18 +176,6 @@ export class StatStore {
     if (this.isOlderThanNewest(snapshot)) {
       // Older than an answer already in hand.
       return;
-    }
-    if (
-      snapshot.schemaSha !== undefined &&
-      snapshot.schemaSha !== this.schemaSha
-    ) {
-      /*
-       * After the ordering check — a late answer from before a deploy would
-       * otherwise name the old schema to a page that has just reloaded into
-       * the new one.
-       */
-      this.schemaSha = snapshot.schemaSha;
-      this.events.emit({ type: "stat:schema", schemaSha: snapshot.schemaSha });
     }
     if (snapshot.headVersion !== undefined) {
       this.newestHeadVersion = snapshot.headVersion;
@@ -246,32 +225,14 @@ export class StatStore {
   /**
    * The server says it removed these unpublished patches.
    *
-   * Public for the `/stat` reads made outside the stat intake — the schema
-   * check's fresh read, the conflict re-sync. In `fs` mode every `/stat`
+   * Public for the `/stat` reads made outside the stat intake — the conflict
+   * re-sync. In `fs` mode every `/stat`
    * DRAINS the server's notices, so a caller that read one and dropped them
    * would take the only news that someone's work is gone with it.
    */
   noteRemovedByServer(removed: { patchId: PatchId; reason: string }[]): void {
     if (removed.length === 0) return;
     this.events.emit({ type: "patch:removed-by-server", removed });
-  }
-
-  /**
-   * A fresh read of which schema the server runs, taken as the latest answer.
-   * See `SchemaFreshnessWatch`, which asks it when a cached answer is in doubt.
-   */
-  noteServedSchemaSha(schemaSha: string): void {
-    if (schemaSha === this.schemaSha) return;
-    this.schemaSha = schemaSha;
-    this.events.emit({ type: "stat:schema", schemaSha });
-  }
-
-  /**
-   * The `schemaSha` the most recent `/stat` reported, or `null` before one has.
-   * See {@link StatSnapshot.schemaSha}.
-   */
-  currentSchemaSha(): string | null {
-    return this.schemaSha;
   }
 
   currentPatchIds(): PatchId[] {

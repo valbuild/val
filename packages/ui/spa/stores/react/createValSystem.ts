@@ -10,6 +10,8 @@ import type { PatchRecord } from "../types";
 import type { RequestPublish } from "../PublishSeam";
 import type { SavedPatches } from "../PatchSync";
 import { chunkPatchIds } from "./patchIdChunks";
+import { registryOfEntry } from "./loadValModules";
+import type { ImportRegistry, ReloadStudio } from "../buildCode";
 import type { JsonEntryResult } from "./jsonEntriesBatch";
 import {
   isRecord,
@@ -91,6 +93,16 @@ export function createValSystem(
       filePath: string;
       data: string | null;
     }) => string | null;
+    /**
+     * Import a build's registry from its entry. Defaults to `import()` of
+     * the URL; the scenario harness hands over the build it deployed.
+     */
+    importRegistry?: ImportRegistry;
+    /**
+     * Reload the page. Defaults to `window.location.reload()`; the scenario
+     * harness counts it.
+     */
+    reloadStudio?: ReloadStudio;
   },
 ): System {
   /**
@@ -103,20 +115,6 @@ export function createValSystem(
    */
   let built: System | null = null;
   const system = createSystem({
-    /**
-     * A `POST /stat` with no body: what the server runs right now, rather than
-     * a long poll. Only its `schemaSha` is read — see `SchemaFreshnessWatch`.
-     */
-    readServedSchemaSha: async () => {
-      const res = await client("/stat", "POST", { body: null });
-      if (res.status !== 200) return null;
-      // Not only the hash: in `fs` mode this answer has drained the server's
-      // removed-patch notices, and they are delivered nowhere else.
-      if ("removed" in res.json && res.json.removed !== undefined) {
-        built?.stat.noteRemovedByServer(res.json.removed);
-      }
-      return res.json.schemaSha;
-    },
     /**
      * `GET /manifest`, "since" the manifest held: what each module is on the
      * server (`ManifestSource`). A 304 while nothing moved.
@@ -145,8 +143,25 @@ export function createValSystem(
         modules: res.json.modules,
         ...(res.json.tag !== undefined ? { tag: res.json.tag } : {}),
         ...(res.json.since !== undefined ? { since: res.json.since } : {}),
+        ...(res.json.registry !== undefined
+          ? { registry: res.json.registry }
+          : {}),
       };
     },
+    /**
+     * A new build's registry, from the entry its manifest names: on the
+     * site's own origin, imported into this realm as the page imported its
+     * own (`BuildCode`).
+     */
+    importRegistry:
+      options?.importRegistry ??
+      (async (entry) =>
+        registryOfEntry(await import(/* @vite-ignore */ entry))),
+    /**
+     * The page, reloaded: for a build whose code cannot be taken in place
+     * (`BuildCode`, once every edit is on the server).
+     */
+    reloadStudio: options?.reloadStudio ?? (() => window.location.reload()),
     /**
      * `GET /modules/~<path>`: one module at a version, or the patches from
      * the version held (`originTier`).

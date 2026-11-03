@@ -868,6 +868,20 @@ export const Api = {
              * release before.
              */
             superseded: z.boolean().optional(),
+            /**
+             * The answering build's `val.modules` registry, as an entry a
+             * Studio can import (`valModulesEntryPath`), and the Val it
+             * runs: where a Studio opened on another build takes this
+             * build's code in without reloading the page. Only a build the
+             * platform made and names (`publishBuild`) has one. Optional
+             * both ways: absent from any other server (local development,
+             * where HMR brings the code; a self-hosted deploy) and from a
+             * server of the release before, and ignored by a Studio of the
+             * release before.
+             */
+            registry: z
+              .object({ entry: z.string(), core: z.string() })
+              .optional(),
           }),
         }),
         /*

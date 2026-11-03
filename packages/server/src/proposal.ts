@@ -1,6 +1,7 @@
 import type { Json, ModuleFilePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
+import { STAGED_SCHEMA_PREFIX } from "@valbuild/shared/internal";
 import ts from "typescript";
 import { analyzeValModule } from "./patch/ts/valModule";
 import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
@@ -78,7 +79,7 @@ export type ValProposal = {
 };
 
 /** What a staged module's schema version starts with: `staged:<inputs>`. */
-export const STAGED_SCHEMA_PREFIX = "staged:";
+export { STAGED_SCHEMA_PREFIX };
 
 /**
  * The modules whose staged code the build serving the address was NOT made

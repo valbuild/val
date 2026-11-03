@@ -1298,6 +1298,35 @@ ways, and both are now told apart from it (phase 9 of
   `.jsonValues()` record) and the server does not run staged code, so it
   waits for a build (C11c).
 
+## After a deploy, the Studio takes the new code, or reloads by itself
+
+There is no "A new version has been deployed" dialog (phase 9 of
+`docs/plans/one-content-model.md`). What happens instead depends on who built
+the site, and each looks like something else when it goes wrong:
+
+- **A build the platform made** names its registry on `GET /manifest`
+  (`registry.entry`, `/_app/val-modules-<VAL_BUILD>.js`), and the Studio
+  imports it and swaps the schemas in -- no reload, the chat and the
+  navigation stay. The name comes from `VAL_BUILD` on the server and from the
+  build's own name in `@valbuild/tanstack-build`; a site built by a builder
+  that predates the entry answers 404 there, and the Studio then reloads the
+  page instead. If a hosted Studio reloads after every deploy, look for that
+  404 in the network tab before anything else.
+- **Next.js, or a TanStack Start app hosted elsewhere**, names no registry,
+  so the Studio reloads its page, by itself, about three seconds after the
+  manifest named a schema it does not run (`STUDIO_RELOAD_GRACE_MS`), and
+  only once nothing is saving. That is the design, not a crash. It never
+  happens to a Studio whose code and server have not agreed once since it
+  loaded, so a stale CDN copy of the page cannot loop.
+- **Local development (`fs` mode)** waits for HMR, and never reloads. A
+  Studio in `http` mode in local development (a content service with a dev
+  server) gets HMR within the grace, so it does not reload either -- unless
+  HMR is broken, in which case the reload is what you see.
+
+`window.__VAL_STORES__.system.manifest.current()` is the manifest the Studio
+is at, and `sourceStore.schemaVersionOfModule(path)` the schema it runs: a
+reload, or an import that never comes, starts with those two disagreeing.
+
 ## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
 
 Spinners have been reported to look off centre while turning, in Chrome on a

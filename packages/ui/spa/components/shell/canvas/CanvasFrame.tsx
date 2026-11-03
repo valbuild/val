@@ -338,9 +338,9 @@ export function CanvasFrame({
         });
         // The page may be a newer build than this Studio -- a proposal
         // built since it loaded -- and its paths name fields this Studio
-        // has not got: ask the server now, so the editor is told to reload
-        // before picking one, not after
-        valSystem?.system.checkSchemaNow();
+        // has not got: read the manifest now, so the build's code is in
+        // before the editor picks one, not after (`BuildCode`)
+        valSystem?.system.checkCodeNow();
         setDocumentEpoch((epoch) => epoch + 1);
         setIsEnabling(false);
       } else if (message.type === "elements") {

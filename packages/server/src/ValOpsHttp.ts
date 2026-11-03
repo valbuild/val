@@ -71,6 +71,8 @@ import { result } from "@valbuild/core/fp";
 import {
   getErrorMessageFromUnknownJson,
   newestCommitSha,
+  valModulesEntryPath,
+  type BuildRegistry,
 } from "@valbuild/shared/internal";
 import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
@@ -731,7 +733,11 @@ export class ValOpsHttp extends ValOps {
       this.contentVersion === null ? (options?.publishBuild ?? null) : null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
     this.buildName = options?.publishBuild ?? git?.commit ?? null;
+    this.platformBuild = options?.publishBuild ?? null;
   }
+
+  /** `VAL_BUILD`, as the platform handed it over: see {@link buildRegistry}. */
+  private readonly platformBuild: string | null;
 
   /**
    * The platform's name for the build (`VAL_BUILD`), else the commit it was
@@ -742,6 +748,20 @@ export class ValOpsHttp extends ValOps {
 
   protected override hostBuild(): string | null {
     return this.buildName;
+  }
+
+  /**
+   * The platform's build emits its registry beside its client chunks, named
+   * after the build (`@valbuild/tanstack-build`), and the platform tells
+   * this server the build's name (`VAL_BUILD`). Whatever content version
+   * it serves: the code is the build's either way.
+   */
+  override buildRegistry(): BuildRegistry | null {
+    if (this.platformBuild === null) return null;
+    return {
+      entry: valModulesEntryPath(this.platformBuild),
+      core: Internal.VERSION.core,
+    };
   }
 
   /**

@@ -27,10 +27,7 @@ import {
   type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
-import {
-  SchemaFreshnessWatch,
-  type ReadServedSchemaSha,
-} from "./SchemaFreshnessWatch";
+import { BuildCode, type ImportRegistry, type ReloadStudio } from "./buildCode";
 import { StatusStore, type HeldEdit } from "./StatusStore";
 import {
   PatchSync,
@@ -178,10 +175,12 @@ export type WorkerRealm = {
 export type System = HostRealm &
   WorkerRealm & {
     /**
-     * Ask the server which schema it runs now, and say "reload" if it is not
-     * this page's: see `SchemaFreshnessWatch.checkNow`.
+     * Read the server's manifest now, rather than at the next `/stat`, and
+     * take in the code of a build it names that this Studio does not run
+     * (`ManifestSource.refresh`, `BuildCode`): a page in the preview loaded,
+     * and it may be a newer build's.
      */
-    checkSchemaNow(): void;
+    checkCodeNow(): void;
     /**
      * Call `listener` once the source store is in step with the server --
      * before that it holds the bundle's source, which can be an older build's
@@ -360,10 +359,16 @@ export type SystemOptions = {
    */
   resyncChain?: ResyncChain;
   /**
-   * Which schema the server runs, asked now. What settles a schema
-   * disagreement — see {@link SchemaFreshnessWatch}.
+   * Import a new build's `val.modules` registry from the entry its manifest
+   * names (`BuildCode`). Absent: a driver that cannot, which then reloads
+   * (or, without {@link reloadStudio}, keeps its code).
    */
-  readServedSchemaSha?: ReadServedSchemaSha;
+  importRegistry?: ImportRegistry;
+  /**
+   * Reload the page, for a build whose code cannot be taken in place
+   * (`BuildCode`). Absent: a driver that cannot reload keeps its code.
+   */
+  reloadStudio?: ReloadStudio;
   /**
    * `GET /manifest`: what each module is on the server, read before each
    * stat is adopted (`ManifestSource`). Absent for a driver with no server:
@@ -801,6 +806,17 @@ export function createSystem(options: SystemOptions): System {
     });
   }
 
+  // A new build's code, taken in before the manifest that names it is.
+  const buildCode = new BuildCode(host, sourceStore, patchSync, {
+    mode: () => mode,
+    ...(options.importRegistry !== undefined
+      ? { importRegistry: options.importRegistry }
+      : {}),
+    ...(options.reloadStudio !== undefined
+      ? { reloadStudio: options.reloadStudio }
+      : {}),
+    activity,
+  });
   const manifest = new ManifestSource(
     host,
     sourceStore,
@@ -808,11 +824,8 @@ export function createSystem(options: SystemOptions): System {
     options.fetchManifest,
     options.fetchModule,
     activity,
+    (adopting, ahead) => buildCode.follow(adopting, ahead),
   );
-  // Says "reload" when the server runs a schema this page does not.
-  const schemaFreshness = new SchemaFreshnessWatch(host, stat, status, {
-    readServedSchemaSha: options.readServedSchemaSha,
-  });
   /** The module messages the last intake raised, to take back on the next. */
   let moduleFailureMessages: string[] = [];
   const unsubscribe = [
@@ -820,7 +833,7 @@ export function createSystem(options: SystemOptions): System {
     schemaStore.events.on("schema:init", (event) =>
       manifest.codeMoved(event.modules),
     ),
-    schemaFreshness.listen(),
+    () => buildCode.dispose(),
     /**
      * A module intake could not read reaches the EDITOR, not only the dev
      * banner: which module, what its code threw under Details, and that the
@@ -1275,7 +1288,7 @@ export function createSystem(options: SystemOptions): System {
   }
 
   return {
-    checkSchemaNow: () => schemaFreshness.checkNow(),
+    checkCodeNow: () => manifest.refresh(),
     onInStep: (listener) => manifest.onInStep(listener),
     manifest,
     host,

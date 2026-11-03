@@ -61,8 +61,6 @@ export function ValStoreProvider({
     headVersion?: number;
     /** See {@link StatSnapshot.sourcesSha}. Which build answered. */
     sourcesSha?: string;
-    /** See {@link StatSnapshot.schemaSha}. Which schema that build runs. */
-    schemaSha?: string;
   } | null;
   children: ReactNode;
 }) {
@@ -116,10 +114,9 @@ export function ValStoreProvider({
    * doing it in the natural order means the common case does not depend on that.
    *
    * `baseSha` is the part that unblocks writing, and `seq` says whether the
-   * project moved, so the manifest is read again (`ManifestSource`).
-   * `schemaSha` says which schema that build runs, so a page running another
-   * is told to reload (`SchemaFreshnessWatch`). `jsonEntriesSha` is an input to
-   * a refetch this system does not do yet.
+   * project moved, so the manifest is read again (`ManifestSource`) -- and
+   * with it, a new build's code (`BuildCode`). `jsonEntriesSha` is an input
+   * to a refetch this system does not do yet.
    */
   useEffect(() => {
     if (stat === null || !received) {

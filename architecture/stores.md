@@ -171,16 +171,41 @@ carries no schema version on the wire.
 ## New code comes in through one door
 
 `HostStore.reloadCode(registry)` is how a `val.modules` registry reaches the
-Studio, whatever brought it: the first one, HMR (`val-modules-updated`), and
-code the tab evaluated after a staging (`proposals/stagedCode.ts`). It reads
-the registry before it touches anything -- one that cannot be read leaves the
-Studio on the code it had and answers `kept` -- and answers which modules'
-schemas moved and which went. Replaced, not merged: a module no longer in the
+Studio, whatever brought it: the first one, HMR (`val-modules-updated`), code
+the tab evaluated after a staging (`proposals/stagedCode.ts`), and a new
+build's own registry (below). It reads the registry before it touches
+anything -- one that cannot be read leaves the Studio on the code it had and
+answers `kept` -- and answers which modules' schemas moved and which went. Replaced, not merged: a module no longer in the
 registry goes. Downstream only the modules that moved are touched, because
 `SchemaStore` and `SourceStore` compare by identity and an unchanged module
 hands over the objects it did last time -- by instance for HMR, by content
 (serialized schema and written source) for an imported bundle, whose
 instances are all new.
+
+## A new build's code, while the Studio is open
+
+There is no "A new version has been deployed" dialog any more
+(`SchemaFreshnessWatch` went in phase 9). Every manifest the Studio reads is
+shown to `BuildCode` (`stores/buildCode.ts`) BEFORE it is adopted: where it
+names a schema the Studio does not run -- for a module the Studio is not
+ahead on -- the code moves first, so the content is never read into the old
+fields.
+
+- **A build the platform made names its registry** (`registry` on
+  `GET /manifest`: the entry `@valbuild/tanstack-build` emits beside the
+  build's client chunks, `/_app/val-modules-<build>.js`). The Studio imports
+  it and hands it to `reloadCode` with what the manifest expects: another
+  Val is not imported at all (`other-val-version`), and a registry whose
+  schema versions are not the manifest's is not adopted
+  (`not-the-manifest's`). Once per build.
+- **Local development (`fs` mode)**: HMR brings the code. Nothing happens
+  here.
+- **Anything else** (Next.js, a self-hosted TanStack Start, another Val, a
+  registry that did not load): the page reloads itself, without asking, once
+  the schemas have stayed apart for `STUDIO_RELOAD_GRACE_MS` and no edit is
+  on its way to the server -- and only if this Studio's code and the
+  server's have agreed once, so a page that loads on a build the server does
+  not run never reloads into the same page.
 
 ## The Studio reads the server's version
 
@@ -258,6 +283,7 @@ manifest); the Studio does not move to its versions and asks again (S26).
 | the server's versions: manifest, modules   | `stores/manifestSource.ts`, `stores/originTier.ts` |
 | wiring, publish, discard, held edits       | `stores/createSystem.ts`                           |
 | new code: `reloadCode(registry)`           | `stores/HostStore.ts`                              |
+| a new build's code: import, or reload      | `stores/buildCode.ts`                              |
 | a fake server to test against              | `stores/testSystem.ts`                             |
 | what a store _did_, not what it announced  | the activity channel, `stores/activity.ts`         |
 

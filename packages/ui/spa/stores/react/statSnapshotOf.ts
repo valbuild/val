@@ -10,17 +10,13 @@ import type { StatSnapshot } from "../StatStore";
  * Used by the provider's intake (`ValStoreProvider`, fed by the poll in
  * `useStatus`), by the re-sync after a parent conflict (`createValSystem`),
  * and by the scenario harness (`scenarios/`). It was two copies, and one of
- * them dropped `schemaSha`: a conflict is often how a client first meets a
- * server that has moved -- a deploy whose websocket message it missed -- and
- * in websocket mode the next poll can be twenty minutes away, so the reload
- * prompt waited that long while the editor kept writing against the old
- * schema.
+ * them dropped a field the other took: one mapping, so the stores never
+ * adopt half an answer.
  */
 export function statSnapshotOf(stat: StatSnapshotSource): StatSnapshot {
   return {
     baseSha: stat.baseSha,
     sourcesSha: stat.sourcesSha,
-    schemaSha: stat.schemaSha,
     patches: stat.patches,
     appliedPatches: stat.appliedPatches,
     headCommitSha: stat.headCommitSha,
@@ -44,7 +40,6 @@ export type StatSnapshotSource = {
   baseSha: string;
   patches: PatchId[];
   sourcesSha?: string;
-  schemaSha?: string;
   appliedPatches?: PatchId[];
   headCommitSha?: string;
   headPatchId?: PatchId | null;

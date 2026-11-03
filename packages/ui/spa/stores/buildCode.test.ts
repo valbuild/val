@@ -1,0 +1,255 @@
+import {
+  Internal,
+  initVal,
+  type Json,
+  type ModuleFilePath,
+  type PatchId,
+  type SelectorSource,
+  type ValModule,
+  type ValModules,
+} from "@valbuild/core";
+import {
+  valModulesEntryFile as sharedEntryFile,
+  valModulesEntryPath,
+  type BuildRegistry,
+} from "@valbuild/shared/internal";
+import { valModulesEntryFile as builderEntryFile } from "@valbuild/tanstack-build/constants";
+import { createSystem, type System } from "./createSystem";
+import { createFakeManifest } from "./testManifest";
+import { STUDIO_RELOAD_GRACE_MS } from "./buildCode";
+import type { FetchManifest } from "./manifestSource";
+
+/**
+ * A new build's code, into an open Studio (`BuildCode`, phase 9 of
+ * `docs/plans/one-content-model.md`): what replaced the "A new version has
+ * been deployed" dialog. The build's own registry is taken in before its
+ * manifest; where it cannot be, the page reloads itself -- but never into
+ * the same page, never under an edit on its way, and never in local
+ * development, where HMR brings the code.
+ */
+
+const MODULE = "/home.val.ts" as ModuleFilePath;
+const ENTRY = valModulesEntryPath("b2");
+
+function before(): ValModule<SelectorSource> {
+  const { c, s } = initVal();
+  return c.define(MODULE, s.object({ title: s.string() }), { title: "Hi" });
+}
+
+function after(): ValModule<SelectorSource> {
+  const { c, s } = initVal();
+  return c.define(MODULE, s.object({ title: s.string(), cta: s.string() }), {
+    title: "Hi",
+    cta: "Buy",
+  });
+}
+
+function registryOf(module: ValModule<SelectorSource>): ValModules {
+  const { config } = initVal();
+  return { config, modules: [{ def: async () => ({ default: module }) }] };
+}
+
+const settle = async () => {
+  for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+};
+
+/**
+ * A Studio on `before()`, against a server whose build the test moves: its
+ * module, and the registry its manifest names (none: a deploy the platform
+ * did not build).
+ */
+function setup(options: {
+  mode: "fs" | "http";
+  registry?: (build: "b1" | "b2") => BuildRegistry | undefined;
+  imported?: () => ValModules;
+}) {
+  let build: "b1" | "b2" = "b1";
+  const builds = { b1: before(), b2: after() };
+  const fake = createFakeManifest({
+    bases: () =>
+      new Map([
+        [
+          MODULE,
+          {
+            source: Internal.getSource(builds[build]) as Json,
+            schema: Internal.getSchema(builds[build])!["executeSerialize"](),
+          },
+        ],
+      ]),
+    chain: () => [],
+  });
+  const fetchManifest: FetchManifest = async (held) => {
+    const answer = await fake.fetchManifest(held);
+    const registry = options.registry?.(build);
+    if (answer.kind !== "manifest") return answer;
+    return {
+      ...answer,
+      project: { ...answer.project, build },
+      ...(registry !== undefined ? { registry } : {}),
+    };
+  };
+  const imports: string[] = [];
+  let reloads = 0;
+  const system: System = createSystem({
+    mode: options.mode,
+    fetchManifest,
+    fetchModule: fake.fetchModule,
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    importRegistry: async (entry) => {
+      imports.push(entry);
+      return options.imported?.() ?? registryOf(builds.b2);
+    },
+    reloadStudio: () => {
+      reloads++;
+    },
+  });
+  system.host.receive([before()]);
+  const stat = async () => {
+    system.stat.receiveStat({ patches: [], baseSha: "base" });
+    await settle();
+    await system.manifest.settled();
+    await settle();
+  };
+  return {
+    system,
+    stat,
+    deploy: () => {
+      build = "b2";
+    },
+    imports,
+    reloads: () => reloads,
+    schemaIs: (module: ValModule<SelectorSource>) =>
+      JSON.stringify(system.schemaStore.get(MODULE)) ===
+      JSON.stringify(Internal.getSchema(module)!["executeSerialize"]()),
+  };
+}
+
+const ours: BuildRegistry = { entry: ENTRY, core: Internal.VERSION.core };
+
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+test("the build and the server name a build's registry by the same name", () => {
+  expect(builderEntryFile("b2")).toBe(sharedEntryFile("b2"));
+  expect(valModulesEntryPath("b2")).toBe(`/_app/${builderEntryFile("b2")}`);
+});
+
+test("a new build's registry is taken in before its manifest, and nothing reloads", async () => {
+  const studio = setup({
+    mode: "http",
+    registry: (build) => (build === "b2" ? ours : undefined),
+  });
+  await studio.stat();
+  expect(studio.schemaIs(before())).toBe(true);
+
+  studio.deploy();
+  await studio.stat();
+
+  expect(studio.imports).toEqual([ENTRY]);
+  expect(studio.schemaIs(after())).toBe(true);
+  // The new field, read with the new schema, from the build's content.
+  const cta = studio.system.sourceStore.peek(
+    `${MODULE}?p="cta"` as Parameters<System["sourceStore"]["peek"]>[0],
+  );
+  expect(cta).toMatchObject({ status: "ready", data: "Buy" });
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS * 2);
+  expect(studio.reloads()).toBe(0);
+
+  // Once per build: the next manifest of the same build imports nothing.
+  await studio.stat();
+  expect(studio.imports).toHaveLength(1);
+});
+
+test("a build with another Val is not imported: the page reloads, after the grace", async () => {
+  const studio = setup({
+    mode: "http",
+    registry: (build) =>
+      build === "b2" ? { entry: ENTRY, core: "0.0.0-another" } : undefined,
+  });
+  await studio.stat();
+  studio.deploy();
+  await studio.stat();
+
+  expect(studio.imports).toEqual([]);
+  expect(studio.reloads()).toBe(0);
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS);
+  expect(studio.reloads()).toBe(1);
+});
+
+test("a deploy that names no registry reloads the page once the two have agreed", async () => {
+  const studio = setup({ mode: "http" });
+  await studio.stat();
+  studio.deploy();
+  await studio.stat();
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS);
+  expect(studio.reloads()).toBe(1);
+});
+
+test("a page that never agreed with the server is not reloaded into the same page", async () => {
+  const studio = setup({ mode: "http" });
+  studio.deploy();
+  await studio.stat();
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS * 2);
+  expect(studio.reloads()).toBe(0);
+});
+
+test("in local development nothing is imported or reloaded: HMR brings the code", async () => {
+  const studio = setup({ mode: "fs", registry: () => ours });
+  await studio.stat();
+  studio.deploy();
+  await studio.stat();
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS * 2);
+  expect(studio.imports).toEqual([]);
+  expect(studio.reloads()).toBe(0);
+});
+
+test("code that arrives within the grace (HMR) reloads nothing", async () => {
+  const studio = setup({ mode: "http" });
+  await studio.stat();
+  studio.deploy();
+  await studio.stat();
+  await studio.system.host.reloadCode(registryOf(after()));
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS * 2);
+  expect(studio.reloads()).toBe(0);
+  expect(studio.schemaIs(after())).toBe(true);
+});
+
+test("a registry that is not the manifest's is not taken in", async () => {
+  const { c, s } = initVal();
+  const other = c.define(MODULE, s.object({ heading: s.string() }), {
+    heading: "x",
+  });
+  const studio = setup({
+    mode: "http",
+    registry: (build) => (build === "b2" ? ours : undefined),
+    imported: () => registryOf(other),
+  });
+  await studio.stat();
+  studio.deploy();
+  await studio.stat();
+  expect(studio.imports).toEqual([ENTRY]);
+  expect(studio.schemaIs(before())).toBe(true);
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS * 2);
+  expect(studio.reloads()).toBe(0);
+});
+
+test("a registry that does not load falls back to reloading the page", async () => {
+  const studio = setup({
+    mode: "http",
+    registry: (build) => (build === "b2" ? ours : undefined),
+    imported: () => {
+      throw new Error("404");
+    },
+  });
+  await studio.stat();
+  studio.deploy();
+  await studio.stat();
+  expect(studio.schemaIs(before())).toBe(true);
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS);
+  expect(studio.reloads()).toBe(1);
+});
