@@ -198,7 +198,15 @@ export type SystemEvent =
   | { type: "host:receive"; modules: ModuleFilePath[] }
   | { type: "host:base-received" }
   | { type: "schema:init"; modules: ModuleFilePath[] }
-  | { type: "source:init"; sources: ModuleFilePath[] }
+  | {
+      type: "source:init";
+      sources: ModuleFilePath[];
+      /**
+       * The ones whose content moved in this intake: a re-intake (HMR) hands
+       * every module over again, and most come back as they were.
+       */
+      moved: ModuleFilePath[];
+    }
   /**
    * This module's source revision moved. Whatever the reason.
    *

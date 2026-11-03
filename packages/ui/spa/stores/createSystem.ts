@@ -1122,9 +1122,12 @@ export function createSystem(options: SystemOptions): System {
       searchStale.mark(event.modules);
       referenceStale.mark(event.modules);
     }),
+    // Only what moved: a re-intake hands every module over, and one that
+    // came back as it was is indexed as it is. A module that is new, or whose
+    // code moved, is marked here or by `schema:init` below.
     sourceStore.events.on("source:init", (event) => {
-      searchStale.mark(event.sources);
-      referenceStale.mark(event.sources);
+      searchStale.mark(event.moved);
+      referenceStale.mark(event.moved);
     }),
     // A module whose code changed: what search finds in it and what it points
     // at are read through its schema (which fields are text, which are

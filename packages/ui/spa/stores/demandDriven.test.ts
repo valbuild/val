@@ -690,10 +690,12 @@ describe("search reindexes exactly the modules that changed", () => {
   it("indexes a module that arrived after the index was built", async () => {
     const { sourceStore, search, activity, dispose } = initTestSystem();
 
-    await sourceStore.testReceive([plainModule("/a.val.ts")]);
+    const a = plainModule("/a.val.ts");
+    await sourceStore.testReceive([a]);
     await search("Hello");
 
-    await sourceStore.testReceive([plainModule("/late.val.ts")]);
+    // A registry is the whole project: `/a.val.ts` is still in it.
+    await sourceStore.testReceive([a, plainModule("/late.val.ts")]);
     const before = activity.position();
     const found = await search("Hello");
 

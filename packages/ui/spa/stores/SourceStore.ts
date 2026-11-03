@@ -2806,6 +2806,9 @@ export class SourceStore {
     this.events.emit({
       type: "source:init",
       sources: Object.keys(sources) as ModuleFilePath[],
+      moved: received
+        .filter(({ before, after }) => SourceStore.moved(before, after))
+        .map(({ moduleFilePath }) => moduleFilePath),
     });
     // Emitted as its own `source:patch-apply` after `source:init`: the apply
     // is what tells the patch store which ids landed — which is how the head
