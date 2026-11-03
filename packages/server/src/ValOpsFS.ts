@@ -88,6 +88,14 @@ function serializeSchemaSafely(
   }
 }
 
+/**
+ * The newest `ValOpsFS` made in this process for each project root: the
+ * build whose base the patches in `.val/patches` are relative to (see
+ * `ValOps.chainBaseSha`). Hot reload makes the new instance in the same
+ * process as the one whose long poll is still parked.
+ */
+const newestByRoot = new Map<string, ValOpsFS>();
+
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
   private readonly host: FSOpsHost;
@@ -110,6 +118,25 @@ export class ValOpsFS extends ValOps {
     this.host = new FSOpsHost();
     this.jsonEntryFilesFingerprint = new JsonEntryFilesFingerprint(rootDir);
     this.sketchpads = createFsSketchpadStore(rootDir);
+    newestByRoot.set(fsPath.resolve(rootDir), this);
+  }
+
+  /**
+   * The base the store's chain is relative to: the newest build's, made in
+   * this process (see `ValOps.chainBaseSha`).
+   */
+  override async chainBaseSha(): Promise<SourcesSha> {
+    const newest = newestByRoot.get(fsPath.resolve(this.rootDir));
+    if (newest === undefined || newest === this) return this.getSourcesSha();
+    try {
+      return await newest.getSourcesSha();
+    } catch (err) {
+      Internal.log.debug(
+        "could not read the newest build's base; answering with this one's",
+        err,
+      );
+      return this.getSourcesSha();
+    }
   }
 
   /** In `.val/sketchpads`. See `sketchpads/fsSketchpadStore.ts`. */
@@ -278,7 +305,11 @@ export class ValOpsFS extends ValOps {
     try {
       const currentBaseSha = await this.getBaseSha();
       const currentSchemaSha = await this.getSchemaSha();
-      const currentSourcesSha = await this.getSourcesSha();
+      // The base the chain is relative to, which is the newest build's
+      // rather than this instance's once a newer one has been made: see
+      // `chainBaseSha`. Compared with what the Studio echoes as well as
+      // answered, or a Studio parked here would be told "changed" each poll.
+      const currentSourcesSha = await this.chainBaseSha();
       const schemas = await this.getSchemas();
       const moduleFilePaths = Object.keys(schemas);
       const serializedSchemas = Object.fromEntries(

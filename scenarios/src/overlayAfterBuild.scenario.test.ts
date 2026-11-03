@@ -88,62 +88,49 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   });
 
   /**
-   * Mechanism 1: the overlay aligns to the PREVIOUS build.
+   * Mechanism 1: the overlay's `/stat` is answered by the PREVIOUS build.
    *
    * The page is rendered by the new build. The overlay's Studio starts from
    * the page's own (new) modules, then asks `/stat` -- and the previous build,
-   * still served for a while, answers it with its own `sourcesSha`.
-   * `BaseAlignment` does what it was built for after a publish: it fetches
-   * that build's base (`PUT /sources/~`, also the previous build) and rebases
-   * onto it. The base moved, so `source:change` fires, and once "aligned" the
-   * relay hands the page the previous build's title. When the new build
-   * answers a later `/stat`, the Studio aligns again and the page gets the new
-   * title back.
+   * still served for a while, answers it. It used to answer with its OWN
+   * `sourcesSha`, and `BaseAlignment` did what it was built for after a
+   * publish: it fetched that build's base (`PUT /sources/~`, the previous
+   * build too) and rebased onto it, and once "aligned" the relay handed the
+   * page the previous build's title, until the new build answered a later
+   * `/stat` and the new title came back.
    *
-   * "Aligned" means aligned to whichever build answered. The wait for it was
-   * added for the opposite case (an old bundle, a new server), and is right
-   * there; here it is what lets the old content through.
+   * Fixed in fs and memory mode (phase 7, the part that does not need phase
+   * 6): there the patches are the STORE's, relative to what the newest build
+   * evaluated, so a previous build still answering names the newest build's
+   * base as the one its chain belongs on (`ValOps.chainBaseSha`). The Studio
+   * already holds it, so nothing is fetched and nothing old is relayed.
    *
-   * SKIPPED, not failing: the cause is known and its fix is deferred while
-   * coverage is built out (the reproduction of WHY is the test below, which
-   * runs). Un-skip it with the fix.
+   * FAILING on http, a finding kept as one. There the content service
+   * answers each build with the patches THAT build does not contain, so the
+   * previous build's base is the right one for its chain, and only something
+   * that knows which build is live can say the answer is from a build that
+   * has been replaced -- the content service, which does not say yet. What
+   * valbuild/home would need is in `docs/plans/one-content-model.md`, phase
+   * 7. (The page then stays on the old title: there is no later `/stat` for
+   * twenty minutes in the world, see `deployCode`.)
    */
-  test.skip("the overlay's /stat answered by the previous build: no flicker", async () => {
-    const world = await createWorld({ config, modules: [before], server });
-    try {
-      await overlayAnsweredByPreviousBuild(world);
-      world.expectInvariants();
-    } finally {
-      await world.dispose();
-    }
-  });
-
-  // Not on http: the realignment comes from a later `/stat`, and a hosted
-  // Studio asks it every twenty minutes, sooner only while the socket says a
-  // deployment is RUNNING -- and the world's `deployCode` tells the content
-  // service only that the build went live (a `success`, which moves `seq`;
-  // S11), never that one was building. Until it does, http would pin the
-  // world, not Val. (Tried with the `success` alone: still fails.)
-  (server === "http" ? test.skip : test)(
-    "why it flickers: the overlay aligns to the previous build, then to the new one",
+  (server === "http" ? test.failing : test)(
+    "the overlay's /stat answered by the previous build: no flicker",
     async () => {
       const world = await createWorld({ config, modules: [before], server });
       try {
         await overlayAnsweredByPreviousBuild(world);
-        expect(titles(world)).toEqual([
-          "New title", // the server render (new build)
-          "New title", // hydration
-          "Old title", // the overlay, aligned to the previous build
-          "New title", // the overlay, aligned to the new build
-        ]);
+        world.expectInvariants();
+        // One surface, so "converges" cannot see a page that ends on the
+        // previous build's title: say it.
+        expect(titles(world)).not.toContain("Old title");
+        expect(world.frames.last("title")).toBe("New title");
+        // The previous build's base is never fetched: its stat already
+        // named the base the Studio holds.
         const overlay = world.network.log
           .filter((e) => e.from.startsWith("studio:overlay"))
-          .map((e) => `${e.method} ${e.path.replace("/api/val", "")} ${e.to}`);
-        expect(overlay.slice(0, 2)).toEqual([
-          "POST /stat build 1",
-          "PUT /sources/~ build 1",
-        ]);
-        expect(overlay).toContain("POST /stat build 2");
+          .map((e) => `${e.method} ${e.path.replace("/api/val", "")}`);
+        expect(overlay).not.toContain("PUT /sources/~");
       } finally {
         await world.dispose();
       }

@@ -47,7 +47,10 @@ describe("/manifest", () => {
     ),
     project: ProjectVersionSchema,
   });
-  const Stat = z.object({ version: ProjectVersionSchema });
+  const Stat = z.object({
+    version: ProjectVersionSchema,
+    sourcesSha: z.string(),
+  });
 
   const start = (
     build: ValModule<SelectorSource>[] = [home, footer],
@@ -216,5 +219,35 @@ describe("/manifest", () => {
       seqs.push((await next.manifest()).json?.project.seq);
     }
     expect(new Set(seqs)).toEqual(new Set([after.json?.project.seq]));
+  });
+
+  /**
+   * S26 (`scenarios/src/overlayAfterBuild.scenario.test.ts`): in memory and
+   * fs mode the chain is the store's, relative to what the newest build
+   * evaluated, so a previous build still answering `/stat` names the newest
+   * build's base as the one its chain belongs on. Its own base is still what
+   * it answers when asked for it.
+   */
+  test("a previous build still answering names the newest build's base for the chain", async () => {
+    const store = new InMemoryPatchStore();
+    const old = start([home, footer], store);
+    const stat = async (server: ReturnType<typeof start>) => {
+      const res = await server.send("POST", "/stat", { json: null });
+      return "json" in res ? Stat.parse(res.json) : null;
+    };
+    const base = async (server: ReturnType<typeof start>) => {
+      const res = await server.send("PUT", "/sources/~?apply_patches=false");
+      return "json" in res
+        ? z.object({ sourcesSha: z.string() }).parse(res.json).sourcesSha
+        : null;
+    };
+    const oldOwn = (await stat(old))?.sourcesSha;
+    expect(await base(old)).toBe(oldOwn);
+    const next = start([homeWithCta, footer], store);
+    const nextOwn = (await stat(next))?.sourcesSha;
+    expect(nextOwn).not.toBe(oldOwn);
+    expect((await stat(old))?.sourcesSha).toBe(nextOwn);
+    expect(await base(old)).toBe(oldOwn);
+    expect(await base(next)).toBe(nextOwn);
   });
 });

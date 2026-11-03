@@ -775,6 +775,31 @@ export abstract class ValOps {
   }
 
   /**
+   * The `sourcesSha` of the base this store's chain is relative to: what a
+   * `/stat` answer names, so the Studio puts the chain on that base
+   * (`BaseAlignment`).
+   *
+   * This instance's own, unless the store keeps one chain for every build
+   * and a newer build of the project has been made since this one, in this
+   * process (fs and memory: the patches are the store's, and they are
+   * relative to what the NEWEST build evaluated -- the files on disk, the
+   * modules hot reload brought). An instance still answering then (a long
+   * poll parked on it before the reload, a request routed to the previous
+   * build) would otherwise name its own, older base, and the Studio would
+   * fetch it and show the content from before the code change (S26,
+   * `scenarios/src/overlayAfterBuild.scenario.test.ts`). In http mode the
+   * content service answers each build with the patches THAT build does not
+   * contain, so its own base is the right one.
+   *
+   * Newest by when the instance was MADE, not by when it first answered:
+   * hot reload makes the new one after the old, and an old one first asked
+   * after the new one is still the old one.
+   */
+  async chainBaseSha(): Promise<SourcesSha> {
+    return this.getSourcesSha();
+  }
+
+  /**
    * The host's own name for the build it runs, when it has one (a platform's
    * build, a commit). `null`: the fold of what the modules evaluated to.
    */

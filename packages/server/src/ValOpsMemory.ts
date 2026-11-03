@@ -294,6 +294,14 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
  *   uses, so the History UI degrades the way it already knows how rather than
  *   inventing a commit list. See the note above `listCommits`.
  */
+/**
+ * The newest `ValOpsMemory` made in this process on each patch store: the
+ * build whose base the store's patches are relative to (see
+ * `ValOps.chainBaseSha`). A new build is a new instance on the same store
+ * (hot reload, a new deployment in one process).
+ */
+const newestOnStore = new WeakMap<ValPatchStore, ValOpsMemory>();
+
 export class ValOpsMemory extends ValOps {
   /**
    * The host's own store -- see {@link ValOps.patchesAreLocal}. `true` for the
@@ -332,6 +340,7 @@ export class ValOpsMemory extends ValOps {
   constructor(valModules: ValModules, options: ValOpsMemoryOptions) {
     super(valModules, options);
     this.store = options.patchStore ?? new InMemoryPatchStore();
+    newestOnStore.set(this.store, this);
     this.contentUrl = options.contentUrl;
     this.requiresAuth = !options.unsafelyAllowUnauthenticated;
     if (
@@ -399,7 +408,8 @@ export class ValOpsMemory extends ValOps {
   }> {
     const baseSha = await this.getBaseSha();
     const schemaSha = await this.getSchemaSha();
-    const sourcesSha = await this.getSourcesSha();
+    // The base the chain is relative to: see `chainBaseSha`.
+    const sourcesSha = await this.chainBaseSha();
     // Before the list, so the answer is never behind the `seq` it carries.
     const seq = seqOf(this.store).seq;
     return {
@@ -431,6 +441,24 @@ export class ValOpsMemory extends ValOps {
 
   /** Whether this instance has counted itself as a new build yet. */
   private countedBuild = false;
+
+  /**
+   * The base the store's chain is relative to: the newest build's, made in
+   * this process (see `ValOps.chainBaseSha`).
+   */
+  override async chainBaseSha(): Promise<SourcesSha> {
+    const newest = newestOnStore.get(this.store);
+    if (newest === undefined || newest === this) return this.getSourcesSha();
+    try {
+      return await newest.getSourcesSha();
+    } catch (err) {
+      Internal.log.debug(
+        "could not read the newest build's base; answering with this one's",
+        err,
+      );
+      return this.getSourcesSha();
+    }
+  }
 
   override async getStat(
     params: {
