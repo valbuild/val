@@ -5,6 +5,7 @@ export * from "./ValClient";
 export * from "./demo";
 export * from "./ValUrls";
 export * from "./ApiRoutes";
+export * from "./valClientHeader";
 export * from "./schema/compatibility";
 export * from "./newestCommitSha";
 export * from "./chainHead";

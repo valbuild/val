@@ -107,6 +107,7 @@ import {
   prepareAnalyticsForward,
   warnAnalyticsUnauthorizedOnce,
 } from "./analyticsForward";
+import { VAL_CLIENT_HEADERS } from "./valClient";
 
 export type ValServerOptions = {
   route: string;
@@ -4959,6 +4960,7 @@ function getProfileAuthHeaders(
 ): Record<string, string> {
   if ("pat" in auth) {
     return {
+      ...VAL_CLIENT_HEADERS,
       "x-val-pat": auth.pat,
       "Content-Type": type,
     };
@@ -4978,10 +4980,12 @@ function getAuthHeaders(
 ): Record<string, string> {
   if (!type) {
     return {
+      ...VAL_CLIENT_HEADERS,
       Authorization: `Bearer ${token}`,
     };
   }
   return {
+    ...VAL_CLIENT_HEADERS,
     "Content-Type": type,
     Authorization: `Bearer ${token}`,
   };

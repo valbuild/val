@@ -685,19 +685,29 @@ export function KeyOfField({
       {inlineRender &&
         referencedItemPath !== undefined &&
         referencedItemSchema !== undefined && (
-          <div className="mt-2 rounded-md border border-border-primary p-3">
+          <div className="mt-1.5 rounded-md border border-border-primary py-1.5 pr-1.5">
             {/* Edits here go to the referenced module (this is the SHARED
                 entry, not a copy), which is what a reference means — but it is
                 worth a label so nobody mistakes it for row-local content. */}
-            <div className="pb-2 text-xs text-fg-secondary-alt truncate">
+            <div className="pb-1 pl-2 font-mono text-xs text-fg-secondary-alt truncate">
               {source}
             </div>
-            <AnyField
-              path={referencedItemPath}
-              schema={referencedItemSchema}
-              readonly={readonly === true}
-              compact
-            />
+            {/* `dense`: the entry is shown in place, so an object is laid
+                out like an inline row's own fields (which carry their own
+                left inset) rather than as a stack of full-size cards. */}
+            <div
+              className={
+                referencedItemSchema.type === "object" ? undefined : "pl-2"
+              }
+            >
+              <AnyField
+                path={referencedItemPath}
+                schema={referencedItemSchema}
+                readonly={readonly === true}
+                compact
+                dense
+              />
+            </div>
           </div>
         )}
     </div>
