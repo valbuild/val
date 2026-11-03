@@ -1133,6 +1133,10 @@ export function createSystem(options: SystemOptions): System {
     schemaStore.events.on("schema:init", (event) => {
       searchStale.mark(event.modules);
       referenceStale.mark(event.modules);
+      // A module that LEFT is owed no pass: a pass walks loaded modules, and
+      // it is not one. So it is taken out of both indexes here, or it stays
+      // findable and its references stay counted.
+      forgetGone(event.modules);
     }),
 
     // --- patch-set invalidation -------------------------------------------
@@ -1243,6 +1247,22 @@ export function createSystem(options: SystemOptions): System {
   }
 
   /**
+   * Take the modules of `modules` that are no longer in the project out of
+   * the search and reference indexes. Called when one leaves, and after a
+   * pass, which may have been handed one in its snapshot before it left.
+   */
+  function forgetGone(modules: readonly ModuleFilePath[]): void {
+    const schemas = schemaStore.all();
+    for (const moduleFilePath of modules) {
+      if (schemas[moduleFilePath] !== undefined) continue;
+      searchStale.forget(moduleFilePath);
+      referenceStale.forget(moduleFilePath);
+      void searchStore.forget(moduleFilePath);
+      void referenceStore.forget(moduleFilePath);
+    }
+  }
+
+  /**
    * Bring the reference index up to date, then answer from it.
    *
    * Shared by both reference entry points so the scan-then-read pair cannot
@@ -1267,6 +1287,7 @@ export function createSystem(options: SystemOptions): System {
     // never gets another chance. And only marks older than the pass: a module
     // that changed during the await was scanned as it was, not as it is.
     referenceStale.covers(scanned, pass);
+    forgetGone(scanned);
   }
 
   function gatherReferenceSnapshot(
@@ -1324,6 +1345,7 @@ export function createSystem(options: SystemOptions): System {
         const target = searchStale.target(sourceStore.loadedModules());
         const indexed = await searchStore.reindex(gatherSnapshot(target));
         searchStale.covers(indexed.all, pass);
+        forgetGone(indexed.all);
       }
       const found = await searchStore.search(query, limit, offset);
       if (found.status === "no-index") {
@@ -1338,6 +1360,7 @@ export function createSystem(options: SystemOptions): System {
       const loaded = sourceStore.loadedModules();
       const result = await searchStore.buildIndex(gatherSnapshot(loaded));
       searchStale.covers(result.all, pass);
+      forgetGone(result.all);
       return result;
     },
     /**
