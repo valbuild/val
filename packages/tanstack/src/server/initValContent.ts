@@ -23,20 +23,17 @@ import {
   SourceObject,
 } from "@valbuild/core";
 import {
-  VAL_SESSION_COOKIE,
   type ContentSource,
   type RequestScopedMemo,
 } from "@valbuild/shared/internal";
 import {
   createValServer,
   draftForRequest,
-  draftTree,
-  hasJsonEntriesFromServer,
   layeredSnapshot,
   proposalSnapshot,
   proposalSnapshotForReaders,
+  readDraftChanges,
   readerSchemaVersion,
-  withDraftJsonEntries,
   type DraftSources,
   type DraftValServer,
   type GetDraftSourcesScope,
@@ -288,7 +285,9 @@ export function readsOfFetchValDraft(
  * `null` -- and no read at all -- unless draft mode is on: a visitor pays one
  * cookie lookup. Otherwise the SAME read every `fetchVal` in the request
  * shares (`draftTree`, memoised per request), cut down to the modules the
- * draft changes. See `ValDraft`.
+ * draft changes. See `ValDraft`. The read is `readDraftChanges` in
+ * `@valbuild/server`, which `@valbuild/next/rsc`'s `fetchValDraft` is too;
+ * this adds a proposal's snapshot and the draft's base, which Next has not.
  *
  * Exists because the hooks render on the server too, and had no draft there:
  * a draft page was rendered as the published site and only then replaced, in
@@ -312,77 +311,33 @@ export const initFetchValDraft = (
     const proposal: Pick<ValDraft, "atProposal"> = atProposal
       ? { atProposal: true }
       : {};
-    // At a proposal's address the page needs the snapshot whatever draft mode
-    // says, so a reviewer who is not editing sees the proposal too. So does a
-    // content version, which is the live site's content.
-    const onlySnapshot: Ready<ValDraft | null> = {
-      value:
-        snapshot !== undefined
-          ? { sources: {}, snapshot, draftMode: false, ...proposal }
-          : null,
-      reads: [],
-    };
-    try {
-      if (!(await isEnabled())) {
-        return onlySnapshot;
-      }
-      // Possibly absent: a local `fs` server answers without one. The server
-      // decides, and a 401 is `null` -- the same rule `fetchVal` follows.
-      const sessionCookie = (await getCookies()).get(VAL_SESSION_COOKIE)?.value;
-      const modules = await draftTree(
-        valServerPromise,
-        sessionCookie,
-        getDraftSourcesScope,
-      );
-      if (!modules) {
-        return onlySnapshot;
-      }
-      const sources: ValDraft["sources"] = {};
-      const reads: Ready<ValDraft | null>["reads"][number][] = [];
-      for (const [path, module] of Object.entries(modules)) {
-        // A module no patch touches is the bundle's -- unless a publish
-        // wrote some of its entries and the host has not rebuilt since.
-        if (
-          module.patches === undefined &&
-          !hasJsonEntriesFromServer(module.source)
-        ) {
-          continue;
-        }
-        const moduleFilePath = path as ModuleFilePath;
-        // Left out when its entries cannot all be read: the published
-        // render that existed before the draft did is worse than this, and
-        // never wrong for long.
-        const source = await withDraftJsonEntries(
-          valServerPromise,
-          sessionCookie,
-          moduleFilePath,
-          module.source,
-          module.patches?.applied ?? [],
-        );
-        if (source !== undefined) {
-          sources[moduleFilePath] = source;
-          reads.push({
-            path: moduleFilePath,
-            from: "server-draft",
-            version: module.version ?? null,
-          });
-        }
-      }
+    const changes = await readDraftChanges({
+      valServer: valServerPromise,
+      isEnabled,
+      getCookies,
+      scope: getDraftSourcesScope,
+    });
+    if (changes === null) {
+      // At a proposal's address the page needs the snapshot whatever draft
+      // mode says, so a reviewer who is not editing sees the proposal too.
+      // So does a content version, which is the live site's content.
       return {
-        value: {
-          sources,
-          ...(snapshot !== undefined ? { snapshot } : {}),
-          ...(base !== undefined ? { base } : {}),
-          ...proposal,
-        },
-        reads,
+        value:
+          snapshot !== undefined
+            ? { sources: {}, snapshot, draftMode: false, ...proposal }
+            : null,
+        reads: [],
       };
-    } catch (err) {
-      // Published content, as before this existed: a draft page that renders
-      // the site is a degraded preview, one that fails to render is an outage.
-      Internal.log.error("could not read the draft", err);
-      return onlySnapshot;
     }
+    return {
+      value: {
+        sources: changes.sources,
+        ...(snapshot !== undefined ? { snapshot } : {}),
+        ...(base !== undefined ? { base } : {}),
+        ...proposal,
+      },
+      reads: changes.reads,
+    };
   };
   const fetchValDraft = async (): Promise<ValDraft | null> =>
     (await withReads()).value;

@@ -295,20 +295,63 @@ first byte: no published text first and the draft a moment later, and a route
 that exists only in an unpublished change is found on the render that decides
 whether the page is a 404.
 
-```tsx
-<ValProvider config={config} suspend draft={draft}>
+Read it with `fetchValDraft`, which `initValRsc` returns beside `fetchVal`:
+
+```ts
+// ./val/rsc.ts
+import "server-only";
+import { initValRsc } from "@valbuild/next/rsc";
+import { config } from "../val.config";
+import valModules from "../val.modules";
+import { cookies, draftMode, headers } from "next/headers";
+
+const {
+  fetchValStega: fetchVal,
+  fetchValRouteStega: fetchValRoute,
+  fetchValDraft,
+} = initValRsc(config, valModules, { draftMode, headers, cookies });
+
+export { fetchVal, fetchValRoute, fetchValDraft };
 ```
 
-It is optional and additive: without it (or with `null`, which is what a visitor
-or a request outside draft mode should get), the provider behaves exactly as
-before. It is read once, when the provider mounts. Only pass it to an editor's
-request — reading a draft makes the route render per request. The edit tags
-(what makes content click-to-edit) are left out of the server's HTML and the
-hydration render, and added by the render right after, so the two agree.
+and pass what it returns from the root layout, a Server Component:
 
-`@valbuild/next` does not yet read the request's draft for you: the plan is a
-`fetchValDraft` beside `fetchVal` in `@valbuild/next/rsc`, as
-`@valbuild/tanstack/server` has.
+```tsx
+// ./app/layout.tsx
+import { ValProvider } from "@valbuild/next";
+import { config } from "../val.config";
+import { fetchValDraft } from "../val/rsc";
+
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <ValProvider config={config} suspend draft={await fetchValDraft()}>
+          {children}
+        </ValProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+`fetchValDraft` returns `null` unless the request is in draft mode, after one
+`draftMode()` lookup and no read: a visitor pays nothing for it, and
+`draftMode()` does not make a static route dynamic. In draft mode it reads the
+request's cookies (which does) and returns the modules the draft changes, from
+the same read every `fetchVal` in that request shares. It is also `null` when
+the editor's session has expired, or the draft cannot be read (logged): the
+page is then rendered as published, as it would be without it. The type is
+`ValDraft`, exported from `@valbuild/next/rsc`.
+
+The prop is optional and additive: without it (or with `null`), the provider
+behaves exactly as before. It is read once, when the provider mounts. The edit
+tags (what makes content click-to-edit) are left out of the server's HTML and
+the hydration render, and added by the render right after, so the two agree.
 
 ## Refreshes in draft mode
 

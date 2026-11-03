@@ -25,6 +25,13 @@ of on a timer.
   page that exists only as an unpublished change is found on the first render
   instead of answering 404. Without it, nothing changes. See "The `draft` prop"
   in the `@valbuild/next` README.
+- **Next.js: `initValRsc` returns `fetchValDraft`**, which reads that draft:
+  pass `draft={await fetchValDraft()}` to `ValProvider` in your root layout. It
+  returns `null` unless the request is in draft mode, after one `draftMode()`
+  lookup and no other work, so visitors pay nothing and a static page stays
+  static. It reads the draft the way `@valbuild/tanstack/server`'s
+  `fetchValDraft` does and returns the same type, `ValDraft | null`; `ValDraft`
+  is now exported from `@valbuild/next/rsc` too.
 - **`suspend` waits for the editor's changes properly.** With `suspend` on
   `ValProvider`, a page could be told it had everything before the editor had
   sent the pending change it needed, and render the published content first —

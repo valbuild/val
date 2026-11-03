@@ -14,6 +14,7 @@ import {
   type ContentSource,
   type EntryRead,
   type ModuleRead,
+  type ModuleVersion,
   type RequestScopedMemo,
 } from "@valbuild/shared/internal";
 import type { ValServer } from "./ValServer";
@@ -245,6 +246,92 @@ export function hasDraftJsonEntries(
     (appliedPatchIds.length > 0 ||
       Object.values(source).some((value) => Internal.isJsonFromServer(value)))
   );
+}
+
+/** One module {@link readDraftChanges} read: what a reader's `reads` record. */
+export type DraftModuleRead = {
+  path: ModuleFilePath;
+  from: "server-draft";
+  version: ModuleVersion | null;
+};
+
+/**
+ * The modules the editor's draft CHANGES, for this request: what
+ * `fetchValDraft` hands to `<ValProvider draft>`, in `@valbuild/tanstack/server`
+ * and `@valbuild/next/rsc` alike -- this is the whole of the read, and the
+ * frameworks add only where draft mode and the cookies come from (and, in
+ * TanStack, a proposal's snapshot).
+ *
+ * `null` -- and no read at all -- unless draft mode is on: a visitor pays one
+ * cookie lookup. Otherwise the SAME read every `fetchVal` in the request
+ * shares ({@link draftTree}, memoised per request), cut down to the modules a
+ * patch touches or a publish wrote and the host has not rebuilt since, with
+ * the `.jsonValues()` entries the draft edits filled in
+ * ({@link withDraftJsonEntries}).
+ *
+ * Also `null` when the session is not one the server accepts, and when the
+ * draft could not be read at all (logged): published content, as before this
+ * existed -- a draft page that renders the site is a degraded preview, one
+ * that fails to render is an outage.
+ */
+export async function readDraftChanges(opts: {
+  valServer: Promise<DraftValServer>;
+  isEnabled: () => Promise<boolean>;
+  getCookies: () => Promise<Cookies>;
+  scope: GetDraftSourcesScope | null;
+}): Promise<{
+  sources: Record<ModuleFilePath, Json>;
+  reads: DraftModuleRead[];
+} | null> {
+  try {
+    if (!(await opts.isEnabled())) {
+      return null;
+    }
+    // Possibly absent: a local `fs` server answers without one. The server
+    // decides, and a 401 is `null` -- the same rule `fetchVal` follows.
+    const sessionCookie = (await opts.getCookies()).get(
+      VAL_SESSION_COOKIE,
+    )?.value;
+    const modules = await draftTree(opts.valServer, sessionCookie, opts.scope);
+    if (!modules) {
+      return null;
+    }
+    const sources: Record<ModuleFilePath, Json> = {};
+    const reads: DraftModuleRead[] = [];
+    for (const [path, module] of Object.entries(modules)) {
+      // A module no patch touches is the bundle's -- unless a publish wrote
+      // some of its entries and the host has not rebuilt since.
+      if (
+        module.patches === undefined &&
+        !hasJsonEntriesFromServer(module.source)
+      ) {
+        continue;
+      }
+      const moduleFilePath = path as ModuleFilePath;
+      // Left out when its entries cannot all be read: the published render
+      // that existed before the draft did is worse than this, and never
+      // wrong for long.
+      const source = await withDraftJsonEntries(
+        opts.valServer,
+        sessionCookie,
+        moduleFilePath,
+        module.source,
+        module.patches?.applied ?? [],
+      );
+      if (source !== undefined) {
+        sources[moduleFilePath] = source;
+        reads.push({
+          path: moduleFilePath,
+          from: SERVER_DRAFT,
+          version: module.version ?? null,
+        });
+      }
+    }
+    return { sources, reads };
+  } catch (err) {
+    Internal.log.error("could not read the draft", err);
+    return null;
+  }
 }
 
 /** Whether `source` is a record holding an entry read from the server without a patch naming it. */

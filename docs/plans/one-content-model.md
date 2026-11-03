@@ -578,9 +578,11 @@ coverage" (valbuild/val#1006).
    are not `peek`, and are cheap); the confirmed boundary between
    `chainSource` and `withLocalEdits` decides nothing yet but which kept
    version is extended -- it matters in phase 7, when `chainSource` becomes
-   the server's answer. Left from phase 4: a
-   `fetchValDraft` for Next to fill its new `draft` prop (a public API
-   addition, waiting for a decision). Left from phase 3: `fetchValDraft` still
+   the server's answer. Left from phase 4, and done after phase 5: Next's
+   `fetchValDraft`, returned from `initValRsc` (decided), on the
+   `readDraftChanges` TanStack's now reads through too; `examples/next`'s
+   root layout passes it, and `uncommitted-routes`' single-module case runs
+   on both apps. Left from phase 3: `fetchValDraft` still
    reads the tree and the entries itself (through the same functions as
    `serverDraftSource`), until phase 6's head. Left from phase 2: `/stat` and the manifest
    still name a module's whole chain where `/sources/~` names where it
@@ -1533,10 +1535,11 @@ readers (signatures and results); `ValProvider`'s props, `suspend` included
   `@valbuild/next/rsc`, mirroring TanStack's, for an app that wants the draft
   at SSR. Without them, Next behaves as today. (Phase 4 added the prop. The
   reader was held back as a public API addition beyond the one the phase was
-  given; the options are `fetchValDraft` on what `initValRsc` returns, as
-  TanStack's `initValContent` has it, or a separate `initValDraft`
-  export of `@valbuild/next/rsc`, and the reading itself is already
-  framework-free in `@valbuild/server`'s `draftReads.ts`.)
+  given, and then decided: `fetchValDraft` on what `initValRsc` returns, as
+  TanStack's `initValContent` has it, with the same type,
+  `() => Promise<ValDraft | null>`. Both are `readDraftChanges` in
+  `@valbuild/server`'s `draftReads.ts`; TanStack adds the proposal's
+  snapshot and the draft's base.)
 - `stegaEncode` in `@valbuild/react/stega` takes an optional `version`.
 
 **Kept although they become redundant:** `initValContent`'s `patchStore`,

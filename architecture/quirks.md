@@ -1312,9 +1312,10 @@ scenario world: S24).
    its own terms, and no longer needed with the `draft` prop:** with
    `<ValProvider draft>` the server renders from the draft it read, so the
    deciding render already has the route. TanStack has had it since
-   `fetchValDraft`; Next's `ValProvider` takes it since phase 4, but
-   `@valbuild/next` has no `fetchValDraft` to fill it yet. Without `draft` it is
-   still open. See below.
+   `fetchValDraft`; Next's `ValProvider` takes it since phase 4, filled by the
+   `fetchValDraft` `initValRsc` returns (the same `readDraftChanges` in
+   `@valbuild/server`), from the root layout. Without `draft` it is still open.
+   See below.
 
 ### Why (3) is not just a bug
 
@@ -1370,9 +1371,13 @@ page load showed the published text and then, once the overlay had loaded, the
 draft. People notice it most right after publishing, when they reload to look.
 `e2e/tanstack/draftRender.spec.ts` pins it. Next's `ValProvider` takes the same
 `draft` since phase 4 (`ValNextProvider.draft.test.tsx` pins the server render
-and hydration), but nothing in `@valbuild/next` reads it for an app yet; until
-it does, Next still has the gap for client components, and the cost argument
-below is why the provider does not read it itself.
+and hydration), read with the `fetchValDraft` `initValRsc` returns and passed
+from the root layout (`examples/next/app/layout.tsx`). A layout that does not
+pass it still has the gap for client components. It costs a visitor nothing:
+`fetchValDraft` asks `draftMode()` first, which a static route can answer
+without becoming dynamic, and reads `cookies()` -- which would make it dynamic
+-- only in draft mode. The cost argument below is about reading the cookie
+unconditionally, which is why the provider still does not read it itself.
 
 ### What a visitor pays
 
@@ -1398,7 +1403,8 @@ prop is its `test.failing` case, and S24b (the early `sourcesSynced`) passes.
 `packages/next/src/ValNextProvider.draft.test.tsx` — Next's `draft` prop, on
 the server render and on hydration.
 `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
-single-module case is `test.fixme` for (3).
+single-module case, (3), runs on both apps -- it was `test.fixme` until both
+layouts passed `draft` (and fails on Next without it).
 
 ## `fetchVal` in draft mode reads every module, ONCE per request
 

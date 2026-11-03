@@ -35,11 +35,13 @@ export {
   draftTree,
   hasJsonEntriesFromServer,
   loadDraftSources,
+  readDraftChanges,
   readerSchemaVersion,
   serverDraftSource,
   withDraftJsonEntries,
 } from "./draftReads";
 export type {
+  DraftModuleRead,
   DraftSources,
   DraftValServer,
   GetDraftSourcesScope,

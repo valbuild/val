@@ -12,6 +12,7 @@ import {
   isJsonValuesRecordSchema,
   resolveVal,
   resolveValEntry,
+  type ValDraft,
 } from "@valbuild/react/stega";
 import {
   ValConfig,
@@ -29,6 +30,7 @@ import {
 import {
   createValServer,
   draftForRequest,
+  readDraftChanges,
   readerSchemaVersion,
   type DraftSources,
   type DraftValServer,
@@ -307,6 +309,41 @@ const initFetchValRouteUrl = (
   };
 };
 
+/**
+ * The draft a page in this request should start from, or `null` for none:
+ * what `<ValProvider draft>` takes. See `ValDraft`.
+ *
+ * `null` -- and no read at all -- unless the request is in draft mode: a
+ * visitor pays one `draftMode()` lookup, which does not make a static route
+ * dynamic. In draft mode it is the source of every module the editor's draft
+ * changes, read with the SAME read every `fetchVal` in the request shares
+ * (React's `cache()`), so the server renders the draft and the browser
+ * hydrates the same thing. Also `null` when the session is not one Val
+ * accepts, or the draft could not be read (logged): the published page.
+ *
+ * The read is `readDraftChanges` in `@valbuild/server`, which
+ * `@valbuild/tanstack/server`'s `fetchValDraft` is too; only where draft mode
+ * and the cookies come from is Next's.
+ */
+export const initFetchValDraft =
+  (
+    valServerPromise: Promise<DraftValServer>,
+    isEnabled: () => Promise<boolean>,
+    getCookies: () => Promise<{
+      get(name: string): { name: string; value: string } | undefined;
+    }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
+  ) =>
+  async (): Promise<ValDraft | null> => {
+    const changes = await readDraftChanges({
+      valServer: valServerPromise,
+      isEnabled,
+      getCookies,
+      scope: getDraftSourcesScope,
+    });
+    return changes === null ? null : { sources: changes.sources };
+  };
+
 const valApiEndpoints = "/api/val";
 
 type ValNextRscConfig = {
@@ -324,6 +361,17 @@ export function initValRsc(
   fetchValKeyStega: ReturnType<typeof initFetchValKeyStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
   fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
+  /**
+   * The draft for `<ValProvider draft>`, or `null` outside draft mode. Call
+   * it in the root layout (a Server Component) and pass what it returns:
+   *
+   * ```tsx
+   * <ValProvider config={config} draft={await fetchValDraft()}>
+   * ```
+   *
+   * See "The `draft` prop" in the README, and `ValDraft`.
+   */
+  fetchValDraft: ReturnType<typeof initFetchValDraft>;
 } {
   const coreVersion = Internal.VERSION.core;
   if (!coreVersion) {
@@ -408,6 +456,16 @@ export function initValRsc(
       },
       async () => {
         return await rscNextConfig.headers();
+      },
+      async () => {
+        return await rscNextConfig.cookies();
+      },
+      draftSourcesScope,
+    ),
+    fetchValDraft: initFetchValDraft(
+      valServerPromise,
+      async () => {
+        return (await rscNextConfig.draftMode()).isEnabled;
       },
       async () => {
         return await rscNextConfig.cookies();
