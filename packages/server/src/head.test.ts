@@ -2,12 +2,19 @@ import {
   initVal,
   type ModuleFilePath,
   type PatchId,
+  type SelectorSource,
+  type ValModule,
   type ValModules,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { EMPTY_CHAIN, engineWork, moduleKey } from "@valbuild/shared/internal";
-import { InMemoryPatchStore, ValOpsMemory } from "./ValOpsMemory";
-import { ValHead, headWork, heldBeyond } from "./head";
+import {
+  InMemoryPatchStore,
+  ValOpsMemory,
+  type ValPatchStore,
+} from "./ValOpsMemory";
+import { ValHead, headWork, heldBeyond, isLastingAnswer } from "./head";
+import { serverDraftSource } from "./draftReads";
 
 /**
  * The head: the content at the newest chain, made once per version and kept
@@ -32,17 +39,22 @@ const notesVal = c.define(
   },
 );
 
-function setup() {
+function setup(
+  opts: {
+    modules?: ValModule<SelectorSource>[];
+    patchStore?: ValPatchStore;
+  } = {},
+) {
   const valModules: ValModules = {
     config,
-    modules: [homeVal, notesVal].map((module) => ({
+    modules: (opts.modules ?? [homeVal, notesVal]).map((module) => ({
       def: async () => ({ default: module }),
     })),
   };
   const ops = new ValOpsMemory(valModules, {
     config,
     sourceFiles: {},
-    patchStore: new InMemoryPatchStore(),
+    patchStore: opts.patchStore ?? new InMemoryPatchStore(),
     unsafelyAllowUnauthenticated: true,
     warnUnauthenticated: false,
   });
@@ -214,4 +226,171 @@ test("what a version holds beyond its base is its copied containers and the valu
   // The root, the list's three slots, and the one new item: the shifted ones
   // are the base's own.
   expect(heldBeyond(base, inserted)).toBe(8 * 2 + 8 * 3 + 8 + 1);
+});
+
+// #region review fixes
+
+test("a fetch of the chain that throws is the caller's error, and nobody else's", async () => {
+  const { ops } = setup();
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    jest
+      .spyOn(ops, "fetchPatches")
+      .mockRejectedValueOnce(new Error("content service went away"));
+    await expect(ops.head.sync()).rejects.toThrow("content service went away");
+    // Let a rejection nobody holds surface, if there is one.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(unhandled).toEqual([]);
+    // And the next read is not stuck joining the failed one.
+    const again = await ops.head.sync();
+    expect("ok" in again).toBe(true);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+/**
+ * A patch store shared by isolates, as a Durable Object is: each isolate has
+ * its own object in front of the one store, and counts only its own writes.
+ */
+function sharedStore(inner: InMemoryPatchStore): ValPatchStore {
+  return {
+    list: () => inner.list(),
+    get: (patchId) => inner.get(patchId),
+    append: (patch) => inner.append(patch),
+    delete: (patchIds) => inner.delete(patchIds),
+    putFile: (file) => inner.putFile(file),
+    getFile: (patchId, filePath) => inner.getFile(patchId, filePath),
+    deleteFile: (patchId, filePath) => inner.deleteFile(patchId, filePath),
+    filesOf: (patchId) => inner.filesOf(patchId),
+  };
+}
+
+test("a store another isolate writes to is read again, not trusted to this isolate's count", async () => {
+  const inner = new InMemoryPatchStore();
+  const here = setup({ patchStore: sharedStore(inner) });
+  const there = setup({ patchStore: sharedStore(inner) });
+  expect((await moduleOf(here.ops.head, HOME)).module.content.source).toEqual({
+    title: "Hello",
+    subtitle: "Sub",
+  });
+  await there.edit(HOME, [
+    { op: "replace", path: ["title"], value: "From there" },
+  ]);
+  expect((await moduleOf(here.ops.head, HOME)).module.content.source).toEqual({
+    title: "From there",
+    subtitle: "Sub",
+  });
+});
+
+test("a draft request asks whether the chain moved once, whatever it reads", async () => {
+  const { ops, edit } = setup();
+  await edit(HOME, [{ op: "replace", path: ["title"], value: "One" }]);
+  await edit(NOTES, [{ op: "replace", path: ["a", "title"], value: "A1" }]);
+  const source = serverDraftSource({
+    runtime: Promise.resolve({ ops, authorize: () => true }),
+    session: undefined,
+    modules: true,
+  });
+  const before = headWork().seqReads;
+  const reads = [
+    () => source.module(HOME),
+    () => source.module(NOTES),
+    () => source.entry(NOTES, "a"),
+    () => source.entry(NOTES, "b"),
+  ];
+  for (const read of reads) {
+    const first = read();
+    if (first.status === "pending") await first.ready;
+  }
+  expect(reads.map((read) => read().status)).toEqual([
+    "ready",
+    "ready",
+    "ready",
+    "ready",
+  ]);
+  expect(headWork().seqReads - before).toBe(1);
+});
+
+test("a draft made at a chain reads its entries at that chain, though the chain has moved since", async () => {
+  const { ops, edit } = setup();
+  await edit(NOTES, [{ op: "replace", path: ["a", "title"], value: "A1" }]);
+  const synced = await ops.head.sync();
+  if ("error" in synced) throw new Error(synced.error.message);
+  await edit(NOTES, [{ op: "replace", path: ["a", "title"], value: "A2" }]);
+  const draft = await ops.head.draft(NOTES, synced.ok);
+  if ("error" in draft || draft.ok?.kind !== "draft") throw new Error();
+  expect(draft.ok.version).toEqual(synced.ok.versions[NOTES]);
+  expect(draft.ok.source).toEqual({
+    a: { title: "A1" },
+    b: { _type: "json" },
+  });
+});
+
+test("a module path that names a property of every object is no module", async () => {
+  const { ops } = setup();
+  for (const path of ["constructor", "toString", "__proto__"]) {
+    const read = await ops.head.module(path as ModuleFilePath);
+    expect(read).toEqual({ ok: null });
+    const answer = await ops.head.answer(path as ModuleFilePath, {});
+    expect(answer).toEqual({ ok: null });
+  }
+});
+
+test("an entry that could not be read is read again, and its answer is not kept for good", async () => {
+  const FLAKY = "/content/flaky.val.ts" as ModuleFilePath;
+  let calls = 0;
+  const flakyVal = c.define(
+    FLAKY,
+    s.record(s.object({ title: s.string() })).jsonValues(),
+    {
+      a: c.json(async () => {
+        calls++;
+        if (calls === 1) throw new Error("chunk failed to load");
+        return { default: { title: "Note A" } };
+      }),
+    },
+  );
+  const { ops, edit } = setup({ modules: [flakyVal] });
+  // An edit held for the entry, so it is read from its base.
+  await edit(FLAKY, [{ op: "replace", path: ["a", "title"], value: "A1" }]);
+
+  const first = await ops.head.answer(FLAKY, {});
+  if ("error" in first || first.ok?.kind !== "module") throw new Error();
+  expect(first.ok.entries["a"]).toMatchObject({
+    error: expect.stringContaining("chunk failed to load"),
+  });
+  expect(isLastingAnswer(first.ok)).toBe(false);
+
+  const second = await ops.head.answer(FLAKY, {});
+  if ("error" in second || second.ok?.kind !== "module") throw new Error();
+  expect(second.ok.entries["a"]).toMatchObject({ content: { title: "A1" } });
+  expect(isLastingAnswer(second.ok)).toBe(true);
+});
+
+test("a draft whose entries could not be read is made again on the next read", async () => {
+  const FLAKY = "/content/flaky.val.ts" as ModuleFilePath;
+  let calls = 0;
+  const flakyVal = c.define(
+    FLAKY,
+    s.record(s.object({ title: s.string() })).jsonValues(),
+    {
+      a: c.json(async () => {
+        calls++;
+        if (calls === 1) throw new Error("chunk failed to load");
+        return { default: { title: "Note A" } };
+      }),
+    },
+  );
+  const { ops, edit } = setup({ modules: [flakyVal] });
+  await edit(FLAKY, [{ op: "replace", path: ["a", "title"], value: "A1" }]);
+  const first = await ops.head.draft(FLAKY);
+  if ("error" in first || first.ok?.kind !== "draft") throw new Error();
+  expect(first.ok.entriesFailed).toBe(true);
+  const second = await ops.head.draft(FLAKY);
+  if ("error" in second || second.ok?.kind !== "draft") throw new Error();
+  expect(second.ok.entriesFailed).toBe(false);
+  expect(second.ok.source).toEqual({ a: { title: "A1" } });
 });

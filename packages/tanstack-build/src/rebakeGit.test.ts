@@ -251,12 +251,67 @@ const proposal = (() => {
 })();
 `;
 
+  /**
+   * The proposal block of a fresh file, run: transpiled and evaluated with
+   * `secret` reading `env`, as the generated server runs it.
+   */
+  const runProposalBlock = (env: Record<string, string>): unknown => {
+    const fresh = wired()[VAL_SERVER_PATH];
+    const start = fresh.indexOf("/*\n * THE PROPOSAL");
+    const end = fresh.indexOf("/*\n * THE CONTENT VERSION");
+    const block = fresh.slice(start, end);
+    const js = ts.transpileModule(`${block}\nreturn proposal;`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const secret = (name: string): string | undefined => env[name];
+    return new Function("secret", js)(secret);
+  };
+  const PROPOSAL_ENV = { VAL_PROPOSAL: "p1", VAL_BRANCH: "val/p/p1" };
+  const INPUTS = "a".repeat(64);
+
   test("a fresh file hands Val which modules are staged and what its build was made of", () => {
-    const source = wired()[VAL_SERVER_PATH];
-    expect(source).toContain("staged: overlay.staged ?? {},");
-    expect(source).toContain(
-      'buildInputs: secret("VAL_BUILD_INPUTS") ?? null,',
-    );
+    expect(
+      runProposalBlock({
+        ...PROPOSAL_ENV,
+        VAL_OVERLAY: JSON.stringify({
+          staged: { "/content/a.val.ts": `staged:${INPUTS}` },
+        }),
+        VAL_BUILD_INPUTS: INPUTS,
+      }),
+    ).toMatchObject({
+      staged: { "/content/a.val.ts": `staged:${INPUTS}` },
+      buildInputs: INPUTS,
+    });
+    expect(runProposalBlock(PROPOSAL_ENV)).toMatchObject({
+      staged: {},
+      buildInputs: null,
+    });
+    // Set but empty is "none", as `proposalFromEnv` reads it.
+    expect(
+      runProposalBlock({ ...PROPOSAL_ENV, VAL_BUILD_INPUTS: "" }),
+    ).toMatchObject({ buildInputs: null });
+  });
+
+  test("a fresh file refuses what proposalFromEnv refuses, rather than serving it", () => {
+    expect(() =>
+      runProposalBlock({ ...PROPOSAL_ENV, VAL_BUILD_INPUTS: "not hex" }),
+    ).toThrow("VAL_BUILD_INPUTS is not a build's staged inputs");
+    expect(() =>
+      runProposalBlock({
+        ...PROPOSAL_ENV,
+        VAL_OVERLAY: JSON.stringify({
+          staged: { "/content/a.val.ts": INPUTS },
+        }),
+      }),
+    ).toThrow("staged:<inputs> versions");
+    expect(() =>
+      runProposalBlock({
+        ...PROPOSAL_ENV,
+        VAL_OVERLAY: JSON.stringify({
+          staged: { "content/a.val.ts": `staged:${INPUTS}` },
+        }),
+      }),
+    ).toThrow("staged:<inputs> versions");
   });
 
   test("a file with the block as it shipped gets exactly what a fresh one has, once", () => {

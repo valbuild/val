@@ -1526,6 +1526,15 @@ export class ValOpsFS extends ValOps {
     return readPatchSeq(file).seq;
   }
 
+  override async chainPosition(): Promise<{
+    seq: number;
+    epoch: string;
+  } | null> {
+    const seq = await this.chainSeq();
+    if (seq === null) return null;
+    return { seq, epoch: readPatchSeq(this.getPatchSeqFile()).epoch ?? "" };
+  }
+
   // #region history
   //
   // Not available locally, and deliberately not faked from git.

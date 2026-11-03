@@ -108,6 +108,8 @@ import {
   warnAnalyticsUnauthorizedOnce,
 } from "./analyticsForward";
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import { moduleFilePathOfRoute } from "./routePath";
+import { isLastingAnswer } from "./head";
 
 export type ValServerOptions = {
   route: string;
@@ -2994,6 +2996,8 @@ export const ValServer = (
     "/sources/~": {
       PUT: async (req) => {
         const query = req.query;
+        // Only the modules under this path, when one is given.
+        const only = req.path ? moduleFilePathOfRoute(req.path) : null;
         const auth = getAuth(req.cookies);
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
@@ -3040,7 +3044,7 @@ export const ValServer = (
           > = {};
           for (const [path, source] of Object.entries(sources)) {
             const moduleFilePath = path as ModuleFilePath;
-            if (req.path && !moduleFilePath.startsWith(req.path)) continue;
+            if (only !== null && !moduleFilePath.startsWith(only)) continue;
             modules[moduleFilePath] = {
               source,
               ...(versions[moduleFilePath] !== undefined
@@ -3101,7 +3105,7 @@ export const ValServer = (
         > = {};
         for (const [moduleFilePathS, module] of Object.entries(sources)) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (req.path && !moduleFilePath.startsWith(req.path)) continue;
+          if (only !== null && !moduleFilePath.startsWith(only)) continue;
           const skippedPatches: PatchId[] = [];
           const patchErrors: Record<PatchId, { message: string }> = {};
           const appliedPatches: PatchId[] =
@@ -3177,7 +3181,7 @@ export const ValServer = (
         if (isHttpOps(serverOps) && !("id" in auth)) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        const path = req.path as ModuleFilePath;
+        const path = moduleFilePathOfRoute(req.path);
         // The newest build's head, as `/manifest` (`ValOps.newestOps`).
         const answer = await serverOps.newestOps().head.answer(path, {
           ...(req.query.v !== undefined ? { v: req.query.v } : {}),
@@ -3208,9 +3212,11 @@ export const ValServer = (
           status: 200,
           headers: {
             // Content at a version never changes: an answer for an asked
-            // version is the same for ever. The newest is a question.
+            // version is the same for ever. The newest is a question, and
+            // so is an answer with an entry that could not be read this
+            // time (`isLastingAnswer`).
             "Cache-Control":
-              req.query.v !== undefined
+              req.query.v !== undefined && isLastingAnswer(answer.ok)
                 ? "private, max-age=31536000, immutable"
                 : "no-cache",
           },

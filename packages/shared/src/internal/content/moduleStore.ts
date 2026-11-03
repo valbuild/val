@@ -120,8 +120,8 @@ export type MemoryTierStats = {
 };
 
 /**
- * Bounded by bytes; keeps the last `lastPerModule` versions per module path,
- * and lets go of the least recently read value when over `budgetBytes`. A
+ * Bounded by bytes; keeps the last `lastPerModule` versions per module path
+ * (and, apart from them, the last `lastPerModule` bases), and lets go of the least recently read value when over `budgetBytes`. A
  * value bigger than the whole budget is still held while it is the newest,
  * so the read that made it is answered; the next put lets it go.
  */
@@ -137,6 +137,7 @@ export function memoryTier(opts: {
   let bytes = 0;
   let evicted = 0;
 
+  const versionOf = (key: string) => held.get(key)?.value.version;
   const drop = (key: string) => {
     const entry = held.get(key);
     if (entry === undefined) return;
@@ -170,9 +171,19 @@ export function memoryTier(opts: {
       const ring = rings.get(value.path) ?? [];
       ring.push(key);
       rings.set(value.path, ring);
-      while (ring.length > opts.lastPerModule) {
-        const oldest = ring[0];
-        if (oldest === undefined) break;
+      // The last N versions, and apart from them the last N bases: a base
+      // is what a slower tier answered (the bundle's own object, held
+      // anyway) and written up here, and it must not push out the version
+      // before the newest -- which a reader of the previous version still
+      // asks for.
+      const isBase = value.version.chain === EMPTY_CHAIN;
+      const sameKind = ring.filter(
+        (held) => (versionOf(held)?.chain === EMPTY_CHAIN) === isBase,
+      );
+      for (const oldest of sameKind.slice(
+        0,
+        Math.max(0, sameKind.length - opts.lastPerModule),
+      )) {
         drop(oldest);
       }
       for (const lru of held.keys()) {

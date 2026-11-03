@@ -71,7 +71,17 @@ describe("ChainFold", () => {
     const chains = fold.chainsOf([...first, { patchId: id(3), path: a }]);
     expect(versionHashCount() - grown).toBe(1);
     expect(chains.get(a)).toBe(chainOf([id(1), id(3)]));
-    expect(fold.epoch()).toBe(epoch + 1);
+    expect(fold.epoch()).not.toBe(epoch);
+  });
+
+  test("two folds never name one epoch, even at the same count", () => {
+    // Two isolates over one patch store: each folds what it has read. The
+    // same count of moves must not read as the same chains (an ETag 304).
+    const one = new ChainFold();
+    const two = new ChainFold();
+    one.chainsOf([{ patchId: id(1), path: a }]);
+    two.chainsOf([{ patchId: id(2), path: a }]);
+    expect(one.epoch()).not.toBe(two.epoch());
   });
 
   test("a discard in the middle is folded again from the start", () => {

@@ -129,6 +129,8 @@ export function headWork(): Readonly<typeof counted> {
 export type HeadChain = {
   /** The `seq` it was read at, when the store keeps one; `null`: always re-read. */
   readonly seq: number | null;
+  /** What {@link seq} counts from (`ValOps.chainPosition`). */
+  readonly epoch: string;
   /** The base it is relative to (`sourcesSha`): a publish moves it. */
   readonly base: string;
   readonly project: ProjectVersion;
@@ -172,7 +174,17 @@ type ModuleFacts = {
 type ResolvedEntry =
   | { kind: "content"; content: ReadonlyJSONValue }
   | { kind: "missing" }
-  | { kind: "error"; message: string; patchId?: PatchId };
+  | {
+      kind: "error";
+      message: string;
+      patchId?: PatchId;
+      /**
+       * The entry's base could not be READ (its `import()` failed): says
+       * nothing about the version, so it is never kept -- the next read
+       * tries again. A patch that does not apply is not transient.
+       */
+      transient?: true;
+    };
 
 /** A module as the head answers it. */
 export type HeadModule = {
@@ -226,6 +238,7 @@ export class ValHead {
   private chain: HeadChain | null = null;
   private fetching: {
     seq: number;
+    epoch: string;
     promise: Promise<HeadResult<HeadChain>>;
   } | null = null;
   private serialized: Promise<
@@ -264,37 +277,60 @@ export class ValHead {
    * The chain, re-read only when `seq` moved (or the base did: a publish
    * adopted). A read that finds a fetch already under way at the `seq` it
    * saw joins it: that fetch reads at that `seq` or later.
+   *
+   * Asks "has the chain moved?" once per call -- in http mode one request to
+   * the content service. A caller that reads several modules for ONE answer
+   * (a draft page's request) syncs once and passes the chain it got to
+   * {@link draft}, {@link entries} and {@link changed}, so a page of thirty
+   * modules asks once, not thirty times, and reads all of them at one chain.
    */
   async sync(): Promise<HeadResult<HeadChain>> {
     counted.seqReads++;
-    const [seq, base] = await Promise.all([
-      this.ops.chainSeq(),
+    const [position, base] = await Promise.all([
+      this.ops.chainPosition(),
       this.ops.getSourcesSha(),
     ]);
     const held = this.chain;
     if (
       held !== null &&
-      seq !== null &&
-      held.seq === seq &&
+      position !== null &&
+      held.seq === position.seq &&
+      held.epoch === position.epoch &&
       held.base === base
     ) {
       return { ok: held };
     }
-    if (seq !== null && this.fetching !== null && this.fetching.seq === seq) {
-      return this.fetching.promise;
+    const fetching = this.fetching;
+    if (
+      position !== null &&
+      fetching !== null &&
+      fetching.seq === position.seq &&
+      fetching.epoch === position.epoch
+    ) {
+      return fetching.promise;
     }
-    const promise = this.fetchChain(seq, base);
-    if (seq !== null) {
-      this.fetching = { seq, promise };
-      void promise.finally(() => {
-        if (this.fetching?.promise === promise) this.fetching = null;
-      });
+    const promise = this.fetchChain(position, base);
+    if (position !== null) {
+      const started = { ...position, promise };
+      this.fetching = started;
+      // Cleared however it ends. `finally` would hand on a rejection to a
+      // promise nobody holds: an unhandled rejection, which ends a Node
+      // process. The caller is handed `promise` itself, and sees it.
+      const done = () => {
+        if (this.fetching === started) this.fetching = null;
+      };
+      promise.then(done, done);
     }
     return promise;
   }
 
+  /** The chain a read is answered at: the one given, or the newest. */
+  private at(chain: HeadChain | undefined): Promise<HeadResult<HeadChain>> {
+    return chain !== undefined ? Promise.resolve({ ok: chain }) : this.sync();
+  }
+
   private async fetchChain(
-    seq: number | null,
+    position: { seq: number; epoch: string } | null,
     base: string,
   ): Promise<HeadResult<HeadChain>> {
     counted.chainReads++;
@@ -322,7 +358,8 @@ export class ValHead {
         ? { build: before.build, seq: fetched.headVersion }
         : before;
     const chain: HeadChain = {
-      seq: fetched.headVersion ?? seq,
+      seq: fetched.headVersion ?? position?.seq ?? null,
+      epoch: position?.epoch ?? "",
       base,
       project,
       fetched,
@@ -331,10 +368,13 @@ export class ValHead {
       versions,
       analysis: this.ops.analyzePatches(overlay),
     };
-    // Never put back an older chain over a newer one read meanwhile.
+    // Never put back an older chain over a newer one read meanwhile. A
+    // counter that started again (another epoch) orders nothing against
+    // the one before it: the chain read last is the newest.
     if (
       this.chain === null ||
       this.chain.base !== base ||
+      this.chain.epoch !== chain.epoch ||
       this.chain.project.seq <= project.seq
     ) {
       this.chain = chain;
@@ -368,9 +408,15 @@ export class ValHead {
 
   // #region modules
 
-  /** A module at the newest chain, or `null` when there is no such module. */
-  async module(path: ModuleFilePath): Promise<HeadResult<HeadModule | null>> {
-    const synced = await this.sync();
+  /**
+   * A module at the newest chain (or at `chain`, from {@link sync}), or
+   * `null` when there is no such module.
+   */
+  async module(
+    path: ModuleFilePath,
+    chain?: HeadChain,
+  ): Promise<HeadResult<HeadModule | null>> {
+    const synced = await this.at(chain);
     if ("error" in synced) return synced;
     return { ok: await this.moduleIn(synced.ok, path) };
   }
@@ -379,7 +425,7 @@ export class ValHead {
     chain: HeadChain,
     path: ModuleFilePath,
   ): Promise<HeadModule | null> {
-    const asked = chain.versions[path];
+    const asked = versionIn(chain, path);
     if (asked === undefined) return null;
     const records = chain.byModule.get(path) ?? [];
     const key = moduleKey(path, asked);
@@ -519,23 +565,28 @@ export class ValHead {
   // #region entries
 
   /**
-   * `.jsonValues()` entries at the newest chain, by key: what the module's
-   * chain made of each, and for an entry it holds edits for but nobody has
-   * loaded, those edits on the base entry. Made once per entry and version.
+   * `.jsonValues()` entries at the newest chain (or at `chain`, from
+   * {@link sync}), by key: what the module's chain made of each, and for an
+   * entry it holds edits for but nobody has loaded, those edits on the base
+   * entry. Made once per entry and version.
    */
   async entries(
     path: ModuleFilePath,
     keys: readonly string[],
-  ): Promise<
-    | { status: "success"; value: HeadEntries }
-    | { status: "not-found"; message: string }
-    | { status: "error"; message: string }
-  > {
-    const synced = await this.sync();
+    chain?: HeadChain,
+  ): Promise<HeadEntriesResult> {
+    const synced = await this.at(chain);
     if ("error" in synced) {
       return { status: "error", message: synced.error.message };
     }
-    const chain = synced.ok;
+    return this.entriesIn(synced.ok, path, keys);
+  }
+
+  private async entriesIn(
+    chain: HeadChain,
+    path: ModuleFilePath,
+    keys: readonly string[],
+  ): Promise<HeadEntriesResult> {
     if (chain.fetched.errors && chain.fetched.errors.length > 0) {
       return {
         status: "error",
@@ -571,15 +622,11 @@ export class ValHead {
       version: held.module.version,
       entryVersions: {},
     };
+    const reads = new Map<string, ResolvedEntry>();
     await Promise.all(
-      keys
-        .filter((key) => !facts.resolved.has(key))
-        .map(async (key) => {
-          facts.resolved.set(
-            key,
-            await this.resolve(path, record, held.module, key),
-          );
-        }),
+      keys.map(async (key) => {
+        reads.set(key, await this.resolved(path, record, held.module, key));
+      }),
     );
     for (const key of keys) {
       const marker = record[key];
@@ -588,7 +635,7 @@ export class ValHead {
         value.entries.push({ key, content: marker as JSONValue });
         continue;
       }
-      const read = facts.resolved.get(key);
+      const read = reads.get(key);
       if (read === undefined || read.kind === "missing") {
         value.missing.push(key);
       } else if (read.kind === "error") {
@@ -605,6 +652,27 @@ export class ValHead {
     return { status: "success", value };
   }
 
+  /**
+   * An entry on `module`, resolved once and kept on it -- unless it could
+   * not be read (`transient`): that is tried again on the next read rather
+   * than kept for the version's life.
+   */
+  private async resolved(
+    path: ModuleFilePath,
+    baseRecord: Record<string, unknown>,
+    module: StoredModule,
+    key: string,
+  ): Promise<ResolvedEntry> {
+    const facts = this.factsOf(module);
+    const kept = facts.resolved.get(key);
+    if (kept !== undefined) return kept;
+    const read = await this.resolve(path, baseRecord, module, key);
+    if (!(read.kind === "error" && read.transient === true)) {
+      facts.resolved.set(key, read);
+    }
+    return read;
+  }
+
   private async resolve(
     path: ModuleFilePath,
     baseRecord: Record<string, unknown>,
@@ -618,7 +686,9 @@ export class ValHead {
     };
     if (state?.kind === "waiting") {
       from = await this.ops.baseJsonEntry(path, baseRecord, state.from);
-      if ("message" in from) return { kind: "error", message: from.message };
+      if ("message" in from) {
+        return { kind: "error", message: from.message, transient: true };
+      }
     }
     const copiedBefore = engineWork().cloneBytes;
     const read = resolveEntry(key, state, () =>
@@ -641,11 +711,13 @@ export class ValHead {
    * newest version is the bundle's own -- the reader's bundle answers, and
    * nothing is read -- and otherwise the head's, made once per version.
    */
-  async draft(path: ModuleFilePath): Promise<HeadResult<Draft | null>> {
-    const synced = await this.sync();
+  async draft(
+    path: ModuleFilePath,
+    chain?: HeadChain,
+  ): Promise<HeadResult<Draft | null>> {
+    const synced = await this.at(chain);
     if ("error" in synced) return synced;
-    const chain = synced.ok;
-    const asked = chain.versions[path];
+    const asked = versionIn(synced.ok, path);
     if (asked === undefined) return { ok: null };
     const bundle = await this.ops.bundleModule(path);
     if (
@@ -656,16 +728,25 @@ export class ValHead {
     ) {
       return { ok: { kind: "bundle", version: asked } };
     }
-    const held = await this.moduleIn(chain, path);
+    const held = await this.moduleIn(synced.ok, path);
     if (held === null) return { ok: null };
     const facts = this.factsOf(held.module);
-    if (facts.draft === null) {
-      facts.draft = await this.makeDraft(path, held);
-    }
-    return { ok: facts.draft };
+    if (facts.draft !== null) return { ok: facts.draft };
+    const made = await this.makeDraft(synced.ok, path, held);
+    // Kept for the version, unless its entries could not be read: the next
+    // read tries them again rather than serving markers for the version's
+    // life.
+    if (made.kind !== "draft" || !made.entriesFailed) facts.draft = made;
+    return { ok: made };
   }
 
+  /**
+   * The draft of `held`, its entries read at `chain` -- the chain `held` was
+   * made at, so the entries are the same version's even when the chain has
+   * moved since.
+   */
   private async makeDraft(
+    chain: HeadChain,
     path: ModuleFilePath,
     held: HeadModule,
   ): Promise<Draft> {
@@ -699,7 +780,7 @@ export class ValHead {
     }
     let entriesFailed = false;
     if (fill.length > 0) {
-      const read = await this.entries(path, fill);
+      const read = await this.entriesIn(chain, path, fill);
       if (
         read.status !== "success" ||
         read.value.errors.length > 0 ||
@@ -725,14 +806,16 @@ export class ValHead {
    * The modules a draft changes: a patch in their chain, or an entry a
    * publish wrote that the bundle has not got. What `fetchValDraft` sends.
    */
-  async changed(): Promise<HeadResult<ModuleFilePath[]>> {
-    const synced = await this.sync();
+  async changed(at?: HeadChain): Promise<HeadResult<ModuleFilePath[]>> {
+    const synced = await this.at(at);
     if ("error" in synced) return synced;
     const chain = synced.ok;
-    if (this.changedIn?.chain !== chain) {
-      this.changedIn = { chain, paths: this.changedOf(chain) };
+    let made = this.changedIn;
+    if (made?.chain !== chain) {
+      made = { chain, paths: this.changedOf(chain) };
+      this.changedIn = made;
     }
-    return { ok: [...(await this.changedIn.paths)] };
+    return { ok: [...(await made.paths)] };
   }
 
   /** {@link changed}, made once per chain: it looks at every record's markers. */
@@ -903,11 +986,7 @@ export class ValHead {
           ? (baseModule.source as Record<string, unknown>)
           : {};
       for (const key of target.content.entries.keys()) {
-        let read = facts.resolved.get(key);
-        if (read === undefined) {
-          read = await this.resolve(path, baseRecord, target, key);
-          facts.resolved.set(key, read);
-        }
+        const read = await this.resolved(path, baseRecord, target, key);
         const version: EntryVersion = {
           ...target.version,
           key,
@@ -938,6 +1017,37 @@ export class ValHead {
       },
     };
   }
+}
+
+/** What {@link ValHead.entries} answers. */
+export type HeadEntriesResult =
+  | { status: "success"; value: HeadEntries }
+  | { status: "not-found"; message: string }
+  | { status: "error"; message: string };
+
+/**
+ * A module's version at `chain`. `versions` is keyed by module path, and a
+ * path comes from a request: `~constructor` is not a module.
+ */
+function versionIn(
+  chain: HeadChain,
+  path: ModuleFilePath,
+): ModuleVersion | undefined {
+  return Object.hasOwn(chain.versions, path) ? chain.versions[path] : undefined;
+}
+
+/**
+ * Whether an answer of {@link ValHead.answer} is the same for good, so an
+ * answer for an asked version may be cached as immutable: not when an
+ * entry's content could not be READ (it carries no `patchId`; its base's
+ * `import()` failed, and the next read may succeed). An entry a patch could
+ * not be applied to names that patch, and is the version's for good.
+ */
+export function isLastingAnswer(answer: ModuleAnswer): boolean {
+  if (answer.kind !== "module") return true;
+  return Object.values(answer.entries).every(
+    (entry) => !("error" in entry) || entry.patchId !== undefined,
+  );
 }
 
 /** What {@link ValHead.tree} answers. */

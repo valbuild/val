@@ -97,6 +97,24 @@ describe("tiered", () => {
     expect(after.misses).toBe(before.misses + 1);
   });
 
+  test("a base written up from a slower tier never pushes a version out", async () => {
+    const memory = memoryTier({ budgetBytes: 1000, lastPerModule: 2 });
+    const bundle = bundleTier((path) =>
+      path === HOME
+        ? { version: at(EMPTY_CHAIN), source: { title: "Hello" } }
+        : null,
+    );
+    const store = tiered([memory, bundle]);
+    const v1 = stored(HOME, "c1", 10);
+    const v2 = stored(HOME, "c2", 10);
+    memory.put(moduleKey(HOME, v1.version), v1, v1.bytes);
+    memory.put(moduleKey(HOME, v2.version), v2, v2.bytes);
+    // A discard replays the module from its base: the bundle answers it.
+    expect(await store.get(moduleKey(HOME, at(EMPTY_CHAIN)))).not.toBeNull();
+    expect(memory.get(moduleKey(HOME, v1.version))).toBe(v1);
+    expect(memory.get(moduleKey(HOME, v2.version))).toBe(v2);
+  });
+
   test("the bundle answers its own version only", async () => {
     const bundle = bundleTier(() => ({
       version: at(EMPTY_CHAIN),

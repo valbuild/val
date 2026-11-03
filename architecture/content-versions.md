@@ -661,7 +661,13 @@ first, so content is never read into the old fields:
   the client chunks (`valModulesEntry`), and the server that knows the build's
   name (`VAL_BUILD`) puts it on the manifest (`ValOps.buildRegistry`). The
   Studio imports it and hands it to `reloadCode` with the manifest, once per
-  build.
+  build. It is a public file, like every client chunk, and it holds what
+  `val.modules` evaluates to: the PUBLISHED content of every module in the
+  build, including modules no page renders and `.jsonValues()` entries no
+  page links to (behind their `import()`s, which are public chunks too).
+  Accepted: nothing in it is a draft, and its name is the build's, which is
+  not listed anywhere a visitor reads. Content that must not be public must
+  not be published content in `val.modules`.
 - **Local development (fs)**: HMR brings the code; nothing happens here.
 - **Anything else** (Next.js, a self-hosted TanStack Start, another Val, a
   registry that does not load): the page reloads itself, without asking, once

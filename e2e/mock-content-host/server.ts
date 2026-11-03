@@ -658,14 +658,34 @@ function patchesOn(branch: string): MockPatch[] {
  * Anything that adds to or removes from the chain has to call this.
  */
 /**
- * The chain's version, as `home` keeps it in `val_patch_chains`: bumped by
- * every write and every delete, and reported with the head -- and once by each
- * deployment that goes live (see {@link countDeploymentLive}). Never reset, so
- * it only ever goes up across `/__test__/reset` too — as a real one would.
+ * The chain versions, as `home` keeps them in `val_patch_chains`: ONE PER
+ * BRANCH, bumped by every write and every delete on that branch, and reported
+ * with its head -- and once by each deployment that goes live for it (see
+ * {@link countDeploymentLive}). A branch nothing was written to has none, and
+ * answers 0 (`readChainVersion` COALESCEs a missing row), never a 404.
+ *
+ * Each bump takes the next number of one counter for every branch
+ * ({@link lastChainVersion}), so a branch's version only ever goes up --
+ * across `/__test__/reset` too, as a real one would -- and moves exactly when
+ * that branch does. `home`'s rows count separately; what Val relies on is the
+ * same either way: per branch, monotonic, moving only when the branch does.
  */
-let chainVersion = 0;
+const chainVersions = new Map<string, number>();
+let lastChainVersion = 0;
+
+/** A branch's chain version: 0 for a branch nothing was written to. */
+function chainVersionOf(branch: string): number {
+  return chainVersions.get(branch) ?? 0;
+}
+
+/** `branch`'s chain moved: its version goes up, and is returned. */
+function bumpChainVersion(branch: string): number {
+  lastChainVersion += 1;
+  chainVersions.set(branch, lastChainVersion);
+  return lastChainVersion;
+}
 /**
- * The deployments that moved {@link chainVersion}, by branch and id, in the
+ * The deployments that moved a chain version ({@link chainVersions}), by branch and id, in the
  * order they were counted: `home`'s `val_chain_deployments`, which only a
  * deployment's first `success` inserts into. Each with the BUILD it names, as
  * `home` resolves one (`patches.liveBuild`): `build:<hash>` for a publish's
@@ -702,12 +722,12 @@ function countDeploymentLive(
 ): boolean {
   const key = `${branch}\0github:${deploymentId}`;
   if (countedDeployments.some((counted) => counted.key === key)) return false;
-  chainVersion += 1;
+  const version = bumpChainVersion(branch);
   countedDeployments.push({
     key,
     branch,
     deployment: `github:${deploymentId}`,
-    version: chainVersion,
+    version,
     build,
   });
   return true;
@@ -763,7 +783,7 @@ function broadcastChain(branch: string = PROJECT_BRANCH): void {
       // mock lists the whole chain — but a client that stopped reading the head
       // would fall back to the list and nothing here could tell.
       headPatchId: headPatchId(branch),
-      headVersion: chainVersion,
+      headVersion: chainVersionOf(branch),
       // Which of them a publish has already applied, as `home` sends it.
       appliedPatches: site
         .filter((patch) => patch.applied !== null)
@@ -966,11 +986,13 @@ type Handler = (
  * The branch's chain version alone -- the `headVersion` every
  * `applicable/patches` answer carries -- for "has the chain moved?" without
  * reading the chain (`ValOpsHttp.chainSeq`, the head of phase 6). As home's
- * `getChainVersion` answers it, from `readChainVersion`. One counter here for
- * every branch, as `headVersion` is.
+ * `getChainVersion` answers it, from `readChainVersion`: the project's branch
+ * when the caller names none, and 0 -- never a 404 -- for a branch nothing
+ * was written to yet (a proposal just opened, a project nobody edited).
  */
-const getChainVersion: Handler = (_req, res) => {
-  json(res, 200, { headVersion: chainVersion });
+const getChainVersion: Handler = (_req, res, url) => {
+  const branch = url.searchParams.get("branch") ?? PROJECT_BRANCH;
+  json(res, 200, { headVersion: chainVersionOf(branch) });
 };
 
 /**
@@ -1066,7 +1088,7 @@ const getApplicablePatches: Handler = (req, res, url) => {
      * the whole chain's last patch whatever `patch_id` filter was asked for.
      */
     headPatchId: headPatchId(branch),
-    headVersion: chainVersion,
+    headVersion: chainVersionOf(branch),
     commits: state.commits.filter((commit) => commit.branch === branch),
     /**
      * Newest update first, as the content service returns them.
@@ -1147,7 +1169,9 @@ const savePatch: Handler = async (req, res) => {
     // Idempotent: the client retries a save it did not get an answer to.
     json(res, 200, {
       patchId: body.patchId,
-      headVersion: versionOfPatch.get(body.patchId) ?? chainVersion,
+      headVersion:
+        versionOfPatch.get(body.patchId) ??
+        chainVersionOf(body.branch ?? PROJECT_BRANCH),
     });
     return;
   }
@@ -1201,9 +1225,8 @@ const savePatch: Handler = async (req, res) => {
     coreVersion: body.coreVersion ?? "0.0.0-mock",
   });
   // The chain moved; the broadcast reads it at this version.
-  chainVersion += 1;
-  versionOfPatch.set(body.patchId, chainVersion);
-  const headVersion = chainVersion;
+  const headVersion = bumpChainVersion(branch);
+  versionOfPatch.set(body.patchId, headVersion);
   broadcastChain(branch);
   json(res, 200, {
     patchId: body.patchId,
@@ -1225,10 +1248,7 @@ const deletePatches: Handler = async (req, res) => {
       return patch === undefined ? [] : [patch.branch];
     }),
   );
-  const moved = branches.size > 0;
-  if (moved) {
-    chainVersion += 1;
-  }
+  for (const branch of branches) bumpChainVersion(branch);
   for (const patchId of ids) {
     state.patches.delete(patchId);
     state.patchFiles.delete(patchId);
@@ -1241,7 +1261,7 @@ const deletePatches: Handler = async (req, res) => {
     deleted: ids,
     // Per branch, as `home` answers, since a delete there can span branches.
     headVersions: Object.fromEntries(
-      [...branches].map((branch) => [branch, chainVersion]),
+      [...branches].map((branch) => [branch, chainVersionOf(branch)]),
     ),
   });
 };
@@ -1581,17 +1601,19 @@ function recordCommit(
   const appliedPatchIds = new Set(
     Object.values(body.appliedPatches ?? {}).flat(),
   );
+  const appliedOn = new Set<string>();
   for (const patchId of appliedPatchIds) {
     const patch = state.patches.get(patchId);
     if (patch) {
       patch.applied = { commitSha };
+      appliedOn.add(patch.branch);
     }
   }
   // What `/stat` reports just changed (these are applied now), so the chain
-  // moves a version, as `home` bumps it in the transaction that marks them.
-  if (appliedPatchIds.size > 0) {
-    chainVersion += 1;
-  }
+  // of each branch they are on moves a version, as `home` bumps it in the
+  // transaction that marks them.
+  let appliedVersion: number | null = null;
+  for (const branch of appliedOn) appliedVersion = bumpChainVersion(branch);
   /*
    * The archive and the snapshot: what history reads.
    *
@@ -1681,7 +1703,7 @@ function recordCommit(
   return {
     commitSha,
     branch: record.branch,
-    ...(appliedPatchIds.size > 0 ? { headVersion: chainVersion } : {}),
+    ...(appliedVersion !== null ? { headVersion: appliedVersion } : {}),
   };
 }
 
@@ -2872,8 +2894,13 @@ async function publishApi(
   // discard: the failed job's changes, gone from the chain.
   const job = state.publishJobs.get(jobId);
   if (job && job.done === "failed") {
-    for (const patchId of job.patches) state.patches.delete(patchId);
-    chainVersion += 1;
+    const discardedOn = new Set<string>();
+    for (const patchId of job.patches) {
+      const patch = state.patches.get(patchId);
+      if (patch) discardedOn.add(patch.branch);
+      state.patches.delete(patchId);
+    }
+    for (const branch of discardedOn) bumpChainVersion(branch);
     broadcastChain();
   }
   json(res, 200, { stillHeld: [] });
@@ -3596,7 +3623,7 @@ async function proposalSave(
     if (patch) patch.applied = { commitSha };
   }
   if (applied.length > 0) {
-    chainVersion += 1;
+    bumpChainVersion(proposal.branch);
     // Its Studios learn the save applied them, as the site's do of a publish.
     broadcastChain(proposal.branch);
   }
@@ -3612,7 +3639,9 @@ async function proposalSave(
     updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
     commit: commitSha,
     branch: proposal.branch,
-    ...(applied.length > 0 ? { headVersion: chainVersion } : {}),
+    ...(applied.length > 0
+      ? { headVersion: chainVersionOf(proposal.branch) }
+      : {}),
   });
 }
 
@@ -3928,7 +3957,9 @@ async function proposalsRoute(
         }
       }
       if (moved.length > 0) {
-        chainVersion += 1;
+        // Both chains moved: the site's lost them, the proposal's has them.
+        bumpChainVersion(PROJECT_BRANCH);
+        bumpChainVersion(proposal.branch);
         broadcastChain();
         broadcastChain(proposal.branch);
       }
@@ -4164,13 +4195,16 @@ const controlPlane: Handler = async (req, res, url) => {
     countedDeployments = [];
     buildBases = new Map();
     /*
-     * A reset changes the chain -- every patch is gone -- so it moves the
-     * chain version, as every write and delete does. Val's server keeps the
-     * chain under it (`GET /chain/version`: the head's "has the chain
-     * moved?"), and a reset that left it where it was had the next spec's
-     * Studio read the previous spec's patches.
+     * A reset changes every chain -- every patch is gone -- so it moves each
+     * branch's chain version, as every write and delete does. Val's server
+     * keeps the chain under it (`GET /chain/version`: the head's "has the
+     * chain moved?"), and a reset that left it where it was had the next
+     * spec's Studio read the previous spec's patches. The project's branch
+     * always: a Studio holds its chain even when nothing was written to it.
      */
-    chainVersion += 1;
+    for (const branch of new Set([PROJECT_BRANCH, ...chainVersions.keys()])) {
+      bumpChainVersion(branch);
+    }
     json(res, 200, { ok: true });
     return;
   }
@@ -4572,7 +4606,7 @@ const controlPlane: Handler = async (req, res, url) => {
     }
     json(res, 200, {
       deployment: record,
-      ...(moved ? { headVersion: chainVersion } : {}),
+      ...(moved ? { headVersion: chainVersionOf(branch) } : {}),
     });
     return;
   }

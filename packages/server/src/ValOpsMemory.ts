@@ -94,8 +94,11 @@ export type StoredFile = {
  * counter that started again from zero would make its answers read as older
  * than the last build's.
  *
- * A store shared between isolates (a Durable Object) is counted per isolate:
- * a write in another one is not seen until this one writes.
+ * A store shared between isolates (a Durable Object) is counted per isolate,
+ * so for such a store the count says nothing about writes made elsewhere:
+ * "has the chain moved?" is answered by reading the chain
+ * ({@link ValOpsMemory.chainSeq}), and only {@link InMemoryPatchStore} -- which
+ * lives in this process, so every write to it is counted here -- is trusted.
  */
 const seqs = new WeakMap<
   ValPatchStore,
@@ -441,6 +444,18 @@ export class ValOpsMemory extends ValOps {
 
   /** Whether this instance has counted itself as a new build yet. */
   private countedBuild = false;
+
+  /**
+   * "Has the chain moved?" from the counter only for a store in this process
+   * ({@link InMemoryPatchStore}): every write to it goes through an instance
+   * here, so the count is the store's. Any other store (a Durable Object
+   * shared by isolates) may have been written by another isolate, which this
+   * one's count never saw: `null`, so the head reads the chain each time.
+   */
+  override async chainSeq(): Promise<number | null> {
+    if (!(this.store instanceof InMemoryPatchStore)) return null;
+    return super.chainSeq();
+  }
 
   /**
    * The base the store's chain is relative to: the newest build's, made in

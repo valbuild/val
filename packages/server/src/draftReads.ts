@@ -13,7 +13,7 @@ import {
   type ModuleRead,
   type ModuleVersion,
 } from "@valbuild/shared/internal";
-import type { Draft } from "./head";
+import type { Draft, HeadChain } from "./head";
 import type { ValRuntime } from "./valRuntime";
 
 /*
@@ -84,7 +84,14 @@ export async function readDraftChanges(opts: {
     if (!runtime.authorize(session)) {
       return null;
     }
-    const changed = await runtime.ops.head.changed();
+    // One chain for the whole answer: asked "has it moved?" once.
+    const synced = await runtime.ops.head.sync();
+    if ("error" in synced) {
+      Internal.log.error("could not read the draft", synced.error.message);
+      return null;
+    }
+    const chain = synced.ok;
+    const changed = await runtime.ops.head.changed(chain);
     if ("error" in changed) {
       Internal.log.error("could not read the draft", changed.error.message);
       return null;
@@ -93,7 +100,7 @@ export async function readDraftChanges(opts: {
     const versions: Record<ModuleFilePath, ModuleVersion> = {};
     const reads: DraftModuleRead[] = [];
     for (const path of changed.ok) {
-      const draft = await runtime.ops.head.draft(path);
+      const draft = await runtime.ops.head.draft(path, chain);
       if ("error" in draft) {
         Internal.log.error("could not read the draft", draft.error.message);
         return null;
@@ -113,6 +120,9 @@ export async function readDraftChanges(opts: {
   }
 }
 
+/** A request's runtime, and the one chain it reads at. */
+type Pinned = { runtime: ValRuntime; chain: HeadChain };
+
 /** One thing this source has started to read, or has read. */
 type Loading<T> =
   | { done: false; ready: Promise<void> }
@@ -128,6 +138,12 @@ type Loading<T> =
  * Every error is a `pass`, logged: a draft that cannot be read is the
  * published content, which a page can render.
  *
+ * The request reads ONE chain: the head is asked "has the chain moved?" once,
+ * at the first read, and every module and entry after it is read at that
+ * chain. In http mode that question is a request to the content service, and
+ * a page reads tens of modules and entries; and a page is one answer, never
+ * half of one chain and half of the next.
+ *
  * `modules: false` (the single-entry readers): every module passes.
  */
 export function serverDraftSource(opts: {
@@ -138,13 +154,22 @@ export function serverDraftSource(opts: {
   const drafts = new Map<ModuleFilePath, Loading<Draft | null>>();
   const entries = new Map<string, Loading<EntryRead>>();
   /**
-   * The runtime, once this session may read the draft (asked once per
-   * request); `null` when it may not, which reads as published content.
+   * The runtime and the chain this request reads, once this session may read
+   * the draft (asked once per request); `null` when it may not, or the
+   * chain could not be read, which reads as published content.
    */
-  let allowed: Promise<ValRuntime | null> | null = null;
-  const runtime = (): Promise<ValRuntime | null> => {
+  let allowed: Promise<Pinned | null> | null = null;
+  const runtime = (): Promise<Pinned | null> => {
     allowed ??= opts.runtime.then(
-      (runtime) => (runtime.authorize(opts.session) ? runtime : null),
+      async (runtime) => {
+        if (!runtime.authorize(opts.session)) return null;
+        const synced = await runtime.ops.head.sync();
+        if ("error" in synced) {
+          Internal.log.error("could not read the draft", synced.error);
+          return null;
+        }
+        return { runtime, chain: synced.ok };
+      },
       (err: unknown) => {
         Internal.log.error("could not start Val's runtime", err);
         return null;
@@ -160,8 +185,10 @@ export function serverDraftSource(opts: {
       let state = drafts.get(path);
       if (state === undefined) {
         const ready = runtime()
-          .then((runtime) =>
-            runtime === null ? null : runtime.ops.head.draft(path),
+          .then((pinned) =>
+            pinned === null
+              ? null
+              : pinned.runtime.ops.head.draft(path, pinned.chain),
           )
           .then(
             (read) => {
@@ -196,8 +223,8 @@ export function serverDraftSource(opts: {
       let state = entries.get(id);
       if (state === undefined) {
         const ready = runtime()
-          .then((runtime) =>
-            runtime === null ? PASS : readEntry(runtime, path, key),
+          .then((pinned) =>
+            pinned === null ? PASS : readEntry(pinned, path, key),
           )
           .then(
             (read) => {
@@ -226,18 +253,18 @@ export function serverDraftSource(opts: {
  * own), or it could not be read.
  */
 async function readEntry(
-  runtime: ValRuntime,
+  { runtime, chain }: Pinned,
   path: ModuleFilePath,
   key: string,
 ): Promise<EntryRead> {
-  const draft = await runtime.ops.head.draft(path);
+  const draft = await runtime.ops.head.draft(path, chain);
   if ("error" in draft) {
     Internal.log.error("could not load draft JSON entry: ", draft.error);
     return PASS;
   }
   if (draft.ok === null) return { status: "gone", from: SERVER_DRAFT };
   if (draft.ok.kind === "bundle") return PASS;
-  const read = await runtime.ops.head.entries(path, [key]);
+  const read = await runtime.ops.head.entries(path, [key], chain);
   if (read.status === "not-found")
     return { status: "gone", from: SERVER_DRAFT };
   if (read.status !== "success") {

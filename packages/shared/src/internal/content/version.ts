@@ -153,10 +153,14 @@ export class ChainFold {
   private prefixes = new Map<ModuleFilePath, string[]>();
   /**
    * Bumped whenever the chains move: a cheap identity for "the same chains as
-   * before", in-process (two processes holding the same chains have different
-   * epochs, which only costs a cache a miss).
+   * before", in-process. With {@link instance} in front, two folds never name
+   * one epoch: two processes (or isolates) holding the same chains answer
+   * differently, which only costs a cache a miss, where two holding
+   * DIFFERENT chains at the same count must never answer alike (an ETag
+   * answered 304 for content the caller does not have).
    */
   private epochValue = 0;
+  private readonly instance = Math.random().toString(36).slice(2, 10);
 
   /** Every module's chain, for these patches. Modules with none are absent. */
   chainsOf(
@@ -219,8 +223,8 @@ export class ChainFold {
   }
 
   /** See {@link epochValue}. */
-  epoch(): number {
-    return this.epochValue;
+  epoch(): string {
+    return `${this.instance}-${this.epochValue}`;
   }
 }
 

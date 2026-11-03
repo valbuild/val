@@ -147,6 +147,12 @@ const MetadataRes = z.object({
 });
 
 /**
+ * How long a content service that predates `GET /chain/version` is not
+ * asked it again: see `ValOpsHttp.chainSeq`.
+ */
+export const CHAIN_VERSION_RETRY_MS = 10 * 60 * 1000;
+
+/**
  * `GET /v1/{project}/chain/version`: the branch's chain version alone, for
  * "has the chain moved?" without reading the chain (phase 6 of
  * `docs/plans/one-content-model.md`, "a cheap `seq` in http mode").
@@ -771,22 +777,26 @@ export class ValOpsHttp extends ValOps {
   }
 
   /**
-   * Whether the content service answers `GET /chain/version`: one that
-   * predates it answers 404, and is not asked again by this instance.
+   * Until when the content service is taken to predate `GET /chain/version`
+   * (it answered a 404 that is not JSON: Express's own "Cannot GET", from a
+   * service without the route). Asked again after
+   * {@link CHAIN_VERSION_RETRY_MS}, since a service is upgraded under a
+   * running server. A JSON 404 is not that: it is "no such project", which
+   * every other call will report too, and stops nothing.
    */
-  private chainVersionAnswered: boolean | null = null;
+  private chainVersionUnansweredUntil = 0;
 
   /**
    * "Has the chain moved?" as one small read: the branch's chain version
    * (`headVersion`), which the content service bumps with every write,
    * delete and publish and with each deployment going live -- the same
    * counter `applicable/patches` answers with, read alone (valbuild/home
-   * `readChainVersion`). `null` when it cannot be read: from a content
-   * service that predates it, or on any failure, the head reads the whole
-   * chain as before.
+   * `readChainVersion`). A branch nothing was written to answers 0.
+   * `null` when it cannot be read: from a content service that predates it,
+   * or on any failure, the head reads the whole chain as before.
    */
   override async chainSeq(): Promise<number | null> {
-    if (this.chainVersionAnswered === false) return null;
+    if (Date.now() < this.chainVersionUnansweredUntil) return null;
     const branch = this.ownBranch();
     const query =
       branch !== undefined ? `?${new URLSearchParams({ branch })}` : "";
@@ -796,13 +806,18 @@ export class ValOpsHttp extends ValOps {
         { headers: this.authHeaders },
       );
       if (res.status === 404) {
-        this.chainVersionAnswered = false;
+        const isJson =
+          res.headers.get("content-type")?.includes("application/json") ??
+          false;
+        if (!isJson) {
+          this.chainVersionUnansweredUntil =
+            Date.now() + CHAIN_VERSION_RETRY_MS;
+        }
         return null;
       }
       if (!res.ok) return null;
       const parsed = ChainVersionResponse.safeParse(await res.json());
       if (!parsed.success) return null;
-      this.chainVersionAnswered = true;
       return parsed.data.headVersion;
     } catch (err) {
       Internal.log.debug("could not read the chain version", err);

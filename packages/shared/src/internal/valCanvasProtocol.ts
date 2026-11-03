@@ -457,7 +457,6 @@ export function isValCanvasPageMessage(
   );
 }
 
-/** `holds` on `ready`: absent, or a list of module paths. */
 /** `holdsVersions` on `ready`: absent, or a version per module path. */
 function isHeldVersions(value: unknown): boolean {
   if (value === undefined) return true;
@@ -472,6 +471,7 @@ function isHeldVersions(value: unknown): boolean {
   );
 }
 
+/** `holds` on `ready`: absent, or a list of module paths. */
 function isModulePathList(value: unknown): boolean {
   return (
     value === undefined ||

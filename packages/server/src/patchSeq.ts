@@ -1,4 +1,5 @@
 import fs from "fs";
+import { randomBytes } from "crypto";
 
 /**
  * The fs-mode patch store's `seq`: how far along the project's changes are,
@@ -11,9 +12,13 @@ import fs from "fs";
  * went with it would start again from zero -- an answer from after the reset
  * would then read as older than one from before it.
  *
- * Plain JSON (`{ "seq": 12, "build": "…" }`), written whole and renamed into
- * place, so a reader never sees half of it. Only ever written under
- * `.val/patches.lock`.
+ * Plain JSON (`{ "seq": 12, "build": "…", "epoch": "…" }`), written whole
+ * and renamed into place, so a reader never sees half of it. Only ever
+ * written under `.val/patches.lock`.
+ *
+ * Removing `.val` by hand starts it from zero all the same, so the file also
+ * carries an `epoch`, made when the file is: `seq` orders answers only within
+ * one epoch, and "has the chain moved?" compares both (`ValHead.sync`).
  */
 export const PATCH_SEQ_FILE_NAME = "patches.seq";
 
@@ -21,6 +26,13 @@ export type PatchSeq = {
   seq: number;
   /** The build that last bumped it on starting, so the next one bumps once. */
   build: string | null;
+  /**
+   * Made at random when the file is created: a counter that started again
+   * (`.val` removed) has another, so a `seq` that came back to the number a
+   * reader held is not read as "nothing moved". `null` for a file written
+   * before it, or none.
+   */
+  epoch: string | null;
 };
 
 /** The counter as it stands. Missing or unreadable is zero: nothing counted yet. */
@@ -29,7 +41,7 @@ export function readPatchSeq(file: string): PatchSeq {
   try {
     raw = fs.readFileSync(file, "utf-8");
   } catch {
-    return { seq: 0, build: null };
+    return { seq: 0, build: null, epoch: null };
   }
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -43,13 +55,17 @@ export function readPatchSeq(file: string): PatchSeq {
         "build" in parsed && typeof parsed.build === "string"
           ? parsed.build
           : null;
-      return { seq: parsed.seq, build };
+      const epoch =
+        "epoch" in parsed && typeof parsed.epoch === "string"
+          ? parsed.epoch
+          : null;
+      return { seq: parsed.seq, build, epoch };
     }
   } catch {
     // A torn or foreign file: counted from zero again, which only costs an
     // answer its ordering against answers from before.
   }
-  return { seq: 0, build: null };
+  return { seq: 0, build: null, epoch: null };
 }
 
 /**
@@ -61,6 +77,7 @@ export function bumpPatchSeq(file: string, build?: string): number {
   const next: PatchSeq = {
     seq: current.seq + 1,
     build: build ?? current.build,
+    epoch: current.epoch ?? randomBytes(8).toString("hex"),
   };
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(next));

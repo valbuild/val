@@ -1101,6 +1101,17 @@ export abstract class ValOps {
   }
 
   /**
+   * {@link chainSeq}, with what it counts from: two positions are the same
+   * only when both are. A counter that can start again (fs: `.val` removed
+   * by hand) names its start in `epoch`, so coming back to the same number
+   * is not read as "nothing moved". `null` as for {@link chainSeq}.
+   */
+  async chainPosition(): Promise<{ seq: number; epoch: string } | null> {
+    const seq = await this.chainSeq();
+    return seq === null ? null : { seq, epoch: "" };
+  }
+
+  /**
    * A module's chain after its first `count` patches, of the chain the
    * versions were last computed for. Hashes nothing. See `ChainFold.chainAt`.
    */

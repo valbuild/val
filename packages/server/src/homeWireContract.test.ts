@@ -1,4 +1,4 @@
-import { ValOpsHttp } from "./ValOpsHttp";
+import { CHAIN_VERSION_RETRY_MS, ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
 import { proposalFromEnv, type ValProposal } from "./proposal";
@@ -819,14 +819,78 @@ test("the chain version is read alone, for the ops' own branch", async () => {
   }
 });
 
-test("a content service that predates the chain version is asked once, and the head reads the chain", async () => {
-  const { ops, sent, restore } = opsAnswering({ message: "Not found" }, 404);
+/**
+ * `home` -- a branch nothing was written to yet (a proposal just opened, a
+ * project nobody has edited) has no `val_patch_chains` row, and
+ * `readChainVersion` COALESCEs it to 0: 200, never 404
+ * (`chainVersion.http.test.ts` there, "a branch with no chain yet answers
+ * 0, never 404"). The e2e mock answers the same (`getChainVersion`).
+ */
+test("a branch with no chain yet is at version 0", async () => {
+  const { ops, restore } = opsAnswering({ headVersion: 0 });
+  try {
+    expect(await ops.chainSeq()).toBe(0);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` -- the only 404 the route gives is JSON, `{ message: "Project not
+ * found" }`, the same 404 `/applicable/patches` gives for that project. Not a
+ * content service without the route: asked again next time.
+ */
+test("a project the content service does not know is not taken for a service without the route", async () => {
+  const { ops, sent, restore } = opsAnswering(
+    { message: "Project not found" },
+    404,
+  );
   try {
     expect(await ops.chainSeq()).toBeNull();
     expect(await ops.chainSeq()).toBeNull();
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
   } finally {
     restore();
+  }
+});
+
+/**
+ * A content service that predates the route answers Express's own 404:
+ * `Cannot GET …`, as `text/html`. Not asked again for a while -- the head
+ * reads the chain meanwhile -- and asked again after it, since a service is
+ * upgraded under a running server.
+ */
+test("a content service that predates the chain version is not asked again for a while, and then is", async () => {
+  const originalFetch = global.fetch;
+  const originalNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  let asked = 0;
+  global.fetch = (async () => {
+    asked++;
+    return new Response("Cannot GET /v1/acme/site/chain/version", {
+      status: 404,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }) as unknown as typeof fetch;
+  try {
+    const ops = new ValOpsHttp(
+      CONTENT_URL,
+      PROJECT,
+      { commit: "commit-sha", branch: "main" },
+      { apiKey: "key" },
+      { modules: [] } as never,
+      undefined,
+    );
+    expect(await ops.chainSeq()).toBeNull();
+    expect(await ops.chainSeq()).toBeNull();
+    expect(asked).toBe(1);
+    now += CHAIN_VERSION_RETRY_MS;
+    expect(await ops.chainSeq()).toBeNull();
+    expect(asked).toBe(2);
+  } finally {
+    global.fetch = originalFetch;
+    Date.now = originalNow;
   }
 });
 

@@ -169,14 +169,34 @@ const proposal = (() => {
     files?: Record<string, string>;
     staged?: Record<string, string>;
   } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
+  // Checked as \`proposalFromEnv\` checks them: read wrong, a save would
+  // apply to staged code as though the build had it, or the other way round.
+  const staged = overlay.staged ?? {};
+  for (const [path, version] of Object.entries(staged)) {
+    if (
+      !path.startsWith("/") ||
+      typeof version !== "string" ||
+      !version.startsWith("staged:")
+    ) {
+      throw new Error(
+        \`Val: proposal \${name}: VAL_OVERLAY's staged must name module files with staged:<inputs> versions (\${JSON.stringify(path)})\`,
+      );
+    }
+  }
+  const inputs = secret("VAL_BUILD_INPUTS");
+  if (inputs && !/^[0-9a-f]{64}$/.test(inputs)) {
+    throw new Error(
+      \`Val: proposal \${name}: VAL_BUILD_INPUTS is not a build's staged inputs (64 hex)\`,
+    );
+  }
   return {
     name,
     branch,
     commit: overlay.commit ?? null,
     modules: overlay.modules ?? {},
     files: overlay.files ?? {},
-    staged: overlay.staged ?? {},
-    buildInputs: secret("VAL_BUILD_INPUTS") ?? null,
+    staged,
+    buildInputs: inputs || null,
   };
 })();
 `;

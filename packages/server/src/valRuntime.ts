@@ -58,8 +58,16 @@ type Entry = { options: ValServerConfig; runtime: ValRuntime };
  *
  * The formatter is not part of the key: the readers never save, so they pass
  * none, and the instance takes the API's when it is given one.
+ *
+ * At most {@link RUNTIMES_PER_MODULES} per `valModules`, the oldest let go
+ * first: a host that builds a new patch store per call makes a runtime per
+ * call (they never share content anyway), and must not make the process
+ * hold every one it ever made.
  */
 const registry = new WeakMap<ValModules, Entry[]>();
+
+/** See {@link registry}: the API, the readers and MCP, with room to spare. */
+export const RUNTIMES_PER_MODULES = 8;
 
 export function valRuntime(
   valModules: ValModules,
@@ -82,7 +90,7 @@ export function valRuntime(
     );
     if (differ.length > 0) {
       Internal.log.warn(
-        `two Val servers for the same val.modules were given different options (${differ.join(", ")}), so they keep separate content: a publish through one is not seen by the other. Pass the same options to initValServer and initValContent (and initValMcp).`,
+        `two Val servers for the same val.modules were given different options (${differ.join(", ")}), so they keep separate content: a publish through one is not seen by the other. Pass the same options to initValServer and initValContent. (initValMcp builds its options from the config alone, so in memory mode it keeps content of its own.)`,
       );
     }
   }
@@ -103,6 +111,7 @@ export function valRuntime(
     },
   };
   entries.push({ options, runtime });
+  if (entries.length > RUNTIMES_PER_MODULES) entries.shift();
   registry.set(valModules, entries);
   return runtime;
 }
