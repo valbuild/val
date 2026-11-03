@@ -32,7 +32,6 @@ import {
   useProfilesByAuthorId,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import type { PendingPatch } from "../ValProvider";
 import { getRefParts } from "@valbuild/shared/internal";
 import { FieldLoading } from "../FieldLoading";
@@ -42,6 +41,7 @@ import type { MediaItem, MediaKind, MediaUpload } from "../MediaGallery/types";
 import { useNavigation } from "../ValRouter";
 import { GalleryEntryInspector } from "./GalleryEntryInspector";
 import { galleryNewEntries } from "./galleryNewEntries";
+import { validationErrorsByEntry } from "./galleryEntryErrors";
 import { filesOfChoices, toPosterUpload } from "./VideoChoices";
 import { captureFrame, defaultPosterTime } from "../../utils/video/readVideo";
 import { useRenameMediaFile } from "../useRenameMediaFile";
@@ -91,7 +91,7 @@ export function ModuleGallery({
     useAddPatch(path);
   const allModulePatches = usePendingPatchesForModule(moduleFilePath);
   const profilesByAuthorIds = useProfilesByAuthorId();
-  const allValidationErrors = useAllValidationErrors() || {};
+  const allValidationErrors = useAllValidationErrors();
 
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
@@ -278,97 +278,65 @@ export function ModuleGallery({
   );
 
   const kind: MediaKind = videoMode ? "videos" : imageMode ? "images" : "files";
-  /** Who changed each entry, by its key: for the panel's authors and Compare. */
-  const patchesByRef: Record<string, Record<string, PendingPatch[]>> = {};
-  const items: MediaItem[] = rawSource
-    ? Object.entries(rawSource).map(([ref, meta]) => {
-        const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
-        const hotspot =
-          typeof meta.hotspot === "object" &&
-          meta.hotspot !== null &&
-          "x" in meta.hotspot &&
-          "y" in meta.hotspot &&
-          typeof meta.hotspot.x === "number" &&
-          typeof meta.hotspot.y === "number"
-            ? { x: meta.hotspot.x, y: meta.hotspot.y }
-            : undefined;
-        const poster =
-          typeof meta.poster === "object" &&
-          meta.poster !== null &&
-          "path" in meta.poster &&
-          typeof meta.poster.path === "string"
-            ? {
-                path: meta.poster.path,
-                ...("patch_id" in meta.poster &&
-                typeof meta.poster.patch_id === "string"
-                  ? { patch_id: meta.poster.patch_id }
-                  : {}),
-              }
-            : undefined;
-        const itemPath = sourcePathOfItem(path, ref);
-        const errors: string[] = [];
-        const descriptionErrors: string[] = [];
-        for (const [errPath, errs] of Object.entries(allValidationErrors)) {
-          if (!errPath.startsWith(itemPath)) {
-            continue;
-          }
-          if (errPath === Internal.createValPathOfItem(itemPath, "alt")) {
-            descriptionErrors.push(...errs.map((err) => err.message));
-          } else {
-            errors.push(...errs.map((err) => err.message));
-          }
+  /**
+   * Who changed each entry, by its key: for the panel's authors and Compare.
+   *
+   * At the entry OR INSIDE it. Only an exact match counted once, so a file
+   * whose alt text was edited -- a patch at `[ref, "alt"]`, the commonest
+   * change a gallery gets -- showed no authors and no Compare link, as though
+   * nothing about it had changed.
+   *
+   * One pass over the patches, by the key each op is under: it was every
+   * patch for every entry, on every render.
+   */
+  const patchesByRef = React.useMemo(() => {
+    const byRef: Record<string, Record<string, PendingPatch[]>> = {};
+    for (const patch of allModulePatches) {
+      const refs = new Set<string>();
+      for (const op of patch.patch) {
+        if (
+          op.path.length > patchPath.length &&
+          isPatchPathWithin(op.path, patchPath)
+        ) {
+          refs.add(op.path[patchPath.length]);
         }
-
-        /*
-         * At the entry OR INSIDE it. Only an exact match counted once, so a
-         * file whose alt text was edited — a patch at `[ref, "alt"]`, the
-         * commonest change a gallery gets — showed no authors and no Compare
-         * link, as though nothing about it had changed.
-         */
-        const filePatchPath = [...patchPath, ref];
-        const byAuthor: Record<string, PendingPatch[]> = {};
-        for (const patch of allModulePatches) {
-          if (
-            !patch.patch.some((op) => isPatchPathWithin(op.path, filePatchPath))
-          ) {
-            continue;
-          }
-          const author = patch.authorId ?? "unknown";
-          (byAuthor[author] ??= []).push(patch);
-        }
-        patchesByRef[ref] = byAuthor;
-
-        // A stream is named by its directory: every master is `master.m3u8`,
-        // and the directory is what a rename renames.
-        const isHls = videoMode && isPlaylistPath(localPathOf(ref));
-        const { filename, folder } = isHls
-          ? getRefParts(
-              localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")),
-            )
-          : getRefParts(ref);
-
-        return {
-          ref,
-          url: refToUrl(ref, filePatchIds),
-          name: filename,
-          folder,
-          mimeType,
-          ...(typeof meta.width === "number" ? { width: meta.width } : {}),
-          ...(typeof meta.height === "number" ? { height: meta.height } : {}),
-          ...(typeof meta.duration === "number"
-            ? { duration: meta.duration }
-            : {}),
-          description: typeof meta.alt === "string" ? meta.alt : null,
-          ...(hotspot ? { hotspot } : {}),
-          // The entry's poster is its thumbnail: one still per video.
-          ...(poster ? { thumbnailUrl: urlOf(poster) } : {}),
-          ...(isHls ? { isHls } : {}),
-          ...(errors.length > 0 ? { errors } : {}),
-          ...(descriptionErrors.length > 0 ? { descriptionErrors } : {}),
-          ...(newRefs.has(ref) ? { isNew: true } : {}),
-        };
-      })
-    : [];
+      }
+      const author = patch.authorId ?? "unknown";
+      for (const ref of refs) {
+        ((byRef[ref] ??= {})[author] ??= []).push(patch);
+      }
+    }
+    return byRef;
+  }, [allModulePatches, patchPath]);
+  /**
+   * The validation errors of each entry, by its key, and the ones about its
+   * description apart: one pass over the errors, where it was every error for
+   * every entry, on every render -- 10,000 entries times the project's errors.
+   */
+  const errorsByRef = React.useMemo(
+    () => validationErrorsByEntry(path, allValidationErrors),
+    [path, allValidationErrors],
+  );
+  /**
+   * Built once per change of what they are made of, not per render: the
+   * gallery re-renders on a hover, a drag and every upload's progress, and
+   * the items are one per entry.
+   */
+  const items = React.useMemo(
+    (): MediaItem[] =>
+      rawSource
+        ? Object.entries(rawSource).map(([ref, meta]) =>
+            toMediaItem(ref, meta, {
+              videoMode,
+              filePatchIds,
+              urlOf,
+              errors: errorsByRef.get(ref),
+              isNew: newRefs.has(ref),
+            }),
+          )
+        : [],
+    [rawSource, videoMode, filePatchIds, urlOf, errorsByRef, newRefs],
+  );
 
   const deleteEntry = React.useCallback(
     (ref: string) => {
@@ -1076,6 +1044,75 @@ export function ModuleGallery({
       />
     </div>
   );
+}
+
+/** What `ModuleGallery` shows for one entry. */
+function toMediaItem(
+  ref: string,
+  meta: Record<string, unknown>,
+  {
+    videoMode,
+    filePatchIds,
+    urlOf,
+    errors,
+    isNew,
+  }: {
+    videoMode: boolean;
+    filePatchIds: ReadonlyMap<string, string>;
+    urlOf: (media: { path: string; patch_id?: string }) => string;
+    errors: { entry: string[]; description: string[] } | undefined;
+    isNew: boolean;
+  },
+): MediaItem {
+  const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
+  const hotspot =
+    typeof meta.hotspot === "object" &&
+    meta.hotspot !== null &&
+    "x" in meta.hotspot &&
+    "y" in meta.hotspot &&
+    typeof meta.hotspot.x === "number" &&
+    typeof meta.hotspot.y === "number"
+      ? { x: meta.hotspot.x, y: meta.hotspot.y }
+      : undefined;
+  const poster =
+    typeof meta.poster === "object" &&
+    meta.poster !== null &&
+    "path" in meta.poster &&
+    typeof meta.poster.path === "string"
+      ? {
+          path: meta.poster.path,
+          ...("patch_id" in meta.poster &&
+          typeof meta.poster.patch_id === "string"
+            ? { patch_id: meta.poster.patch_id }
+            : {}),
+        }
+      : undefined;
+  // A stream is named by its directory: every master is `master.m3u8`, and
+  // the directory is what a rename renames.
+  const isHls = videoMode && isPlaylistPath(localPathOf(ref));
+  const { filename, folder } = isHls
+    ? getRefParts(localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")))
+    : getRefParts(ref);
+  return {
+    ref,
+    url: refToUrl(ref, filePatchIds),
+    name: filename,
+    folder,
+    mimeType,
+    ...(typeof meta.width === "number" ? { width: meta.width } : {}),
+    ...(typeof meta.height === "number" ? { height: meta.height } : {}),
+    ...(typeof meta.duration === "number" ? { duration: meta.duration } : {}),
+    description: typeof meta.alt === "string" ? meta.alt : null,
+    ...(hotspot ? { hotspot } : {}),
+    // The entry's poster is its thumbnail: one still per video.
+    ...(poster ? { thumbnailUrl: urlOf(poster) } : {}),
+    ...(isHls ? { isHls } : {}),
+    ...(errors && errors.entry.length > 0 ? { errors: errors.entry } : {}),
+    ...(errors && errors.description.length > 0
+      ? { descriptionErrors: errors.description }
+      : {}),
+    ...(isNew ? { isNew: true } : {}),
+  };
 }
 
 /** Whether `path` is `prefix` or a path inside it, segment by segment. */
