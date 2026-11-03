@@ -1799,6 +1799,50 @@ picker, keystroke, search, validation, upload, publish) as fine, degraded or
 broken at 1k, 10k and 100k -- and what to fix, and what to document as a
 limit, is decided once the whole map is in front of the person deciding.
 
+### The baseline (2026-11-03)
+
+Measured and reported, nothing fixed. The generators, the counted surfaces
+and the browser spec are in place (`scenarios/measure/scaleWork.ts`,
+`src/scale.scenario.test.ts`, `measure/scale.ts`,
+`e2e/tanstack/scale.spec.ts`); the full tables, the method and how to re-run
+are in `scenarios/measure/results.md`, "Phase 10: the Studio at size".
+
+| Surface                                    | 1,000    | 10,000                  | 100,000                          |
+| ------------------------------------------ | -------- | ----------------------- | -------------------------------- |
+| Cold start to the first field              | degraded | degraded                | broken (34 s, a 26 s freeze)     |
+| Open the record list                       | degraded | degraded                | broken (35 s with a reload)      |
+| Scroll the record list                     | degraded | degraded                | broken (8 s long tasks)          |
+| Keystroke in a post (stores)               | fine     | fine                    | degraded (42 ms)                 |
+| Typing on a page that picks from libraries | degraded | broken (1.1 s freezes)  | broken (a 14 s freeze)           |
+| Image gallery: open, scroll                | degraded | broken (every tile)     | broken (1.8 GB, the tab crashed) |
+| Picker, pick (`fillFromGallery` by path)   | fine     | fine                    | fine                             |
+| `keyOf` dropdown                           | degraded | broken (10,001 options) | broken (did not open)            |
+| Search                                     | degraded | degraded (about 50 s)   | broken (out of memory, loading)  |
+| A library entry's "used by"                | degraded | degraded (about 44 s)   | broken (out of memory, loading)  |
+| Validate everything, Discard all           | fine     | fine                    | degraded / fine                  |
+| Publish one entry                          | fine     | degraded                | degraded (32-79 MB re-read)      |
+
+What the numbers say, for the decision:
+
+- **Nothing about opening and editing grows with N** in requests or counted
+  work: cold start loads no entry, the record asks for the 19 rows on screen,
+  a keystroke applies once. Those two are gated in the scenario.
+- **What loads every entry is quadratic today** (1 s at 1k, 44 s at 10k, out
+  of 8 GB at 100k in one process): the Studio rebuilds the record's view per
+  arriving entry and the server reads the whole record's keys per
+  `GET /json`, one request per entry. Search and every "used by" of a library
+  a `.jsonValues()` item can pick from go through it.
+- **The browser's costs are rendering**: the gallery and the `keyOf`
+  dropdown render every item (10,000 `<img>`, 10,001 options), and typing on
+  a page that picks from the libraries had 1.1 s long tasks at 10k, cause not
+  found.
+- **Copy-on-write's root copy** is 42 ms a keystroke at 100,000 entries, and
+  the re-read after a publish is the whole project (32 MB at 100k, 79 MB with
+  remote refs).
+
+Cheap-looking and structural observations are listed in `results.md`;
+which to fix, and which to document as limits, is still to be decided.
+
 ### When
 
 After phase 9, because phases 6 and 7 change the store and how the Studio

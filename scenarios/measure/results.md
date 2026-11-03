@@ -411,3 +411,213 @@ phase 6. To measure the head where Cloudflare enforces 128 MB:
    (phase 10's `scaleWork.ts` shapes), and confirm the head's 16 MB budget
    (`HEAD_BUDGET_BYTES`) is where the isolate keeps outliving a read beside
    the app's own heap.
+
+## Phase 10: the Studio at size (baseline)
+
+2026-11-03, Claude Code cloud container (Linux, 4 cores, Node 22), load
+0.2-1.5. Measured on the checkout between `0b8aff9b4` and phase 6, which
+another session was landing in the same checkout at the time; re-checked
+after phase 6 (`346e6fdc8`): the counts are identical, and `scale.ts run
+10000 local` within a few percent on every step, under load 5-6. A BASELINE: measured and reported,
+nothing fixed (the decision on what to fix waits for the whole map). The
+project is `scaleWork.ts`'s: a `.jsonValues()` router of N posts (title,
+slug, rich text, an image picked from the library, tags; a `.preview()`),
+image, file and video libraries of N entries each, local refs or remote
+(`https://remote.val.build/file/p/…`), and a page whose fields pick from all
+three and point at one post (`s.keyOf`). Three instruments:
+
+- **Counted** (`src/scale.scenario.test.ts`, the scenario world, memory
+  mode): requests, bytes, entry imports, the stores' work.
+  `VAL_SCALE=1000,10000,100000 pnpm test scenarios/src/scale`.
+- **Timed** (`measure/scale.ts`): the same surfaces, the real server
+  (TanStack's `initValServer`, memory mode) and the Studio's real system in
+  one Node process, React left out. `pnpm exec tsx measure/scale.ts all`.
+  The heap is server AND Studio, retained after a `gc()`.
+- **A real browser** (`e2e/tanstack/scale.spec.ts`): Chromium on
+  `examples/tanstack` with `content/scale/` (the same shapes; a `.jsonValues()`
+  RECORD, since a router there needs a route file; local media only, whose
+  files do not exist, so every thumbnail is a 404).
+  `VAL_E2E_SCALE=10000 pnpm exec playwright test --project=tanstack e2e/tanstack/scale.spec.ts`.
+  The Studio is Vite's dev server, unbundled (about 1,100 module requests
+  per full page load), so a full load is a ceiling for a built Studio; every
+  other surface is reached by navigating inside the Studio. Long tasks are
+  `PerformanceObserver("longtask")` (over 50 ms); heap is CDP's
+  `JSHeapUsedSize` after a forced GC.
+
+### The capacity map
+
+Against the targets decided 2026-11-03 (1k instant: first field under 2 s,
+keystroke under 16 ms, no long task over 50 ms while scrolling, nothing
+requested that is not on screen; 10k usable: no freeze, crash or lost edit,
+progress for anything long; 100k: measured). **fine** meets the size's
+target, **degraded** misses it but works, **broken** freezes, crashes or
+does not finish. "Stores" is `scale.ts` (local refs; remote is within 10-30%
+everywhere except where said), "browser" the Playwright run.
+
+| Surface                                 | 1,000                                                                                                          | 10,000                                                                                                                                          | 100,000                                                                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Cold start to the first field           | **degraded**: stores 37 ms; browser 5.0 s (dev, unbundled), longest task 450 ms; 70 MB heap                    | **degraded**: stores 163-300 ms; browser 6.2 s, longest task 2.1 s; 99 MB                                                                       | **broken**: browser 34 s with a 26 s freeze, 416 MB; stores 1.9-3.1 s (server start 1.3-2.5 s more) |
+| Open the record list                    | **degraded**: 19 GET /json (the window, gated); stores 33 ms; browser 0.57 s, longest task 190 ms              | **degraded**: the same 19 requests; stores 82 ms; browser 1.2 s, longest task 575 ms                                                            | **broken**: browser 35 s (with a reload), longest task 15.7 s; still 19 requests; stores 1.1 s      |
+| Scroll the record list                  | **degraded**: 9 long tasks, longest 200 ms; one GET /json per row that comes on screen                         | **degraded**: 9 long tasks, longest 634 ms; the list's `scrollTop` came back to 1,500 px after 40 steps of 1,500 (not investigated)             | **broken**: browser 42 s for 40 steps, longest task 8 s                                             |
+| Open one post                           | **fine**: under 1 ms, nothing requested (the record's reference scans name no module here)                     | **fine**                                                                                                                                        | **fine**                                                                                            |
+| Keystroke in a post (stores)            | **fine**: median 1.1 ms, p90 3.6                                                                               | **fine**: 2.3 ms, p90 4.6                                                                                                                       | **degraded**: 42 ms, p90 52 (the view copies the record's root of 100,000 keys per apply)           |
+| Typing on the page that picks (browser) | **degraded**: 3 long tasks while typing 10 characters, longest 227 ms                                          | **broken** (freezes): longest task 1.1 s, 2.0 s of long tasks in 2.2 s of typing (a field on a page pointing at the libraries; cause not found) | **broken**: a 14 s freeze typing 10 characters                                                      |
+| Image library: open the gallery         | **degraded**: every tile rendered (1,000 `<img>`), longest task 382 ms                                         | **broken**: 10,000 `<img>`, 6.9 s, longest task 2.3 s, heap +115 MB                                                                             | **broken**: 125 s, 100,000 `<img>`, 1.8 GB of heap                                                  |
+| Image library: scroll the gallery       | **degraded**: longest task 162 ms; 3,900 thumbnail requests (404s refetched)                                   | **broken**: 105 s for 40 steps, 131 long tasks (17 s), 9,400 thumbnail requests                                                                 | **broken**: the tab crashed                                                                         |
+| Open the picker (source read)           | **fine**: 0.5 ms (the list is virtualized; not driven in the browser)                                          | **fine**: 1.6 ms                                                                                                                                | **fine**: 30 ms                                                                                     |
+| Pick from the library                   | **fine**: 3 ms, one patch, the field reads the ONE library entry by its path (`fillFromGallery` lookup)        | **fine**: 3 ms                                                                                                                                  | **fine**: 4-6 ms                                                                                    |
+| `keyOf` dropdown                        | **degraded**: renders all 1,001 options, longest task 284 ms; previews only the 19 loaded posts                | **broken** (freezes): 10,001 options, 6.3 s, longest task 2.35 s                                                                                | **broken**: did not open in 15 s (longest task 24 s); stores 75 ms                                  |
+| Search, one query                       | **degraded**: loads every post first (1,000 GET /json, 0.64 MB); stores 1.3 s; browser 0.74 s to first results | **degraded**: 10,000 GET /json (6.5 MB), stores 47-51 s, heap +134-190 MB; browser 14.9 s, longest task 3.3 s                                   | **broken**: the process ran out of 8 GB of heap after about 200 s, loading                          |
+| Gallery: select an image ("used by")    | **degraded**: loads every post (a post can pick the image): 981 requests, 0.9 s                                | **degraded**: 9,981 requests, 43.5 s (not checked in the browser whether progress is shown)                                                     | **broken**: out of 8 GB of heap, loading                                                            |
+| Validate everything (Studio)            | **fine**: 26 ms, loaded content only (unloaded posts are not validated in the Studio)                          | **fine**: 140-170 ms                                                                                                                            | **degraded**: 1.5-1.8 s                                                                             |
+| Discard all                             | **fine**: 6 ms                                                                                                 | **fine**: 9 ms                                                                                                                                  | **fine**: 58-102 ms                                                                                 |
+| Publish one post                        | **fine**: 77 ms; then the Studio re-reads the whole project, `PUT /sources/~`: 314 KB                          | **degraded**: 223-317 ms; the re-read is 3.2 MB (7.8 MB remote)                                                                                 | **degraded**: 2.0-2.8 s; the re-read is 32 MB (79 MB remote)                                        |
+
+Counted at every size (`scale.scenario.test.ts`, the same at 1k, 10k and
+100k, local and remote): cold start makes two `/stat` and no `GET /json`,
+imports no entry, clones each module once (5) and hashes 10 versions; opening
+the record is 19 `GET /json` (12 KB), 19 imports, 2 preview computations; a
+keystroke is one apply, `engine:clone-bytes` 40 and one version hash, one
+`PUT /patches`; the `keyOf` dropdown computes one preview, naming 19 of the N
+posts; validation runs `schema-validate` on 3 modules; Discard all rebuilds 2.
+What grows with N is only what loads every post (N `GET /json`, N imports, about
+650 bytes each) and the re-read after a publish (above).
+
+### The numbers behind it
+
+`measure/scale.ts all`, medians where repeated. ms, and the heap retained
+after each step (server and Studio, one process; the baseline with tsx and
+the server's packages loaded is about 125 MB).
+
+| Step                                   | 1k local       | 10k local       | 10k remote      | 100k local       | 100k remote      |
+| -------------------------------------- | -------------- | --------------- | --------------- | ---------------- | ---------------- |
+| Server: start and first /stat          | 52 / 128 MB    | 139 / 135 MB    | 265 / 139 MB    | 1,269 / 215 MB   | 2,524 / 260 MB   |
+| Studio: cold start                     | 37 / 129 MB    | 163 / 143 MB    | 302 / 148 MB    | 1,871 / 315 MB   | 3,096 / 360 MB   |
+| Open the record                        | 33             | 80              | 86              | 1,111            | 1,174            |
+| Keystroke in a post (median / p90)     | 1.1 / 3.6      | 2.3 / 4.6       | 2.3 / 4.0       | 41.8 / 51.8      | 38.3 / 45.3      |
+| Open the image picker                  | 0.5            | 1.5             | 1.6             | 33               | 21               |
+| Pick the library's last image          | 3.4            | 2.7             | 3.2             | 5.6              | 4.1              |
+| `keyOf` dropdown                       | 1.4            | 5.8             | 5.9             | 75               | 74               |
+| Validate everything                    | 26             | 140             | 172             | 1,535            | 1,760            |
+| Discard all                            | 6.4            | 8.2             | 8.7             | 76               | 65               |
+| Publish one post                       | 77             | 223             | 317             | 2,027            | 2,780            |
+| Select an image (loads every post)     | 1,036          | 43,726          | 43,477          | out of 8 GB heap | out of 8 GB heap |
+| Keystroke, every post loaded           | 0.8 / 1.3      | 2.0 / 2.4       | 2.1 / 2.4       | (not reached)    | (not reached)    |
+| Search, one query (loads every post)   | 1,398 / 149 MB | 51,238 / 289 MB | 50,152 / 352 MB | (not reached)    | (not reached)    |
+| Validate everything, every post loaded | 36             | 235             | 282             | (not reached)    | (not reached)    |
+
+Loading every post is **quadratic**: 1,000 in about 1 s, 10,000 in about
+44 s. A CPU profile of the 5,000 run puts it in two places, both once per
+arriving entry: the Studio's `receiveJsonEntry` -> `refreshEntries` ->
+`viewOf` -> `copyRoot` (the view of the record is rebuilt, its root of N keys
+copied, for every entry that arrives: 13 of 35 s), and the server's
+`getJsonEntries` (`Object.keys(record)` of the whole record for every
+`GET /json`: 4 s). At 100,000 the process exhausted an 8 GB heap about 200 s
+into the load. Why it RETAINS that much was not established; every one of
+the 100,000 requests is in flight at once in this process (the Studio starts
+them all, `Promise.all`), each holding its own copy of the record's keys on
+the server, which is one candidate. A browser sends six at a time per host,
+so it would not see the same peak.
+
+The keystroke at 100,000 (42 ms) is the view's root copy too: the engine
+counts 40 bytes copied (the edited entry), and `viewOf` copies the record's
+root of 100,000 markers for the view on top, which `engine:clone-bytes` does
+not count.
+
+### The browser
+
+`e2e/tanstack/scale.spec.ts`, Chromium, one run each.
+
+| Surface                                        | 1,000: ms (longest task, long-task total), heap | 10,000                                          |
+| ---------------------------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| Cold start to the first field (full load, dev) | 4,983 (450, 775), 70 MB                         | 6,202 (2,062, 2,301), 99 MB                     |
+| Typing 10 characters, 40 ms apart              | 2,201 (227, 442), 73 MB                         | 2,226 (1,110, 1,981), 100 MB                    |
+| `keyOf` dropdown: open                         | 837 (284, 386), 1,001 options                   | 6,323 (2,351, 4,643), 10,001 options            |
+| Open the record list                           | 570 (190, 402), 19 GET /json                    | 1,174 (575, 973), 19 GET /json                  |
+| Scroll the record list, 40 steps               | 7,240 (200, 1,308), 138 GET /json               | 10,074 (634, 4,189), 158 GET /json              |
+| Open the image gallery                         | 786 (382, 474), 1,000 `<img>`, 88 MB            | 6,933 (2,304, 4,436), 10,000 `<img>`, 212 MB    |
+| Scroll the gallery, 40 steps                   | 13,974 (162, 162), 3,932 thumbnail requests     | 105,440 (743, 17,184), 9,386 thumbnail requests |
+| Search, one query, to the content results      | 741 (322, 462), 968 GET /json                   | 14,893 (3,287, 8,304), 9,948 GET /json, 153 MB  |
+
+At 100,000 (one run; the test's 30-minute limit ended it):
+
+| Surface                                        | ms (longest task, long-task total), heap                                                                                                                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Cold start to the first field (full load, dev) | 34,428 (26,034, 29,649), 416 MB: the tab is frozen for 26 s                                                                                                                                      |
+| Typing 10 characters, 40 ms apart              | 14,661 (13,739, 15,643): a 14 s freeze                                                                                                                                                           |
+| `keyOf` dropdown: open                         | did not open: the click timed out after 15 s with the tab busy (longest task 23,786 ms), and the page made a full load's requests again during it (it was reloaded; by what was not established) |
+| Open the record list                           | 35,119 (15,730, 33,859), 349 MB, 19 GET /json; this included the full page load above                                                                                                            |
+| Scroll the record list, 40 steps               | 41,681 (8,026, 25,617), 401 GET /json; `scrollTop` 13,500 px at the end                                                                                                                          |
+| Open the image gallery                         | 124,582 (26,939, 74,350), **1,806 MB**, 100,000 `<img>`                                                                                                                                          |
+| Scroll the gallery                             | **the tab crashed** ("Target crashed") after 4,165 thumbnail requests                                                                                                                            |
+| Search                                         | not reached                                                                                                                                                                                      |
+
+### What looks cheap to fix, and what looks structural
+
+Observations for whoever decides, not decisions.
+
+Looks cheap:
+
+- **The server's `getJsonEntries` reads `Object.keys` of the whole record per
+  request** (to check the keys asked for): O(N) per `GET /json`, quadratic
+  over a full load. A key lookup would do.
+- **The Studio rebuilds the record's view per arriving entry**
+  (`refreshEntries` -> `viewOf` -> `copyRoot`), even inside `batched`, where
+  the announcement is already deferred to the end. Rebuilding once per batch
+  would make a full load linear.
+- **One `GET /json` per entry**, though the endpoint takes `keys[]`: the
+  window (19) and a full load (N) could go in chunks. `VirtualizedRecordList`'s
+  docblock says the window is "requested in one batch"; the store batches the
+  announcement, not the request.
+- **The gallery renders every tile** (`MediaGallery`: 10,000 `<img>` at 10k,
+  +115 MB of heap, a 105 s scroll), where the record list and the picker are
+  virtualized. `ModuleGallery` also walks every validation error and every
+  patch of the module for each entry.
+- **The `keyOf` dropdown renders every key as an option** (10,001), unwindowed.
+- **The 404 thumbnails are fetched again and again while scrolling** (3,900
+  requests for 1,000 images). Partly this fixture's: real files would be
+  cached.
+
+Looks structural:
+
+- **Search and a library entry's "used by" load every entry.** That is the
+  design (`useAllJsonValuesLoad`, `jsonValuesLoadRequirements`: a scan cannot
+  trust what it has not loaded), and it is N requests and N entries in
+  memory, plus the search index (+134-190 MB at 10k in Node). Linear at best;
+  at 100,000 it does not finish here. Any library whose files a `.jsonValues()`
+  item can pick pays it on every "used by". A server-side index or search
+  would move it off the Studio.
+- **The Studio re-reads the whole project after a publish** (BaseAlignment's
+  `PUT /sources/~`): 32 MB at 100k local, 79 MB with remote refs (their URLs
+  are long). Remote refs triple the libraries' bytes.
+- **Copy-on-write copies a module's root**: a record of 100,000 entries is
+  100,000 root keys per apply, 42 ms a keystroke in the stores (target 16 ms),
+  on the server's engine as well. A structure that shares inside a node (a
+  persistent map) is what gets under it (phase 5's note).
+- **Typing in a field of a page that points at big libraries had a 1.1 s
+  long task at 10k**, with nothing of the post record on screen. Not
+  investigated: some component on that page recomputes over a whole library
+  or the whole project per change.
+- **What the Studio validates is what it has loaded**: at any size the
+  posts nobody opened are not validated in the Studio (the server's publish
+  gate is the check), and the `keyOf` dropdown names only the loaded posts.
+
+### Not measured, and why
+
+- **Upload, and bulk upload into a 10k library** (`ModuleGallery` uploads
+  dropped files one after another): needs the browser's file input and
+  encoder; not driven at size here.
+- **The Pages tree and sitemap with 10,000 routes**: the browser fixture is a
+  record (a router in `examples/tanstack` needs a route file), and the world
+  has no React to render the tree.
+- **http mode, hosted, and the isolate**: everything here is memory mode
+  (the world) or fs mode (the browser). The content service's answers at
+  size, and the 128 MB isolate with these shapes, are not measured.
+- **The picker in the browser**: its list is virtualized; only its source
+  read is timed.
+- **A built Studio**: the browser runs the Studio from Vite's dev server, so
+  its cold start includes about 1,100 module requests a built Studio does not
+  make.
+- **Remote refs in the browser**: remote media needs the proxy-mode server's
+  content host (`VAL_E2E_REMOTE_MEDIA`); the world and `scale.ts` cover
+  remote.
