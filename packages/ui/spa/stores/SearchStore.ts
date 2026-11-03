@@ -142,7 +142,38 @@ export class SearchStore {
    * because only the host side knows what changed. See `StaleModules` in
    * `createSystem.ts`.
    */
-  async reindex(snapshot: SourceSnapshot): Promise<{
+  reindex(snapshot: SourceSnapshot): Promise<{
+    new: ModuleFilePath[];
+    all: ModuleFilePath[];
+  }> {
+    return this.oneAtATime(() => this.reindexNow(snapshot));
+  }
+
+  /**
+   * The passes over the index, one after the other, in the order asked.
+   *
+   * A pass lets the thread go between slices, so two passes would otherwise
+   * run interleaved on one index: a search asked again as each batch of a
+   * `.jsonValues()` record lands starts a pass per batch, each with its own
+   * snapshot. A record module is indexed by entry identity, so an older
+   * snapshot's pass took out what a newer one had just indexed (the entry is
+   * a different object in each) and the newer one put it back -- unbounded,
+   * with the removals done without looking at the clock: the tab froze at
+   * 10,000 posts and the search never answered. In order, each pass starts
+   * from what the one before left, and a later pass is a later snapshot, so
+   * the index ends at the newest.
+   */
+  private oneAtATime<T>(pass: () => Promise<T>): Promise<T> {
+    const run = this.passes.then(pass);
+    this.passes = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+  private passes: Promise<void> = Promise.resolve();
+
+  private async reindexNow(snapshot: SourceSnapshot): Promise<{
     new: ModuleFilePath[];
     all: ModuleFilePath[];
   }> {
@@ -197,6 +228,9 @@ export class SearchStore {
    * path that no longer exists.
    */
   async forget(moduleFilePath: ModuleFilePath): Promise<void> {
+    // At once, not after the passes: nothing of a module that has gone may
+    // be found from here on. A pass already holding it in its snapshot is
+    // the caller's to have marked stale, as before.
     if (this.index !== null) {
       removeModule(this.index, moduleFilePath);
     }
@@ -210,19 +244,21 @@ export class SearchStore {
    * Kept for the case where the whole index is suspect — a schema-wide change,
    * or a first build. Routine change is served by {@link reindex}.
    */
-  async buildIndex(snapshot: SourceSnapshot): Promise<{
+  buildIndex(snapshot: SourceSnapshot): Promise<{
     new: ModuleFilePath[];
     all: ModuleFilePath[];
   }> {
-    this.activity.work(
-      "search:build-index",
-      undefined,
-      Object.keys(snapshot).length,
-    );
-    this.index = createSearchIndex();
-    this.indexed = new Set();
-    this.partial.clear();
-    return this.reindex(snapshot);
+    return this.oneAtATime(() => {
+      this.activity.work(
+        "search:build-index",
+        undefined,
+        Object.keys(snapshot).length,
+      );
+      this.index = createSearchIndex();
+      this.indexed = new Set();
+      this.partial.clear();
+      return this.reindexNow(snapshot);
+    });
   }
 
   async search(
