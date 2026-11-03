@@ -36,6 +36,7 @@ import {
   encodeJwt,
   getExpire,
   loadValModules as evaluateProject,
+  proposalFromEnv,
   type ValContentVersion,
   type ValProposal,
 } from "@valbuild/server";
@@ -319,9 +320,12 @@ export type ProposalAt = {
    */
   readFile(path: string): Promise<CodeToolAnswer>;
   /**
-   * What the platform does after a save or a staging: serve the address from
-   * a new isolate, with the overlay content's overlay step wrote
-   * (`VAL_OVERLAY`, read here from the content host as the platform holds it).
+   * What the platform does once what is staged is BUILT: serve the address
+   * from a new isolate of that build, with the overlay content's overlay
+   * step wrote (`VAL_OVERLAY`) and the staging the build was made of
+   * (`VAL_BUILD_INPUTS`), read here from the content host as the platform
+   * holds them. A staging alone is served at once on the build the address
+   * already runs (`stage` does that); a save is served by this.
    */
   redeploy(): Promise<void>;
   /** Publish in the proposal: the press the Studio makes (`pressMerge`). */
@@ -778,23 +782,22 @@ function stringOrNull(value: unknown): string | null {
   throw new Error("not a string or null");
 }
 
-/** The overlay the platform holds for a proposal's address: a `ValProposal`. */
-function parseProposalOverlay(body: unknown): ValProposal {
-  if (
-    !isObject(body) ||
-    typeof body.name !== "string" ||
-    typeof body.branch !== "string" ||
-    !isObject(body.modules)
-  ) {
-    throw new Error("not a proposal overlay");
-  }
-  return {
-    name: body.name,
-    branch: body.branch,
-    commit: stringOrNull(body.commit),
-    modules: body.modules,
-    files: stringRecord(body.files),
-  };
+/**
+ * What the platform hands a proposal's isolate (`VAL_PROPOSAL`, `VAL_BRANCH`,
+ * `VAL_OVERLAY`, `VAL_BUILD_INPUTS`), as the content host holds it, read with
+ * the product's own `proposalFromEnv`.
+ */
+async function proposalEnvAt(
+  contentHost: string,
+  name: string,
+): Promise<ValProposal> {
+  const res = await fetch(`${contentHost}/__test__/proposals/${name}/env`);
+  if (!res.ok) throw new Error(`No overlay for ${name}: ${res.status}`);
+  const env: unknown = await res.json();
+  if (!isObject(env)) throw new Error("not an isolate's env");
+  const proposal = proposalFromEnv(stringRecord(env));
+  if (proposal === undefined) throw new Error("not a proposal's address");
+  return proposal;
 }
 
 /** The site's content version, as the platform would hand it to an isolate now. */
@@ -1459,57 +1462,86 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       if (registry === undefined) throw new Error(`No bundle ${code}`);
       return registry;
     };
+    /**
+     * What the platform does after a staging: content writes the overlay
+     * (`kickProposalOverlay`), and the next request at the address is a new
+     * isolate of the build it already runs, handed the new overlay -- with
+     * the staging's `staged`, and the build's own `VAL_BUILD_INPUTS`, which
+     * no longer equal it until the staging is built (`redeploy`).
+     */
+    let overlays = 0;
+    const serveStaging = async () => {
+      host.http = {
+        ...host.http,
+        proposal: await proposalEnvAt(host.contentHost.url, name),
+      };
+      currentHandler = serverFor(valModules);
+      network.name(
+        currentHandler,
+        `build ${builds}, after staging ${++overlays}`,
+      );
+      network.route(currentHandler);
+      for (const reload of pages) reload();
+    };
+    const stageThrough = async (
+      ...args: Parameters<ProposalAt["stage"]>
+    ): Promise<CodeToolAnswer> => {
+      const answer = await stageWith(...args);
+      if (!answer.isError) await serveStaging();
+      return answer;
+    };
+    const stageWith: ProposalAt["stage"] = (files, message, evaluateIn) =>
+      runCodeTool(
+        "write_files",
+        { files, ...(message !== undefined ? { message } : {}) },
+        {
+          ...(evaluateIn !== undefined
+            ? {
+                evaluateStaged: () =>
+                  runStagedCode(name, {
+                    project: stagedProject(name, client, async () => null),
+                    // The bundler, at the edge: what the files evaluate to.
+                    bundle: async () => {
+                      const code = `world-bundle:${bundles.size}`;
+                      const evaluated = evaluateIn.modules;
+                      if (Array.isArray(evaluated)) {
+                        // And what a build of the staged files serves
+                        // (`redeploy`), as `changeCode` says it.
+                        serverModules = evaluated;
+                        bundles.set(code, registryOf(evaluated));
+                      } else {
+                        bundles.set(code, evaluated);
+                      }
+                      return { code };
+                    },
+                    // What the worker runs on the imported bundle.
+                    evaluate: (code) =>
+                      readValModules({ default: bundleAt(code) }, () => null),
+                    importRegistry: async (code) => bundleAt(code),
+                    reloadCode: reloadStaged(evaluateIn.studio.system.host),
+                  }),
+              }
+            : {}),
+          proposal: { name },
+          client,
+          siteSource: async () => null,
+          build: {
+            start: notWriteFiles,
+            running: () => null,
+            report: notWriteFiles,
+            cancel: () => false,
+          },
+          typecheck: notWriteFiles,
+          offerProposal: notWriteFiles,
+          // As the Studio's assistant asks it (`useAI`): no names here.
+          codeMode: () => readCodeMode(client, name, () => null),
+        },
+      );
     return {
       name,
       branch,
       client,
-      stage: (files, message, evaluateIn) =>
-        runCodeTool(
-          "write_files",
-          { files, ...(message !== undefined ? { message } : {}) },
-          {
-            ...(evaluateIn !== undefined
-              ? {
-                  evaluateStaged: () =>
-                    runStagedCode(name, {
-                      project: stagedProject(name, client, async () => null),
-                      // The bundler, at the edge: what the files evaluate to.
-                      bundle: async () => {
-                        const code = `world-bundle:${bundles.size}`;
-                        const evaluated = evaluateIn.modules;
-                        if (Array.isArray(evaluated)) {
-                          // And what a build of the staged files serves
-                          // (`redeploy`), as `changeCode` says it.
-                          serverModules = evaluated;
-                          bundles.set(code, registryOf(evaluated));
-                        } else {
-                          bundles.set(code, evaluated);
-                        }
-                        return { code };
-                      },
-                      // What the worker runs on the imported bundle.
-                      evaluate: (code) =>
-                        readValModules({ default: bundleAt(code) }, () => null),
-                      importRegistry: async (code) => bundleAt(code),
-                      reloadCode: reloadStaged(evaluateIn.studio.system.host),
-                    }),
-                }
-              : {}),
-            proposal: { name },
-            client,
-            siteSource: async () => null,
-            build: {
-              start: notWriteFiles,
-              running: () => null,
-              report: notWriteFiles,
-              cancel: () => false,
-            },
-            typecheck: notWriteFiles,
-            offerProposal: notWriteFiles,
-            // As the Studio's assistant asks it (`useAI`): no names here.
-            codeMode: () => readCodeMode(client, name, () => null),
-          },
-        ),
+      stage: stageThrough,
       readFile: (path) =>
         runCodeTool(
           "read_file",
@@ -1567,12 +1599,16 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           },
         }),
       async redeploy() {
-        const res = await fetch(
-          `${host.contentHost.url}/__test__/proposals/${name}/overlay`,
+        // The platform built what is staged, and serves that build.
+        const built = await fetch(
+          `${host.contentHost.url}/__test__/proposals/${name}/built`,
+          { method: "POST", body: JSON.stringify({}) },
         );
-        if (!res.ok) throw new Error(`No overlay for ${name}: ${res.status}`);
-        const overlay = parseProposalOverlay(await res.json());
-        host.http = { ...host.http, proposal: overlay };
+        if (!built.ok) throw new Error(`Not built: ${built.status}`);
+        host.http = {
+          ...host.http,
+          proposal: await proposalEnvAt(host.contentHost.url, name),
+        };
         deployCode(serverModules);
       },
       merge: (commitMessage) =>

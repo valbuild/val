@@ -302,42 +302,113 @@ describe("code mode, in a proposal on http", () => {
   });
 
   /**
-   * C11b FAILS, and is marked so: an edit to a field only the STAGED code has
-   * cannot be saved until the proposal is built.
+   * C11b An edit to a field only the STAGED code has is saved by the next code
+   * write, before anybody builds.
    *
-   * The edit is kept -- in the Studio and on the server, pending -- but the
-   * save before the next code write runs in Val's server at the address,
-   * which runs the build from before the staging: `prepare` applies the
-   * pending patches to the module as THAT build evaluated it, which has no
-   * `button`, and the commit fails ("Path refers to non-existing
-   * object/array"). So the assistant's next `write_files` is refused ("the
-   * changes waiting to be saved could not be saved first") until somebody
-   * builds. What would make it pass: the server reading a staged module's
-   * base from the staged text rather than from its build, which is what the
-   * overlay's `staged` map (home's phase 7 contract) lets it tell -- the
-   * staged schemas part of phase 7, not built here.
+   * After a staging the platform serves the new overlay on the build the
+   * address already runs (`stage`), and that build was not made of the
+   * staging: its `VAL_BUILD_INPUTS` is not the overlay's `staged` version for
+   * the module. So Val's server there reads the module's Source from its
+   * staged text, versions it `staged:<inputs>`, and the save before the next
+   * `write_files` applies the pending patch to that text and that Source --
+   * not to the module as its build evaluated it, which has no `button` (the
+   * commit failed with "Path refers to non-existing object/array" until the
+   * server could tell). The page reads the module from its own code until a
+   * build of the staging serves the address, never the Source saved under
+   * the staged schema; then the saved edit is what it reads.
    */
-  test.failing(
-    "C11b the next code write saves an edit to a field only staged code has",
-    async () => {
-      const { world, proposal, editor } = await open();
-      await proposal.codeMode(true);
-      await proposal.stage(
-        { [HOME_FILE]: afterText("Hello", "Buy") },
-        "A button",
-        { studio: editor, modules: [after] },
-      );
-      await world.settle();
-      await editor.edit(after, ["button", "label"], "Buy now");
-      await world.settle();
+  test("C11b the next code write saves an edit to a field only staged code has", async () => {
+    const { world, proposal, editor } = await open();
+    world.page("/", { draftMode: false }).reads("proposal", async (val) => {
+      const read = await val.fetchVal(after);
+      return read.button?.label ?? "(absent)";
+    });
+    await proposal.codeMode(true);
+    editor.reads("field", after, ["button", "label"]);
+    await proposal.stage(
+      { [HOME_FILE]: afterText("Hello", "Buy") },
+      "A button",
+      { studio: editor, modules: [after] },
+    );
+    await world.settle();
+    await editor.edit(after, ["button", "label"], "Buy now");
+    await world.settle();
 
-      expect((await proposal.stage({ [HERO_FILE]: heroText })).isError).toBe(
-        false,
-      );
-      const files = await proposal.client.files(proposal.name);
-      expect(files.files[HOME_FILE]).toContain('"Buy now"');
-    },
-  );
+    expect((await proposal.stage({ [HERO_FILE]: heroText })).isError).toBe(
+      false,
+    );
+    const files = await proposal.client.files(proposal.name);
+    expect(files.files[HOME_FILE]).toContain('"Buy now"');
+    expect((await proposal.client.get(proposal.name)).changes).toBe(0);
+    await world.settle();
+    await world.observe();
+    // Not built: the page reads the module from its own bundle (the module
+    // object it passes, whose label is "Buy"), never the Source the save
+    // recorded under the staged schema, which only a build can read.
+    expect(world.frames.last("proposal")).toBe("Buy");
+    expect(world.frames.last("field")).toBe("Buy now");
+
+    // Saved whole -- its Source too, not only its text: once the staging is
+    // built, the address serves the edit.
+    await proposal.redeploy();
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Buy now");
+    expect(world.frames.last("proposal")).toBe("Buy now");
+    world.frames.expectNeverGoesBack();
+    expect(editor.errors()).toEqual([]);
+  });
+
+  /**
+   * C11c A module staged after the build whose content is not written out in
+   * its `.val.ts` -- here its title is a constant -- cannot be read without
+   * running it, and the server at the address does not run staged code. So a
+   * save that touches it is HELD: the next code write is refused, saying
+   * which module and that the proposal has to be built first, and the edit
+   * stays pending. Once a build of the staging serves the address, the same
+   * write saves it.
+   */
+  test("C11c an edit to a staged module the server cannot read is held until a build, and the assistant is told why", async () => {
+    const { world, proposal, editor } = await open();
+    await proposal.codeMode(true);
+    const byCode = `import { c, s } from "../val.config";
+
+const TITLE = "Hello";
+
+export default c.define(
+  "${HOME}",
+  s.object({ title: s.string(), button: s.object({ label: s.string() }) }),
+  { title: TITLE, button: { label: "Buy" } },
+);
+`;
+    await proposal.stage({ [HOME_FILE]: byCode }, "A button", {
+      studio: editor,
+      modules: [after],
+    });
+    await world.settle();
+    await editor.edit(after, ["button", "label"], "Buy now");
+    await world.settle();
+
+    const held = await proposal.stage({ [HERO_FILE]: heroText });
+    expect(held.isError).toBe(true);
+    expect(JSON.stringify(held.result)).toMatch(
+      /content\/home\.val\.ts cannot be saved here: .*Build the proposal, then save/,
+    );
+    expect((await proposal.client.get(proposal.name)).changes).toBe(1);
+    const files = await proposal.client.files(proposal.name);
+    expect(files.staged.files).toEqual([HOME_FILE]);
+
+    await proposal.redeploy();
+    await world.settle();
+    expect((await proposal.stage({ [HERO_FILE]: heroText })).isError).toBe(
+      false,
+    );
+    const saved = await proposal.client.files(proposal.name);
+    expect(saved.files[HOME_FILE]).toContain('"Buy now"');
+    expect(saved.files[HOME_FILE]).toContain("title: TITLE");
+    expect((await proposal.client.get(proposal.name)).changes).toBe(0);
+    expect(editor.errors()).toEqual([]);
+  });
 
   /**
    * C12 Staged code that does not run leaves the Studio on the schema it had,
