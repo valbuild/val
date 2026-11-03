@@ -574,34 +574,35 @@ target, **degraded** misses it but works, **broken** freezes, crashes or
 does not finish. "Stores" is `scale.ts` (local refs; remote is within 10-30%
 everywhere except where said), "browser" the Playwright run.
 
-| Surface                                 | 1,000                                                                                                                                                  | 10,000                                                                                                                                       | 100,000                                                                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Cold start to the first field           | **degraded**: stores 37 ms; browser 5.0 s (dev, unbundled), longest task 450 ms; 70 MB heap                                                            | **degraded**: stores 163-300 ms; browser 6.2 s, longest task 2.1 s; 99 MB                                                                    | **broken**: browser 34 s with a 26 s freeze, 416 MB; stores 1.9-3.1 s (server start 1.3-2.5 s more)                      |
-| Open the record list                    | **degraded**: 19 GET /json (the window, gated); stores 33 ms; browser 0.57 s, longest task 190 ms                                                      | **degraded**: the same 19 requests; stores 82 ms; browser 1.2 s, longest task 575 ms                                                         | **broken**: browser 35 s (with a reload), longest task 15.7 s; still 19 requests; stores 1.1 s                           |
-| Scroll the record list                  | **degraded**: 9 long tasks, longest 200 ms; one GET /json per row that comes on screen                                                                 | **degraded**: 9 long tasks, longest 634 ms; the list's `scrollTop` came back to 1,500 px after 40 steps of 1,500 (not investigated)          | **broken**: browser 42 s for 40 steps, longest task 8 s                                                                  |
-| Open one post                           | **fine**: under 1 ms, nothing requested (the record's reference scans name no module here)                                                             | **fine**                                                                                                                                     | **fine**                                                                                                                 |
-| Keystroke in a post (stores)            | **fine**: median 1.1 ms, p90 3.6                                                                                                                       | **fine**: 2.3 ms, p90 4.6                                                                                                                    | **degraded**: 42 ms, p90 52 (the view copies the record's root of 100,000 keys per apply)                                |
-| Typing on the page that picks (browser) | **degraded** (dev build) after the fix: longest task 69 ms typing 10 characters (227 ms before); its store work is the same as next to libraries of 10 | **fine** after the fix: longest task 75-124 ms (1.1 s before); the cause was four whole-project derivations per keystroke, see "After" below | **fine** after the fix: longest task 59 ms in a profiled run, 256 ms in the spec under load (a 14 s freeze before)       |
-| Image library: open the gallery         | **fine** after the fix: the tiles on screen (about 35), 0.4 s; 1,000 `<img>` before                                                                    | **fine** after the fix: 0.3 s, longest task 207 ms, 28 `<img>`, 88 MB (6.9 s, 10,000 `<img>`, 212 MB before)                                 | **fine** after the fix: 0.9 s, longest task 843 ms (the items for 100,000 entries), 28 `<img>` (125 s and 1.8 GB before) |
-| Image library: scroll the gallery       | **degraded** (dev build) after the fix: longest task 82-93 ms; 860 thumbnail requests (3,900 before)                                                   | **fine** after the fix: no task over 146 ms, 1,400 thumbnail requests (105 s and 9,400 before)                                               | **fine** after the fix: longest task 135 ms (the tab crashed before)                                                     |
-| Open the picker (source read)           | **fine**: 0.5 ms (the list is virtualized; not driven in the browser)                                                                                  | **fine**: 1.6 ms                                                                                                                             | **fine**: 30 ms                                                                                                          |
-| Pick from the library                   | **fine**: 3 ms, one patch, the field reads the ONE library entry by its path (`fillFromGallery` lookup)                                                | **fine**: 3 ms                                                                                                                               | **fine**: 4-6 ms                                                                                                         |
-| `keyOf` dropdown                        | **fine** after the fix: opens in 0.1-0.2 s with the options on screen (19); 1,001 before                                                               | **fine** after the fix: 0.2-0.3 s, 19 options, longest task 96 ms (6.3 s and 10,001 before)                                                  | **fine** after the fix: 0.24 s, 19 options (did not open before); stores 75 ms                                           |
-| Search, one query                       | **degraded**: loads every post first (1,000 GET /json, 0.64 MB); stores 1.3 s; browser 0.74 s to first results                                         | **degraded**: 10,000 GET /json (6.5 MB), stores 47-51 s, heap +134-190 MB; browser 14.9 s, longest task 3.3 s                                | **broken**: the process ran out of 8 GB of heap after about 200 s, loading                                               |
-| Gallery: select an image ("used by")    | **degraded**: loads every post (a post can pick the image): 981 requests, 0.9 s                                                                        | **degraded**: 9,981 requests, 43.5 s (not checked in the browser whether progress is shown)                                                  | **broken**: out of 8 GB of heap, loading                                                                                 |
-| Validate everything (Studio)            | **fine**: 26 ms, loaded content only (unloaded posts are not validated in the Studio)                                                                  | **fine**: 140-170 ms                                                                                                                         | **degraded**: 1.5-1.8 s                                                                                                  |
-| Discard all                             | **fine**: 6 ms                                                                                                                                         | **fine**: 9 ms                                                                                                                               | **fine**: 58-102 ms                                                                                                      |
-| Publish one post                        | **fine**: 77 ms; then the Studio re-reads the whole project, `PUT /sources/~`: 314 KB                                                                  | **degraded**: 223-317 ms; the re-read is 3.2 MB (7.8 MB remote)                                                                              | **degraded**: 2.0-2.8 s; the re-read is 32 MB (79 MB remote)                                                             |
+| Surface                                 | 1,000                                                                                                                                                            | 10,000                                                                                                                                                                                                                        | 100,000                                                                                                                  |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Cold start to the first field           | **degraded**: stores 37 ms; browser 5.0 s (dev, unbundled), longest task 450 ms; 70 MB heap                                                                      | **degraded**: stores 163-300 ms; browser 6.2 s, longest task 2.1 s; 99 MB                                                                                                                                                     | **broken**: browser 34 s with a 26 s freeze, 416 MB; stores 1.9-3.1 s (server start 1.3-2.5 s more)                      |
+| Open the record list                    | **degraded** (dev build) after batching: 1 GET /json for the 19 rows on screen (19 before); stores 14-16 ms; browser 0.3-0.4 s, longest task 109-194 ms          | **degraded** (dev build): 1 GET /json; stores 23-27 ms; browser 0.6-0.9 s, longest task 352-425 ms                                                                                                                            | **degraded**: 1 GET /json; stores 0.19-0.21 s (1.1 s before); browser not re-run                                         |
+| Scroll the record list                  | **degraded**: 9 long tasks, longest 200 ms; one GET /json per row that comes on screen                                                                           | **degraded**: 9 long tasks, longest 634 ms; the list's `scrollTop` came back to 1,500 px after 40 steps of 1,500 (not investigated)                                                                                           | **broken**: browser 42 s for 40 steps, longest task 8 s                                                                  |
+| Open one post                           | **fine**: under 1 ms, nothing requested (the record's reference scans name no module here)                                                                       | **fine**                                                                                                                                                                                                                      | **fine**                                                                                                                 |
+| Keystroke in a post (stores)            | **fine**: median 1.1 ms, p90 3.6                                                                                                                                 | **fine**: 2.3 ms, p90 4.6                                                                                                                                                                                                     | **degraded**: 42 ms, p90 52 (the view copies the record's root of 100,000 keys per apply)                                |
+| Typing on the page that picks (browser) | **degraded** (dev build) after the fix: longest task 69 ms typing 10 characters (227 ms before); its store work is the same as next to libraries of 10           | **fine** after the fix: longest task 75-124 ms (1.1 s before); the cause was four whole-project derivations per keystroke, see "After" below                                                                                  | **fine** after the fix: longest task 59 ms in a profiled run, 256 ms in the spec under load (a 14 s freeze before)       |
+| Image library: open the gallery         | **fine** after the fix: the tiles on screen (about 35), 0.4 s; 1,000 `<img>` before                                                                              | **fine** after the fix: 0.3 s, longest task 207 ms, 28 `<img>`, 88 MB (6.9 s, 10,000 `<img>`, 212 MB before)                                                                                                                  | **fine** after the fix: 0.9 s, longest task 843 ms (the items for 100,000 entries), 28 `<img>` (125 s and 1.8 GB before) |
+| Image library: scroll the gallery       | **degraded** (dev build) after the fix: longest task 82-93 ms; 860 thumbnail requests (3,900 before)                                                             | **fine** after the fix: no task over 146 ms, 1,400 thumbnail requests (105 s and 9,400 before)                                                                                                                                | **fine** after the fix: longest task 135 ms (the tab crashed before)                                                     |
+| Open the picker (source read)           | **fine**: 0.5 ms (the list is virtualized; not driven in the browser)                                                                                            | **fine**: 1.6 ms                                                                                                                                                                                                              | **fine**: 30 ms                                                                                                          |
+| Pick from the library                   | **fine**: 3 ms, one patch, the field reads the ONE library entry by its path (`fillFromGallery` lookup)                                                          | **fine**: 3 ms                                                                                                                                                                                                                | **fine**: 4-6 ms                                                                                                         |
+| `keyOf` dropdown                        | **fine** after the fix: opens in 0.1-0.2 s with the options on screen (19); 1,001 before                                                                         | **fine** after the fix: 0.2-0.3 s, 19 options, longest task 96 ms (6.3 s and 10,001 before)                                                                                                                                   | **fine** after the fix: 0.24 s, 19 options (did not open before); stores 75 ms                                           |
+| Search, one query                       | **fine** after batching: 17 GET /json for every post (1,000 before); stores 0.5-0.7 s; browser 0.7-2.0 s with a progress bar, longest task 211-257 ms under load | **degraded** (usable): 167 GET /json; stores 4-9 s, all of it indexing, sliced (51 s before); browser 3-7 s with a progress bar, longest task 152-302 ms (3.3 s before)                                                       | **degraded** (measured): 1,746 GET /json; stores 50-90 s, heap 1.9-2.6 GB, the index (out of 8 GB before)                |
+| Gallery: select an image ("used by")    | **fine** after batching: 9-17 GET /json; stores 77-111 ms (0.9 s before); browser 0.6-1.2 s with a progress bar, longest task 175-285 ms under load              | **degraded** (usable, long tasks): 99-167 GET /json; stores 0.45-0.64 s (43.5 s before); browser 6.5-12.7 s with a progress bar, 33-42 long tasks of up to 281-764 ms: the shell re-rendering per applied batch, about twenty | **degraded** (measured): 1,746 GET /json; stores 4.8-5.9 s (out of 8 GB before)                                          |
+| Validate everything (Studio)            | **fine**: 26 ms, loaded content only (unloaded posts are not validated in the Studio)                                                                            | **fine**: 140-170 ms                                                                                                                                                                                                          | **degraded**: 1.5-1.8 s                                                                                                  |
+| Discard all                             | **fine**: 6 ms                                                                                                                                                   | **fine**: 9 ms                                                                                                                                                                                                                | **fine**: 58-102 ms                                                                                                      |
+| Publish one post                        | **fine**: 77 ms; then the Studio re-reads the whole project, `PUT /sources/~`: 314 KB                                                                            | **degraded**: 223-317 ms; the re-read is 3.2 MB (7.8 MB remote)                                                                                                                                                               | **degraded**: 2.0-2.8 s; the re-read is 32 MB (79 MB remote)                                                             |
 
 Counted at every size (`scale.scenario.test.ts`, the same at 1k, 10k and
 100k, local and remote): cold start makes two `/stat` and no `GET /json`,
 imports no entry, clones each module once (5) and hashes 10 versions; opening
-the record is 19 `GET /json` (12 KB), 19 imports, 2 preview computations; a
+the record is 19 `GET /json` (12 KB; one since batching), 19 imports, 2 preview computations; a
 keystroke is one apply, `engine:clone-bytes` 40 and one version hash, one
 `PUT /patches`; the `keyOf` dropdown computes one preview, naming 19 of the N
 posts; validation runs `schema-validate` on 3 modules; Discard all rebuilds 2.
 What grows with N is only what loads every post (N `GET /json`, N imports, about
-650 bytes each) and the re-read after a publish (above).
+650 bytes each; since batching N / 57 requests, see "After: every entry of a
+record, in batches") and the re-read after a publish (above).
 
 ### The numbers behind it
 
@@ -811,6 +812,97 @@ answered in the browser at the branch's head at 1k and 10k (the dialog
 stays on "Searching…" with every post loaded; with this commit's entry
 counting switched off it hangs the same way), and the page reloaded itself
 once during the 10k search step.
+
+### After: every entry of a record, in batches
+
+Fixed 2026-11-03 (`47e3d5004`, `bfa3d3fb7`, `278990a7c`, `900401a25`,
+`3d8566e11`, `1b95d1979`, `e9e604618`; budgets in `1f08b6517`), on top of
+the server half (`c5ed3b9b9`: a `GET /json` costs the entries it asks for,
+not the record).
+
+What it was: per arriving entry, `receiveJsonEntry` -> `refreshEntries` ->
+`viewOf` -> `copyRoot` rebuilt the record's view, and the Studio sent one
+`GET /json` per entry though the endpoint takes `keys`. What it is now:
+
+- **Requests carry many keys.** A read (`get`, a record's window) is asked
+  for at once, and the reads of one tick go out as one request
+  (`chunkJsonEntryKeys`, 25 keys): opening the record is 1 `GET /json`, not 19.
+  `loadAllEntries` (search, "used by", a rename guard) sends batches as large
+  as the URL budget allows (57 keys of `/blog/post-12345`, 100 of `post-123`),
+  at most 3 in flight across the store, behind every read.
+- **What landed is applied as one batch** (`receiveJsonEntries`): one view,
+  one revision, one wake. A bulk load applies in twentieths (at least 200
+  entries, or all that is left), after a `yieldToMain`, so the browser gets a
+  turn between them; a read applies as it lands.
+- **Search indexes what arrived**: a record module is indexed by entry, and
+  an entry that is the same object keeps its documents; indexing runs in
+  12 ms slices with the thread let go between (`search:index-slice`).
+- **"Used by" walks only what can point at the gallery**, by entry, keeping
+  what it found in an entry that did not change; while the load runs it
+  scans in tenths of it.
+- **The editor sees it**: a bar with "2,300 of 10,000" in the global search,
+  the module search and the gallery inspector's "Used in", the places and
+  hits found so far above it, Try again (`retryEntries`) with the server's
+  words under Details when a batch fails, and the unsent batches dropped when
+  nobody is waiting any more (search closed, inspector left).
+
+Counted (`scale.scenario.test.ts`, local media; gated): opening the record is
+1 `GET /json` and 1 apply for the 19 rows; loading every post is
+`ceil(N / keys per request)` requests and never more applies than requests.
+
+| Loading every post (counted)  | 1,000         | 10,000       | 100,000               |
+| ----------------------------- | ------------- | ------------ | --------------------- |
+| `GET /json`, before           | 981-1,000     | 9,981-10,000 | (out of 8 GB of heap) |
+| `GET /json`, after            | 17            | 167          | 1,746                 |
+| View rebuilds, before / after | 1,000 / 1     | 10,000 / 1   | - / 1                 |
+| KB answered, after            | 386 (540 rem) | 3,919        | 39,801                |
+
+(One apply in the world: its network answers in-process, so every batch has
+landed before the yield. In the browser it is about twenty.)
+
+Timed (`measure/scale.ts`, Node, server and Studio in one process; load
+2.5-8 with other sessions' suites alongside, so a range of runs):
+
+| Step                                  | 1k before / after | 10k before / after      | 100k before / after                    |
+| ------------------------------------- | ----------------- | ----------------------- | -------------------------------------- |
+| Open the record                       | 33 / 14-16 ms     | 80 / 23-27 ms           | 1,111 / 187-212 ms                     |
+| Select an image ("used by")           | 1,036 / 77-111 ms | 43,726 / 452-640 ms     | out of 8 GB / 4.8-5.9 s, +150 MB       |
+| Search, one query (loads every post)  | 1,398 / 542-669   | 51,238 / 3,990-8,646 ms | not reached / 50-90 s, heap 1.9-2.6 GB |
+| Keystroke, every post loaded (median) | 0.8 / 1.7-1.8 ms  | 2.0 / 4.5-6.3 ms        | not reached / 71-77 ms (p90 100-133)   |
+
+Search's time after loading is indexing (FlexSearch, every leaf of the
+posts and the three libraries); it is linear now and sliced, not faster per
+document. At 100,000 the index is what holds the 1.9-2.6 GB. The keystroke
+with every post loaded at 100k is `viewOf` filling 100,000 loaded entries
+into the view per apply, on top of the root copy (the structural item
+above).
+
+Browser (`e2e/tanstack/scale.spec.ts` from a worktree at the head, its own
+Studio dev server; other sessions' suites alongside, load 8-14 on 4 cores, so
+every number is an upper bound and they moved by 2x between runs):
+
+| Surface: ms (long tasks, longest, long-task total) | 1,000 before                  | 1,000 after                                               | 10,000 before                          | 10,000 after                                                       |
+| -------------------------------------------------- | ----------------------------- | --------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| Open the record list                               | 570 (190, 402), 19 GET /json  | 304-418 (109-194), 1 GET /json                            | 1,174 (575, 973), 19 GET /json         | 643-857 (352-425), 1 GET /json                                     |
+| Select an image: "used by" (loads every post)      | not measured                  | 616-1,150 (3-5, 175-285, 326-746), 9 GET /json, bar shown | not measured (43.5 s in Node)          | 6,554-12,706 (33-42, 281-764, 4.8-10.3 s), 99 GET /json, bar shown |
+| Search, one query, until loaded                    | 741 (322, 462), 968 GET /json | 681-1,958 (3-8, 211-257)                                  | 14,893 (3,287, 8,304), 9,948 GET /json | 3,046-6,736 (4-14, 152-302, 0.6-1.6 s)                             |
+
+(Search after "used by" finds the posts loaded: it is the indexing that is
+timed there. "Searching…" that never answered, seen at an earlier head
+(above), did not happen in these runs.)
+
+What is left, and why it is not this fix: the long tasks during "used by" at
+10k are React re-rendering the shell for each applied batch -- a CPU profile
+puts 50-180 ms per batch in `performWorkOnRoot` under load, of which this
+fix's own work (`applyLanded`, the progress counts, the "used by" scan) is
+10-40 ms; the rest is whole-project readers (the shell, the AI panel, the
+status bar, thumbnails) in React's dev build. Pacing the applies to
+twentieths cut them from about a hundred to about twenty, and to 33-42 long
+tasks in all. The Studio stays usable (no freeze of a second, typing and
+navigation answer between batches), but "no long task over 50 ms" is not
+met for "used by" at 10k in a dev build; a built Studio, or whole-project
+readers that do not re-render for a `.jsonValues()` batch, would be the next
+step.
 
 ### Not measured, and why
 

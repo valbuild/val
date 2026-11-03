@@ -1960,31 +1960,45 @@ and the browser spec are in place (`scenarios/measure/scaleWork.ts`,
 `e2e/tanstack/scale.spec.ts`); the full tables, the method and how to re-run
 are in `scenarios/measure/results.md`, "Phase 10: the Studio at size".
 
-| Surface                                    | 1,000    | 10,000                  | 100,000                          |
-| ------------------------------------------ | -------- | ----------------------- | -------------------------------- |
-| Cold start to the first field              | degraded | degraded                | broken (34 s, a 26 s freeze)     |
-| Open the record list                       | degraded | degraded                | broken (35 s with a reload)      |
-| Scroll the record list                     | degraded | degraded                | broken (8 s long tasks)          |
-| Keystroke in a post (stores)               | fine     | fine                    | degraded (42 ms)                 |
-| Typing on a page that picks from libraries | degraded | broken (1.1 s freezes)  | broken (a 14 s freeze)           |
-| Image gallery: open, scroll                | degraded | broken (every tile)     | broken (1.8 GB, the tab crashed) |
-| Picker, pick (`fillFromGallery` by path)   | fine     | fine                    | fine                             |
-| `keyOf` dropdown                           | degraded | broken (10,001 options) | broken (did not open)            |
-| Search                                     | degraded | degraded (about 50 s)   | broken (out of memory, loading)  |
-| A library entry's "used by"                | degraded | degraded (about 44 s)   | broken (out of memory, loading)  |
-| Validate everything, Discard all           | fine     | fine                    | degraded / fine                  |
-| Publish one entry                          | fine     | degraded                | degraded (32-79 MB re-read)      |
+| Surface                                    | 1,000    | 10,000                                         | 100,000                          |
+| ------------------------------------------ | -------- | ---------------------------------------------- | -------------------------------- |
+| Cold start to the first field              | degraded | degraded                                       | broken (34 s, a 26 s freeze)     |
+| Open the record list                       | degraded | degraded                                       | broken (35 s with a reload)      |
+| Scroll the record list                     | degraded | degraded                                       | broken (8 s long tasks)          |
+| Keystroke in a post (stores)               | fine     | fine                                           | degraded (42 ms)                 |
+| Typing on a page that picks from libraries | degraded | broken (1.1 s freezes)                         | broken (a 14 s freeze)           |
+| Image gallery: open, scroll                | degraded | broken (every tile)                            | broken (1.8 GB, the tab crashed) |
+| Picker, pick (`fillFromGallery` by path)   | fine     | fine                                           | fine                             |
+| `keyOf` dropdown                           | degraded | broken (10,001 options)                        | broken (did not open)            |
+| Search                                     | degraded | degraded (about 50 s)                          | broken (out of memory, loading)  |
+| ... after batching (below)                 | fine     | degraded (4-9 s, a bar)                        | degraded (50-90 s, 2.6 GB)       |
+| A library entry's "used by"                | degraded | degraded (about 44 s)                          | broken (out of memory, loading)  |
+| ... after batching (below)                 | fine     | degraded (0.5 s stores, 7-13 s browser, a bar) | degraded (5-6 s)                 |
+| Validate everything, Discard all           | fine     | fine                                           | degraded / fine                  |
+| Publish one entry                          | fine     | degraded                                       | degraded (32-79 MB re-read)      |
 
 What the numbers say, for the decision:
 
 - **Nothing about opening and editing grows with N** in requests or counted
   work: cold start loads no entry, the record asks for the 19 rows on screen,
   a keystroke applies once. Those two are gated in the scenario.
-- **What loads every entry is quadratic today** (1 s at 1k, 44 s at 10k, out
-  of 8 GB at 100k in one process): the Studio rebuilds the record's view per
-  arriving entry and the server reads the whole record's keys per
+- **What loads every entry was quadratic** (1 s at 1k, 44 s at 10k, out
+  of 8 GB at 100k in one process): the Studio rebuilt the record's view per
+  arriving entry and the server read the whole record's keys per
   `GET /json`, one request per entry. Search and every "used by" of a library
-  a `.jsonValues()` item can pick from go through it.
+  a `.jsonValues()` item can pick from go through it. **Fixed (2026-11-03),
+  linear now**: the server's half in `c5ed3b9b9`; the Studio's asks for many
+  keys a request (17 / 167 / 1,746 requests at 1k / 10k / 100k), applies a
+  batch at a time in twentieths of the load with the thread let go between,
+  indexes search and scans "used by" by entry, and shows a bar with the
+  counts and Try again. "Used by" at 10k is 0.5 s in the stores (was 44 s)
+  and search 4-9 s, all of it indexing, sliced (was 51 s); 100,000 loads
+  (5-6 s, search 50-90 s with a 2 GB index). In the browser at 10k, search's
+  longest task is 0.15-0.3 s (was 3.3 s); "used by" still has about twenty
+  long tasks, the shell re-rendering per applied batch in a dev build, so
+  "no long task over 50 ms" is not met there yet. Budgets in
+  `scale.scenario.test.ts`; the numbers in `results.md`, "After: every
+  entry of a record, in batches".
 - **The browser's costs are rendering**: the gallery and the `keyOf`
   dropdown render every item (10,000 `<img>`, 10,001 options), and typing on
   a page that picks from the libraries had 1.1 s long tasks at 10k, cause not
