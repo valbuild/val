@@ -172,7 +172,9 @@ under a pending edit -- is **held** (`StatusStore.held`, `HeldEditsBanner`),
 not deleted: it is somebody's work. It stays in the chain, applies nowhere,
 and refuses a publish (`held-edits`, since the save would remove it) until
 the editor discards it or makes the change again where the field is now; an
-edit that applies again (the code moved back) is released. "Applied under
+edit that applies again (the code moved back) is released. The banner shows
+what each held edit WROTE, to copy, and discards each on its own; a publish
+refused for them offers "Show the edits" beside its message. "Applied under
 which schema" is per patch, by `SchemaStore.version`, recorded when it applies
 (`fittedUnder` in `createSystem`), so a Studio that never saw a patch fit -- one
 opened after the change -- cannot tell, and deletes it as before: a patch

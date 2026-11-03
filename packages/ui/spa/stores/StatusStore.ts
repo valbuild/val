@@ -16,7 +16,18 @@ export type TransientError = {
   message: string;
   timestamp: number;
   details?: string;
+  /** The next step, where the Studio has one: a button beside the message. */
+  action?: TransientErrorAction;
 };
+
+/**
+ * A next step a store can name without knowing the UI: data, so it crosses
+ * any seam, and the toast turns it into a button.
+ *
+ * - `show-held-edits`: the edits a publish was refused for, in their banner,
+ *   where they are copied and discarded (`HeldEditsBanner`).
+ */
+export type TransientErrorAction = "show-held-edits";
 
 /**
  * An edit that stopped fitting its module when the module's code changed: a
@@ -89,13 +100,18 @@ export class StatusStore {
    * say, and ten copies of it in a toast stack is worse than one. The timestamp
    * is refreshed so the newest occurrence is what expires.
    */
-  reportError(message: string, details?: string): void {
+  reportError(
+    message: string,
+    details?: string,
+    action?: TransientErrorAction,
+  ): void {
     const existing = this.transient.find(
       (candidate) => candidate.message === message,
     );
     if (existing !== undefined) {
       existing.timestamp = Date.now();
       existing.details = details ?? existing.details;
+      existing.action = action ?? existing.action;
       this.announce();
       return;
     }
@@ -106,6 +122,7 @@ export class StatusStore {
         message,
         timestamp: Date.now(),
         details,
+        ...(action !== undefined ? { action } : {}),
       },
     ];
     this.activity.work("status:report-error");

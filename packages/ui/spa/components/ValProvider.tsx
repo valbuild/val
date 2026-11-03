@@ -3218,7 +3218,11 @@ export function usePublishSummary() {
             // work has shipped.
             const said = describePublishRefusal(res);
             handoff.cancel(said.message);
-            val.system.status.reportError(said.message, said.details);
+            val.system.status.reportError(
+              said.message,
+              said.details,
+              said.action,
+            );
           } else if (res.status === "failed") {
             handoff.cancel("Could not publish");
             val.system.status.reportError(

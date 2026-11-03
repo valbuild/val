@@ -1,4 +1,5 @@
 import type { PublishResult } from "../stores/PublishSeam";
+import type { TransientErrorAction } from "../stores/StatusStore";
 
 type Refusal = Extract<PublishResult, { status: "refused" }>;
 
@@ -15,6 +16,8 @@ type Refusal = Extract<PublishResult, { status: "refused" }>;
 export function describePublishRefusal(refusal: Refusal): {
   message: string;
   details?: string;
+  /** The button beside the message, where there is something to press. */
+  action?: TransientErrorAction;
 } {
   switch (refusal.reason) {
     case "validation-errors":
@@ -52,7 +55,8 @@ export function describePublishRefusal(refusal: Refusal): {
             ? "Cannot publish: an edit does not fit the new schema."
             : `Cannot publish: ${refusal.patchIds.length} edits do not fit the new schema.`,
         details:
-          "The code changed under them. Discard them, or move them to where the field went, then publish. Nothing was published.",
+          "The code changed under them. Nothing was published. Copy what was written and make the change again where the field is now, or discard them, then publish.",
+        action: "show-held-edits",
       };
     case "head-moved":
       return {
