@@ -797,6 +797,9 @@ export function createSystem(options: SystemOptions): System {
   let moduleFailureMessages: string[] = [];
   const unsubscribe = [
     baseAlignment.listenTo(stat),
+    schemaStore.events.on("schema:init", (event) =>
+      baseAlignment.codeMoved(event.modules),
+    ),
     schemaFreshness.listen(),
     /**
      * A module intake could not read reaches the EDITOR, not only the dev

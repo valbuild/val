@@ -100,11 +100,12 @@ describe.each(["fs", "memory", "http"] as const)(
      *
      * The old server's base was evaluated with a schema without the field,
      * and the Studio read it with one that has it: content read with a
-     * schema it was not made for. Now BaseAlignment leaves out a module whose
-     * base the answering build evaluated with another schema than the
-     * Studio's (`PUT /sources/~` answers each module's version), so the
-     * Studio keeps its own bundle's base for it, the edit applies there at
-     * once, and on the server once it has the code.
+     * schema it was not made for. Now, for a module whose schema new code
+     * moved the Studio to and no build has answered with yet, BaseAlignment
+     * leaves out a base the answering build evaluated with another schema
+     * (`PUT /sources/~` answers each module's version): the Studio keeps the
+     * base its own code wrote, the edit applies there at once, and on the
+     * server once it has the code.
      *
      * Code mode's save before each code write does not reach this one: HMR is
      * no write through the server. Its hosted form passes as C5 in

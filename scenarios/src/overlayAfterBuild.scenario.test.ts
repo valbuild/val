@@ -146,9 +146,8 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * modelled). The module has no pending edit, so the draft store has nothing
    * for it and `useVal` falls back to the bundle -- the old literal -- which
    * React renders over the server's text. The overlay's Studio, started from
-   * the same old modules, used to rebase onto the server's base and relay
-   * the new title (new, old, new); since phase 9 it keeps the base its own
-   * schema was made with, so the page stays on the old title (new, old).
+   * the same old modules, sees the server's `sourcesSha` differ, rebases onto
+   * the server's base, and relays the new title.
    *
    * SKIPPED, not failing: the cause is known (on the platform, the pinned
    * `/_app/app.js?b=` falls back to the head when the new build's code is not
@@ -167,18 +166,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     }
   });
 
-  /**
-   * What the previous build's client code shows: the server render, then its
-   * own bundle, and the overlay does not move it back. Its Studio runs the
-   * previous build's code too, and since phase 9 it does not put a base the
-   * new build evaluated with ANOTHER schema under its own (`BaseAlignment`,
-   * the schema rule): it relays the base its code was made with. Before,
-   * it relayed the new build's base and the page went new, old, new; now it
-   * goes new, old -- still not right, and fixed where it happens, in home's
-   * loader (S27: the pinned `app.js` fallback), so the browser never runs the
-   * previous build's client code against the new build's server.
-   */
-  test("why it flickers: hydration reads the old bundle, and the overlay's Studio runs it too", async () => {
+  test("why it flickers: hydration reads the old bundle, the overlay relays the server's base", async () => {
     const world = await createWorld({ config, modules: [before], server });
     try {
       world.deployCode([after]);
@@ -190,7 +178,7 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       expect(titles(world)).toEqual([
         "New title", // the server render (new build)
         "Old title", // hydration with the previous build's client code
-        "Old title", // the overlay, on the base its own schema was made with
+        "New title", // the overlay, aligned to the server's base
       ]);
       expect(page.events.map((event) => event.type)).toContain("source-update");
     } finally {

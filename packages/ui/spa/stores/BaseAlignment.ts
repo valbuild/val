@@ -64,6 +64,25 @@ export class BaseAlignment {
   private aligned = false;
   private alignedListeners = new Set<() => void>();
 
+  /**
+   * Modules whose schema this Studio moved to by new code (HMR, staged code
+   * the tab evaluated) and no build has answered with yet: the Studio is
+   * AHEAD of the server there, and only there is a base the server's build
+   * evaluated with another schema left out. See {@link underOurSchemas}.
+   */
+  private ahead = new Set<ModuleFilePath>();
+
+  /**
+   * New code moved these modules' schemas (`schema:init` after the first
+   * intake): until a build answers with them, this Studio is ahead of the
+   * server for them.
+   */
+  codeMoved(modules: readonly ModuleFilePath[]): void {
+    // The first intake is where the Studio starts, not a move.
+    if (this.current === null) return;
+    for (const moduleFilePath of modules) this.ahead.add(moduleFilePath);
+  }
+
   constructor(
     private readonly host: HostStore,
     private readonly sourceStore: SourceStore,
@@ -221,27 +240,36 @@ export class BaseAlignment {
   }
 
   /**
-   * The modules of `base` that were evaluated with the schema this Studio
-   * reads them with: the ones it may put under its fields.
+   * The modules of `base` this Studio may put under its fields.
    *
-   * A module the answering build evaluated with ANOTHER schema keeps the base
-   * it has, which is the one made with this Studio's code -- its bundle's.
-   * Put under the Studio's schema, the other build's base is content read
-   * with a schema it was not made for: in local development HMR reaches the
-   * page and the server in either order, and when the page is first, the old
-   * server's base has no field the new code added. An edit to that field then
-   * failed against the old base and was deleted (S10b, the reverting field).
-   * Kept, the edit applies here at once, and on the server once it has the
-   * code. The chain is the same either way: in fs and memory mode it is the
-   * store's, relative to whatever the newest code evaluated.
+   * A module whose schema NEW CODE moved this Studio to ({@link ahead}), and
+   * which the answering build evaluated with another schema, keeps the base
+   * it has: the one this Studio's own code wrote. Put under the new schema,
+   * the old build's base is content read with a schema it was not made for:
+   * in local development HMR reaches the page and the server in either
+   * order, and when the page is first, the old server's base has no field
+   * the new code added. An edit to that field then failed against the old
+   * base and was deleted (S10b, the reverting field). Kept, the edit applies
+   * here at once, and on the server once it has the code -- the chain is the
+   * same either way: in fs and memory mode it is the store's, relative to
+   * whatever the newest code evaluated. The same holds for staged code the
+   * tab evaluated, before the proposal is built (C11).
    *
-   * The other direction -- a server with newer code than this Studio, a
-   * deploy while it was open -- leaves those modules on the old base too:
-   * the Studio cannot read the new one until it has the new schema, which
-   * hosted is a reload (`SchemaFreshnessWatch`, until phase 9 of
-   * `docs/plans/one-content-model.md` can swap a build's registry in).
+   * Only when the Studio is AHEAD. A build that answers with newer code than
+   * this Studio's -- a deploy while it was open, a proposal built without the
+   * tab evaluating it -- has the base that is right for its chain, and the
+   * Studio cannot read it with the new schema until it has that schema
+   * (hosted, a reload: `SchemaFreshnessWatch`, until a build's registry can
+   * be swapped in, `docs/plans/one-content-model.md` phase 9). Keeping the
+   * old base there would drop what that build already contains -- the edits
+   * a proposal's build was made with -- for nothing.
+   *
+   * A build that answers with the Studio's schema has caught up: the module
+   * is no longer ahead.
    */
   private underOurSchemas(base: FetchedBase): Record<ModuleFilePath, Json> {
+    // The bundle's own base was written by this Studio's code: in step.
+    if (base === this.host.bundleBase()) this.ahead.clear();
     const schemas = base.schemas;
     if (schemas === undefined) return base.sources;
     const sources: Record<ModuleFilePath, Json> = {};
@@ -250,7 +278,13 @@ export class BaseAlignment {
       if (!isModuleFilePath(path)) continue;
       const theirs = schemas[path];
       const ours = this.sourceStore.schemaVersionOfModule(path);
-      if (theirs !== undefined && ours !== undefined && theirs !== ours) {
+      if (theirs !== undefined && theirs === ours) {
+        this.ahead.delete(path);
+      } else if (
+        theirs !== undefined &&
+        ours !== undefined &&
+        this.ahead.has(path)
+      ) {
         kept.push(path);
         continue;
       }
