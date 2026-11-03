@@ -12,10 +12,20 @@ import type { StatSnapshot, StatStore } from "./StatStore";
  * answered by yet another build, and only a base whose sha is the one asked for
  * belongs under that stat's chain.
  */
-export type FetchBaseSources = (sourcesSha: string) => Promise<{
+export type FetchBaseSources = (
+  sourcesSha: string,
+) => Promise<FetchedBase | null>;
+
+/**
+ * A base, and the schema each of its modules was evaluated with, by the
+ * version the server names it by (`ModuleVersion.schema`). Absent from a
+ * server that answers no versions: then every module is taken.
+ */
+export type FetchedBase = {
   sourcesSha: string;
   sources: Record<ModuleFilePath, Json>;
-} | null>;
+  schemas?: Record<ModuleFilePath, string>;
+};
 
 /**
  * Keeps the Studio's BASE and CHAIN from the same build.
@@ -44,10 +54,7 @@ export class BaseAlignment {
   /** The last stat adopted, so a re-intake (HMR) can be put back under it. */
   private lastStat: StatSnapshot | null = null;
   /** The last fetched base. One: the case is a pointer catching up, not a history. */
-  private fetched: {
-    sourcesSha: string;
-    sources: Record<ModuleFilePath, Json>;
-  } | null = null;
+  private fetched: FetchedBase | null = null;
 
   /**
    * Whether the source store's base has been in step with the server's chain
@@ -121,7 +128,7 @@ export class BaseAlignment {
         // Restoring what was showing, not adopting anything: no stat moves, so
         // a newer one being prepared is not overtaken.
         this.sourceStore.rebase(
-          this.fetched.sources,
+          this.underOurSchemas(this.fetched),
           this.patchStore.chainRecords(),
         );
         this.current = wanted;
@@ -176,7 +183,7 @@ export class BaseAlignment {
       omitted.length === 0 &&
       this.patchStore.holdsAll(snapshot.patches)
     ) {
-      return this.commit(snapshot, known.sources, wanted, adopt, []);
+      return this.commit(snapshot, known, wanted, adopt, []);
     }
     if (known === null && this.fetchBase === undefined) return adopt;
 
@@ -209,19 +216,58 @@ export class BaseAlignment {
       }
       if (base !== known) this.fetched = base;
       if (!staged || !resolved.complete) return unaligned(incomplete, {});
-      return this.commit(
-        snapshot,
-        base.sources,
-        wanted,
-        adopt,
-        resolved.leaving,
-      );
+      return this.commit(snapshot, base, wanted, adopt, resolved.leaving);
     });
+  }
+
+  /**
+   * The modules of `base` that were evaluated with the schema this Studio
+   * reads them with: the ones it may put under its fields.
+   *
+   * A module the answering build evaluated with ANOTHER schema keeps the base
+   * it has, which is the one made with this Studio's code -- its bundle's.
+   * Put under the Studio's schema, the other build's base is content read
+   * with a schema it was not made for: in local development HMR reaches the
+   * page and the server in either order, and when the page is first, the old
+   * server's base has no field the new code added. An edit to that field then
+   * failed against the old base and was deleted (S10b, the reverting field).
+   * Kept, the edit applies here at once, and on the server once it has the
+   * code. The chain is the same either way: in fs and memory mode it is the
+   * store's, relative to whatever the newest code evaluated.
+   *
+   * The other direction -- a server with newer code than this Studio, a
+   * deploy while it was open -- leaves those modules on the old base too:
+   * the Studio cannot read the new one until it has the new schema, which
+   * hosted is a reload (`SchemaFreshnessWatch`, until phase 9 of
+   * `docs/plans/one-content-model.md` can swap a build's registry in).
+   */
+  private underOurSchemas(base: FetchedBase): Record<ModuleFilePath, Json> {
+    const schemas = base.schemas;
+    if (schemas === undefined) return base.sources;
+    const sources: Record<ModuleFilePath, Json> = {};
+    const kept: ModuleFilePath[] = [];
+    for (const [path, source] of Object.entries(base.sources)) {
+      if (!isModuleFilePath(path)) continue;
+      const theirs = schemas[path];
+      const ours = this.sourceStore.schemaVersionOfModule(path);
+      if (theirs !== undefined && ours !== undefined && theirs !== ours) {
+        kept.push(path);
+        continue;
+      }
+      sources[path] = source;
+    }
+    if (kept.length > 0) {
+      Internal.log.debug(
+        "kept this Studio's base for modules another build evaluated with another schema",
+        { sourcesSha: base.sourcesSha, modules: kept },
+      );
+    }
+    return sources;
   }
 
   private commit(
     snapshot: StatSnapshot,
-    sources: Record<ModuleFilePath, Json>,
+    base: FetchedBase,
     sourcesSha: string,
     adopt: () => boolean,
     /** Omitted patches the server says have shipped or are gone. */
@@ -240,10 +286,16 @@ export class BaseAlignment {
         this.patchStore.forgetPublished(shipped);
       }
       const chain = this.patchStore.takeStaged(snapshot.patches);
-      this.sourceStore.rebase(sources, chain);
+      // Filtered as it goes in, not when it was fetched: the schemas may have
+      // moved in between (HMR).
+      this.sourceStore.rebase(this.underOurSchemas(base), chain);
       this.current = sourcesSha;
       this.heldBack = null;
       return adopt();
     };
   }
+}
+
+function isModuleFilePath(path: string): path is ModuleFilePath {
+  return path.startsWith("/");
 }

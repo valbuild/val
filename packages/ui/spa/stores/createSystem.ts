@@ -26,7 +26,7 @@ import {
   SchemaFreshnessWatch,
   type ReadServedSchemaSha,
 } from "./SchemaFreshnessWatch";
-import { StatusStore } from "./StatusStore";
+import { StatusStore, type HeldEdit } from "./StatusStore";
 import {
   PatchSync,
   isSaveStuck,
@@ -609,15 +609,51 @@ export function createSystem(options: SystemOptions): System {
   const UNAPPLICABLE_ATTEMPTS = 3;
 
   /**
+   * The schema of its module each patch last APPLIED under, by
+   * `SchemaStore.version`: what tells an edit the code moved under from one
+   * that never fitted.
+   */
+  const fittedUnder = new Map<PatchId, number>();
+  /**
+   * Edits that stopped fitting when their module's code changed: held, not
+   * deleted. See {@link HeldEdit}. In the order they were found.
+   */
+  const held = new Map<PatchId, HeldEdit>();
+  const reportHeld = () => status.reportHeld([...held.values()]);
+
+  /**
    * Act on patches the apply refused. See the `source:patch-apply` listener.
    */
   async function discardUnapplicable(
     failed: readonly { patchId: PatchId; message: string }[],
   ): Promise<void> {
     const toDelete: PatchId[] = [];
+    let heldMoved = false;
     for (const { patchId, message } of failed) {
       const record = patchStore.recordsFor([patchId])[0];
       const moduleFilePath = record?.moduleFilePath;
+      /*
+       * An edit that applied under another schema of its module, and does not
+       * under this one: the code moved under it -- a field renamed or removed
+       * (S14). Held, not deleted: it is somebody's work, and the editor
+       * decides (discard it, or move it where the field went). Everything
+       * below is for a patch that never fitted, which nothing could ever
+       * apply.
+       */
+      const fitted = fittedUnder.get(patchId);
+      if (
+        moduleFilePath !== undefined &&
+        (held.has(patchId) ||
+          (fitted !== undefined &&
+            fitted !== schemaStore.version(moduleFilePath)))
+      ) {
+        const before = held.get(patchId);
+        if (before === undefined || before.message !== message) {
+          held.set(patchId, { patchId, moduleFilePath, message });
+          heldMoved = true;
+        }
+        continue;
+      }
       /*
        * A patch into a `.jsonValues()` entry nobody has loaded used to fail
        * against the entry's marker, and was kept until the entry arrived.
@@ -658,6 +694,13 @@ export function createSystem(options: SystemOptions): System {
         continue;
       }
       toDelete.push(patchId);
+    }
+    if (heldMoved) {
+      Internal.log.info(
+        "holding edits that do not fit their module's new schema",
+        [...held.values()],
+      );
+      reportHeld();
     }
     if (toDelete.length === 0) return;
 
@@ -1009,8 +1052,22 @@ export function createSystem(options: SystemOptions): System {
      * legible from a user's console.
      */
     sourceStore.events.on("source:patch-apply", (event) => {
-      if (event.failed.length === 0) return;
-      void discardUnapplicable(event.failed);
+      if (event.failed.length > 0) void discardUnapplicable(event.failed);
+      /*
+       * AFTER the failures, which compare against the schema each patch last
+       * fitted: recording first would make this apply's schema the one it
+       * "fitted" under. And an edit that applies again -- the code moved back,
+       * or on to a schema it fits -- is no longer held.
+       */
+      let released = false;
+      for (const record of patchStore.recordsFor(event.success)) {
+        fittedUnder.set(
+          record.patchId,
+          schemaStore.version(record.moduleFilePath),
+        );
+        released = held.delete(record.patchId) || released;
+      }
+      if (released) reportHeld();
     }),
 
     // --- host-side staleness ----------------------------------------------
@@ -1032,6 +1089,14 @@ export function createSystem(options: SystemOptions): System {
     sourceStore.events.on("source:init", (event) => {
       searchStale.mark(event.sources);
       referenceStale.mark(event.sources);
+    }),
+    // A module whose code changed: what search finds in it and what it points
+    // at are read through its schema (which fields are text, which are
+    // references), so both are owed a pass even where the source did not move.
+    // `schema:init` names the modules whose schema moved, and a removed one.
+    schemaStore.events.on("schema:init", (event) => {
+      searchStale.mark(event.modules);
+      referenceStale.mark(event.modules);
     }),
 
     // --- patch-set invalidation -------------------------------------------
@@ -1066,6 +1131,15 @@ export function createSystem(options: SystemOptions): System {
      */
     patchStore.events.on("patch:drop", (event) => {
       patchSync.forget(event.patches);
+    }),
+    // A held edit discarded, or gone from the server: nothing left to hold.
+    patchStore.events.on("patch:drop", (event) => {
+      let released = false;
+      for (const patchId of event.patches) {
+        fittedUnder.delete(patchId);
+        released = held.delete(patchId) || released;
+      }
+      if (released) reportHeld();
     }),
   ];
 
@@ -1420,6 +1494,20 @@ export function createSystem(options: SystemOptions): System {
           : chainNow;
         if (toPublish.length === 0) {
           return { status: "nothing-to-publish" };
+        }
+        /*
+         * An edit held because the code moved under it applies nowhere, and
+         * the save would throw it away to write the rest ("could not be
+         * applied and was removed"). It is the editor's to discard or move
+         * first.
+         */
+        const heldNow = toPublish.filter((patchId) => held.has(patchId));
+        if (heldNow.length > 0) {
+          return {
+            status: "refused",
+            reason: "held-edits",
+            patchIds: heldNow,
+          };
         }
 
         // Validate the affected modules, and validate them rather than reading

@@ -136,12 +136,18 @@ export function createValSystem(
       });
       if (res.status !== 200) return null;
       const sources: Record<ModuleFilePath, Json> = {};
+      // The schema each module was evaluated with: a base made with another
+      // schema than this Studio's is not put under its fields.
+      const schemas: Record<ModuleFilePath, string> = {};
       for (const [moduleFilePath, module] of Object.entries(res.json.modules)) {
         if (isModuleFilePath(moduleFilePath) && module.source !== undefined) {
           sources[moduleFilePath] = module.source;
+          if (module.version !== undefined) {
+            schemas[moduleFilePath] = module.version.schema;
+          }
         }
       }
-      return { sourcesSha: res.json.sourcesSha, sources };
+      return { sourcesSha: res.json.sourcesSha, sources, schemas };
     },
     /**
      * Schema validation, on a thread.

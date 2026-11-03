@@ -748,6 +748,19 @@ export class SourceStore {
     return this.views.get(moduleFilePath)?.view.at.version;
   }
 
+  /**
+   * The version of the schema this Studio reads the module with, or
+   * `undefined` for a module it has no schema for. The same hash the server
+   * names a module's schema by, kept per schema object, so asking costs
+   * nothing. A base is only put under a module when it was made with this
+   * schema: see `BaseAlignment`.
+   */
+  schemaVersionOfModule(moduleFilePath: ModuleFilePath): string | undefined {
+    const schema = this.schemaStore.get(moduleFilePath);
+    if (schema === undefined) return undefined;
+    return this.schemaVersionFor(schema).version;
+  }
+
   /** How many versions of this module are kept: at most two (the heap guard). */
   retainedVersions(moduleFilePath: ModuleFilePath): number {
     return this.ring.size(moduleFilePath);

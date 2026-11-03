@@ -97,6 +97,7 @@ import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
 import { StudioOutOfDateDialog } from "./StudioOutOfDateDialog";
 import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
+import { HeldEditsBanner } from "./HeldEditsBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
@@ -1665,6 +1666,7 @@ export function ValProvider({
                             pageHolds={pageHolds}
                           />
                           <LocalModulesErrorBanner />
+                          <HeldEditsBanner />
                           <ProjectLocalesProvider>
                             {children}
                           </ProjectLocalesProvider>
@@ -1757,6 +1759,7 @@ const EMPTY_STATUS: StatusSnapshot = {
   networkErrorSince: null,
   schemaError: null,
   schema: "current",
+  held: [],
 };
 
 /**

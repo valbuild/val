@@ -192,16 +192,20 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   /**
    * S14 Edits that no longer fit a new schema are kept, not deleted.
    *
-   * Given an unsaved... (saved, pending) edit to the title,
+   * Given a pending edit to the title,
    * when the code renames the title to `heading`,
-   * then the edit is held and shown, not discarded.
+   * then the edit is held and shown, not discarded: not on the server, not
+   * in the Studio, and a publish is refused while it is held; and once the
+   * editor discards it, it goes.
    *
-   * SKIPPED: the Studio cannot apply the edit on the new base (no `title`),
-   * so it deletes it, on the server too, and tells the editor "could not be
-   * applied and has been discarded". Pinned below. Plan: phase 9 ("edits
-   * that no longer fit are held, not deleted").
+   * It was skipped until phase 9: the Studio could not apply the edit on the
+   * new base (no `title`), so it deleted it, on the server too, and told the
+   * editor "could not be applied and has been discarded". Now a patch that
+   * applied under the module's previous schema and does not under this one
+   * is held (`StatusStore.held`): the code moved under it, and deleting it
+   * deletes the editor's work.
    */
-  test.skip("S14 edits that no longer fit a new schema are kept", async () => {
+  test("S14 edits that no longer fit a new schema are kept", async () => {
     world = await createWorld({ config, modules: [home], server });
     const editor = await world.studio("editor");
     await editor.edit(home, ["title"], "Edited");
@@ -209,20 +213,43 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
     await world.changeCode([homeRenamed]);
     await world.settle();
     expect(world.network.log.filter((e) => e.method === "DELETE")).toEqual([]);
-    expect(editor.system.patchStore.allRecords()).toHaveLength(1);
+    const records = editor.system.patchStore.allRecords();
+    expect(records).toHaveLength(1);
+    expect(editor.errors()).toEqual([]);
+    const held = editor.system.status.current().held;
+    expect(held.map((edit) => edit.patchId)).toEqual([records[0].patchId]);
+    expect(held[0].moduleFilePath).toBe(PATH);
+    const refused = await editor.system.publish([records[0].patchId]);
+    expect(refused).toEqual({
+      status: "refused",
+      reason: "held-edits",
+      patchIds: [records[0].patchId],
+    });
+
+    // The editor's choice: discard it. Then it is gone, and nothing is held.
+    await editor.system.discard([records[0].patchId]);
+    await world.settle();
+    expect(editor.system.patchStore.allRecords()).toHaveLength(0);
+    expect(editor.system.status.current().held).toEqual([]);
   });
 
-  test("S14 why: an edit that no longer applies is deleted, on the server too", async () => {
+  /**
+   * S14 (the other way) An edit that never fitted is still deleted.
+   *
+   * Holding is for an edit the code moved under. A patch that does not apply
+   * under the schema it was made with can never produce a value, and kept in
+   * the chain it would block every later save to its module: that one is
+   * deleted, on the server too, as before.
+   */
+  test("S14 an edit that never fitted is deleted, as before", async () => {
     world = await createWorld({ config, modules: [home], server });
     const editor = await world.studio("editor");
-    await editor.edit(home, ["title"], "Edited");
+    await editor.system.patchStore.createPatch(moduleFilePathOf(home), [
+      { op: "replace", path: ["nope"], value: "x" },
+    ]);
     await world.settle();
-    await world.changeCode([homeRenamed]);
-    await world.settle();
-    expect(world.network.log.filter((e) => e.method === "DELETE")).toHaveLength(
-      1,
-    );
     expect(editor.system.patchStore.allRecords()).toHaveLength(0);
+    expect(editor.system.status.current().held).toEqual([]);
     expect(editor.errors().join("\n")).toMatch(/could not be applied/);
   });
 

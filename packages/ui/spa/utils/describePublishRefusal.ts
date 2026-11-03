@@ -45,6 +45,15 @@ export function describePublishRefusal(refusal: Refusal): {
           "Cannot publish: the content changed while it was being checked.",
         details: "Nothing was published. Try again.",
       };
+    case "held-edits":
+      return {
+        message:
+          refusal.patchIds.length === 1
+            ? "Cannot publish: an edit does not fit the new schema."
+            : `Cannot publish: ${refusal.patchIds.length} edits do not fit the new schema.`,
+        details:
+          "The code changed under them. Discard them, or move them to where the field went, then publish. Nothing was published.",
+      };
     case "head-moved":
       return {
         message: "Cannot publish: somebody else published while you were here.",

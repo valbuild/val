@@ -83,12 +83,12 @@ describe.each(["fs", "memory", "http"] as const)(
     });
 
     /**
-     * FAILS TODAY, and is marked so (`test.failing`): the bug "a field the
-     * assistant added reverts", reproduced in local development.
+     * The bug "a field the assistant added reverts", reproduced in local
+     * development. It FAILED until phase 9 of the plan, and was marked so.
      *
      * HMR reaches the page and the server in either order. Here the Studio's
      * registry is swapped first, the edit is made, and only then does the
-     * server get the new code. What happens, from the request log:
+     * server get the new code. What happened, from the request log:
      *
      *   POST /stat           the old server answers with ITS sourcesSha
      *   PUT  /sources/~      BaseAlignment fetches that base: no `button`
@@ -98,50 +98,39 @@ describe.each(["fs", "memory", "http"] as const)(
      *                        it: "An edit could not be applied and has been
      *                        discarded."
      *
-     * The field then shows nothing (`(absent)`), the page the old "Buy", and
-     * the editor's "Buy now" is gone. The fix is a decision rather than a line
-     * (`docs/plans/one-content-model.md`: content is never read with another
-     * schema, and an edit that does not fit after a code change is held, not
-     * deleted), so it is not made here. When it is, this test fails because it
-     * passes: remove `.failing`.
+     * The old server's base was evaluated with a schema without the field,
+     * and the Studio read it with one that has it: content read with a
+     * schema it was not made for. Now BaseAlignment leaves out a module whose
+     * base the answering build evaluated with another schema than the
+     * Studio's (`PUT /sources/~` answers each module's version), so the
+     * Studio keeps its own bundle's base for it, the edit applies there at
+     * once, and on the server once it has the code.
      *
-     * Code mode's save before each code write does NOT fix this one, and was
-     * not expected to: nothing here is a code write through Val's server.
-     * This is local development, where the code arrives by HMR, and the bug is
-     * the ORDER it arrives in -- the Studio's schema has the field before the
-     * server's does, so the edit is written against a base without it. A save
-     * before a write orders content against code where the write goes through
-     * the server (a proposal's `write_files`); HMR never does. The hosted form
-     * of the bug, which code mode is for, passes: C5 in
-     * `codeMode.scenario.test.ts`, where the assistant adds the field through
-     * `write_files` and the editor fills it in. What makes THIS one pass is the
-     * schema rule (an edit to a module whose schema the server does not have
-     * yet is held, not deleted): phase 9 of the plan.
+     * Code mode's save before each code write does not reach this one: HMR is
+     * no write through the server. Its hosted form passes as C5 in
+     * `codeMode.scenario.test.ts`.
      */
-    test.failing(
-      "is kept when the Studio has the new code before the server does",
-      async () => {
-        const { world, studio, page } = await start();
-        await studio.receiveCode([after]);
-        studio.reads("field", after, ["button", "label"]);
-        await world.observe();
+    test("is kept when the Studio has the new code before the server does", async () => {
+      const { world, studio, page } = await start();
+      await studio.receiveCode([after]);
+      studio.reads("field", after, ["button", "label"]);
+      await world.observe();
 
-        await studio.edit(after, ["button", "label"], "Buy now");
-        await world.settle();
-        world.deployCode([after]);
-        await world.settle();
+      await studio.edit(after, ["button", "label"], "Buy now");
+      await world.settle();
+      world.deployCode([after]);
+      await world.settle();
 
-        page.reads(
-          "loader",
-          async (val) => (await val.fetchVal(after)).button.label,
-        );
-        await world.observe();
+      page.reads(
+        "loader",
+        async (val) => (await val.fetchVal(after)).button.label,
+      );
+      await world.observe();
 
-        world.expectInvariants();
-        expect(world.frames.last("field")).toBe("Buy now");
-        expect(world.frames.last("loader")).toBe("Buy now");
-        expect(studio.errors()).toEqual([]);
-      },
-    );
+      world.expectInvariants();
+      expect(world.frames.last("field")).toBe("Buy now");
+      expect(world.frames.last("loader")).toBe("Buy now");
+      expect(studio.errors()).toEqual([]);
+    });
   },
 );

@@ -251,6 +251,12 @@ export type PublishResult =
    */
   | { status: "refused"; reason: "chain-moved" }
   /**
+   * Edits that stopped fitting their module when its code changed are held
+   * (`HeldEdit`), and a save would remove them to write the rest. Refused
+   * until the editor discards them or moves them where the field went.
+   */
+  | { status: "refused"; reason: "held-edits"; patchIds: PatchId[] }
+  /**
    * Somebody else published while this was being decided.
    *
    * Refused rather than failed, and the difference matters to the user: nothing

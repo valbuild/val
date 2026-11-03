@@ -1,3 +1,4 @@
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
@@ -27,12 +28,31 @@ export type TransientError = {
  */
 export type SchemaFreshness = "current" | "out-of-date";
 
+/**
+ * An edit that stopped fitting its module when the module's code changed: a
+ * field renamed or removed under a pending edit to it.
+ *
+ * Held, not deleted. Deleting is right for a patch that could never have
+ * applied; this one did, until the schema moved, and it is somebody's work.
+ * The editor sees it, and chooses: discard it, or have it moved to where the
+ * field went. Until then it is in the chain, applies nowhere, and stops a
+ * publish.
+ */
+export type HeldEdit = {
+  patchId: PatchId;
+  moduleFilePath: ModuleFilePath;
+  /** Why it does not apply now, as the engine said it. */
+  message: string;
+};
+
 export type StatusSnapshot = {
   errors: readonly TransientError[];
   /** When the network started failing, or `null`. See `reportNetworkError`. */
   networkErrorSince: number | null;
   schemaError: string | null;
   schema: SchemaFreshness;
+  /** See {@link HeldEdit}. In chain order. */
+  held: readonly HeldEdit[];
 };
 
 /**
@@ -69,6 +89,7 @@ export class StatusStore {
   private networkErrorSince: number | null = null;
   private schemaError: string | null = null;
   private freshness: SchemaFreshness = "current";
+  private held: readonly HeldEdit[] = [];
   private nextId = 0;
 
   constructor(private readonly activity: ActivitySink = noopActivity) {}
@@ -154,6 +175,25 @@ export class StatusStore {
     this.announce();
   }
 
+  /**
+   * The edits held because their module's code changed under them: the whole
+   * list, replaced. See {@link HeldEdit}.
+   */
+  reportHeld(held: readonly HeldEdit[]): void {
+    if (
+      held.length === this.held.length &&
+      held.every(
+        (edit, index) =>
+          edit.patchId === this.held[index].patchId &&
+          edit.message === this.held[index].message,
+      )
+    ) {
+      return;
+    }
+    this.held = held;
+    this.announce();
+  }
+
   /** Everything the editor should be told, as one value. */
   current(): StatusSnapshot {
     if (this.snapshot === null) {
@@ -162,6 +202,7 @@ export class StatusStore {
         networkErrorSince: this.networkErrorSince,
         schemaError: this.schemaError,
         schema: this.freshness,
+        held: this.held,
       };
     }
     return this.snapshot;
