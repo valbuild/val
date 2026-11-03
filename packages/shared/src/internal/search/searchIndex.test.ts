@@ -7,7 +7,12 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { buildSearchIndex, performSearch } from "./searchIndex";
+import {
+  buildSearchIndex,
+  createSearchIndex,
+  indexModule,
+  performSearch,
+} from "./searchIndex";
 
 const { s, c } = initVal();
 
@@ -222,3 +227,114 @@ function getModules(
   }
   return modules;
 }
+
+describe("indexing a record module again", () => {
+  const schema = s
+    .record(s.object({ title: s.string() }))
+    ["executeSerialize"]();
+  const POSTS = "/posts.val.ts" as ModuleFilePath;
+  const titled = (title: string) => ({ title });
+
+  function counting() {
+    const searchIndex = createSearchIndex();
+    const added: string[] = [];
+    const add = searchIndex.index.add.bind(searchIndex.index);
+    searchIndex.index.add = (id, content) => {
+      added.push(id);
+      add(id, content);
+    };
+    return { searchIndex, added };
+  }
+
+  function paths(
+    searchIndex: ReturnType<typeof createSearchIndex>,
+    query: string,
+  ) {
+    return performSearch(searchIndex, query)
+      .results.map((result) => result.path as string)
+      .sort();
+  }
+
+  /*
+   * What makes a `.jsonValues()` record searchable while it loads: the
+   * Studio re-indexes as each batch lands, and an entry that did not change
+   * is the same object, so only the batch is walked.
+   */
+  test("walks only the entries whose value is a different object", () => {
+    const { searchIndex, added } = counting();
+    const a = titled("alpha");
+    const b = titled("bravo");
+    indexModule(searchIndex, POSTS, { "/a": a, "/b": b }, schema);
+    expect(added).toHaveLength(2);
+
+    added.length = 0;
+    indexModule(
+      searchIndex,
+      POSTS,
+      { "/a": a, "/b": titled("bravissimo"), "/c": titled("charlie") },
+      schema,
+    );
+    expect(added.sort()).toEqual([
+      '/posts.val.ts?p="/b"."title"',
+      '/posts.val.ts?p="/c"."title"',
+    ]);
+    expect(paths(searchIndex, "bravo")).toEqual([]);
+    expect(paths(searchIndex, "bravissimo")).toEqual([
+      '/posts.val.ts?p="/b"."title"',
+    ]);
+    expect(paths(searchIndex, "alpha")).toEqual([
+      '/posts.val.ts?p="/a"."title"',
+    ]);
+  });
+
+  test("an entry that went is not found any more", () => {
+    const { searchIndex } = counting();
+    const a = titled("alpha");
+    indexModule(searchIndex, POSTS, { "/a": a, "/b": titled("bravo") }, schema);
+    indexModule(searchIndex, POSTS, { "/a": a }, schema);
+    expect(paths(searchIndex, "bravo")).toEqual([]);
+    expect(paths(searchIndex, "alpha")).toEqual([
+      '/posts.val.ts?p="/a"."title"',
+    ]);
+  });
+
+  test("an equal value that is a new object is walked again, never skipped", () => {
+    const { searchIndex, added } = counting();
+    indexModule(searchIndex, POSTS, { "/a": titled("alpha") }, schema);
+    added.length = 0;
+    indexModule(searchIndex, POSTS, { "/a": titled("alpha") }, schema);
+    expect(added).toEqual(['/posts.val.ts?p="/a"."title"']);
+    expect(paths(searchIndex, "alpha")).toEqual([
+      '/posts.val.ts?p="/a"."title"',
+    ]);
+  });
+
+  test("a new schema starts the module over", () => {
+    const { searchIndex, added } = counting();
+    const a = titled("alpha");
+    indexModule(searchIndex, POSTS, { "/a": a }, schema);
+    added.length = 0;
+    const renamed = s
+      .record(s.object({ title: s.string(), slug: s.string().nullable() }))
+      ["executeSerialize"]();
+    indexModule(searchIndex, POSTS, { "/a": a }, renamed);
+    expect(added).toEqual(['/posts.val.ts?p="/a"."title"']);
+  });
+
+  test("the same documents as a walk of the whole module", () => {
+    const source = {
+      "/a": titled("alpha"),
+      "/b": titled("bravo"),
+    };
+    const incremental = createSearchIndex();
+    indexModule(incremental, POSTS, { "/a": source["/a"] }, schema);
+    indexModule(incremental, POSTS, source, schema);
+    const whole = buildSearchIndex({ [POSTS]: { source, schema } });
+    expect([...incremental.pathToLabel].sort()).toEqual(
+      [...whole.pathToLabel].sort(),
+    );
+    expect([...(incremental.docsByModule.get(POSTS) ?? [])].sort()).toEqual(
+      [...(whole.docsByModule.get(POSTS) ?? [])].sort(),
+    );
+  });
+});
