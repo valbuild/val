@@ -31,3 +31,23 @@ test("passes started together end at the newest snapshot, and end", async () => 
   expect(newest.status === "results" && newest.total).toBe(3_000);
   expect(older.status === "results" && older.total).toBe(0);
 }, 20_000);
+
+test("passes asked for while one runs are one pass, with the newest snapshot", async () => {
+  let passes = 0;
+  const store = new SearchStore({
+    work: (kind) => {
+      if (kind === "search:index-module") passes++;
+    },
+  });
+  const first = store.reindex(snapshotOf("alpha", 3_000));
+  // Running now: started, and let the thread go after its first slice.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const rest = ["bravo", "charlie", "delta", "echo"].map((word) =>
+    store.reindex(snapshotOf(word, 3_000)),
+  );
+  await Promise.all([first, ...rest]);
+  // The one running, and one for the four that waited behind it.
+  expect(passes).toBe(2);
+  const newest = await store.search("echo", 5);
+  expect(newest.status === "results" && newest.total).toBe(3_000);
+}, 20_000);

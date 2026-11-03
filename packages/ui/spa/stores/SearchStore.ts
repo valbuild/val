@@ -146,8 +146,27 @@ export class SearchStore {
     new: ModuleFilePath[];
     all: ModuleFilePath[];
   }> {
-    return this.oneAtATime(() => this.reindexNow(snapshot));
+    // A pass already waiting takes this snapshot too, newest per module:
+    // asked again per batch of a big record, the passes would otherwise
+    // queue up behind each other, each indexing a snapshot the next one
+    // makes old. Both callers get the one pass's answer.
+    const waiting = this.waitingReindex;
+    if (waiting !== null) {
+      Object.assign(waiting.snapshot, snapshot);
+      return waiting.result;
+    }
+    const merged: SourceSnapshot = { ...snapshot };
+    const result = this.oneAtATime(() => {
+      this.waitingReindex = null;
+      return this.reindexNow(merged);
+    });
+    this.waitingReindex = { snapshot: merged, result };
+    return result;
   }
+  private waitingReindex: {
+    snapshot: SourceSnapshot;
+    result: Promise<{ new: ModuleFilePath[]; all: ModuleFilePath[] }>;
+  } | null = null;
 
   /**
    * The passes over the index, one after the other, in the order asked.
