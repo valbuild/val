@@ -324,6 +324,5 @@ export function stagedProject(
 export function reloadStaged(
   host: Pick<HostStore, "reloadCode">,
 ): StagedCodeDeps["reloadCode"] {
-  return (registry) =>
-    host.reloadCode(registry, undefined, { byContent: true });
+  return (registry) => host.reloadCode(registry, { byContent: true });
 }

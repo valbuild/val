@@ -523,7 +523,6 @@ test("removed-patch notices are delivered once, even on a stat dropped as older"
     headVersion: 6,
     removed: [{ patchId: "later" as PatchId, reason: "unreadable" }],
   });
-  system.stat.readopt();
   expect(removed).toHaveLength(2);
   errors.mockRestore();
 });

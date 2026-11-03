@@ -1,4 +1,4 @@
-import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import { statSnapshotOf } from "./statSnapshotOf";
@@ -118,37 +118,60 @@ export function createValSystem(
       return res.json.schemaSha;
     },
     /**
-     * The base of the build a `/stat` came from, when it is not the bundle's.
-     *
-     * Un-patched and unvalidated: the Studio applies the chain itself, and all
-     * it needs from the server here is the source that chain is relative to.
-     * The sha comes back with it, so `BaseAlignment` can tell a base from a
-     * third build -- the pointer that made the stat differ can move again.
+     * `GET /manifest`, "since" the manifest held: what each module is on the
+     * server (`ManifestSource`). A 304 while nothing moved.
      */
-    fetchBaseSources: async () => {
-      const res = await client("/sources/~", "PUT", {
-        path: undefined,
+    fetchManifest: async (held) => {
+      const res = await client("/manifest", "GET", {
+        headers: { "if-none-match": held?.tag },
         query: {
-          apply_patches: false,
-          exclude_patches: true,
-          validate_sources: false,
-          validate_binary_files: false,
+          since: held !== null ? String(held.seq) : undefined,
         },
       });
-      if (res.status !== 200) return null;
-      const sources: Record<ModuleFilePath, Json> = {};
-      // The schema each module was evaluated with: a base made with another
-      // schema than this Studio's is not put under its fields.
-      const schemas: Record<ModuleFilePath, string> = {};
-      for (const [moduleFilePath, module] of Object.entries(res.json.modules)) {
-        if (isModuleFilePath(moduleFilePath) && module.source !== undefined) {
-          sources[moduleFilePath] = module.source;
-          if (module.version !== undefined) {
-            schemas[moduleFilePath] = module.version.schema;
-          }
-        }
+      if (res.status === 304) return { kind: "unchanged" };
+      if (res.status !== 200 || res.json === null || res.json === undefined) {
+        return {
+          kind: "error",
+          message:
+            res.json !== null && res.json !== undefined && "message" in res.json
+              ? res.json.message
+              : `GET /manifest failed with status ${res.status ?? "network"}`,
+        };
       }
-      return { sourcesSha: res.json.sourcesSha, sources, schemas };
+      if (res.json.superseded === true) return { kind: "superseded" };
+      return {
+        kind: "manifest",
+        project: res.json.project,
+        modules: res.json.modules,
+        ...(res.json.tag !== undefined ? { tag: res.json.tag } : {}),
+        ...(res.json.since !== undefined ? { since: res.json.since } : {}),
+      };
+    },
+    /**
+     * `GET /modules/~<path>`: one module at a version, or the patches from
+     * the version held (`originTier`).
+     */
+    fetchModule: async (moduleFilePath, query) => {
+      const res = await client("/modules/~", "GET", {
+        path: moduleFilePath,
+        query: { v: query.v, have: query.have },
+      });
+      if (res.status === 200) return res.json;
+      if (res.status === 404) {
+        return {
+          kind: "not-held",
+          ...("current" in res.json && res.json.current !== undefined
+            ? { current: res.json.current }
+            : {}),
+        };
+      }
+      return {
+        kind: "error",
+        message:
+          "message" in res.json
+            ? res.json.message
+            : `GET /modules failed with status ${res.status ?? "network"}`,
+      };
     },
     /**
      * Schema validation, on a thread.
@@ -691,11 +714,6 @@ export function createValSystem(
   });
   built = system;
   return system;
-}
-
-/** A `/sources/~` key: the response is keyed by module file path, which is absolute. */
-function isModuleFilePath(path: string): path is ModuleFilePath {
-  return path.startsWith("/");
 }
 
 /**

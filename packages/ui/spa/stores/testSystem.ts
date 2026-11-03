@@ -3,11 +3,14 @@ import {
   type ModuleFilePath,
   type PatchId,
   type SelectorSource,
+  type SerializedSchema,
   type SourcePath,
   type ValModule,
 } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
-import type { ParentRef, Patch } from "@valbuild/core/patch";
+import type { ParentRef, Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
+import { applyChain, baseModuleContent } from "@valbuild/shared/internal";
+import { createFakeManifest } from "./testManifest";
 import { createSystem, type System } from "./createSystem";
 import { SearchStore } from "./SearchStore";
 import { PatchSetStore } from "./PatchSetStore";
@@ -548,6 +551,13 @@ export type TestServer = {
    * vanished patch's effect belongs in source or not.
    */
   simulateForeignPublish(patchIds: PatchId[]): void;
+  /**
+   * The server folds these patches into its base -- out of the chain, their
+   * effect in the base -- WITHOUT the base sha moving: a save at a proposal's
+   * address, which folds into the address's snapshot at once, before any
+   * build. The client is told by the next stat, as for a discard.
+   */
+  simulateFoldedIntoBase(patchIds: PatchId[]): void;
   /** What the chain is rooted at. */
   baseSha: string;
 };
@@ -752,7 +762,40 @@ export function initTestSystem(
   const workerPatchSets = new PatchSetStore(activity);
   const workerReferences = new ReferenceStore(activity);
 
+  /**
+   * The server's base per module: what the Studio's bundle wrote (the server
+   * evaluated the same code), with what a foreign publish baked into it on
+   * top -- see `simulateForeignPublish`.
+   */
+  const publishedBases = new Map<ModuleFilePath, Json>();
+  let systemRef: System | null = null;
+  const fakeManifest = createFakeManifest({
+    bases: () => {
+      const bases = new Map<
+        ModuleFilePath,
+        { source: Json; schema: SerializedSchema | undefined }
+      >();
+      const built = systemRef?.host.bundleSources() ?? {};
+      const schemas = systemRef?.schemaStore.all() ?? {};
+      for (const [path, source] of Object.entries(built)) {
+        const moduleFilePath = path as ModuleFilePath;
+        bases.set(moduleFilePath, {
+          source: publishedBases.get(moduleFilePath) ?? source,
+          schema: schemas[moduleFilePath],
+        });
+      }
+      return bases;
+    },
+    chain: () =>
+      announced.flatMap((patchId) => {
+        const record = serverPatches.get(patchId);
+        return record === undefined ? [] : [record];
+      }),
+  });
+
   const system = createSystem({
+    fetchManifest: fakeManifest.fetchManifest,
+    fetchModule: fakeManifest.fetchModule,
     ...(options.manualPendingValidation === true
       ? {
           deferPendingValidation: (run: () => void) => {
@@ -968,6 +1011,43 @@ export function initTestSystem(
     },
     activity,
   });
+  systemRef = system;
+
+  /**
+   * Take these patches out of the server's chain and put their effect in its
+   * base, as a commit's deployment (or a proposal's snapshot) does.
+   */
+  const bakeIntoBase = (patchIds: readonly PatchId[]) => {
+    const published = new Set<PatchId>(patchIds);
+    const byModule = new Map<ModuleFilePath, PatchRecord[]>();
+    for (const patchId of announced) {
+      const record = serverPatches.get(patchId);
+      if (record === undefined || !published.has(patchId)) continue;
+      const records = byModule.get(record.moduleFilePath) ?? [];
+      records.push(record);
+      byModule.set(record.moduleFilePath, records);
+    }
+    for (const [moduleFilePath, records] of byModule) {
+      const base =
+        publishedBases.get(moduleFilePath) ??
+        system.host.bundleSources()?.[moduleFilePath];
+      if (base === undefined) continue;
+      const baked = applyChain(
+        baseModuleContent(base as ReadonlyJSONValue),
+        records.map((record) => ({
+          ...record,
+          patch: record.patch.filter((op) => op.op !== "file"),
+        })),
+        system.schemaStore.get(moduleFilePath),
+      );
+      publishedBases.set(moduleFilePath, baked.module.source as Json);
+    }
+    for (const patchId of patchIds) {
+      serverPatches.delete(patchId);
+      const at = announced.indexOf(patchId);
+      if (at !== -1) announced.splice(at, 1);
+    }
+  };
 
   const offBuses = [
     system.stat.events.onAny((event) => ledger.record(event)),
@@ -1245,16 +1325,16 @@ export function initTestSystem(
         patchFetchFailure = message;
       },
       simulateForeignPublish(patchIds) {
-        for (const patchId of patchIds) {
-          serverPatches.delete(patchId);
-          const at = announced.indexOf(patchId);
-          if (at !== -1) announced.splice(at, 1);
-        }
+        bakeIntoBase(patchIds);
         publishedBaseSha += "-committed";
         system.stat.receiveStat({
           patches: [...announced],
           baseSha: publishedBaseSha,
         });
+      },
+      simulateFoldedIntoBase(patchIds) {
+        bakeIntoBase(patchIds);
+        system.stat.receiveStat({ patches: [...announced], baseSha });
       },
       simulateServerRemovedUnreadable(removed) {
         for (const entry of removed) {

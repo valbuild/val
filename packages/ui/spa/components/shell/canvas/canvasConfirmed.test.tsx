@@ -16,6 +16,7 @@ import {
   type ValCanvasStudioMessage,
 } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../../../stores/createSystem";
+import { createFakeManifest } from "../../../stores/testManifest";
 import type { PatchRecord } from "../../../stores/types";
 import { ValSystemProvider } from "../../../stores/react/SystemContext";
 import { CanvasFrame } from "./CanvasFrame";
@@ -56,8 +57,27 @@ const pending: PatchRecord = {
 
 function setup() {
   const { c, s } = initVal();
+  let systemRef: System | null = null;
+  const server = createFakeManifest({
+    bases: () =>
+      new Map([
+        [
+          PENDING_MODULE,
+          {
+            source: HOME,
+            schema: systemRef?.schemaStore.get(PENDING_MODULE),
+          },
+        ],
+        [
+          HELD_MODULE,
+          { source: ABOUT, schema: systemRef?.schemaStore.get(HELD_MODULE) },
+        ],
+      ]),
+    chain: () => [pending],
+  });
   const system: System = createSystem({
-    fetchBaseSources: async () => null,
+    fetchManifest: server.fetchManifest,
+    fetchModule: server.fetchModule,
     fetchPatches: async (patchIds) => ({
       patches: patchIds.includes(PENDING) ? [pending] : [],
     }),
@@ -69,6 +89,7 @@ function setup() {
     }),
     publishPatches: async () => ({ status: "published" }),
   });
+  systemRef = system;
   const modules = [
     c.define(PENDING_MODULE, s.object({ title: s.string() }), HOME),
     c.define(HELD_MODULE, s.object({ title: s.string() }), ABOUT),

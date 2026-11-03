@@ -134,16 +134,16 @@ export type WorkKind =
   | "patch:save-retry"
   /** Patches removed from the chain. `count` is how many. */
   | "patch:drop"
+  // --- the manifest: what each module IS on the server (`manifestSource.ts`)
+  /** One `GET /manifest`: "since" the one held, a 304 while nothing moved. */
+  | "manifest:fetch"
   /**
-   * One round trip asking the server whether patches stat stopped naming still
-   * exist. `count` is how many ids it asked about.
-   *
-   * Worth its own kind rather than reusing `patch:fetch`: this one is not on any
-   * demand path, it fires only when the chain and stat disagree, and a test that
-   * wants to prove the disagreement is settled by ASKING rather than by guessing
-   * has to be able to see it happen.
+   * A version the manifest named was one this Studio computed itself: its own
+   * edit, confirmed. Nothing was asked for it.
    */
-  | "patch:verify-vanished"
+  | "manifest:memory-hit"
+  /** One `GET /modules`: a module, or the patches from the version held. */
+  | "manifest:origin"
   /** Published patches taken out of the chain, source left alone. */
   | "patch:forget-published"
   // --- status: what the editor is told --------------------------------------

@@ -46,13 +46,16 @@ import {
   fetchKeyOf,
   isJsonObject,
   resolveAt,
-  studioModule,
+  extendBy,
+  serverAt,
   viewOf,
+  withLocalEdits,
   type ModuleAt,
   type ModuleInputs,
   type ModuleView,
   type ResolvedEntries,
 } from "./studioView";
+import type { OriginModule } from "./originTier";
 
 /**
  * Fetch one `.jsonValues()` entry's content (`GET /json` in the app), as the
@@ -226,6 +229,47 @@ type Peeked = {
 const NO_SCHEMA = "";
 
 /**
+ * `decidedAt` of a module no manifest has decided anything about: the
+ * bundle's base before the first one, or a base new code moved here since.
+ * Every patch of its chain is shown on top.
+ */
+const NOTHING_DECIDED = -1;
+
+/** How many computed chains are remembered per module: see `SourceStore.knownChain`. */
+const CHAINS_KEPT = 64;
+
+/** The server's version below a module's view, as `withLocalEdits` reads it. */
+type Below = {
+  /** The patch ids it is made of. */
+  readonly tried: readonly PatchId[];
+  /** Its content, made only when the kept versions do not extend it. */
+  readonly at: () => ModuleAt;
+  readonly decidedAt: number;
+};
+
+/** A module at the version the server named for it. See `SourceStore.adoptServer`. */
+export type ServerBelow = {
+  /** As the server names it: its schema, which may not be this Studio's. */
+  readonly version: ModuleVersion;
+  /** The patch ids its chain is made of, in chain order. */
+  readonly applied: readonly PatchId[];
+  /**
+   * Its content, under this Studio's schema. `null` for a version this
+   * Studio computed itself on the way to what it shows (its own edits, a
+   * save confirmed while it typed on): what it shows extends it, so its
+   * content is made only if something needs it on its own -- a discard
+   * of what came after it.
+   */
+  at: ModuleAt | null;
+  /**
+   * The manifest that decided it (`PatchStore.nextManifestEpoch`): a patch
+   * this Studio held before that manifest was asked for, and that this
+   * version does not have, is gone.
+   */
+  readonly decidedAt: number;
+};
+
+/**
  * Owns the patched source, and owns "who is listening where".
  *
  * Both in one store on purpose: because the same code computes the module and
@@ -236,13 +280,15 @@ const NO_SCHEMA = "";
  *
  * ## What it holds, and what it reads through
  *
- * It holds each module's BASE (the source as authored or as the server last
- * sent it, `.jsonValues()` entries as markers), the base content of the
- * entries it has read, and the module's CHAIN. Everything a field reads is the
- * Studio's view of those (`studioView.ts`): {@link withLocalEdits} over
- * {@link chainSource}, through THE engine (`applyPatchRecord` in
- * `@valbuild/shared`, which Val's server applies patches with), at a version
- * computed here ({@link versionOf}). There are no patch rules of its own here
+ * It holds each module's BASE (the source as authored or as the server sent
+ * it, `.jsonValues()` entries as markers), the base content of the entries it
+ * has read, the module at the version the SERVER names for it (the manifest's,
+ * `manifestSource.ts`; the bundle's until one has been adopted), and the
+ * module's CHAIN. Everything a field reads is the Studio's view of those
+ * (`studioView.ts`): {@link withLocalEdits} -- the chain's patches the
+ * server's version does not have -- over the server's module, through THE
+ * engine (`applyPatchRecord` in `@valbuild/shared`, which Val's server applies
+ * patches with), at a version computed here ({@link versionOf}). There are no patch rules of its own here
  * any more: where a file's `patch_id` lands, what an edit inside an entry does,
  * what a whole entry added does -- the engine's, so the Studio and the server
  * cannot disagree about them.
@@ -413,10 +459,21 @@ export class SourceStore {
   /** Patches an entry's error has been reported for, so it is reported once. */
   private reportedEntryErrors = new Set<PatchId>();
   /**
-   * Whether the server has a patch (`PatchStore.isPending` says it does not):
-   * where {@link chainSource} ends and {@link withLocalEdits} begins.
+   * Each module at the version the server names for it: what
+   * {@link withLocalEdits} goes over. Absent: the bundle's base, before a
+   * manifest named one. See {@link adoptServer}.
    */
-  private isConfirmed: (patchId: PatchId) => boolean = () => false;
+  private server = new Map<ModuleFilePath, ServerBelow>();
+
+  /**
+   * Whether a manifest has said a patch is gone: it is not in the server's
+   * version of its module, the manifest that named that version was asked for
+   * after this Studio held the patch (`decidedAt`), and it is not one of this
+   * Studio's own unsaved ones. From `PatchStore.decidedGone`. Such a patch is
+   * not applied on top: the server's version is the truth about it.
+   */
+  private decidedGone: (patchId: PatchId, decidedAt: number) => boolean = () =>
+    false;
 
   /**
    * One `EventTarget` per REGISTERED path, not per module.
@@ -595,18 +652,7 @@ export class SourceStore {
     moduleFilePath: ModuleFilePath,
     base: Json,
     schema: SerializedSchema | undefined,
-    records: readonly PatchRecord[],
   ): ModuleInputs {
-    const chain = this.chains.get(moduleFilePath) ?? [];
-    let confirmed = 0;
-    while (
-      confirmed < chain.length &&
-      confirmed < records.length &&
-      (chain[confirmed].origin === "external" ||
-        this.isConfirmed(chain[confirmed].record.patchId))
-    ) {
-      confirmed++;
-    }
     const schemaVersion = this.schemaVersionFor(schema);
     return {
       schema,
@@ -614,10 +660,101 @@ export class SourceStore {
       engineKey: schemaVersion.engine,
       base,
       baseVersion: this.baseVersionFor(moduleFilePath, base),
-      records,
-      confirmed,
       onApply: (patchId) => this.activity.work("source:apply-patch", patchId),
     };
+  }
+
+  /**
+   * The module at the server's version, under this Studio's schema: the
+   * manifest's, or the bundle's base before one named it.
+   */
+  private belowOf(moduleFilePath: ModuleFilePath, inputs: ModuleInputs): Below {
+    const below = this.server.get(moduleFilePath);
+    if (below === undefined || below.version.base !== inputs.baseVersion) {
+      return {
+        tried: [],
+        at: () => baseAt(inputs),
+        decidedAt: NOTHING_DECIDED,
+      };
+    }
+    return {
+      tried: below.applied,
+      at: () => this.materializeBelow(moduleFilePath, below, inputs),
+      decidedAt: below.decidedAt,
+    };
+  }
+
+  /**
+   * The content of the server's version below, under this Studio's schema:
+   * as held, or -- for a version known only by its patches, one this Studio
+   * computed -- the kept version of exactly those patches, or else the base
+   * with them applied (counted). Kept once made.
+   */
+  private materializeBelow(
+    moduleFilePath: ModuleFilePath,
+    below: ServerBelow,
+    inputs: ModuleInputs,
+  ): ModuleAt {
+    let at = below.at;
+    if (at === null) {
+      const kept = this.ring.longestPrefix(
+        moduleFilePath,
+        inputs,
+        below.applied,
+        below.applied.length,
+      );
+      if (kept !== null && kept.tried.length === below.applied.length) {
+        at = kept;
+      } else {
+        const byId = new Map<PatchId, PatchRecord>();
+        for (const { record } of this.chains.get(moduleFilePath) ?? []) {
+          byId.set(record.patchId, record);
+        }
+        const records: PatchRecord[] = [];
+        for (const patchId of below.applied) {
+          const record = byId.get(patchId);
+          if (record !== undefined) records.push(record);
+        }
+        at = applyOnBase(inputs, records);
+      }
+      below.at = at;
+    }
+    return at.engine === inputs.engineKey &&
+      at.version.schema === inputs.schemaVersion
+      ? at
+      : {
+          ...at,
+          engine: inputs.engineKey,
+          version: { ...at.version, schema: inputs.schemaVersion },
+        };
+  }
+
+  /**
+   * The module's patches the server's version below does not have, in chain
+   * order: what this Studio shows on top (`withLocalEdits`). Its OWN edits,
+   * unless a manifest said they are gone -- another editor's patch is shown
+   * once the server's version has it, never replayed here. All of the chain
+   * when nothing below has been decided: before the first manifest, after
+   * new code moved the base here, on a module new code put this Studio ahead
+   * on, or with no server to ask.
+   */
+  private localOf(moduleFilePath: ModuleFilePath, below: Below): PatchRecord[] {
+    const chain = this.chains.get(moduleFilePath) ?? [];
+    if (chain.length === 0) return [];
+    const inBelow = new Set<PatchId>(below.tried);
+    const local: PatchRecord[] = [];
+    for (const { record, origin } of chain) {
+      if (inBelow.has(record.patchId)) continue;
+      if (
+        below.decidedAt !== NOTHING_DECIDED &&
+        (origin === "external" ||
+          this.decidedGone(record.patchId, below.decidedAt))
+      ) {
+        continue;
+      }
+      local.push(record);
+    }
+    return local;
   }
 
   /**
@@ -639,17 +776,50 @@ export class SourceStore {
       return { before, after: undefined };
     }
     const schema = this.schemaStore.get(moduleFilePath);
-    const records = (this.chains.get(moduleFilePath) ?? []).map(
-      (entry) => entry.record,
-    );
+    const inputs = this.inputsOf(moduleFilePath, base, schema);
+    const below = this.belowOf(moduleFilePath, inputs);
     const at = this.counted(moduleFilePath, () =>
-      studioModule(
+      withLocalEdits(
         moduleFilePath,
-        this.inputsOf(moduleFilePath, base, schema, records),
+        below,
+        this.localOf(moduleFilePath, below),
+        inputs,
         this.ring,
       ),
     );
+    this.rememberChain(moduleFilePath, at);
     return { before, after: this.viewAt(moduleFilePath, at, schema) };
+  }
+
+  /**
+   * The chains this Studio computed for each module, by the version's chain:
+   * the patches each is made of. What a manifest naming one of them is
+   * answered from when the version's content is no longer kept -- a save
+   * confirmed while the editor typed on names a version the Studio passed
+   * through, and nothing has to be fetched or applied for it
+   * ({@link knownChain}). The last {@link CHAINS_KEPT} per module.
+   */
+  private computedChains = new Map<
+    ModuleFilePath,
+    Map<string, { base: string; engine: string; applied: readonly PatchId[] }>
+  >();
+
+  private rememberChain(moduleFilePath: ModuleFilePath, at: ModuleAt): void {
+    let chains = this.computedChains.get(moduleFilePath);
+    if (chains === undefined) {
+      chains = new Map();
+      this.computedChains.set(moduleFilePath, chains);
+    }
+    if (chains.has(at.version.chain)) return;
+    chains.set(at.version.chain, {
+      base: at.version.base,
+      engine: at.engine,
+      applied: at.applied,
+    });
+    if (chains.size > CHAINS_KEPT) {
+      const oldest = chains.keys().next();
+      if (oldest.done !== true) chains.delete(oldest.value);
+    }
   }
 
   /** The view of `at`, kept: the same object while nothing it reads moved. */
@@ -1780,7 +1950,7 @@ export class SourceStore {
     }
     const records = shipped.map((entry) => entry.record);
     const view = this.counted(moduleFilePath, () => {
-      const inputs = this.inputsOf(moduleFilePath, base, schema, records);
+      const inputs = this.inputsOf(moduleFilePath, base, schema);
       let at =
         records.length === 0 ? baseAt(inputs) : applyOnBase(inputs, records);
       if (at.failed.length > 0) {
@@ -1899,10 +2069,7 @@ export class SourceStore {
           patch: record.patch.filter((op) => op.op !== "file"),
         }));
         const at = this.counted(moduleFilePath, () =>
-          applyOnBase(
-            this.inputsOf(moduleFilePath, base, schema, records),
-            records,
-          ),
+          applyOnBase(this.inputsOf(moduleFilePath, base, schema), records),
         );
         if (at.failed.length > 0) {
           /*
@@ -1966,11 +2133,9 @@ export class SourceStore {
   }
 
   /**
-   * Forget these patches WITHOUT computing anything again.
-   *
-   * For a base from another build (`BaseAlignment`), whose base already
-   * contains them: it is followed by {@link rebase} in the same turn, which
-   * computes the modules from that base. Nothing is shown in between.
+   * Forget these patches WITHOUT computing anything again: they are
+   * published, and their effect is in the base the next manifest names. The
+   * modules are computed when that base arrives ({@link adoptServer}).
    */
   forgetPublished(patchIds: readonly PatchId[]): void {
     const published = new Set(patchIds);
@@ -1985,54 +2150,233 @@ export class SourceStore {
   }
 
   /**
-   * Replace the base AND the chain on it, in one step.
-   *
-   * For a base from another build (`BaseAlignment`). {@link receive} alone
-   * computes the chain this store already holds on it and leaves new patches
-   * to arrive after it, which is right when the base moves forward and wrong
-   * when it moves back: an older build's base needs patches that come BEFORE
-   * the ones held here.
-   *
-   * So the chain of every module in `sources` is replaced by the one given,
-   * in its order. An entry that was already here keeps its origin and creator,
-   * so a field is not woken by its own edit being replayed. A module outside
-   * `sources` keeps its base, and only gains the patches it has never had.
+   * Whether the manifest adopted for this patch's module says it is gone:
+   * the server's version of the module does not have it, and that manifest
+   * was asked for after this Studio held it. `false` when nothing has been
+   * decided for the module (no manifest yet, or a base new code moved here).
    */
-  rebase(sources: Record<ModuleFilePath, Json>, chain: PatchRecord[]): void {
-    const previous = new Map<PatchId, ChainEntry>();
-    for (const entries of this.chains.values()) {
-      for (const entry of entries) {
-        previous.set(entry.record.patchId, entry);
+  isGone(
+    patchId: PatchId,
+    moduleFilePath: ModuleFilePath | undefined,
+  ): boolean {
+    if (moduleFilePath === undefined) return false;
+    const below = this.server.get(moduleFilePath);
+    const base = this.baseOf(moduleFilePath);
+    if (
+      below === undefined ||
+      base === undefined ||
+      below.version.base !== base.version ||
+      below.applied.includes(patchId)
+    ) {
+      return false;
+    }
+    return this.decidedGone(patchId, below.decidedAt);
+  }
+
+  /** The version the server named for this module, as adopted, if one has. */
+  serverVersionOf(moduleFilePath: ModuleFilePath): ModuleVersion | undefined {
+    return this.server.get(moduleFilePath)?.version;
+  }
+
+  /**
+   * The server's version this module is on, as adopted, with its content --
+   * to extend by a delta (the origin tier's `have`), or to put back under a
+   * re-intake. `null` before a manifest named one, or on another base.
+   */
+  serverModuleOf(
+    moduleFilePath: ModuleFilePath,
+  ): { version: ModuleVersion; at: ModuleAt } | null {
+    const below = this.server.get(moduleFilePath);
+    const base = this.baseSources[moduleFilePath];
+    if (below === undefined || base === undefined) return null;
+    const inputs = this.inputsOf(
+      moduleFilePath,
+      base,
+      this.schemaStore.get(moduleFilePath),
+    );
+    if (below.version.base !== inputs.baseVersion) return null;
+    return {
+      version: below.version,
+      at: this.counted(moduleFilePath, () =>
+        this.materializeBelow(moduleFilePath, below, inputs),
+      ),
+    };
+  }
+
+  /**
+   * A version this Studio computed for a module, at this base and chain: the
+   * memory tier. Its content when it is still kept (`VersionRing`); its
+   * patches when only those are (`computedChains`) -- a save confirmed while
+   * the editor typed on names a version passed on the way, and what is shown
+   * extends it. `null` when this Studio never computed it.
+   */
+  knownChain(
+    moduleFilePath: ModuleFilePath,
+    version: Pick<ModuleVersion, "base" | "chain">,
+  ): { at: ModuleAt } | { applied: readonly PatchId[] } | null {
+    const engine = this.schemaVersionFor(
+      this.schemaStore.get(moduleFilePath),
+    ).engine;
+    const kept = this.ring.atVersion(
+      moduleFilePath,
+      { engineKey: engine },
+      version,
+    );
+    if (kept !== null) return { at: kept };
+    const known = this.computedChains.get(moduleFilePath)?.get(version.chain);
+    if (
+      known !== undefined &&
+      known.base === version.base &&
+      known.engine === engine
+    ) {
+      return { applied: known.applied };
+    }
+    return null;
+  }
+
+  /** The base held for this module, and its version. */
+  baseOf(
+    moduleFilePath: ModuleFilePath,
+  ): { source: Json; version: string } | undefined {
+    const source = this.baseSources[moduleFilePath];
+    if (source === undefined) return undefined;
+    return {
+      source,
+      version: this.baseVersionFor(moduleFilePath, source),
+    };
+  }
+
+  /**
+   * A module the origin answered, under this Studio's schema for it: what
+   * {@link adoptServer} takes. `base` is the base it is on.
+   */
+  atOfServer(
+    moduleFilePath: ModuleFilePath,
+    module: OriginModule,
+    base: Json,
+  ): ModuleAt {
+    const schema = this.schemaStore.get(moduleFilePath);
+    return serverAt(module, this.inputsOf(moduleFilePath, base, schema));
+  }
+
+  /**
+   * The module `at` extended by a delta the server answered, or `null` when a
+   * patch of it does not apply here. Counted as the Studio's work.
+   */
+  extendServer(
+    moduleFilePath: ModuleFilePath,
+    at: ModuleAt,
+    records: readonly { patchId: PatchId; patch: PatchRecord["patch"] }[],
+    base: Json,
+  ): ModuleAt | null {
+    const schema = this.schemaStore.get(moduleFilePath);
+    const inputs = this.inputsOf(moduleFilePath, base, schema);
+    return this.counted(moduleFilePath, () =>
+      extendBy(
+        at,
+        records.map((record) => ({
+          patchId: record.patchId,
+          moduleFilePath,
+          patch: record.patch,
+        })),
+        inputs,
+      ),
+    );
+  }
+
+  /**
+   * Adopt what the server's manifest names, in ONE turn: per module, the
+   * module at the server's version (and the base it is on, where that moved),
+   * and for every module the manifest was asked for after `decidedAt`
+   * patches this Studio held -- so a patch of the chain the server's version
+   * does not have is gone, unless it is this Studio's own and not saved yet.
+   *
+   * This is where another editor's edit, a publish, a discard elsewhere and a
+   * base from another build reach the source: as the server's answer, by
+   * version, never as a replay of `/stat`'s list on a base that may be
+   * another build's (what `BaseAlignment` existed to prevent). Readers are
+   * woken where their read moved (`===`), and the patch store is told where
+   * each patch of the chain stands.
+   */
+  adoptServer(
+    adopted: ReadonlyMap<
+      ModuleFilePath,
+      {
+        version: ModuleVersion;
+        /** Its content, or the patches of a version this Studio computed. */
+        at: ModuleAt | { applied: readonly PatchId[] };
+        /** A base the module moved to: its source, markers and all. */
+        base?: Json;
+      }
+    >,
+    decided: readonly ModuleFilePath[],
+    decidedAt: number,
+  ): void {
+    const touched = new Set<ModuleFilePath>();
+    for (const [moduleFilePath, next] of adopted) {
+      if (next.base !== undefined) {
+        const held = this.baseOf(moduleFilePath);
+        if (held === undefined || held.version !== next.version.base) {
+          this.activity.work("source:clone-module", moduleFilePath);
+          this.baseSources[moduleFilePath] = next.base;
+          this.baseVersions.set(moduleFilePath, {
+            source: next.base,
+            version: next.version.base,
+          });
+          this.bumpBase(moduleFilePath);
+          // `.jsonValues()` entry content read on the base before is not
+          // this base's: dropped, so the next read fetches it again.
+          if (this.baseJsonEntries.has(moduleFilePath)) {
+            this.clearEntryFailures(moduleFilePath);
+            this.baseJsonEntries.delete(moduleFilePath);
+            this.entriesMoved(moduleFilePath);
+          }
+        }
+      }
+      if (this.baseSources[moduleFilePath] === undefined) continue;
+      const at = "version" in next.at ? next.at : null;
+      this.server.set(moduleFilePath, {
+        version: next.version,
+        applied: at !== null ? at.applied : next.at.applied,
+        at,
+        decidedAt,
+      });
+      touched.add(moduleFilePath);
+    }
+    for (const moduleFilePath of decided) {
+      if (touched.has(moduleFilePath)) continue;
+      const below = this.server.get(moduleFilePath);
+      if (below === undefined || below.decidedAt === decidedAt) continue;
+      this.server.set(moduleFilePath, { ...below, decidedAt });
+      // Only a module with patches beyond its server version can read
+      // differently for a new decision.
+      const chain = this.chains.get(moduleFilePath);
+      if (chain === undefined || chain.length === 0) continue;
+      const applied = new Set<PatchId>(below.applied);
+      if (chain.some((entry) => !applied.has(entry.record.patchId))) {
+        touched.add(moduleFilePath);
       }
     }
-    const rebased = new Set<string>(Object.keys(sources));
-    // `.jsonValues()` entry content is not in `sources` -- the module's source
-    // is markers -- and what is loaded came from the build that answered when
-    // it was read. Dropped, so the next read fetches it from this one.
-    for (const moduleFilePath of [...this.baseJsonEntries.keys()]) {
-      if (!rebased.has(moduleFilePath)) continue;
-      this.clearEntryFailures(moduleFilePath);
-      this.baseJsonEntries.delete(moduleFilePath);
-      this.entriesMoved(moduleFilePath);
-    }
-    const appended: ChainEntry[] = [];
-    for (const moduleFilePath of [...this.chains.keys()]) {
-      if (rebased.has(moduleFilePath)) this.chains.delete(moduleFilePath);
-    }
-    for (const record of chain) {
-      const known = previous.get(record.patchId);
-      if (!rebased.has(record.moduleFilePath) && known !== undefined) continue;
-      const entry = known ?? { record, origin: "external" };
-      const moduleChain = this.chains.get(record.moduleFilePath);
-      if (moduleChain === undefined) {
-        this.chains.set(record.moduleFilePath, [entry]);
-      } else {
-        moduleChain.push(entry);
+    const rebuilt: {
+      moduleFilePath: ModuleFilePath;
+      before: ModuleView | undefined;
+    }[] = [];
+    for (const moduleFilePath of touched) {
+      const { before, after } = this.refresh(moduleFilePath);
+      if (SourceStore.moved(before, after)) {
+        this.bump(moduleFilePath);
       }
-      if (!rebased.has(record.moduleFilePath)) appended.push(entry);
+      rebuilt.push({ moduleFilePath, before });
+      const chain = this.chains.get(moduleFilePath);
+      if (after !== undefined && chain !== undefined && chain.length > 0) {
+        this.announceChain(moduleFilePath, chain, after);
+      }
+      if (after !== undefined)
+        this.loadNewlyHeld(moduleFilePath, before, after);
     }
-    this.receive(sources);
-    this.applyEntries(appended);
+    for (const { moduleFilePath, before } of rebuilt) {
+      this.wakeChanged(moduleFilePath, before);
+    }
   }
 
   /** Where this module's source has got to. */
@@ -2051,7 +2395,8 @@ export class SourceStore {
    * patch store no longer holds as pending is one the server has.
    */
   listenTo(patchStore: PatchStore): () => void {
-    this.isConfirmed = (patchId) => !patchStore.isPending(patchId);
+    this.decidedGone = (patchId, decidedAt) =>
+      patchStore.decidedGone(patchId, decidedAt);
     const offReceive = patchStore.events.on("patch:receive", (event) => {
       this.intake({
         kind: "foreign",
@@ -2074,7 +2419,7 @@ export class SourceStore {
       });
     });
     return () => {
-      this.isConfirmed = () => false;
+      this.decidedGone = () => false;
       offReceive();
       offCreate();
       offDrop();
@@ -2187,6 +2532,20 @@ export class SourceStore {
           }
         }
         this.chains.set(moduleFilePath, surviving);
+        /*
+         * A dropped patch the server's version has: that version is not what
+         * the server will hold once the drop lands. Back to the base, with
+         * what survives on top -- from the version before it, where that is
+         * kept, so discarding the newest edit applies nothing -- until the
+         * next manifest names the version without it.
+         */
+        const below = this.server.get(moduleFilePath);
+        if (
+          below !== undefined &&
+          below.applied.some((patchId) => dropped.has(patchId))
+        ) {
+          this.server.delete(moduleFilePath);
+        }
       }
       if (this.baseSources[moduleFilePath] === undefined) {
         // Never loaded, so there is no source to compute. The chain edit above
@@ -2262,6 +2621,7 @@ export class SourceStore {
       if (this.baseSources[moduleFilePath] === undefined) continue;
       delete this.baseSources[moduleFilePath];
       this.baseVersions.delete(moduleFilePath);
+      this.server.delete(moduleFilePath);
       this.published.delete(moduleFilePath);
       this.receivedSources.delete(moduleFilePath);
       this.baseJsonEntries.delete(moduleFilePath);
@@ -2695,6 +3055,28 @@ export class SourceStore {
       }
     }
     if (keys.size > 0) void this.loadEntries(moduleFilePath, [...keys]);
+  }
+
+  /**
+   * Ask for the base of the `.jsonValues()` entries the server's version holds
+   * edits for that `before` did not, as {@link loadEditedEntries} does for a
+   * patch applied here: the engine holds such an edit until the base entry is
+   * read, the view shows the entry's marker until then, and nothing else
+   * would ask -- a page shown the module would wait on it for good.
+   */
+  private loadNewlyHeld(
+    moduleFilePath: ModuleFilePath,
+    before: ModuleView | undefined,
+    after: ModuleView,
+  ): void {
+    if (!isJsonObject(after.source)) return;
+    const keys: string[] = [];
+    for (const [key, state] of after.at.content.entries) {
+      if (state.kind !== "waiting" || state.ops === null) continue;
+      if (before?.at.content.entries.get(key) === state) continue;
+      if (Internal.isJson(after.source[key])) keys.push(key);
+    }
+    if (keys.length > 0) void this.loadEntries(moduleFilePath, keys);
   }
 
   /**

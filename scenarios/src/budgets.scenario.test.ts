@@ -305,8 +305,10 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * makes a module (before phase 6 each request read the whole tree,
    * previewed and validated it, and asked `/patches` and `/json` again for
    * the draft);
-   * and when the editor typed once in between, the request reads the chain
-   * once, and makes the one module that moved, once.
+   * and when the editor typed once in between, the chain is read once --
+   * by whichever asks first: since phase 7 that is usually the editor's own
+   * Studio, whose manifest read after the save goes through the same head --
+   * and the one module that moved is made once, by the request.
    */
   test("B12 a request's reads ask the head once each, and read the chain once", async () => {
     world = await createWorld({ config, modules: [homeVal, listVal], server });
@@ -328,12 +330,16 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       "engine:apply-patch": { exactly: 0 },
     });
 
+    const typed = world.workPosition();
     await editor.edit(homeVal, ["subtitle"], "Typed too");
     await world.settle();
     const moved = world.workPosition();
     await world.observe();
     world.expectWork(moved, {
       "head:seq": { atMost: 3 },
+      "head:chain": { atMost: 1 },
+    });
+    world.expectWork(typed, {
       "head:chain": { exactly: 1 },
       "head:materialize": { exactly: 1 },
       "engine:apply-patch": { exactly: 1 },

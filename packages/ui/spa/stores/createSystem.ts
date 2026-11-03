@@ -1,5 +1,6 @@
 import { Internal } from "@valbuild/core";
-import { BaseAlignment, type FetchBaseSources } from "./BaseAlignment";
+import { ManifestSource, type FetchManifest } from "./manifestSource";
+import type { FetchModule } from "./originTier";
 import type {
   ModuleFilePath,
   PatchId,
@@ -182,11 +183,14 @@ export type System = HostRealm &
      */
     checkSchemaNow(): void;
     /**
-     * Call `listener` once the source store's base is the one the server's
-     * chain belongs on -- before that it can be an older build's, and a page
-     * handed it shows the old text: see `BaseAlignment.onAligned`.
+     * Call `listener` once the source store is in step with the server --
+     * before that it holds the bundle's source, which can be an older build's
+     * or not the content version the site serves, and a page handed it shows
+     * the old text: see `ManifestSource.onInStep`.
      */
-    onBaseAligned(listener: () => void): () => void;
+    onInStep(listener: () => void): () => void;
+    /** What each module is on the server, as adopted: see `ManifestSource`. */
+    manifest: ManifestSource;
     /**
      * Gather the snapshot the search index needs and hand it across the worker
      * seam. Explicit, because this is the one operation in the system that
@@ -361,13 +365,14 @@ export type SystemOptions = {
    */
   readServedSchemaSha?: ReadServedSchemaSha;
   /**
-   * Another build's base source, for a `/stat` answered by that build.
-   *
-   * Without it a stat from a build other than the bundle's is applied to the
-   * bundle's source, which is the mismatch `BaseAlignment` exists to prevent --
-   * so absent is the old behaviour, for a driver with no server.
+   * `GET /manifest`: what each module is on the server, read before each
+   * stat is adopted (`ManifestSource`). Absent for a driver with no server:
+   * then the source store stays on the bundle and shows every patch of the
+   * chain on top, and nothing decides a patch is gone.
    */
-  fetchBaseSources?: FetchBaseSources;
+  fetchManifest?: FetchManifest;
+  /** `GET /modules`: a module at a version, for `ManifestSource`. */
+  fetchModule?: FetchModule;
   /**
    * How long `publish` waits for a save that never answers.
    *
@@ -796,11 +801,13 @@ export function createSystem(options: SystemOptions): System {
     });
   }
 
-  const baseAlignment = new BaseAlignment(
+  const manifest = new ManifestSource(
     host,
     sourceStore,
     patchStore,
-    options.fetchBaseSources,
+    options.fetchManifest,
+    options.fetchModule,
+    activity,
   );
   // Says "reload" when the server runs a schema this page does not.
   const schemaFreshness = new SchemaFreshnessWatch(host, stat, status, {
@@ -809,9 +816,9 @@ export function createSystem(options: SystemOptions): System {
   /** The module messages the last intake raised, to take back on the next. */
   let moduleFailureMessages: string[] = [];
   const unsubscribe = [
-    baseAlignment.listenTo(stat),
+    manifest.listenTo(stat),
     schemaStore.events.on("schema:init", (event) =>
-      baseAlignment.codeMoved(event.modules),
+      manifest.codeMoved(event.modules),
     ),
     schemaFreshness.listen(),
     /**
@@ -1269,7 +1276,8 @@ export function createSystem(options: SystemOptions): System {
 
   return {
     checkSchemaNow: () => schemaFreshness.checkNow(),
-    onBaseAligned: (listener) => baseAlignment.onAligned(listener),
+    onInStep: (listener) => manifest.onInStep(listener),
+    manifest,
     host,
     stat,
     status,

@@ -1,6 +1,5 @@
 import {
   computeSchemaSha,
-  computeSourcesSha,
   Internal,
   previewScope,
   type Json,
@@ -184,8 +183,6 @@ export class HostStore implements HostBridge {
 
   async reloadCode(
     registry: ValModules,
-    /** See {@link receive}'s `served`. */
-    served?: Record<ModuleFilePath, Json>,
     /** See {@link receive}'s `options`. */
     options: { byContent?: boolean } = {},
   ): Promise<CodeReload> {
@@ -200,7 +197,7 @@ export class HostStore implements HostBridge {
       const details = error instanceof Error ? error.message : String(error);
       // The first intake still has to complete, or every readiness gate waits
       // for it forever: with nothing, honestly (see `ValStoreProvider`).
-      if (this.receivedAt === null) this.receive([], served);
+      if (this.receivedAt === null) this.receive([]);
       return { status: "kept", reason: "does-not-load", details };
     }
     // Read in parallel, adopted in order: an older registry whose imports
@@ -209,7 +206,7 @@ export class HostStore implements HostBridge {
       return { status: "kept", reason: "superseded" };
     }
     const before = this.schemaStore.all();
-    this.receive(modules, served, options);
+    this.receive(modules, options);
     const after = this.schemaStore.all();
     const changed: ModuleFilePath[] = [];
     for (const moduleFilePath of Object.keys(after)) {
@@ -231,19 +228,15 @@ export class HostStore implements HostBridge {
     };
   }
 
+  /**
+   * Take a registry's modules in: their schemas, and the source their code
+   * wrote as each module's base. Where the server is on another base -- a
+   * content version, content published without a build, a proposal's saves
+   * -- the manifest names it and it is read by version
+   * (`ManifestSource`); the page no longer hands its base over.
+   */
   receive(
     modules: IntakeModule[],
-    /**
-     * The Source the page serves where it is not the bundle's, by module: a
-     * content version -- content published without a build -- and a
-     * proposal's saves over it (`ValDraft.base`, `window.__VAL_BASE__`). It IS
-     * the base, and the bundle is not: after a content-only publish the bundle
-     * still holds what it was built with. Taken as given, so the base's sha is
-     * the fold the server reports for the same Source and no base is fetched
-     * for it; without it, the pre-publish text was the Studio's base until a
-     * fetch replaced it, and reached a draft page whenever it got there first.
-     */
-    served?: Record<ModuleFilePath, Json>,
     options: {
       /**
        * Compare a new instance with what was adopted for its path by its
@@ -356,21 +349,16 @@ export class HostStore implements HostBridge {
         }
         // JSON round-trip so what crosses is provably clone-safe — no instance
         // can leak downstream by being reachable from a source value.
-        const servedSource = served?.[moduleFilePath];
-        let written =
-          same?.written ??
-          (servedSource === undefined || options.byContent === true
-            ? writtenBy(module)
-            : undefined);
-        let source = servedSource ?? written ?? null;
+        let written = same?.written ?? writtenBy(module);
+        let source = written;
         /*
          * A registry that is all new instances -- staged code, a bundle
          * imported again -- says nothing by identity: every module would
          * count as changed, and every module's validation, previews and view
          * be done again for a write that touched one. There, a module whose
          * serialized schema and written source are the ones it had hands over
-         * the very objects it handed over before -- the base it had included,
-         * served or not -- as an unchanged instance does, and only the
+         * the very objects it handed over before -- the base it had included
+         * -- as an unchanged instance does, and only the
          * instance (its closures) is replaced. A change to a custom
          * `validate` alone is not seen this way; HMR, which keeps the
          * instances of what it did not re-evaluate, compares by identity.
@@ -387,8 +375,8 @@ export class HostStore implements HostBridge {
             JSON.stringify(written)
         ) {
           serializedSchemas[moduleFilePath] = before.serializedSchema;
-          written = before.written;
-          source = servedSource ?? before.source;
+          written = before.written ?? written;
+          source = before.source;
         }
         sources[moduleFilePath] = source;
         this.instances[moduleFilePath] = schema;
@@ -454,12 +442,7 @@ export class HostStore implements HostBridge {
     this.schemaStore.receive(serializedSchemas);
     this.sourceStore.forget(removed);
     this.sourceStore.receive(sources);
-    this.bundle = {
-      sourcesSha: computeSourcesSha(
-        adopted.map((path) => ({ path, source: sources[path] })),
-      ),
-      sources,
-    };
+    this.bundle = sources;
     // Recomputed on every intake, an HMR re-run included: it is the schema
     // this page is RUNNING, which is what `SchemaFreshnessWatch` compares.
     this.runningSchemaSha = computeSchemaSha(
@@ -469,33 +452,20 @@ export class HostStore implements HostBridge {
       })),
     );
     // After the source store has the bundle's source, so a listener that puts
-    // another build's base back on top (`BaseAlignment`) has the last word.
-    this.events.emit({
-      type: "host:base-received",
-      sourcesSha: this.bundle.sourcesSha,
-    });
+    // the server's base back under a module the server is on another base
+    // for (`ManifestSource`) has the last word.
+    this.events.emit({ type: "host:base-received" });
   }
 
   /**
-   * The source this intake brought, and its `sourcesSha`.
-   *
-   * The same fold the server runs over ITS build's modules, so the two can be
-   * compared: a `/stat` answer is relative to the build that answered it, and
-   * this is how the Studio knows whether that build is the one whose source it
-   * holds. Hashed over the JSON round-tripped source, which stringifies the same
-   * as the module's own.
+   * The source this intake brought, by module: what the bundle's code wrote.
+   * `null` before intake.
    */
-  bundleBase(): {
-    sourcesSha: string;
-    sources: Record<ModuleFilePath, Json>;
-  } | null {
+  bundleSources(): Readonly<Record<ModuleFilePath, Json>> | null {
     return this.bundle;
   }
 
-  private bundle: {
-    sourcesSha: string;
-    sources: Record<ModuleFilePath, Json>;
-  } | null = null;
+  private bundle: Record<ModuleFilePath, Json> | null = null;
 
   /**
    * The `schemaSha` of the schemas this page is running, or `null` before

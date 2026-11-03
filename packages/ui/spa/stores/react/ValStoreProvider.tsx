@@ -89,14 +89,8 @@ export function ValStoreProvider({
        * The failures are not lost: `HostStore.receive` records the ones that
        * could not be read and the dev banner names them; a registry that
        * cannot be read at all leaves the code the Studio had, and says so.
-       *
-       * With the base the page serves, where it is not the bundle's: see
-       * `HostStore.receive`.
        */
-      const reload = await system.host.reloadCode(
-        valModules,
-        window.__VAL_BASE__,
-      );
+      const reload = await system.host.reloadCode(valModules);
       if (cancelled) {
         return;
       }
@@ -121,8 +115,8 @@ export function ValStoreProvider({
    * modules exist is not wrong — the chain is kept and replayed by `receive` — but
    * doing it in the natural order means the common case does not depend on that.
    *
-   * `baseSha` is the part that unblocks writing, and `sourcesSha` says which
-   * build answered, so its chain goes on that build's base (`BaseAlignment`).
+   * `baseSha` is the part that unblocks writing, and `seq` says whether the
+   * project moved, so the manifest is read again (`ManifestSource`).
    * `schemaSha` says which schema that build runs, so a page running another
    * is told to reload (`SchemaFreshnessWatch`). `jsonEntriesSha` is an input to
    * a refetch this system does not do yet.

@@ -20,27 +20,29 @@ import {
 } from "@valbuild/shared/internal";
 
 /*
- * The Studio's view of a module: its base and its chain, through THE engine
- * (`applyPatchRecord` in `@valbuild/shared`, which Val's server applies
- * patches with too), at a version the Studio computes itself. See
- * `docs/plans/one-content-model.md`, "The Studio loads everything from one
- * place", phase 5.
+ * The Studio's view of a module: the module at the version the server names
+ * for it, with what this Studio wrote that the server has not got yet on top,
+ * through THE engine (`applyPatchRecord` in `@valbuild/shared`, which Val's
+ * server applies patches with too). See `docs/plans/one-content-model.md`,
+ * "The Studio loads everything from one place", phases 5 and 7.
  *
  * Two layers, as the plan draws them:
  *
- * - {@link chainSource} -- today's behaviour as a source: the base this
- *   Studio holds (the bundle, `__VAL_BASE__` or BaseAlignment's) with the
- *   part of the chain the server has, replayed in the browser. Phase 7
- *   replaces it with the server's own answer.
- * - {@link withLocalEdits} -- what this Studio wrote that the server has not
- *   confirmed yet, on top. The one layer only the Studio has, because only the
- *   Studio writes and typing cannot wait.
+ * - the SERVER's module, at the version the manifest names
+ *   (`manifestSource.ts`): read from the store -- the versions this Studio
+ *   computed itself ({@link VersionRing}, the memory tier), the bundle's own
+ *   module, or its own server (`originTier.ts`, `GET /modules`, as the
+ *   patches from the version held when it can);
+ * - {@link withLocalEdits} -- what this Studio wrote that the server's
+ *   version does not have yet, on top. The one layer only the Studio has,
+ *   because only the Studio writes and typing cannot wait.
  *
  * Both keep their results by version, in one {@link VersionRing} per module
  * that holds the last two: so a keystroke extends the last result by its one
  * patch (one engine apply, risk 2 in the plan), the server confirming it costs
- * nothing (the confirmed chain is the same version as the optimistic one), and
- * a discard of the newest patch is the version before it, kept.
+ * nothing (the version the manifest then names IS the one computed here, so
+ * the ring answers it), and a discard of the newest patch is the version
+ * before it, kept.
  *
  * Nothing here mutates. The engine copies along each patch's path and shares
  * the rest, so a path whose value did not move is `===` across versions
@@ -63,7 +65,7 @@ export type ModuleAt = {
   readonly failed: readonly { patchId: PatchId; message: string }[];
 };
 
-/** What a module is computed from. */
+/** What a module is computed from, beside the patches applied. */
 export type ModuleInputs = {
   readonly schema: SerializedSchema | undefined;
   readonly schemaVersion: string;
@@ -72,10 +74,6 @@ export type ModuleInputs = {
   /** The base source, `.jsonValues()` entries as markers. */
   readonly base: Json;
   readonly baseVersion: string;
-  /** The module's chain, in order. */
-  readonly records: readonly PatchRecord[];
-  /** How many of {@link records}, from the start, the server has. */
-  readonly confirmed: number;
   /** Told once per patch the engine applies, with what it applied. */
   readonly onApply?: (patchId: PatchId) => void;
 };
@@ -210,6 +208,29 @@ export class VersionRing {
     return best;
   }
 
+  /**
+   * The version kept for this module with this base and chain, read with what
+   * the engine reads of this schema: the memory tier, as the manifest asks
+   * it. The version the server names for an edit this Studio made is the one
+   * it computed (same schema, base and patches), so confirming costs nothing.
+   */
+  atVersion(
+    path: string,
+    inputs: Pick<ModuleInputs, "engineKey">,
+    version: Pick<ModuleVersion, "base" | "chain">,
+  ): ModuleAt | null {
+    for (const at of this.kept.get(path) ?? []) {
+      if (
+        at.engine === inputs.engineKey &&
+        at.version.base === version.base &&
+        at.version.chain === version.chain
+      ) {
+        return at;
+      }
+    }
+    return null;
+  }
+
   /** Keep `at` as the newest version of `path`, dropping the oldest. */
   remember(path: string, at: ModuleAt): void {
     const kept = this.kept.get(path) ?? [];
@@ -237,45 +258,39 @@ function isPrefix(prefix: readonly PatchId[], of: readonly PatchId[]) {
 }
 
 /**
- * The base with the part of the chain the server has (`confirmed`), through
- * the engine: today's behaviour as a source. Extends the longest version kept
- * for a prefix of it, so what was already computed -- optimistically, before
- * the server had it -- is not computed again.
- */
-export function chainSource(
-  path: string,
-  inputs: ModuleInputs,
-  ring: VersionRing,
-): ModuleAt {
-  const ids = inputs.records.map((record) => record.patchId);
-  const kept = ring.longestPrefix(path, inputs, ids, inputs.confirmed);
-  const from = kept === null ? baseAt(inputs) : withSchema(kept, inputs);
-  return extend(
-    from,
-    inputs.records.slice(from.tried.length, inputs.confirmed),
-    inputs,
-  );
-}
-
-/**
- * The Studio's unconfirmed patches on top of `below` (what the server has):
- * the version a field shows. Kept per (version below, ids applied) -- which
- * is the version of the result -- and extended by the new patch only: when a
- * version at or past `below` is kept, `below` is not computed at all.
+ * What this Studio has that the server's version `below` does not, on top of
+ * it: the version a field shows. `below` is the module at the version the
+ * manifest names (or the bundle's, before one has), and `local` the module's
+ * patches it does not contain, in chain order -- normally this Studio's
+ * edits the server has not confirmed. Kept per (version below, ids applied)
+ * -- which is the version of the result -- and extended by the new patch
+ * only: when a version at or past `below` is kept, nothing is applied again.
  */
 export function withLocalEdits(
   path: string,
-  below: () => ModuleAt,
+  below: {
+    /** The patch ids the server's version is made of. */
+    readonly tried: readonly PatchId[];
+    /** Its content: asked for only when no kept version extends it. */
+    readonly at: () => ModuleAt;
+  },
+  local: readonly PatchRecord[],
   inputs: ModuleInputs,
   ring: VersionRing,
 ): ModuleAt {
-  const ids = inputs.records.map((record) => record.patchId);
+  const ids = [...below.tried, ...local.map((record) => record.patchId)];
   const kept = ring.longestPrefix(path, inputs, ids, ids.length);
   const from = withSchema(
-    kept !== null && kept.tried.length >= inputs.confirmed ? kept : below(),
+    kept !== null && kept.tried.length >= below.tried.length
+      ? kept
+      : below.at(),
     inputs,
   );
-  const at = extend(from, inputs.records.slice(from.tried.length), inputs);
+  const at = extend(
+    from,
+    local.slice(from.tried.length - below.tried.length),
+    inputs,
+  );
   ring.remember(path, at);
   return at;
 }
@@ -294,30 +309,55 @@ function withSchema(at: ModuleAt, inputs: ModuleInputs): ModuleAt {
   return { ...at, version: { ...at.version, schema: inputs.schemaVersion } };
 }
 
-/** A module, as the Studio computes it: {@link withLocalEdits} over {@link chainSource}. */
-export function studioModule(
-  path: string,
-  inputs: ModuleInputs,
-  ring: VersionRing,
-): ModuleAt {
-  return withLocalEdits(
-    path,
-    () => chainSource(path, inputs, ring),
-    inputs,
-    ring,
-  );
-}
-
 /**
  * The base with some patches applied and nothing kept: what has been
- * published, before a deployment moves the base (`SourceStore.peekBase`), or
- * what a publish bakes into it.
+ * published, before a deployment moves the base (`SourceStore.peekBase`),
+ * what a publish bakes into it, or a module at a version the store does not
+ * hold, from its base and its chain (a discard of a patch the server has).
  */
 export function applyOnBase(
   inputs: ModuleInputs,
   records: readonly PatchRecord[],
 ): ModuleAt {
   return extend(baseAt(inputs), records, inputs);
+}
+
+/**
+ * A module as the SERVER answered it (`GET /modules`, `originTier.ts`): its
+ * content at `version`, made of `patches`. Under this Studio's schema: the
+ * content is the server's, and a field reads it with the schema it has.
+ */
+export function serverAt(
+  module: {
+    version: ModuleVersion;
+    content: ModuleContent;
+    patches: readonly PatchId[];
+  },
+  inputs: ModuleInputs,
+): ModuleAt {
+  return {
+    version: { ...module.version, schema: inputs.schemaVersion },
+    engine: inputs.engineKey,
+    content: module.content,
+    tried: module.patches,
+    applied: module.patches,
+    failed: [],
+  };
+}
+
+/**
+ * `at`, extended by the patches of a delta the server answered: the module at
+ * the version the delta goes `to`. `null` when one of them does not apply
+ * here, which the server's own version says cannot happen -- the caller asks
+ * for the whole module instead.
+ */
+export function extendBy(
+  at: ModuleAt,
+  records: readonly PatchRecord[],
+  inputs: ModuleInputs,
+): ModuleAt | null {
+  const next = extend(at, records, inputs);
+  return next.failed.length > at.failed.length ? null : next;
 }
 
 /**

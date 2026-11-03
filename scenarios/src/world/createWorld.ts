@@ -1,6 +1,5 @@
 import {
   Internal,
-  type Json,
   type ModuleFilePath,
   type PatchId,
   type ResolvableModule,
@@ -1247,15 +1246,14 @@ export async function createWorld(options: WorldOptions): Promise<World> {
 
   /**
    * A Studio, as `ValStoreProvider` starts one: a system on the real client,
-   * the modules in (with the base the page serves, when it serves one), then
-   * the /stat poll. `beforeIntake` runs what mounts beside the provider, such
+   * the modules in, then the /stat poll (and after each stat whose `seq`
+   * moved, the manifest: `ManifestSource`). `beforeIntake` runs what mounts beside the provider, such
    * as the overlay's relay.
    */
   const startStudio = async (
     name: string,
     registry: ValModules,
     options: {
-      base?: Record<ModuleFilePath, Json>;
       beforeIntake?: (system: System) => void;
     } = {},
   ): Promise<Studio> => {
@@ -1276,9 +1274,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       },
     });
     options.beforeIntake?.(system);
-    // Intake, then /stat: the order `ValStoreProvider` uses. With the base the
-    // page serves, where it is not the bundle's (`window.__VAL_BASE__`).
-    await system.host.reloadCode(registry, options.base);
+    // Intake, then /stat: the order `ValStoreProvider` uses.
+    await system.host.reloadCode(registry);
 
     // The Studio's /stat poll: what is asked (`requestStat`), what an answer
     // does to it (`statStateAfterAnswer`) and when it asks again
@@ -1880,9 +1877,9 @@ export async function createWorld(options: WorldOptions): Promise<World> {
       );
       draftModeKnown();
       moveTo({ ...state, draftMode: true }, "draft mode known");
-      // 4. The overlay's Studio takes in the page's client modules with the
-      //    base the page serves (`window.__VAL_BASE__`), and its relay hands
-      //    the page's store what the Studio holds.
+      // 4. The overlay's Studio takes in the page's client modules, reads
+      //    the base the server is on by version (the manifest names it),
+      //    and its relay hands the page's store what the Studio holds.
       const events: OverlayEvent[] = [];
       // The provider's refresh loop: the loaders re-run once per version the
       // Studio says the server has confirmed, with at most one in flight --
@@ -1899,7 +1896,6 @@ export async function createWorld(options: WorldOptions): Promise<World> {
         `overlay ${route}`,
         registryOf(clientModules),
         {
-          base: isDraft(loaderData) ? loaderData.base : undefined,
           beforeIntake: (system) => {
             relays.push(
               startOverlayRelay(

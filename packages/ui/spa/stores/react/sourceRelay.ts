@@ -61,9 +61,10 @@ const DEBOUNCE_MS = 200;
 
 /**
  * How long a page is kept waiting for the store to be in step with the
- * server before it is handed what the store holds anyway. Alignment is one
- * `/stat` away, or one base fetch after that, and the chain's records one
- * `GET /patches` after that; a server that answers none of them must not
+ * server before it is handed what the store holds anyway. Being in step is
+ * one `/stat` away and one `GET /manifest` after it (and a `GET /modules`
+ * for a module this Studio does not hold the version of), and the chain's
+ * records one `GET /patches` after that; a server that answers none of them must not
  * leave the page without the editor's changes -- and a draft page suspends
  * on `sources-synced`, with its own ten second timeout behind this.
  *
@@ -73,18 +74,18 @@ const DEBOUNCE_MS = 200;
 const IN_STEP_FALLBACK_MS = 5_000;
 
 /**
- * `listener`, once what the store holds can be handed to a page: its base is
- * the one the server's chain belongs on (`System.onBaseAligned`) AND that
- * chain is in the store -- every patch the adopted stat names fetched and
- * applied (`PatchStore.chainSettled`). Or after {@link IN_STEP_FALLBACK_MS}.
+ * `listener`, once what the store holds can be handed to a page: it is at the
+ * versions the server's manifest names (`System.onInStep`) AND the chain is in
+ * the store -- every patch the adopted stat names fetched and applied
+ * (`PatchStore.chainSettled`). Or after {@link IN_STEP_FALLBACK_MS}.
  *
  * Nothing goes to a page before that. The store starts from the bundle's
- * source, and after a publish that can be the build from before it: a draft
- * page was handed the old text over the new it had just rendered, and then
- * the new text again once the base caught up -- the flicker of a reload in
- * draft mode after a publish.
+ * source, and after a publish -- or on a site serving a content version --
+ * that is not what the server has: a draft page was handed the old text over
+ * the new it had just rendered, and then the new text again once the store
+ * caught up -- the flicker of a reload in draft mode after a publish.
  *
- * And alignment alone is not enough (S24b, `scenarios/`): it is announced
+ * And being in step alone is not enough (S24b, `scenarios/`): it is announced
  * from inside the stat's commit, before the stat names its patches to the
  * patch store, and their records are fetched after that. A page told
  * `sources-synced` then had been sent nothing for the module with the
@@ -108,13 +109,12 @@ export function onceInStep(system: System, listener: () => void): () => void {
     }
     listener();
   };
-  const offAligned = system.onBaseAligned(() => {
+  const offAligned = system.onInStep(() => {
     /*
-     * One microtask later, not now. Alignment is announced from inside the
-     * stat's commit (`BaseAlignment.commit` -> `adopt`), BEFORE `StatStore`
-     * has adopted that stat and handed its chain to the patch store -- so at
-     * this moment `chainSettled()` answers for the chain from BEFORE (empty,
-     * on a first stat). The adoption finishes synchronously after the commit.
+     * One microtask later, not now. Being in step is announced from inside
+     * the manifest's adoption (`ManifestSource`), which follows a stat whose
+     * records the patch store may still be fetching -- so the chain is
+     * waited for too, and asked once the adoption has finished.
      */
     queueMicrotask(() => {
       if (done) return;

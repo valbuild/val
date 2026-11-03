@@ -3,13 +3,9 @@
  */
 import "./testPolyfills";
 import { act, render } from "@testing-library/react";
-import {
-  computeSourcesSha,
-  initVal,
-  type ModuleFilePath,
-  type PatchId,
-} from "@valbuild/core";
+import { initVal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import { createSystem, type System } from "../createSystem";
+import { createFakeManifest } from "../testManifest";
 import type { PatchRecord } from "../types";
 import { ValSystemProvider } from "./SystemContext";
 import { ValOverlayEmitter } from "./ValOverlayEmitter";
@@ -28,11 +24,12 @@ jest.mock("../../validation/schemaValidationBridge", () => ({
  * The server renders the draft from the build the publish made, so the page
  * starts right. The Studio's overlay then loads and starts from the source in
  * its BUNDLE, which can be the build from before the publish (the platform's
- * pointer lags, a cached script) until `BaseAlignment` has fetched the base the
- * server's chain belongs on. Whatever the overlay handed the page in between
- * was the old text, and the page showed it until the base caught up.
+ * pointer lags, a cached script) until the manifest has named the base the
+ * server is on and it has been read (`ManifestSource`). Whatever the overlay
+ * handed the page in between was the old text, and the page showed it until
+ * the base caught up.
  *
- * So nothing goes to the page until the base is aligned: not a change, not
+ * So nothing goes to the page until the store is in step: not a change, not
  * the snapshot of what is pending, and not `sources-synced`.
  */
 
@@ -41,9 +38,6 @@ const PENDING = "pending-1" as PatchId;
 
 const OLD = { title: "Before the publish", subtitle: "Unchanged" };
 const NEW = { title: "After the publish", subtitle: "Unchanged" };
-
-const shaOf = (source: typeof OLD) =>
-  computeSourcesSha([{ path: MODULE, source }]);
 
 /** An edit still pending after the publish, on another field. */
 const pending: PatchRecord = {
@@ -65,14 +59,19 @@ function setup() {
   const baseGate = new Promise<void>((resolve) => {
     releaseBase = resolve;
   });
+  let systemRef: System | null = null;
+  // The build after the publish answers with its own source, once let.
+  const server = createFakeManifest({
+    bases: () =>
+      new Map([
+        [MODULE, { source: NEW, schema: systemRef?.schemaStore.get(MODULE) }],
+      ]),
+    chain: () => [pending],
+    delay: () => baseGate,
+  });
   const system: System = createSystem({
-    // The build after the publish answers with its own source, once let.
-    fetchBaseSources: async (sourcesSha) => {
-      await baseGate;
-      return sourcesSha === shaOf(NEW)
-        ? { sourcesSha, sources: { [MODULE]: NEW } }
-        : null;
-    },
+    fetchManifest: server.fetchManifest,
+    fetchModule: server.fetchModule,
     fetchPatches: async (patchIds) => ({
       patches: patchIds.includes(PENDING) ? [pending] : [],
     }),
@@ -84,6 +83,7 @@ function setup() {
     }),
     publishPatches: async () => ({ status: "published" }),
   });
+  systemRef = system;
   // The bundle the overlay loaded: the build from before the publish.
   const modules = [
     c.define(
@@ -132,7 +132,6 @@ test("a draft page reloaded after a publish is never handed the text from before
     system.stat.receiveStat({
       patches: [PENDING],
       baseSha: "after-the-publish",
-      sourcesSha: shaOf(NEW),
     });
   });
   // Longer than the emitter's debounce: the base is still being fetched.
