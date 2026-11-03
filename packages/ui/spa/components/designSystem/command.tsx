@@ -48,10 +48,12 @@ const CommandDialog = ({
   );
 };
 
-const CommandInput = React.forwardRef<
-  React.ElementRef<typeof CommandPrimitive.Input>,
-  React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
->(({ className, ...props }, ref) => (
+/**
+ * The row a search input sits in, with its magnifier: what `CommandInput`
+ * draws, for a list that filters itself (`WindowedOptionList`) and so has no
+ * `cmdk` input to put in it.
+ */
+const SearchInputRow = ({ children }: { children: React.ReactNode }) => (
   // The ring goes on the ROW, not on the input. The input starts after the
   // search icon and stops short of the row's padding - measured in the router
   // dropdown, a 890px popover with the input running 194..1034 - so a ring on
@@ -73,17 +75,28 @@ const CommandInput = React.forwardRef<
     cmdk-input-wrapper=""
   >
     <Search className="w-4 h-4 mr-2 opacity-50 shrink-0" />
+    {children}
+  </div>
+);
+
+/** The search input's own classes, inside a {@link SearchInputRow}. */
+const searchInputClassName = cn(
+  "flex h-11 w-full rounded-sm py-3 text-sm",
+  "placeholder:text-fg-secondary",
+  "bg-transparent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+);
+
+const CommandInput = React.forwardRef<
+  React.ElementRef<typeof CommandPrimitive.Input>,
+  React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
+>(({ className, ...props }, ref) => (
+  <SearchInputRow>
     <CommandPrimitive.Input
       ref={ref}
-      className={cn(
-        "flex h-11 w-full rounded-sm py-3 text-sm",
-        "placeholder:text-fg-secondary",
-        "bg-transparent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
+      className={cn(searchInputClassName, className)}
       {...props}
     />
-  </div>
+  </SearchInputRow>
 ));
 
 CommandInput.displayName = CommandPrimitive.Input.displayName;
@@ -142,16 +155,17 @@ const CommandSeparator = React.forwardRef<
 ));
 CommandSeparator.displayName = CommandPrimitive.Separator.displayName;
 
+/** A `CommandItem`'s classes, for an option of a list `cmdk` does not draw. */
+const commandItemClassName =
+  "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-bg-primary-hover aria-selected:text-fg-primary data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50";
+
 const CommandItem = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Item>
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.Item
     ref={ref}
-    className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-bg-primary-hover aria-selected:text-fg-primary data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
-      className,
-    )}
+    className={cn(commandItemClassName, className)}
     {...props}
   />
 ));
@@ -184,4 +198,7 @@ export {
   CommandItem,
   CommandShortcut,
   CommandSeparator,
+  SearchInputRow,
+  searchInputClassName,
+  commandItemClassName,
 };

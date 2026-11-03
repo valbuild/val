@@ -132,3 +132,19 @@ function InteractiveStory() {
 export const Interactive: Story = {
   render: () => <InteractiveStory />,
 };
+
+/**
+ * A site of 10,000 pages. Only the routes on screen are rendered; the search
+ * and the arrow keys reach all of them.
+ */
+export const TenThousandRoutes: Story = {
+  args: {
+    routes: Array.from({ length: 10_000 }, (_, i) => ({
+      route: `/blog/post-${i}`,
+      moduleFilePath: "/content/blog.val.ts",
+      preview: i % 3 === 0 ? { title: `Post number ${i}` } : null,
+    })),
+    value: "/blog/post-5000",
+    onChange: (route) => console.log("Select route:", route),
+  },
+};
