@@ -451,6 +451,13 @@ export abstract class ValOps {
       this.modulesErrors === null
     ) {
       const extracted = await extractValModules(this.valModules);
+      /*
+       * Read before anything below is assigned: from the first assignment to
+       * the promotion this must not yield, or a concurrent read finds the
+       * fields set and returns the bundle's Source as though it were the
+       * snapshot's.
+       */
+      const staged = await this.readStagedSources(extracted.sources);
       const moduleErrors = extracted.moduleErrors.concat(
         findNestedJsonValuesModuleErrors(extracted.schemas),
       );
@@ -486,10 +493,11 @@ export abstract class ValOps {
        * say the snapshot's content was the bundle's.
        */
       const siteLayer = this.options?.siteSnapshotSources;
-      const snapshotLayer = await this.withStagedSources(
-        this.options?.snapshotSources,
-        extracted.sources,
-      );
+      const snapshotLayer =
+        staged === null
+          ? this.options?.snapshotSources
+          : { ...this.options?.snapshotSources, ...staged.sources };
+      this.heldStaged = staged?.held ?? new Map();
       /*
        * The bundle's own Source for every module either layer replaces: a
        * replaced `.jsonValues()` module's markers came as JSON, and an entry
@@ -561,29 +569,28 @@ export abstract class ValOps {
   }
 
   /**
-   * The snapshot, with each module staged after the build read from its
-   * staged text over it (see {@link ValOpsOptions.stagedAfterBuild}). A
-   * module whose text says nothing this can read -- a Source built by code,
-   * a `.jsonValues()` record, whose entries a save routes through a schema
-   * this server has not got -- is held, and keeps what it had: its version
-   * says it is not this build's either way.
+   * Each module staged after the build, read from its staged text (see
+   * {@link ValOpsOptions.stagedAfterBuild}), to lay over the snapshot; `null`
+   * when there is none. A module whose text says nothing this can read -- a
+   * Source built by code, a `.jsonValues()` record, whose entries a save
+   * routes through a schema this server has not got -- is held, and keeps
+   * what it had: its version says it is not this build's either way.
    */
-  private async withStagedSources(
-    snapshot: Sources | undefined,
+  private async readStagedSources(
     bundled: Sources,
-  ): Promise<Sources | undefined> {
+  ): Promise<{ sources: Sources; held: Map<ModuleFilePath, string> } | null> {
     const staged = this.options?.stagedAfterBuild;
-    if (staged === undefined) return snapshot;
+    if (staged === undefined) return null;
     const paths = Object.keys(staged.versions) as ModuleFilePath[];
-    if (paths.length === 0) return snapshot;
+    if (paths.length === 0) return null;
     let read: Record<string, JSONValue> = {};
     try {
       read = await staged.readSources();
     } catch (err) {
       Internal.log.error("could not read the staged modules' Source", err);
     }
-    const sources: Sources = { ...snapshot };
-    this.heldStaged = new Map();
+    const sources: Sources = {};
+    const held = new Map<ModuleFilePath, string>();
     for (const path of paths) {
       const source = read[path];
       if (bundled[path] === undefined) {
@@ -591,14 +598,14 @@ export abstract class ValOps {
         continue;
       }
       if (source === undefined) {
-        this.heldStaged.set(
+        held.set(
           path,
           `its staged code is not in the build serving this proposal, and its content is not written out in its .val.ts (it is made by code), so it can only be saved once the proposal is built. Build the proposal, then save.`,
         );
         continue;
       }
       if (holdsJsonEntryMarkers(source)) {
-        this.heldStaged.set(
+        held.set(
           path,
           `its staged code is not in the build serving this proposal, and its .jsonValues() entries are saved through a schema only a build has. Build the proposal, then save.`,
         );
@@ -606,7 +613,7 @@ export abstract class ValOps {
       }
       sources[path] = source;
     }
-    return sources;
+    return { sources, held };
   }
 
   /**
