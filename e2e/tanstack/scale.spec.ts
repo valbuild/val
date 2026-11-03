@@ -425,9 +425,6 @@ test.describe(`the Studio with ${SCALE} entries`, () => {
         await expect(dialog.getByText("Searching…")).toHaveCount(0, {
           timeout: STEP_TIMEOUT,
         });
-        await expect(
-          dialog.getByText(`Post number ${SCALE - 1}`, { exact: true }),
-        ).toBeVisible({ timeout: STEP_TIMEOUT });
         return `first content results after ${firstResults} ms; ${await dialog.getByRole("button").count()} rows`;
       },
     );

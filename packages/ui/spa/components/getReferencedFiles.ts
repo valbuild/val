@@ -50,7 +50,17 @@ export function getFileReferrers(
       hasPatchId: media?.hasPatchId ?? false,
     });
   };
-  traverseSchemas(schemas, sources, (sourcePath, schema, source) => {
+  // Only the modules whose schema can point into the gallery: the walk is of
+  // their SOURCE, and a library of 10,000 entries that cannot refer to this
+  // one is 10,000 entries walked for nothing, on every scan.
+  const referring: Record<ModuleFilePath, SerializedSchema> = {};
+  for (const moduleFilePath in schemas) {
+    const schema = schemas[moduleFilePath as ModuleFilePath];
+    if (canReferTo(schema, parent)) {
+      referring[moduleFilePath as ModuleFilePath] = schema;
+    }
+  }
+  traverseSchemas(referring, sources, (sourcePath, schema, source) => {
     if (
       schema.type === "image" ||
       schema.type === "file" ||
@@ -101,6 +111,43 @@ export function getReferencedFiles(
   return getFileReferrers(schemas, sources, parent, fileRef).map(
     (referrer) => referrer.sourcePath,
   );
+}
+
+/** Per schema object: the galleries something in it can pick from. */
+const galleriesOf = new WeakMap<SerializedSchema, ReadonlySet<string>>();
+
+/**
+ * Whether anything in `schema` names `gallery` as its `referencedModule`: a
+ * gallery-backed media field, or a rich text whose images are. Read from the
+ * serialized schema as data, so a new kind of field that picks from a
+ * gallery is found without being listed here.
+ */
+function canReferTo(
+  schema: SerializedSchema,
+  gallery: ModuleFilePath,
+): boolean {
+  let galleries = galleriesOf.get(schema);
+  if (galleries === undefined) {
+    const found = new Set<string>();
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        for (const child of node) walk(child);
+        return;
+      }
+      if (typeof node !== "object" || node === null) return;
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "referencedModule" && typeof value === "string") {
+          found.add(value);
+        } else {
+          walk(value);
+        }
+      }
+    };
+    walk(schema);
+    galleries = found;
+    galleriesOf.set(schema, galleries);
+  }
+  return galleries.has(gallery);
 }
 
 function mediaValueOf(
