@@ -41,6 +41,7 @@ export function DuplicateRecordPopover({
   keyDescription,
   onComplete,
   className,
+  tooltip = true,
 }: {
   parentPath: SourcePath | ModuleFilePath;
   /** The key of the entry being duplicated. */
@@ -53,6 +54,11 @@ export function DuplicateRecordPopover({
   onComplete?: () => void;
   /** For the trigger: lets a menu draw it as one of its items. */
   className?: string;
+  /**
+   * Whether the trigger has its explanatory tooltip. Off where the trigger is
+   * already a labelled menu item, and the tooltip would only repeat it.
+   */
+  tooltip?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const portalContainer = useValPortal();
@@ -96,7 +102,7 @@ export function DuplicateRecordPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
+      <Tooltip open={tooltip ? undefined : false}>
         <TooltipTrigger asChild>
           <Button asChild size={size} variant={variant} className={className}>
             <PopoverTrigger

@@ -3,7 +3,6 @@ import {
   DndContext,
   DragEndEvent,
   DragOverlay,
-  KeyboardCode,
   closestCenter,
   KeyboardSensor,
   MouseSensor,
@@ -216,22 +215,13 @@ function ArrayBlockList({
     setItems(nextItems);
   }, [sourcePaths]);
 
-  // The handle is also the row's menu button, so a press has to stay a click
-  // until it moves: a few pixels of travel make it a drag (and dnd-kit then
-  // swallows the click that ends it). The handle is `touch-none`, so a finger
-  // has no scroll to compete with and the same rule works for touch. On the
-  // keyboard, Space picks the row up and Enter opens the menu — Enter is not
-  // a start key here, or it could never reach the button.
+  // The handle only drags (the row's menu is its number or key), so these
+  // are dnd-kit's defaults: Space or Enter picks a row up from the keyboard.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor),
+    useSensor(TouchSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-      keyboardCodes: {
-        start: [KeyboardCode.Space],
-        cancel: [KeyboardCode.Esc],
-        end: [KeyboardCode.Space, KeyboardCode.Enter, KeyboardCode.Tab],
-      },
     }),
   );
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -435,7 +425,6 @@ function ArrayBlockList({
     >
       <DndContext
         sensors={sensors}
-        accessibility={{ screenReaderInstructions: HANDLE_INSTRUCTIONS }}
         collisionDetection={closestCenter}
         onDragStart={(event) => setActiveId(Number(event.active.id))}
         onDragEnd={handleDragEnd}
@@ -650,15 +639,14 @@ function BlockRow({
     (itemSchema.type === "object" || itemSchema.type === "discriminated-union");
 
   const rowNumber = label.kind === "index" ? label.index + 1 : undefined;
-  // The gutter: the row's handle. Drag it to move the row, click it for the
-  // row's menu. No gutter when neither is possible.
+  // The gutter: the row's drag handle. None when the row cannot move —
+  // readonly, or a record, which has no order.
   const gutter =
-    !readonly && (sortable || menuItems) ? (
+    !readonly && sortable ? (
       <RowHandle
         label={label}
         alignTo={headered ? "header" : "field"}
-        handleProps={sortable?.handleProps}
-        menuItems={menuItems}
+        handleProps={sortable.handleProps}
       />
     ) : null;
 
@@ -700,17 +688,16 @@ function BlockRow({
       >
         {headered && (
           <div className="flex items-center gap-1.5 h-9 px-2">
-            {/* An array row's number is a control (it moves the row), so it
-                cannot be inside the collapse button. A key is just text. */}
-            {label.kind === "index" && <RowLabelText label={label} />}
-            {/* The whole header is the collapse button, chevron at the right
-                end — where `Field` puts its own. The menu is the handle's. */}
+            {/* The number or key is the row's menu, so it is a control of
+                its own and cannot be inside the collapse button. */}
+            <RowLabelText label={label} menuItems={menuItems} />
+            {/* The rest of the header is the collapse button, chevron at the
+                right end — where `Field` puts its own. */}
             <button
               className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
               aria-expanded={!collapsed}
               onClick={() => setCollapsed((prev) => !prev)}
             >
-              {label.kind === "key" && <RowLabelText label={label} />}
               <RowSummary
                 path={path}
                 unionKey={
@@ -764,7 +751,7 @@ function BlockRow({
                 "max-w-[40%]": label.kind === "key",
               })}
             >
-              <RowLabelText label={label} />
+              <RowLabelText label={label} menuItems={menuItems} />
             </div>
             <div className="flex-1 min-w-0">
               <AnyField
@@ -877,15 +864,15 @@ function InsertBar({
   );
 }
 
-function RowLabelText({ label }: { label: RowLabel }) {
-  if (label.kind === "index" && label.onMove) {
-    return (
-      <PositionSelect
-        index={label.index}
-        count={label.count}
-        onMove={label.onMove}
-      />
-    );
+function RowLabelText({
+  label,
+  menuItems,
+}: {
+  label: RowLabel;
+  menuItems?: (close: () => void) => React.ReactNode;
+}) {
+  if (menuItems) {
+    return <RowLabelMenu label={label} menuItems={menuItems} />;
   }
   if (label.kind === "index") {
     return (
@@ -894,57 +881,73 @@ function RowLabelText({ label }: { label: RowLabel }) {
       </span>
     );
   }
-  // A key is data, not a field name, so it is shown as written — never
-  // title-cased the way `FieldLabel` treats a schema's own keys.
-  return (
-    <span className="min-w-0 shrink-0 max-w-full truncate font-mono text-base text-fg-primary">
-      {label.key}
-    </span>
-  );
+  return <span className={KEY_TEXT}>{label.key}</span>;
 }
 
+// A key is data, not a field name, so it is shown as written — never
+// title-cased the way `FieldLabel` treats a schema's own keys.
+const KEY_TEXT =
+  "min-w-0 max-w-full truncate font-mono text-base text-fg-primary";
+
 /**
- * The item's number, which is also where it can be moved to: click it (or
- * Enter on it) and pick another number, and the item moves there — the
- * keyboard's twin of dragging the gutter.
+ * The row's number (or a record row's key) is its menu: click it, or Enter
+ * on it, for what can be done to the row — add above or below, duplicate,
+ * delete; rename for a record — and, for an array, where to move it.
+ *
+ * Every row already has a number or a key, so the menu costs no icon of its
+ * own: the handle only drags, and the header's right end is the collapse
+ * chevron alone, as in `Field`. The small chevron beside the label is the
+ * hint that it opens.
  *
  * A button and a popover, not a native `<select>`: a select is a `combobox`,
- * and a union row's variant picker is already the row's combobox. Two of
- * them made "the row's picker" ambiguous, to a screen reader as much as to
- * a test.
+ * and a union row's variant picker is already the row's combobox.
  */
-function PositionSelect({
-  index,
-  count,
-  onMove,
+function RowLabelMenu({
+  label,
+  menuItems,
 }: {
-  index: number;
-  count: number;
-  onMove: (to: number) => void;
+  label: RowLabel;
+  menuItems: (close: () => void) => React.ReactNode;
 }) {
   const portalContainer = useValPortal();
   const [open, setOpen] = useState(false);
   const moved = useRef(false);
+  const close = () => setOpen(false);
+  const canMove =
+    label.kind === "index" && label.onMove !== undefined && label.count > 1;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        data-block-position=""
-        aria-label={`Item ${index + 1} of ${count}. Move to another position`}
-        title="Move to position"
+        data-block-position={label.kind === "index" ? "" : undefined}
+        aria-label={
+          label.kind === "index"
+            ? `Item ${label.index + 1} of ${label.count}: actions and position`
+            : `${label.key}: actions`
+        }
         className={cn(
-          "h-6 min-w-6 shrink-0 rounded px-1 text-center text-sm tabular-nums text-fg-secondary outline-none",
-          "hover:bg-bg-secondary-hover hover:text-fg-primary",
+          "group/label flex h-7 min-w-0 shrink items-center gap-0.5 rounded px-1 outline-none",
+          "hover:bg-bg-secondary-hover data-[state=open]:bg-bg-secondary-hover",
           "focus-visible:ring-1 focus-visible:ring-border-focus",
-          "data-[state=open]:bg-bg-secondary-hover data-[state=open]:text-fg-primary",
+          label.kind === "index" ? "shrink-0" : "max-w-[50%]",
         )}
       >
-        {index + 1}
+        {label.kind === "index" ? (
+          <span className="min-w-4 text-center text-sm tabular-nums text-fg-secondary">
+            {label.index + 1}
+          </span>
+        ) : (
+          <span className={KEY_TEXT}>{label.key}</span>
+        )}
+        <ChevronDown
+          size={12}
+          className="shrink-0 text-fg-secondary-alt opacity-60 group-hover/label:opacity-100 group-data-[state=open]/label:opacity-100"
+        />
       </PopoverTrigger>
       <PopoverContent
         container={portalContainer}
         side="bottom"
         align="start"
-        className="w-auto max-w-56 p-1.5"
+        className="flex w-auto min-w-44 max-w-64 flex-col p-1"
         onCloseAutoFocus={(event) => {
           // After a move, focus goes to the moved item's number instead (see
           // `pendingFocus`); this trigger now belongs to whatever slid in.
@@ -954,32 +957,42 @@ function PositionSelect({
           }
         }}
       >
-        <div className="px-1 pb-1 text-xs text-fg-tertiary">
-          Move to position
-        </div>
-        <div className="grid max-h-48 grid-cols-6 gap-0.5 overflow-y-auto">
-          {Array.from({ length: count }, (_, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-current={i === index ? "true" : undefined}
-              aria-label={i === index ? `${i + 1} (current)` : `${i + 1}`}
-              disabled={i === index}
-              onClick={() => {
-                moved.current = true;
-                setOpen(false);
-                onMove(i);
-              }}
-              className={cn(
-                "h-7 min-w-7 rounded text-xs tabular-nums text-fg-primary",
-                "hover:bg-bg-secondary-hover focus-visible:bg-bg-secondary-hover focus-visible:outline-none",
-                "disabled:bg-bg-brand-primary disabled:text-fg-brand-primary",
-              )}
-            >
-              {i + 1}
-            </button>
-          ))}
-        </div>
+        {menuItems(close)}
+        {canMove && label.kind === "index" && label.onMove && (
+          <>
+            <div className="my-1 h-px bg-border-primary" />
+            <div className="px-2 pb-1 pt-0.5 text-xs text-fg-tertiary">
+              Move to position
+            </div>
+            <div className="grid max-h-48 grid-cols-6 gap-0.5 overflow-y-auto px-1 pb-1">
+              {Array.from({ length: label.count }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-current={i === label.index ? "true" : undefined}
+                  aria-label={
+                    i === label.index
+                      ? `${i + 1} (current)`
+                      : `Move to ${i + 1}`
+                  }
+                  disabled={i === label.index}
+                  onClick={() => {
+                    moved.current = true;
+                    close();
+                    label.onMove?.(i);
+                  }}
+                  className={cn(
+                    "h-7 min-w-7 rounded text-xs tabular-nums text-fg-primary",
+                    "hover:bg-bg-secondary-hover focus-visible:bg-bg-secondary-hover focus-visible:outline-none",
+                    "disabled:bg-bg-brand-primary disabled:text-fg-brand-primary",
+                  )}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -1290,46 +1303,33 @@ const ADD_BUTTON =
   "flex h-6 items-center gap-1 rounded px-1 text-xs font-normal text-fg-tertiary hover:bg-transparent hover:text-fg-primary";
 
 /**
- * The handle on a row's left edge, which is two controls in one: drag it to
- * move the row, click it (Enter) for the row's menu. Spending one control on
- * both is what lets the header give its right end to the collapse chevron,
- * where `Field` has it, instead of to a ⋮ that sat oddly beside the grip.
+ * The handle on a row's left edge: drag it to move the row. It does nothing
+ * else — the row's menu is its number (or key), see `RowLabelMenu`.
  *
  * It stays a direct child of the row, and the insert bar above the row its
  * next sibling: the bar shows its plus while this has keyboard focus (see
- * `InsertBar`), and is the next Tab stop. Radix's `Popover` renders no DOM of
- * its own and its content is portalled, so wrapping this in one keeps that.
+ * `InsertBar`), and is the next Tab stop.
  */
 function RowHandle({
   label,
   alignTo,
   handleProps,
-  menuItems,
 }: {
   label: RowLabel;
   /** Line the grip up with the row's header, or with a leaf row's field. */
   alignTo: "header" | "field";
-  /** Absent for a record: it cannot be dragged, only opened. */
-  handleProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
-  menuItems?: (close: () => void) => React.ReactNode;
+  handleProps: React.ButtonHTMLAttributes<HTMLButtonElement>;
 }) {
-  const portalContainer = useValPortal();
-  const [open, setOpen] = useState(false);
   const name = label.kind === "index" ? `item ${label.index + 1}` : label.key;
-  const button = (
+  return (
     <button
       {...handleProps}
       type="button"
       data-block-grip=""
-      aria-label={
-        handleProps
-          ? `Actions for ${name}, or drag to move`
-          : `Actions for ${name}`
-      }
+      aria-label={`Move ${name}`}
       className={cn(
-        "flex w-4 shrink-0 items-start justify-center self-stretch rounded-sm",
+        "flex w-4 shrink-0 cursor-grab items-start justify-center self-stretch rounded-sm",
         alignTo === "header" ? "pt-3" : "pt-4",
-        handleProps ? "cursor-grab" : "cursor-pointer",
         "text-fg-secondary-alt outline-none transition-colors",
         // Quiet at rest: just the grip icon. The strip appears while its
         // row is hovered or holds focus — the INNERMOST such row only, so
@@ -1339,7 +1339,6 @@ function RowHandle({
         "[[data-block-row]:focus-within:not(:has([data-block-row]:focus-within))>&]:bg-bg-secondary",
         "hover:bg-bg-brand-primary hover:text-fg-brand-primary",
         "focus-visible:bg-bg-brand-primary focus-visible:text-fg-brand-primary",
-        "data-[state=open]:bg-bg-brand-primary data-[state=open]:text-fg-brand-primary",
         // See `DRAG_HANDLE_TOUCH`.
         DRAG_HANDLE_TOUCH,
       )}
@@ -1347,30 +1346,7 @@ function RowHandle({
       <GripVertical size={14} />
     </button>
   );
-  if (!menuItems) {
-    return button;
-  }
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{button}</PopoverTrigger>
-      <PopoverContent
-        className="flex w-auto flex-col p-1"
-        container={portalContainer}
-        side="right"
-        align="start"
-      >
-        {menuItems(() => setOpen(false))}
-      </PopoverContent>
-    </Popover>
-  );
 }
-
-/** What dnd-kit reads to a screen reader on the handle — ours, because Enter
- * opens the menu rather than picking the row up. */
-const HANDLE_INSTRUCTIONS = {
-  draggable:
-    "Press Enter for this item's actions. To move it, press Space to pick it up, the arrow keys to move it, and Space again to drop it, or Escape to cancel.",
-};
 
 function ArrayMenuItems({
   close,
@@ -1448,6 +1424,7 @@ function RecordMenuItems({
           variant="ghost"
           size="sm"
           className={MENU_ITEM}
+          tooltip={false}
           routePattern={entry.routePattern}
           references={entry.references}
           keyDescription={entry.keyDescription}
@@ -1464,6 +1441,7 @@ function RecordMenuItems({
           variant="ghost"
           size="sm"
           className={MENU_ITEM}
+          tooltip={false}
           routePattern={entry.routePattern}
           keyDescription={entry.keyDescription}
           onComplete={close}

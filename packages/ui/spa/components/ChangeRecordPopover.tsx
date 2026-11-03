@@ -30,6 +30,7 @@ export function ChangeRecordPopover({
   onComplete,
   keyDescription,
   className,
+  tooltip = true,
 }: {
   defaultValue: string;
   parentPath: SourcePath | ModuleFilePath;
@@ -47,6 +48,11 @@ export function ChangeRecordPopover({
   keyDescription?: string;
   /** For the trigger: lets a menu draw it as one of its items. */
   className?: string;
+  /**
+   * Whether the trigger has its explanatory tooltip. Off where the trigger is
+   * already a labelled menu item, and the tooltip would only repeat it.
+   */
+  tooltip?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const portalContainer = useValPortal();
@@ -122,7 +128,7 @@ export function ChangeRecordPopover({
 
   return (
     <Popover open={open}>
-      <Tooltip>
+      <Tooltip open={tooltip ? undefined : false}>
         <TooltipTrigger asChild>
           <Button asChild size={size} variant={variant} className={className}>
             <PopoverTrigger
