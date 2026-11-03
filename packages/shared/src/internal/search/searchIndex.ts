@@ -170,8 +170,9 @@ function indexRecordModule(
   let docs = docsByModule.get(moduleFilePath);
   if (
     indexed === undefined ||
-    indexed.schema !== schema ||
-    docs === undefined
+    docs === undefined ||
+    (indexed.schema !== schema &&
+      schemaKeyOf(indexed.schema) !== schemaKeyOf(schema))
   ) {
     removeModule(searchIndex, moduleFilePath);
     indexed = { schema, entries: new Map() };
@@ -229,6 +230,23 @@ function isJsonRecord(
   return (
     typeof source === "object" && source !== null && !Array.isArray(source)
   );
+}
+
+/**
+ * A schema by its content, kept per schema object. Its object is not enough:
+ * the Studio receives a module's schema again (new code, a re-read of the
+ * project) as a new object that says the same, and starting a record of
+ * 10,000 entries over for that was seconds of removing and adding
+ * documents in one go.
+ */
+const schemaKeys = new WeakMap<SerializedSchema, string>();
+function schemaKeyOf(schema: SerializedSchema): string {
+  let key = schemaKeys.get(schema);
+  if (key === undefined) {
+    key = JSON.stringify(schema);
+    schemaKeys.set(schema, key);
+  }
+  return key;
 }
 
 /** One leaf as a document, if it has anything to find. Its id, or `null`. */

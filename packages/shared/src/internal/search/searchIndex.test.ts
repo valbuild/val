@@ -321,6 +321,19 @@ describe("indexing a record module again", () => {
     expect(added).toEqual(['/posts.val.ts?p="/a"."title"']);
   });
 
+  test("the same schema, received again as a new object, keeps the entries", () => {
+    const { searchIndex, added } = counting();
+    const a = titled("alpha");
+    indexModule(searchIndex, POSTS, { "/a": a }, schema);
+    added.length = 0;
+    const again = s
+      .record(s.object({ title: s.string() }))
+      ["executeSerialize"]();
+    expect(again).not.toBe(schema);
+    indexModule(searchIndex, POSTS, { "/a": a }, again);
+    expect(added).toEqual([]);
+  });
+
   test("stops at its deadline, and goes on from there", () => {
     const { searchIndex, added } = counting();
     const source: Record<string, { title: string }> = {};
