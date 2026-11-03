@@ -38,6 +38,17 @@ Run from `scenarios/`.
 | `keystroke.ts`          | One write in the Studio (what a field pays when typing pauses), by module size                                        | `node --import tsx measure/keystroke.ts`                                 |
 | `evaluateValModules.ts` | Bundling a project's `val.modules` from its source and reading every module: what evaluating code after a write costs | `node --import tsx measure/evaluateValModules.ts <project root>`         |
 | `isolateProbe.ts`       | A draft read in a Cloudflare Worker, stepped up until the isolate is killed; joins the runs with `wrangler tail`      | See "The deployed isolate probe" below                                   |
+| `scale.ts`              | The Studio's surfaces (phase 10) with 1k, 10k and 100k entries and files: time per surface, heap after each           | `pnpm exec tsx measure/scale.ts all` (`VAL_SCALE=1000,10000` to narrow)  |
+
+`scaleWork.ts` is phase 10's: the project at size (a `.jsonValues()` router
+of N posts, image, file and video libraries of N entries, local or remote
+refs, and a page that picks from them) and the Studio's surfaces as the store
+calls each component makes. `scale.ts` times them; the scenario
+`src/scale.scenario.test.ts` counts them (1,000 by default;
+`VAL_SCALE=1000,10000,100000 pnpm test scenarios/src/scale` for more); and
+`e2e/tanstack/scale.spec.ts` drives the same shapes in a real browser
+(`VAL_E2E_SCALE=1000 pnpm exec playwright test --project=tanstack
+e2e/tanstack/scale.spec.ts`, with nothing on port 3458 first).
 
 `draftReadWork.ts` holds the synthetic inputs and the requests, with nothing
 from Node in it, so `draftRead.ts` and the isolate probe run the same code.

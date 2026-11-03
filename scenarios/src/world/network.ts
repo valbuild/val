@@ -15,6 +15,11 @@ export type Exchange = {
   status: number | "in-flight" | "held";
   /** Which handler answered, by the name it was given ({@link Network.name}). */
   to?: string;
+  /**
+   * The answer's body, in bytes, once it has been read off a copy of the
+   * response (the sender's own read is untouched): what crossed the wire.
+   */
+  bytes?: number;
 };
 
 export type HoldRule = {
@@ -132,6 +137,17 @@ export function createNetwork(
             await wait();
           }
           exchange.status = response.status;
+          // Counted from a copy, without waiting for it: the sender reads
+          // the response as it came.
+          void response
+            .clone()
+            .arrayBuffer()
+            .then(
+              (body) => {
+                exchange.bytes = body.byteLength;
+              },
+              () => {},
+            );
           return response;
         } finally {
           inFlight--;
