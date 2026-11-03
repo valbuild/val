@@ -491,10 +491,13 @@ Follow-ups, roughly in order:
 
 1. ~~The in-tab chunk is 3.6 MB~~ -- now 136 KB. It was nearly all the
    TypeScript compiler, which only publishing (`ValOps.prepare`) and the
-   history reader use; both now import it dynamically, through
-   `patch/ts/publishKit.ts`, and a bundler splits it into a chunk the demo
-   never fetches. `noNodeFromBrowser.test.ts` fails if it becomes statically
-   reachable again.
+   history reader use. Both reach it through `patch/ts/publishKit.ts`, which
+   the server does not import at all, not even dynamically: a bundler that
+   writes one file (wrangler) inlines a dynamic import, and a Worker running
+   this server was 12.9 MB, 10.8 MB of it the compiler. `nodePlatform` passes
+   it in (`ValServerPlatform.typescript`, `ValOpsOptions.typescript`); the
+   browser platform does not, so the demo's build no longer has the chunk at
+   all. `noNodeFromBrowser.test.ts` fails if it becomes reachable again.
 2. ~~Uploads are refused when tried~~ -- they work now; see section 10.
 3. ~~The tour is a sequence of cards~~ -- the site writes it now
    (`<ValApp demo={{ tour }}>`, steps as `ValDemoTourStep` data), drawn as a

@@ -73,12 +73,12 @@ function withoutStrings(code: string): string {
 
 const DYNAMIC_IMPORT = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
 
-function specifiersOf(source: string, dynamic = true): string[] {
+function specifiersOf(source: string): string[] {
   const code = scannable(source);
   const found: string[] = [];
   const patterns = [
     /\bfrom\s*["']([^"']+)["']/g,
-    ...(dynamic ? [DYNAMIC_IMPORT] : []),
+    DYNAMIC_IMPORT,
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
     /\bimport\s*["']([^"']+)["']/g,
   ];
@@ -110,7 +110,7 @@ function resolveRelative(from: string, specifier: string): string | null {
 
 type Reached = { file: string; via: string[] };
 
-function reachableFrom(entry: string, dynamic = true): Map<string, Reached> {
+function reachableFrom(entry: string): Map<string, Reached> {
   const reached = new Map<string, Reached>();
   const queue: Reached[] = [{ file: entry, via: [entry] }];
   while (queue.length > 0) {
@@ -118,7 +118,7 @@ function reachableFrom(entry: string, dynamic = true): Map<string, Reached> {
     if (!current || reached.has(current.file)) continue;
     reached.set(current.file, current);
     const code = fs.readFileSync(current.file, "utf8");
-    for (const specifier of specifiersOf(code, dynamic)) {
+    for (const specifier of specifiersOf(code)) {
       const resolved = resolveRelative(current.file, specifier);
       if (resolved && !reached.has(resolved)) {
         queue.push({ file: resolved, via: [...current.via, resolved] });
@@ -203,20 +203,40 @@ describe("@valbuild/server/browser is browser-safe", () => {
     expect(files).toContain(path.join("shared", "src", "internal", "index.ts"));
   });
 
-  test("the TypeScript compiler is loaded only when it is used", () => {
-    // Not a correctness rule like the one above: a size one. The compiler is
-    // most of the server's weight -- the demo's in-tab chunk was 3.6 MB with
-    // it -- and only publishing and the history reader use it, so they import
-    // it dynamically and a bundler splits it off (`patch/ts/publishKit.ts`).
-    // A static import of it anywhere below the entry puts it back.
+  test("the TypeScript compiler is not in it at all", () => {
+    // Not a correctness rule like the ones above: a size one. The compiler is
+    // 10.8 MB of source, and in a Worker it was 84% of Val's server (12.9 MB,
+    // `scenarios/measure/results.md`, "The deployed isolate"). Loading it with
+    // a dynamic `import()` is NOT enough: a bundler that writes one file
+    // (wrangler, esbuild without splitting) inlines what a dynamic import
+    // names, so the compiler was in every isolate that runs this server
+    // although nothing there ever publishes. This walk follows dynamic imports
+    // for that reason.
+    //
+    // If this fails on code you just wrote: what you reached needs the
+    // compiler. Put it in `patch/ts/publishKit.ts` and reach it through
+    // `ValServerPlatform.typescript` (or `ValOpsOptions.typescript` from the
+    // data layer), which `nodePlatform` fills and the browser leaves empty.
     const offenders: string[] = [];
-    for (const entry of reachableFrom(ENTRY, false).values()) {
+    for (const entry of reached.values()) {
       const code = fs.readFileSync(entry.file, "utf8");
-      if (specifiersOf(code, false).includes("typescript")) {
-        offenders.push(trail(entry));
+      for (const specifier of specifiersOf(code)) {
+        if (specifier === "typescript" || specifier.startsWith("typescript/")) {
+          offenders.push(`'${specifier}' via ${trail(entry)}`);
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("the Node entry still has the compiler", () => {
+    // The other half of the test above: the compiler left the browser's graph
+    // by moving to Node's, not by being dropped. A publish needs it.
+    const files = [...reachableFrom(path.join(SRC, "index.ts")).keys()].map(
+      relative,
+    );
+    expect(files).toContain(path.join("patch", "ts", "loadTypeScriptKit.ts"));
+    expect(files).toContain(path.join("patch", "ts", "publishKit.ts"));
   });
 
   test("the Node entry is the other half", () => {

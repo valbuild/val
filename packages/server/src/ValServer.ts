@@ -4556,10 +4556,19 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
-        // Loaded here, not with the server: it parses a `.val.ts` with the
-        // TypeScript compiler. See `patch/ts/publishKit.ts`.
-        const { getJsonEntryAtCommit } =
-          await import("./history/getJsonEntryAtCommit");
+        // It parses a `.val.ts` with the TypeScript compiler, which reaches
+        // the server through its platform rather than an import: see
+        // `ValServerPlatform.typescript` and `patch/ts/publishKit.ts`.
+        if (!platform.typescript) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "This server cannot read a .val.json entry at a commit: it runs without the TypeScript compiler, which reading one needs. History is read from a Val server on Node.",
+            },
+          };
+        }
+        const { getJsonEntryAtCommit } = await platform.typescript();
         const res = await getJsonEntryAtCommit(
           serverOps,
           req.query.commit_sha,

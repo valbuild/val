@@ -76,6 +76,10 @@ import { Buffer } from "buffer";
 import { getFileExt } from "./getFileExt";
 import { createFsSketchpadStore } from "./sketchpads/fsSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import {
+  loadTypeScriptKit,
+  type TypeScriptKit,
+} from "./patch/ts/loadTypeScriptKit";
 
 /** Serializes a schema, or gives up quietly — serialization errors are reported elsewhere. */
 function serializeSchemaSafely(
@@ -102,6 +106,13 @@ export class ValOpsFS extends ValOps {
   /** The developer's own working tree. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = true;
   override readonly kind = "fs";
+  /**
+   * Always available: this data layer only runs on Node. See
+   * {@link ValOpsOptions.typescript}.
+   */
+  protected override loadTypeScriptKit(): Promise<TypeScriptKit> {
+    return this.options?.typescript?.() ?? loadTypeScriptKit();
+  }
   /**
    * The developer's own machine, where there is no credential to require and
    * nothing to protect it from. See {@link ValOps.requiresAuth}.

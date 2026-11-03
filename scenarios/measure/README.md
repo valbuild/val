@@ -130,9 +130,10 @@ happens. **In a deployed Worker the clock only moves on I/O**, so the times in
 the response may read 0 there: use the tail's `cpuTime` and `wallTime`.
 
 **The code counts too.** The bundle is in the same 128 MB, so it is printed
-with every build. As of 2026-11-03 it is 12.9 MB (2.1 MB gzipped), and
-**84% of it is the TypeScript compiler** (10.8 MB), which `ValServer` imports
-through `history/getJsonEntryAtCommit.ts`. See `results.md`.
+with every build. As of 2026-11-03 it is 2.0 MB (0.4 MB gzipped). It was
+12.9 MB until the TypeScript compiler (10.8 MB) left the server's browser
+graph: it reaches the server through `ValServerPlatform.typescript`, which
+the browser platform this probe runs on does not have. See `results.md`.
 
 ### Locally
 

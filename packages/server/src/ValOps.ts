@@ -45,6 +45,7 @@ import type {
   HistoricalCommit,
 } from "./history/types";
 import type { JsonValuesEntry } from "./patch/ts/jsonValuesModule";
+import type { TypeScriptKit } from "./patch/ts/loadTypeScriptKit";
 import {
   classifyJsonValuesOp,
   expandJsonValuesRootOp,
@@ -179,6 +180,18 @@ export type ValOpsOptions = {
    * this instance would leave them (`proposalJsonEntries` in `./proposal`).
    */
   snapshotJsonEntries?: Map<ModuleFilePath, Map<string, JSONValue>>;
+  /**
+   * The TypeScript compiler, for {@link ValOps.prepare}: a publish rewrites
+   * each `.val.ts` it touches as text. `loadTypeScriptKit` on Node.
+   *
+   * Passed in rather than imported, because this class runs in a browser tab
+   * and in a Worker too, where the compiler would be 10.8 MB of a 12.9 MB
+   * bundle that never publishes (see `publishKit.ts`). `ValOpsFS` and
+   * `ValOpsHttp` only run on Node and load it themselves; `ValOpsMemory` has
+   * it when its host passes it (`createValOps` does), and refuses to publish
+   * without it.
+   */
+  typescript?: () => Promise<TypeScriptKit>;
 };
 /**
  * What a save told this instance a `.jsonValues()` entry holds: its content --
@@ -285,6 +298,15 @@ export abstract class ValOps {
     if (this.options !== undefined && this.options.formatter === undefined) {
       this.options.formatter = formatter;
     }
+  }
+
+  /**
+   * The TypeScript compiler, loading, or `null` where this server has none.
+   * See {@link ValOpsOptions.typescript}; the Node-only data layers override
+   * this to load it themselves.
+   */
+  protected loadTypeScriptKit(): Promise<TypeScriptKit> | null {
+    return this.options?.typescript?.() ?? null;
   }
 
   constructor(
@@ -1991,6 +2013,16 @@ export abstract class ValOps {
     const continueOnError = options?.continueOnError ?? false;
     // The TypeScript compiler, loaded now rather than with the server: see
     // `publishKit.ts`.
+    const loadTypeScript = this.loadTypeScriptKit();
+    if (loadTypeScript === null) {
+      throw new Error(
+        "Cannot publish from this server: publishing rewrites .val.ts files, " +
+          "which needs the TypeScript compiler, and this server was started " +
+          "without it (a server in the browser has none). Publish from a Val " +
+          "server on Node -- createValServer passes it -- or pass " +
+          "`typescript: loadTypeScriptKit` when constructing ValOpsMemory.",
+      );
+    }
     const {
       tsOps,
       parseValFile,
@@ -1999,7 +2031,7 @@ export abstract class ValOps {
       jsonValuesRecordKeys,
       insertValJsonEntry,
       removeValJsonEntry,
-    } = await import("./patch/ts/publishKit");
+    } = await loadTypeScript;
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};

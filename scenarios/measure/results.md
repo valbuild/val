@@ -175,14 +175,40 @@ then `isolateProbe.ts bundle`. Unminified, as deployed.
 | synthetic only | 12,864 KiB | 2,106 KiB | 10,785 KiB | 600 KiB | 508 KiB | 396 KiB | 366 KiB | -       |
 | `--env web`    | 13,390 KiB | 2,177 KiB | 10,789 KiB | 600 KiB | 509 KiB | 396 KiB | 366 KiB | 515 KiB |
 
-- **84% of Val's server, as a Worker bundles it, is the TypeScript
+- **84% of Val's server, as a Worker bundles it, was the TypeScript
   compiler**, imported by `ValServer.ts` through
-  `history/getJsonEntryAtCommit.ts`. It is in every isolate that runs Val's
-  server, and in the demo's browser bundle. V8 compiles lazily, but the
-  source (about 10.5 MB) is held either way, so it is part of what the app
-  leaves Val. Whether a draft read needs it at all is a question for phase 6.
+  `history/getJsonEntryAtCommit.ts` and by `ValOps.prepare` through
+  `patch/ts/publishKit.ts`. Both imports were dynamic, which a bundler that
+  writes one file (wrangler) inlines all the same. V8 compiles lazily, but
+  the source (about 10.5 MB) is held either way. Fixed below.
 - Also in it and not used by a draft read: `modern-screenshot` (60 KiB,
   `shared/internal`'s `pageScreenshot.ts`) and `flexsearch` (80 KiB).
+
+### The probe's bundle without the compiler
+
+2026-11-03, the same commands, after the TypeScript compiler moved behind
+`ValServerPlatform.typescript` (the history reader) and
+`ValOpsOptions.typescript` (`prepare`), which `nodePlatform` fills and the
+browser platform -- the one this probe runs on -- does not.
+
+| Build          | Total     | Gzipped | TypeScript | zod     | core    | shared  | server  | web     |
+| -------------- | --------- | ------- | ---------- | ------- | ------- | ------- | ------- | ------- |
+| synthetic only | 2,045 KiB | 376 KiB | -          | 600 KiB | 508 KiB | 397 KiB | 334 KiB | -       |
+| `--env web`    | 2,565 KiB | 445 KiB | -          | 600 KiB | 509 KiB | 397 KiB | 335 KiB | 515 KiB |
+
+- **From 12.9 MB to 2.0 MB** (gzipped 2.1 MB to 0.4 MB). The rest is the
+  modules' own dependencies: zod, core and shared are in the Studio's bundle
+  as well.
+- **A server on Node still has the compiler**, because it publishes:
+  `ValOps.prepare` rewrites each `.val.ts` as text. So does an app that runs
+  `createValServer` in a Worker, publishing included; what left is the
+  memory-mode server a Worker or a tab starts from `@valbuild/server/browser`.
+  `noNodeFromBrowser.test.ts` fails, naming the chain, if the compiler
+  becomes reachable from there again, through a dynamic import too.
+- **The demo's tab loads what it loaded before.** Bundled for the browser
+  with chunks split (esbuild, minified), the entry and its eager chunks are
+  695 KiB both before and after; what is gone is a 3.5 MB chunk of the
+  compiler that the demo never fetched, and so from the app's build output.
 
 ### workerd on this machine (NOT the limit)
 

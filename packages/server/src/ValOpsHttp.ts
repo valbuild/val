@@ -73,6 +73,10 @@ import {
 } from "@valbuild/shared/internal";
 import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
+import {
+  loadTypeScriptKit,
+  type TypeScriptKit,
+} from "./patch/ts/loadTypeScriptKit";
 
 const textEncoder = new TextEncoder();
 
@@ -465,6 +469,13 @@ export class ValOpsHttp extends ValOps {
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
   override readonly kind = "http";
+  /**
+   * Always available: this data layer only runs on Node. See
+   * {@link ValOpsOptions.typescript}.
+   */
+  protected override loadTypeScriptKit(): Promise<TypeScriptKit> {
+    return this.options?.typescript?.() ?? loadTypeScriptKit();
+  }
   /** The content service's. See `sketchpads/httpSketchpadStore.ts`. */
   override readonly sketchpads: SketchpadStore;
   /** See {@link ValOps.requiresAuth}. */
