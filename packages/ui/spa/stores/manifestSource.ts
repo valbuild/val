@@ -321,7 +321,7 @@ export class ManifestSource {
       const held = this.sourceStore.baseOf(moduleFilePath);
       if (held === undefined || held.version === version.base) continue;
       const fetched = this.fetchedBases.get(moduleFilePath);
-      const below = this.sourceStore.serverModuleOf(moduleFilePath);
+      const below = this.sourceStore.adoptedServer(moduleFilePath);
       if (fetched?.version !== version.base || below === null) continue;
       restored.set(moduleFilePath, {
         version: below.version,

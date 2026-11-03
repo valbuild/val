@@ -2173,6 +2173,23 @@ export class SourceStore {
     return this.decidedGone(patchId, below.decidedAt);
   }
 
+  /**
+   * The server's version this module was moved to, as adopted, whatever base
+   * the store holds now: what a re-intake that put the bundle's base back is
+   * undone with (`ManifestSource`), in the same turn.
+   */
+  adoptedServer(moduleFilePath: ModuleFilePath): {
+    version: ModuleVersion;
+    at: ModuleAt | { applied: readonly PatchId[] };
+  } | null {
+    const below = this.server.get(moduleFilePath);
+    if (below === undefined) return null;
+    return {
+      version: below.version,
+      at: below.at ?? { applied: below.applied },
+    };
+  }
+
   /** The version the server named for this module, as adopted, if one has. */
   serverVersionOf(moduleFilePath: ModuleFilePath): ModuleVersion | undefined {
     return this.server.get(moduleFilePath)?.version;
