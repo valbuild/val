@@ -20,6 +20,31 @@ import { noopActivity, type ActivitySink } from "./activity";
 export type ImportRegistry = (entry: string) => Promise<ValModules>;
 
 /**
+ * The URL to import a build's registry from: `entry` resolved against the
+ * page, and only when it is on the page's own origin. `null` for anything
+ * else -- another host, `//host/…`, `data:`, `blob:` -- which is not
+ * imported at all.
+ *
+ * The entry comes from the server's manifest, and an `import()` runs what it
+ * names with the Studio's privileges: the editor's session, their unsaved
+ * edits. A build's registry is always one of the site's own chunks
+ * (`/_app/val-modules-<build>.js`), so nothing legitimate is refused.
+ */
+export function registryEntryUrl(entry: string, page: string): string | null {
+  let url: URL;
+  let origin: string;
+  try {
+    url = new URL(entry, page);
+    origin = new URL(page).origin;
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (url.origin !== origin) return null;
+  return url.href;
+}
+
+/**
  * Reload the page: the Studio's answer to a build whose code it cannot take
  * in place. Nothing is lost by it -- where the editor is and the chat
  * session are in the URL, and it waits until every edit is on the server.
@@ -33,6 +58,17 @@ export type ReloadStudio = () => void;
  * either order; within this, HMR has always come.
  */
 export const STUDIO_RELOAD_GRACE_MS = 3_000;
+
+/**
+ * How long a build's registry may take to import before the Studio stops
+ * waiting for it. The manifest that named it is adopted only after its code
+ * is in (`ManifestSource` waits on {@link BuildCode.follow}), so an import
+ * that hangs -- a chunk the network never finishes -- held up every manifest
+ * after it, and with them every other editor's change and every publish
+ * reaching this Studio. Past this it is a registry that did not load: the
+ * manifest is adopted, and the page reloads once the grace is up.
+ */
+export const REGISTRY_IMPORT_DEADLINE_MS = 15_000;
 
 /** A manifest, as far as the code it names goes. */
 export type ManifestCode = {
@@ -108,11 +144,42 @@ export class BuildCode {
       /** Absent: a driver that cannot reload, which then keeps its code. */
       reloadStudio?: ReloadStudio;
       graceMs?: number;
+      importDeadlineMs?: number;
       activity?: ActivitySink;
     },
   ) {
     this.activity = options.activity ?? noopActivity;
     this.graceMs = options.graceMs ?? STUDIO_RELOAD_GRACE_MS;
+    this.importDeadlineMs =
+      options.importDeadlineMs ?? REGISTRY_IMPORT_DEADLINE_MS;
+  }
+
+  private readonly importDeadlineMs: number;
+
+  /** The registry at `entry`, or a rejection once the deadline has passed. */
+  private importWithDeadline(
+    importRegistry: ImportRegistry,
+    entry: string,
+  ): Promise<ValModules> {
+    return new Promise<ValModules>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `The new build's code (${entry}) did not finish loading within ${Math.round(this.importDeadlineMs / 1000)} s.`,
+          ),
+        );
+      }, this.importDeadlineMs);
+      importRegistry(entry).then(
+        (registry) => {
+          clearTimeout(timer);
+          resolve(registry);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   /**
@@ -139,7 +206,7 @@ export class BuildCode {
       if (answer === undefined) {
         this.activity.work("code:import-build");
         answer = await this.host.reloadCode(
-          () => importRegistry(registry.entry),
+          () => this.importWithDeadline(importRegistry, registry.entry),
           {
             byContent: true,
             expected: { core: registry.core, modules: manifest.modules },

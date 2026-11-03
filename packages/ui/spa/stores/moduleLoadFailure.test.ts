@@ -19,11 +19,14 @@ const home = c.define("/home.val.ts", s.object({ title: s.string() }), {
 const footer = c.define("/footer.val.ts", s.object({ text: s.string() }), {
   text: "Footer",
 });
+const about = c.define("/about.val.ts", s.object({ text: s.string() }), {
+  text: "About",
+});
 
 const registry = (
   ...defs: ValModules["modules"][number]["def"][]
 ): ValModules => ({ config, modules: defs.map((def) => ({ def })) });
-const ok = (module: typeof home | typeof footer) => () =>
+const ok = (module: typeof home | typeof footer | typeof about) => () =>
   Promise.resolve({ default: module });
 const throws = () => Promise.reject(new Error("footer.val.ts threw"));
 
@@ -102,9 +105,6 @@ describe("a module whose code throws", () => {
   });
 
   it("is named by its place, and keeps nothing, when the list moved and it cannot be told which", async () => {
-    const about = c.define("/about.val.ts", s.object({ text: s.string() }), {
-      text: "About",
-    });
     const system = createSystem({
       fetchPatches: async () => ({ patches: [] }),
     });

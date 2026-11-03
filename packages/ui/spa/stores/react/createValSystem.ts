@@ -11,7 +11,11 @@ import type { RequestPublish } from "../PublishSeam";
 import type { SavedPatches } from "../PatchSync";
 import { chunkPatchIds } from "./patchIdChunks";
 import { registryOfEntry } from "./loadValModules";
-import type { ImportRegistry, ReloadStudio } from "../buildCode";
+import {
+  registryEntryUrl,
+  type ImportRegistry,
+  type ReloadStudio,
+} from "../buildCode";
 import type { JsonEntryResult } from "./jsonEntriesBatch";
 import {
   isRecord,
@@ -155,8 +159,18 @@ export function createValSystem(
      */
     importRegistry:
       options?.importRegistry ??
-      (async (entry) =>
-        registryOfEntry(await import(/* @vite-ignore */ entry))),
+      (async (entry) => {
+        // Never code from anywhere but the site itself: see
+        // `registryEntryUrl`. Refused, it is a registry that did not load,
+        // and the page reloads instead.
+        const url = registryEntryUrl(entry, window.location.href);
+        if (url === null) {
+          throw new Error(
+            `The new build's code is not on this site (${entry}), so it was not loaded.`,
+          );
+        }
+        return registryOfEntry(await import(/* @vite-ignore */ url));
+      }),
     /**
      * The page, reloaded: for a build whose code cannot be taken in place
      * (`BuildCode`, once every edit is on the server).

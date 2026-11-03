@@ -16,7 +16,11 @@ import {
 import { valModulesEntryFile as builderEntryFile } from "@valbuild/tanstack-build/constants";
 import { createSystem, type System } from "./createSystem";
 import { createFakeManifest } from "./testManifest";
-import { STUDIO_RELOAD_GRACE_MS } from "./buildCode";
+import {
+  REGISTRY_IMPORT_DEADLINE_MS,
+  STUDIO_RELOAD_GRACE_MS,
+  registryEntryUrl,
+} from "./buildCode";
 import type { FetchManifest } from "./manifestSource";
 import type { UploadFile } from "./PatchStore";
 
@@ -62,7 +66,7 @@ const settle = async () => {
 function setup(options: {
   mode: "fs" | "http";
   registry?: (build: "b1" | "b2") => BuildRegistry | undefined;
-  imported?: () => ValModules;
+  imported?: () => ValModules | Promise<ValModules>;
   uploadFile?: UploadFile;
 }) {
   let build: "b1" | "b2" = "b1";
@@ -303,4 +307,46 @@ test("an image on its way holds the reload until it has landed", async () => {
   await jest.advanceTimersByTimeAsync(0);
   expect(studio.system.patchStore.uploadsInFlight()).toBe(0);
   expect(studio.reloads()).toBe(1);
+});
+
+test("a registry that never finishes importing does not hold the manifest up, and the page reloads", async () => {
+  const studio = setup({
+    mode: "http",
+    registry: (build) => (build === "b2" ? ours : undefined),
+    imported: () => new Promise<ValModules>(() => {}),
+  });
+  await studio.stat();
+  studio.deploy();
+  studio.system.stat.receiveStat({ patches: [], baseSha: "base" });
+  let adopted = false;
+  void studio.system.manifest.settled().then(() => {
+    adopted = true;
+  });
+  await jest.advanceTimersByTimeAsync(REGISTRY_IMPORT_DEADLINE_MS);
+  await settle();
+  // The manifest went on without the code, as for a registry that failed.
+  expect(adopted).toBe(true);
+  expect(studio.reloads()).toBe(0);
+  await jest.advanceTimersByTimeAsync(STUDIO_RELOAD_GRACE_MS);
+  expect(studio.reloads()).toBe(1);
+});
+
+test("a build's registry is imported only from the site's own origin", () => {
+  const page = "https://site.example/val/content";
+  expect(registryEntryUrl("/_app/val-modules-b2.js", page)).toBe(
+    "https://site.example/_app/val-modules-b2.js",
+  );
+  expect(
+    registryEntryUrl("https://site.example/_app/val-modules-b2.js", page),
+  ).toBe("https://site.example/_app/val-modules-b2.js");
+  for (const elsewhere of [
+    "https://evil.example/_app/val-modules-b2.js",
+    "//evil.example/_app/val-modules-b2.js",
+    "http://site.example/_app/val-modules-b2.js",
+    "data:text/javascript,export default 1",
+    "javascript:alert(1)",
+    "blob:https://site.example/1234",
+  ]) {
+    expect(registryEntryUrl(elsewhere, page)).toBe(null);
+  }
 });
