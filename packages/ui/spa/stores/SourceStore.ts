@@ -1238,12 +1238,42 @@ export class SourceStore {
       this.applyLanded(moduleFilePath);
       return;
     }
+    if (!this.bulkBatchIsDue(moduleFilePath, landed)) return;
     if (this.applyScheduled.has(moduleFilePath)) return;
     this.applyScheduled.add(moduleFilePath);
     void yieldToMain().then(() => {
       this.applyScheduled.delete(moduleFilePath);
       this.applyLanded(moduleFilePath);
     });
+  }
+
+  /**
+   * Whether what a bulk load has landed is enough to apply: a twentieth of
+   * the load (at least {@link MIN_BULK_APPLY} entries), or everything still
+   * to come for it.
+   *
+   * Applied per request, a load of 10,000 was a hundred applies, and each one
+   * re-renders whatever reads the whole project -- most of a long task each
+   * in the browser. Paced like this it is about twenty however large the
+   * record, each with a twentieth of it, and the progress bar moves in
+   * twentieths.
+   */
+  private bulkBatchIsDue(
+    moduleFilePath: ModuleFilePath,
+    landed: readonly { keys: string[]; bulk: boolean }[],
+  ): boolean {
+    const job = this.bulkLoads.get(moduleFilePath);
+    if (job === undefined) return true;
+    let entries = 0;
+    let requests = 0;
+    for (const answer of landed) {
+      if (!answer.bulk) continue;
+      entries += answer.keys.length;
+      requests++;
+    }
+    const sending = job.next < job.keys.length;
+    if (!sending && requests >= job.inFlight) return true;
+    return entries >= Math.max(MIN_BULK_APPLY, Math.ceil(job.keys.length / 20));
   }
 
   /**
@@ -2890,6 +2920,12 @@ const BULK_REQUESTS_IN_FLIGHT = 3;
  * request, and every request is a batch the view is rebuilt for.
  */
 const BULK_KEYS_PER_REQUEST = JSON_ENTRIES_BATCH_MAX;
+
+/**
+ * The fewest entries a bulk load applies at once, before its last batch: see
+ * `SourceStore.bulkBatchIsDue`.
+ */
+const MIN_BULK_APPLY = 200;
 
 /** One running {@link SourceStore.loadAllEntries}. */
 type BulkLoad = {

@@ -34,17 +34,19 @@ export function getFileReferrers(
   fileRef?: string, // if provided, only the referrers naming this entry
 ): FileReferrer[] {
   const results: FileReferrer[] = [];
-  const galleryKeys = keysOf(sources[parent]);
+  const seen = new Set<SourcePath>();
+  const galleryKeys = fileRef === undefined ? null : keysOf(sources[parent]);
   const add = (sourcePath: SourcePath, source: unknown) => {
     const media = mediaValueOf(source);
-    if (fileRef !== undefined) {
+    if (galleryKeys !== null) {
       if (media === null || galleryKeyOf(media.path, galleryKeys) !== fileRef) {
         return;
       }
     }
-    if (results.some((r) => r.sourcePath === sourcePath)) {
+    if (seen.has(sourcePath)) {
       return;
     }
+    seen.add(sourcePath);
     results.push({
       sourcePath,
       path: media?.path ?? null,
@@ -74,8 +76,14 @@ export function getFileReferrers(
       if (key === "patch_id") continue;
       const value = source[key];
       if (value === undefined) continue;
-      const at = sourcePathOfChild(root, key);
-      for (const hit of entryHits(at, schema, value, parent, mediaEntry)) {
+      for (const hit of entryHits(
+        root,
+        key,
+        schema,
+        value,
+        parent,
+        mediaEntry,
+      )) {
         add(hit.sourcePath, hit.source);
       }
     }
@@ -109,14 +117,21 @@ const hitsByEntry = new WeakMap<
 >();
 
 function entryHits(
-  at: SourcePath,
+  root: SourcePath,
+  key: string,
   record: Extract<SerializedSchema, { type: "record" }>,
   value: Source,
   parent: ModuleFilePath,
   mediaEntry: boolean,
 ): Hit[] {
   if (typeof value !== "object" || value === null) {
-    return hitsIn(at, record.item, value, parent, mediaEntry);
+    return hitsIn(
+      sourcePathOfChild(root, key),
+      record.item,
+      value,
+      parent,
+      mediaEntry,
+    );
   }
   let byValue = hitsByEntry.get(record);
   if (byValue === undefined) {
@@ -128,11 +143,19 @@ function entryHits(
     found = new Map();
     byValue.set(value, found);
   }
-  const key = `${parent}\0${at}`;
-  let hits = found.get(key);
+  // The path is made only when the entry is walked: on a scan that finds
+  // the entry as it was, building one per entry was most of the scan.
+  const cacheKey = `${parent}\0${root}\0${key}`;
+  let hits = found.get(cacheKey);
   if (hits === undefined) {
-    hits = hitsIn(at, record.item, value, parent, mediaEntry);
-    found.set(key, hits);
+    hits = hitsIn(
+      sourcePathOfChild(root, key),
+      record.item,
+      value,
+      parent,
+      mediaEntry,
+    );
+    found.set(cacheKey, hits);
   }
   return hits;
 }
@@ -260,10 +283,18 @@ function mediaValueOf(
   return null;
 }
 
+/** Per gallery source object: its entry keys. */
+const galleryKeysOf = new WeakMap<object, ReadonlySet<string>>();
+
 /** The gallery's entry keys, or none when its source is not an object yet. */
 function keysOf(source: Source | undefined): ReadonlySet<string> {
   if (typeof source === "object" && source !== null && !Array.isArray(source)) {
-    return new Set(Object.keys(source));
+    let keys = galleryKeysOf.get(source);
+    if (keys === undefined) {
+      keys = new Set(Object.keys(source));
+      galleryKeysOf.set(source, keys);
+    }
+    return keys;
   }
   return new Set();
 }
