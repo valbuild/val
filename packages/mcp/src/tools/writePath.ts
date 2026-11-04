@@ -498,6 +498,15 @@ export async function savePatch(
         message: saved.error.error.message,
       };
     }
+    if (saved.error.errorType === "service-error") {
+      // The content service failed, not the patch: worth calling again once
+      // it recovers. Its own words go along, so the caller can say which.
+      return {
+        status: "error",
+        code: "internal",
+        message: `${saved.error.message} (${saved.error.details})`,
+      };
+    }
     return {
       status: "error",
       code: "internal",

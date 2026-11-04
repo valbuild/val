@@ -74,6 +74,12 @@ import {
 import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import {
+  contentServiceAnswered,
+  contentServiceFailureText,
+  contentServiceName,
+  contentServiceUnreachable,
+} from "./contentServiceFailure";
 
 const textEncoder = new TextEncoder();
 
@@ -2280,9 +2286,13 @@ export class ValOpsHttp extends ValOps {
         return {
           status: "error" as const,
           error: {
-            message:
-              "Could not get nonce. Error: " +
-              (e instanceof Error ? e.message : e.toString()),
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "connect for live updates",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -2561,11 +2571,17 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
+      const failure = contentServiceAnswered(
+        contentServiceName(this.contentUrl),
+        "load your changes",
+        {
+          status: patchesRes.status,
+          statusText: patchesRes.statusText,
+          body: await patchesRes.text().catch(() => ""),
+        },
+      );
       Internal.log.error(
-        "Could not get patches. HTTP error: " +
-          patchesRes.status +
-          " " +
-          patchesRes.statusText,
+        `Could not get patches. ${failure.message} ${failure.details}`,
       );
       if (patchesRes.status === 401) {
         return {
@@ -2578,27 +2594,37 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
+      /*
+       * The service ANSWERED, so this is not a network problem -- it used to
+       * say "most likely due to a network issue. Check your network
+       * connection" about a 500, to an editor whose network was fine. What it
+       * said goes in `details`. The Studio asks again on the next `/stat`,
+       * which fails fast and is retried while the service is failing.
+       */
       return {
         patches,
         error: {
-          message:
-            "Could not get your changes. It is most likely due to a network issue. Check your network connection and please try again.",
+          message: failure.message,
+          details: failure.details,
         },
       } as ExcludePatchOps extends true
         ? OrderedPatchesMetadata
         : OrderedPatches;
     } catch (err) {
+      const failure = contentServiceUnreachable(
+        contentServiceName(this.contentUrl),
+        "load your changes",
+        err,
+      );
       Internal.log.error(
-        "Could not get patches (connection error):",
-        err instanceof Error ? err.message : JSON.stringify(err),
+        `Could not get patches. ${failure.message} ${failure.details}`,
       );
       return {
         patches: [],
         networkError: true,
         error: {
-          message: `Error: ${
-            err instanceof Error ? err.message : JSON.stringify(err)
-          }`,
+          message: failure.message,
+          details: failure.details,
         },
       };
     }
@@ -2663,8 +2689,27 @@ export class ValOpsHttp extends ValOps {
             message: "Conflict: " + (await res.text()),
           });
         }
-        if (res.headers.get("Content-Type")?.includes("application/json")) {
-          const json = await res.json();
+        const body = await res.text();
+        const failure = contentServiceAnswered(
+          contentServiceName(this.contentUrl),
+          "save your change",
+          { status: res.status, statusText: res.statusText, body },
+        );
+        if (failure.retryable) {
+          /*
+           * The SERVICE failed -- a 500 from a database missing a column was
+           * the one that found this. It used to be an `other`, which the
+           * Studio is told is a bad patch and drops: the field went back to
+           * its old value and the status bar said "All changes saved".
+           */
+          return result.err({
+            errorType: "service-error",
+            message: failure.message,
+            details: failure.details,
+          });
+        }
+        const json = parseJsonOrNull(body);
+        if (json !== null) {
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           /*
            * Refused for the plan: the patch is fine, and the reason comes as
@@ -2688,19 +2733,19 @@ export class ValOpsHttp extends ValOps {
         }
         return result.err({
           errorType: "other",
-          message:
-            "Could not save patch. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
+          message: `${failure.message} ${failure.details}`,
         });
       })
       .catch((e): SaveSourceFilePatchResult => {
+        const failure = contentServiceUnreachable(
+          contentServiceName(this.contentUrl),
+          "save your change",
+          e,
+        );
         return result.err({
-          errorType: "other",
-          message: `Could save source file patch (connection error?): ${
-            e instanceof Error ? e.message : e.toString()
-          }`,
+          errorType: "service-error",
+          message: failure.message,
+          details: failure.details,
         });
       });
   }
@@ -2759,11 +2804,17 @@ export class ValOpsHttp extends ValOps {
           }
           return {
             error: {
-              message:
-                "Could not save patch file. HTTP error: " +
-                res.status +
-                " " +
-                res.statusText,
+              message: contentServiceFailureText(
+                contentServiceAnswered(
+                  contentServiceName(this.contentUrl),
+                  "save the file",
+                  {
+                    status: res.status,
+                    statusText: res.statusText,
+                    body: await res.text().catch(() => ""),
+                  },
+                ),
+              ),
             },
           };
         },
@@ -2771,7 +2822,13 @@ export class ValOpsHttp extends ValOps {
       .catch((e): WithGenericError<{ patchId: PatchId; filePath: string }> => {
         return {
           error: {
-            message: `Could save source binary file in patch (connection error?): ${e.toString()}`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "save the file",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -2858,20 +2915,30 @@ export class ValOpsHttp extends ValOps {
         }
         return {
           error: {
-            message:
-              "Could not get files. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "load the files",
+                {
+                  status: res.status,
+                  statusText: res.statusText,
+                  body: await res.text().catch(() => ""),
+                },
+              ),
+            ),
           },
         };
       })
       .catch((e) => {
         return {
           error: {
-            message: `Could not get file (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "load the files",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3060,11 +3127,17 @@ export class ValOpsHttp extends ValOps {
       return {
         errors: [
           {
-            message:
-              "Could not get metadata. HTTP error: " +
-              metadataRes.status +
-              " " +
-              metadataRes.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "read the file's details",
+                {
+                  status: metadataRes.status,
+                  statusText: metadataRes.statusText,
+                  body: await metadataRes.text().catch(() => ""),
+                },
+              ),
+            ),
             filePath,
           },
         ],
@@ -3073,11 +3146,13 @@ export class ValOpsHttp extends ValOps {
       return {
         errors: [
           {
-            message:
-              "Could not get metadata (connection error?): " +
-              (err instanceof Error
-                ? err.message
-                : err?.toString() || "unknown error"),
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "read the file's details",
+                err,
+              ),
+            ),
           },
         ],
       };
@@ -3166,20 +3241,30 @@ export class ValOpsHttp extends ValOps {
         }
         return {
           error: {
-            message:
-              "Could not delete patches. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "discard the changes",
+                {
+                  status: res.status,
+                  statusText: res.statusText,
+                  body: await res.text().catch(() => ""),
+                },
+              ),
+            ),
           },
         };
       })
       .catch((e) => {
         return {
           error: {
-            message: `Could not delete patches (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "discard the changes",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3313,42 +3398,45 @@ export class ValOpsHttp extends ValOps {
           },
         };
       }
-      if (res.headers.get("Content-Type")?.includes("application/json")) {
-        const json = z
-          .object({ isNotFastForward: z.boolean().optional() })
-          .safeParse(await res.json());
-        if (json.success && json.data.isNotFastForward) {
-          return {
-            isNotFastForward: true,
-            error: {
-              message: "Could not commit. Not a fast-forward commit",
-            },
-          };
-        }
-        const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+      const body = await res.text().catch(() => "");
+      const payload = parseJsonOrNull(body);
+      const notFastForward = z
+        .object({ isNotFastForward: z.boolean().optional() })
+        .safeParse(payload);
+      if (notFastForward.success && notFastForward.data.isNotFastForward) {
         return {
+          isNotFastForward: true,
           error: {
-            message,
+            message: "Could not commit. Not a fast-forward commit",
           },
         };
       }
+      /*
+       * The service's own words, read from the PAYLOAD. This used to hand
+       * `getErrorMessageFromUnknownJson` the zod `safeParse` result, which
+       * has no `message`, so every commit failure read "Unknown error".
+       */
       return {
         error: {
-          message:
-            "Could not commit. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
+          message: contentServiceFailureText(
+            contentServiceAnswered(
+              contentServiceName(this.contentUrl),
+              "publish",
+              { status: res.status, statusText: res.statusText, body },
+            ),
+          ),
         },
       };
     } catch (err) {
       return {
         error: {
-          message: `Could not commit (connection error?): ${
-            err instanceof Error
-              ? err.message
-              : err?.toString() || "unknown error"
-          }`,
+          message: contentServiceFailureText(
+            contentServiceUnreachable(
+              contentServiceName(this.contentUrl),
+              "publish",
+              err,
+            ),
+          ),
         },
       };
     }

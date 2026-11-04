@@ -1384,7 +1384,9 @@ export const ValServer = (
           return {
             status: 503,
             json: {
-              message: "Network error",
+              // Which service could not be reached, rather than "Network
+              // error": the editor reached THIS server, so it is not theirs.
+              message: currentStat.error.message,
             },
           };
         }
@@ -1920,6 +1922,24 @@ export const ValServer = (
                   ...savedSoFar(),
                 },
               };
+            } else if (createPatchRes.error.errorType === "service-error") {
+              /*
+               * The content service failed, not the patch: a 502, never the
+               * 400 below. A 400 tells the Studio the patch is bad, and it
+               * drops it -- the editor's change reverted with nothing said
+               * but "All changes saved". The patches before this one in the
+               * batch ARE saved, and are reported as a 200 would report them,
+               * so a retry sends only what is left.
+               */
+              return {
+                status: 502,
+                json: {
+                  type: "service-error",
+                  message: createPatchRes.error.message,
+                  details: createPatchRes.error.details,
+                  ...savedSoFar(),
+                },
+              };
             } else {
               return {
                 status: 400,
@@ -1981,11 +2001,14 @@ export const ValServer = (
         if (fetchedPatchesRes.error) {
           // Error is singular
           Internal.log.error("Failed to get patches", fetchedPatchesRes.error);
+          const details = fetchedPatchesRes.error.details;
           return {
             status: 500,
             json: {
               message: fetchedPatchesRes.error.message,
-              error: fetchedPatchesRes.error,
+              error: { message: fetchedPatchesRes.error.message },
+              // What the content service said, for the Studio's "Details".
+              ...(typeof details === "string" ? { details } : {}),
             },
           };
         }
