@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import type { SketchpadT } from "@valbuild/shared/internal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sketchpad, type SketchpadAssistantStatus } from "./Sketchpad";
@@ -6,6 +7,7 @@ import type { SketchpadListItem } from "./SketchpadList";
 import { useSketchpadsSnapshot, type SketchpadsState } from "./SketchpadsState";
 import { SketchpadWorkspace } from "./SketchpadWorkspace";
 import { useShellBreakpoint } from "../shell/useShellBreakpoint";
+import { useFilePatchIds } from "../ValFieldProvider";
 import {
   SketchpadSaver,
   type SaverProblem,
@@ -307,6 +309,20 @@ function OpenSketchpad({
   // A phone has no room for the page beside the sketch, so it offers the
   // whole screen to the two of them instead.
   const breakpoint = useShellBreakpoint();
+  // A box's image is as often the page's own content path, copied by the
+  // assistant, as a web address: shown where the Studio shows that image,
+  // with the patch id an upload that is not published yet is served by.
+  const filePatchIds = useFilePatchIds();
+  const mediaUrl = useCallback(
+    (src: string) => {
+      const patchId = filePatchIds.get(src);
+      return Internal.mediaUrl({
+        path: src,
+        ...(patchId ? { patch_id: patchId } : {}),
+      });
+    },
+    [filePatchIds],
+  );
   const [problem, setProblem] = useState<SaverProblem | null>(
     problemOnOpen ?? null,
   );
@@ -465,6 +481,7 @@ function OpenSketchpad({
         }
         onAskAssistant={onSendToAssistant}
         onOpenChat={onOpenAssistant}
+        mediaUrl={mediaUrl}
         assistantStatus={assistantStatus}
         onArchive={onArchive}
         sketchpads={list}

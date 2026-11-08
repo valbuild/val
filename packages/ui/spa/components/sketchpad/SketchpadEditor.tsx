@@ -11,6 +11,7 @@ import {
   UnfoldHorizontal,
   type LucideIcon,
 } from "lucide-react";
+import { Internal } from "@valbuild/core";
 import { baseKeymap, setBlockType } from "prosemirror-commands";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
@@ -51,6 +52,13 @@ export type SketchpadEditorProps = {
   /** A file was dropped where there is nowhere to store it. */
   onFileRefused?: (file: File) => void;
   /**
+   * Where the bytes a box's link names are served from. The link is a
+   * content path as often as a URL -- `/public/val/hero.webp`, which the
+   * assistant copies from the page -- and the browser cannot load that.
+   * Defaults to `defaultMediaUrl`. A new function redraws the boxes.
+   */
+  mediaUrl?: (src: string) => string;
+  /**
    * More ProseMirror plugins. This is where working together plugs in: a
    * proposal's Sketchpad is shared the way its chats are (Flow H), so the
    * relay's `prosemirror-collab` plugin and, later, presence decorations go
@@ -67,6 +75,17 @@ export type SketchpadEditorProps = {
 };
 
 /**
+ * A box's link as the browser can load it: a content path on the site
+ * (`/public/val/hero.webp`) where the site serves it (`/val/hero.webp`), and
+ * anything else -- a web address, another path -- as it is. What the Studio
+ * shows for every other image, `Internal.mediaUrl`, without the patch id an
+ * unpublished file needs: the Studio passes its own `mediaUrl` for that.
+ */
+export function defaultMediaUrl(src: string): string {
+  return Internal.mediaUrl({ path: src });
+}
+
+/**
  * The page as one editable document. The caret moves through it with the
  * arrow keys, columns included; `#` makes a heading and `[kind: label]` a box,
  * as they do in the text; the toolbar does the rest.
@@ -77,6 +96,7 @@ export function SketchpadEditor({
   readOnly = false,
   attach,
   onFileRefused,
+  mediaUrl = defaultMediaUrl,
   plugins = [],
   toolbar = "top",
   touch = false,
@@ -88,8 +108,14 @@ export function SketchpadEditor({
   // The text this editor last wrote. A `value` equal to it is its own echo,
   // and re-reading it would move the caret for nothing.
   const lastWritten = useRef<string | null>(null);
-  const latest = useRef({ onChange, attach, onFileRefused, readOnly });
-  latest.current = { onChange, attach, onFileRefused, readOnly };
+  const latest = useRef({
+    onChange,
+    attach,
+    onFileRefused,
+    mediaUrl,
+    readOnly,
+  });
+  latest.current = { onChange, attach, onFileRefused, mediaUrl, readOnly };
   const [, setRevision] = useState(0);
 
   useLayoutEffect(() => {
@@ -130,6 +156,7 @@ export function SketchpadEditor({
               attach: (file) =>
                 latest.current.attach?.(file) ?? Promise.resolve(null),
               refuseFile: (file) => latest.current.onFileRefused?.(file),
+              mediaUrl: (src) => latest.current.mediaUrl(src),
             },
             boxViews.current,
           ),
@@ -189,6 +216,16 @@ export function SketchpadEditor({
       boxViews.current.forEach((box) => box.render());
     }
   }, [readOnly]);
+
+  // An image published, or uploaded and not yet: its URL moved.
+  const firstMediaUrl = useRef(true);
+  useEffect(() => {
+    if (firstMediaUrl.current) {
+      firstMediaUrl.current = false;
+      return;
+    }
+    boxViews.current.forEach((box) => box.render());
+  }, [mediaUrl]);
 
   const view = viewRef.current;
   return (

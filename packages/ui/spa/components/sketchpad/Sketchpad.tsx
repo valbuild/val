@@ -52,6 +52,8 @@ export type SketchpadProps = {
    * another tab, and for everyone the sketch is shared with.
    */
   onAttachMedia?: (file: File) => Promise<string>;
+  /** See `SketchpadEditorProps.mediaUrl`: where a box's link is loaded from. */
+  mediaUrl?: (src: string) => string;
   /** The proposal's people (Flow H), when the Sketchpad is in one. */
   people?: SketchpadPerson[];
   /** See `SketchpadEditorProps.plugins`: where working together plugs in. */
@@ -122,6 +124,7 @@ export function Sketchpad({
   status,
   readOnly = false,
   onAttachMedia,
+  mediaUrl,
   people,
   plugins,
   onAskAssistant,
@@ -321,6 +324,7 @@ export function Sketchpad({
           readOnly={readOnly}
           attach={attach}
           onFileRefused={refuseFile}
+          mediaUrl={mediaUrl}
           plugins={plugins}
           toolbar={fullscreen ? "bottom" : "top"}
           touch={fullscreen}

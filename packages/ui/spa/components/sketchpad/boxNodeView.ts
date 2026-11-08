@@ -12,6 +12,8 @@ export type BoxViewOptions = {
   attach: (file: File) => Promise<SketchMedia | null>;
   /** A file dropped where it cannot be stored: say so. */
   refuseFile: (file: File) => void;
+  /** Where the bytes a link names are served from: see `defaultMediaUrl`. */
+  mediaUrl: (src: string) => string;
 };
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -162,12 +164,12 @@ export class BoxView implements NodeView {
     this.media.replaceChildren();
     if (media?.type === "image") {
       const img = el("img", "max-h-80 w-full rounded object-cover");
-      img.src = media.src;
+      img.src = this.options.mediaUrl(media.src);
       img.alt = node.textContent;
       this.media.append(img);
     } else if (media?.type === "video") {
       const video = el("video", "max-h-80 w-full rounded bg-bg-tertiary");
-      video.src = media.src;
+      video.src = this.options.mediaUrl(media.src);
       video.controls = true;
       video.muted = true;
       video.playsInline = true;
