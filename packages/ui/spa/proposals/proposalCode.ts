@@ -9,6 +9,12 @@ import type {
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import { lintWithValRules, pathsToLint } from "./lintCode";
+import { codeModeOffMessage, type CodeModeNow } from "./codeMode";
+import {
+  markStagedCodeTold,
+  stagedCodeNotice,
+  type StagedCodeOutcome,
+} from "./stagedCode";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -305,6 +311,33 @@ export const CODE_TOOLS: AITool[] = [
   CANCEL_BUILD_TOOL,
   WAIT_TOOL,
 ];
+
+/**
+ * The assistant asking for code mode: a card in the chat with a button that
+ * turns it on (`CodeModeRequestCard`), or on the site opens the `</>` menu to
+ * choose a proposal. The turn waits on it, as on a question.
+ */
+export const REQUEST_CODE_MODE_TOOL: AITool = {
+  name: "request_code_mode",
+  description:
+    "Ask the person to turn on code mode, which lets you change the proposal's code (write_files, format_files, lint with fix). " +
+    "Call it when a request needs a code change -- a new component, a layout, a field the schema does not have -- and a code tool refused because code mode is off, " +
+    "or before you start such a change. The person sees a card with a button; the call answers once they turn it on or say not now. " +
+    "On the site the button lets them choose a proposal to open in code mode: the change is made there, not here. Content changes never need it.",
+  parameters: {
+    type: "object",
+    properties: {
+      reason: {
+        type: "string",
+        description:
+          "What you want to change in the code, in one or two plain sentences for the person: e.g. 'To add a testimonials section, the page needs a new component.'",
+      },
+    },
+    required: ["reason"],
+  },
+  // Waits on the person, as ask_user_question does.
+  timeoutMs: null,
+};
 
 /** One step of a quick preview, and how long it took. */
 export type QuickPreviewTiming = { step: string; ms: number };
@@ -674,7 +707,12 @@ Besides content, you can read the project's code (list_files, read_file, search_
   } Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
 - A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
-- ${here}`;
+${
+  where.kind === "design"
+    ? ""
+    : `- Code mode: in a proposal, the tools that change code (write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
+`
+}- ${here}`;
 }
 
 /**
@@ -773,7 +811,38 @@ export type CodeToolDeps = {
   offerProposal: () => void;
   /** In the design tab, where a quick preview shows a change and a build is seldom needed. */
   design?: boolean;
+  /**
+   * Whether the proposal is in code mode now (`readCodeMode`): the tools
+   * that change its code refuse when it is not, naming who turned it off.
+   * Absent where code mode does not apply (the design tab).
+   */
+  codeMode?: () => Promise<CodeModeNow>;
+  /**
+   * Evaluate the staged code in this tab and swap its schema in
+   * (`runStagedCode`): started after each `write_files`, and its outcome
+   * goes with the answer when it is done in time. Absent: nothing is
+   * evaluated, and the schema arrives with a build.
+   */
+  evaluateStaged?: () => Promise<StagedCodeOutcome>;
 };
+
+/**
+ * How long `write_files` waits for the staged code's evaluation before it
+ * answers without it: seconds is normal, and the outcome otherwise reaches
+ * the assistant with its next tool answer (`untoldStagedCode`).
+ */
+const STAGED_CODE_WAIT_SECONDS = 20;
+
+/**
+ * The tools that change the proposal's code: refused while code mode is off.
+ * Reading it, typechecking it and building what is staged change nothing.
+ */
+function changesCode(name: string, input: Record<string, unknown>): boolean {
+  if (name === "write_files") return true;
+  if (name === "format_files") return input["write"] !== false;
+  if (name === "lint") return input["fix"] === true;
+  return false;
+}
 
 /**
  * The proposal's build, as the assistant's tools reach it: `useProposalBuild`'s
@@ -856,6 +925,35 @@ export async function runCodeTool(
   });
   const input = isRecord(args) ? args : {};
   try {
+    if (
+      deps.proposal !== null &&
+      deps.codeMode !== undefined &&
+      changesCode(name, input)
+    ) {
+      const mode = await deps.codeMode();
+      if (!mode.on) return fail(codeModeOffMessage(mode));
+    }
+    /** `work`, or `null` once `seconds` have passed without it. */
+    const within = async <T>(
+      work: Promise<T>,
+      seconds: number,
+    ): Promise<T | null> => {
+      let clear = () => {};
+      const timeout =
+        deps.sleep !== undefined
+          ? deps.sleep(seconds * 1000).then(() => null)
+          : new Promise<null>((resolve) => {
+              // Cleared when the work wins: a wait left behind would hold
+              // the page for minutes after it is answered.
+              const timer = setTimeout(() => resolve(null), seconds * 1000);
+              clear = () => clearTimeout(timer);
+            });
+      try {
+        return await Promise.race([work, timeout]);
+      } finally {
+        clear();
+      }
+    };
     if (name === "write_files") {
       if (deps.proposal === null) {
         deps.offerProposal();
@@ -886,6 +984,17 @@ export async function runCodeTool(
         written,
         message,
       );
+      // The tab evaluates `val.modules` as the staging left it, and swaps the
+      // schema in: what moved, or why it does not run, goes with this answer
+      // when it is done in time, else with the next one.
+      const evaluation = deps.evaluateStaged?.();
+      const evaluated =
+        evaluation === undefined
+          ? undefined
+          : await within(evaluation, STAGED_CODE_WAIT_SECONDS);
+      if (evaluated !== undefined && evaluated !== null) {
+        markStagedCodeTold(evaluated);
+      }
       return {
         result: {
           success: true,
@@ -896,6 +1005,17 @@ export async function runCodeTool(
             : deps.design === true
               ? "The preview shows them as a quick preview by itself. Build only when the change needs one, once, when the request is done."
               : "Call build_proposal when the change is complete, so the preview shows it.",
+          ...(evaluated === undefined
+            ? {}
+            : {
+                valModules:
+                  evaluated === null
+                    ? {
+                        status: "evaluating",
+                        note: "The Studio is still reading val.modules; what it finds comes with your next tool answer.",
+                      }
+                    : stagedCodeNotice(evaluated),
+              }),
         },
         isError: false,
       };
@@ -995,27 +1115,6 @@ export async function runCodeTool(
         isError: false,
       };
     }
-    /** `work`, or `null` once `seconds` have passed without it. */
-    const within = async <T>(
-      work: Promise<T>,
-      seconds: number,
-    ): Promise<T | null> => {
-      let clear = () => {};
-      const timeout =
-        deps.sleep !== undefined
-          ? deps.sleep(seconds * 1000).then(() => null)
-          : new Promise<null>((resolve) => {
-              // Cleared when the work wins: a wait left behind would hold
-              // the page for minutes after it is answered.
-              const timer = setTimeout(() => resolve(null), seconds * 1000);
-              clear = () => clearTimeout(timer);
-            });
-      try {
-        return await Promise.race([work, timeout]);
-      } finally {
-        clear();
-      }
-    };
     if (name === "build_proposal") {
       if (deps.proposal === null) {
         deps.offerProposal();

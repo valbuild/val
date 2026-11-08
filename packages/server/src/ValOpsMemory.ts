@@ -86,6 +86,34 @@ export type StoredFile = {
  * order held in the patches themselves lets a client working from a stale view
  * strand every patch behind a parent that never landed.
  */
+/**
+ * Memory mode's `seq` (`ProjectVersion` in `@valbuild/shared/internal`), per
+ * patch store: bumped beside `announceChange` by every write and delete, and
+ * once by each new build. Kept by the STORE rather than the instance, because
+ * a new build is a new `ValOpsMemory` on the same store (hot reload), and a
+ * counter that started again from zero would make its answers read as older
+ * than the last build's.
+ *
+ * A store shared between isolates (a Durable Object) is counted per isolate,
+ * so for such a store the count says nothing about writes made elsewhere:
+ * "has the chain moved?" is answered by reading the chain
+ * ({@link ValOpsMemory.chainSeq}), and only {@link InMemoryPatchStore} -- which
+ * lives in this process, so every write to it is counted here -- is trusted.
+ */
+const seqs = new WeakMap<
+  ValPatchStore,
+  { seq: number; build: string | null }
+>();
+
+function seqOf(store: ValPatchStore): { seq: number; build: string | null } {
+  let counter = seqs.get(store);
+  if (counter === undefined) {
+    counter = { seq: 0, build: null };
+    seqs.set(store, counter);
+  }
+  return counter;
+}
+
 export interface ValPatchStore {
   list(): Promise<PatchId[]>;
   get(patchId: PatchId): Promise<StoredPatch | null>;
@@ -269,6 +297,14 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
  *   uses, so the History UI degrades the way it already knows how rather than
  *   inventing a commit list. See the note above `listCommits`.
  */
+/**
+ * The newest `ValOpsMemory` made in this process on each patch store: the
+ * build whose base the store's patches are relative to (see
+ * `ValOps.chainBaseSha`). A new build is a new instance on the same store
+ * (hot reload, a new deployment in one process).
+ */
+const newestOnStore = new WeakMap<ValPatchStore, ValOpsMemory>();
+
 export class ValOpsMemory extends ValOps {
   /**
    * The host's own store -- see {@link ValOps.patchesAreLocal}. `true` for the
@@ -307,6 +343,7 @@ export class ValOpsMemory extends ValOps {
   constructor(valModules: ValModules, options: ValOpsMemoryOptions) {
     super(valModules, options);
     this.store = options.patchStore ?? new InMemoryPatchStore();
+    newestOnStore.set(this.store, this);
     this.contentUrl = options.contentUrl;
     this.requiresAuth = !options.unsafelyAllowUnauthenticated;
     if (
@@ -357,6 +394,7 @@ export class ValOpsMemory extends ValOps {
   /** Wake every parked `getStat`. Called by this instance's own writes. */
   private announceChange(): void {
     this.changeCount += 1;
+    seqOf(this.store).seq += 1;
     const waiting = this.statWaiters;
     this.statWaiters = [];
     for (const wake of waiting) {
@@ -369,13 +407,76 @@ export class ValOpsMemory extends ValOps {
     schemaSha: SchemaSha;
     sourcesSha: SourcesSha;
     patches: PatchId[];
+    seq: number;
   }> {
+    const baseSha = await this.getBaseSha();
+    const schemaSha = await this.getSchemaSha();
+    // The base the chain is relative to: see `chainBaseSha`.
+    const sourcesSha = await this.chainBaseSha();
+    // Before the list, so the answer is never behind the `seq` it carries.
+    const seq = seqOf(this.store).seq;
     return {
-      baseSha: await this.getBaseSha(),
-      schemaSha: await this.getSchemaSha(),
-      sourcesSha: await this.getSourcesSha(),
+      baseSha,
+      schemaSha,
+      sourcesSha,
       patches: await this.store.list(),
+      seq,
     };
+  }
+
+  /**
+   * The `seq` of this store: see {@link seqOf}. A new build counts itself
+   * once, when it first answers.
+   */
+  protected override async ownSeq(build: string): Promise<number> {
+    const counter = seqOf(this.store);
+    // Once per instance: two builds answering at once (a rollout) must not
+    // bump it back and forth on every read.
+    if (!this.countedBuild) {
+      this.countedBuild = true;
+      if (counter.build !== build) {
+        counter.build = build;
+        counter.seq += 1;
+      }
+    }
+    return counter.seq;
+  }
+
+  /** Whether this instance has counted itself as a new build yet. */
+  private countedBuild = false;
+
+  /**
+   * "Has the chain moved?" from the counter only for a store in this process
+   * ({@link InMemoryPatchStore}): every write to it goes through an instance
+   * here, so the count is the store's. Any other store (a Durable Object
+   * shared by isolates) may have been written by another isolate, which this
+   * one's count never saw: `null`, so the head reads the chain each time.
+   */
+  override async chainSeq(): Promise<number | null> {
+    if (!(this.store instanceof InMemoryPatchStore)) return null;
+    return super.chainSeq();
+  }
+
+  /**
+   * The base the store's chain is relative to: the newest build's, made in
+   * this process (see `ValOps.chainBaseSha`).
+   */
+  override newestOps(): ValOps {
+    return newestOnStore.get(this.store) ?? this;
+  }
+
+  override async chainBaseSha(): Promise<SourcesSha> {
+    const newest = newestOnStore.get(this.store);
+    if (newest === undefined || newest === this) return this.getSourcesSha();
+    try {
+      return await newest.getSourcesSha();
+    } catch (err) {
+      Internal.log.debug(
+        "could not read the newest build's base; answering with this one's",
+        err,
+      );
+      return this.getSourcesSha();
+    }
   }
 
   override async getStat(
@@ -390,6 +491,7 @@ export class ValOpsMemory extends ValOps {
     schemaSha: SchemaSha;
     sourcesSha: SourcesSha;
     patches: PatchId[];
+    seq: number;
   }> {
     /*
      * A long poll, and it has to be one -- but parked on a SIGNAL rather than a

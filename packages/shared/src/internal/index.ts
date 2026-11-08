@@ -1,12 +1,6 @@
 export * from "./richtext/conversion";
 export * from "./richtext/richTextImages";
 export * from "./server/types";
-// One `/sources/~` read per request, shared by every `fetchVal` in it. Lives
-// here rather than in @valbuild/next and @valbuild/tanstack separately
-// because the rule it encodes is a leak rule -- the memoised response carries
-// the caller's OWN unpublished patches -- and the two framework packages are
-// near-copies that would drift on exactly the comment that says so.
-export * from "./server/requestScopedMemo";
 export * from "./ValClient";
 export * from "./demo";
 export * from "./ValUrls";
@@ -15,6 +9,20 @@ export * from "./valClientHeader";
 export * from "./schema/compatibility";
 export * from "./newestCommitSha";
 export * from "./chainHead";
+// What a module's content and a project answer ARE: see
+// `docs/plans/one-content-model.md`, "A version, per module".
+export * from "./content/version";
+export * from "./content/buildRegistry";
+// The one engine that applies patches to content, and the `.jsonValues()`
+// rules it is built on: see "One engine" in the same plan.
+export * from "./content/applyChain";
+export * from "./content/jsonValuesOps";
+// Modules by address, in tiers: see "The store" in the same plan.
+export * from "./content/moduleStore";
+// What every reader loads from, in one shape: see "One way to load" in the
+// same plan. Types only; the sources are in @valbuild/react and
+// @valbuild/server.
+export type * from "./content/source";
 export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";
@@ -77,6 +85,10 @@ export * from "./theme/accentRamp";
  */
 export * from "./publish/contentApi";
 export * from "./publish/protocol";
+// The site's source by version, for the Studio's code tools: not this
+// package's publish API (`@valbuild/shared/publish` re-exports
+// `publishApiOf` and `PublishApiAt` from here).
+export * from "./publish/projectSource";
 export * from "./patchSets/PatchSets";
 export * from "./patchSets/selectionClosure";
 export * from "./patchSets/schemaTypesOfPath";

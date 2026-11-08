@@ -5,9 +5,9 @@ import type { SystemEvent } from "./types";
 /**
  * The subset of the `/stat` response this prototype reacts to.
  *
- * `sourcesSha` and `schemaSha` say which build answered: the first so its
- * chain is put on that build's source (`BaseAlignment`), the second so a
- * Studio running another schema is told to reload (`SchemaFreshnessWatch`).
+ * `seq` says whether the project moved, so the manifest is read again
+ * (`ManifestSource`) -- and with it, whether the build that answered runs
+ * code this Studio does not (`BuildCode`).
  *
  * `baseSha` IS here, because the write path needs it and nothing else can supply
  * it: a `PUT /patches` against an empty chain names `{ type: "head", headBaseSha }`
@@ -87,38 +87,28 @@ export type StatSnapshot = {
    */
   headVersion?: number;
   /**
-   * WHICH BUILD answered: the `sourcesSha` of the source its chain is relative to.
+   * How far along the project's changes the server was when it answered:
+   * the `seq` of the answer's `ProjectVersion` (`docs/plans/one-content-model.md`).
+   * Every write, delete and publish moves it, so an answer at `seq` N holds
+   * everything written up to N. In `http` mode it is the content service's
+   * {@link headVersion}, which a socket message moves without a new `/stat`,
+   * so read the two through {@link confirmedSeqOf}.
    *
-   * `patches` are the ones that build does not contain, so they are right only
-   * on top of that build's source. The Studio's own source came from ITS bundle,
-   * which after a publish can be another build for a while -- the platform's
-   * pointer lags per location, and a tab opened before the publish keeps its
-   * bundle. See `BaseAlignment`, which reads this.
+   * What a page is told its server-read content can be refreshed up to (the
+   * relay's `confirmed`). Absent from a server that predates versions.
+   */
+  seq?: number;
+  /**
+   * WHICH BUILD answered: the `sourcesSha` of the source its chain is relative
+   * to. Not read by the stores any more: what each module's base is comes
+   * from the manifest, per module (`ManifestSource`). Kept on the snapshot
+   * because the answer still carries it, for a Studio of the release before.
    *
-   * Optional: absent means "not reported", and the chain is applied to whatever
-   * base the Studio has, as it always was.
+   * @deprecated Goes with `/stat`'s `sourcesSha`: see "Release-delayed
+   * deletions" in `docs/plans/one-content-model.md`.
    */
   sourcesSha?: string;
-  /**
-   * The answering build's `schemaSha` — the same fold `HostStore` runs over the
-   * bundle's schemas, so the two can be compared. See `SchemaFreshnessWatch`.
-   *
-   * Optional: absent means "not reported", and nothing is concluded from it.
-   */
-  schemaSha?: string;
 };
-
-/**
- * Readies the system for a stat BEFORE the stat is adopted.
- *
- * Returns what has to happen in the same turn as the adoption -- or a promise of
- * it, when something must be fetched first -- and that returns whether to adopt
- * the stat at all. `false` holds it back; the next stat is asked again. See
- * `BaseAlignment`.
- */
-export type StatPreparer = (
-  snapshot: StatSnapshot,
-) => (() => boolean) | Promise<() => boolean>;
 
 /**
  * Owns "what does the server say exists right now".
@@ -143,9 +133,9 @@ export class StatStore {
   private newestHeadVersion: number | undefined = undefined;
   /** The version of the ADOPTED head, which is {@link headPatchId}'s. */
   private headVersion: number | undefined = undefined;
+  /** {@link confirmedSeqOf} the ADOPTED stat. */
+  private seq: number | undefined = undefined;
   private baseSha: string | null = null;
-  /** See {@link currentSchemaSha}. */
-  private schemaSha: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
   /**
@@ -173,76 +163,27 @@ export class StatStore {
    */
   private supersededHead: string | null = null;
 
-  private preparer: StatPreparer | null = null;
-  /** Bumped per stat, so a prepared stat that a newer one overtook is dropped. */
-  private received = 0;
-
-  /** See {@link StatPreparer}. One, set by `createSystem`. */
-  setPreparer(preparer: StatPreparer): void {
-    this.preparer = preparer;
-  }
-
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
    * had, rather than being merged into it — the server can reorder.
-   *
-   * Through the {@link StatPreparer} when there is one. When it has to fetch,
-   * this stat is adopted after the fetch -- and only if no newer stat arrived
-   * meanwhile, since a newer answer is the one to believe.
    */
   receiveStat(received: StatSnapshot): void {
     /*
      * The removed-patch notices first, once, and whatever becomes of the rest.
      * The server drains them as it answers, so they are news whether or not
-     * this snapshot's chain is ever adopted — dropped as older, overtaken
-     * while prepared — and re-adopting it (`readopt`) must not say it twice.
+     * this snapshot's chain is ever adopted — dropped as older.
      * Only one thing listens, and that thing is the toast.
      */
     const { removed, ...snapshot } = received;
     if (removed !== undefined) this.noteRemovedByServer(removed);
     if (this.isOlderThanNewest(snapshot)) {
-      // Older than an answer already in hand. Dropped before the ticket
-      // moves, so it cannot cancel a newer stat still being prepared.
+      // Older than an answer already in hand.
       return;
-    }
-    if (
-      snapshot.schemaSha !== undefined &&
-      snapshot.schemaSha !== this.schemaSha
-    ) {
-      /*
-       * After the ordering check — a late answer from before a deploy would
-       * otherwise name the old schema to a page that has just reloaded into
-       * the new one — but before the preparer: a stat held back while another
-       * build's base is fetched still says which schema that build runs.
-       */
-      this.schemaSha = snapshot.schemaSha;
-      this.events.emit({ type: "stat:schema", schemaSha: snapshot.schemaSha });
     }
     if (snapshot.headVersion !== undefined) {
       this.newestHeadVersion = snapshot.headVersion;
     }
-    const ticket = ++this.received;
-    this.preparing = false;
-    const prepared = this.preparer?.(snapshot) ?? null;
-    if (prepared === null) {
-      this.adopt(snapshot);
-    } else if (typeof prepared === "function") {
-      if (prepared()) this.adopt(snapshot);
-    } else {
-      this.preparing = true;
-      void prepared.then((commit) => {
-        if (ticket !== this.received) return;
-        this.preparing = false;
-        // The floor can have risen while this was being prepared — our own
-        // save lands in between and says, through noteHeadVersion, that the
-        // chain is past this answer. Checked again here, since it was only
-        // true on arrival.
-        if (this.isOlderThanNewest(snapshot)) return;
-        // Same turn: nothing renders between the base moving and the chain
-        // that belongs on it arriving.
-        if (commit()) this.adopt(snapshot);
-      });
-    }
+    this.adopt(snapshot);
   }
 
   private isOlderThanNewest(snapshot: StatSnapshot): boolean {
@@ -253,29 +194,11 @@ export class StatStore {
     );
   }
 
-  /** A stat is waiting on its preparation. See {@link readopt}. */
-  private preparing = false;
-  private lastAdopted: StatSnapshot | null = null;
-
-  /**
-   * Run the last adopted stat through preparation again, as a new stat.
-   *
-   * For a re-intake (HMR) that put the bundle's source back under another
-   * build's chain. As a stat rather than beside one, so it takes a ticket like
-   * any other and a newer stat overtakes it. Skipped while a stat is being
-   * prepared: that one will put its own base in, and re-running an older one
-   * would overtake the newer answer instead.
-   */
-  readopt(): void {
-    if (this.preparing || this.lastAdopted === null) return;
-    this.receiveStat(this.lastAdopted);
-  }
-
   private adopt(snapshot: StatSnapshot): void {
-    this.lastAdopted = snapshot;
     this.patches = [...snapshot.patches];
     this.headPatchId = snapshot.headPatchId;
     this.headVersion = snapshot.headVersion;
+    this.seq = confirmedSeqOf(snapshot);
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;
     }
@@ -298,38 +221,21 @@ export class StatStore {
       ...(snapshot.headVersion !== undefined
         ? { headVersion: snapshot.headVersion }
         : {}),
+      ...(this.seq !== undefined ? { seq: this.seq } : {}),
     });
   }
 
   /**
    * The server says it removed these unpublished patches.
    *
-   * Public for the `/stat` reads made outside the stat intake — the schema
-   * check's fresh read, the conflict re-sync. In `fs` mode every `/stat`
+   * Public for the `/stat` reads made outside the stat intake — the conflict
+   * re-sync. In `fs` mode every `/stat`
    * DRAINS the server's notices, so a caller that read one and dropped them
    * would take the only news that someone's work is gone with it.
    */
   noteRemovedByServer(removed: { patchId: PatchId; reason: string }[]): void {
     if (removed.length === 0) return;
     this.events.emit({ type: "patch:removed-by-server", removed });
-  }
-
-  /**
-   * A fresh read of which schema the server runs, taken as the latest answer.
-   * See `SchemaFreshnessWatch`, which asks it when a cached answer is in doubt.
-   */
-  noteServedSchemaSha(schemaSha: string): void {
-    if (schemaSha === this.schemaSha) return;
-    this.schemaSha = schemaSha;
-    this.events.emit({ type: "stat:schema", schemaSha });
-  }
-
-  /**
-   * The `schemaSha` the most recent `/stat` reported, or `null` before one has.
-   * See {@link StatSnapshot.schemaSha}.
-   */
-  currentSchemaSha(): string | null {
-    return this.schemaSha;
   }
 
   currentPatchIds(): PatchId[] {
@@ -366,6 +272,15 @@ export class StatStore {
    */
   currentHeadVersion(): number | undefined {
     return this.headVersion;
+  }
+
+  /**
+   * How far along the project's changes the ADOPTED stat was read
+   * ({@link StatSnapshot.seq}), or `undefined` before one, or from a server
+   * that does not say.
+   */
+  currentSeq(): number | undefined {
+    return this.seq;
   }
 
   /**
@@ -412,4 +327,16 @@ export class StatStore {
   currentBaseSha(): string | null {
     return this.baseSha;
   }
+}
+
+/**
+ * The `seq` a stat was read at. `headVersion` first: in `http` mode the two
+ * are the same counter (the content service's chain version), and a socket
+ * message moves `headVersion` on the stat it updates without a new
+ * `version` -- so a stat's `seq` can be older than its own chain there.
+ */
+export function confirmedSeqOf(
+  snapshot: Pick<StatSnapshot, "headVersion" | "seq">,
+): number | undefined {
+  return snapshot.headVersion ?? snapshot.seq;
 }

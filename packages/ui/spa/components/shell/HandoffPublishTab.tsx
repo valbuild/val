@@ -6,6 +6,7 @@ import {
   INTENT_MAX_AGE_MS,
   storedHandoffIntent,
   type HandoffIntent,
+  type RefusedAnswer,
   type TabHandoff,
 } from "../../publish/handoff";
 import {
@@ -342,7 +343,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
     const notPressed = (
       message: string,
       details?: string,
-      options: { answer?: boolean } = {},
+      options: { answer?: boolean; refused?: RefusedAnswer } = {},
     ) => {
       ownPending.current = false;
       if (options.answer) {
@@ -362,6 +363,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         result: { status: "failed", message: details ?? message, problems: [] },
         ms: 0,
         summary: message,
+        ...(options.refused !== undefined ? { refused: options.refused } : {}),
       });
     };
 
@@ -559,6 +561,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
         }
         notPressed(outcome.message, outcome.details, {
           answer: outcome.durable,
+          ...(outcome.refused !== undefined
+            ? { refused: outcome.refused }
+            : {}),
         });
         return;
       }

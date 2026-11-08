@@ -13,6 +13,7 @@ packages:
   - packages/create
   - packages/init
   - packages/eslint-plugin
+  - scenarios
   - examples/next
   - examples/tanstack
   - packages/server/test/example-projects/*

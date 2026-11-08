@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useValSystem } from "../stores/react/SystemContext";
+import type { ModuleFailure } from "../stores/HostStore";
 
 /**
  * A dev-only banner for a module the Studio could not read.
@@ -38,14 +39,15 @@ export function LocalModulesErrorBanner() {
   if (failures.length === 0) return null;
   return (
     <div className="px-3 py-2 bg-bg-warning-primary text-fg-warning-primary text-sm">
-      <strong>Val: some modules could not be read.</strong> Their content will
-      not appear in the Studio.
+      <strong>Val: some modules could not be read.</strong> A module whose code
+      throws is shown as it was before; any other is left out of the Studio.
       <ul className="mt-1 list-disc list-inside">
         {failures.map((failure, i) => (
           <li key={i}>
             {failure.moduleFilePath ? (
               <code>{failure.moduleFilePath}: </code>
             ) : null}
+            {failure.kept ? "(shown as it was before) " : null}
             {failure.message}
           </li>
         ))}
@@ -54,7 +56,4 @@ export function LocalModulesErrorBanner() {
   );
 }
 
-const NO_FAILURES: readonly {
-  moduleFilePath: string | null;
-  message: string;
-}[] = [];
+const NO_FAILURES: readonly ModuleFailure[] = [];

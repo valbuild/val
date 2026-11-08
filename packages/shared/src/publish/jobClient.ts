@@ -44,6 +44,12 @@ export type StudioJobClient = {
      * upgrade page). Content refuses it over anything else.
      */
     anyway?: "types"[],
+    /**
+     * The message of the commit Publish makes first, in a project connected
+     * to git (the proposal's branch, before it merges): from the project's
+     * `studio.commitMessage` setting. Absent: content's default.
+     */
+    commitMessage?: string,
   ): Promise<PressResponse>;
   /** Try again: resume a paused queue and press anew. */
   tryAgain(requestId: string, tab: string): Promise<PressResponse>;
@@ -116,7 +122,7 @@ export function createStudioJobClient(
         await proxy("/publish-requests", "POST", { requestId, tab }),
         "POST /v1/publish-requests",
       ),
-    pressMerge: async (proposal, requestId, tab, anyway) =>
+    pressMerge: async (proposal, requestId, tab, anyway, commitMessage) =>
       parsePress(
         /*
          * Through the proposals proxy, not the publish one: the merge is
@@ -130,6 +136,9 @@ export function createStudioJobClient(
             requestId,
             tab,
             ...(anyway !== undefined && anyway.length > 0 ? { anyway } : {}),
+            ...(commitMessage !== undefined && commitMessage.trim() !== ""
+              ? { commitMessage }
+              : {}),
           },
         ),
         "POST /v1/proposals/{name}/merge",

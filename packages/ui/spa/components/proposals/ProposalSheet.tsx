@@ -7,6 +7,7 @@ import {
   List,
   Paintbrush,
   Pencil,
+  PencilLine,
   Plus,
   X,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import type { ShellBreakpoint } from "../shell/types";
 import { ProposalIcon, proposalChangesLabel } from "./ProposalSwitcher";
 import type { ProposalSummary } from "./types";
 import { PreviewProblemCard } from "./PreviewProblemCard";
+import { codeModeTurnedOnText } from "./CodeModeButton";
 
 /**
  * Where you are, on a phone: the sheet behind the top bar's location chip.
@@ -118,14 +120,40 @@ export function ProposalSheet({
               icon={<CodeXml size={16} className="text-fg-proposal" />}
               detail={
                 codeMode.on
-                  ? "The assistant can change the code. You see it in the preview."
-                  : "Let the assistant change the code"
+                  ? `${codeModeTurnedOnText(codeMode.turnedOn ?? null) ?? "On"}. For everyone in this proposal; turning it off discards nothing.`
+                  : "Let the assistant change the code. Everything pending is saved first."
               }
               trailing={<SheetSwitch on={codeMode.on} />}
               onClick={choose(codeMode.onToggle)}
             >
               Code mode
             </SheetRow>
+            {/* Each person's own: what they see while it is on. */}
+            {codeMode.on && codeMode.onViewChange !== undefined && (
+              <SheetRow
+                icon={
+                  (codeMode.view ?? "code") === "code" ? (
+                    <PencilLine size={16} />
+                  ) : (
+                    <CodeXml size={16} />
+                  )
+                }
+                detail={
+                  (codeMode.view ?? "code") === "code"
+                    ? "Edit content while the code changes"
+                    : "The proposal as its code is now"
+                }
+                onClick={choose(() =>
+                  codeMode.onViewChange?.(
+                    (codeMode.view ?? "code") === "code" ? "content" : "code",
+                  ),
+                )}
+              >
+                {(codeMode.view ?? "code") === "code"
+                  ? "Show the content editor"
+                  : "Show the preview and code"}
+              </SheetRow>
+            )}
           </div>
         )}
         {here !== null && (

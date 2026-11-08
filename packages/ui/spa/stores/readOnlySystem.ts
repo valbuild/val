@@ -97,8 +97,9 @@ export function createReadOnlySystem({
    * There are no `ValModule`s to hand over, so it says the intake happened with
    * none, which is true: the content arrives through the two calls below.
    *
-   * Safe in this order: `SchemaStore.receive` and `SourceStore.receive` merge
-   * rather than replace, so an intake of nothing overwrites nothing.
+   * Safe in this order: the two calls below come after it, and each hands
+   * over the whole set (`SchemaStore.receive` replaces; `SourceStore.receive`
+   * merges, onto nothing).
    */
   system.host.receive([]);
   // Schemas before sources: `SourceStore.peek` answers `module-loading` for a

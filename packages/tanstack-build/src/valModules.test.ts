@@ -9,18 +9,20 @@ import path from "path";
  */
 
 type Probe =
+  | { names: string[]; rootRelative: boolean; warnings: string[] }
   | {
       modules: Record<string, { schema: string; source: unknown }>;
       external: boolean;
     }
   | { error: string };
 
-function probe(files: Record<string, string>): Probe {
+function probe(files: Record<string, string>, mode?: "entry"): Probe {
   const out = execFileSync(
     path.join(__dirname, "..", "node_modules", ".bin", "tsx"),
     [
       path.join(__dirname, "__fixtures__", "valModulesProbe.ts"),
       JSON.stringify(files),
+      ...(mode !== undefined ? [mode] : []),
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -95,6 +97,47 @@ describe("bundleValModules", () => {
     const { "val.modules.ts": _gone, ...rest } = project();
     expect(probe(rest)).toEqual({
       error: expect.stringContaining("no val.modules.ts"),
+    });
+  });
+});
+
+/**
+ * What `buildUserApp` emits beside its client chunks (`valModulesEntry`): the
+ * registry a Studio opened on an older build imports to take this build's
+ * code in place, named after the build -- the name the server running it
+ * puts on its manifest (`registry`).
+ */
+describe("valModulesEntry", () => {
+  test("a build's registry is named after the build, and imports the site's chunks from its own origin", () => {
+    expect(probe(project(), "entry")).toEqual({
+      names: ["val-modules-h1.js"],
+      rootRelative: true,
+      warnings: [],
+    });
+  });
+
+  test("Val modules that cannot be bundled are a warning, not a failed build", () => {
+    const answer = probe(
+      project({
+        "src/shared.ts": `import slugify from "slugify";\nexport const TITLE: string = slugify("Sale");`,
+      }),
+      "entry",
+    );
+    expect(answer).toEqual({
+      names: [],
+      rootRelative: true,
+      warnings: [
+        expect.stringContaining("'slugify' is not an available dependency"),
+      ],
+    });
+  });
+
+  test("a project without val.modules.ts has none", () => {
+    const { "val.modules.ts": _gone, ...rest } = project();
+    expect(probe(rest, "entry")).toEqual({
+      names: [],
+      rootRelative: true,
+      warnings: [],
     });
   });
 });

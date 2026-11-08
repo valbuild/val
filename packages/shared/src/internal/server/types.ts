@@ -66,7 +66,17 @@ export type ValServerJsonResult<
   | ValServerError
   | (Error extends Json ? { status: 400; json: Error } : never);
 
+/**
+ * Nothing moved since the ETag the caller sent back: no body, as HTTP
+ * requires of a 304.
+ */
+export type ValServerNotModified = {
+  status: 304;
+  headers?: Record<string, string | undefined>;
+};
+
 export type ValServerGenericResult =
+  | ValServerNotModified
   | ValServerJsonResult<Json>
   | ValServerError
   | ValServerRedirectResult<ValCookiesNames>

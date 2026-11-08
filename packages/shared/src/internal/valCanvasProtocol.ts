@@ -95,6 +95,24 @@ export type ValCanvasPageMessage =
       draftMode: boolean;
       /** The URL the frame ended up on, which a redirect may have changed. */
       url: string;
+      /**
+       * The modules the page holds a draft of: what its server read for this
+       * request (`<ValProvider draft>`). The studio sends each of them in its
+       * catch-up, pending or not, so a draft that stopped being the draft
+       * before the studio was there to say so -- discarded, published -- is
+       * replaced rather than kept. Absent from a page of the release before,
+       * and from a page that read no draft.
+       */
+      holds?: ModuleFilePath[];
+      /**
+       * The version the page holds each of {@link holds} at, where its draft
+       * says (`draftHoldsVersions`): the studio does not send one it would
+       * send at the same version -- the same content. Absent from a page of
+       * the release before, which is sent everything it holds, as before.
+       */
+      holdsVersions?: Partial<
+        Record<ModuleFilePath, { schema: string; base: string; chain: string }>
+      >;
     }
   | {
       val: typeof VAL_CANVAS_MESSAGE;
@@ -265,8 +283,18 @@ export type ValCanvasStudioMessage =
       /**
        * The whole module source. `unknown` because the page's own types are the
        * ones that give it meaning; nothing in between should be interpreting it.
+       *
+       * @deprecated A page of this release reads `read`; this is for a page
+       * of the release before. Goes in the release after the one that ships
+       * `read`, with the bridges' fallback that reads it: see
+       * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
        */
       source: unknown;
+      /**
+       * The same module as a read (`ModuleRead`), which the page keeps as it
+       * is. Optional: a Studio from the release before sends `source` alone.
+       */
+      read?: unknown;
     }
   | {
       /**
@@ -285,6 +313,23 @@ export type ValCanvasStudioMessage =
        */
       val: typeof VAL_CANVAS_MESSAGE;
       type: "sourcesSynced";
+    }
+  | {
+      /**
+       * The server holds the editor's changes up to this version (`seq`, the
+       * server's `ProjectVersion.seq`; `null` from a server that reports
+       * none). Sent once after `sourcesSynced`, then every time it moves.
+       *
+       * What the page re-reads its server-rendered content on (a loader, a
+       * server component): those only show an edit once the server has it,
+       * so a refresh sent when the edit was typed raced the write and came
+       * back without it -- which a ten second safety refresh used to catch.
+       * A bridge of the release before ignores it, as it ignores any type it
+       * does not know.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "confirmed";
+      seq: number | null;
     }
   | {
       /**
@@ -391,7 +436,9 @@ export function isValCanvasPageMessage(
   const message = data as { val?: unknown; type?: unknown };
   if (message.val !== VAL_CANVAS_MESSAGE) return false;
   return (
-    message.type === "ready" ||
+    (message.type === "ready" &&
+      isModulePathList((data as { holds?: unknown }).holds) &&
+      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions)) ||
     message.type === "elements" ||
     message.type === "clicked" ||
     message.type === "pinch" ||
@@ -407,6 +454,28 @@ export function isValCanvasPageMessage(
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string")
+  );
+}
+
+/** `holdsVersions` on `ready`: absent, or a version per module path. */
+function isHeldVersions(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every(
+    (version) =>
+      typeof version === "object" &&
+      version !== null &&
+      typeof (version as { schema?: unknown }).schema === "string" &&
+      typeof (version as { base?: unknown }).base === "string" &&
+      typeof (version as { chain?: unknown }).chain === "string",
+  );
+}
+
+/** `holds` on `ready`: absent, or a list of module paths. */
+function isModulePathList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((path) => typeof path === "string"))
   );
 }
 
@@ -523,7 +592,10 @@ export function isValCanvasStudioMessage(
     message.type === "highlight" ||
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
-    message.type === "sourcesSynced"
+    message.type === "sourcesSynced" ||
+    (message.type === "confirmed" &&
+      ((data as { seq?: unknown }).seq === null ||
+        typeof (data as { seq?: unknown }).seq === "number"))
   );
 }
 

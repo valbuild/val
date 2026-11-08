@@ -6,6 +6,7 @@ import {
 } from "@valbuild/core";
 import type { ActivitySink } from "./activity";
 import { createSystem, type System } from "./createSystem";
+import { createFakeManifest } from "./testManifest";
 import type { PatchRecord } from "./types";
 
 /**
@@ -49,14 +50,45 @@ function makeSystem(options: {
   mode: "fs" | "http";
   fetched?: PatchRecord[];
   activity?: ActivitySink;
+  /** What the server's deployment serves: its base. */
+  deployed?: { title: string; tags: string[] };
 }): System {
+  // The server: its deployed base, and its chain -- the records it serves
+  // (`fetched`) and what this tab saved.
+  const saved: PatchRecord[] = [];
+  let systemRef: System | null = null;
+  const server = createFakeManifest({
+    bases: () =>
+      new Map([
+        [
+          MODULE,
+          {
+            source: options.deployed ?? { title: "Old Value", tags: [] },
+            schema: systemRef?.schemaStore.get(MODULE),
+          },
+        ],
+      ]),
+    chain: () => [...(options.fetched ?? []), ...saved],
+  });
   const system = createSystem({
     activity: options.activity,
-    savePatches: async ({ patches, parentRef }) => ({
-      status: "saved",
-      newPatchIds: patches.map((patch) => patch.patchId),
-      parentRef,
-    }),
+    fetchManifest: server.fetchManifest,
+    fetchModule: server.fetchModule,
+    savePatches: async ({ patches, parentRef }) => {
+      for (const patch of patches) {
+        saved.push({
+          patchId: patch.patchId,
+          moduleFilePath: patch.path,
+          patch: patch.patch,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+      }
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
     fetchPatches: async (patchIds) => ({
       patches: (options.fetched ?? []).filter((record) =>
         patchIds.includes(record.patchId),
@@ -69,6 +101,7 @@ function makeSystem(options: {
     mode: options.mode,
     publishPatches: async () => ({ status: "published" }),
   });
+  systemRef = system;
   system.host.receive(project());
   // The first stat is what lets a save go out: it names the parent to save on.
   system.stat.receiveStat({ patches: [], baseSha: "before-deploy" });
@@ -175,7 +208,8 @@ describe("peekBase counts what has shipped", () => {
       appliedAt: null,
     };
     const fetched: PatchRecord[] = [theirs];
-    const system = makeSystem({ mode: "http", fetched });
+    const deployed = { title: "Old Value", tags: [] };
+    const system = makeSystem({ mode: "http", fetched, deployed });
     system.stat.receiveStat({
       patches: [theirs.patchId],
       baseSha: "before-deploy",
@@ -188,6 +222,7 @@ describe("peekBase counts what has shipped", () => {
 
     // Their deploy: the base moves and the patch is gone from the server.
     fetched.length = 0;
+    deployed.title = "New Value";
     system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
     await new Promise((resolve) => setTimeout(resolve, 0));
 

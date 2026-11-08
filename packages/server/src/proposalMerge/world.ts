@@ -3,6 +3,7 @@ import type { Operation } from "@valbuild/core/patch";
 import { ValOpsMemory } from "../ValOpsMemory";
 import type { AuthorId } from "../ValOps";
 import { content, SITE, type MergeBuild } from "./content";
+import { loadTypeScriptKit } from "../patch/ts/loadTypeScriptKit";
 import {
   changesToMove,
   mergeFromSite,
@@ -97,6 +98,7 @@ export async function world(pages: Page[], code: Files = {}) {
     const project = await loadedAt(c.head(line).id);
     return new ValOpsMemory(project.valModules, {
       config: project.valModules.config,
+      typescript: loadTypeScriptKit,
       sourceFiles: project.sourceFiles,
       patchStore: c.patchStore(line),
     });

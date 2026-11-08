@@ -6,6 +6,7 @@ import { VideoChoices } from "../../fields/VideoChoices";
 import { MediaInspector } from "../MediaInspector";
 import { fn } from "storybook/test";
 import { MediaGallery } from "../MediaGallery";
+import { ContentLoadError, ContentLoadProgress } from "../../ContentLoadStatus";
 import type { MediaGalleryProps, MediaItem } from "../types";
 
 /**
@@ -493,6 +494,58 @@ export const ImagesWithNewUploadsList: Story = {
   ),
 };
 
+/**
+ * An image a `.jsonValues()` record can pick, opened while that record's
+ * entries load: "used by" has to see all of them, and at 10,000 that takes a
+ * while. It says how far, shows the places found so far, and the gallery can
+ * be used meanwhile; delete waits for the answer.
+ */
+export const ImagesUsedByLoading: Story = {
+  render: () => (
+    <Stateful
+      kind="images"
+      items={images}
+      initiallySelected={images[0].ref}
+      {...handlers}
+      deleteBlockedReason={() => "Checking references (23%)…"}
+      renderUsage={() => (
+        <div className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-1 text-xs text-fg-primary">
+            <li className="truncate">• Posts › Post number 42</li>
+          </ul>
+          <ContentLoadProgress
+            label="Looking for where it is used"
+            loaded={2_300}
+            total={10_000}
+          />
+        </div>
+      )}
+    />
+  ),
+};
+
+/** The same, when a batch of the record could not be loaded. */
+export const ImagesUsedByFailed: Story = {
+  render: () => (
+    <Stateful
+      kind="images"
+      items={images}
+      initiallySelected={images[0].ref}
+      {...handlers}
+      deleteBlockedReason={() =>
+        "Cannot delete: references could not be checked"
+      }
+      renderUsage={() => (
+        <ContentLoadError
+          what="this list"
+          message="Could not load 37 entries. First failure — /posts/post-0512 in /content/posts.val.ts: GET /json failed with status 502"
+          retry={fn()}
+        />
+      )}
+    />
+  ),
+};
+
 /** And for a file set: the type, and Open. */
 export const Files: Story = {
   render: () => (
@@ -503,4 +556,28 @@ export const Files: Story = {
       {...handlers}
     />
   ),
+};
+
+/**
+ * A library of 10,000 images. Only the tiles on screen are rendered (and
+ * only their pictures fetched): scroll, search for `9999`, or switch to the
+ * list.
+ */
+export const TenThousandImages: Story = {
+  render: () => {
+    const many = Array.from({ length: 10_000 }, (_, i) => {
+      const image = images[i % images.length];
+      return {
+        ...image,
+        ref: `${image.ref}?${i}`,
+        name: `image-${i}.png`,
+        description: `Image ${i}`,
+      };
+    });
+    return (
+      <div style={{ height: 640, overflowY: "auto" }}>
+        <Stateful kind="images" items={many} fillContainer {...handlers} />
+      </div>
+    );
+  },
 };

@@ -12,7 +12,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { pathToFileURL } from "url";
-import { bundleValModules } from "../valModules";
+import { bundleValModules, valModulesEntry } from "../valModules";
 import type { BuildTarget } from "../contract";
 
 const CORE = path.resolve(__dirname, "../../../core/src/index.ts");
@@ -57,6 +57,22 @@ async function main() {
       workerOnly: [],
     },
   };
+  if (process.argv[3] === "entry") {
+    // What a build emits: named after the build, its vendor imports
+    // root-relative, and a warning rather than a failed build.
+    const warnings: string[] = [];
+    const entry = await valModulesEntry({ files, target }, "h1", warnings);
+    console.log(
+      JSON.stringify({
+        names: Object.keys(entry),
+        rootRelative: Object.values(entry).every((code) =>
+          code.includes(`"/_pvendor/r1/valbuild__core.js"`),
+        ),
+        warnings,
+      }),
+    );
+    return;
+  }
   let code: string;
   try {
     code = (

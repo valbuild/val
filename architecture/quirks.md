@@ -351,29 +351,42 @@ appends socket messages. Both feed the same fold, which keeps the last entry per
 commit sha — so anything reading that list has to sort before folding, or a
 finished build gets overwritten by the pending one it replaced.
 
-## `fetchVal` in draft mode loads EVERY module, once per call
+## A draft `fetchVal` reads the head, and a module nobody edited is not read at all
 
-`initFetchValStega` (next `rsc`, and the same code in tanstack `server`) asks
-`/sources/~` with `path: "/"` — the whole tree — and then hands `stegaEncode` a
-`getModule` that reads one entry out of the result. So a draft render that calls
-`fetchVal` three times fetches and validates every module in the project three
-times, no matter how small the three selectors are.
+The model is [content-versions.md](./content-versions.md). Until phase 6 of
+[`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md) a
+draft-mode `fetchVal` asked a private Val server for the whole module tree
+(`PUT /sources/~`), which applied every pending patch and previewed and
+validated every module on every request, then asked `/patches` and `/json`
+again for the `.jsonValues()` entries it showed. Now every reader in the
+process -- both frameworks' readers, the API routes and MCP -- reads ONE head
+(`ValHead`, on the data layer of the process's one runtime, `valRuntime`).
+Three things about it that are not obvious:
 
-Two things keep it from being a production problem, and neither makes it a
-non-problem:
+- **A module whose newest version is the bundle's is not read.** The draft
+  source passes it (`Draft.kind === "bundle"`) and the reader's own bundle
+  answers, as a visitor's does. So a draft read of an unedited page costs one
+  "has the chain moved?" -- not a module.
+- **"Has the chain moved?" is `seq` alone** (`ValOps.chainSeq`): the store's
+  counter in fs and memory mode, `GET /v1/{project}/chain/version` on the
+  content service in http mode. A content service that predates that route
+  answers 404, and the head then reads the whole chain on every read, as
+  before -- correct, and slower. The chain is fetched only when `seq` or the
+  base moved, and a module is made once per version, by EXTENDING the
+  version before by the new patches when the chain grew at its end.
+- **The head is per process, not per request, and that is safe**: draft
+  content is not per user. Who may read it is decided per request
+  (`ValRuntime.authorize`, the API's own `sessionAuth`), before the head is
+  asked anything. The per-request memo that used to stand in for this
+  (`createReactCacheScope`, `createTanStackRequestScope`) is gone with the
+  private servers it memoised.
 
-- It is **draft mode only**. With Val disabled the reader never touches the
-  server: `stegaEncode(selector, { disabled: true })` runs against the statically
-  imported module and nothing else.
-- The client readers do NOT do this. `useVal` subscribes to exactly
-  `getModuleIds(selector)`, so a page subscribes to the page.
-
-It predates `s.view()` and is the same on `main`. Narrowing it is not a
-one-liner: `getModuleIds` can name several modules (a gallery-backed image
-references another), and `/sources/~` takes ONE `path`, so it is either N
-requests or a new list parameter — and the endpoint also does validation and
-patch resolution whose scope would move with it. Measure a draft render before
-assuming this is the slow part, and do it in its own change.
+What a draft page CAN still cost: a module with patches is made once per
+version (a keystroke: the new patch on the version before; a discard in the
+middle of its chain: replayed from its base), and kept within the head's
+byte budget (16 MB, `HEAD_BUDGET_BYTES`; the last two versions of each
+module). B06, B11 and B12 in `scenarios/src/budgets.scenario.test.ts` count
+it.
 
 ## `.jsonValues()`
 
@@ -424,7 +437,7 @@ every file in it). The value must be CONTENT: a `{_type:"json"}` marker as an
 entry's value is refused, because a marker is what a module's Source holds where
 the content is not, and writing markers back is the bug this exists to stop.
 Both sides expand through that one function — `ValOps.prepare` writes the files,
-`applyJsonValuesEntryPatches` builds the draft the Studio reads — because two
+the engine (`applyPatchRecord` in `@valbuild/shared`) builds the draft — because two
 implementations of the rule would differ silently, and the difference only shows
 up once it is published.
 
@@ -500,8 +513,8 @@ transaction that makes the change, and reports it with the head
 (`headVersion`, read in the same statement) and from every write, delete and
 publish. `StatStore` drops a snapshot at a lower version than one already
 received — and than any version this client's own save, discard or publish
-answered with (`noteHeadVersion`), checked again when a stat's preparation
-finishes — and `PatchSync` ignores a stat older than the head it holds. A
+answered with (`noteHeadVersion`) — and `PatchSync` ignores a stat older than
+the head it holds. A
 delete answers per branch, since one can span several; `DELETE /patches` on
 `ValServer` answers `{ deleted, headVersion }` only when asked
 (`reportHeadVersion`), because an open tab's older bundle parses the bare id
@@ -620,7 +633,7 @@ cannot be picked up by invalidating the memo: the re-extraction returns the
 pre-save content and stores it as fresh. The save tells `ValOps` instead
 (`adoptCommittedSources`), which also re-folds the SHAs so `baseSha` moves — the
 first thing that moves it within a server's lifetime in `fs` mode, and the signal
-`PatchStore.reconcileVanished` needs to tell a publish from a discard.
+`PatchStore.settleVanished` uses to tell a publish from a discard.
 
 **A `.jsonValues()` entry needs its own adoption, for a sharper reason.** Its
 content is not in the memoised source at all — the source holds markers, and the
@@ -1112,23 +1125,207 @@ with a fabricated chain, one-patch `GET /patches`: 8ms at 1 patch, 15ms at 200,
 it too. Enough to notice on a long chain, nowhere near enough to explain a request
 that appears to hang.
 
-## The canvas can refresh before the server has the edit
+## A WebSocket that never connects stops a Next page from hydrating
 
-An edit is applied to the client store the moment you type it and written to the
-server asynchronously. `router.refresh()` fired on the edit therefore races the
-write: the RSC payload can come back rendered from content that does not include
-the patch yet. The canvas flickers and does not change — which looks exactly like
-an edit that did not work.
+Symptom: under `next dev`, a page in the canvas renders its HTML, loads every
+chunk, throws nothing and never hydrates — no React root on `document`, so it
+never reports to the Studio, which says "No answer from the page". The same
+page on its own hydrates. TanStack is unaffected.
 
-The page has no way to ask whether its patch has been persisted, so it cannot be
-closed properly from this side. `ValNextProvider` asks again instead: a safety
-refresh every 10s while editing is recent (`SAFETY_REFRESH_MS`,
-`SAFETY_REFRESH_WINDOW_MS`). `shouldSafetyRefresh` holds the reasons to skip —
-never edited, editing long over, tab hidden, refresh in flight — because each one
-is a whole-route request avoided, and in development that is a page re-render.
+Two things combine:
 
-If you find yourself adding a refresh somewhere, check whether this net already
-covers it.
+- **Chrome opens one WebSocket handshake per host and port at a time** (RFC
+  6455, section 4.1). A socket stuck CONNECTING holds every later one to the
+  same host behind it, and the Studio and the page in its canvas share one.
+- **`next dev` (16) delivers the React debug channel over its HMR socket**,
+  and hydration waits for it: `app-index` awaits a Flight decode that will not
+  resolve without those chunks (`reactDebugChannel`, on by default).
+
+What was stuck was Vite's own client in the Studio. It opens its socket on the
+origin the Studio was loaded from — the app's, through the `/api/val/static`
+proxy, which cannot upgrade it — and Next never answers the handshake. Nothing
+in the Studio accepts hot updates, so for a long time the client was simply not
+loaded. Then a dynamic `import()` of a computed URL arrived (`importBundle` in
+`stagedCode.ts`): in dev Vite rewrites that to call `injectQuery` from
+`/@vite/client`, which loads the client, which opens the socket.
+`spaDevServerOptions` (`packages/ui/src/spaDevServer.ts`) now sends that
+socket straight to `:5173`, which answers it; `spaDevServer.test.ts` holds the
+config to that.
+
+How it was found, for the next one: in the frame, `Object.keys(document)` had
+no `__reactContainer$…`, and Playwright's `websocket` events showed the
+frame's `/_next/hmr` socket created only as the document was torn down. A
+`curl` with `Upgrade: websocket` to `localhost:3456/api/val/static/` hangs; the
+same to `/_next/hmr` answers `101` at once.
+
+## A draft page refreshes when the server has the edit, not when it is typed
+
+An edit is applied to the Studio's store the moment you type it and written to
+the server asynchronously. A refresh of what the page's SERVER rendered (Next's
+`router.refresh()`, TanStack's `router.invalidate()`, which re-runs the loaders)
+fired on the edit therefore raced the write: it came back rendered from content
+without the patch. The canvas flickered and did not change -- which looks
+exactly like an edit that did not work -- and a safety refresh every 10 s while
+editing was recent caught it up.
+
+Since phase 4 of `docs/plans/one-content-model.md` the Studio tells the page
+when the SERVER has it: `confirmed`, with the `seq` of the server's answer (an
+adopted `/stat`, or in http mode a save's own answer), on the overlay's
+`val-event` and as a canvas message. The page refreshes once per confirmed
+version, with at most one refresh in flight (`startRefreshLoop` in
+`@valbuild/react/internal`, both providers). A relayed edit refreshes nothing: the
+hooks show it from the relay already. The safety refresh and the 500 ms
+throttle are gone, and nothing in the loop runs on a timer. S05 and B08 in
+`scenarios/` pin it in memory, fs and http.
+
+Two things it relies on, which are easy to break:
+
+- **Every server answer that moves content moves `seq`.** A write, a delete, a
+  publish, a new build (fs: `.val/patches.seq`; memory: the patch store's
+  counter; http: the content service's `headVersion`). A move that is not news
+  is a spare refresh, and one went unnoticed until B08 counted: fs mode counted
+  an empty store's build at the first read AFTER the first write, so a fresh
+  project's first edit moved `seq` twice.
+- **The first `confirmed` is the connection, not news.** It is sent once
+  after the catch-up; the page refreshes for it only if the catch-up moved
+  what it holds (its render was behind the Studio's). A page rendered from the
+  `draft` prop is not refreshed for loading.
+
+If you find yourself adding a refresh somewhere, check whether `confirmed`
+already covers it -- and never add one on a timer.
+
+## After a code change in dev, the build before it can still answer
+
+Hot reload makes a NEW Val server for the new code, but a request the
+browser had already sent -- above all a `/stat` long poll, parked for up to
+20 s -- is answered by the old one. So for a while two builds answer one
+Studio, and the old one's evaluation of the modules is from before the change.
+
+If the old server's view of the base reaches the Studio, a draft page in the
+overlay shows new text, old text, new text (S26 in `scenarios/`). The Studio
+moves to the versions the MANIFEST names (`ManifestSource`), per module, and
+in fs and memory mode the patches belong to the STORE, relative to what the
+newest build evaluated: so
+`GET /manifest` and `GET /modules` are answered by the head of the newest
+server made in the process for that root or patch store (`ValOps.newestOps`),
+whichever server the request reached, and `/stat` names that build's base
+too (`ValOps.chainBaseSha`).
+
+Two things that look like they would do instead, and do not:
+
+- **`seq` does not order builds.** A new build bumps it once, but the old
+  server answering afterwards reads the same counter, so its answers are at
+  the newest `seq` too.
+- **"Newest" is by when the server was MADE, not when it first answered.**
+  A server that is first asked after the new one (nothing had read it
+  before the change) would otherwise count as the newer of the two; that
+  version of the fix was tried, and the flicker stayed.
+
+On a hosted site the content service answers each build with the patches that
+build lacks, and only it knows a newer build is live (`liveBuild`): a previous
+build's manifest says it is `superseded`, and the Studio does not move to its
+versions -- it asks again, and the live build answers the next time.
+
+## Another editor's edit arrives twice, and only one of them shows it
+
+Since phase 7 of `docs/plans/one-content-model.md` the Studio shows the
+module at the version the server's MANIFEST names, with its own edits on
+top. Another editor's patch reaches it two ways after one `/stat`: its
+record, through `GET /patches` (the review, the head, the publish need it),
+and its effect, through the manifest read after the stat and the module's
+patch from `GET /modules` (`ManifestSource`). Only the second changes what a
+field shows -- a record of another editor's patch is never applied in the
+Studio, so a "missing edit" is a manifest that was not read or not adopted,
+not a record that did not arrive. Look at `manifest:fetch`,
+`manifest:origin` and `manifest:memory-hit` in the activity channel.
+
+Two things that look wrong and are not:
+
+- **The Studio's own edit costs no request when the server confirms it.**
+  The version the manifest names for it is the one the Studio computed, so
+  it is found in memory -- by its patches alone when the editor typed on
+  past it (`SourceStore.knownChain`). A `GET /modules` for your own edit is
+  the bug.
+- **A patch a `/stat` stopped naming stays until a manifest decides it.**
+  Gone means: not in the server's version of its module, and that manifest
+  was ASKED FOR after this Studio held the patch (`PatchStore.decidedGone`).
+  A manifest asked for before then can predate it. The ordering is the
+  tab's own counter (`nextManifestEpoch`), never the server's clock.
+
+And a trap in the stores' tests: the fake server's manifest
+(`stores/testManifest.ts`) answers on a microtask, not a timer, because the
+tests let a stat take one turn of the event loop, and the manifest is read
+after it.
+
+## After a code change, an edit that does not apply may be held, not deleted
+
+A patch that does not apply is deleted, on the server too: it can never
+produce a value. That rule deleted editors' work after a code change, two
+ways, and both are now told apart from it (phase 9 of
+`docs/plans/one-content-model.md`):
+
+- **The Studio had the new field before the server did** (S10b). In
+  development HMR reaches the page and the server in either order; when the
+  page is first, the old server's base was put under the field -- no field
+  -- and an edit to it failed there and was deleted. Now a module whose
+  schema new code moved the Studio to keeps the base that code wrote, with
+  every patch of its chain on top, until the manifest names the same schema
+  (`ManifestSource.ahead`). If you see an edit "could not be applied" right
+  after a code change, look at whether the Studio's schema for that module
+  and the manifest's (`version.schema` on `GET /manifest`) differ, and which
+  one moved.
+- **The code renamed or removed the field** (S14). The patch applied before
+  and does not now: it is held (`StatusStore.held`, the banner above the
+  Studio), and a publish is refused until it is discarded. The server's own
+  read of that module stops at it meanwhile (`applyChain` stops where the
+  Studio passes over), so a draft page does not show later edits to that
+  module until the held one is settled. A Studio opened AFTER the change
+  never saw the patch fit, and deletes it as before.
+
+- **The field only staged code has** (C11b). At a proposal's address the
+  platform serves a new overlay after every staging, on the build it already
+  runs, so the server there can hold a module's staged code that its build
+  never evaluated. It tells which from `VAL_BUILD_INPUTS` (the staging the
+  build was made of) against the overlay's `staged`: a module staged after
+  the build is read and saved from its staged text, and versioned
+  `staged:<inputs>`, so nothing reads it as the build's. If a save at the
+  address fails with "Path refers to non-existing object/array" on a staged
+  module, look at whether the isolate was handed `VAL_BUILD_INPUTS` and the
+  overlay's `staged` at all: a `val.server.ts` whose proposal block predates
+  them hands Val neither, and every staged module then reads as the build's.
+  And if the code write is refused with "cannot be saved here", that is the
+  hold, not a bug: the module's content is made by code (or is a
+  `.jsonValues()` record) and the server does not run staged code, so it
+  waits for a build (C11c).
+
+## After a deploy, the Studio takes the new code, or reloads by itself
+
+There is no "A new version has been deployed" dialog (phase 9 of
+`docs/plans/one-content-model.md`). What happens instead depends on who built
+the site, and each looks like something else when it goes wrong:
+
+- **A build the platform made** names its registry on `GET /manifest`
+  (`registry.entry`, `/_app/val-modules-<VAL_BUILD>.js`), and the Studio
+  imports it and swaps the schemas in -- no reload, the chat and the
+  navigation stay. The name comes from `VAL_BUILD` on the server and from the
+  build's own name in `@valbuild/tanstack-build`; a site built by a builder
+  that predates the entry answers 404 there, and the Studio then reloads the
+  page instead. If a hosted Studio reloads after every deploy, look for that
+  404 in the network tab before anything else.
+- **Next.js, or a TanStack Start app hosted elsewhere**, names no registry,
+  so the Studio reloads its page, by itself, about three seconds after the
+  manifest named a schema it does not run (`STUDIO_RELOAD_GRACE_MS`), and
+  only once nothing is saving. That is the design, not a crash. It never
+  happens to a Studio whose code and server have not agreed once since it
+  loaded, so a stale CDN copy of the page cannot loop.
+- **Local development (`fs` mode)** waits for HMR, and never reloads. A
+  Studio in `http` mode in local development (a content service with a dev
+  server) gets HMR within the grace, so it does not reload either -- unless
+  HMR is broken, in which case the reload is what you see.
+
+`window.__VAL_STORES__.system.manifest.current()` is the manifest the Studio
+is at, and `sourceStore.schemaVersionOfModule(path)` the schema it runs: a
+reload, or an import that never comes, starts with those two disagreeing.
 
 ## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
 
@@ -1235,6 +1432,10 @@ text; a route that resolves too early is a 404 nothing later can undo.
 Three things have to be true before the answer is trustworthy, and each was
 independently wrong:
 
+The three are the states of one source now, `overlaySource` in
+`@valbuild/react` (both frameworks' hooks read through it, and so does the
+scenario world: S24).
+
 1. **Draft mode must be KNOWN.** `draftMode` is `null` until `/draft/stat`
    answers, and the reader that turns a selector into content treats `null` as
    off. So a render that got through while it was unknown resolved against
@@ -1245,14 +1446,24 @@ independently wrong:
    waited out `waitForLoad`'s 10s timeout once per unedited module it reads.
    `/blogs/[blog]` also reads the authors module, so a new blog page sat on its
    loading fallback for tens of seconds. Fixed: the editor sends `sourcesSynced`
-   when it has handed over everything it holds.
+   when it has handed over everything it holds. It used to say so too early
+   (S24b): when the Studio's base aligned, before the chain's records were
+   fetched, so `sendPendingSources` found no patch to send, and the page
+   rendered the published content (for a route only in a patch, `null`).
+   Fixed: `sources-synced` waits until the store is in step -- the first
+   manifest adopted, and the chain's records fetched and applied
+   (`onceInStep`, `PatchStore.chainSettled`) -- and until every module of the
+   catch-up has been handed over.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
    consult it — and hydration is where `notFound()` is called. **Not fixed on
-   its own terms, and on TanStack no longer needed:** with `<ValProvider
-draft>` the server renders from the draft it read, so the deciding render
-   already has the route. Without `draft` (and on Next) it is still open. See
-   below.
+   its own terms, and no longer needed with the `draft` prop:** with
+   `<ValProvider draft>` the server renders from the draft it read, so the
+   deciding render already has the route. TanStack has had it since
+   `fetchValDraft`; Next's `ValProvider` takes it since phase 4, filled by the
+   `fetchValDraft` `initValRsc` returns (the same `readDraftChanges` in
+   `@valbuild/server`), from the root layout. Without `draft` it is still open.
+   See below.
 
 ### Why (3) is not just a bug
 
@@ -1279,14 +1490,14 @@ only ever filled from the browser (the studio pushes sources by `postMessage`;
 
 That is the actual shape of the remaining work: the server has to be able to
 supply draft sources during its own render — which `fetchVal` already does for
-server components, via `/sources/~` with patches applied. A client component's
-SSR pass has no equivalent, and giving it one is a good deal more than a prop.
+server components, from the process's head. A client component's SSR pass has
+no equivalent of its own, and giving it one is a good deal more than a prop.
 
 **On TanStack Start it has one now: `<ValProvider draft>`.** The site layout's
 loader calls `fetchValDraft()` through a server function, on the server only.
-That is the same per-request `/sources/~` read `fetchVal` makes, cut down to the
-modules the draft changes, and `null` after one cookie lookup for anyone not in
-draft mode. The provider seeds its store with it and starts with `draftMode`
+That is the head's draft, which `fetchVal` reads too, cut down to the modules
+the draft changes (`readDraftChanges`, with each module's version), and `null`
+after one cookie lookup for anyone not in draft mode. The provider seeds its store with it and starts with `draftMode`
 true, so the server renders the draft and the browser's hydration render reads
 the same sources from the loader data and agrees with it. The edit tags (the
 invisible characters that JSX auto-tagging turns into a `data-val-path`
@@ -1306,14 +1517,21 @@ there is no static route for a cookie read to opt out of.
 It also fixed the more common symptom, which was not a 404 at all: every draft
 page load showed the published text and then, once the overlay had loaded, the
 draft. People notice it most right after publishing, when they reload to look.
-`e2e/tanstack/draftRender.spec.ts` pins it. Next still has the gap for client
-components; the cost argument below is why it has not followed.
+`e2e/tanstack/draftRender.spec.ts` pins it. Next's `ValProvider` takes the same
+`draft` since phase 4 (`ValNextProvider.draft.test.tsx` pins the server render
+and hydration), read with the `fetchValDraft` `initValRsc` returns and passed
+from the root layout (`examples/next/app/layout.tsx`). A layout that does not
+pass it still has the gap for client components. It costs a visitor nothing:
+`fetchValDraft` asks `draftMode()` first, which a static route can answer
+without becoming dynamic, and reads `cookies()` -- which would make it dynamic
+-- only in draft mode. The cost argument below is about reading the cookie
+unconditionally, which is why the provider still does not read it itself.
 
 ### What a visitor pays
 
 Nothing. Measured on a fresh context with no `val_enable` cookie: **zero**
 `/api/val` requests, no Val elements in the DOM, and no timers — the refresh
-loop, the `/draft/stat` poll and the safety refresh are all behind
+loop and the `/draft/stat` poll are both behind
 `mountOverlay`, which is the cookie. The suspend gates short-circuit on
 `suspend`, which stays false. The `draftModeReady` promise is only built when
 `props.suspend` is set.
@@ -1327,54 +1545,14 @@ route into dynamic rendering for everyone.
 
 `packages/next/src/client/useValRoute.draft.test.tsx` — one test per state,
 including the two that differ ONLY in whether the gate was on for the deciding
-render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
-single-module case is `test.fixme` for (3).
-
-## `fetchVal` in draft mode reads every module, ONCE per request
-
-A draft-mode `fetchVal` does not resolve the selector you handed it. It asks
-`PUT /sources/~` for the whole module tree and then picks its modules out of the
-answer — so a page reading one string pays for the project. That part is still
-true and is not what changed.
-
-What changed is the "per call". The reader used to make that request once per
-`fetchVal`, so a page with three reads paid three times for three identical
-answers, and `fetchValRouteUrl` made it worse by calling `fetchVal` again on top
-of the caller's own. The answer cannot differ between reads in one request — the
-query is fixed and the session is fixed — so it is now read once and shared.
-Measured on a synthetic 60-module project, a three-read render went from 187ms
-to 70ms (2.7x); `packages/next/src/rsc/draftRead.perf.test.ts` prints it.
-
-**The memo is scoped to the REQUEST, and that is a correctness rule, not a
-tidiness one.** The body it holds is a draft — unpublished patches, read with
-the caller's session cookie. Every caller allowed to read drafts gets the same
-one (it was per author while patch groups existed), but whether a caller is
-allowed is decided per session, so a memo that outlived the request would hand
-the draft to the next visitor without asking.
-So the memo holds no module-level state: the box comes from React's `cache()` in
-an RSC and from a `WeakMap` keyed on the `Request` in TanStack Start, and when
-neither is available (`null`) it computes every time, which is what the code did
-before. Ineffective is the safe failure here; shared is not. The key is the
-session, so a box that somehow outlived its request misses rather than answering
-wrongly.
-
-**Narrowing the request's `path` does NOT make the server do less, so the reader
-does not bother.** `/sources/~` evaluates, previews and validates every module
-and only THEN filters the response by `req.path` — the two TODOs at
-`ValServer.ts`'s `/sources/~` say exactly that. Measured: at 60 modules,
-`path: "/"` took 53.6ms and a single-module path 53.5ms, for 932KB against 15KB.
-And those bytes are not transferred by anyone: `fetchVal` calls the server
-in process, so the response object is never serialised. Narrowing would also
-give each caller a different answer to cache, which would cost the saving above
-to buy nothing. If you want the server to do less, the work is in `/sources/~`
-itself — and note that `validateSources` deliberately needs every module loaded
-anyway, to build the gallery-conflict map and the cross-module snapshot, so
-scoping it changes which errors are reported rather than just how fast.
-
-None of this touches production. With Val disabled the reader never calls the
-server at all: `stegaEncode(selector, { disabled: true })` runs against the
-statically imported module. And it does not touch the client readers, which were
-already scoped — `useVal` subscribes to exactly `getModuleIds(selector)`.
+render. S24 in `scenarios/src/readers.scenario.test.ts` — every step of a page
+load, with and without `suspend` and the `draft` prop; (3) without the `draft`
+prop is its `test.failing` case, and S24b (the early `sourcesSynced`) passes.
+`packages/next/src/ValNextProvider.draft.test.tsx` — Next's `draft` prop, on
+the server render and on hydration.
+`e2e/uncommitted-routes.spec.ts` covers the path end to end; its
+single-module case, (3), runs on both apps -- it was `test.fixme` until both
+layouts passed `draft` (and fails on Next without it).
 
 ## TanStack Start
 
@@ -1450,17 +1628,21 @@ is wrapped in a `try`. It is not only a display value: it goes into every remote
 file ref, and proxy mode refuses to start without it. Every `version.ts` now
 uses a static JSON import, which preconstruct inlines at build time.
 
-**A page that reads media from the client store shows draft images at their
-published URL.** The Studio's own store never carries `patch_id` — the server
+**A page that reads media from the client store showed draft images at their
+published URL.** The Studio's own store did not carry `patch_id` — the server
 sets it on the sources IT serves, and the editor's fields get it from
-`patchStore.filePatchIds()` separately — so the source the overlay emitter hands
+`patchStore.filePatchIds()` separately — so the source the overlay emitter handed
 the host page had a freshly uploaded image pointing at `/public/...`, where
 nothing is written until publish. The image then fails to load with no error at
 all: in a TanStack app `/val/...` is the Studio route, so the request 200s with
-the Studio's HTML and the `<img>` simply decodes nothing. `withFilePatchIds` in
-`ValOverlayEmitter` stamps it now. Next hides this because its pages usually read
-through `fetchVal` in an RSC, which reads `/sources/~` server-side where the
-stamp is already there.
+the Studio's HTML and the `<img>` simply decodes nothing. Next hid this because
+its pages usually read through `fetchVal` in an RSC, whose draft comes from the
+server, where the stamp is already there. Since phase 5 of
+`docs/plans/one-content-model.md` the Studio reads through the server's engine
+(`applyPatchRecord`), which puts `patch_id` where the file lands, so the store
+carries it like the server's sources do -- and a publish takes it out again
+(`promotePublished` bakes the published patches into the base without their
+`file` ops: the file is where its path says now).
 
 **`notFound()` thrown from a COMPONENT is not caught by
 `defaultNotFoundComponent`.** It escapes to the error boundary instead: the

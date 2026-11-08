@@ -5,6 +5,7 @@ import {
   SourcePath,
   type SerializedVideoSchema,
 } from "@valbuild/core";
+import { mediaPickPatch } from "./mediaPickPatch";
 import type { Patch } from "@valbuild/core/patch";
 import { Film, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -432,13 +433,7 @@ export function VideoField({
             setLocalUrl(null);
             // Only the path: what is true of the file stays in the set. The
             // times, poster and captions were about the video it replaces.
-            write([
-              {
-                op: "replace",
-                path: patchPath,
-                value: { path: entry.filePath },
-              },
-            ]);
+            write(mediaPickPatch(patchPath, entry.filePath));
           }}
         />
       ) : (
