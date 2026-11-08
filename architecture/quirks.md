@@ -356,7 +356,7 @@ finished build gets overwritten by the pending one it replaced.
 The model is [content-versions.md](./content-versions.md). Until phase 6 of
 [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md) a
 draft-mode `fetchVal` asked a private Val server for the whole module tree
-(`PUT /sources/~`), which applied every pending patch and previewed and
+(`PUT /sources/~`, since removed), which applied every pending patch and previewed and
 validated every module on every request, then asked `/patches` and `/json`
 again for the `.jsonValues()` entries it showed. Now every reader in the
 process -- both frameworks' readers, the API routes and MCP -- reads ONE head

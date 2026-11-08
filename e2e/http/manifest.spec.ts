@@ -10,9 +10,9 @@ import { mock, openHttpStudio, sessionCookie, writePatch } from "./httpMode";
  * real client.
  *
  * It replaced `BaseAlignment`, which compared `/stat`'s `sourcesSha` with the
- * bundle's and fetched another build's whole base (`PUT /sources/~`): a
- * version names the base it is on, per module, so a base the Studio does not
- * hold is one read of one module.
+ * bundle's and fetched another build's whole base (the whole-tree
+ * `PUT /sources/~`, since removed): a version names the base it is on, per
+ * module, so a base the Studio does not hold is one read of one module.
  *
  * "Another base" is made by rewriting what this app's server answers, because
  * the harness runs one build for the whole run. It differs from the bundle's
@@ -51,11 +51,7 @@ test("when the server is on the bundle's base, the manifest is read and no modul
   const reads: string[] = [];
   page.on("request", (request) => {
     const path = new URL(request.url()).pathname;
-    if (
-      path === "/api/val/manifest" ||
-      path.startsWith("/api/val/modules/") ||
-      (request.method() === "PUT" && path === "/api/val/sources/~")
-    ) {
+    if (path === "/api/val/manifest" || path.startsWith("/api/val/modules/")) {
       reads.push(`${request.method()} ${path}`);
     }
   });

@@ -33,14 +33,14 @@ number, because the numbers move with the code.
 
 Run from `scenarios/`.
 
-| Script                  | Measures                                                                                                              | Run                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `draftRead.ts`          | A draft read on Val's server: time, and the smallest heap it completes in                                             | `node --import tsx measure/draftRead.ts all` (long: it bisects the heap) |
-|                         | One input and operation, in-process                                                                                   | `node --expose-gc --import tsx measure/draftRead.ts run synth:5 draft 5` |
-| `keystroke.ts`          | One write in the Studio (what a field pays when typing pauses), by module size                                        | `node --import tsx measure/keystroke.ts`                                 |
-| `evaluateValModules.ts` | Bundling a project's `val.modules` from its source and reading every module: what evaluating code after a write costs | `node --import tsx measure/evaluateValModules.ts <project root>`         |
-| `isolateProbe.ts`       | A draft read in a Cloudflare Worker, stepped up until the isolate is killed; joins the runs with `wrangler tail`      | See "The deployed isolate probe" below                                   |
-| `scale.ts`              | The Studio's surfaces (phase 10) with 1k, 10k and 100k entries and files: time per surface, heap after each           | `pnpm exec tsx measure/scale.ts all` (`VAL_SCALE=1000,10000` to narrow)  |
+| Script                  | Measures                                                                                                              | Run                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `draftRead.ts`          | A draft read on Val's server: time, and the smallest heap it completes in                                             | `node --import tsx measure/draftRead.ts all` (long: it bisects the heap)  |
+|                         | One input and operation, in-process                                                                                   | `node --expose-gc --import tsx measure/draftRead.ts run synth:5 reader 5` |
+| `keystroke.ts`          | One write in the Studio (what a field pays when typing pauses), by module size                                        | `node --import tsx measure/keystroke.ts`                                  |
+| `evaluateValModules.ts` | Bundling a project's `val.modules` from its source and reading every module: what evaluating code after a write costs | `node --import tsx measure/evaluateValModules.ts <project root>`          |
+| `isolateProbe.ts`       | A draft read in a Cloudflare Worker, stepped up until the isolate is killed; joins the runs with `wrangler tail`      | See "The deployed isolate probe" below                                    |
+| `scale.ts`              | The Studio's surfaces (phase 10) with 1k, 10k and 100k entries and files: time per surface, heap after each           | `pnpm exec tsx measure/scale.ts all` (`VAL_SCALE=1000,10000` to narrow)   |
 
 `scaleWork.ts` is phase 10's: the project at size (a `.jsonValues()` router
 of N posts, image, file and video libraries of N entries, local or remote
@@ -58,14 +58,11 @@ from Node in it, so `draftRead.ts` and the isolate probe run the same code.
 `draftRead.ts`'s operations: `load` (modules loaded and `/stat` answered: the
 baseline); `reader` (every module through `serverDraftSource` over the head,
 in-process: what a draft-mode `fetchVal` reads since phase 6, and the number
-that matters for a page); `draft` (`PUT /sources/~` asking for validation:
-until phase 6 what a draft-mode `fetchVal` asked on every request, since then
-the head's whole tree, the flag ignored); `draft-novalidate` (the same
-without asking; before phase 6, previews still computed); `base` (unpatched:
-the whole-tree fetch a Studio of the release before makes). `draft`,
-`draft-novalidate` and `base` measure `PUT /sources/~`, which goes in the
-release after this plan ships (see "Release-delayed deletions" in the plan);
-they are kept to compare with the numbers before phase 6. Its inputs: `web`
+that matters for a page). `draft`, `draft-novalidate` and `base` measured
+`PUT /sources/~` -- what a draft-mode `fetchVal` asked until phase 6, and a
+Studio of the release before's `BaseAlignment` -- and went with that route in
+the release after the plan shipped; their numbers stay in `results.md` as
+the before. Its inputs: `web`
 (valbuild/web), `synth:N` (about N MB of content in 20 record modules with
 rich text), `synth:1+650` (1 MB with a 650-patch chain).
 
@@ -234,7 +231,7 @@ $W tail val-isolate-probe --format json > /tmp/tail.json &
 
 # From scenarios/: the ladder (1 to 80 MB, every operation, then 1 MB + 650
 # patches), then the same with 32 and 64 MB of ballast for the app's heap.
-# The head's budget: --inputs synth:20+650,…,json:10000+650 --ops reader,draft.
+# The head's budget: --inputs synth:20+650,…,json:10000+650 --ops reader.
 NODE_USE_ENV_PROXY=1 pnpm exec tsx measure/isolateProbe.ts run \
   --url https://val-isolate-probe.<subdomain>.workers.dev --label deployed --out /tmp/runs.jsonl
 NODE_USE_ENV_PROXY=1 pnpm exec tsx measure/isolateProbe.ts run \
@@ -250,7 +247,7 @@ $W delete --env ""                    # when done; the probe answers anyone
 ```
 
 `--inputs` narrows the ladder (`--inputs synth:12,synth:14,synth:16` to
-bisect between the last pass and the first kill), and `--ops draft` to one
+bisect between the last pass and the first kill), and `--ops reader` to one
 operation. An operation stops climbing after two failed sizes in a row; each
 failure is retried once, because the request after a kill gets a new isolate.
 

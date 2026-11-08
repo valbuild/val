@@ -35,7 +35,12 @@ import { z } from "zod";
 import fs from "fs";
 import nodePath from "path";
 import { fromError } from "zod-validation-error";
-import { Patch, ParentRef, ValCommit } from "@valbuild/shared/internal";
+import {
+  Patch,
+  ParentRef,
+  ValCommit,
+  type ProjectVersion,
+} from "@valbuild/shared/internal";
 import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -281,8 +286,11 @@ export class ValOpsFS extends ValOps {
   async getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
-      sourcesSha: SourcesSha;
+      /** @deprecated See `ValOps.getStat`: echoed by the previous release. */
+      schemaSha?: SchemaSha;
+      /** @deprecated See `ValOps.getStat`: echoed by the previous release. */
+      sourcesSha?: SourcesSha;
+      version?: ProjectVersion;
       patches: PatchId[];
       profileId?: AuthorId;
       jsonEntriesSha?: string;
@@ -384,9 +392,14 @@ export class ValOpsFS extends ValOps {
         (params.jsonEntriesSha !== undefined &&
           currentJsonEntriesSha !== params.jsonEntriesSha) ||
         currentBaseSha !== params.baseSha ||
-        // base sha covers both sources sha and schema sha, so we could remove checks for schema sha and sources sha
-        currentSourcesSha !== params.sourcesSha ||
-        currentSchemaSha !== params.schemaSha ||
+        // Another build: by the version the Studio echoes -- the build the
+        // chain is relative to (`chainBuild`), which every instance on this
+        // store answers with -- or, from a Studio that echoes no version
+        // (the release that shipped the one content model), by the shas.
+        (params.version !== undefined
+          ? params.version.build !== (await this.chainBuild())
+          : currentSourcesSha !== params.sourcesSha ||
+            currentSchemaSha !== params.schemaSha) ||
         patches.length !== params.patches.length ||
         patches.some((p, i) => p !== params.patches[i]);
       if (didChange) {

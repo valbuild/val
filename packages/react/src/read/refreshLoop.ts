@@ -25,22 +25,10 @@
  *   moved what it holds (`changed`): its server render is older than what the
  *   Studio has. A page rendered from the draft the Studio holds -- the
  *   `draft` prop, read for this request -- is not refreshed for loading.
- * - **A Studio of the release before never says `confirmed`** (a deploy
- *   rolling out: this page, that Studio). Its changes refresh the page as
- *   they arrive (`changedByPreviousStudio`), as that release's page did,
- *   until a `confirmed` says the Studio is this release's. They race the
- *   write, as they did then; it lasts as long as the rollout.
  */
 export type RefreshLoop = {
   /** A relayed module moved what the page's store holds. */
   changed(): void;
-  /**
-   * A relayed module moved what the page's store holds, sent by a Studio of
-   * the release before (a bare `source`), which never says `confirmed`: a
-   * refresh, unless a `confirmed` has been told on this page. Goes with the
-   * relay's `source` ("Release-delayed deletions").
-   */
-  changedByPreviousStudio(): void;
   /** The server holds the editor's changes up to `seq` (`null`: unknown). */
   confirmed(seq: number | null): void;
   /**
@@ -89,13 +77,6 @@ export function startRefreshLoop(options: {
   return {
     changed() {
       if (told === undefined) behind = true;
-    },
-    changedByPreviousStudio() {
-      if (told !== undefined) {
-        // A Studio that confirms: its `confirmed` is the refresh.
-        return;
-      }
-      run();
     },
     confirmed(seq) {
       if (told !== undefined && told !== null && seq !== null && seq <= told) {

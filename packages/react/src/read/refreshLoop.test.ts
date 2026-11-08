@@ -129,23 +129,6 @@ describe("startRefreshLoop", () => {
     expect(refreshes).toBe(2);
   });
 
-  test("a Studio of the release before, which never confirms: each change it sends is a refresh", () => {
-    const { loop, refreshes } = counting();
-    loop.changedByPreviousStudio();
-    expect(refreshes()).toBe(1);
-    loop.changedByPreviousStudio();
-    expect(refreshes()).toBe(2);
-  });
-
-  test("once a Studio has confirmed, a change in the old shape waits for its confirmed", () => {
-    const { loop, refreshes } = counting();
-    loop.confirmed(3);
-    loop.changedByPreviousStudio();
-    expect(refreshes()).toBe(0);
-    loop.confirmed(4);
-    expect(refreshes()).toBe(1);
-  });
-
   test("stopped, it refreshes nothing", () => {
     const { loop, refreshes } = counting();
     loop.confirmed(1);

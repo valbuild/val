@@ -1147,58 +1147,51 @@ first fixes, and 8.)
 
 ## Release-delayed deletions
 
-What every phase could delete, it deleted in its own PR. These stay ONE
+What every phase could delete, it deleted in its own PR. These stayed ONE
 release longer, because a Studio, a page or a server of the release before
 can be talking to one of this release while a deploy rolls out (the rule in
 [Each phase deletes what it replaced](#each-phase-deletes-what-it-replaced)).
-Each is marked `@deprecated` (or carries a comment saying so) where it is
-declared. "N" is the release that ships valbuild/val#1006; **"N+1" is the
-release after it**.
+"N" is the release that shipped valbuild/val#1006 (0.151.0); "N+1" is the
+release after it; "N+2" the one after that.
 
-1. **`PUT /sources/~`**, the whole route: its `exclude_patches`
-   (`BaseAlignment`'s fetch), `apply_patches`, the accepted-and-ignored
-   `validate_sources` and `validate_binary_files`, and the answer's
-   `preview`, `validationErrors` and `baseSource`.
-   - _Read in N by:_ a Studio of the release before (`BaseAlignment`).
-     Nothing in N's product: the Studio reads `GET /manifest` and
-     `GET /modules`, and the draft readers and MCP read the head in-process
-     (`ValHead.tree()` stays, for MCP).
-   - _Goes in:_ **N+1.** First move the tests that read server state through
-     it onto `GET /modules` or the manifest (`e2e/tanstack/serverState.ts`,
-     `e2e/http/draftAfterPublish.spec.ts`, `e2e/http/manifest.spec.ts`,
-     `e2e/renameMedia.spec.ts`, `e2e/tanstack/draftRender.spec.ts`, and the
-     `overlayAfterBuild`, `budgets` and `addedField` scenarios), drop
-     `measure/draftRead.ts`'s `draft`, `draft-novalidate` and `base`
-     operations, and check that valbuild/home asks it nowhere.
-2. **`/stat`'s `sourcesSha` and `schemaSha`**, in the request (the Studio's
-   echo) and in both answers (the long poll's and `use-websocket`); with them
-   `ValOps.chainBaseSha`, `StatSnapshot.sourcesSha` and `ValProvider`'s
-   `statSourcesSha`.
-   - _Read in N by:_ a Studio of the release before (`BaseAlignment`,
-     `SchemaFreshnessWatch`). N's Studio reads neither, but its answer schema
-     REQUIRES both (`StatData` in `useStatus.ts` and the `/stat` response in
-     `ApiRoutes.ts`: `z.string()`), it echoes them, and the fs and memory
-     long poll compares the echo to see another build (`ValOpsFS.getStat`,
-     `ValOpsMemory`).
-   - _Goes in:_ **two steps.** N+1: the Studio parses them as optional and
-     echoes them only when it got them, and the long poll tells a new build
-     from the answer's `version` (`build`, `seq`) instead of the echo; the
-     server still sends them. **N+2:** the server stops sending them, and the
-     request fields go once no Studio sends them.
-3. **The relay's `source`**: `source-update.source` on the overlay's
-   `val-event` and `sourceUpdate.source` on the canvas, and the page's
-   fallback that reads a bare `source` (`applyValEvent` in
-   `@valbuild/react/stega`).
-   - _Read in N by:_ a page of the release before reads `source` (N's Studio
-     sends it beside `read`); a Studio of the release before sends `source`
-     alone (N's page reads it through the fallback).
-   - _Goes in:_ **N+1**, both halves: a Studio of N already sends `read`,
-     which a page of N+1 reads, and a page of N reads `read`, which a Studio
-     of N+1 sends.
-4. **`ValDraft.base`** (the type only; not sent and not read since phase 7).
-   - _Read in N by:_ nothing; kept so a draft of the release before
-     type-checks.
-   - _Goes in:_ **N+1.**
+**Done in N+1** (valbuild/val#1016, 2026-11-08):
+
+1. **`PUT /sources/~`**, the whole route: its `exclude_patches`,
+   `apply_patches`, the ignored `validate_sources` and
+   `validate_binary_files`, and the answer's `preview`, `validationErrors`
+   and `baseSource`. The e2e specs that read server state through it read
+   `GET /modules/~<path>` instead (`e2e/serverModule.ts`, as the Studio's
+   `originTier` does); `manifestRoute.test.ts` asks the module endpoint where
+   it asked the tree; the scenarios only asserted it was not asked;
+   `measure/draftRead.ts` lost `draft`, `draft-novalidate` and `base`.
+   valbuild/home asks it nowhere (its one mention is a path in
+   `isEditorRequest`'s test). `ValHead.tree()` stays, for MCP.
+2. **The relay's bare `source`**: `source-update.source` on the overlay's
+   `val-event`, `sourceUpdate.source` on the canvas (now `read` alone,
+   required), and the page's fallback that read it (`applyValEvent`), with
+   its `fromPreviousStudio` and the refresh loop's
+   `changedByPreviousStudio`. A bare `source` is now an invalid event
+   (`ValTanStackProvider.draftMode.test.tsx`).
+3. **`ValDraft.base`**, the type.
+4. **`/stat`'s `sourcesSha` and `schemaSha`, step one.** The Studio parses
+   both as optional and echoes them only when it got them, and echoes the
+   answer's `version` (`statRequestBody`). The fs and memory long poll tell
+   a new build by the echoed `version.build` against `ValOps.chainBuild` --
+   the build the chain is relative to, the newest build's in fs and memory,
+   which `/stat` now answers as `version.build` on every instance alike, as
+   the manifest already did -- and by the shas only for a Studio that echoes
+   no version (`ValOpsMemory.stat.test.ts`, `ValOpsFS.stat.test.ts`,
+   `manifestRoute.test.ts`). The server still sends both.
+
+**For N+2:**
+
+- **`/stat`'s `sourcesSha` and `schemaSha` from the server's answers** (the
+  long poll's and `use-websocket`), and the sha branch of both long polls.
+  Read in N+1 by: a Studio of N, which requires and echoes them.
+- **The request fields `sourcesSha` and `schemaSha`**, once no Studio sends
+  them: a Studio of N+1 still echoes what a server of N+1 sends.
+- With them `ValOps.chainBaseSha`, `StatSnapshot.sourcesSha` and
+  `ValProvider`'s `statSourcesSha`.
 
 Not on the list, deliberately:
 

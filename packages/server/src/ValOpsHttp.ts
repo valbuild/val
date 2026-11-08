@@ -66,6 +66,7 @@ import {
   PatchId as PatchIdSchema,
   SerializedSchema as SerializedSchemaSchema,
   PlanRefusalError,
+  type ProjectVersion,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -2189,7 +2190,8 @@ export class ValOpsHttp extends ValOps {
   async getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
+      schemaSha?: SchemaSha;
+      version?: ProjectVersion;
       patches?: PatchId[];
       profileId?: AuthorId;
     } | null,

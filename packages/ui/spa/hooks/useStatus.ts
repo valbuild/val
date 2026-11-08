@@ -201,8 +201,15 @@ export const StatData = z.object({
   removed: z
     .array(z.object({ patchId: PatchId, reason: z.string() }))
     .optional(),
-  sourcesSha: z.string(),
-  schemaSha: z.string(),
+  /**
+   * @deprecated Echoed when sent, and read by nothing: what told the fs and
+   * memory long poll that another build answers is `version` now. The
+   * server stops sending them a release after this ("Release-delayed
+   * deletions" in `docs/plans/one-content-model.md`).
+   */
+  sourcesSha: z.string().optional(),
+  /** @deprecated As `sourcesSha`. */
+  schemaSha: z.string().optional(),
   baseSha: z.string(),
   patches: z.array(PatchId),
   /**
@@ -670,8 +677,11 @@ export function awaitingDeploymentInterval(
 
 /**
  * What a `/stat` request says the Studio already knows: the last answer's
- * shas and patches, so the server can answer "no change" (or, in fs mode,
- * long-poll until there is one). `null` on the first request.
+ * base, patches and `version`, so the server can answer "no change" (or, in
+ * fs and memory mode, long-poll until there is one). `null` on the first
+ * request. `sourcesSha` and `schemaSha` are echoed only when the server sent
+ * them (a server that still compares them, the release that shipped the one
+ * content model).
  *
  * Its own function so the scenario harness (`scenarios/`) asks exactly what
  * the Studio asks.
@@ -681,8 +691,9 @@ export function statRequestBody(data: StatData | undefined) {
     return null;
   }
   return {
-    schemaSha: data.schemaSha,
-    sourcesSha: data.sourcesSha,
+    ...(data.schemaSha !== undefined ? { schemaSha: data.schemaSha } : {}),
+    ...(data.sourcesSha !== undefined ? { sourcesSha: data.sourcesSha } : {}),
+    ...(data.version !== undefined ? { version: data.version } : {}),
     baseSha: data.baseSha,
     patches: data.patches,
     // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:

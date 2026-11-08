@@ -104,7 +104,7 @@ test.describe("a draft page, as the server renders it", () => {
     page,
   }) => {
     /*
-     * `/sources/~` keeps each entry of such a module as a marker -- its
+     * The server's head keeps each entry of such a module as a marker -- its
      * content lives in its own file -- so the draft has to carry the edited
      * entries' content, or the page rendered the published entry first.
      */

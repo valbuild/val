@@ -57,12 +57,13 @@ describe("ValRouter", () => {
     c.define("/content/authors.val.ts", authorsSchema, authorsSource),
   );
 
-  test("smoke test valid route: /sources/~", async () => {
+  test("smoke test valid route: /modules/~", async () => {
     const serverRes = await onRoute(
       fakeRequest({
-        method: "PUT",
-        url: new URL("http://localhost:3000/api/val/sources/~"),
-        json: {},
+        method: "GET",
+        url: new URL(
+          "http://localhost:3000/api/val/modules/~/content/authors.val.ts",
+        ),
         headers: new Headers({
           Cookie: `val_session=${encodeJwt({}, "")}`,
         }),
@@ -70,175 +71,11 @@ describe("ValRouter", () => {
     );
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
-    expect("json" in serverRes && serverRes.json).toBeTruthy();
+    expect("json" in serverRes && serverRes.json).toMatchObject({
+      kind: "module",
+      source: authorsSource,
+    });
   });
-
-  // NOTE: the studio applies patches on the client and therefore requests
-  // sources with apply_patches=false. Previews must be returned either way:
-  // the preview functions only exist on the server (they are not part of the
-  // serialized schema), so the client cannot compute them itself.
-  const patchedAuthorName = "Fredrik Ekholdt (patched)";
-  const patchedAuthorsSource = {
-    ...authorsSource,
-    freekh: {
-      ...authorsSource.freekh,
-      name: patchedAuthorName,
-    },
-  };
-
-  test.each([
-    {
-      query: undefined,
-      expectedSource: patchedAuthorsSource,
-      expectedBaseSource: authorsSource,
-    },
-    {
-      query: "apply_patches=false",
-      expectedSource: authorsSource,
-      expectedBaseSource: undefined,
-    },
-    {
-      query: "apply_patches=true",
-      expectedSource: patchedAuthorsSource,
-      expectedBaseSource: authorsSource,
-    },
-  ])(
-    "/sources/~ answers sources, not previews (query: $query)",
-    async ({ query, expectedSource, expectedBaseSource }) => {
-      // This case creates a real pending patch, and an fs-mode server stores
-      // patches under `${process.cwd()}/.val`. Rooted at the repo that writes
-      // .val/patches/head/patch.json into the checkout - which every fs-mode
-      // server then loads as the current pending head, so local Studio and
-      // other server tests would start with a synthetic edit to
-      // /content/authors.val.ts. cwd() is not overridable through
-      // ValApiOptions, so point it at a scratch directory for the duration.
-      const valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-router-"));
-      const cwdSpy = jest.spyOn(process, "cwd").mockReturnValue(valRoot);
-      try {
-        await runPreviewCase({ query, expectedSource, expectedBaseSource });
-      } finally {
-        cwdSpy.mockRestore();
-        fs.rmSync(valRoot, { recursive: true, force: true });
-      }
-    },
-  );
-
-  async function runPreviewCase({
-    query,
-    expectedSource,
-    expectedBaseSource,
-  }: {
-    query: string | undefined;
-    expectedSource: typeof authorsSource;
-    expectedBaseSource: typeof authorsSource | undefined;
-  }) {
-    {
-      const onRouteWithPreview = createOnRoute(
-        c.define(
-          "/content/authors.val.ts",
-          s.record(
-            authorItemSchema.preview(({ val }) => ({
-              title: val.name,
-              subtitle: val.birthdate,
-            })),
-          ),
-          authorsSource,
-        ),
-      );
-      const patchesRes = await onRouteWithPreview(
-        fakeRequest({
-          method: "GET",
-          url: new URL("http://localhost:3000/api/val/patches"),
-          headers: new Headers({
-            Cookie: `val_session=${encodeJwt({}, "")}`,
-          }),
-        }),
-      );
-      expect(patchesRes.status).toBe(200);
-      if (patchesRes.status !== 200 || !("json" in patchesRes)) {
-        throw new Error("Expected a 200 response with a json body");
-      }
-      // Narrow the Json body down to the one field this test needs, rather
-      // than asserting: `json` is `Json | null`, so indexing it is not valid
-      // until it is known to carry a string baseSha. `in` rather than
-      // Array.isArray, because JsonArray is a *readonly* array and
-      // Array.isArray does not narrow those away.
-      const patchesBody = patchesRes.json;
-      if (
-        patchesBody === null ||
-        typeof patchesBody !== "object" ||
-        !("baseSha" in patchesBody) ||
-        typeof patchesBody.baseSha !== "string"
-      ) {
-        throw new Error("Expected the patches response to carry a baseSha");
-      }
-      const createPatchRes = await onRouteWithPreview(
-        fakeRequest({
-          method: "PUT",
-          url: new URL("http://localhost:3000/api/val/patches"),
-          json: {
-            patches: [
-              {
-                path: "/content/authors.val.ts",
-                patchId: "11111111-1111-4111-8111-111111111111",
-                patch: [
-                  {
-                    op: "replace",
-                    path: ["freekh", "name"],
-                    value: patchedAuthorName,
-                  },
-                ],
-              },
-            ],
-            parentRef: {
-              type: "head",
-              headBaseSha: patchesBody.baseSha,
-            },
-          },
-          headers: new Headers({
-            Cookie: `val_session=${encodeJwt({}, "")}`,
-          }),
-        }),
-      );
-      expect(createPatchRes.status).toBe(200);
-      const serverRes = await onRouteWithPreview(
-        fakeRequest({
-          method: "PUT",
-          url: new URL(
-            `http://localhost:3000/api/val/sources/~${query ? `?${query}` : ""}`,
-          ),
-          json: {},
-          headers: new Headers({
-            Cookie: `val_session=${encodeJwt({}, "")}`,
-          }),
-        }),
-      );
-      expect(serverRes.status).toBe(200);
-      if (serverRes.status !== 200 || !("json" in serverRes)) {
-        throw new Error("Expected a 200 response with a json body");
-      }
-      const json = serverRes.json as unknown as {
-        modules: Record<
-          string,
-          { source?: unknown; baseSource?: unknown; preview?: unknown }
-        >;
-      };
-      expect(json.modules["/content/authors.val.ts"]?.source).toEqual(
-        expectedSource,
-      );
-      expect(json.modules["/content/authors.val.ts"]?.baseSource).toEqual(
-        expectedBaseSource,
-      );
-      // Previews and validation left the read path in phase 6 of
-      // `docs/plans/one-content-model.md`: the Studio computes previews from
-      // its own schema instances, and validates through `/validate`.
-      expect(json.modules["/content/authors.val.ts"]?.preview).toBeUndefined();
-      expect(
-        json.modules["/content/authors.val.ts"] &&
-          "validationErrors" in json.modules["/content/authors.val.ts"],
-      ).toBe(false);
-    }
-  }
 
   test("smoke test valid route: /schema", async () => {
     const serverRes = await onRoute(
@@ -425,15 +262,6 @@ describe("ValRouter", () => {
 
     test("GET /patches with include_patch_groups=true", async () => {
       const res = await request("GET", "/patches?include_patch_groups=true");
-      expect(res.status).not.toBe(400);
-    });
-
-    test("PUT /sources/~ with own_patch_groups_only and patch_id", async () => {
-      const res = await request(
-        "PUT",
-        "/sources/~?own_patch_groups_only=true&patch_id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
-        {},
-      );
       expect(res.status).not.toBe(400);
     });
 

@@ -391,7 +391,15 @@ export abstract class ValOps {
   abstract getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
+      /**
+       * @deprecated Echoed by a Studio of the release that shipped the one
+       * content model; a Studio of the release after echoes {@link version}
+       * instead and this only when the server sent it. Goes from the wire a
+       * release later ("Release-delayed deletions").
+       */
+      schemaSha?: SchemaSha;
+      /** What the last `/stat` answered: see {@link ValOps.chainBuild}. */
+      version?: ProjectVersion;
       patches?: PatchId[];
       profileId?: AuthorId;
       /**
@@ -1012,6 +1020,37 @@ export abstract class ValOps {
    */
   async chainBaseSha(): Promise<SourcesSha> {
     return this.getSourcesSha();
+  }
+
+  /**
+   * The build the chain is relative to, by its version's name
+   * (`ProjectVersion.build`): the newest build's in fs and memory, this
+   * instance's own in http -- the same rule as {@link chainBaseSha}, and for
+   * the same reason. `/stat` answers it as `version.build`, and the fs and
+   * memory long poll compare a Studio's echoed version with it, so every
+   * instance answering one store names one build: a Studio parked on the
+   * previous build's instance is told of the new build once, not on every
+   * poll.
+   */
+  async chainBuild(): Promise<string> {
+    const newest = this.newestOps();
+    if (newest !== this) {
+      try {
+        return await newest.ownBuild();
+      } catch (err) {
+        Internal.log.debug(
+          "could not read the newest build's version; answering with this one's",
+          err,
+        );
+      }
+    }
+    return this.ownBuild();
+  }
+
+  /** This instance's own build, as `ProjectVersion.build` names it. */
+  async ownBuild(): Promise<string> {
+    await this.initSources();
+    return this.buildVersion ?? "";
   }
 
   /**
