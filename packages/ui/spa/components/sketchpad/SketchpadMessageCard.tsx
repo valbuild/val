@@ -54,7 +54,7 @@ export function SketchpadMessageCard({
         <span className="text-[11px] text-fg-secondary">Sketchpad</span>
         <span className="truncate text-sm font-medium">{title}</span>
         {routes.length > 0 && (
-          <span className="truncate font-mono text-[11px] text-fg-tertiary">
+          <span className="truncate text-[11px] text-fg-tertiary">
             {routes.join("  ·  ")}
           </span>
         )}

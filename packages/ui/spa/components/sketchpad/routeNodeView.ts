@@ -2,6 +2,17 @@ import type { Node as PMNode } from "prosemirror-model";
 import type { EditorView, NodeView } from "prosemirror-view";
 import { gripElement, startBlockDrag } from "./dragBlocks";
 
+/** What the menu a route divider opens can do, and where to draw it. */
+export type RouteMenuRequest = {
+  route: string;
+  /** The chip it opens from, in the viewport. */
+  anchor: DOMRect;
+  /** Point the divider at another route. */
+  change: (route: string) => void;
+  /** Take the divider out; what was below it stays where it is. */
+  remove: () => void;
+};
+
 export type RouteViewOptions = {
   /** The site's pages, to pick from. */
   getRoutes: () => string[];
@@ -9,6 +20,11 @@ export type RouteViewOptions = {
   getActiveRoute: () => string | null;
   /** Show this route's page beside the sketch. */
   openRoute: (route: string) => void;
+  /**
+   * Opens the divider's menu: show the page, change the route, remove the
+   * divider. Null where there is no menu, and the chip then shows the page.
+   */
+  getOpenMenu: () => ((menu: RouteMenuRequest) => void) | null;
 };
 
 const PIN =
@@ -23,7 +39,6 @@ const PIN =
 export class RouteView implements NodeView {
   readonly dom: HTMLElement;
   private readonly chip: HTMLButtonElement;
-  private readonly change: HTMLButtonElement;
   private node: PMNode;
 
   constructor(
@@ -55,18 +70,9 @@ export class RouteView implements NodeView {
 
     this.chip = document.createElement("button");
     this.chip.type = "button";
-    this.chip.addEventListener("click", () =>
-      this.options.openRoute(String(this.node.attrs.route)),
-    );
+    this.chip.addEventListener("click", () => this.open());
 
-    this.change = document.createElement("button");
-    this.change.type = "button";
-    this.change.textContent = "Change";
-    this.change.className =
-      "cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-fg-tertiary opacity-0 hover:bg-bg-secondary hover:text-fg-primary group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100";
-    this.change.addEventListener("click", () => this.pick());
-
-    this.dom.append(grip, rule(), this.chip, this.change, rule());
+    this.dom.append(grip, rule(), this.chip, rule());
     this.render();
     registry.add(this);
   }
@@ -82,69 +88,47 @@ export class RouteView implements NodeView {
     ].join(" ");
     this.chip.title = active
       ? `The page at ${route} is beside the sketch`
-      : `Show the page at ${route} beside the sketch`;
+      : `The page at ${route}`;
     this.chip.setAttribute("aria-pressed", String(active));
     this.chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><path d="${PIN}"/></svg>`;
     const label = document.createElement("span");
-    label.className = "truncate font-mono";
+    label.className = "truncate";
     label.textContent = route;
     this.chip.append(label);
-    this.change.style.display = this.view.editable ? "" : "none";
+    this.chip.setAttribute(
+      "aria-haspopup",
+      this.options.getOpenMenu() && this.view.editable ? "menu" : "false",
+    );
   }
 
-  /** Another of the site's routes, from a list typed into to narrow it. */
-  private pick() {
-    if (!this.view.editable) {
+  /** The menu, where there is one and it can be edited; else the page. */
+  private open() {
+    const route = String(this.node.attrs.route);
+    const menu = this.options.getOpenMenu();
+    if (!menu || !this.view.editable) {
+      this.options.openRoute(route);
       return;
     }
-    const input = document.createElement("input");
-    const listId = `sketch-routes-${Math.random().toString(36).slice(2)}`;
-    input.setAttribute("list", listId);
-    input.value = String(this.node.attrs.route);
-    input.setAttribute("aria-label", "Route of this page");
-    input.className =
-      "w-56 rounded-full border border-border-focus bg-bg-primary px-3 py-1 font-mono text-xs text-fg-primary outline-none";
-    const list = document.createElement("datalist");
-    list.id = listId;
-    for (const route of this.options.getRoutes()) {
-      const option = document.createElement("option");
-      option.value = route;
-      list.append(option);
-    }
-    let done = false;
-    const finish = (save: boolean) => {
-      if (done) return;
-      done = true;
-      const route = input.value.trim();
-      input.replaceWith(this.chip);
-      list.remove();
-      const pos = this.getPos();
-      if (
-        save &&
-        pos !== undefined &&
-        route.startsWith("/") &&
-        !/\s/.test(route) &&
-        route !== this.node.attrs.route
-      ) {
-        this.view.dispatch(
-          this.view.state.tr.setNodeMarkup(pos, undefined, { route }),
-        );
-      }
-      this.view.focus();
-    };
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        finish(true);
-      } else if (event.key === "Escape") {
-        finish(false);
-      }
+    menu({
+      route,
+      anchor: this.chip.getBoundingClientRect(),
+      change: (next) => {
+        const pos = this.getPos();
+        if (pos !== undefined && next !== route) {
+          this.view.dispatch(
+            this.view.state.tr.setNodeMarkup(pos, undefined, { route: next }),
+          );
+        }
+      },
+      remove: () => {
+        const pos = this.getPos();
+        if (pos !== undefined) {
+          this.view.dispatch(
+            this.view.state.tr.delete(pos, pos + this.node.nodeSize),
+          );
+        }
+      },
     });
-    input.addEventListener("blur", () => finish(true));
-    this.chip.replaceWith(input);
-    this.dom.append(list);
-    input.focus();
-    input.select();
   }
 
   update(node: PMNode): boolean {

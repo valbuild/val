@@ -157,7 +157,7 @@ function RoutePreview({ route }: { route: string }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
         <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 font-mono text-xs text-fg-secondary">
+        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs text-fg-secondary">
           nordic-retail.example{route}
         </span>
       </div>
@@ -267,6 +267,11 @@ export const RouteDividers: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(
       await canvas.findByRole("button", { name: "/about" }),
+    );
+    await userEvent.click(
+      await canvas.findByRole("menuitem", {
+        name: /Show \/about in the preview/,
+      }),
     );
     await expect(
       await canvas.findByText("nordic-retail.example/about"),
@@ -412,4 +417,18 @@ export const BuildInTheChat: Story = {
       </div>
     </OpenSketchpadContext.Provider>
   ),
+};
+
+/** A route divider's menu, open: show the page, change it, or remove it. */
+export const RouteMenuOpen: Story = {
+  render: () => <Workspace initial={SKETCH} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "/about" }),
+    );
+    await expect(
+      await canvas.findByRole("menu", { name: "Route /about" }),
+    ).toBeInTheDocument();
+  },
 };

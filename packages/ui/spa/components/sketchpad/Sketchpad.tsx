@@ -17,6 +17,8 @@ import {
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { defaultMediaUrl, SketchpadEditor } from "./SketchpadEditor";
 import type { SketchBlockType } from "./boxNodeView";
+import { RouteMenu } from "./RouteMenu";
+import type { RouteMenuRequest } from "./routeNodeView";
 import { HIGHLIGHT_COLORS, type SketchHighlight } from "./highlights";
 import {
   SketchpadMediaPicker,
@@ -236,6 +238,7 @@ export function Sketchpad({
     resolve: (media: SketchMedia | null) => void;
   } | null>(null);
   const [started, setStarted] = useState(false);
+  const [routeMenu, setRouteMenu] = useState<RouteMenuRequest | null>(null);
   const library = useMemo(() => {
     if (!mediaLibrary) return null;
     const bySrc = new Map<string, SketchMediaOption>();
@@ -371,6 +374,7 @@ export function Sketchpad({
             <AskAssistant
               status={assistantStatus ?? "changed"}
               onAsk={onAskAssistant}
+              empty={value === ""}
             />
           )}
           {fullscreenPreview !== undefined && (
@@ -425,6 +429,7 @@ export function Sketchpad({
           routes={pageOptions}
           activeRoute={activeRoute}
           onOpenRoute={onOpenRoute}
+          onRouteMenu={setRouteMenu}
           highlights={highlights}
           plugins={plugins}
           toolbar={fullscreen ? "bottom" : "top"}
@@ -487,6 +492,7 @@ export function Sketchpad({
               <AskAssistant
                 status={assistantStatus ?? "changed"}
                 onAsk={onAskAssistant}
+                empty={value === ""}
                 size="bar"
               />
             )}
@@ -501,6 +507,14 @@ export function Sketchpad({
             <X className="h-5 w-5" />
           </button>
         </div>
+      )}
+      {routeMenu && (
+        <RouteMenu
+          menu={routeMenu}
+          routes={pageOptions ?? []}
+          onShow={(route) => onOpenRoute?.(route)}
+          onClose={() => setRouteMenu(null)}
+        />
       )}
       {mediaLibrary && (
         <SketchpadMediaPicker
@@ -531,15 +545,19 @@ function TitleText({ title }: { title?: string }) {
 function AskAssistant({
   status,
   onAsk,
+  empty = false,
   size = "inline",
 }: {
   status: SketchpadAssistantStatus;
   onAsk: () => void;
+  /** Nothing sketched yet, so nothing to build: the button waits. */
+  empty?: boolean;
   /** `bar`: the width of the screen, under a phone's thumb. */
   size?: "inline" | "bar";
 }) {
-  const hint =
-    status === "read"
+  const hint = empty
+    ? "Nothing to build yet. Start the sketch first"
+    : status === "read"
       ? "The assistant has built the Sketchpad as it is now. Build again to have it go over the pages once more"
       : status === "reading"
         ? "The assistant is building the Sketchpad"
@@ -548,14 +566,14 @@ function AskAssistant({
     <button
       type="button"
       onClick={onAsk}
-      disabled={status === "reading"}
+      disabled={empty || status === "reading"}
       title={hint}
       className={cn(
         "relative inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-medium disabled:cursor-default disabled:opacity-60",
         size === "bar"
           ? "h-12 w-full justify-center whitespace-nowrap text-base"
           : "h-7 px-2 text-xs",
-        status === "changed"
+        status === "changed" && !empty
           ? "border-border-brand-primary bg-bg-brand-primary text-fg-brand-primary hover:bg-bg-brand-primary-hover"
           : "border-border-primary bg-bg-primary text-fg-secondary hover:bg-bg-secondary",
       )}
@@ -665,7 +683,7 @@ function StartFromRoute({
             className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border-brand-primary bg-bg-brand-primary px-3 text-sm font-medium text-fg-brand-primary hover:bg-bg-brand-primary-hover"
           >
             <Sparkles className="h-4 w-4" />
-            Start from <span className="font-mono">{startRoute}</span>
+            Start from <span className="font-semibold">{startRoute}</span>
           </button>
         )}
         {routes.length > 0 && (
@@ -680,7 +698,7 @@ function StartFromRoute({
               value={other}
               onChange={(e) => setOther(e.target.value)}
               aria-label={startRoute ? "Another page" : "A page"}
-              className="h-9 min-w-0 flex-1 rounded-md border border-border-primary bg-bg-primary px-2 font-mono text-sm"
+              className="h-9 min-w-0 flex-1 rounded-md border border-border-primary bg-bg-primary px-2 text-sm"
             >
               {routes.map((route) => (
                 <option key={route} value={route}>

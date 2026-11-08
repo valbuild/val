@@ -35,7 +35,7 @@ import { cn } from "../designSystem/cn";
 import { BoxView, type SketchBlockType } from "./boxNodeView";
 import { dragHandles } from "./dragBlocks";
 import { highlights, highlightsKey, type SketchHighlight } from "./highlights";
-import { RouteView } from "./routeNodeView";
+import { RouteView, type RouteMenuRequest } from "./routeNodeView";
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
 
@@ -77,6 +77,8 @@ export type SketchpadEditorProps = {
   activeRoute?: string | null;
   /** A route divider was pressed: show that page beside the sketch. */
   onOpenRoute?: (route: string) => void;
+  /** Opens a route divider's menu; see `RouteMenuRequest`. */
+  onRouteMenu?: (menu: RouteMenuRequest) => void;
   /** Blocks the assistant points at; see `SketchHighlight`. */
   highlights?: SketchHighlight[];
   /**
@@ -124,6 +126,7 @@ export function SketchpadEditor({
   routes,
   activeRoute = null,
   onOpenRoute,
+  onRouteMenu,
   highlights: highlightList = NO_HIGHLIGHTS,
   plugins = [],
   toolbar = "top",
@@ -148,6 +151,7 @@ export function SketchpadEditor({
     routes,
     activeRoute,
     onOpenRoute,
+    onRouteMenu,
     readOnly,
   });
   latest.current = {
@@ -161,6 +165,7 @@ export function SketchpadEditor({
     routes,
     activeRoute,
     onOpenRoute,
+    onRouteMenu,
     readOnly,
   };
   const [, setRevision] = useState(0);
@@ -221,6 +226,7 @@ export function SketchpadEditor({
               getRoutes: () => latest.current.routes ?? [],
               getActiveRoute: () => latest.current.activeRoute,
               openRoute: (route) => latest.current.onOpenRoute?.(route),
+              getOpenMenu: () => latest.current.onRouteMenu ?? null,
             },
             routeViews.current,
           ),
