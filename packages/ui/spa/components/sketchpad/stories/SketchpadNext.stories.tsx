@@ -445,3 +445,33 @@ export const RouteMenuOpen: Story = {
     ).toBeInTheDocument();
   },
 };
+
+/**
+ * A new page of a type the site has: "New /journal/[slug] page" asks for the
+ * slug alone, with the route's fixed parts already there, so the page is one
+ * the site can render. (Typed instead, a route that fits no type is offered
+ * too, marked as a new kind of page that needs code.)
+ */
+export const NewPageOfAType: Story = {
+  render: () => <Workspace initial={SKETCH} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "/about" }),
+    );
+    await userEvent.click(
+      await canvas.findByRole("menuitem", {
+        name: /New \/journal\/\[slug\] page/,
+      }),
+    );
+    await userEvent.type(
+      await canvas.findByRole("textbox", { name: "slug" }),
+      "Traceable wool",
+    );
+    await expect(
+      await canvas.findByRole("button", {
+        name: /Add \/journal\/Traceable-wool/,
+      }),
+    ).toBeInTheDocument();
+  },
+};
