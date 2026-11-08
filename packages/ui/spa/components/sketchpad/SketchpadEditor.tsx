@@ -1,14 +1,13 @@
 import {
   BetweenVerticalEnd,
   Columns2,
-  FoldHorizontal,
+  FileText,
   Heading1,
   Heading2,
   Heading3,
   Pilcrow,
   SquareDashed,
   Trash2,
-  UnfoldHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { Internal } from "@valbuild/core";
@@ -33,11 +32,15 @@ import {
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
-import { BoxView } from "./boxNodeView";
+import { BoxView, type SketchBlockType } from "./boxNodeView";
+import { dragHandles } from "./dragBlocks";
+import { highlights, highlightsKey, type SketchHighlight } from "./highlights";
+import { RouteView } from "./routeNodeView";
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
 
 const nodes = sketchSchema.nodes;
+const NO_HIGHLIGHTS: SketchHighlight[] = [];
 
 export type SketchpadEditorProps = {
   value: string;
@@ -58,6 +61,24 @@ export type SketchpadEditorProps = {
    * Defaults to `defaultMediaUrl`. A new function redraws the boxes.
    */
   mediaUrl?: (src: string) => string;
+  /**
+   * The image picker: the project's galleries, the images already on the
+   * site, and this chat's uploads. Given, a box picks from it and nothing
+   * else, so a sketch only ever names files the project has.
+   */
+  pickMedia?: (current: SketchMedia | null) => Promise<SketchMedia | null>;
+  /** Whether the project has the file a box names; see `BoxViewOptions`. */
+  mediaKnown?: (src: string) => boolean | null;
+  /** The kinds of block the site's code renders; see `SketchBlockType`. */
+  blockTypes?: SketchBlockType[];
+  /** The site's routes, for a route divider to pick from. */
+  routes?: string[];
+  /** The route whose page is shown beside the sketch. */
+  activeRoute?: string | null;
+  /** A route divider was pressed: show that page beside the sketch. */
+  onOpenRoute?: (route: string) => void;
+  /** Blocks the assistant points at; see `SketchHighlight`. */
+  highlights?: SketchHighlight[];
   /**
    * More ProseMirror plugins. This is where working together plugs in: a
    * proposal's Sketchpad is shared the way its chats are (Flow H), so the
@@ -97,6 +118,13 @@ export function SketchpadEditor({
   attach,
   onFileRefused,
   mediaUrl = defaultMediaUrl,
+  pickMedia,
+  mediaKnown,
+  blockTypes,
+  routes,
+  activeRoute = null,
+  onOpenRoute,
+  highlights: highlightList = NO_HIGHLIGHTS,
   plugins = [],
   toolbar = "top",
   touch = false,
@@ -105,6 +133,7 @@ export function SketchpadEditor({
   const viewRef = useRef<EditorView | null>(null);
   const iconsRef = useRef<Record<string, string>>({});
   const boxViews = useRef(new Set<BoxView>());
+  const routeViews = useRef(new Set<RouteView>());
   // The text this editor last wrote. A `value` equal to it is its own echo,
   // and re-reading it would move the caret for nothing.
   const lastWritten = useRef<string | null>(null);
@@ -113,9 +142,27 @@ export function SketchpadEditor({
     attach,
     onFileRefused,
     mediaUrl,
+    pickMedia,
+    mediaKnown,
+    blockTypes,
+    routes,
+    activeRoute,
+    onOpenRoute,
     readOnly,
   });
-  latest.current = { onChange, attach, onFileRefused, mediaUrl, readOnly };
+  latest.current = {
+    onChange,
+    attach,
+    onFileRefused,
+    mediaUrl,
+    pickMedia,
+    mediaKnown,
+    blockTypes,
+    routes,
+    activeRoute,
+    onOpenRoute,
+    readOnly,
+  };
   const [, setRevision] = useState(0);
 
   useLayoutEffect(() => {
@@ -136,6 +183,8 @@ export function SketchpadEditor({
           dropCursor(),
           gapCursor(),
           placeholders(),
+          dragHandles(),
+          highlights(),
           ...plugins,
         ],
       }),
@@ -157,8 +206,23 @@ export function SketchpadEditor({
                 latest.current.attach?.(file) ?? Promise.resolve(null),
               refuseFile: (file) => latest.current.onFileRefused?.(file),
               mediaUrl: (src) => latest.current.mediaUrl(src),
+              getBlockTypes: () => latest.current.blockTypes ?? null,
+              getPickMedia: () => latest.current.pickMedia ?? null,
+              mediaKnown: (src) => latest.current.mediaKnown?.(src) ?? null,
             },
             boxViews.current,
+          ),
+        route: (node, view, getPos) =>
+          new RouteView(
+            node,
+            view,
+            getPos,
+            {
+              getRoutes: () => latest.current.routes ?? [],
+              getActiveRoute: () => latest.current.activeRoute,
+              openRoute: (route) => latest.current.onOpenRoute?.(route),
+            },
+            routeViews.current,
           ),
       },
       dispatchTransaction(tr: Transaction) {
@@ -217,21 +281,38 @@ export function SketchpadEditor({
     }
   }, [readOnly]);
 
-  // An image published, or uploaded and not yet: its URL moved.
-  const firstMediaUrl = useRef(true);
+  // An image published, or uploaded and not yet: its URL moved. Or the
+  // project's files, the site's kinds or the picker changed.
+  const firstBoxRender = useRef(true);
   useEffect(() => {
-    if (firstMediaUrl.current) {
-      firstMediaUrl.current = false;
+    if (firstBoxRender.current) {
+      firstBoxRender.current = false;
       return;
     }
     boxViews.current.forEach((box) => box.render());
-  }, [mediaUrl]);
+  }, [mediaUrl, mediaKnown, blockTypes, pickMedia]);
+
+  useEffect(() => {
+    routeViews.current.forEach((route) => route.render());
+  }, [activeRoute]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view) {
+      view.dispatch(view.state.tr.setMeta(highlightsKey, highlightList));
+    }
+  }, [highlightList]);
 
   const view = viewRef.current;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {view && !readOnly && toolbar === "top" && (
-        <Toolbar view={view} position="top" touch={touch} />
+        <Toolbar
+          view={view}
+          position="top"
+          touch={touch}
+          routes={routes ?? []}
+        />
       )}
       <div
         className={cn(
@@ -249,7 +330,12 @@ export function SketchpadEditor({
         />
       </div>
       {view && !readOnly && toolbar === "bottom" && (
-        <Toolbar view={view} position="bottom" touch={touch} />
+        <Toolbar
+          view={view}
+          position="bottom"
+          touch={touch}
+          routes={routes ?? []}
+        />
       )}
     </div>
   );
@@ -478,18 +564,30 @@ const removeColumn: Command = (state, dispatch) => {
   return true;
 };
 
-const resizeColumn =
-  (by: number): Command =>
+/**
+ * A route divider after the top-level block the caret is in: the part of
+ * the sketch below it is another page. It names the first of the site's
+ * routes the sketch does not have yet, and the divider changes it.
+ */
+const insertRoute =
+  (routes: string[]): Command =>
   (state, dispatch) => {
-    const col = around(state, nodes.col);
-    if (!col) {
-      return false;
+    const { $from } = state.selection;
+    const at = $from.depth > 0 ? $from.after(1) : state.doc.content.size;
+    if (dispatch) {
+      const used = new Set<string>();
+      state.doc.forEach((node) => {
+        if (node.type === nodes.route) used.add(String(node.attrs.route));
+      });
+      const route = routes.find((r) => !used.has(r)) ?? "/";
+      const tr = state.tr.insert(at, [
+        nodes.route.create({ route }),
+        nodes.paragraph.create(),
+      ]);
+      dispatch(
+        tr.setSelection(TextSelection.create(tr.doc, at + 2)).scrollIntoView(),
+      );
     }
-    const weight = Math.max(1, Number(col.node.attrs.weight) + by);
-    if (weight === col.node.attrs.weight) {
-      return false;
-    }
-    dispatch?.(state.tr.setNodeMarkup(col.pos, undefined, { weight }));
     return true;
   };
 
@@ -497,10 +595,12 @@ function Toolbar({
   view,
   position,
   touch,
+  routes,
 }: {
   view: EditorView;
   position: "top" | "bottom";
   touch: boolean;
+  routes: string[];
 }) {
   const state = view.state;
   const { $from } = state.selection;
@@ -547,22 +647,17 @@ function Toolbar({
     [
       { label: "Add a box", icon: SquareDashed, command: insertBox },
       { label: "Add columns", icon: Columns2, command: insertColumns },
+      {
+        label: "Add a page: what follows is about another route",
+        icon: FileText,
+        command: insertRoute(routes),
+      },
     ],
     [
       {
         label: "Add a column after this one",
         icon: BetweenVerticalEnd,
         command: addColumn,
-      },
-      {
-        label: "Make this column narrower",
-        icon: FoldHorizontal,
-        command: resizeColumn(-1),
-      },
-      {
-        label: "Make this column wider",
-        icon: UnfoldHorizontal,
-        command: resizeColumn(1),
       },
       {
         label: "Remove this column",

@@ -14,7 +14,8 @@ export const SKETCH_FORMAT_HELP = [
   "`# Heading`, `## Sub`, `### Small`; any other line is a paragraph;",
   "`[kind: label]` is a box (kind is one word you choose, e.g. hero, quote, pricing);",
   "`[kind: label](image: src)` or `(video: src)` puts media in a box; src is an image's `path` exactly as the content has it (e.g. /public/val/hero.webp, or its remote URL) or a web address -- never make one up;",
-  "`row` puts what is indented under it side by side, and is followed by `col` or `col 2` (2 shares of the row) lines, each holding blocks;",
+  "`row` puts what is indented under it side by side, and is followed by `col` lines, each holding blocks (columns share a row equally);",
+  "`--- /route` on a line of its own, not indented, starts the part about the page at that route: one sketch can cover several pages;",
   "after the page, ONE blank line, then `icon <kind> <svg path data>` lines: a 24x24 stroked line icon you draw for each kind you used.",
   "No other blank lines, no tabs, a final newline. Start a paragraph that would read as something else with `\\`.",
 ].join(" ");

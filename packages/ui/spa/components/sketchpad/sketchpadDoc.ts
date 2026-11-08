@@ -18,7 +18,8 @@ import {
  * in the document: every transaction is written back as text.
  *
  * Groups: `block` is what a page or a column holds; `item` is what a row
- * holds, which is the same plus `col`. A col is only ever inside a row.
+ * holds, which is the same plus `col`. A col is only ever inside a row, and
+ * a `route` divider only at the top, where it starts the part about a page.
  */
 /** A row's or a col's outline, and its name in the corner. */
 const LAYOUT =
@@ -26,7 +27,16 @@ const LAYOUT =
 
 export const sketchSchema = new Schema({
   nodes: {
-    doc: { content: "block+" },
+    doc: { content: "(block | route)+" },
+    // Drawn by `RouteView`; this is only its fallback. An atom: the route is
+    // picked, not typed into, and the caret steps over it.
+    route: {
+      attrs: { route: { default: "/" } },
+      atom: true,
+      selectable: true,
+      draggable: true,
+      toDOM: (node) => ["div", { "data-route": node.attrs.route }],
+    },
     paragraph: {
       group: "block item",
       content: "text*",
@@ -87,18 +97,16 @@ export const sketchSchema = new Schema({
         0,
       ],
     },
+    // Columns share a row equally: a sketch says what, not how wide.
     col: {
       group: "item",
       content: "block+",
-      attrs: { weight: { default: 1 } },
       isolating: true,
-      toDOM: (node) => [
+      toDOM: () => [
         "div",
         {
           class: LAYOUT + " flex min-w-0 flex-col gap-3",
-          "data-label":
-            node.attrs.weight === 1 ? "col" : `col ${node.attrs.weight}`,
-          style: `--sk-weight: ${node.attrs.weight}`,
+          "data-label": "col",
         },
         0,
       ],
@@ -170,10 +178,11 @@ function toNodes(block: SketchNode, inRow: boolean): PMNode[] {
       const content =
         children.length > 0 ? children : [nodes.paragraph.create()];
       // A col outside a row lays nothing out: keep what is in it.
-      return inRow
-        ? [nodes.col.create({ weight: block.weight }, content)]
-        : content;
+      return inRow ? [nodes.col.create(null, content)] : content;
     }
+    case "route":
+      // At the top only: the parser reports one anywhere else.
+      return [nodes.route.create({ route: block.route || "/" })];
   }
 }
 
@@ -191,8 +200,30 @@ export function sketchFromDoc(
   doc: PMNode,
   icons: Record<string, string>,
 ): string {
+  return writeSketch(doc, icons).text;
+}
+
+/**
+ * Where each line of the sketch text is in the document: the position of the
+ * node that line was written from, by 1-based line number. How the assistant
+ * points at a block -- it reads the text, so it names a line -- becomes the
+ * block on the screen. See `highlights` in `SketchpadEditor`.
+ */
+export function sketchLinePositions(doc: PMNode): Map<number, number> {
+  return writeSketch(doc, {}).positions;
+}
+
+function writeSketch(
+  doc: PMNode,
+  icons: Record<string, string>,
+): { text: string; positions: Map<number, number> } {
   const lines: string[] = [];
-  const walk = (node: PMNode, depth: number) => {
+  const positions = new Map<number, number>();
+  const push = (line: string, pos: number) => {
+    lines.push(line);
+    positions.set(lines.length, pos);
+  };
+  const walk = (node: PMNode, depth: number, pos: number) => {
     const indent = "  ".repeat(depth);
     const text = node.textContent;
     // What `formatSketchText` will make of it: nothing, if it is all spaces.
@@ -200,50 +231,56 @@ export function sketchFromDoc(
     switch (node.type) {
       case nodes.paragraph:
         if (written) {
-          lines.push(indent + formatSketchText(0, text));
+          push(indent + formatSketchText(0, text), pos);
         }
         return;
       case nodes.heading:
         if (written) {
-          lines.push(
-            indent + formatSketchText(levelOf(node.attrs.level), text),
-          );
+          push(indent + formatSketchText(levelOf(node.attrs.level), text), pos);
         }
         return;
       case nodes.box:
-        lines.push(
+        push(
           indent +
             formatSketchBox({
               kind: String(node.attrs.kind),
               label: text || null,
               media: mediaOf(node),
             }),
+          pos,
         );
         return;
+      case nodes.route:
+        push(`--- ${String(node.attrs.route)}`, pos);
+        return;
       case nodes.row: {
-        lines.push(indent + "row");
+        push(indent + "row", pos);
         const before = lines.length;
-        node.forEach((child) => walk(child, depth + 1));
+        node.forEach((child, offset) =>
+          walk(child, depth + 1, pos + 1 + offset),
+        );
         if (lines.length === before) {
-          lines.push(indent + "  col");
+          push(indent + "  col", pos);
         }
         return;
       }
       case nodes.col:
-        lines.push(
-          indent +
-            (node.attrs.weight === 1 ? "col" : `col ${node.attrs.weight}`),
+        push(indent + "col", pos);
+        node.forEach((child, offset) =>
+          walk(child, depth + 1, pos + 1 + offset),
         );
-        node.forEach((child) => walk(child, depth + 1));
         return;
     }
   };
-  doc.forEach((node) => walk(node, 0));
+  doc.forEach((node, offset) => walk(node, 0, offset));
   const iconLines = Object.entries(icons).map(
     ([kind, path]) => `icon ${kind} ${path}`,
   );
   const all = [...lines, ...(iconLines.length > 0 ? ["", ...iconLines] : [])];
-  return all.length > 0 ? all.join("\n") + "\n" : "";
+  return {
+    text: all.length > 0 ? all.join("\n") + "\n" : "",
+    positions,
+  };
 }
 
 function levelOf(level: unknown): 1 | 2 | 3 {
