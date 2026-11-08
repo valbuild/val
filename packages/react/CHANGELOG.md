@@ -1,5 +1,175 @@
 # @valbuild/react
 
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563) Thanks [@freekh](https://github.com/freekh)! - **A draft page shows the right `.jsonValues()` entries, whichever reader reads them.**
+
+  - **Pending edits to an entry.** In draft mode, `fetchVal` of a whole
+    `.jsonValues()` record now shows the unpublished edits to its entries. It
+    used to show the published content of every entry, even one an editor had
+    just changed, while `fetchValKey` and `fetchValRoute` of the same entry
+    showed the edit. The entries a pending change touches are read from Val's
+    server; the others are loaded from your build, as before.
+  - **Entries published without a rebuild.** On a host that does not rebuild
+    the site after a publish, a draft page now shows the published entries
+    straight away -- in `fetchVal`, and in `useVal`, `useValKey` and
+    `useValRoute` alike. They used to show those entries as they were before
+    the publish, from the site's build, until it was rebuilt (and on TanStack
+    Start the server render showed the new content, then the page switched
+    back to the old). Val's server marks each entry a publish wrote, and the
+    readers and the Studio load a marked entry from the server.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6) Thanks [@freekh](https://github.com/freekh)! - **Draft pages read what was edited, not the whole site.** A page in draft
+  mode used to make Val's server read every module, apply every pending
+  change, and preview and validate the whole project on every request -- and
+  then ask again for each `.jsonValues()` entry it showed. Now there is one
+  copy of the draft per process, made once per change and shared by every
+  editor and every request:
+
+  - A module nobody edited costs nothing: the page reads its own build, as a
+    visitor's does.
+  - A request asks one cheap question -- has anything changed? -- once, and
+    the draft is only re-read when it has. An edit is applied once, to the
+    version before it, however many pages read it afterwards.
+  - `fetchVal`, `fetchValKey`, `fetchValRoute`, `fetchValRouteUrl` and
+    `fetchValDraft` (Next.js and TanStack Start alike) and Val's API routes
+    read that one copy, so a save through the API is seen by every reader at
+    once. Before, each kept its own, and a publish moved only the copy of the
+    server that handled it: in a host that keeps its content in memory, a
+    draft page read through `fetchValKey` or `fetchValRoute` went on showing
+    the content from before the publish.
+  - The MCP tools (`initValMcp`) read the same copy in local development and
+    on Val's hosting, where Val's options come from your config and the
+    environment. `initValMcp` takes no patch store or source files of its
+    own, so in a host that keeps its content in memory it keeps a copy of its
+    own, as before.
+  - If `initValServer` and `initValContent` (or `initValRsc`) are given
+    different options for the same `val.modules` (a different patch store,
+    say), they keep separate copies, and Val logs a warning saying which
+    options differ.
+
+  On a site of 20 MB of content a draft read went from about half a second per
+  request to well under a millisecond once the draft is in memory, and the
+  memory it holds grows with what was edited rather than with the size of the
+  site. Hosted sites in proxy mode ask the content service one small question
+  per request instead of reading every pending change; with a content service
+  that predates it, Val reads the pending changes as before.
+
+  `ValDraft` (what `fetchValDraft` returns and `<ValProvider draft>` takes)
+  has a new optional `versions` field, filled in by the server: the page uses
+  it to tell that what the Studio sends is what it already shows, without
+  comparing the content. Nothing to change in your app.
+
+  **Changed:** `PUT /api/val/sources/~` no longer computes previews or
+  validates the content (the Studio does both itself, and `/api/val/validate`
+  checks a module on request); its `validate_sources` and
+  `validate_binary_files` flags are accepted and ignored.
+
+  **Deprecated, and removed in the next release.** These stay for one release
+  only so that a Studio, a page or a server of the previous release keeps
+  working while a deploy rolls out. Nothing in this release uses them; if
+  your own code calls any of them, move off it now:
+
+  - `PUT /api/val/sources/~`, the whole route. This release's Studio reads
+    `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and the draft
+    readers and MCP read in-process.
+  - The `source` field of the overlay's `source-update` event and the canvas's
+    `sourceUpdate` message, and a page's support for an event that carries
+    only `source` (this release sends `read` beside it).
+  - `ValDraft.base`: not sent and not read; the type stays one release so
+    code written against the previous one still compiles.
+  - `/api/val/stat`'s `sourcesSha` and `schemaSha`: the next release's Studio
+    stops depending on them, and the release after it stops sending them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf) Thanks [@freekh](https://github.com/freekh)! - A draft page now catches up with an edit as soon as the server has it, instead
+  of on a timer.
+
+  - **The page settles faster, and without the 10 second fallback.** Content your
+    page reads on the server (a TanStack Start loader, a Next.js server component)
+    is refreshed when the editor's change has been saved, once per saved change.
+    It used to be refreshed the moment you typed — before the change was saved,
+    so the refresh often came back without it — and then again every 10 seconds
+    for half a minute in case it had. That safety refresh is gone, and so are the
+    extra requests it made while you edited. Another editor's change refreshes
+    the page too, once the server has it. While a deploy rolls out, a Studio of
+    the previous release (which never says it has saved) still refreshes the
+    page as each change arrives, as before.
+  - **Next.js: `ValProvider` takes an optional `draft` prop**, as
+    `@valbuild/tanstack`'s does: the editor's draft, read on the server for the
+    request. With it, the server renders the draft and the browser hydrates the
+    same thing, so a draft page no longer shows the published text first, and a
+    page that exists only as an unpublished change is found on the first render
+    instead of answering 404. Without it, nothing changes. See "The `draft` prop"
+    in the `@valbuild/next` README.
+  - **Next.js: `initValRsc` returns `fetchValDraft`**, which reads that draft:
+    pass `draft={await fetchValDraft()}` to `ValProvider` in your root layout. It
+    returns `null` unless the request is in draft mode, after one `draftMode()`
+    lookup and no other work, so visitors pay nothing and a static page stays
+    static. It reads the draft the way `@valbuild/tanstack/server`'s
+    `fetchValDraft` does and returns the same type, `ValDraft | null`, which
+    is now exported from `@valbuild/next` and `@valbuild/next/rsc` too.
+  - **`suspend` waits for the editor's changes properly.** With `suspend` on
+    `ValProvider`, a page could be told it had everything before the editor had
+    sent the pending change it needed, and render the published content first —
+    for a page that exists only as an unpublished change, a 404. It now waits
+    until the change is there.
+  - A draft page whose draft was discarded or published before the editor's
+    overlay or canvas connected now shows what the editor has, instead of keeping
+    the draft it was rendered with -- an edit inside a `.jsonValues()` entry
+    included.
+  - Turning draft mode on or off refreshes the page once. In development (React's
+    `StrictMode`) it could refresh twice, and Next.js could log "Cannot call
+    startTransition while rendering" while the page refreshed.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56) Thanks [@freekh](https://github.com/freekh)! - Every content reader in `@valbuild/next` and `@valbuild/tanstack` — `fetchVal`,
+  `useVal`, the key and route readers, on the server and in the browser — now
+  loads content the same way, so they can no longer disagree about which content
+  wins. Nothing you call changes. What you may notice:
+
+  - `useValRoute` on a `.jsonValues()` router loads only the entry for the
+    current route. It used to load every entry of the record first.
+    `useValRouteUrl` and `fetchValRouteUrl` load none at all: a URL does not need
+    them.
+  - In development, an edited `*.val.json` entry shows its new content after a
+    hot reload. The hooks kept the entry they had loaded before it.
+  - Next.js: `useValKey` no longer shows the published entry of a nullable
+    `.jsonValues()` record that a draft has set to `null`, nor anything for an
+    entry named like a built-in object property (such as `toString`) that the
+    draft does not have.
+  - With `suspend` on `ValProvider`, `useValKey` now waits for draft mode and the
+    editor's changes too, as `useVal` and `useValRoute` already did.
+  - When one entry of a `.jsonValues()` record cannot be loaded, `useVal` logs
+    the error and renders the others, as `fetchVal` already did, instead of
+    failing the whole component.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`66d487f`](https://github.com/valbuild/val/commit/66d487f3662164a9a167ec660afc6d12b441aa22) Thanks [@freekh](https://github.com/freekh)! - Typing in the Studio no longer slows down with the size of the module.
+
+  - **A keystroke in a large module is about five times faster.** The Studio
+    used to copy the whole module for every change it applied; it now applies
+    changes the way Val's server does, copying only what the change touches.
+    In a module of 5 MB a keystroke went from about 100 ms to about 20 ms, and
+    a module of 1 MB from about 17 ms to about 3 ms.
+  - **The Studio and the server show a change the same way.** Where an uploaded
+    file's draft address goes, what an edit inside a `.jsonValues()` entry
+    does, and what a new entry is, are decided by the same code in both, so
+    the editor's fields, the page behind the Studio and a draft page's server
+    render cannot disagree about them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows each module as your server has it, by version, with only your own unsaved edits on top.
+
+  - **Publishing is faster.** After a publish, or when your site serves content published without a build, the Studio used to download every module's content before it showed anything new. It now reads only the modules that changed, one at a time: in our measurements with a 1,000-entry `.jsonValues()` record, the Studio was ready again after a publish in about 35 ms instead of 300–800 ms.
+  - **No flicker of old content on a draft page.** For up to a minute after a deploy, a request can still reach the build before it; that build now says it has been replaced (when Val's content service can tell it), and the Studio asks again rather than taking its content for the current one. In local development the same holds after you change a `.val.ts`: an answer from the code before the change is no longer taken for the new code's, so a page in draft mode no longer shows the new text, then the old, then the new again.
+  - **Another editor's change appears as your server has it.** The Studio no longer replays other people's changes on top of the content it loaded with, so a change made against a newer deployment can no longer show up twice or out of order.
+  - **Less sent with every draft page.** A page in draft mode no longer embeds the whole published content of a site served without a rebuild for the Studio to start from; `ValDraft.base` is deprecated and no longer filled in.
+  - **When the editor opens on a page that already shows your changes,** the Studio no longer sends them to the page again.
+
+- Updated dependencies [[`33c8b80`](https://github.com/valbuild/val/commit/33c8b80f877f1c3bec3cb61ef41dea9d2efcf908), [`213d635`](https://github.com/valbuild/val/commit/213d6359a1ec09cba1596ef03f415d3b5c0f2710), [`59faf33`](https://github.com/valbuild/val/commit/59faf332418af836617e09150fb89007e468394e), [`abf6148`](https://github.com/valbuild/val/commit/abf6148a255abe795620fede66006462bccb8322), [`04ed1f1`](https://github.com/valbuild/val/commit/04ed1f10b597a52822d32017597692f0e1062b7b), [`01772a5`](https://github.com/valbuild/val/commit/01772a5b36549d71f6b438ff17803dfcb64ce645), [`1f08b65`](https://github.com/valbuild/val/commit/1f08b6517adeac27fd9e43c7bf726976daefee3b), [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563), [`b682509`](https://github.com/valbuild/val/commit/b682509b91dcd6e6aa2e1dfcedab0f259634c73e), [`f5110c9`](https://github.com/valbuild/val/commit/f5110c9aa2a0a6ff0586e9f0f2a29eb1baef557d), [`a806f7d`](https://github.com/valbuild/val/commit/a806f7de0c605145163c7f0babf389a5b5bf3ef3), [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c), [`4fd35f3`](https://github.com/valbuild/val/commit/4fd35f321fe510cfb5b9b679ca14ce2b9e852d40), [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6), [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf), [`3aff85e`](https://github.com/valbuild/val/commit/3aff85e9a40cb0879285b86fd41fa8167db1bb5e), [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56), [`b41da31`](https://github.com/valbuild/val/commit/b41da31a26b3236ccd55c02108c56422d8d91f5e), [`e30da7d`](https://github.com/valbuild/val/commit/e30da7d9bca5d5773aa287e8b4c16a01e757ff9a), [`66d487f`](https://github.com/valbuild/val/commit/66d487f3662164a9a167ec660afc6d12b441aa22), [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d), [`4edd384`](https://github.com/valbuild/val/commit/4edd384cf04a25836df77aae6d88378f8750a761)]:
+  - @valbuild/ui@0.151.0
+  - @valbuild/shared@0.151.0
+  - @valbuild/core@0.151.0
+
 ## 0.150.23
 
 ### Patch Changes

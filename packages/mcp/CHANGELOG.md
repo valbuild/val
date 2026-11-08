@@ -1,5 +1,76 @@
 # @valbuild/mcp
 
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6) Thanks [@freekh](https://github.com/freekh)! - **Draft pages read what was edited, not the whole site.** A page in draft
+  mode used to make Val's server read every module, apply every pending
+  change, and preview and validate the whole project on every request -- and
+  then ask again for each `.jsonValues()` entry it showed. Now there is one
+  copy of the draft per process, made once per change and shared by every
+  editor and every request:
+
+  - A module nobody edited costs nothing: the page reads its own build, as a
+    visitor's does.
+  - A request asks one cheap question -- has anything changed? -- once, and
+    the draft is only re-read when it has. An edit is applied once, to the
+    version before it, however many pages read it afterwards.
+  - `fetchVal`, `fetchValKey`, `fetchValRoute`, `fetchValRouteUrl` and
+    `fetchValDraft` (Next.js and TanStack Start alike) and Val's API routes
+    read that one copy, so a save through the API is seen by every reader at
+    once. Before, each kept its own, and a publish moved only the copy of the
+    server that handled it: in a host that keeps its content in memory, a
+    draft page read through `fetchValKey` or `fetchValRoute` went on showing
+    the content from before the publish.
+  - The MCP tools (`initValMcp`) read the same copy in local development and
+    on Val's hosting, where Val's options come from your config and the
+    environment. `initValMcp` takes no patch store or source files of its
+    own, so in a host that keeps its content in memory it keeps a copy of its
+    own, as before.
+  - If `initValServer` and `initValContent` (or `initValRsc`) are given
+    different options for the same `val.modules` (a different patch store,
+    say), they keep separate copies, and Val logs a warning saying which
+    options differ.
+
+  On a site of 20 MB of content a draft read went from about half a second per
+  request to well under a millisecond once the draft is in memory, and the
+  memory it holds grows with what was edited rather than with the size of the
+  site. Hosted sites in proxy mode ask the content service one small question
+  per request instead of reading every pending change; with a content service
+  that predates it, Val reads the pending changes as before.
+
+  `ValDraft` (what `fetchValDraft` returns and `<ValProvider draft>` takes)
+  has a new optional `versions` field, filled in by the server: the page uses
+  it to tell that what the Studio sends is what it already shows, without
+  comparing the content. Nothing to change in your app.
+
+  **Changed:** `PUT /api/val/sources/~` no longer computes previews or
+  validates the content (the Studio does both itself, and `/api/val/validate`
+  checks a module on request); its `validate_sources` and
+  `validate_binary_files` flags are accepted and ignored.
+
+  **Deprecated, and removed in the next release.** These stay for one release
+  only so that a Studio, a page or a server of the previous release keeps
+  working while a deploy rolls out. Nothing in this release uses them; if
+  your own code calls any of them, move off it now:
+
+  - `PUT /api/val/sources/~`, the whole route. This release's Studio reads
+    `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and the draft
+    readers and MCP read in-process.
+  - The `source` field of the overlay's `source-update` event and the canvas's
+    `sourceUpdate` message, and a page's support for an event that carries
+    only `source` (this release sends `read` beside it).
+  - `ValDraft.base`: not sent and not read; the type stays one release so
+    code written against the previous one still compiles.
+  - `/api/val/stat`'s `sourcesSha` and `schemaSha`: the next release's Studio
+    stops depending on them, and the release after it stops sending them.
+
+- Updated dependencies [[`33c8b80`](https://github.com/valbuild/val/commit/33c8b80f877f1c3bec3cb61ef41dea9d2efcf908), [`59faf33`](https://github.com/valbuild/val/commit/59faf332418af836617e09150fb89007e468394e), [`abf6148`](https://github.com/valbuild/val/commit/abf6148a255abe795620fede66006462bccb8322), [`1f08b65`](https://github.com/valbuild/val/commit/1f08b6517adeac27fd9e43c7bf726976daefee3b), [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563), [`f5110c9`](https://github.com/valbuild/val/commit/f5110c9aa2a0a6ff0586e9f0f2a29eb1baef557d), [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c), [`4fd35f3`](https://github.com/valbuild/val/commit/4fd35f321fe510cfb5b9b679ca14ce2b9e852d40), [`346e6fd`](https://github.com/valbuild/val/commit/346e6fdc8e242bf826ab66a729eacd9f8d4be1a6), [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf), [`3aff85e`](https://github.com/valbuild/val/commit/3aff85e9a40cb0879285b86fd41fa8167db1bb5e), [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56), [`560abd9`](https://github.com/valbuild/val/commit/560abd9df36e52e63b6592b03a8040396320df00), [`be276e7`](https://github.com/valbuild/val/commit/be276e76f5849fcc421398abdb7e114f3de4d3e8), [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d), [`4edd384`](https://github.com/valbuild/val/commit/4edd384cf04a25836df77aae6d88378f8750a761)]:
+  - @valbuild/server@0.151.0
+  - @valbuild/shared@0.151.0
+  - @valbuild/core@0.151.0
+
 ## 0.150.23
 
 ### Patch Changes

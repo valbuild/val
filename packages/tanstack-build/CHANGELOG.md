@@ -1,5 +1,54 @@
 # @valbuild/tanstack-build
 
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c) Thanks [@freekh](https://github.com/freekh)! - **No more "A new version has been deployed" dialog.** A Studio that is open
+  while the site is deployed no longer stops you with a dialog you can only
+  answer by reloading. Instead:
+
+  - **On Val's hosting**, the Studio takes the new build's fields in where you
+    are, without reloading: a field the deploy added can be filled in at once,
+    and the assistant's chat, the page you were on and your unsaved edits stay
+    as they were. Each build now carries its content schemas as a small file of
+    its own beside its scripts, which the Studio loads.
+  - **Anywhere else** (a Next.js site, or a TanStack Start site hosted
+    somewhere else), the Studio reloads itself a few seconds after the deploy,
+    once everything you typed has been saved. Nothing is lost: where you were is
+    in the address, and every edit is on the server.
+  - **In local development** nothing changes: your dev server's hot reload
+    brings the new fields, as before.
+
+  When a deploy upgrades Val itself, the Studio reloads itself the same way,
+  since its own code changed too.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`be276e7`](https://github.com/valbuild/val/commit/be276e76f5849fcc421398abdb7e114f3de4d3e8) Thanks [@freekh](https://github.com/freekh)! - In a proposal in code mode, an edit to a field the assistant has just added is
+  saved with the assistant's next change, without waiting for the proposal to be
+  built.
+
+  The Studio already let you type into a field that only the assistant's staged
+  code has. But the save that runs before the assistant's next change applied
+  your edit to the content as the proposal's last build had it -- without the new
+  field -- so it failed, and the assistant's next change was refused ("the
+  changes waiting to be saved could not be saved first") until someone pressed
+  Build.
+
+  Val's server at the proposal's address now learns which staged code the build
+  it runs was made of (the platform hands it over beside the build), and saves a
+  module whose code was staged after that build from the staged `.val.ts` itself.
+  A page at the address keeps reading such a module as its build has it until a
+  build of the new code serves it, so it never shows content made for code it
+  does not have.
+
+  When the server cannot read a staged module's content without running it --
+  its content is built by code, or it is a `.jsonValues()` record -- the edit is
+  kept, and the assistant's change is refused saying the proposal has to be built
+  first, rather than failing with no reason.
+
+  `@valbuild/tanstack-build` rewrites the proposal block of a `val.server.ts`
+  generated before this, so a site picks it up at its next build.
+
 ## 0.150.12
 
 ### Patch Changes
