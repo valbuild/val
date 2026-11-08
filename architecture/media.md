@@ -163,6 +163,16 @@ print it into a user's file. A publish takes it out of the Studio's base again:
 the published patches are baked in without their `file` ops, because the file
 is where its path says now.
 
+A gallery's upload lands its `file` op on the ENTRY, whose value is metadata
+keyed by the file's path rather than a `{ path }`, and the entry gets the mark
+all the same: `{ width, height, mimeType, alt, patch_id }`. Val's server always
+did that; the Studio's view has since it reads through the engine, and it is
+load-bearing there too, because the view is what the overlay relays and
+`fillFromGallery` hands the entry's `patch_id` to a field that picked it, the
+only way a page learns that field's file is still in a patch. So a test that
+reads a gallery's source out of the Studio sees the mark; the Studio's own
+tiles read theirs from `useFilePatchIds()`, keyed by path.
+
 **There is no multi-valued gallery-backed field.** `s.image(module)` picks one
 image from a gallery; nothing picks several. Adding it means a new schema type
 (source shape, serialization, validation, UI, patch shape), not a small change.
@@ -424,9 +434,9 @@ Two shapes from elsewhere in this file show up here:
   validation hash moved), so each draft ref is moved under its own new ref, and
   the rename is refused if any rewritten ref would resolve to a different entry.
 - **A referrer with its own `patch_id`** (it uploaded the draft itself). The app
-  reads a draft's URL off the field's own `patch_id`, never the gallery's, so
-  that referrer's patch carries a `file` op too, for the server to stamp the new
-  id on it.
+  reads a draft's URL off the field's own `patch_id` before the gallery's
+  (`fillFromGallery`), so that referrer's patch carries a `file` op too, for
+  the server to stamp the new id on it.
 
 A rename is a `move` of the record entry, which puts it last; `FileGallery`
 therefore tracks the open file by ref, not by index, and follows it to the new

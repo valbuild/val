@@ -1,5 +1,6 @@
 import { initVal, type PatchId } from "@valbuild/core";
 import { initTestSystem } from "./testSystem";
+import { galleryUploadPatch } from "../components/fields/galleryPatches";
 
 /**
  * Posting file bytes and attaching them to a patch.
@@ -358,6 +359,64 @@ describe("a file's URL between saving and publishing", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(patchStore.filePatchIds().get(HERO)).toBeUndefined();
+    dispose();
+  });
+});
+
+/**
+ * A media library's upload, as `ModuleGallery` writes it (`galleryUploadPatch`).
+ *
+ * The file op is on the ENTRY, whose value is metadata keyed by the file's
+ * path rather than a `{ path }`. The Studio's view marks it with the patch's
+ * `patch_id` all the same -- the engine puts the mark where the file op lands,
+ * in the Studio as in Val's server, which did so before the Studio read through
+ * the engine. The mark is load-bearing: the view is what the overlay relays,
+ * and `fillFromGallery` hands the entry's `patch_id` to a field that picked
+ * the entry, which is how a page gets that field's draft url. The Studio's own
+ * tiles read theirs from `filePatchIds`, keyed by path.
+ */
+describe("a library upload", () => {
+  const LIBRARY_REF = "/public/val/images/hero_a1b2c.png";
+  const libraryModule = () => {
+    const { c, s } = initVal();
+    return c.define("/images.val.ts", s.imagedir("/public/val/images"), {});
+  };
+
+  it("marks the entry in the Studio's view, and keeps the metadata as it was written", async () => {
+    const { sourceStore, patchStore, dispose } = initTestSystem();
+    await sourceStore.testReceive([libraryModule()]);
+
+    const record = await patchStore.createPatch(
+      "/images.val.ts",
+      galleryUploadPatch({
+        patchPath: [],
+        ref: LIBRARY_REF,
+        src: anotherSmallPng,
+        remote: false,
+        media: {
+          kind: "image",
+          metadata: { width: 8, height: 1, mimeType: "image/png" },
+        },
+      }),
+    );
+
+    const read = await sourceStore.get("/images.val.ts", null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toEqual({
+      [LIBRARY_REF]: {
+        width: 8,
+        height: 1,
+        mimeType: "image/png",
+        alt: null,
+        patch_id: record.patchId,
+      },
+    });
+    expect(patchStore.filePatchIds().get(LIBRARY_REF)).toBe(record.patchId);
+    // The mark is the view's, never the patch's: what is stored and sent to
+    // the server is the metadata the library wrote.
+    expect(JSON.stringify(record.patch)).not.toContain("patch_id");
     dispose();
   });
 });

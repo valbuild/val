@@ -462,6 +462,32 @@ const cases: Case[] = [
     source: pageSource,
     patches: [[upload(["nope"])]],
   },
+  {
+    /*
+     * A media library (`s.imagedir`) is a record keyed by the file's path, and
+     * its upload's file op is on the entry, whose value is metadata rather than
+     * a `{ path }`. The mark lands there all the same, as the old server put
+     * it: `fillFromGallery` hands it on to a field that picked the entry, which
+     * is how a page gets that field's draft url (see architecture/media.md).
+     */
+    name: "a library upload: the entry is marked",
+    schema: s.imagedir("/public/val")["executeSerialize"](),
+    source: {},
+    patches: [
+      [
+        {
+          op: "add",
+          path: ["/public/val/hero_a1b2c.png"],
+          value: { width: 8, height: 8, mimeType: "image/png", alt: null },
+        },
+        upload(["/public/val/hero_a1b2c.png"]),
+      ],
+    ],
+    differs: {
+      why: "The old engine wrote the patch_id into the value the patch's own add op carries (inserted by reference, then marked), so a library upload changed its patch, as a field's did.",
+      legacy: "mutates-the-patch",
+    },
+  },
 
   // --- .jsonValues() entries
   {
@@ -821,6 +847,15 @@ describe("the engine's conformance cases", () => {
     expect(
       run("a file op inside an entry, before the value it marks").entries["/a"],
     ).toEqual({ content: { hero: { ...image, patch_id: "p1" } } });
+    expect(run("a library upload: the entry is marked").source).toEqual({
+      "/public/val/hero_a1b2c.png": {
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+        alt: null,
+        patch_id: "p1",
+      },
+    });
     expect(
       run("an entry edit after the module's chain stopped").entries["/a"],
     ).toEqual({ content: { title: "A", order: 1 } });
