@@ -1231,13 +1231,24 @@ Genuinely not built, each with what it would take:
   evaluation is not measured ([Cost](#cost)).
 - **"Have the assistant move it"** for a held edit (S14). Held edits can be
   discarded or made again by hand; the assistant is not offered them.
-- **"Used by" and the long tasks at 10,000 entries** (phase 10): 5.3 s in the
-  browser with 29 long tasks of up to 263 ms, the shell re-rendering per
-  applied batch, so "no long task over 50 ms" is not met there; the rest of
-  phase 10's map (cold start, scrolling the record list, the keystroke's root
-  copy at 100,000, the re-read after a publish at size) is reported, and
-  which to fix and which to document as limits is still to be decided
-  (`scenarios/measure/results.md`, "Phase 10").
+- **"Used by" and the long tasks at 10,000 entries** (phase 10). On a built
+  Studio it was 3.5 s with 21 long tasks of up to 179 ms; after the
+  release (2026-11-08) it is 1.7 s with 3-6 of 76-90 ms: the surfaced
+  validation errors are worked out once per event and per module
+  (`ValidationStore.surfacedOf`, `surfacedErrors`), a stale module is asked
+  for again only when it shows an error, `entriesStatus` is stable by key,
+  and the gallery inspector scans after it has painted. What is left is the
+  posts module's preview computed again over every loaded post at each
+  batch (the "Used in" rows title the posts), the scan in tenths, and
+  applying each batch: "no long task over 50 ms" needs a preview per entry,
+  or the rows titled after the load. The record list's scroll stopped at
+  4,500-6,000 px because the list was remounted by every batch (fixed); now
+  that it scrolls through 10,000 posts it has a long task per step of up to
+  106-144 ms, not profiled yet. The rest of phase 10's map (cold start, the
+  keystroke's root copy at 100,000, the re-read after a publish at size) is
+  reported, and which to fix and which to document as limits is still to
+  be decided (`scenarios/measure/results.md`, "Phase 10" and "After: 'used
+  by' filtered once").
 - **The probe through home's loader** (decision 5). The deployed probe ran on
   a plain Worker; a site's isolate is started by home's loader
   (`worker_loaders`), and if the two limits differ only the loader's counts.
@@ -1262,8 +1273,10 @@ Genuinely not built, each with what it would take:
     `GET /modules` answers the version where its chain stopped (a patch that
     does not apply): they differ until the Studio's discard of that patch
     lands;
-  - `entriesStatus` is stable by recompute-and-compare, not by key (it is not
-    `peek`, and is cheap);
+  - ~~`entriesStatus` is stable by recompute-and-compare, not by key~~:
+    keyed on the views it read and the failures recorded since 2026-11-08,
+    because it was not cheap after all -- it walked every marker on every
+    render of a reference scan's status;
   - the page's hooks apply no schema rule: a relayed module is compared by
     version only to see whether it moved, so a Studio ahead of the page's
     build (HMR first, staged code it evaluated) relays content made with its

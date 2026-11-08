@@ -969,15 +969,15 @@ keystrokes' own spacing and the waits around them.)
 
 Against the targets:
 
-| Target                                             | Met on the built Studio?                                                                                                                                                                                                                                                                      |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1k: first field under 2 s                          | **Yes** on a quiet machine, 1.4 s; 2.0-2.6 s at load 6-7. About 1.1 s of it is before the Studio's scripts have arrived, which is the app under `vite dev`; the Studio's own share is about 0.35 s. A production build of the app would be the same or better, not measured.                  |
-| 1k: a keystroke under 16 ms                        | **Not contradicted**: no long task while typing at any size, in any run, and the stores' keystroke is 1.1 ms (median). The browser run measures tasks over 50 ms, not per-keystroke frames.                                                                                                   |
-| 1k: no long task over 50 ms while scrolling        | **Yes** on a quiet machine, the record list and the gallery both (no long task in 40 steps). Under load 6-7 the record list had 8-11 of up to 68-199 ms. The record list's scroll stops at 4,500-6,000 px at every size, so it covers its first hundred or so rows; why was not investigated. |
-| 1k: nothing requested that is not on screen        | **Yes**: opening the record is one GET /json for the 19 rows; the gallery requests the tiles on screen.                                                                                                                                                                                       |
-| 10k: no freeze, crash or lost edit; progress shown | **Yes**: no task over 300 ms on any surface; the longest, 283 ms, at cold start; "used by" and search show their bar.                                                                                                                                                                         |
-| 10k: search without a long task over 50 ms         | **No, narrowly**: 1-3 long tasks of 74-82 ms (the same as the dev Studio's 75 ms).                                                                                                                                                                                                            |
-| 10k: "used by" without a long task over 50 ms      | **No**: 19-26 long tasks of up to 130-147 ms in four runs of five (the fifth: one, 132 ms). Halved against the dev Studio (263 ms), not gone. Cause below.                                                                                                                                    |
+| Target                                             | Met on the built Studio?                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1k: first field under 2 s                          | **Yes** on a quiet machine, 1.4 s; 2.0-2.6 s at load 6-7. About 1.1 s of it is before the Studio's scripts have arrived, which is the app under `vite dev`; the Studio's own share is about 0.35 s. A production build of the app would be the same or better, not measured.                                                                      |
+| 1k: a keystroke under 16 ms                        | **Not contradicted**: no long task while typing at any size, in any run, and the stores' keystroke is 1.1 ms (median). The browser run measures tasks over 50 ms, not per-keystroke frames.                                                                                                                                                       |
+| 1k: no long task over 50 ms while scrolling        | **Yes** on a quiet machine, the record list and the gallery both (no long task in 40 steps). Under load 6-7 the record list had 8-11 of up to 68-199 ms. The record list's scroll stopped at 4,500-6,000 px at every size, so it covered its first hundred or so rows: the list was being remounted (see "After: 'used by' filtered once" below). |
+| 1k: nothing requested that is not on screen        | **Yes**: opening the record is one GET /json for the 19 rows; the gallery requests the tiles on screen.                                                                                                                                                                                                                                           |
+| 10k: no freeze, crash or lost edit; progress shown | **Yes**: no task over 300 ms on any surface; the longest, 283 ms, at cold start; "used by" and search show their bar.                                                                                                                                                                                                                             |
+| 10k: search without a long task over 50 ms         | **No, narrowly**: 1-3 long tasks of 74-82 ms (the same as the dev Studio's 75 ms).                                                                                                                                                                                                                                                                |
+| 10k: "used by" without a long task over 50 ms      | **No**: 19-26 long tasks of up to 130-147 ms in four runs of five (the fifth: one, 132 ms). Halved against the dev Studio (263 ms), not gone. Cause below.                                                                                                                                                                                        |
 
 The build removed what the dev Studio's own cost was: typing, the `keyOf`
 dropdown and the gallery have no long task left, opening the record list
@@ -1030,6 +1030,83 @@ over eight). Small to
 medium; it should take the 10k load to the click's one task. That one
 (127-154 ms) is a separate, smaller item: run the inspector's first scan
 after it has painted, as its later slices already are.
+
+### After: "used by" filtered once, and the record list that kept its scroll
+
+Measured 2026-11-08, after the release that shipped the plan (0.151.0), on
+the built Studio, the same way as above (`pnpm run build`, then
+`VAL_E2E_SCALE=10000 pnpm exec playwright test --project=tanstack --no-deps
+e2e/tanstack/scale.spec.ts`, then `pnpm preconstruct dev`). Another machine
+than the table above (4 cores, load 2.2-2.7), so `main` at `07723a2` was
+measured on it first, once, and the change three times.
+
+What changed, each with a test that fails without it:
+
+- **The surfaced errors are worked out once per validation event, per
+  module** (`ValidationStore.surfacedOf`, `surfacedErrors`). Each caller of
+  `useAllValidationErrors` used to filter every validated module on every
+  validation event; eight are mounted on the gallery page. Now a module is
+  filtered once per result object, for a field under it and the whole
+  project alike, and every whole-project reader gets one reference-stable
+  snapshot through `useSyncExternalStore`
+  (`surfacedValidationErrors.test.tsx`: eight readers, one filter per
+  event, and only of the module whose result is new).
+- **The hook asks for a stale module again only when it SHOWS an error.**
+  It asked when the raw answer had any error, and the posts module's raw
+  answer is 10,000 `image:check-gallery` markers that resolve to nothing. So
+  every batch of the load revalidated the posts module, and each pass sent
+  the whole module (up to 10,000 loaded posts) to the validation worker:
+  `postMessage`'s structured clone was 314 ms of main-thread self time in
+  the profile, `collectCustomValidateTargets` another 129 ms. Same test file,
+  "does not ask again for a stale module that shows nothing".
+- **`entriesStatus` is stable by key** (the views it read and the failures
+  recorded), not by recompute-and-compare: it walked every marker on every
+  render of the reference scan's status, 93 ms over the load
+  (`jsonValuesBatches.test.ts`, "is worked out once per view").
+- **The gallery inspector scans after it has painted**
+  (`useReferencedFiles.test.tsx`); until then its answer is "loading", so
+  Delete and Rename stay gated.
+- **The record list kept being remounted, which is why its scroll stopped at
+  4,500-6,000 px.** `RecordFields` chose between preview rows and cards from
+  the preview's data, which a preview being recomputed does not have, and
+  every batch of entries landing makes the preview owed again: cards for a
+  moment, then preview rows -- a different component, so a new scroll
+  viewport at the top. A probe that marked the viewport saw it replaced at
+  steps 1, 2, 5, 9, 14, 20, 27 and 35 of the 40, so the spec's last step
+  always ended a few screens down. An editor scrolling with a wheel was
+  thrown back to the top the same way. The choice is now held while the
+  preview is recomputed (`RecordFields.test.tsx`, "keeps the list it drew").
+
+| Surface: ms (long tasks, longest, long-task total) | `main` (1 run)               | after (3 runs)                                       |
+| -------------------------------------------------- | ---------------------------- | ---------------------------------------------------- |
+| Select an image: "used by" (loads every post)      | 3,492 (21, 179, 1,988)       | 1,692-1,720 (3-6, 76-90, 191-332), 92 GET /json      |
+| Scroll the record list, 40 steps of 1,500 px       | 4,835 (9, 93, 736), 6,000 px | 7,636-7,921 (39-40, 106-144, 2,834-2,927), 60,000 px |
+| Every other surface                                | as above                     | unchanged within noise                               |
+
+An intermediate run, with the per-module filter and the deferred scan but
+before the other two changes, measured "used by" at 1,638-2,428 ms with
+4-18 long tasks of up to 74-93 ms.
+
+**"Used by" at 10k: what is left.** A CPU profile of the step (unminified
+build, 200 µs sampling) after the changes: 1,228 ms busy, down from 2,190 ms
+in the same profile before them. Of it: the posts module's preview, computed
+again over every loaded post at each batch, because the "Used in" rows title
+the posts that use the image (`executePreview`, about 196 ms); the scan
+itself, in tenths of the load as designed (`getReferencedFiles`, about
+153 ms); applying each batch (`receiveJsonEntries`, about 130 ms); and React
+rendering what those moved. No validation is left in it. The 3-6 long tasks
+of 76-90 ms are those, at the batches where they coincide; meeting "no long
+task over 50 ms" needs either a preview per entry rather than per module, or
+the rows titled after the load rather than during it -- both larger than
+this fix, and not done.
+
+**The record list's scroll, now that it scrolls.** Forty steps of 1,500 px
+through 10,000 posts load about 480 rows, one `GET /json` per step, and cost
+one long task per step of up to 106-144 ms. Not profiled yet; the likely
+parts are the record's view rebuilt per batch (its root copied: 10,000 keys)
+and the posts module's preview computed again over every loaded post, as in
+"used by". Before this change the number was not comparable: the list was
+remounted before it got past the first hundred rows.
 
 ### Not measured, and why
 

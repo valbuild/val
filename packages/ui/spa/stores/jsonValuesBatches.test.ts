@@ -167,6 +167,30 @@ describe("reading `.jsonValues()` entries", () => {
   });
 });
 
+describe("whether a record's entries are all here", () => {
+  /**
+   * Asked on every render of whatever waits for a full load (a reference
+   * scan's status, a rename guard), so it is answered once per view of the
+   * modules asked about, not once per read: at 10,000 posts, walking the
+   * markers per render was a tenth of the busy time of "used by"
+   * (`scenarios/measure/results.md`, "The Studio, built").
+   */
+  test("is worked out once per view, and the same object until it moves", async () => {
+    const { sourceStore, activity } = world(100);
+    const before = activity.position();
+    const first = sourceStore.entriesStatus([POSTS]);
+    expect(sourceStore.entriesStatus([POSTS])).toBe(first);
+    expect(sourceStore.entriesStatus([POSTS])).toBe(first);
+    expect(activity.count("source:entries-status", { since: before })).toBe(1);
+
+    await sourceStore.loadAllEntries(POSTS);
+    const complete = sourceStore.entriesStatus([POSTS]);
+    expect(complete.status).toBe("complete");
+    expect(sourceStore.entriesStatus([POSTS])).toBe(complete);
+    expect(activity.count("source:entries-status", { since: before })).toBe(2);
+  });
+});
+
 describe("loading every entry of a record", () => {
   test("requests carry many keys, and the view is rebuilt per batch, not per entry", async () => {
     const n = 1_000;

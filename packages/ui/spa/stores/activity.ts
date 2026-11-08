@@ -72,6 +72,12 @@ export type WorkKind =
    * view of a module, never per read: a progress bar asks on every render.
    */
   | "source:count-entries"
+  /**
+   * `entriesStatus` walked the markers of the modules it was asked about.
+   * Once per view of those modules, never per read: it is asked on every
+   * render of whatever waits for a full load.
+   */
+  | "source:entries-status"
   /** One `.jsonValues()` entry's content was delivered into the store. */
   | "source:receive-json-entry"
   /**

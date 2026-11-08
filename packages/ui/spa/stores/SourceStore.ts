@@ -1747,6 +1747,27 @@ export class SourceStore {
     status: "complete" | "incomplete" | "error";
     errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
   } {
+    /**
+     * Reference-stable BY KEY: the views of the modules asked about and the
+     * failures recorded, which is everything the answer is made of. It is
+     * read on every render of whatever waits for a full load, so walking the
+     * markers per read was a cost per render (a tenth of the busy time of
+     * "used by" at 10,000 posts); a view moves once per batch.
+     */
+    const cacheKey = moduleFilePaths.join("\n");
+    const views = moduleFilePaths.map(
+      (moduleFilePath) => this.views.get(moduleFilePath)?.view,
+    );
+    const held = this.entriesStatusCache.get(cacheKey);
+    if (
+      held !== undefined &&
+      held.failureWrites === this.entryFailures.writes &&
+      held.views.length === views.length &&
+      held.views.every((view, index) => view === views[index])
+    ) {
+      return held.status;
+    }
+    this.activity.work("source:entries-status", cacheKey);
     const errors: {
       moduleFilePath: ModuleFilePath;
       key: string;
@@ -1772,22 +1793,30 @@ export class SourceStore {
       errors.length > 0
         ? { status: "error", errors }
         : { status: incomplete ? "incomplete" : "complete", errors };
-    /**
-     * Reference-stable, by recompute-and-compare: this is read on a render
-     * path, and a hook that returns a fresh object every render is a render
-     * loop as soon as anything downstream puts it in an effect's dependencies.
-     * Keyed on the requested modules.
-     */
-    const cacheKey = moduleFilePaths.join("\n");
-    const previous = this.entriesStatusCache.get(cacheKey);
-    if (previous !== undefined && sameEntriesStatus(previous, next)) {
-      return previous;
-    }
-    this.entriesStatusCache.set(cacheKey, next);
-    return next;
+    // And kept when a moved view gives the same answer, which it usually
+    // does (another batch landed, the load is still incomplete): this is read
+    // on a render path, and a fresh object there is a render loop as soon as
+    // anything downstream puts it in an effect's dependencies.
+    const status =
+      held !== undefined && sameEntriesStatus(held.status, next)
+        ? held.status
+        : next;
+    this.entriesStatusCache.set(cacheKey, {
+      views,
+      failureWrites: this.entryFailures.writes,
+      status,
+    });
+    return status;
   }
 
-  private entriesStatusCache = new Map<string, EntriesStatus>();
+  private entriesStatusCache = new Map<
+    string,
+    {
+      views: (ModuleView | undefined)[];
+      failureWrites: number;
+      status: EntriesStatus;
+    }
+  >();
 
   /**
    * Why this entry's last fetch failed, if it did. For a record row, which
