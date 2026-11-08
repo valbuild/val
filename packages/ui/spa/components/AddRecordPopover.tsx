@@ -5,7 +5,7 @@ import {
   isInlineRender,
 } from "@valbuild/core";
 import { recordAddPatch } from "./recordPatches";
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
@@ -161,23 +161,23 @@ export function AddRecordPopover({
       </Tooltip>
       <PopoverContent container={portalContainer}>
         {routePattern ? (
-          <RouteForm
+          <RouteFormOfRecord
+            record={shallowSourceAtPath.data}
             routePattern={routePattern}
-            existingKeys={Object.keys(shallowSourceAtPath.data)}
             onSubmit={onSubmit}
             onCancel={() => {
               setOpen(false);
             }}
             submitText="Create"
             keyDescription={description}
-          ></RouteForm>
+          />
         ) : (
           <>
             {description && (
               <div className="pb-2 text-sm text-fg-tertiary">{description}</div>
             )}
             <BasicAddForm
-              existingKeys={Object.keys(shallowSourceAtPath.data)}
+              record={shallowSourceAtPath.data}
               onSubmit={onSubmit}
             />
           </>
@@ -187,15 +187,41 @@ export function AddRecordPopover({
   );
 }
 
-function BasicAddForm({
-  existingKeys,
+/**
+ * A route form for the record's keys, worked out when the form is shown.
+ *
+ * The record is handed down rather than its keys: the forms render only while
+ * the popover is open, and the button is on screen with every record list. A
+ * list of 10,000 keys built on each render of the button was a cost per batch
+ * of entries landing while the list scrolled.
+ */
+function RouteFormOfRecord({
+  record,
+  ...props
+}: Omit<React.ComponentProps<typeof RouteForm>, "existingKeys"> & {
+  record: Record<string, unknown>;
+}) {
+  const existingKeys = useMemo(() => Object.keys(record), [record]);
+  return <RouteForm existingKeys={existingKeys} {...props} />;
+}
+
+/**
+ * Exported for its test.
+ *
+ * `record` is the record itself: a key it already has is refused, as an OWN
+ * key of the record -- never through `in` on a list of keys, which asks
+ * whether the key is an array index.
+ */
+export function BasicAddForm({
+  record,
   onSubmit,
 }: {
-  existingKeys: string[];
+  record: Record<string, unknown>;
   onSubmit: (key: string) => void;
 }) {
   const [key, setKey] = useState("");
-  const disabled = key === "" || key in existingKeys;
+  const disabled =
+    key === "" || Object.prototype.hasOwnProperty.call(record, key);
   return (
     <form
       className="flex flex-col gap-2"

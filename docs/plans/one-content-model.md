@@ -1243,8 +1243,12 @@ Genuinely not built, each with what it would take:
   applying each batch: "no long task over 50 ms" needs a preview per entry,
   or the rows titled after the load. The record list's scroll stopped at
   4,500-6,000 px because the list was remounted by every batch (fixed); now
-  that it scrolls through 10,000 posts it has a long task per step of up to
-  106-144 ms, not profiled yet. The rest of phase 10's map (cold start, the
+  that it scrolls through 10,000 posts it had a long task per step of up to
+  106-144 ms. Two of the walks per batch are gone (the "Add" button's keys,
+  the rows' load states), which leaves 29-33 of up to 87-111 ms and "used by"
+  one task of 63-69 ms; what is left is the module's whole-module validation,
+  preview, marker count and key mapping per batch -- validating entries as
+  they arrive is the one that is a design question. The rest of phase 10's map (cold start, the
   keystroke's root copy at 100,000, the re-read after a publish at size) is
   reported, and which to fix and which to document as limits is still to
   be decided (`scenarios/measure/results.md`, "Phase 10" and "After: 'used

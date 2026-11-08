@@ -18,6 +18,7 @@ import {
   VirtualizedRecordList,
 } from "./VirtualizedRecordList";
 import { useValSystem } from "../../stores/react/SystemContext";
+import type { EntryRowStates } from "../../stores/SourceStore";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
@@ -457,37 +458,18 @@ function RecordCardList({
 function useJsonEntryRowStates(
   moduleFilePath: ModuleFilePath,
   jsonValues: boolean,
-): {
-  unloadedKeys: ReadonlySet<string>;
-  errorByKey: ReadonlyMap<string, string>;
-} {
+): EntryRowStates {
   const val = useValSystem();
+  // What wakes this: the module's source moving. The answer itself is the
+  // store's, worked out once per view (`SourceStore.rowStates`): deriving it
+  // here asked `entryError` for every key of the record on every render.
   const moduleSource = useSourceAtPath(moduleFilePath);
   const data = "data" in moduleSource ? moduleSource.data : undefined;
   return useMemo(() => {
-    const unloadedKeys = new Set<string>();
-    const errorByKey = new Map<string, string>();
-    if (
-      !jsonValues ||
-      data === undefined ||
-      data === null ||
-      typeof data !== "object" ||
-      Array.isArray(data)
-    ) {
-      return { unloadedKeys, errorByKey };
+    if (!jsonValues || val === null) {
+      return NO_ROW_STATES;
     }
-    for (const [key, value] of Object.entries(data)) {
-      if (!Internal.isJson(value)) {
-        continue;
-      }
-      const error = val?.system.sourceStore.entryError(moduleFilePath, key);
-      if (error !== undefined) {
-        errorByKey.set(key, error);
-      } else {
-        unloadedKeys.add(key);
-      }
-    }
-    return { unloadedKeys, errorByKey };
+    return val.system.sourceStore.rowStates(moduleFilePath);
     // `SourceStore.loadEntry` records the failure before it settles, and a
     // failure leaves the marker in place — so the module source this memo
     // depends on has not changed, and the memo would not re-run on its own.
@@ -495,6 +477,11 @@ function useJsonEntryRowStates(
     // entry, which is what wakes the row, and this map is read on that render.
   }, [jsonValues, data, val, moduleFilePath]);
 }
+
+const NO_ROW_STATES: EntryRowStates = {
+  unloadedKeys: new Set(),
+  errorByKey: new Map(),
+};
 
 function RecordPreviewList({
   path,

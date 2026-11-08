@@ -1108,6 +1108,47 @@ and the posts module's preview computed again over every loaded post, as in
 "used by". Before this change the number was not comparable: the list was
 remounted before it got past the first hundred rows.
 
+### After: the record list's scroll, profiled
+
+Measured 2026-11-08, the same way, three runs (load 1.5-2.3). A CPU profile
+of the forty scroll steps (unminified build) put 3.7 s of busy time in
+several walks of the whole record, each repeated for every batch of entries
+that landed, at 10,000 keys:
+
+- **The "Add" button built the record's keys on every render**, twice
+  (`AddRecordPopover`: 214 ms), for a form that is only drawn while its
+  popover is open. The forms now take the record and derive its keys when
+  they render. Reading it found a bug: the plain "Add" form refused a key with
+  `key in existingKeys`, on an ARRAY of keys, which asks whether the key is an
+  array index -- so a key the record already had was accepted (the add wrote
+  over that entry), and a new key spelled like an index ("0", "12") was
+  refused (`AddRecordPopover.test.tsx`).
+- **The list asked `entryError` for every key on every render** to know which
+  rows have no content yet (`useJsonEntryRowStates`: 265 ms). The store had
+  that answer already, per view of the module (`markersOf`); it is now one
+  cached answer, `SourceStore.rowStates` (`jsonValuesBatches.test.ts`).
+
+| Surface: ms (long tasks, longest, long-task total) | before (3 runs, above)                    | after (3 runs)                           |
+| -------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
+| Scroll the record list, 40 steps of 1,500 px       | 7,636-7,921 (39-40, 106-144, 2,834-2,927) | 5,964-6,336 (29-33, 87-111, 1,734-2,152) |
+| Select an image: "used by"                         | 1,692-1,720 (3-6, 76-90, 191-332)         | 1,589-1,627 (1, 63-69, 63-69)            |
+
+("Used by" gained too: the gallery's header has the same "Add" button.)
+
+What is left in the scroll, per batch and each a walk of the whole posts
+module, from the second profile (3.5 s busy):
+
+- **Its validation**: the module page's own errors (`Module.tsx`'s
+  `useValidationErrors`) demand the module, every batch makes it stale, and
+  each pass sends the whole module to the validation worker -- the
+  structured clone alone was 172 ms of main-thread time. Validating entries
+  as they arrive, rather than the module, is the fix, and a design question.
+- **Its preview**, computed again over every loaded post (`executePreview`,
+  about 235 ms), as in "used by".
+- **Counting its markers** (`markersOf`, about 178 ms), once per view by
+  design: what a read would find is counted from the view.
+- **Mapping its keys to paths** (`useShallowSourceAtPath`, about 236 ms).
+
 ### Not measured, and why
 
 - **Upload, and bulk upload into a 10k library** (`ModuleGallery` uploads
