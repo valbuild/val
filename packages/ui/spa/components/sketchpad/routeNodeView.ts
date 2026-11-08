@@ -5,8 +5,8 @@ import { gripElement, startBlockDrag } from "./dragBlocks";
 /** What the menu a route divider opens can do, and where to draw it. */
 export type RouteMenuRequest = {
   route: string;
-  /** The chip it opens from, in the viewport. */
-  anchor: DOMRect;
+  /** The chip it opens from: where to draw it, as the sketch scrolls. */
+  anchor: HTMLElement;
   /** Point the divider at another route. */
   change: (route: string) => void;
   /** Take the divider out; what was below it stays where it is. */
@@ -111,7 +111,7 @@ export class RouteView implements NodeView {
     }
     menu({
       route,
-      anchor: this.chip.getBoundingClientRect(),
+      anchor: this.chip,
       change: (next) => {
         const pos = this.getPos();
         if (pos !== undefined && next !== route) {

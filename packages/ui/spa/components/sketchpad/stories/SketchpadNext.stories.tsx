@@ -419,7 +419,11 @@ export const BuildInTheChat: Story = {
   ),
 };
 
-/** A route divider's menu, open: show the page, change it, or remove it. */
+/**
+ * A route divider's menu, open: show the page, change it, or remove it.
+ * The field finds a page of the site, or takes a new one: typed here,
+ * "/sustainability" is not a page yet, and is offered as a new page.
+ */
 export const RouteMenuOpen: Story = {
   render: () => <Workspace initial={SKETCH} />,
   play: async ({ canvasElement }) => {
@@ -429,6 +433,15 @@ export const RouteMenuOpen: Story = {
     );
     await expect(
       await canvas.findByRole("menu", { name: "Route /about" }),
+    ).toBeInTheDocument();
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: "Find a page, or type a new one" }),
+      "sustainability",
+    );
+    await expect(
+      await canvas.findByRole("menuitem", {
+        name: /New page \/sustainability/,
+      }),
     ).toBeInTheDocument();
   },
 };

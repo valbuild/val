@@ -55,8 +55,12 @@ export function gripElement(
 const TEXT_GRIP =
   "absolute -left-6 top-1 flex h-5 w-5 cursor-grab items-center justify-center rounded text-fg-tertiary opacity-0 transition-opacity hover:bg-bg-secondary hover:text-fg-primary [*:hover>&]:opacity-100 [@media(hover:none)]:opacity-60";
 
+// A column's, in its top right corner: its name is in the top left.
+const COL_GRIP =
+  "absolute right-1 top-0.5 z-[1] flex h-4 w-4 cursor-grab items-center justify-center rounded text-fg-tertiary opacity-0 transition-opacity hover:bg-bg-secondary hover:text-fg-primary [*:hover>&]:opacity-100 [@media(hover:none)]:opacity-60";
+
 /**
- * A grip beside every heading, paragraph and row, to drag it somewhere else
+ * A grip beside every heading, paragraph, row and column, to drag it somewhere else
  * on the page: into a column, out of one, above the block it was below. A
  * box and a route divider draw their own (`BoxView`, `RouteView`), because
  * they are drawn by a node view and a widget inside one lands in its label.
@@ -71,17 +75,20 @@ export function dragHandles(): Plugin {
             (node.type === nodes.paragraph || node.type === nodes.heading) &&
             // The empty paragraph someone is about to type in moves nothing.
             node.content.size > 0;
-          if (isText || node.type === nodes.row) {
+          const isLayout = node.type === nodes.row || node.type === nodes.col;
+          if (isText || isLayout) {
             decorations.push(
               Decoration.widget(
                 pos + 1,
                 (view) =>
                   gripElement(
                     node.type === nodes.row
-                      ? "Drag to move these columns"
-                      : "Drag to move",
+                      ? "Drag to move this row"
+                      : node.type === nodes.col
+                        ? "Drag to move this column, within its row or to another"
+                        : "Drag to move",
                     (event) => startBlockDrag(view, pos, event),
-                    TEXT_GRIP,
+                    node.type === nodes.col ? COL_GRIP : TEXT_GRIP,
                   ),
                 { side: -1, ignoreSelection: true, key: `grip-${pos}` },
               ),

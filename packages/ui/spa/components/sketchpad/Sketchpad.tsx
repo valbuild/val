@@ -613,14 +613,7 @@ function HighlightBar({
             className="h-2.5 w-2.5 shrink-0 rounded-full"
             style={{ backgroundColor: HIGHLIGHT_COLORS[highlight.color].line }}
           />
-          <span className="min-w-0 flex-1">
-            <span className="text-fg-secondary">The assistant marked </span>
-            {highlight.lines.length === 1
-              ? "a block"
-              : `${highlight.lines.length} blocks`}
-            <span className="text-fg-secondary">: </span>
-            {highlight.note}
-          </span>
+          <span className="min-w-0 flex-1">{highlight.note}</span>
           {onClear && (
             <button
               type="button"

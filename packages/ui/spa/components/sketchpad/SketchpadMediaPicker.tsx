@@ -123,8 +123,7 @@ export function SketchpadMediaPicker({
           <div>
             <DialogTitle className="text-base">Pick an image</DialogTitle>
             <DialogDescription className="text-xs text-fg-secondary">
-              From a gallery, from the site, or one you upload. The page is
-              built with the same file.
+              Choose one from a gallery or the site, or upload a new one.
             </DialogDescription>
           </div>
           {library.upload && (
