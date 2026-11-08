@@ -1,5 +1,291 @@
 # @valbuild/ui
 
+## 0.151.0
+
+### Patch Changes
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`33c8b80`](https://github.com/valbuild/val/commit/33c8b80f877f1c3bec3cb61ef41dea9d2efcf908) Thanks [@freekh](https://github.com/freekh)! - **Build on their push.** When a developer pushes to a proposal's git branch
+  (`val/p/<name>`), Commit and Publish no longer leave you stuck. Instead of
+  committing over a push it has not seen, the Studio says who pushed and when,
+  links to their commit, and offers **Build on their push**:
+
+  - Their changes come into the proposal. Where you both changed the same file,
+    the proposal's version is kept, and the Studio lists those files. Anything
+    a proposal cannot hold (for example a change outside the project) is listed
+    too, since the next Commit leaves it as the site has it.
+  - Anything waiting to be saved is saved first, so "the proposal's version" is
+    what you see.
+  - The proposal's preview is rebuilt with their code. Commit goes through
+    right away, on top of their commit; Publish waits for the rebuild and says
+    so.
+  - If they push again in the meantime, the notice moves to their newer commit.
+    If GitHub cannot be reached, the session ran out, or the project's plan
+    does not allow changes, it offers Try again, Sign in or Billing. When
+    nothing can help from here (their push is too large to bring in, say), it
+    says so and offers only their commit.
+
+  Publish refused the same way now shows the same notice inside the Publish
+  dialog, rather than a Try again that would fail again. When GitHub refuses
+  Publish's commit for good (a protected branch), the dialog links the branch
+  instead of offering Try again. On a phone, where Publish is finished in a new
+  tab, the commit message you typed now goes with it, and a refusal there
+  comes back to the dialog with the same offer.
+
+  Publish pressed from the design tab, on the site, is refused the same way
+  when someone has pushed to the proposal's branch. Build on their push can
+  only be done in the proposal's own Studio, so the dialog says who pushed and
+  when, links their commit, and offers **Open the proposal**, where Publish
+  offers Build on their push. It no longer offers a Try again that would fail
+  again, and a branch GitHub refuses for good links the branch there too.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`213d635`](https://github.com/valbuild/val/commit/213d6359a1ec09cba1596ef03f415d3b5c0f2710) Thanks [@freekh](https://github.com/freekh)! - An edit is no longer lost when the code of the content it belongs to changes.
+
+  - **A field just added in code can be edited straight away.** In local
+    development the page and the server pick up a changed `.val.ts` in either
+    order. When the Studio had the new field first, an edit to it was made
+    against content that did not have the field yet, and was discarded with
+    "An edit could not be applied". The Studio now keeps reading the content its
+    own code wrote until the server has the new code too, so the edit is kept.
+  - **An edit to a field the code renamed or removed is kept, not deleted.** It
+    is shown above the Studio ("An edit does not fit the new schema"), with the
+    field it was made to and a button to discard it. Publishing waits until it
+    is settled, rather than throwing it away. An edit that could never be
+    applied is still removed, as before.
+  - **In a proposal in code mode, the Studio reads the code the assistant
+    writes.** After each change it evaluates the project's `val.modules` in the
+    browser (where the Studio can run its builder) and takes the new schema in,
+    so a field the assistant adds can be filled in before the proposal is
+    built. The assistant is told which modules' schema changed, which content
+    does not fit its new schema, or why the code does not run, and a `.val.ts`
+    that throws leaves the Studio on the schema it had.
+  - **A `val.modules` that cannot be read at all** (it throws) no longer leaves
+    the Studio half updated: it keeps the code it had and says why.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`59faf33`](https://github.com/valbuild/val/commit/59faf332418af836617e09150fb89007e468394e) Thanks [@freekh](https://github.com/freekh)! - Code mode now works in a hosted Studio. In a proposal, the `</>` beside the
+  proposal's name turns code mode on for everyone in it, and the assistant can
+  then change the proposal's code. On the site, the `</>` lists the open
+  proposals and opens the one you choose with code mode on.
+
+  - **Nothing you typed is lost when code changes.** Turning code mode on saves
+    every pending change first, and so does each of the assistant's code
+    changes, so a field the assistant adds can be filled in and stays filled
+    in. Turning code mode off discards nothing.
+  - **Each person chooses what they see.** While code mode is on you can stay
+    in the content editor, or see the proposal's preview and its code changes.
+    The proposal's menu says who turned code mode on, and when.
+  - **The assistant asks.** With code mode off, its code tools refuse and say
+    who turned it off; it asks for code mode with a button in the chat instead.
+  - **Save is the one main button** in a proposal, and also updates the
+    preview when the code changed. Its menu holds **Commit**, in a project
+    connected to git, which puts the proposal on its git branch as one commit,
+    and **Publish**, which commits and then merges into the site. Both use the
+    project's commit message setting. In code mode, Save saves even when
+    content has validation errors; Publish is still refused until they are
+    fixed. If someone else pushed to the proposal's branch, Commit says who and
+    when, and links to their commit, instead of committing over it.
+  - The "schema changed, reload" dialog is not shown in code mode, where the
+    schema changes with every build.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`abf6148`](https://github.com/valbuild/val/commit/abf6148a255abe795620fede66006462bccb8322) Thanks [@freekh](https://github.com/freekh)! - The assistant's code tools now see a publish of the site made while the Studio
+  is open. They read the site's code once and kept that copy for as long as the
+  page was open, so a file published in the meantime was shown as it was before.
+  They now ask on every call, and the content service answers "unchanged" without
+  sending the code again unless it did change.
+
+- [#1014](https://github.com/valbuild/val/pull/1014) [`04ed1f1`](https://github.com/valbuild/val/commit/04ed1f10b597a52822d32017597692f0e1062b7b) Thanks [@freekh](https://github.com/freekh)! - Inline lists are easier to work with, and inline records now work the same way as inline arrays.
+
+  **Inline records** (`s.record(...).render({ as: "inline" })`) are drawn as the same rows as inline arrays, named by their key instead of numbered. Click the key for **Rename**, **Duplicate** and **Delete**. **Add** asks for the new key. A record has no order, so its rows have no drag handle.
+
+  **Every row of an inline array:**
+
+  - **Row menu:** click the row's number for **Add above**, **Add below**, **Duplicate**, **Move** and **Delete**.
+  - **Move:** the submenu has **Move up**, **Move down**, **Move to start**, **Move to end** and **Move to position…**. That last one takes a number. A number outside the list is first changed to the nearest valid position, with a note saying so. Press Move again to move.
+  - **Drag:** drag the handle to the left of a row to move it.
+  - **Insert between rows:** hover the gap between two rows and click the **+** that appears.
+  - **Collapse:** click a row's header to collapse it. Its title stays visible, and a union row also shows which variant it is.
+
+  **Keyboard and screen reader:** everything above works without a mouse.
+
+  - Press Enter on a row's number to open its menu. Use the arrow keys to move through it, Right to open the Move submenu and Escape to close.
+  - From a row's handle, press Space or Enter to pick the row up, then the arrow keys to move it.
+  - Press Tab from a handle to reach the insert point above that row.
+  - After an insert or a move, focus goes to the new or moved item.
+
+  **The same look as the rest of the Studio:**
+
+  - Labels, descriptions and text sizes inside a row now match the normal field view.
+  - A field's `.describe(...)` text is now shown under its label.
+  - A nested list's label row is laid out like any field's header, with its **+** and collapse button on the right.
+  - An inline `keyOf` shows the entry it points to in the same layout as the row around it.
+  - A read-only list shows no drag handles and no **+** buttons.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`01772a5`](https://github.com/valbuild/val/commit/01772a5b36549d71f6b438ff17803dfcb64ce645) Thanks [@freekh](https://github.com/freekh)! - In local development, saving one `.val.ts` file no longer makes the Studio
+  validate and preview every module again. Each reload of the project's
+  modules used to count every module as changed; now only the modules whose
+  code actually changed are, and the ones that refer to them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`1f08b65`](https://github.com/valbuild/val/commit/1f08b6517adeac27fd9e43c7bf726976daefee3b) Thanks [@freekh](https://github.com/freekh)! - Search and a library entry's "used by" no longer freeze the Studio on a large `.jsonValues()` record.
+
+  Both have to see every entry of the records they look in. The Studio used to ask for those entries one request at a time and rebuild the record after each one, which grew with the square of the record's size: about a second for 1,000 entries, and most of a minute for 10,000. Now:
+
+  - entries are requested many to a request (`GET /json` with a list of keys), with at most three such requests at a time, so what you open meanwhile is not queued behind them;
+  - what arrives is applied a batch at a time, with the browser free to handle clicks and typing between batches;
+  - search and "used by" show a progress bar with how many entries are loaded, show what they have found so far, and offer **Try again** if some entries could not be loaded;
+  - closing search or leaving the entry stops the requests that have not been sent;
+  - the search index adds only the entries that arrived, rather than re-reading the whole record each time.
+
+  A record's rows on screen are now also fetched in one request rather than one per row.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a325152`](https://github.com/valbuild/val/commit/a325152856a881faec84c112fcf226828739f563) Thanks [@freekh](https://github.com/freekh)! - **A draft page shows the right `.jsonValues()` entries, whichever reader reads them.**
+
+  - **Pending edits to an entry.** In draft mode, `fetchVal` of a whole
+    `.jsonValues()` record now shows the unpublished edits to its entries. It
+    used to show the published content of every entry, even one an editor had
+    just changed, while `fetchValKey` and `fetchValRoute` of the same entry
+    showed the edit. The entries a pending change touches are read from Val's
+    server; the others are loaded from your build, as before.
+  - **Entries published without a rebuild.** On a host that does not rebuild
+    the site after a publish, a draft page now shows the published entries
+    straight away -- in `fetchVal`, and in `useVal`, `useValKey` and
+    `useValRoute` alike. They used to show those entries as they were before
+    the publish, from the site's build, until it was rebuilt (and on TanStack
+    Start the server render showed the new content, then the page switched
+    back to the old). Val's server marks each entry a publish wrote, and the
+    readers and the Studio load a marked entry from the server.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b682509`](https://github.com/valbuild/val/commit/b682509b91dcd6e6aa2e1dfcedab0f259634c73e) Thanks [@freekh](https://github.com/freekh)! - Edits inside a `.jsonValues()` entry now show up in the Studio and on the page
+  in every case:
+
+  - An edit made to an entry this tab had not opened yet (by another editor, the
+    assistant, or before the entry loaded) is applied when the entry loads. It
+    used to stay unapplied, so the field and the page's preview showed the
+    published entry while Val's server had the edit.
+  - Renaming an entry keeps its content in the preview, instead of showing it
+    empty until the next reload.
+  - When another tab publishes or discards an edit to an entry, it is read again,
+    instead of going back to what it said before the publish.
+
+  The browser console no longer reports "a patch could not be applied … Keeping
+  it" as an error; it is expected while an entry loads, and is logged only with
+  debug logging on.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`a806f7d`](https://github.com/valbuild/val/commit/a806f7de0c605145163c7f0babf389a5b5bf3ef3) Thanks [@freekh](https://github.com/freekh)! - When a module's code throws while you are editing it, the Studio now keeps
+  showing that module as it was before, and tells you which module it is, with
+  the error under Details. It used to drop the module without a word. The message
+  goes away once the code loads again.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`04bae7e`](https://github.com/valbuild/val/commit/04bae7e54e6b191fc70f45e6f10bbce820b6069c) Thanks [@freekh](https://github.com/freekh)! - **No more "A new version has been deployed" dialog.** A Studio that is open
+  while the site is deployed no longer stops you with a dialog you can only
+  answer by reloading. Instead:
+
+  - **On Val's hosting**, the Studio takes the new build's fields in where you
+    are, without reloading: a field the deploy added can be filled in at once,
+    and the assistant's chat, the page you were on and your unsaved edits stay
+    as they were. Each build now carries its content schemas as a small file of
+    its own beside its scripts, which the Studio loads.
+  - **Anywhere else** (a Next.js site, or a TanStack Start site hosted
+    somewhere else), the Studio reloads itself a few seconds after the deploy,
+    once everything you typed has been saved. Nothing is lost: where you were is
+    in the address, and every edit is on the server.
+  - **In local development** nothing changes: your dev server's hot reload
+    brings the new fields, as before.
+
+  When a deploy upgrades Val itself, the Studio reloads itself the same way,
+  since its own code changed too.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b0ad7f4`](https://github.com/valbuild/val/commit/b0ad7f496f2dc0384b8df847b1d77becf617b7bf) Thanks [@freekh](https://github.com/freekh)! - A draft page now catches up with an edit as soon as the server has it, instead
+  of on a timer.
+
+  - **The page settles faster, and without the 10 second fallback.** Content your
+    page reads on the server (a TanStack Start loader, a Next.js server component)
+    is refreshed when the editor's change has been saved, once per saved change.
+    It used to be refreshed the moment you typed — before the change was saved,
+    so the refresh often came back without it — and then again every 10 seconds
+    for half a minute in case it had. That safety refresh is gone, and so are the
+    extra requests it made while you edited. Another editor's change refreshes
+    the page too, once the server has it. While a deploy rolls out, a Studio of
+    the previous release (which never says it has saved) still refreshes the
+    page as each change arrives, as before.
+  - **Next.js: `ValProvider` takes an optional `draft` prop**, as
+    `@valbuild/tanstack`'s does: the editor's draft, read on the server for the
+    request. With it, the server renders the draft and the browser hydrates the
+    same thing, so a draft page no longer shows the published text first, and a
+    page that exists only as an unpublished change is found on the first render
+    instead of answering 404. Without it, nothing changes. See "The `draft` prop"
+    in the `@valbuild/next` README.
+  - **Next.js: `initValRsc` returns `fetchValDraft`**, which reads that draft:
+    pass `draft={await fetchValDraft()}` to `ValProvider` in your root layout. It
+    returns `null` unless the request is in draft mode, after one `draftMode()`
+    lookup and no other work, so visitors pay nothing and a static page stays
+    static. It reads the draft the way `@valbuild/tanstack/server`'s
+    `fetchValDraft` does and returns the same type, `ValDraft | null`, which
+    is now exported from `@valbuild/next` and `@valbuild/next/rsc` too.
+  - **`suspend` waits for the editor's changes properly.** With `suspend` on
+    `ValProvider`, a page could be told it had everything before the editor had
+    sent the pending change it needed, and render the published content first —
+    for a page that exists only as an unpublished change, a 404. It now waits
+    until the change is there.
+  - A draft page whose draft was discarded or published before the editor's
+    overlay or canvas connected now shows what the editor has, instead of keeping
+    the draft it was rendered with -- an edit inside a `.jsonValues()` entry
+    included.
+  - Turning draft mode on or off refreshes the page once. In development (React's
+    `StrictMode`) it could refresh twice, and Next.js could log "Cannot call
+    startTransition while rendering" while the page refreshed.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`809873c`](https://github.com/valbuild/val/commit/809873cd7dd2c17e261b7e92716397a6bb4d6e56) Thanks [@freekh](https://github.com/freekh)! - Every content reader in `@valbuild/next` and `@valbuild/tanstack` — `fetchVal`,
+  `useVal`, the key and route readers, on the server and in the browser — now
+  loads content the same way, so they can no longer disagree about which content
+  wins. Nothing you call changes. What you may notice:
+
+  - `useValRoute` on a `.jsonValues()` router loads only the entry for the
+    current route. It used to load every entry of the record first.
+    `useValRouteUrl` and `fetchValRouteUrl` load none at all: a URL does not need
+    them.
+  - In development, an edited `*.val.json` entry shows its new content after a
+    hot reload. The hooks kept the entry they had loaded before it.
+  - Next.js: `useValKey` no longer shows the published entry of a nullable
+    `.jsonValues()` record that a draft has set to `null`, nor anything for an
+    entry named like a built-in object property (such as `toString`) that the
+    draft does not have.
+  - With `suspend` on `ValProvider`, `useValKey` now waits for draft mode and the
+    editor's changes too, as `useVal` and `useValRoute` already did.
+  - When one entry of a `.jsonValues()` record cannot be loaded, `useVal` logs
+    the error and renders the others, as `fetchVal` already did, instead of
+    failing the whole component.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`b41da31`](https://github.com/valbuild/val/commit/b41da31a26b3236ccd55c02108c56422d8d91f5e) Thanks [@freekh](https://github.com/freekh)! - A module removed from `val.modules` now disappears from the Studio straight
+  away, with its content, validation errors and previews. It used to stay until
+  the page was reloaded. Unpublished changes to it are kept and listed as changes
+  to a module the project no longer has, so they can still be discarded.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`e30da7d`](https://github.com/valbuild/val/commit/e30da7d9bca5d5773aa287e8b4c16a01e757ff9a) Thanks [@freekh](https://github.com/freekh)! - The Studio stays responsive next to large media libraries and records.
+
+  - **Typing no longer freezes on a page that picks from big libraries.** A field on a page whose images, files or videos come from libraries of 10,000 entries froze for about a second per keystroke (14 s at 100,000). Every keystroke recounted every `.jsonValues()` entry in the project, scanned every library for references, and re-sorted every library's file list. Each of those now happens only when what it reads changes, so a keystroke costs the same however big the libraries are.
+  - **The image, file and video gallery shows only the tiles on screen.** A library of 10,000 images used to load 10,000 thumbnails at once, and a library of 100,000 crashed the tab. The grid and the list now render the rows you can see, fetching only those pictures, and scrolling stays smooth. Search, selecting, uploading and drag and drop work as before. An entry opened from a link is scrolled into view.
+  - **Reference dropdowns open instantly however many entries they list.** A `keyOf` field, or a route field, pointing at 10,000 entries froze for over two seconds when opened, and at 100,000 did not open. The list now renders only the options on screen. Search filters across all of them, and the arrow keys, Home and End reach any option. The list opens on the current value, and the search box has the focus as soon as it opens.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`66d487f`](https://github.com/valbuild/val/commit/66d487f3662164a9a167ec660afc6d12b441aa22) Thanks [@freekh](https://github.com/freekh)! - Typing in the Studio no longer slows down with the size of the module.
+
+  - **A keystroke in a large module is about five times faster.** The Studio
+    used to copy the whole module for every change it applied; it now applies
+    changes the way Val's server does, copying only what the change touches.
+    In a module of 5 MB a keystroke went from about 100 ms to about 20 ms, and
+    a module of 1 MB from about 17 ms to about 3 ms.
+  - **The Studio and the server show a change the same way.** Where an uploaded
+    file's draft address goes, what an edit inside a `.jsonValues()` entry
+    does, and what a new entry is, are decided by the same code in both, so
+    the editor's fields, the page behind the Studio and a draft page's server
+    render cannot disagree about them.
+
+- [#1006](https://github.com/valbuild/val/pull/1006) [`4dc1481`](https://github.com/valbuild/val/commit/4dc1481cfb7cad4072bdbeaeb51b2b2ad43a9f5d) Thanks [@freekh](https://github.com/freekh)! - The Studio now shows each module as your server has it, by version, with only your own unsaved edits on top.
+
+  - **Publishing is faster.** After a publish, or when your site serves content published without a build, the Studio used to download every module's content before it showed anything new. It now reads only the modules that changed, one at a time: in our measurements with a 1,000-entry `.jsonValues()` record, the Studio was ready again after a publish in about 35 ms instead of 300–800 ms.
+  - **No flicker of old content on a draft page.** For up to a minute after a deploy, a request can still reach the build before it; that build now says it has been replaced (when Val's content service can tell it), and the Studio asks again rather than taking its content for the current one. In local development the same holds after you change a `.val.ts`: an answer from the code before the change is no longer taken for the new code's, so a page in draft mode no longer shows the new text, then the old, then the new again.
+  - **Another editor's change appears as your server has it.** The Studio no longer replays other people's changes on top of the content it loaded with, so a change made against a newer deployment can no longer show up twice or out of order.
+  - **Less sent with every draft page.** A page in draft mode no longer embeds the whole published content of a site served without a rebuild for the Studio to start from; `ValDraft.base` is deprecated and no longer filled in.
+  - **When the editor opens on a page that already shows your changes,** the Studio no longer sends them to the page again.
+
 ## 0.150.23
 
 ### Patch Changes
