@@ -102,6 +102,18 @@ export const CodeModePointing = at(1920, 1080, {
   hovered: "footer",
 });
 
+/** The Preview turned off: Content is in the middle, at a readable width. */
+export const PreviewOff1512 = at(1512, 945, {
+  open: { content: true, preview: false, sketch: true, chat: true },
+  selecting: null,
+});
+
+/** The Preview turned off, writing with the assistant: Content and the chat. */
+export const PreviewOff1366 = at(1366, 768, {
+  open: { content: true, preview: false, sketch: false, chat: true },
+  selecting: null,
+});
+
 /** A tablet: Content beside the preview, the rest a strip. */
 export const Tablet1024 = at(1024, 768);
 

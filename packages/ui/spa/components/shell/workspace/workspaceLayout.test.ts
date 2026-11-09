@@ -7,7 +7,7 @@ import {
 
 const everythingOpen: WorkspaceLayoutInput = {
   width: 1600,
-  open: { content: true, sketch: true, chat: true },
+  open: { content: true, preview: true, sketch: true, chat: true },
   recent: ["content", "chat", "sketch"],
   front: "chat",
   narrow: "strips",
@@ -69,7 +69,31 @@ describe("workspaceLayout", () => {
       shape({
         width: 390,
         phonePane: "sketch",
-        open: { content: true, sketch: false, chat: true },
+        open: { content: true, preview: true, sketch: false, chat: true },
+      }),
+    ).toBe("phone:preview");
+  });
+
+  test("with the preview closed, Content is in the middle and as wide as there is room", () => {
+    const closed = { content: true, preview: false, sketch: true, chat: true };
+    expect(shape({ width: 1920, open: closed })).toBe("content|sketch|chat");
+    expect(shape({ width: 1366, open: closed })).toBe(
+      "content|tabs(sketch,chat)",
+    );
+    expect(
+      shape({
+        width: 1366,
+        open: { content: false, preview: false, sketch: true, chat: true },
+      }),
+    ).toBe("sketch|chat");
+  });
+
+  test("a phone always has the preview, open or not", () => {
+    expect(
+      shape({
+        width: 390,
+        phonePane: "preview",
+        open: { content: true, preview: false, sketch: false, chat: false },
       }),
     ).toBe("phone:preview");
   });

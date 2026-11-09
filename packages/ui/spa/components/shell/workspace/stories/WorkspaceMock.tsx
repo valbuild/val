@@ -53,7 +53,7 @@ import {
  */
 
 export type MockState = {
-  open: Record<SidePane, boolean>;
+  open: Record<WorkspacePane, boolean>;
   recent: SidePane[];
   front: "sketch" | "chat";
   narrow: NarrowStrategy;
@@ -84,7 +84,7 @@ export type MockState = {
 export type SelectTool = "content" | "chat";
 
 export const DEFAULT_MOCK_STATE: MockState = {
-  open: { content: true, sketch: true, chat: true },
+  open: { content: true, preview: true, sketch: true, chat: true },
   recent: ["content", "chat", "sketch"],
   front: "chat",
   narrow: "strips",
@@ -122,12 +122,23 @@ export function useMockState(initial: Partial<MockState> = {}) {
     [],
   );
   const toggle = useCallback(
-    (pane: SidePane) =>
+    (pane: WorkspacePane) =>
       setState((current) => {
         const opening = !current.open[pane];
+        const open = { ...current.open, [pane]: opening };
+        // The last pane open stays open: a workspace of nothing is no use.
+        if (!Object.values(open).some(Boolean)) return current;
+        if (pane === "preview") {
+          // With no page on screen, there is nothing for a Select to pick.
+          return {
+            ...current,
+            open,
+            selecting: opening ? current.selecting : null,
+          };
+        }
         return {
           ...current,
-          open: { ...current.open, [pane]: opening },
+          open,
           recent: opening
             ? [pane, ...current.recent.filter((each) => each !== pane)]
             : current.recent,
@@ -200,7 +211,7 @@ function ColumnsMock({
             key={index}
             column={column}
             controls={controls}
-            sideSelect={index === firstSideColumn(layout.columns)}
+            sideSelect={index === assistantColumn(layout.columns)}
           />
         ))}
         {layout.overlay !== null && (
@@ -239,15 +250,19 @@ function ColumnsMock({
 }
 
 /**
- * The first column after the preview that holds Sketch or Assistant: the one
- * whose header carries their Select, beside the preview.
+ * The column that holds the Assistant, whose header carries the Select that
+ * picks for it -- or, with the Assistant closed, the one that holds Sketch,
+ * and a pick opens the Assistant beside it.
  */
-function firstSideColumn(columns: WorkspaceColumn[]): number {
-  return columns.findIndex(
+function assistantColumn(columns: WorkspaceColumn[]): number {
+  const chat = columns.findIndex(
     (column) =>
-      column.type === "tabs" ||
-      (column.type === "pane" &&
-        (column.pane === "sketch" || column.pane === "chat")),
+      (column.type === "tabs" && column.panes.includes("chat")) ||
+      (column.type === "pane" && column.pane === "chat"),
+  );
+  if (chat !== -1) return chat;
+  return columns.findIndex(
+    (column) => column.type === "pane" && column.pane === "sketch",
   );
 }
 
@@ -316,6 +331,14 @@ const PANES: Record<SidePane, { label: string; icon: LucideIcon }> = {
   sketch: { label: "Sketch", icon: PenLine },
   chat: { label: "Assistant", icon: Sparkles },
 };
+
+const PANE_NAMES: Record<WorkspacePane, { label: string; icon: LucideIcon }> = {
+  ...PANES,
+  preview: { label: "Preview", icon: Monitor },
+};
+
+/** The top bar's switches, in the order the panes stand. */
+const TOGGLES: WorkspacePane[] = ["content", "preview", "sketch", "chat"];
 
 function Card({
   children,
@@ -426,12 +449,14 @@ function ContentHeader({
         onChange={(contentTab) => update({ contentTab })}
       />
       <div className="flex-1" />
-      <SelectButton
-        tool="content"
-        controls={controls}
-        label={width >= SELECT_LABEL_FROM}
-        title="Select a field on the page to edit it"
-      />
+      {state.open.preview && (
+        <SelectButton
+          tool="content"
+          controls={controls}
+          label={width >= SELECT_LABEL_FROM}
+          title="Select a field on the page to edit it"
+        />
+      )}
     </div>
   );
 }
@@ -458,7 +483,7 @@ function SideHeader({
 }) {
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-2">
-      {select && (
+      {select && controls.state.open.preview && (
         <SelectButton
           tool="chat"
           controls={controls}
@@ -664,14 +689,14 @@ function TopBarMock({
             </span>
           </button>
           <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5">
-            {(Object.keys(PANES) as SidePane[]).map((pane) => {
-              const Icon = PANES[pane].icon;
+            {TOGGLES.map((pane) => {
+              const { icon: Icon, label } = PANE_NAMES[pane];
               return (
                 <button
                   key={pane}
                   type="button"
                   aria-pressed={state.open[pane]}
-                  title={`${state.open[pane] ? "Close" : "Open"} ${PANES[pane].label}`}
+                  title={`${state.open[pane] ? "Close" : "Open"} ${label}`}
                   onClick={() => toggle(pane)}
                   className={cn(
                     "inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium",
@@ -681,7 +706,7 @@ function TopBarMock({
                   )}
                 >
                   <Icon size={13} />
-                  {roomy && PANES[pane].label}
+                  {roomy && label}
                 </button>
               );
             })}
@@ -789,7 +814,7 @@ function ContentMock({ controls }: { controls: Controls }) {
   const tab = state.contentTab;
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div className="mx-auto min-h-0 w-full max-w-[720px] flex-1 overflow-auto p-4">
         <div className="mb-3 flex items-center gap-1 text-xs text-fg-secondary">
           <ChevronLeft size={13} />
           Blog
@@ -977,38 +1002,6 @@ function PreviewMock({
           {state.codeMode && !narrow && "Up to date"}
         </span>
       </div>
-      {state.selecting !== null && (
-        <div
-          className={cn(
-            "flex h-8 shrink-0 items-center gap-2 border-b px-3 text-xs",
-            state.selecting === "content"
-              ? "border-border-float text-fg-secondary"
-              : state.codeMode
-                ? "border-dashed border-border-proposal bg-bg-proposal-soft text-fg-proposal"
-                : "border-dashed border-border-brand-secondary text-fg-primary",
-          )}
-        >
-          {state.selecting === "content" ? (
-            <MousePointerSquareDashed size={13} />
-          ) : (
-            <MousePointerClick size={13} />
-          )}
-          <span className="min-w-0 flex-1 truncate">
-            {state.selecting === "content"
-              ? "Click a field to edit it"
-              : state.codeMode
-                ? "Click anything to ask the assistant about it"
-                : "Click a field to ask the assistant about it"}
-          </span>
-          <button
-            type="button"
-            onClick={() => update({ selecting: null })}
-            className="font-medium hover:underline"
-          >
-            Done
-          </button>
-        </div>
-      )}
       <div className="min-h-0 flex-1 overflow-auto bg-bg-canvas p-3">
         <SitePage
           maxWidth={

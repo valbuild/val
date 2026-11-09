@@ -2,21 +2,24 @@
  * Where the workspace's panes go, at a given window width.
  *
  * A PROTOTYPE of the layout that replaces code mode's and the Sketchpad's
- * workspace overrides: one workspace, four panes, and the preview always in
- * the middle of it.
+ * workspace overrides: one workspace, four panes, and the preview in the
+ * middle of it while it is open.
  *
  * - **Content**: the editor, structural or "on this page".
- * - **Preview**: the site, the same component everywhere. The anchor: from a
- *   tablet up it is never closed, never covered for good and never narrower
- *   than `PREVIEW_MIN`.
+ * - **Preview**: the site, the same component everywhere. The ANCHOR while it
+ *   is open: never covered for good and never narrower than `PREVIEW_MIN`.
+ *   It can be closed from a tablet up -- for content that is on no page, or
+ *   to write at full width -- and then the first open pane of Content,
+ *   Sketch and Chat is the anchor in its place. On a phone it is always
+ *   one of the tabs.
  * - **Sketch** and **Chat**: worked on together (a sketch is sent to the
  *   assistant), so when there is no room for both they share one column as
  *   two tabs.
  *
  * There are no layouts per breakpoint. Two rules decide every width:
  *
- * 1. Take the widest arrangement that leaves the preview its minimum: every
- *    open pane its own column; then Sketch and Chat as tabs; then the preview
+ * 1. Take the widest arrangement that leaves the anchor its minimum: every
+ *    open pane its own column; then Sketch and Chat as tabs; then the anchor
  *    and ONE column, the most recently used.
  * 2. What does not fit is not closed. It folds to a strip at its own edge,
  *    one click from coming back -- or, with `narrow: "overlay"`, Content
@@ -36,8 +39,11 @@ export type NarrowStrategy = "strips" | "overlay";
 export type WorkspaceLayoutInput = {
   /** The window's width, in CSS pixels. */
   width: number;
-  /** Which panes are open. The preview always is. */
-  open: Record<SidePane, boolean>;
+  /**
+   * Which panes are open. With none of them, the preview is. On a phone the
+   * preview is a tab whatever this says.
+   */
+  open: Record<WorkspacePane, boolean>;
   /** Most recently used first. Decides what stays when not everything fits. */
   recent: readonly SidePane[];
   /** Which of Sketch and Chat is in front when they share a column. */
@@ -80,7 +86,7 @@ export type WorkspaceLayout =
       columns: WorkspaceColumn[];
       overlay: WorkspaceOverlay | null;
       /** Which arrangement rule 1 settled on, for the stories to label. */
-      arrangement: "all" | "tabbed" | "one-column" | "preview-only";
+      arrangement: "all" | "tabbed" | "one-column" | "single";
     };
 
 /** The Studio's own breakpoints (`useShellBreakpoint`). */
@@ -97,6 +103,8 @@ export const STRIP_WIDTH = 40;
 export const PREVIEW_MIN = 560;
 export const CONTENT_MIN = 340;
 export const CONTENT_MAX = 480;
+/** The least an anchor other than the preview is left with. */
+export const ANCHOR_MIN = 420;
 /** `AI_PANEL_WIDTH`, and room for two columns of sketch boxes. */
 export const SIDE_WIDTH = 420;
 
@@ -108,8 +116,9 @@ function contentWidth(available: number): number {
   );
 }
 
-/** The width the preview is left with, once the other columns are placed. */
-function withPreview(
+/** The column at the anchor, with what the other columns leave. */
+function withAnchor(
+  anchor: WorkspacePane,
   available: number,
   left: WorkspaceColumn[],
   right: WorkspaceColumn[],
@@ -119,16 +128,25 @@ function withPreview(
     GAP * (left.length + right.length);
   return [
     ...left,
-    { type: "pane", pane: "preview", width: available - taken },
+    { type: "pane", pane: anchor, width: available - taken },
     ...right,
   ];
 }
 
-function previewWidth(columns: WorkspaceColumn[]): number {
-  const preview = columns.find(
-    (column) => column.type === "pane" && column.pane === "preview",
+function widthOf(anchor: WorkspacePane, columns: WorkspaceColumn[]): number {
+  const column = columns.find(
+    (each) => each.type === "pane" && each.pane === anchor,
   );
-  return preview?.width ?? 0;
+  return column?.width ?? 0;
+}
+
+/** The pane in the middle: the preview while it is open. */
+export function anchorOf(open: Record<WorkspacePane, boolean>): WorkspacePane {
+  if (open.preview) return "preview";
+  if (open.content) return "content";
+  if (open.sketch) return "sketch";
+  if (open.chat) return "chat";
+  return "preview";
 }
 
 export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
@@ -148,10 +166,18 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
     width < DESKTOP_FROM ? "tablet" : "desktop";
   const rail = breakpoint === "desktop";
   const available = width - (rail ? RAIL_WIDTH : GUTTER) - GUTTER;
-  const content: WorkspaceColumn[] = open.content
+  const anchor = anchorOf(open);
+  const minimum = anchor === "preview" ? PREVIEW_MIN : ANCHOR_MIN;
+  const place = (left: WorkspaceColumn[], right: WorkspaceColumn[]) =>
+    withAnchor(anchor, available, left, right);
+  const fits = (columns: WorkspaceColumn[]) =>
+    widthOf(anchor, columns) >= minimum;
+
+  const contentOpen = open.content && anchor !== "content";
+  const content: WorkspaceColumn[] = contentOpen
     ? [{ type: "pane", pane: "content", width: contentWidth(available) }]
     : [];
-  const sides = SIDE_PANES.filter((pane) => open[pane]);
+  const sides = SIDE_PANES.filter((pane) => open[pane] && pane !== anchor);
   const sideFront = sides.includes(front) ? front : sides[0];
 
   const layout = (
@@ -167,18 +193,17 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
     arrangement,
   });
 
-  // Nothing but the preview.
+  // Nothing but the anchor.
   if (content.length === 0 && sides.length === 0) {
-    return layout(withPreview(available, [], []), null, "preview-only");
+    return layout(place([], []), null, "single");
   }
 
   // 1. Every open pane its own column.
-  const all = withPreview(
-    available,
+  const all = place(
     content,
     sides.map((pane) => ({ type: "pane", pane, width: SIDE_WIDTH })),
   );
-  if (previewWidth(all) >= PREVIEW_MIN) {
+  if (fits(all)) {
     return layout(all, null, "all");
   }
 
@@ -190,14 +215,14 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
         ? [{ type: "pane", pane: sides[0], width: SIDE_WIDTH }]
         : [{ type: "tabs", panes: sides, front: sideFront, width: SIDE_WIDTH }];
   if (sides.length === 2) {
-    const tabbed = withPreview(available, content, sideColumn);
-    if (previewWidth(tabbed) >= PREVIEW_MIN) {
+    const tabbed = place(content, sideColumn);
+    if (fits(tabbed)) {
       return layout(tabbed, null, "tabbed");
     }
   }
 
-  // 3. The preview and one column: the one used last. The other folds.
-  const contentStrip: WorkspaceColumn[] = open.content
+  // 3. The anchor and one column: the one used last. The other folds.
+  const contentStrip: WorkspaceColumn[] = contentOpen
     ? [{ type: "strip", panes: ["content"], edge: "left", width: STRIP_WIDTH }]
     : [];
   const sideStrip: WorkspaceColumn[] =
@@ -213,24 +238,29 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
       : [];
   // Whether Sketch or Chat was used more recently than Content.
   const contentAt = recent.indexOf("content");
-  const sideAt = recent.findIndex((pane) => pane !== "content" && open[pane]);
+  const sideAt = recent.findIndex(
+    (pane) => pane !== "content" && open[pane] && pane !== anchor,
+  );
   const sideUsedLast =
     sides.length > 0 &&
-    (!open.content ||
-      contentAt === -1 ||
-      (sideAt !== -1 && sideAt < contentAt));
+    (!contentOpen || contentAt === -1 || (sideAt !== -1 && sideAt < contentAt));
 
   // With overlays, the side column keeps its place, and Content comes over
   // the preview while it is the one in use.
-  if (narrow === "overlay" && open.content && sides.length > 0) {
-    const docked = withPreview(available, [], sideColumn);
-    const folded = withPreview(available, contentStrip, sideColumn);
+  if (
+    narrow === "overlay" &&
+    anchor === "preview" &&
+    contentOpen &&
+    sides.length > 0
+  ) {
+    const docked = place([], sideColumn);
+    const folded = place(contentStrip, sideColumn);
     const [floating] = content;
     if (sideUsedLast || floating === undefined || floating.type !== "pane") {
-      if (previewWidth(folded) >= PREVIEW_MIN) {
+      if (fits(folded)) {
         return layout(folded, null, "one-column");
       }
-    } else if (previewWidth(docked) >= PREVIEW_MIN) {
+    } else if (fits(docked)) {
       return layout(
         docked,
         { edge: "left", width: floating.width, column: floating },
@@ -241,17 +271,15 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
 
   const kept = sideUsedLast ? sideColumn : content;
   const pair = sideUsedLast
-    ? withPreview(available, contentStrip, kept)
-    : withPreview(available, kept, sideStrip);
-  if (previewWidth(pair) >= PREVIEW_MIN) {
+    ? place(contentStrip, kept)
+    : place(kept, sideStrip);
+  if (fits(pair)) {
     return layout(pair, null, "one-column");
   }
 
-  // 4. Not even one column fits: the one in use is a sheet over the preview.
+  // 4. Not even one column fits: the one in use is a sheet over the anchor.
   const [sheet] = kept;
-  const columns = sideUsedLast
-    ? withPreview(available, contentStrip, [])
-    : withPreview(available, [], sideStrip);
+  const columns = sideUsedLast ? place(contentStrip, []) : place([], sideStrip);
   if (sheet === undefined || sheet.type === "strip") {
     return layout(columns, null, "one-column");
   }

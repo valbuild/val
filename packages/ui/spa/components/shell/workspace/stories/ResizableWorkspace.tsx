@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../../../designSystem/cn";
-import { workspaceLayout, type SidePane } from "../workspaceLayout";
+import { workspaceLayout, type WorkspacePane } from "../workspaceLayout";
 import {
   WorkspaceMock,
   describeLayout,
@@ -19,6 +19,13 @@ export const PRESETS: { label: string; width: number; height: number }[] = [
 ];
 
 const MIN_WIDTH = 360;
+
+const OPEN_CHIPS: { pane: WorkspacePane; label: string }[] = [
+  { pane: "content", label: "Content" },
+  { pane: "preview", label: "Preview" },
+  { pane: "sketch", label: "Sketch" },
+  { pane: "chat", label: "Assistant" },
+];
 const MAX_WIDTH = 2800;
 
 /**
@@ -115,17 +122,13 @@ export function ResizableWorkspace({
           />
         </Group>
         <Group label="Open">
-          {(["content", "sketch", "chat"] satisfies SidePane[]).map((pane) => (
+          {OPEN_CHIPS.map(({ pane, label }) => (
             <Chip
               key={pane}
               active={state.open[pane]}
               onClick={() => toggle(pane)}
             >
-              {pane === "chat"
-                ? "Assistant"
-                : pane === "content"
-                  ? "Content"
-                  : "Sketch"}
+              {label}
             </Chip>
           ))}
         </Group>
