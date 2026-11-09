@@ -5,15 +5,22 @@ import {
   FileText,
   ImageIcon,
   Monitor,
+  Bell,
+  History,
+  Languages,
+  ListChecks,
   MousePointerClick,
   MousePointerSquareDashed,
   PenLine,
   RotateCw,
+  Search,
   Send,
   Settings,
   Smartphone,
   Sparkles,
+  ShieldCheck,
   Tablet,
+  UserPlus,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -26,8 +33,10 @@ import {
 } from "react";
 import { cn } from "../../../designSystem/cn";
 import {
+  DESKTOP_FROM,
   GAP,
   GUTTER,
+  PHONE_BELOW,
   RAIL_WIDTH,
   workspaceLayout,
   type NarrowStrategy,
@@ -154,7 +163,7 @@ export function WorkspaceMock({
       {layout.kind === "phone" ? (
         <PhoneMock layout={layout} controls={controls} />
       ) : (
-        <ColumnsMock layout={layout} controls={controls} />
+        <ColumnsMock layout={layout} controls={controls} width={width} />
       )}
     </div>
   );
@@ -165,14 +174,16 @@ const TOP = 60;
 function ColumnsMock({
   layout,
   controls,
+  width,
 }: {
   layout: Extract<WorkspaceLayout, { kind: "columns" }>;
   controls: Controls;
+  width: number;
 }) {
   const left = layout.rail ? RAIL_WIDTH : GUTTER;
   return (
     <>
-      <TopBarMock controls={controls} compact={false} />
+      <TopBarMock controls={controls} width={width} />
       {layout.rail && <RailMock />}
       <div
         className="absolute flex"
@@ -472,22 +483,37 @@ function StripMock({
   );
 }
 
+/**
+ * Today's top bar, with one change: Content, Sketch and Assistant take the
+ * place of the Preview button, which has nothing to toggle once the preview
+ * is the anchor. Everything else is where it is now -- search, members, the
+ * locale, Review, Save or Publish, errors, history, notifications and the
+ * account -- and only shown, not wired.
+ */
 function TopBarMock({
   controls,
-  compact,
+  width,
 }: {
   controls: Controls;
-  compact: boolean;
+  width: number;
 }) {
   const { state, update, toggle } = controls;
+  const phone = width < PHONE_BELOW;
+  const roomy = width >= 1500;
+  const desktop = width >= DESKTOP_FROM;
   return (
     <div
-      className="absolute left-3 right-3 top-3 flex h-10 items-center gap-2"
-      style={compact ? undefined : { left: GUTTER }}
+      className="absolute top-3 flex h-10 items-center gap-2"
+      style={{ left: GUTTER, right: GUTTER }}
     >
       <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-fg-primary text-xs font-bold text-bg-primary">
         V
       </div>
+      {roomy && (
+        <span className="shrink-0 text-xs font-medium text-fg-secondary">
+          nordlys/site
+        </span>
+      )}
       <div className="flex h-8 min-w-0 items-center gap-2 rounded-md border border-border-proposal bg-bg-proposal-soft px-2 text-xs font-medium text-fg-proposal">
         <span className="h-2 w-2 shrink-0 rounded-full bg-bg-proposal" />
         <span className="truncate">Spring campaign</span>
@@ -506,31 +532,66 @@ function TopBarMock({
       >
         <CodeXml size={15} />
       </button>
+      {!phone && <Members />}
+      {!phone &&
+        (roomy ? (
+          <div className="flex h-8 w-56 shrink items-center gap-2 rounded-md border border-border-float bg-bg-float px-2 text-xs text-fg-secondary-alt">
+            <Search size={14} />
+            <span className="flex-1">Search</span>
+            <kbd className="font-sans text-[10px]">⌘K</kbd>
+          </div>
+        ) : (
+          <IconStub icon={Search} label="Search" />
+        ))}
       <div className="flex-1" />
-      {!compact && (
-        <div className="flex items-center gap-1 rounded-md border border-border-float bg-bg-float p-0.5">
-          {(Object.keys(PANES) as SidePane[]).map((pane) => {
-            const Icon = PANES[pane].icon;
-            return (
-              <button
-                key={pane}
-                type="button"
-                aria-pressed={state.open[pane]}
-                title={`${state.open[pane] ? "Close" : "Open"} ${PANES[pane].label}`}
-                onClick={() => toggle(pane)}
-                className={cn(
-                  "inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium",
-                  state.open[pane]
-                    ? "bg-bg-float-raised text-fg-primary"
-                    : "text-fg-secondary hover:text-fg-primary",
-                )}
-              >
-                <Icon size={13} />
-                {PANES[pane].label}
-              </button>
-            );
-          })}
-        </div>
+      {phone ? (
+        <>
+          <IconStub icon={Search} label="Search" />
+          <Avatar />
+        </>
+      ) : (
+        <>
+          {desktop && (
+            <span className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border-float px-2 text-xs text-fg-secondary">
+              <Languages size={14} />
+              EN
+            </span>
+          )}
+          <button
+            type="button"
+            title="Review 3 changes"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border-float bg-bg-float px-2 text-xs font-medium"
+          >
+            <ListChecks size={14} />
+            {roomy && "Review"}
+            <span className="grid h-4 min-w-4 place-items-center rounded-full bg-bg-proposal px-1 text-[10px] text-fg-on-proposal">
+              3
+            </span>
+          </button>
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-float bg-bg-float p-0.5">
+            {(Object.keys(PANES) as SidePane[]).map((pane) => {
+              const Icon = PANES[pane].icon;
+              return (
+                <button
+                  key={pane}
+                  type="button"
+                  aria-pressed={state.open[pane]}
+                  title={`${state.open[pane] ? "Close" : "Open"} ${PANES[pane].label}`}
+                  onClick={() => toggle(pane)}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium",
+                    state.open[pane]
+                      ? "bg-bg-float-raised text-fg-primary"
+                      : "text-fg-secondary hover:text-fg-primary",
+                  )}
+                >
+                  <Icon size={13} />
+                  {roomy && PANES[pane].label}
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
       <button
         type="button"
@@ -538,7 +599,54 @@ function TopBarMock({
       >
         Save
       </button>
+      {!phone && (
+        <>
+          <span className="mx-1 h-5 w-px shrink-0 bg-border-float" />
+          {desktop && <IconStub icon={ShieldCheck} label="No errors" />}
+          {desktop && <IconStub icon={History} label="History" />}
+          <IconStub icon={Bell} label="Notifications" />
+          <Avatar />
+        </>
+      )}
     </div>
+  );
+}
+
+function IconStub({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-fg-secondary"
+    >
+      <Icon size={16} />
+    </span>
+  );
+}
+
+function Avatar({ initials = "FE" }: { initials?: string }) {
+  return (
+    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-bg-float-raised text-[10px] font-medium text-fg-primary ring-2 ring-bg-canvas">
+      {initials}
+    </span>
+  );
+}
+
+/** Who else is in this proposal, and the way to invite more. */
+function Members() {
+  return (
+    <span
+      title="2 people in this proposal · Invite"
+      className="flex shrink-0 items-center"
+    >
+      <Avatar initials="KN" />
+      <span className="-ml-2">
+        <Avatar initials="TL" />
+      </span>
+      <span className="ml-1 grid h-7 w-7 place-items-center rounded-full border border-dashed border-border-float text-fg-secondary">
+        <UserPlus size={13} />
+      </span>
+    </span>
   );
 }
 
@@ -984,7 +1092,7 @@ function PhoneMock({
   };
   return (
     <>
-      <TopBarMock controls={controls} compact />
+      <TopBarMock controls={controls} width={390} />
       <div className="absolute inset-x-3 bottom-[68px] top-[60px] flex">
         {layout.pane === "preview" ? (
           <Card
