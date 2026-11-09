@@ -1,5 +1,39 @@
 # @valbuild/ui
 
+## 0.152.0
+
+### Minor Changes
+
+- [#1015](https://github.com/valbuild/val/pull/1015) [`08a3977`](https://github.com/valbuild/val/commit/08a39779dbe43702a72ae57cbf8cf29b14e64672) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad covers several pages, builds what it shows, and can be linked to the content.
+
+  - **Route dividers.** A sketchpad is no longer about one page. A `--- /about` line starts the part about a page, so one sketch can cover a page and the pages it links to. Press a route to see that page beside the sketch, in the Studio's own live preview, which follows edits as they are made. A divider's menu changes its page, or adds a new one from a page type the site has (`/blog/[slug]`). A route the site has no page type for is allowed too, and is marked as needing code.
+  - **Start from a page.** An empty sketchpad offers to start from a page. The assistant writes that page into it, images and all, and changes nothing.
+  - **Build.** The button that sent the sketchpad to the assistant is now **Build**. It sends the sketchpad as a card in the chat (press it to open the sketchpad), with a request to change the pages to match the sketch. It is disabled while the sketch is empty.
+  - **Images that exist.** A box shows an image from a gallery, from the site's content, or one uploaded to the chat, and the picker offers exactly those, with search and Upload (which puts the file in the chat first). A box naming any other image says so. When the assistant writes a sketch with an image that is not in the project, the write is refused. Images are named by their content path (`/public/val/hero.webp`) and shown where the site serves them, including uploads that are not published yet.
+  - **Block types.** A box's kind is a combobox of the kinds of section the site's pages have, read from the schema. Any other word is allowed, and is marked as a new type that needs code.
+  - **Drag.** Blocks, rows, columns and images can be dragged to a new place. Columns share a row equally, so the width controls are gone.
+  - **Highlights.** The assistant can point at blocks, in a colour and with a note (for example, the ones that need code), with `highlight_sketchpad_blocks`. The highlights can be cleared, by the person or by the assistant.
+  - **Linked text (a try-out).** A heading or paragraph can be linked to a plain text field with `{field: <source path>}`. Typing in it then changes that field, as typing in the field would. The block shows what it is linked to and has an **Unlink** button. When the field was changed elsewhere, the block says so and offers the field's text. A sketchpad the assistant starts from a page links its text this way.
+  - **Converting images.** The assistant can convert an image in the chat to WebP, or scale it down, with `convert_session_image`, using the same encoder as the Studio's uploads.
+
+### Patch Changes
+
+- [#1017](https://github.com/valbuild/val/pull/1017) [`f4e0660`](https://github.com/valbuild/val/commit/f4e06601495dbee680a4b9000344f84cd3af717f) Thanks [@freekh](https://github.com/freekh)! - The third kind of site update in the Studio's Updates is now called **Full update** (it was "Full upgrade"), the same word Val Build uses when it runs updates in a project's Updates.
+
+- [#1013](https://github.com/valbuild/val/pull/1013) [`3bb76d7`](https://github.com/valbuild/val/commit/3bb76d74d82b499aa15023838d63018a70fd7ce7) Thanks [@freekh](https://github.com/freekh)! - A save that the content service fails to take no longer looks like a successful one.
+
+  Before, when the content service answered a save with a server error (or could not be reached), the Studio treated the edit as invalid and dropped it: the field went back to its old value, and the status bar kept saying "All changes saved". Now:
+
+  - **Your edit is kept.** The field keeps what you typed.
+  - **The Studio says the save failed.** The status bar shows "Could not save" (never "All changes saved" while a save has failed or is still pending), and a notice says which service failed, with the service's own message under **Details**.
+  - **Try again** sends the same save again. The Studio also retries by itself in the background, so if you leave the tab open your changes are saved once the service is back.
+
+  Pressing Publish while a save has failed now says what failed, in the service's words, with a **Save again** button, instead of "Check the connection and try again".
+
+  Saves that the service refuses because of your plan, and saves that conflict with someone else's change, work as before.
+
+  Error messages from the content service also stop blaming your network. "Could not get your changes. It is most likely due to a network issue. Check your network connection" was shown even when the service had answered with a 500. These messages now say what actually happened (the service answered with an error, refused the request, or could not be reached from your site's server) and name the service. The status code and the service's response are kept as details for whoever needs to look into it. Publish failures now also show the service's own message, where they used to say "Unknown error".
+
 ## 0.151.0
 
 ### Patch Changes
