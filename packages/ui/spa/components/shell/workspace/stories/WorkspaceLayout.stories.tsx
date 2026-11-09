@@ -1,0 +1,103 @@
+import type { Meta, StoryObj } from "@storybook/react";
+import { workspaceLayout } from "../workspaceLayout";
+import { ResizableWorkspace } from "./ResizableWorkspace";
+import {
+  WorkspaceMock,
+  describeLayout,
+  useMockState,
+  type MockState,
+} from "./WorkspaceMock";
+
+/**
+ * A prototype of the one workspace: Content | Preview | Sketch | Assistant,
+ * laid out by `workspaceLayout` at any width. The preview is the same in
+ * every mode, and code mode only changes what Select can pick.
+ */
+const meta: Meta = {
+  title: "Shell/Workspace layout (prototype)",
+  parameters: { layout: "fullscreen" },
+};
+export default meta;
+
+type Story = StoryObj;
+
+/** Drag the handle, or pick a window size. */
+export const Resizable: Story = {
+  render: () => (
+    <div className="min-h-screen bg-bg-primary p-4">
+      <ResizableWorkspace />
+    </div>
+  ),
+};
+
+function AtSize({
+  width,
+  height,
+  initial,
+}: {
+  width: number;
+  height: number;
+  initial?: Partial<MockState>;
+}) {
+  const controls = useMockState(initial);
+  return (
+    <div className="inline-flex flex-col bg-bg-primary">
+      <p className="px-3 py-2 font-sans text-xs text-fg-secondary">
+        <span className="font-medium tabular-nums text-fg-primary">
+          {width} × {height}
+        </span>{" "}
+        · {describeLayout(workspaceLayout({ width, ...controls.state }))}
+      </p>
+      <WorkspaceMock width={width} height={height} controls={controls} />
+    </div>
+  );
+}
+
+const at = (
+  width: number,
+  height: number,
+  initial?: Partial<MockState>,
+): Story => ({
+  render: () => <AtSize width={width} height={height} initial={initial} />,
+});
+
+/** Room for everything: four columns. */
+export const Ultrawide2560 = at(2560, 1440);
+
+/** Sketch and the assistant share a column; Content and the preview keep theirs. */
+export const Desktop1920 = at(1920, 1080);
+
+/** As wide as a 14" MacBook gets. */
+export const MacBook1512 = at(1512, 945);
+
+/** Editing content: Sketch and the assistant fold to a strip on the right. */
+export const Laptop1366Editing = at(1366, 768);
+
+/** Talking to the assistant: now Content folds, on the left. */
+export const Laptop1366Chatting = at(1366, 768, {
+  recent: ["chat", "content", "sketch"],
+});
+
+/** Option (b): Content comes over the preview, and the assistant stays. */
+export const Laptop1366Overlay = at(1366, 768, { narrow: "overlay" });
+
+/** Code mode: Select picks any element, and it goes with the next message. */
+export const CodeModeSelecting = at(1920, 1080, {
+  codeMode: true,
+  pointedAt: "h1 · “Spring has come to Oslo”",
+  hovered: "footer",
+});
+
+/** A tablet: Content beside the preview, the rest a strip. */
+export const Tablet1024 = at(1024, 768);
+
+/** A tablet, with the assistant in use: a sheet over the preview. */
+export const Tablet1024Chatting = at(1024, 768, {
+  recent: ["chat", "content", "sketch"],
+});
+
+/** A phone: one pane at a time. */
+export const Phone = at(390, 844);
+
+/** A phone in code mode, looking at the preview. */
+export const PhoneCodeMode = at(390, 844, { codeMode: true });
