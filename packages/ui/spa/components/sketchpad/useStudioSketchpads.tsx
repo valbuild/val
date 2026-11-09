@@ -19,6 +19,12 @@ import {
   useSketchpadsSnapshot,
 } from "./SketchpadsState";
 import { readSeen, relative, ValSketchpad } from "./ValSketchpad";
+import { parseSketch, sketchRoutes } from "@valbuild/shared/internal";
+import {
+  buildSketchpadMessage,
+  OpenSketchpadContext,
+  startFromRouteMessage,
+} from "./SketchpadMessageCard";
 
 /**
  * Everything the Studio's shell does with sketchpads, for `ValShell` to pass
@@ -33,6 +39,8 @@ export function useStudioSketchpads(options: {
   /** Opens the assistant, docked beside the Sketchpad; null without one. */
   openAssistant: (() => void) | null;
   pages: ShellPage[];
+  /** The site's page types (`/blog/[slug]`): a new page starts from one. */
+  pageTypes?: string[];
   currentProfileId: string | null;
   /**
    * Where the Studio is. Going somewhere else -- a page, the Explorer, a
@@ -46,7 +54,8 @@ export function useStudioSketchpads(options: {
   onSketchPage: ((page: ShellPage) => void) | undefined;
   workspaceOverride: ReactNode | undefined;
 } {
-  const { openAssistant, pages, currentProfileId, location } = options;
+  const { openAssistant, pages, pageTypes, currentProfileId, location } =
+    options;
   const valClient = useClient();
   const client = useMemo(() => createSketchpadClient(valClient), [valClient]);
   const [state] = useState(() => new SketchpadsState());
@@ -113,6 +122,10 @@ export function useStudioSketchpads(options: {
     state.open(id);
     openAssistant?.();
   };
+  // Stable, so the chat's messages do not re-render with every change here.
+  const openRef = useRef(open);
+  openRef.current = open;
+  const [openFromChat] = useState(() => (id: string) => openRef.current(id));
 
   const onSketchPage = async (page: ShellPage) => {
     const existing = (summaries ?? []).find(
@@ -143,10 +156,28 @@ export function useStudioSketchpads(options: {
     });
   };
 
+  // Build: the sketchpad as a card in the chat, and a request to change the
+  // pages to match it. See `buildSketchpadMessage`.
   const sendToAssistant = (sketchpad: SketchpadT) => {
     openAssistant?.();
     state.sendToAssistant(
-      `Read the sketchpad “${sketchpad.title ?? sketchpad.page ?? "Untitled sketch"}” (id ${sketchpad.id}) and tell me what you think.`,
+      buildSketchpadMessage({
+        id: sketchpad.id,
+        title: sketchpad.title,
+        routes: sketchRoutes(parseSketch(sketchpad.text).blocks),
+      }),
+    );
+  };
+
+  // An empty sketchpad started from a page: the assistant writes that page
+  // into it, and changes nothing else.
+  const startFromRoute = (sketchpad: SketchpadT, route: string) => {
+    openAssistant?.();
+    state.sendToAssistant(
+      startFromRouteMessage(
+        { id: sketchpad.id, title: sketchpad.title },
+        route,
+      ),
     );
   };
 
@@ -160,13 +191,18 @@ export function useStudioSketchpads(options: {
 
   // Once each: a route pattern is in the tree once per page under it.
   const pageOptions = useMemo(
-    () => Array.from(new Set(routesOf(pages))),
-    [pages],
+    () => Array.from(new Set([...routesOf(pages), ...(pageTypes ?? [])])),
+    [pages, pageTypes],
   );
 
   return {
     wrap: (children) => (
-      <SketchpadsProvider state={state}>{children}</SketchpadsProvider>
+      <SketchpadsProvider state={state}>
+        {/* A sketchpad's card in the chat opens it. */}
+        <OpenSketchpadContext.Provider value={openFromChat}>
+          {children}
+        </OpenSketchpadContext.Provider>
+      </SketchpadsProvider>
     ),
     sketchpad:
       available && (unarchived.length > 0 || snapshot.openId !== null)
@@ -195,6 +231,7 @@ export function useStudioSketchpads(options: {
           client={client}
           sketchpads={{ items, refresh: () => void refresh() }}
           onSendToAssistant={openAssistant ? sendToAssistant : undefined}
+          onStartFromRoute={openAssistant ? startFromRoute : undefined}
           onOpenAssistant={openAssistant ?? undefined}
           pageOptions={pageOptions}
           currentProfileId={currentProfileId}

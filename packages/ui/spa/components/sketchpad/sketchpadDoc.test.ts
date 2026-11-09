@@ -4,7 +4,12 @@ import {
   parseSketch,
   type SketchNode,
 } from "@valbuild/shared/internal";
-import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
+import {
+  docFromSketch,
+  sketchFromDoc,
+  sketchLinePositions,
+  sketchSchema,
+} from "./sketchpadDoc";
 
 /** A sketch's blocks without their line numbers, which a rewrite moves. */
 function shape(source: string): unknown {
@@ -19,10 +24,11 @@ function shape(source: string): unknown {
 }
 
 const SKETCH = `# Our people
+--- /about
 We are 40 people in Oslo.
 [hero: The team](image: /public/val/team.jpg)
 row
-  col 2
+  col
     ## Design
     [list: Designers]
   col
@@ -108,8 +114,11 @@ describe("the editor writes what formatSketch writes", () => {
     "icon hero M3 5h18\n\n\n[hero: A]\n# B",
     "col\n  Alone",
     "row\n  row\n    col\n      Deep",
+    "--- /\n# Home\n--- /about\nrow\n  col\n    About",
     "row\n",
     "# Title\n\n\nText\n",
+    '# Hi {field: /c.val.ts?p="title"}\nrow\n  col\n    Body {field: /c.val.ts?p="body"}\n',
+    '# One {field: /c.val.ts?p="t"}\n## Two {field: /c.val.ts?p="t"}\n',
   ])("%j", (source) => {
     const { blocks, icons } = parseSketch(source);
     const { doc, icons: docIcons } = docFromSketch(source);
@@ -119,5 +128,27 @@ describe("the editor writes what formatSketch writes", () => {
     }
     // Whatever went in, what the editor writes is a sketch the server takes.
     expect(checkSketch(written)).toEqual([]);
+  });
+});
+
+describe("where each line of the text is", () => {
+  test("names the block it was written from", () => {
+    const { doc } = docFromSketch(SKETCH);
+    const positions = sketchLinePositions(doc);
+    const text = sketchFromDoc(doc, {});
+    text
+      .trimEnd()
+      .split("\n")
+      .forEach((line, i) => {
+        const node = doc.nodeAt(positions.get(i + 1) ?? -1);
+        // Every line maps to a node, and a box line to that box.
+        expect(node).not.toBeNull();
+        if (line.trim().startsWith("[")) {
+          expect(node?.type.name).toBe("box");
+        }
+        if (line.startsWith("--- ")) {
+          expect(node?.attrs.route).toBe(line.slice(4));
+        }
+      });
   });
 });

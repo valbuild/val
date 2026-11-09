@@ -13,6 +13,7 @@ import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
+import { SketchpadMessageCard } from "./sketchpad/SketchpadMessageCard";
 import {
   Send,
   Square,
@@ -454,7 +455,7 @@ function getTextContent(content: AIMessageContent): string {
 // this gate omits makes the whole message fall through and render its markup
 // as literal text.
 const USER_HTML_TAG_RE =
-  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field)\b/i;
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field|sketchpad)\b/i;
 
 function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
   return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
@@ -539,6 +540,20 @@ function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
         <span key={key} className="italic text-fg-secondary">
           [{alt ? `image: ${alt}` : "image"}]
         </span>
+      );
+    }
+    case "sketchpad": {
+      // "Build" from a Sketchpad: the sketchpad as a card to open it by.
+      const routes = (el.getAttribute("routes") ?? "")
+        .split(" ")
+        .filter((route) => route !== "");
+      return (
+        <SketchpadMessageCard
+          key={key}
+          id={el.getAttribute("id") ?? ""}
+          title={el.getAttribute("title") ?? "Sketchpad"}
+          routes={routes}
+        />
       );
     }
     case "field": {

@@ -8,15 +8,36 @@ import {
   X,
 } from "lucide-react";
 import type { Plugin } from "prosemirror-state";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import {
   useLockBodyScroll,
   useVisualViewport,
 } from "../shell/useVisualViewport";
-import type { SketchMedia } from "@valbuild/shared/internal";
-import { SketchpadEditor } from "./SketchpadEditor";
+import {
+  SESSION_MEDIA_PREFIX,
+  type SketchMedia,
+} from "@valbuild/shared/internal";
+import { defaultMediaUrl, SketchpadEditor } from "./SketchpadEditor";
+import type { SketchBlockType } from "./boxNodeView";
+import { RouteMenu } from "./RouteMenu";
+import type { RouteMenuRequest } from "./routeNodeView";
+import { HIGHLIGHT_COLORS, type SketchHighlight } from "./highlights";
+import type { FieldLinkInfo } from "./fieldLinks";
+import {
+  SketchpadMediaPicker,
+  type SketchMediaLibrary,
+  type SketchMediaOption,
+} from "./SketchpadMediaPicker";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
+
+/**
+ * An image in the chat that this tab has no file of: a grey frame that says
+ * so, rather than a broken image.
+ */
+const SESSION_IMAGE_PLACEHOLDER = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="#f1f1f3"/><text x="160" y="95" font-family="system-ui,sans-serif" font-size="14" fill="#6b6b76" text-anchor="middle">An image in the chat</text></svg>',
+)}`;
 
 export type SketchpadPerson = {
   name: string;
@@ -30,14 +51,42 @@ export type SketchpadProps = {
   /** Shown above the page, e.g. the page's route. */
   title?: string;
   /**
-   * The page it is about: a route, or null. A label, not a link -- the
-   * sketchpad is the project's, and changing its page moves nothing.
+   * @deprecated Not shown. A sketchpad is no one page's: the pages it is
+   * about are its route dividers (`--- /about`), as many as it needs.
    */
   page?: string | null;
-  /** Shown as a chip that can be edited when given. */
+  /** @deprecated See `page`. */
   onPageChange?: (page: string | null) => void;
-  /** Routes to suggest while the page is edited: the site's pages. */
+  /** The site's routes: what a route divider, or a fresh sketch, picks from. */
   pageOptions?: string[];
+  /** The route whose page is shown beside the sketch. */
+  activeRoute?: string | null;
+  /** A route divider was pressed: show that page beside the sketch. */
+  onOpenRoute?: (route: string) => void;
+  /**
+   * Starts an empty sketch from a page: the assistant reads that page and
+   * writes it as a sketch. Given, an empty sketch offers it.
+   */
+  onStartFromRoute?: (route: string) => void;
+  /** The page an empty sketch offers first: where it was opened from. */
+  startRoute?: string | null;
+  /**
+   * Every file a box may show (`SketchMediaLibrary`). Given, a box picks
+   * from it and nothing else, a box naming any other file says so, and a
+   * dropped file goes to the assistant's session first.
+   */
+  mediaLibrary?: SketchMediaLibrary;
+  /** The kinds of block the site's code renders (`SketchBlockType`). */
+  blockTypes?: SketchBlockType[];
+  /** Blocks the assistant points at (`SketchHighlight`). */
+  highlights?: SketchHighlight[];
+  /**
+   * What a block linked to a content field links to now. Given, the links
+   * are shown, and can be broken. See `fieldLinks.ts`.
+   */
+  fieldInfo?: (field: string) => FieldLinkInfo;
+  /** Clears one highlight, or all of them with null. */
+  onClearHighlight?: (id: string | null) => void;
   /** Shown under the title, e.g. who is editing. */
   status?: ReactNode;
   /** True while someone else (the assistant) is writing to the sketch. */
@@ -52,6 +101,8 @@ export type SketchpadProps = {
    * another tab, and for everyone the sketch is shared with.
    */
   onAttachMedia?: (file: File) => Promise<string>;
+  /** See `SketchpadEditorProps.mediaUrl`: where a box's link is loaded from. */
+  mediaUrl?: (src: string) => string;
   /** The proposal's people (Flow H), when the Sketchpad is in one. */
   people?: SketchpadPerson[];
   /** See `SketchpadEditorProps.plugins`: where working together plugs in. */
@@ -122,14 +173,22 @@ export function Sketchpad({
   status,
   readOnly = false,
   onAttachMedia,
+  mediaUrl,
   people,
   plugins,
   onAskAssistant,
+  activeRoute,
+  onOpenRoute,
+  onStartFromRoute,
+  startRoute,
+  mediaLibrary,
+  blockTypes,
+  highlights,
+  fieldInfo,
+  onClearHighlight,
   assistantStatus,
   onArchive,
   sketchpads,
-  page,
-  onPageChange,
   pageOptions,
   fullscreenPreview,
   defaultFullscreen = false,
@@ -191,9 +250,76 @@ export function Sketchpad({
     }
   };
 
-  const attach = onAttachMedia
-    ? (file: File) => upload(onAttachMedia, file)
-    : null;
+  // The picker, open while a box waits for what it picks.
+  const [picking, setPicking] = useState<{
+    current: string | null;
+    resolve: (media: SketchMedia | null) => void;
+  } | null>(null);
+  const [started, setStarted] = useState(false);
+  const [routeMenu, setRouteMenu] = useState<RouteMenuRequest | null>(null);
+  const library = useMemo(() => {
+    if (!mediaLibrary) return null;
+    const bySrc = new Map<string, SketchMediaOption>();
+    for (const option of [
+      ...mediaLibrary.galleries.flatMap((g) => g.items),
+      ...mediaLibrary.site,
+      ...mediaLibrary.session,
+    ]) {
+      bySrc.set(option.src, option);
+    }
+    return bySrc;
+  }, [mediaLibrary]);
+  const pickMedia = useMemo(
+    () =>
+      mediaLibrary
+        ? (current: SketchMedia | null) =>
+            new Promise<SketchMedia | null>((resolve) =>
+              setPicking({ current: current?.src ?? null, resolve }),
+            )
+        : undefined,
+    [mediaLibrary],
+  );
+  // An image put in the chat from another tab, or before a reload, is still
+  // the chat's: known, though this tab has no file to show it from.
+  const mediaKnown = useMemo(
+    () =>
+      library
+        ? (src: string) =>
+            library.has(src) || src.startsWith(SESSION_MEDIA_PREFIX)
+        : undefined,
+    [library],
+  );
+  const libraryUrl = useMemo(
+    () =>
+      library
+        ? (src: string) =>
+            library.get(src)?.url ??
+            (src.startsWith(SESSION_MEDIA_PREFIX)
+              ? SESSION_IMAGE_PLACEHOLDER
+              : (mediaUrl ?? defaultMediaUrl)(src))
+        : mediaUrl,
+    [library, mediaUrl],
+  );
+  const closePicker = (option: SketchMediaOption | null) => {
+    picking?.resolve(option ? { type: option.type, src: option.src } : null);
+    setPicking(null);
+  };
+
+  // A file dropped on a box goes to the assistant's session first, where the
+  // picker has it too, and the box names it there.
+  const libraryUpload = mediaLibrary?.upload;
+  const attach = libraryUpload
+    ? (file: File) =>
+        upload(async (f) => {
+          const option = await libraryUpload(f);
+          if (!option) {
+            throw new Error("The upload did not finish.");
+          }
+          return option.src;
+        }, file)
+    : onAttachMedia
+      ? (file: File) => upload(onAttachMedia, file)
+      : null;
   const refuseFile = (file: File) =>
     setNotice({
       message: `"${file.name}" cannot be stored in a sketchpad yet, so it is not added. Drag the image in from a web page, or add a link to it with the image button on the box.`,
@@ -222,16 +348,9 @@ export function Sketchpad({
           <TitleText title={title} />
         </div>
       )}
-      {(page !== undefined || status) && (
+      {status && (
         <div className="flex min-w-0 items-center gap-2 text-xs text-fg-secondary">
-          {page !== undefined && (
-            <PageChip
-              page={page}
-              onChange={readOnly ? undefined : onPageChange}
-              options={pageOptions}
-            />
-          )}
-          {status && <span className="truncate">{status}</span>}
+          <span className="truncate">{status}</span>
         </div>
       )}
     </>
@@ -286,6 +405,7 @@ export function Sketchpad({
             <AskAssistant
               status={assistantStatus ?? "changed"}
               onAsk={onAskAssistant}
+              empty={value === ""}
             />
           )}
           {fullscreenPreview !== undefined && (
@@ -308,11 +428,23 @@ export function Sketchpad({
         </div>
       )}
 
+      {highlights && highlights.length > 0 && (
+        <HighlightBar highlights={highlights} onClear={onClearHighlight} />
+      )}
+      {value === "" && onStartFromRoute && !started && !readOnly && (
+        <StartFromRoute
+          routes={pageOptions ?? []}
+          startRoute={startRoute ?? null}
+          onStart={onStartFromRoute}
+          onBlank={() => setStarted(true)}
+        />
+      )}
       {/* The same editor in both, so the caret and undo survive the switch. */}
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col",
           fullscreen && shown === "page" && "hidden",
+          value === "" && onStartFromRoute && !started && !readOnly && "hidden",
         )}
       >
         <SketchpadEditor
@@ -321,6 +453,16 @@ export function Sketchpad({
           readOnly={readOnly}
           attach={attach}
           onFileRefused={refuseFile}
+          mediaUrl={libraryUrl}
+          pickMedia={pickMedia}
+          mediaKnown={mediaKnown}
+          blockTypes={blockTypes}
+          routes={pageOptions}
+          activeRoute={activeRoute}
+          onOpenRoute={onOpenRoute}
+          onRouteMenu={setRouteMenu}
+          highlights={highlights}
+          fieldInfo={fieldInfo}
           plugins={plugins}
           toolbar={fullscreen ? "bottom" : "top"}
           touch={fullscreen}
@@ -382,6 +524,7 @@ export function Sketchpad({
               <AskAssistant
                 status={assistantStatus ?? "changed"}
                 onAsk={onAskAssistant}
+                empty={value === ""}
                 size="bar"
               />
             )}
@@ -397,84 +540,26 @@ export function Sketchpad({
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-/** The page a sketch is about, and where to change it. */
-function PageChip({
-  page,
-  onChange,
-  options,
-}: {
-  page: string | null;
-  onChange?: (page: string | null) => void;
-  options?: string[];
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(page ?? "");
-  const listId = useId();
-  const label = page ?? "No page";
-  if (!onChange) {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1">
-        <FileText className="h-3 w-3" />
-        {label}
-      </span>
-    );
-  }
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        title="Change which page this sketches"
-        onClick={() => {
-          setDraft(page ?? "");
-          setEditing(true);
-        }}
-        className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 -mx-1 hover:bg-bg-secondary hover:text-fg-primary"
-      >
-        <FileText className="h-3 w-3" />
-        {label}
-      </button>
-    );
-  }
-  const save = () => {
-    setEditing(false);
-    const next = draft.trim() === "" ? null : draft.trim();
-    if (next !== page) {
-      onChange(next);
-    }
-  };
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1">
-      <FileText className="h-3 w-3" />
-      <input
-        autoFocus
-        aria-label="Page this sketches"
-        placeholder="/a-page, or empty for none"
-        value={draft}
-        list={options ? listId : undefined}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            save();
-          } else if (e.key === "Escape") {
-            setEditing(false);
-          }
-        }}
-        className="h-6 w-44 rounded border border-border-focus bg-bg-primary px-1.5 text-xs text-fg-primary outline-none"
-      />
-      {options && (
-        <datalist id={listId}>
-          {options.map((option) => (
-            <option key={option} value={option} />
-          ))}
-        </datalist>
+      {routeMenu && (
+        <RouteMenu
+          menu={routeMenu}
+          routes={pageOptions ?? []}
+          onShow={(route) => onOpenRoute?.(route)}
+          onClose={() => setRouteMenu(null)}
+        />
       )}
-    </span>
+      {mediaLibrary && (
+        <SketchpadMediaPicker
+          // Afresh each time it opens, on the tab the box's image is in.
+          key={picking === null ? "closed" : `open:${picking.current ?? ""}`}
+          open={picking !== null}
+          library={mediaLibrary}
+          current={picking?.current ?? null}
+          onPick={(option) => closePicker(option)}
+          onClose={() => closePicker(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -492,31 +577,35 @@ function TitleText({ title }: { title?: string }) {
 function AskAssistant({
   status,
   onAsk,
+  empty = false,
   size = "inline",
 }: {
   status: SketchpadAssistantStatus;
   onAsk: () => void;
+  /** Nothing sketched yet, so nothing to build: the button waits. */
+  empty?: boolean;
   /** `bar`: the width of the screen, under a phone's thumb. */
   size?: "inline" | "bar";
 }) {
-  const hint =
-    status === "read"
-      ? "The assistant has read the Sketchpad as it is now. Send it again to ask about it"
+  const hint = empty
+    ? "Nothing to build yet. Start the sketch first"
+    : status === "read"
+      ? "The assistant has built the Sketchpad as it is now. Build again to have it go over the pages once more"
       : status === "reading"
-        ? "The assistant is reading the Sketchpad"
-        : "Changed since the assistant read it. Send it to ask about the changes";
+        ? "The assistant is building the Sketchpad"
+        : "Changed since the assistant built it. Build to have the pages changed to match";
   return (
     <button
       type="button"
       onClick={onAsk}
-      disabled={status === "reading"}
+      disabled={empty || status === "reading"}
       title={hint}
       className={cn(
         "relative inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-medium disabled:cursor-default disabled:opacity-60",
         size === "bar"
           ? "h-12 w-full justify-center whitespace-nowrap text-base"
           : "h-7 px-2 text-xs",
-        status === "changed"
+        status === "changed" && !empty
           ? "border-border-brand-primary bg-bg-brand-primary text-fg-brand-primary hover:bg-bg-brand-primary-hover"
           : "border-border-primary bg-bg-primary text-fg-secondary hover:bg-bg-secondary",
       )}
@@ -527,9 +616,139 @@ function AskAssistant({
           status === "reading" && "animate-pulse",
         )}
       />
-      {status === "reading" ? "AI is reading…" : "Send to AI"}
+      {status === "reading" ? "Building…" : "Build"}
       <span className="sr-only">. {hint}.</span>
     </button>
+  );
+}
+
+/**
+ * What the assistant has marked on the sketch, and the way to clear it: the
+ * person did not ask for it, so it never stays without a way out.
+ */
+function HighlightBar({
+  highlights,
+  onClear,
+}: {
+  highlights: SketchHighlight[];
+  onClear?: (id: string | null) => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 flex-col gap-1 border-b border-border-primary bg-bg-secondary px-3 py-2"
+    >
+      {highlights.map((highlight) => (
+        <div key={highlight.id} className="flex items-center gap-2 text-xs">
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: HIGHLIGHT_COLORS[highlight.color].line }}
+          />
+          <span className="min-w-0 flex-1">{highlight.note}</span>
+          {onClear && (
+            <button
+              type="button"
+              onClick={() => onClear(highlight.id)}
+              aria-label={`Clear: ${highlight.note}`}
+              className="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 text-fg-secondary hover:bg-bg-primary hover:text-fg-primary"
+            >
+              <X className="h-3.5 w-3.5" /> Clear
+            </button>
+          )}
+        </div>
+      ))}
+      {onClear && highlights.length > 1 && (
+        <button
+          type="button"
+          onClick={() => onClear(null)}
+          className="self-start cursor-pointer text-xs font-medium underline"
+        >
+          Clear all
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * An empty sketch's first screen: start it from a page, which the assistant
+ * reads and writes as a sketch, or from nothing. Opened from a page, that
+ * page is offered first.
+ */
+function StartFromRoute({
+  routes,
+  startRoute,
+  onStart,
+  onBlank,
+}: {
+  routes: string[];
+  startRoute: string | null;
+  onStart: (route: string) => void;
+  onBlank: () => void;
+}) {
+  const [other, setOther] = useState(
+    routes.find((route) => route !== startRoute) ?? "",
+  );
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-bg-tertiary p-6">
+      <div className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-border-primary bg-bg-primary p-5 shadow-sm">
+        <div>
+          <h2 className="text-base font-semibold">Start the sketch</h2>
+          <p className="mt-1 text-sm text-fg-secondary">
+            From a page as it is now, so you only change what you want changed.
+            The assistant reads the page and writes it here, with its real
+            images.
+          </p>
+        </div>
+        {startRoute && (
+          <button
+            type="button"
+            onClick={() => onStart(startRoute)}
+            className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border-brand-primary bg-bg-brand-primary px-3 text-sm font-medium text-fg-brand-primary hover:bg-bg-brand-primary-hover"
+          >
+            <Sparkles className="h-4 w-4" />
+            Start from <span className="font-semibold">{startRoute}</span>
+          </button>
+        )}
+        {routes.length > 0 && (
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (other) onStart(other);
+            }}
+          >
+            <select
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              aria-label={startRoute ? "Another page" : "A page"}
+              className="h-9 min-w-0 flex-1 rounded-md border border-border-primary bg-bg-primary px-2 text-sm"
+            >
+              {routes.map((route) => (
+                <option key={route} value={route}>
+                  {route}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={!other}
+              className="h-9 shrink-0 cursor-pointer rounded-md border border-border-primary px-3 text-sm font-medium hover:bg-bg-secondary disabled:opacity-50"
+            >
+              {startRoute ? "Start from this one" : "Start from this page"}
+            </button>
+          </form>
+        )}
+        <button
+          type="button"
+          onClick={onBlank}
+          className="self-start cursor-pointer text-sm text-fg-secondary underline hover:text-fg-primary"
+        >
+          Start with an empty page
+        </button>
+      </div>
+    </div>
   );
 }
 

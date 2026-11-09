@@ -1,5 +1,6 @@
 import type { SketchpadT } from "@valbuild/shared/internal";
 import type { SaverProblem } from "./sketchpadSaver";
+import type { SketchHighlight } from "./highlights";
 import {
   createContext,
   useContext,
@@ -23,6 +24,20 @@ export type SketchpadsSnapshot = {
    * again, with what was typed one press away.
    */
   problems: Readonly<Record<string, SaverProblem>>;
+  /**
+   * Blocks the assistant points at in each sketchpad
+   * (`highlight_sketchpad_blocks`), until it, or the person, clears them.
+   * Kept in the tab, not on the server: they are part of the conversation,
+   * not of the sketch.
+   */
+  highlights: Readonly<Record<string, SketchHighlight[]>>;
+  /**
+   * Images put in the assistant's session from this tab -- in a box, or
+   * attached in the chat -- newest first. A box names one as
+   * `session:<key>`; only the tab that uploaded it can show it, from the
+   * file it still has.
+   */
+  sessionImages: readonly SessionImage[];
   /**
    * Whether this Studio's server has sketchpads: a list came back. Until it
    * does, nothing offers them, the assistant included.
@@ -48,10 +63,13 @@ export class SketchpadsState {
     byId: {},
     assistantRead: {},
     problems: {},
+    highlights: {},
+    sessionImages: [],
     available: false,
   };
   private readonly listeners = new Set<() => void>();
   private assistant: ((message: string) => boolean) | null = null;
+  private uploader: SessionUploader | null = null;
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -123,6 +141,67 @@ export class SketchpadsState {
     });
   }
 
+  /** Adds highlights to a sketchpad, replacing any with the same id. */
+  addHighlights(id: string, added: SketchHighlight[]) {
+    const ids = new Set(added.map((highlight) => highlight.id));
+    const kept = (this.snapshot.highlights[id] ?? []).filter(
+      (highlight) => !ids.has(highlight.id),
+    );
+    this.set({
+      ...this.snapshot,
+      highlights: { ...this.snapshot.highlights, [id]: [...kept, ...added] },
+    });
+  }
+
+  /** Clears one highlight of a sketchpad, or all of them with null. */
+  clearHighlight(id: string, highlightId: string | null) {
+    const current = this.snapshot.highlights[id];
+    if (!current) {
+      return;
+    }
+    const { [id]: _cleared, ...rest } = this.snapshot.highlights;
+    const kept =
+      highlightId === null
+        ? []
+        : current.filter((highlight) => highlight.id !== highlightId);
+    this.set({
+      ...this.snapshot,
+      highlights: kept.length > 0 ? { ...rest, [id]: kept } : rest,
+    });
+  }
+
+  /** An image went into the assistant's session from this tab. */
+  addSessionImage(image: SessionImage) {
+    this.set({
+      ...this.snapshot,
+      sessionImages: [
+        image,
+        ...this.snapshot.sessionImages.filter((i) => i.key !== image.key),
+      ],
+    });
+  }
+
+  /**
+   * The chat registers how a file goes into its session, while it is
+   * mounted: a file put in a box goes there first, so the assistant can see
+   * it and put it in the site when it builds.
+   */
+  registerUploader(upload: SessionUploader): () => void {
+    this.uploader = upload;
+    this.set({ ...this.snapshot });
+    return () => {
+      if (this.uploader === upload) {
+        this.uploader = null;
+        this.set({ ...this.snapshot });
+      }
+    };
+  }
+
+  /** Null when there is no chat to upload to. */
+  getUploader(): SessionUploader | null {
+    return this.uploader;
+  }
+
   /**
    * The chat registers how to send it a message, while it is mounted. The
    * Sketchpad's "Send to AI" is that, with the sketchpad's id in it.
@@ -141,6 +220,19 @@ export class SketchpadsState {
     return this.assistant?.(message) ?? false;
   }
 }
+
+export type SessionImage = {
+  key: string;
+  /** Where this tab shows it from: an object URL of the file it uploaded. */
+  url: string;
+  name: string;
+};
+
+/**
+ * Puts a file in the assistant's session, resolving to its key: a box names
+ * it as `session:<key>`.
+ */
+export type SessionUploader = (file: File) => Promise<{ key: string }>;
 
 const SketchpadsContext = createContext<SketchpadsState | null>(null);
 
@@ -171,6 +263,8 @@ const EMPTY: SketchpadsSnapshot = {
   byId: {},
   assistantRead: {},
   problems: {},
+  highlights: {},
+  sessionImages: [],
   available: false,
 };
 const noSubscription = () => () => undefined;

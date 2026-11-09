@@ -62,6 +62,12 @@ import {
   type AIMessagesResponse,
 } from "../components/ValProvider";
 import { createSketchpadClient } from "../components/sketchpad/sketchpadClient";
+import {
+  CONVERT_SESSION_IMAGE_TOOL,
+  runConvertSessionImage,
+} from "../utils/convertSessionImage";
+import { encodeImage } from "../utils/encodeImage";
+import { knownSketchMedia } from "../components/sketchpad/sketchMediaLibrary";
 import { useSketchpadsState } from "../components/sketchpad/SketchpadsState";
 import {
   isSketchpadToolName,
@@ -641,14 +647,16 @@ const GET_RECORD_KEYS_TOOL: AITool = {
  * What the system prompt says about sketchpads, when they are offered: see
  * `sketchpadsOn` where the prompt is sent.
  */
-const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad: see "Sketchpads" below.
+const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad, highlight_sketchpad_blocks, clear_sketchpad_highlights: see "Sketchpads" below.
 
 ## Sketchpads
 A sketchpad is a rough page -- headings, text, boxes, columns -- that you and the person work out before anything is built. It is kept on the server for the project, not in this chat: it outlives the conversation, and anyone on the project can open it.
 - When a request changes how a page is laid out (new sections, moving things, a new page), offer to sketch it first with ask_user_question: options "Sketch it first" and "Just do it". Do not insist; "Just do it" is a full answer.
 - create_sketchpad returns an id. Remember it, and use it for the rest of the conversation instead of making another.
 - The person can change the sketchpad at any time. Before you change it or build from it, read_sketchpad, and write with the version you read.
-- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content.
+- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content. A \`--- /route\` line names the page the blocks under it are about.
+- A box whose kind is not a kind of section the site's schema has needs code. Before building one, point at those blocks with highlight_sketchpad_blocks and ask the person whether to go on; clear the highlights once they answer.
+- An image in a box is a path the content has, \`session:<image_key>\` for one in this chat (put it in the site with the image tools first), or a web address.
 `;
 
 const ALL_TOOLS: AITool[] = [
@@ -658,6 +666,7 @@ const ALL_TOOLS: AITool[] = [
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
   ADD_SESSION_IMAGE_TO_GALLERY_TOOL,
+  CONVERT_SESSION_IMAGE_TOOL,
   REMOVE_IMAGE_GALLERY_ENTRY_TOOL,
   NAVIGATE_TO_TOOL,
   GET_CURRENT_CONTEXT_TOOL,
@@ -830,6 +839,8 @@ export function useAI(
   const uploadAiImageRef = useRef<
     ((file: File) => Promise<{ key: string }>) | null
   >(null);
+  /** The files this tab put in the chat, by key: `convert_session_image`. */
+  const sessionFilesRef = useRef(new Map<string, File>());
   /** The picked element, taken for a message that waits in the queue. */
   const captureSendContext = useCallback((): SendContext => {
     const pointedAt = designRef.current?.pointedAt ?? null;
@@ -2731,11 +2742,51 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
             }
           })();
+        } else if (message.name === CONVERT_SESSION_IMAGE_TOOL.name) {
+          const { id: messageId, toolCallId } = message;
+          void runConvertSessionImage(message.arguments, {
+            files: sessionFilesRef.current,
+            encode: (file, settings) => encodeImage(file, settings, undefined),
+            upload: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (!upload) {
+                return Promise.reject(new Error("Uploads are not ready."));
+              }
+              return upload(file);
+            },
+          })
+            .catch((error: unknown) => ({
+              isError: true,
+              result: {
+                error:
+                  error instanceof Error
+                    ? `The image could not be converted: ${error.message}`
+                    : "The image could not be converted.",
+              },
+            }))
+            .then(({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            });
         } else if (isSketchpadToolName(message.name)) {
           const { id: messageId, toolCallId, name } = message;
           void runSketchpadTool(name, message.arguments, {
             client: sketchpadClientRef.current,
             state: sketchpadsStateRef.current,
+            // A box names an image the project has, or one in the chat.
+            mediaKnown: knownSketchMedia(
+              valReads.getAllSchemasSnapshot(),
+              valReads.getAllSourcesSnapshot(),
+            ),
           })
             .catch((error: unknown) => ({
               isError: true,
@@ -3115,11 +3166,30 @@ export function useAI(
       if (wasUnborn) {
         onSessionBornRef.current?.(sid);
       }
+      sessionFilesRef.current.set(body.key, file);
+      // A Sketchpad's box can show it, and name it, from now on.
+      sketchpadsStateRef.current?.addSessionImage({
+        key: body.key,
+        url: URL.createObjectURL(file),
+        name: file.name,
+      });
       return body;
     },
     [getDirectFileUploadSettings],
   );
   uploadAiImageRef.current = uploadAiImage;
+  // A file put in a Sketchpad's box goes into this chat's session first.
+  useEffect(
+    () =>
+      sketchpadsState?.registerUploader((file) => {
+        const upload = uploadAiImageRef.current;
+        if (!upload) {
+          return Promise.reject(new Error("The assistant is not ready yet."));
+        }
+        return upload(file);
+      }),
+    [sketchpadsState],
+  );
 
   const sendMessage = useCallback(
     (

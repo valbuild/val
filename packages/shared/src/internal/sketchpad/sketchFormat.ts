@@ -2,17 +2,23 @@
  * A page sketch: a page written as indented text, with four primitives.
  *
  * ```
+ * --- /about                   a route: what follows is the page at /about
  * # Our people                 text (a heading: #, ## or ###)
  * We are 40 people in Oslo.    text (a paragraph)
+ * ## Hi {field: /x.val.ts?p="t"}  text linked to a content field: typing
+ *                              in it writes the field
  * [image: Team photo]          placeholder: [kind] or [kind: label]
  * [hero: Roof](image: /a.jpg)  a placeholder with an image (or video) in it
  * icon hero M3 5h18v14H3z      how every [hero] box is drawn: SVG path data
  * row                          its children side by side
- *   col 2                      its children stacked; 2 shares of the row
- *     ## Design
+ *   col                        its children stacked; columns share a row
+ *     ## Design                equally
  *   col
  *     [button: Join us]
  * ```
+ *
+ * A sketchpad is not one page's: a route divider starts the part about a
+ * page, so one sketch can cover a page and the two it links to.
  *
  * It is a scratch pad, not a layout language: it says WHAT is on a page and
  * roughly WHERE, so an assistant and a person can agree on a page's content
@@ -32,7 +38,20 @@
  * that builds the page reads it exactly as the person left it.
  */
 
-export type SketchNode = SketchRow | SketchCol | SketchText | SketchPlaceholder;
+export type SketchNode =
+  | SketchRoute
+  | SketchRow
+  | SketchCol
+  | SketchText
+  | SketchPlaceholder;
+
+/** The start of the part about one page. Only at the top level. */
+export type SketchRoute = {
+  type: "route";
+  line: number;
+  /** The page's route as the site serves it: `/about`, `/blog/[slug]`. */
+  route: string;
+};
 
 export type SketchRow = {
   type: "row";
@@ -40,11 +59,10 @@ export type SketchRow = {
   children: SketchNode[];
 };
 
+/** Columns share their row equally: a sketch says what, not how wide. */
 export type SketchCol = {
   type: "col";
   line: number;
-  /** Shares of the enclosing row this column takes. */
-  weight: number;
   children: SketchNode[];
 };
 
@@ -54,6 +72,13 @@ export type SketchText = {
   /** 0 is a paragraph; 1-3 are headings. */
   level: 0 | 1 | 2 | 3;
   text: string;
+  /**
+   * The content field this text is linked to, as a source path
+   * (`/content/home.val.ts?p="hero"."title"`): typing in the block writes
+   * the field. Written `{field: <source path>}` at the end of the line. One
+   * block per field: a second link to the same field is not one.
+   */
+  field?: string;
 };
 
 export type SketchPlaceholder = {
@@ -64,10 +89,19 @@ export type SketchPlaceholder = {
   media: SketchMedia | null;
 };
 
+/**
+ * `src` names a file the project has, never a guess: its `path` exactly as
+ * the content has it (`/public/val/hero.webp`, or its remote URL), or an
+ * image uploaded to the assistant's session, `session:<key>`. Which files
+ * those are is the Studio's to check; the text only holds the name.
+ */
 export type SketchMedia = {
   type: "image" | "video";
   src: string;
 };
+
+/** The prefix of a `src` that is an image in the assistant's session. */
+export const SESSION_MEDIA_PREFIX = "session:";
 
 export type SketchError = {
   /** 1-based, like an editor's gutter. */
@@ -87,6 +121,7 @@ export type ParsedSketch = {
 };
 
 const CONTAINER = /^(row|col)(?:\s+(\d+))?$/;
+const ROUTE = /^---(?:\s+(.*))?$/;
 const PLACEHOLDER =
   /^\[([^\]:]*)(?::([^\]]*))?\](?:\((image|video):\s*([^\s)]+)\s*\))?$/;
 const HAS_MEDIA = /^\[[^\]]*\]\(/;
@@ -140,6 +175,29 @@ export function parseSketch(source: string): ParsedSketch {
     while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
       stack.pop();
     }
+    const route = ROUTE.exec(content);
+    if (route) {
+      const path = (route[1] ?? "").trim();
+      if (!path.startsWith("/") || /\s/.test(path)) {
+        errors.push({
+          line,
+          message:
+            'A route divider names one page by its route, like "--- /about".',
+        });
+      }
+      if (indent > 0) {
+        errors.push({
+          line,
+          message:
+            "A route divider starts a page, so it goes at the top level, not indented.",
+        });
+      }
+      // It closes everything open: what follows is another page.
+      stack.length = 1;
+      stack[0].lastIndent = 0;
+      blocks.push({ type: "route", line, route: path });
+      return;
+    }
     const parent = stack[stack.length - 1];
     const node = parseContent(content, line, errors);
 
@@ -180,7 +238,31 @@ export function parseSketch(source: string): ParsedSketch {
   return { blocks, icons, errors };
 }
 
+/** The link to a content field at the end of a text line. */
+const FIELD = / \{field: (\/[^{}]*)\}$/;
+
 function parseContent(
+  whole: string,
+  line: number,
+  errors: SketchError[],
+): SketchNode {
+  const link = FIELD.exec(whole);
+  if (link) {
+    const node = parseLine(whole.slice(0, link.index), line, errors);
+    if (node.type !== "text") {
+      errors.push({
+        line,
+        message:
+          "Only a heading or a paragraph is linked to a field: put {field: ...} at the end of one.",
+      });
+      return node;
+    }
+    return { ...node, field: link[1].trim() };
+  }
+  return parseLine(whole, line, errors);
+}
+
+function parseLine(
   content: string,
   line: number,
   errors: SketchError[],
@@ -200,11 +282,14 @@ function parseContent(
       }
       return { type: "row", line, children: [] };
     }
-    const weight = container[2] === undefined ? 1 : Number(container[2]);
-    if (weight === 0) {
-      errors.push({ line, message: "A col needs a weight of 1 or more." });
+    if (container[2] !== undefined) {
+      errors.push({
+        line,
+        message:
+          'Columns share a row equally, so a col takes no number: write "col".',
+      });
     }
-    return { type: "col", line, weight: Math.max(weight, 1), children: [] };
+    return { type: "col", line, children: [] };
   }
   if (content.startsWith("[")) {
     const placeholder = PLACEHOLDER.exec(content);
@@ -260,18 +345,26 @@ function parseContent(
 export function formatSketchText(
   level: SketchText["level"],
   text: string,
+  field?: string,
 ): string {
   const flat = text.replace(/\s+/g, " ").trim();
+  const path = field?.replace(/\s+/g, " ").trim();
+  // A source path, and one the line can be read back with: no braces.
+  const link = path && /^\/[^{}]*$/.test(path) ? ` {field: ${path}}` : "";
   if (level > 0) {
-    return "#".repeat(level) + " " + flat;
+    return "#".repeat(level) + " " + flat + link;
   }
+  // Read as the whole line will be, link and all: `icon x M` is text, and
+  // `icon x M {field: ...}` would be an icon.
+  const whole = flat + link;
   const ambiguous =
     flat.startsWith("\\") ||
     flat.startsWith("[") ||
-    CONTAINER.test(flat) ||
-    HEADING.test(flat) ||
-    ICON.test(flat);
-  return ambiguous ? "\\" + flat : flat;
+    CONTAINER.test(whole) ||
+    ROUTE.test(whole) ||
+    HEADING.test(whole) ||
+    ICON.test(whole);
+  return (ambiguous ? "\\" + flat : flat) + link;
 }
 
 /** The line a placeholder is written as. */
@@ -302,16 +395,26 @@ export function formatSketch(
   icons: Record<string, string>,
 ): string {
   const lines: string[] = [];
+  // One block per field: the first keeps the link.
+  const linked = new Set<string>();
   const walk = (node: SketchNode, depth: number, inRow: boolean) => {
     const indent = "  ".repeat(depth);
     switch (node.type) {
       case "text":
         if (node.text) {
-          lines.push(indent + formatSketchText(node.level, node.text));
+          const field =
+            node.field && !linked.has(node.field) ? node.field : undefined;
+          if (field) {
+            linked.add(field);
+          }
+          lines.push(indent + formatSketchText(node.level, node.text, field));
         }
         return;
       case "placeholder":
         lines.push(indent + formatSketchBox(node));
+        return;
+      case "route":
+        lines.push(`--- ${node.route}`);
         return;
       case "row":
         lines.push(indent + "row");
@@ -325,7 +428,7 @@ export function formatSketch(
           node.children.forEach((child) => walk(child, depth, false));
           return;
         }
-        lines.push(indent + (node.weight === 1 ? "col" : `col ${node.weight}`));
+        lines.push(indent + "col");
         node.children.forEach((child) => walk(child, depth + 1, false));
         return;
     }
@@ -336,6 +439,33 @@ export function formatSketch(
   );
   const all = [...lines, ...(iconLines.length > 0 ? ["", ...iconLines] : [])];
   return all.length > 0 ? all.join("\n") + "\n" : "";
+}
+
+/**
+ * The text of every block linked to a field, by field: what the Studio
+ * writes to the content when a linked block changes. The first block wins,
+ * as `formatSketch` keeps only its link.
+ */
+export function sketchFieldTexts(blocks: SketchNode[]): Map<string, string> {
+  const texts = new Map<string, string>();
+  const walk = (node: SketchNode) => {
+    if (node.type === "text") {
+      if (node.field && node.text && !texts.has(node.field)) {
+        texts.set(node.field, node.text.replace(/\s+/g, " ").trim());
+      }
+    } else if (node.type === "row" || node.type === "col") {
+      node.children.forEach(walk);
+    }
+  };
+  blocks.forEach(walk);
+  return texts;
+}
+
+/** The pages a sketch is about, in the order it gives them. */
+export function sketchRoutes(blocks: SketchNode[]): string[] {
+  return blocks.flatMap((block) =>
+    block.type === "route" && block.route !== "" ? [block.route] : [],
+  );
 }
 
 /**

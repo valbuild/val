@@ -625,6 +625,7 @@ function ValShellBody({
   const sketchpads = useStudioSketchpads({
     openAssistant: isAIChatEnabled ? openAIPanel : null,
     pages: data.pages,
+    pageTypes: data.newPage?.routes.map((route) => route.patternString),
     currentProfileId: useCurrentProfileId(),
     location: navigation.currentSourcePath,
   });
