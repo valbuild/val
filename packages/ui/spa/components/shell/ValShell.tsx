@@ -150,7 +150,7 @@ import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
-import { nextBuildEpoch, useServedBuild } from "./canvas/useServedBuild";
+import { useBuildEpoch } from "./canvas/useServedBuild";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -1158,17 +1158,10 @@ function ValShellBody({
    * the old build's document until it is loaded again. Content needs nothing
    * here: the frame relays every edit as it is made.
    */
-  const servedBuild = useServedBuild();
-  const [buildEpoch, setBuildEpoch] = useState<{
-    build: string | null;
-    epoch: number;
-  }>({ build: null, epoch: 0 });
-  useEffect(() => {
-    setBuildEpoch((previous) => nextBuildEpoch(previous, servedBuild));
-  }, [servedBuild]);
+  const buildEpoch = useBuildEpoch();
   /** Code mode's status asked for the page again. */
   const [codeReloads, setCodeReloads] = useState(0);
-  const documentKey = `${buildEpoch.epoch}:${codeReloads}`;
+  const documentKey = `${buildEpoch}:${codeReloads}`;
   /**
    * In code mode's view the column beside the canvas holds the code changes,
    * so a field picked on the page has nowhere to open: picking one puts the

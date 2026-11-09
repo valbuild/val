@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useValSystem } from "../../../stores/react/SystemContext";
 
 const NOTHING_TO_UNSUBSCRIBE = () => {};
@@ -44,4 +44,22 @@ export function nextBuildEpoch(
     return { build: build ?? previous.build, epoch: previous.epoch };
   }
   return { build, epoch: previous.epoch + 1 };
+}
+
+/**
+ * How many times the served build has moved to another one since this
+ * mounted: what a preview passes on as `CanvasFrame`'s `documentKey`, so the
+ * page is loaded again for each new build. Every preview uses this one --
+ * the canvas and the Sketchpad's -- so they follow the code alike.
+ */
+export function useBuildEpoch(): number {
+  const servedBuild = useServedBuild();
+  const [state, setState] = useState<{ build: string | null; epoch: number }>({
+    build: null,
+    epoch: 0,
+  });
+  useEffect(() => {
+    setState((previous) => nextBuildEpoch(previous, servedBuild));
+  }, [servedBuild]);
+  return state.epoch;
 }

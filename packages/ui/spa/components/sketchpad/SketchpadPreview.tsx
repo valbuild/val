@@ -4,6 +4,7 @@ import {
   CanvasPreviewNotice,
   type CanvasPreviewStatus,
 } from "../shell/canvas/CanvasPreviewNotice";
+import { useBuildEpoch } from "../shell/canvas/useServedBuild";
 
 /**
  * The page a route divider names, beside the sketch: the Studio's own canvas,
@@ -15,6 +16,8 @@ export function SketchpadPreview({ route }: { route: string | null }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [enableKey, setEnableKey] = useState(0);
   const [status, setStatus] = useState<CanvasPreviewStatus>("connecting");
+  // A new build served is a new page here too, as on the canvas.
+  const buildEpoch = useBuildEpoch();
   if (route === null) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-sm text-fg-secondary">
@@ -37,6 +40,7 @@ export function SketchpadPreview({ route }: { route: string | null }) {
           width="100%"
           height="100%"
           reloadKey={reloadKey}
+          documentKey={buildEpoch}
           isPicking={false}
           highlightedPath={null}
           enableKey={enableKey}
@@ -44,7 +48,12 @@ export function SketchpadPreview({ route }: { route: string | null }) {
         />
         <CanvasPreviewNotice
           status={status}
-          attempt={`${route}:${reloadKey}:${enableKey}`}
+          /*
+           * The reloads the person asked for, and the route: not the enables,
+           * which the notice makes itself while it retries and which must not
+           * restart the clock that decides when it stops.
+           */
+          attempt={`${route}:${reloadKey}`}
           onEnable={() => setEnableKey((key) => key + 1)}
           onReload={() => setReloadKey((key) => key + 1)}
         />
