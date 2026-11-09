@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { action } from "storybook/actions";
 import { CloseProposalDialog } from "../CloseProposalDialog";
 import { ProposalsList } from "../ProposalsList";
 import { mockSelectionIds } from "../../shell/mockShellData";
@@ -348,8 +349,8 @@ export const ListOpen: StoryObj = {
       <ProposalsList
         proposals={proposals}
         now={NOW}
-        onOpen={console.log}
-        onReopen={console.log}
+        onOpen={action("open")}
+        onReopen={action("reopen")}
         onNewProposal={() => undefined}
       />
     </ListFrame>
@@ -363,8 +364,8 @@ export const ListClosed: StoryObj = {
         proposals={proposals}
         now={NOW}
         defaultTab="closed"
-        onOpen={console.log}
-        onReopen={console.log}
+        onOpen={action("open")}
+        onReopen={action("reopen")}
         onNewProposal={() => undefined}
       />
     </ListFrame>
@@ -377,8 +378,8 @@ export const ListEmpty: StoryObj = {
       <ProposalsList
         proposals={[]}
         now={NOW}
-        onOpen={console.log}
-        onReopen={console.log}
+        onOpen={action("open")}
+        onReopen={action("reopen")}
         onNewProposal={() => undefined}
       />
     </ListFrame>
@@ -391,8 +392,8 @@ export const ListLoading: StoryObj = {
       <ProposalsList
         proposals={[]}
         loading
-        onOpen={console.log}
-        onReopen={console.log}
+        onOpen={action("open")}
+        onReopen={action("reopen")}
         onNewProposal={() => undefined}
       />
     </ListFrame>

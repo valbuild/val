@@ -1,4 +1,5 @@
 import { Internal, Json, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { mediaPickPatch } from "./mediaPickPatch";
 import { getRemoteFilesError } from "./remoteFilesError";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -421,16 +422,7 @@ export function ImageField({
           onSelect={(entry: GalleryEntry) => {
             // Only the path: the dimensions and mime type stay in the
             // gallery, which is the one place that has them.
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: { path: entry.filePath },
-                },
-              ],
-              "image",
-            );
+            addPatch(mediaPickPatch(patchPath, entry.filePath), "image");
           }}
           isImage
           disabled={disabled || loading}

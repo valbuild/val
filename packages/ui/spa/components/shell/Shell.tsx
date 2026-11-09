@@ -89,6 +89,7 @@ import {
 } from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
+import type { JsonValuesLoadStatus } from "../useJsonValuesLoad";
 import {
   ShellBreakpoint,
   ShellChangeActivity,
@@ -591,6 +592,8 @@ export type ShellProps = {
   /** Content matches for the current query. See `GlobalSearchProps`. */
   searchContentResults?: SearchResult[];
   isSearchingContent?: boolean;
+  /** How far loading the content to search has got. See `GlobalSearchProps`. */
+  searchContentLoad?: JsonValuesLoadStatus;
   onSearchQueryChange?: (query: string) => void;
   /**
    * Open a search result the shell cannot resolve to a row.
@@ -708,6 +711,7 @@ export function Shell({
   getMediaFileUrl,
   searchContentResults,
   isSearchingContent,
+  searchContentLoad,
   onSearchQueryChange,
   onOpenSearchResult,
 }: ShellProps) {
@@ -1341,13 +1345,13 @@ export function Shell({
   // `TopBarProposals.onSaveAndBuild`.
   const phoneSaveAndBuild =
     proposals?.onBuild !== undefined ? proposals.onSaveAndBuild : undefined;
+  // Save that updates the preview stays the main action for good, as it is
+  // in `ProposalActionButton`: Commit and Publish are behind the caret.
   const phoneAction =
     proposals !== undefined && phoneProposal !== null
-      ? nextProposalAction(
-          phoneProposal,
-          proposals.onBuild !== undefined,
-          phoneSaveAndBuild !== undefined,
-        )
+      ? phoneSaveAndBuild !== undefined
+        ? "save"
+        : nextProposalAction(phoneProposal, proposals.onBuild !== undefined)
       : null;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
@@ -1355,7 +1359,12 @@ export function Shell({
         <ProposalSaveAndBuildButton
           location={phoneProposal}
           onSaveAndBuild={phoneSaveAndBuild}
-          blockedBy={proposals.saveBlockedBy}
+          // No "Fix N" in code mode: see `ProposalActionButton`.
+          blockedBy={
+            proposals.codeMode?.on === true
+              ? undefined
+              : proposals.saveBlockedBy
+          }
           className="h-9 min-w-[5.5rem]"
         />
       ) : phoneAction === "save" ? (
@@ -1947,6 +1956,7 @@ export function Shell({
             contentResults={searchContentResults}
             recentResults={recentSearchResults}
             isSearchingContent={isSearchingContent}
+            contentLoad={searchContentLoad}
             onQueryChange={onSearchQueryChange}
             onSelect={(result) => {
               setIsSearchOpen(false);

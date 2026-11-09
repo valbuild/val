@@ -87,6 +87,10 @@ export type HandoffIntent =
    * instead of the site's pending changes. Everything after the press is a
    * publish like any other. There is no gate and nothing to wait for: the
    * proposal was saved before the tap, and its merge ships that save.
+   *
+   * `commitMessage`: with `merge`, the message of the commit Publish makes
+   * first in a project connected to git -- typed at the tap, where the
+   * project asks for one (`studio.commitMessage`). Absent: content's default.
    */
   | {
       kind: "press";
@@ -94,6 +98,7 @@ export type HandoffIntent =
       tab: string;
       after: string | null;
       merge?: string;
+      commitMessage?: string;
     }
   /**
    * "Try again" on a failed publish: resume content's queue and press anew.
@@ -137,6 +142,14 @@ export type HandedProposalBuild =
   | { status: "nothing-staged" }
   | { status: "already-built"; hash: string | null }
   | { status: "failed"; message: string };
+
+/**
+ * What content answered when it refused a merge the tab pressed: its status
+ * and body, as they came. Handed back to the page, which reads why --
+ * someone pushed to the proposal's branch, say -- and offers what helps there
+ * (`commitRefusalOf`), rather than a sentence it can only repeat.
+ */
+export type RefusedAnswer = { status: number; message: string; body: unknown };
 
 /** Site -> tab. */
 export type ToTab =
@@ -202,6 +215,8 @@ export type ToSite =
        * result's own message is the technical details.
        */
       summary?: string;
+      /** Content's refusal of a merge the tab pressed: see {@link RefusedAnswer}. */
+      refused?: RefusedAnswer;
     }
   /** How a proposal build ended: see {@link HandedProposalBuild}. */
   | { type: "proposal-built"; outcome: HandedProposalBuild }
@@ -309,7 +324,15 @@ function asIntent(value: unknown): HandoffIntent | null {
   const merge = text("merge");
   const merging = merge !== null ? { merge } : {};
   if (value.kind === "press") {
-    return { kind: "press", requestId, tab, after, ...merging };
+    const commitMessage = text("commitMessage");
+    return {
+      kind: "press",
+      requestId,
+      tab,
+      after,
+      ...merging,
+      ...(merge !== null && commitMessage !== null ? { commitMessage } : {}),
+    };
   }
   const replaces = text("replaces");
   if (value.kind === "try-again" && replaces !== null) {
@@ -700,9 +723,36 @@ function asToSite(message: unknown): ToSite | null {
   ) {
     const result = asResult(message.result);
     if (result === null) return null;
-    return "summary" in message && typeof message.summary === "string"
-      ? { type: "done", result, ms: message.ms, summary: message.summary }
-      : { type: "done", result, ms: message.ms };
+    const refused =
+      "refused" in message ? asRefusedAnswer(message.refused) : null;
+    return {
+      type: "done",
+      result,
+      ms: message.ms,
+      ...("summary" in message && typeof message.summary === "string"
+        ? { summary: message.summary }
+        : {}),
+      ...(refused !== null ? { refused } : {}),
+    };
+  }
+  return null;
+}
+
+/* Read back structurally, as every message from the tab is. */
+function asRefusedAnswer(value: unknown): RefusedAnswer | null {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "status" in value &&
+    typeof value.status === "number" &&
+    "message" in value &&
+    typeof value.message === "string"
+  ) {
+    return {
+      status: value.status,
+      message: value.message,
+      body: "body" in value ? value.body : undefined,
+    };
   }
   return null;
 }

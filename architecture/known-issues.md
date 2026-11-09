@@ -74,62 +74,6 @@ exactly the same way, and now with a comment claiming it is fixed.
 The block itself carries a comment explaining the trap, so anyone reading
 `index.css` meets it before they trust a token in it.
 
-## `GET /json` is one request per entry
-
-**What it is.** `GET /json` takes a `keys` array, and the Studio's seam
-(`createValSystem.fetchJsonEntry`) sends exactly one key per request.
-`SourceStore.loadEntry` asks per key — deliberately, since it caches and
-de-duplicates per key — so a record's visible rows each cost a request. Measured
-on `/content/kb.val.ts` in `examples/next`, opening it and scrolling four times:
-**46 requests for 46 keys.** They go out at once, and the browser runs about six
-connections per origin, so the rest queue — and so does everything the editor
-asks for afterwards. See "A request 'pending' in dev is usually queued, not slow"
-in [quirks.md](./quirks.md).
-
-**A fix exists and is tested but is NOT wired.**
-`packages/ui/spa/stores/react/jsonEntriesBatch.ts` collects the reads that arrive
-in one tick and sends one request per module, chunked by
-`JSON_ENTRY_KEYS_PER_REQUEST`, the route's own `JSON_ENTRIES_BATCH_MAX`, and a URL
-budget (same 431/413 reason `PATCH_ID_QUERY_BUDGET` exists). Wiring it into the
-seam took the same 46 keys down to **6 requests**, and with the per-request cap to 4. `jsonEntriesBatch.test.ts` covers it, including that a key the response never
-mentions resolves as an error rather than never settling.
-
-**Why it is not wired.** It makes
-`e2e/uncommitted-routes.spec.ts:129` ("renders in the canvas from a client
-component") fail: after creating an uncommitted page, clicking Preview opens the
-canvas and something closes it again, so the route bar never appears. Baseline
-passes 3/3; with batching it passed 1/3 with a `setTimeout` flush, 0/3 with
-`queueMicrotask`, and 1/4 with the per-request cap and chunks issued in parallel.
-So it is **not** the added latency — batching in any form does it.
-
-**Where to look next.** The prime suspect is this effect in `Shell.tsx`:
-
-```tsx
-useEffect(() => {
-  if (isLoading) return;
-  if (selection?.kind === "page") return;
-  setIsCanvasOpen(false);
-  setCanvasView("normal");
-}, [isLoading, selection?.kind]);
-```
-
-It closes the canvas whenever loading settles on a selection that is not a page,
-and batching changes both when `isLoading` settles and the ORDER entry reads
-resolve in. Unbatched, a sibling key that resolves resolves immediately while a
-missing one errors later; batched, they resolve together. The newly created page
-is `missing` from the routes module (it exists only as a patch, and the Studio
-reads with `apply_patches: false`), so this test is exactly the case where that
-ordering differs:
-
-```
-GET /json keys=["/blogs/uncommitted"]
-  -> {"path":"/app/blogs/[blog]/page.val.ts","entries":[],"missing":["/blogs/uncommitted"],"errors":[],"total":36}
-```
-
-The honest reading is that the effect has a latent race and the batching exposes
-it. Fix the race first, with a test that pins it at the `Shell` level, and only
-then wire the seam — the seam change is measured and ready.
-
 ## An array of OBJECTS is still diffed by index
 
 `s.array(s.string() | s.number() | s.boolean())` is diffed by content — see

@@ -818,7 +818,9 @@ What is still ignored is `schemaSha` / `sourcesSha` / `jsonEntriesSha`. Two of t
 three no longer mean what they did: schema and committed source are DERIVED from
 the host app's `ValModules`, which arrive as a React prop, so there is nothing to
 refetch and nothing to compare a sha against — a schema that changes on the server
-is a redeploy, which `StatusStore`'s one-way `out-of-date` gate already handles.
+is a redeploy, which reaches the Studio through the manifest since phase 9 of
+`docs/plans/one-content-model.md` (`BuildCode`: the build's own registry taken in
+place, or a reload of the page where it cannot be).
 
 `jsonEntriesSha` is the one that still matters: it is how a client learns that a
 `.jsonValues()` entry it has cached is stale, which happens after someone else

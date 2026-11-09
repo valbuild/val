@@ -230,6 +230,26 @@ describe("a merge", () => {
     });
   });
 
+  test("is pressed with the commit message typed before the tap", async () => {
+    const messages: (string | undefined)[] = [];
+    await pressForPage({
+      intent: { ...merge, commitMessage: "Spring campaign" },
+      client: {
+        tryAgain: noTry,
+        requestStatus: neverPressed,
+        pressMerge: async (_proposal, _requestId, _tab, _anyway, message) => {
+          messages.push(message);
+          return { request: { kind: "publishing" }, job };
+        },
+      },
+      chain: () => [],
+      publish: async () => {
+        throw new Error("a merge runs no gate");
+      },
+    });
+    expect(messages).toEqual(["Spring campaign"]);
+  });
+
   test("its try again presses the merge again, not the site's queue", async () => {
     const pressedMerges: string[] = [];
     const outcome = await pressForPage({
@@ -284,6 +304,13 @@ describe("a merge", () => {
       kind: "not-pressed",
       message: "Conflict: Autumn changed /content/a.val.ts on the site since",
       durable: true,
+      // And content's answer as it came, for the page to read why: a
+      // refused commit (someone pushed) is offered more than a sentence.
+      refused: {
+        status: 409,
+        message: "Conflict: Autumn changed /content/a.val.ts on the site since",
+        body: null,
+      },
     });
   });
 

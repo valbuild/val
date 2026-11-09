@@ -735,7 +735,7 @@ describe("a patch that vanished from stat", () => {
     dispose();
   });
 
-  it("asks the server instead of inferring it from stat", async () => {
+  it("is decided by the server's version, not by the stat", async () => {
     const {
       sourceStore,
       patchStore,
@@ -757,11 +757,14 @@ describe("a patch that vanished from stat", () => {
     await settle();
     await settle();
 
-    // The round trip is the mechanism, not an implementation detail: without it
-    // the only available evidence is a stat that cannot date itself.
-    expect(
-      activity.count("patch:verify-vanished", { since: before }),
-    ).toBeGreaterThan(0);
+    // The manifest read after the stat is the mechanism, not an
+    // implementation detail: without it the only available evidence is a stat
+    // that cannot date itself. (It replaced a `GET /patches` per vanished
+    // patch: the version says what the server has.)
+    expect(activity.count("manifest:fetch", { since: before })).toBeGreaterThan(
+      0,
+    );
+    expect(activity.count("patch:drop", { since: before })).toBe(1);
     dispose();
   });
 
@@ -826,9 +829,9 @@ describe("a patch that vanished from stat", () => {
     await settle();
 
     expect((await patchStore.getHead()).type).not.toBe("empty");
-    // Not even asked about: a pending patch costs no round trip, which is what
-    // keeps a burst of typing from turning every poll into a verification.
-    expect(activity.count("patch:verify-vanished", { since: before })).toBe(0);
+    // Never decided gone: an unsaved patch is not in any version the server
+    // has named, and that says nothing about it.
+    expect(activity.count("patch:drop", { since: before })).toBe(0);
 
     release();
     await inFlight;
@@ -919,7 +922,9 @@ describe("telling a publish from a discard", () => {
     // known to have shipped.
     patchStore.markPublished(["local-1" as PatchId]);
 
-    server.simulateForeignDiscard(["local-1" as PatchId]);
+    // The save folded it into the address's snapshot: the server's base has
+    // it, and its chain does not -- with the base sha the stat names unmoved.
+    server.simulateFoldedIntoBase(["local-1" as PatchId]);
     await settle();
     await settle();
 

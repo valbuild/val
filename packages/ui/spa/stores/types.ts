@@ -196,9 +196,17 @@ export type PatchErrorEntry = {
 export type SystemEvent =
   /** The host app handed over modules (intake, or an HMR re-run). */
   | { type: "host:receive"; modules: ModuleFilePath[] }
-  | { type: "host:base-received"; sourcesSha: string }
+  | { type: "host:base-received" }
   | { type: "schema:init"; modules: ModuleFilePath[] }
-  | { type: "source:init"; sources: ModuleFilePath[] }
+  | {
+      type: "source:init";
+      sources: ModuleFilePath[];
+      /**
+       * The ones whose content moved in this intake: a re-intake (HMR) hands
+       * every module over again, and most come back as they were.
+       */
+      moved: ModuleFilePath[];
+    }
   /**
    * This module's source revision moved. Whatever the reason.
    *
@@ -231,12 +239,6 @@ export type SystemEvent =
       path: SourcePath;
       moduleFilePath: ModuleFilePath;
     }
-  /**
-   * `/stat` named a schema other than the last one it named. On RECEIVE, not
-   * adoption: a stat held back while another build's base is fetched still
-   * says which schema that build runs. See `SchemaFreshnessWatch`.
-   */
-  | { type: "stat:schema"; schemaSha: string }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
   | {
       type: "stat:receive";
@@ -251,6 +253,12 @@ export type SystemEvent =
       appliedPatches?: PatchId[];
       /** The chain version all of the above was read at, where reported. */
       headVersion?: number;
+      /**
+       * How far along the project's changes the stat was read
+       * (`confirmedSeqOf`): what it says the server holds, up to. Where
+       * reported.
+       */
+      seq?: number;
     }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }
@@ -406,13 +414,23 @@ export type SystemEvent =
       refusal: { message: string; error: PlanRefusalErrorT };
     }
   /**
-   * Something the editor should be told changed: an error, the network, the
-   * schema's freshness. One event for all of them because a UI shows them
+   * Something the editor should be told changed: an error, the network,
+   * held edits. One event for all of them because a UI shows them
    * together — see `StatusStore`.
    */
   | { type: "status:change" }
   /** Patches were removed from the chain, and source rebuilt without them. */
-  | { type: "patch:drop"; patches: PatchId[]; modules: ModuleFilePath[] }
+  | {
+      type: "patch:drop";
+      patches: PatchId[];
+      modules: ModuleFilePath[];
+      /**
+       * Gone from the server for a reason this tab cannot tell -- discarded
+       * elsewhere, or published where no sha moved (`reconcileVanished`) --
+       * rather than discarded or refused here.
+       */
+      vanished: boolean;
+    }
   /**
    * The write queue moved: in-sync, pending, saving, retrying.
    *
@@ -426,6 +444,18 @@ export type SystemEvent =
    * `in-sync` twice is not news.
    */
   | { type: "patch:sync-state"; state: SyncState }
+  /**
+   * A patch's files started or finished moving: `inFlight` is how many
+   * `createPatch` calls are uploading (or deleting) bytes now. See
+   * `PatchStore.uploadsInFlight`.
+   */
+  | { type: "patch:uploads"; inFlight: number }
+  /**
+   * Published patches left the chain: their effect is in the base now
+   * (`PatchStore.forgetPublished`). Not a `patch:drop`, whose effect must
+   * disappear -- but everything kept per patch goes with them either way.
+   */
+  | { type: "patch:forget-published"; patches: PatchId[] }
   /**
    * Source was rebuilt from base + the surviving chain.
    *

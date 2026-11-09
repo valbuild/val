@@ -33,7 +33,7 @@ import { useValPortal } from "../ValPortalProvider";
 import { readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
-import { createFilePatch } from "./FileField";
+import { createFilePatch } from "./createFilePatch";
 import { FIELD_WRITE_MAX_WAIT_MS } from "./useDebouncedFieldWrite";
 import { useRoutesOf } from "../useRoutesOf";
 import { useRichTextExternalPages } from "./useRichTextExternalPages";

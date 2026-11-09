@@ -6,6 +6,9 @@ import {
 } from "../ValProvider";
 import type { PublishProposalState } from "../proposals/PublishProposalDialog";
 import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
+import { StudioPublishError } from "@valbuild/shared/publish";
+import { designPublishRefused } from "../../design/designPublishRefused";
+import { proposalStudioUrl } from "../../design/designTabUrl";
 import type {
   ProposalJson,
   ProposalsClient,
@@ -25,6 +28,10 @@ import type {
  * works out at a proposal's own address (which of the site's pending changes
  * the merge takes along) are not offered here, so the site's pending changes
  * block as they do from the site.
+ *
+ * A press content refuses is said as `designPublishRefused` says it: one
+ * refused because someone pushed to the proposal's branch offers Open the
+ * proposal, since Build on their push is only pressed there.
  */
 export function useDesignPublish(
   name: string,
@@ -46,6 +53,12 @@ export function useDesignPublish(
   const handoff = useSiteHandoffState().state;
   /** When Publish was pressed: only a request pressed since is this one. */
   const [pressedAt, setPressedAt] = useState<number | null>(null);
+  /** The proposal's own Studio: where a refusal sends the person, if one does. */
+  const address = proposal?.address ?? null;
+  const proposalStudio = useMemo(
+    () => (address !== null ? proposalStudioUrl(address) : null),
+    [address],
+  );
 
   const loadChecks = useCallback(async () => {
     setState({ kind: "checking" });
@@ -81,11 +94,13 @@ export function useDesignPublish(
       (answer) => {
         if (answer.status === "error") {
           setPressedAt(null);
-          setState({ kind: "failed", message: answer.message });
+          setState(
+            designPublishRefused(answer.message, answer.cause, proposalStudio),
+          );
         }
       },
     );
-  }, [name, proposal, publishProposal]);
+  }, [name, proposal, publishProposal, proposalStudio]);
 
   // Where the press is, from the tracker, once it says.
   const following = useMemo<PublishProposalState | null>(() => {
@@ -103,7 +118,19 @@ export function useDesignPublish(
         };
       }
       if (handoff?.kind === "failed") {
-        return { kind: "failed", message: handoff.message };
+        // The builder tab pressed, and content refused it: why, as data.
+        const refused = handoff.refused;
+        return designPublishRefused(
+          handoff.message,
+          refused !== undefined
+            ? new StudioPublishError(
+                refused.status,
+                refused.message,
+                refused.body,
+              )
+            : undefined,
+          proposalStudio,
+        );
       }
       return { kind: "publishing", step: "building" };
     }
@@ -129,7 +156,7 @@ export function useDesignPublish(
               : "building",
         };
     }
-  }, [pressedAt, tracked, handoff]);
+  }, [pressedAt, tracked, handoff, proposalStudio]);
 
   // Settled: the dialog keeps the outcome, and stops following.
   useEffect(() => {

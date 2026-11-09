@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { TransientError } from "../stores/StatusStore";
 import { useGlobalTransientErrors } from "./ValProvider";
 import { toast } from "./designSystem/sonner";
+import { namedAction } from "./transientErrorActions";
 
 const TOAST_DURATION = 6000;
 
@@ -35,7 +36,7 @@ export function TransientErrorToasts({
       if (shownIds.current.has(error.id)) {
         continue;
       }
-      const action = actionForRef.current?.(error);
+      const action = actionForRef.current?.(error) ?? namedAction(error.action);
       toast.error(error.message, {
         id: error.id,
         description: error.details,

@@ -11,7 +11,7 @@ import { Patch } from "@valbuild/core/patch";
 import { JSONValue } from "@valbuild/core/patch";
 import { readImageFromFile, ReadImageEncode } from "../../utils/readImage";
 import { isMimeTypeAccepted } from "@valbuild/shared/internal";
-import { createFilePatch } from "./FileField";
+import { createFilePatch } from "./createFilePatch";
 
 export interface ImageUploadConfig {
   patchPath: string[];

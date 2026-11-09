@@ -4,7 +4,7 @@ import {
   ModuleFilePath,
   isInlineRender,
 } from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
+import { recordAddPatch } from "./recordPatches";
 import { useState, useEffect, useCallback } from "react";
 
 import { Button } from "./designSystem/button";
@@ -40,6 +40,7 @@ export function AddRecordPopover({
   defaultOpen,
   routePattern,
   keyDescription,
+  className,
 }: {
   path: SourcePath | ModuleFilePath;
   size: "default" | "sm" | "lg" | "icon";
@@ -50,6 +51,8 @@ export function AddRecordPopover({
   defaultOpen?: boolean;
   routePattern?: RoutePattern[] | null;
   keyDescription?: string;
+  /** For the trigger, which is otherwise a plain button of `size`. */
+  className?: string;
 }) {
   const shallowSourceAtPath = useShallowSourceAtPath(path, "record");
   const schemaAtPath = useSchemaAtPath(path);
@@ -84,13 +87,11 @@ export function AddRecordPopover({
       }
       const newPatchPath = Internal.createPatchPath(modulePath).concat(key);
       addPatch(
-        [
-          {
-            op: "add",
-            path: newPatchPath,
-            value: emptyOf(schema.item) as JSONValue,
-          },
-        ],
+        recordAddPatch(
+          Internal.createPatchPath(modulePath),
+          key,
+          emptyOf(schema.item),
+        ),
         "record",
       );
       // An inline entry is edited in place in the list, so adding one should
@@ -144,7 +145,7 @@ export function AddRecordPopover({
             }}
             asChild
           >
-            <Button size={size} variant={variant}>
+            <Button size={size} variant={variant} className={className}>
               {children}
             </Button>
           </PopoverTrigger>

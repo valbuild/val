@@ -200,6 +200,12 @@ export {
   type StoredPatch,
   type ValOpsMemoryOptions,
 } from "./ValOpsMemory";
+// What a host constructing `ValOpsMemory` itself passes as `typescript`, so
+// that it can publish. `createValServer` passes it already.
+export {
+  loadTypeScriptKit,
+  type TypeScriptKit,
+} from "./patch/ts/loadTypeScriptKit";
 export {
   loadValModules,
   createValModuleFileInspector,

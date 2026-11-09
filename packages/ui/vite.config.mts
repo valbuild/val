@@ -1,8 +1,12 @@
 import { defineConfig } from "vite";
+import { spaDevServerOptions } from "./src/spaDevServer";
 
 // https://vitejs.dev/config/
 export default defineConfig({
   base: "/api/val/static",
+  // Its HMR socket goes to this server, never through the app: see
+  // `spaDevServerOptions`.
+  server: spaDevServerOptions,
   esbuild: {
     target: "ES2020",
   },

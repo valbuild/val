@@ -1,6 +1,8 @@
-import { ValOpsHttp } from "./ValOpsHttp";
+import { CHAIN_VERSION_RETRY_MS, ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
+import { proposalFromEnv, type ValProposal } from "./proposal";
+import { ProposalCodeModeRead } from "./proposalCodeMode";
 import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
 /**
@@ -37,6 +39,8 @@ function opsAnswering(
      * not built from any. See `git` on `ValApiOptions`.
      */
     git?: { commit: string; branch: string } | null;
+    /** Serve a proposal's address: see `proposal` on `ValApiOptions`. */
+    proposal?: ValProposal;
   },
 ) {
   const originalFetch = global.fetch;
@@ -77,6 +81,9 @@ function opsAnswering(
     // The module side is irrelevant here: nothing on this path evaluates a
     // module or reads a schema.
     { modules: [] } as never,
+    options?.proposal !== undefined
+      ? { config: {}, proposal: options.proposal }
+      : undefined,
   );
   return {
     ops,
@@ -858,6 +865,485 @@ test("an older content server, which reports no head, leaves it absent", async (
   }
 });
 
+/**
+ * `home` — the same `/applicable/patches` once a deployment of the branch went
+ * live: the chain as it was, at a higher version, with the deployment in the
+ * feed. `home` moves the branch's chain version once for each build that
+ * starts serving it (`patches.countDeploymentLive`), because a version orders
+ * answers and a new build's answers are newer. The e2e mock does the same
+ * (`countDeploymentLive` in `e2e/mock-content-host/server.ts`), and
+ * `scenarios/src/codeChanges.scenario.test.ts` ("S11 a new build is counted")
+ * drives it through the scenario world.
+ */
+const HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT = {
+  ...HOME_APPLICABLE_PATCHES,
+  headVersion: 43,
+  deployments: [
+    {
+      deploymentId: "4711",
+      commitSha: "a".repeat(40),
+      deploymentState: "success",
+      createdAt: "2026-11-02T10:00:00.000Z",
+      updatedAt: "2026-11-02T10:01:00.000Z",
+      commitMessage: "Move the pricing table into its own component",
+    },
+  ],
+};
+
+test("a deployment going live is the same chain at a higher version, and the project's seq follows it", async () => {
+  const before = opsAnswering(HOME_APPLICABLE_PATCHES);
+  let read: Awaited<ReturnType<typeof before.ops.fetchPatches>>;
+  let seqBefore: number;
+  try {
+    read = await before.ops.fetchPatches({ excludePatchOps: true });
+    seqBefore = (await before.ops.projectVersion(read.headVersion)).seq;
+  } finally {
+    before.restore();
+  }
+  const after = opsAnswering(HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT);
+  try {
+    const res = await after.ops.fetchPatches({ excludePatchOps: true });
+
+    // Nothing in the chain moved: no patch, no head.
+    expect(res.patches).toEqual(read.patches);
+    expect(res.headPatchId).toBe(read.headPatchId);
+    // Only its version, which is what orders the two answers.
+    expect(res.headVersion).toBe(43);
+    expect(seqBefore).toBe(42);
+    expect((await after.ops.projectVersion(res.headVersion)).seq).toBe(43);
+  } finally {
+    after.restore();
+  }
+});
+
+/**
+ * `home` -- `Api["/chain/version"]["GET"]["res"]`, copied from there
+ * (`handlers/getChainVersion.ts`): the chain version alone, which the head
+ * asks on each draft read instead of reading the chain (phase 6).
+ */
+const HOME_CHAIN_VERSION = { headVersion: 43 };
+
+test("the chain version is read alone, for the ops' own branch", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_CHAIN_VERSION);
+  try {
+    expect(await ops.chainSeq()).toBe(43);
+    expect(sent).toHaveLength(1);
+    const url = new URL(sent[0].url);
+    expect(url.pathname).toBe(`/v1/${PROJECT}/chain/version`);
+    expect(url.searchParams.get("branch")).toBe("main");
+    expect(sent[0].headers.Authorization).toBe("Bearer key");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` -- a branch nothing was written to yet (a proposal just opened, a
+ * project nobody has edited) has no `val_patch_chains` row, and
+ * `readChainVersion` COALESCEs it to 0: 200, never 404
+ * (`chainVersion.http.test.ts` there, "a branch with no chain yet answers
+ * 0, never 404"). The e2e mock answers the same (`getChainVersion`).
+ */
+test("a branch with no chain yet is at version 0", async () => {
+  const { ops, restore } = opsAnswering({ headVersion: 0 });
+  try {
+    expect(await ops.chainSeq()).toBe(0);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` -- the only 404 the route gives is JSON, `{ message: "Project not
+ * found" }`, the same 404 `/applicable/patches` gives for that project. Not a
+ * content service without the route: asked again next time.
+ */
+test("a project the content service does not know is not taken for a service without the route", async () => {
+  const { ops, sent, restore } = opsAnswering(
+    { message: "Project not found" },
+    404,
+  );
+  try {
+    expect(await ops.chainSeq()).toBeNull();
+    expect(await ops.chainSeq()).toBeNull();
+    expect(sent).toHaveLength(2);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A content service that predates the route answers Express's own 404:
+ * `Cannot GET …`, as `text/html`. Not asked again for a while -- the head
+ * reads the chain meanwhile -- and asked again after it, since a service is
+ * upgraded under a running server.
+ */
+test("a content service that predates the chain version is not asked again for a while, and then is", async () => {
+  const originalFetch = global.fetch;
+  const originalNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  let asked = 0;
+  global.fetch = (async () => {
+    asked++;
+    return new Response("Cannot GET /v1/acme/site/chain/version", {
+      status: 404,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }) as unknown as typeof fetch;
+  try {
+    const ops = new ValOpsHttp(
+      CONTENT_URL,
+      PROJECT,
+      { commit: "commit-sha", branch: "main" },
+      { apiKey: "key" },
+      { modules: [] } as never,
+      undefined,
+    );
+    expect(await ops.chainSeq()).toBeNull();
+    expect(await ops.chainSeq()).toBeNull();
+    expect(asked).toBe(1);
+    now += CHAIN_VERSION_RETRY_MS;
+    expect(await ops.chainSeq()).toBeNull();
+    expect(asked).toBe(2);
+  } finally {
+    global.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
+/**
+ * `home` — the same `/applicable/patches`, asked by a PREVIOUS build with
+ * `relative_to=live` (valbuild/home `utils/liveBuild.ts`, phase 7 of
+ * `docs/plans/one-content-model.md`): for up to a minute after a publish the
+ * edge serves the build before it, and only `home` knows a newer build is
+ * live. It names that build with the base it reported (`liveBuild`), and
+ * answers the chain at it (`relativeTo: "live"`). The e2e mock does the same
+ * (`liveBuildOf` in `e2e/mock-content-host/server.ts`), and
+ * `scenarios/src/overlayAfterBuild.scenario.test.ts` (S26) drives it.
+ */
+const LIVE_BASE = "c0ffee".repeat(10) + "cafe";
+const HOME_APPLICABLE_PATCHES_AT_LIVE = {
+  ...HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT,
+  liveBuild: {
+    deployment: "publish:3f1e2d4c-0000-4000-8000-000000000001@k1",
+    version: 43,
+    sourcesSha: LIVE_BASE,
+    callerIsPrevious: true,
+  },
+  relativeTo: "live",
+};
+
+/** Ops answering `applicable/patches` with `patches` and a nonce otherwise. */
+function opsForStat(patches: unknown, chainVersion?: () => number) {
+  const originalFetch = global.fetch;
+  const sent: SentRequest[] = [];
+  global.fetch = (async (
+    url: string,
+    init?: { headers?: HeadersInit; body?: string },
+  ) => {
+    sent.push({
+      url: String(url),
+      headers: Object.fromEntries(
+        Object.entries((init?.headers ?? {}) as Record<string, string>),
+      ),
+      body: init?.body === undefined ? undefined : JSON.parse(init.body),
+    });
+    if (String(url).includes("/chain/version") && chainVersion === undefined) {
+      return new Response("Not found", { status: 404 });
+    }
+    const body = String(url).includes("/applicable/patches")
+      ? patches
+      : String(url).includes("/chain/version") && chainVersion !== undefined
+        ? { headVersion: chainVersion() }
+        : { nonce: "n1", url: "wss://content.val.build/ws" };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  const ops = new ValOpsHttp(
+    CONTENT_URL,
+    PROJECT,
+    { commit: "commit-sha", branch: "main" },
+    { apiKey: "key" },
+    { modules: [] } as never,
+    { config: {}, publishBuild: "build-old" },
+  );
+  return {
+    ops,
+    sent,
+    restore: () => {
+      global.fetch = originalFetch;
+    },
+  };
+}
+
+const STAT_PARAMS = {
+  baseSha: "b",
+  schemaSha: "s",
+  profileId: PROFILE,
+} as unknown as Parameters<ValOpsHttp["getStat"]>[0];
+
+test("a previous build's /stat names the live build's base, and asks for the chain at it", async () => {
+  const { ops, sent, restore } = opsForStat(HOME_APPLICABLE_PATCHES_AT_LIVE);
+  try {
+    const own = await ops.getSourcesSha();
+    const stat = await ops.getStat(STAT_PARAMS);
+    if (stat.type !== "use-websocket") {
+      throw new Error(`not a stat: ${JSON.stringify(stat)}`);
+    }
+    expect(stat.sourcesSha).toBe(LIVE_BASE);
+    expect(stat.sourcesSha).not.toBe(own);
+    // By path: `/stat` asks "has the chain moved?" (`/chain/version`) first,
+    // and reads the chain only when it has.
+    const chainRead = sent.find((r) => r.url.includes("/applicable/patches"));
+    const nonce = sent.find((r) => r.url.includes("/websocket/nonces"));
+    if (chainRead === undefined || nonce === undefined) {
+      throw new Error(`not asked: ${JSON.stringify(sent.map((r) => r.url))}`);
+    }
+    const asked = new URL(chainRead.url).searchParams;
+    // Which build asks, its own base (a report), and at which build to answer.
+    expect(asked.get("build")).toBe("build-old");
+    expect(asked.get("sources_sha")).toBe(own);
+    expect(asked.get("relative_to")).toBe("live");
+    // Its socket follows the same chain.
+    expect((nonce.body as Record<string, unknown>).relativeTo).toBe("live");
+  } finally {
+    restore();
+  }
+});
+
+/*
+ * `/stat` reads the chain only when it moved: "has it?" is the chain version
+ * alone (`GET /chain/version`, valbuild/home `readChainVersion`), the head's
+ * cheap `seq`. Every Studio polls `/stat`, and each socket message makes it
+ * ask; the whole chain on each was the content service's busiest call.
+ */
+test("/stat reads the chain again only when its version moved", async () => {
+  let version = 7;
+  const { ops, sent, restore } = opsForStat(
+    HOME_APPLICABLE_PATCHES_AT_LIVE,
+    () => version,
+  );
+  try {
+    const chainReads = () =>
+      sent.filter((r) => r.url.includes("/applicable/patches")).length;
+    await ops.getStat(STAT_PARAMS);
+    await ops.getStat(STAT_PARAMS);
+    expect(chainReads()).toBe(1);
+    version = 8;
+    const stat = await ops.getStat(STAT_PARAMS);
+    expect(chainReads()).toBe(2);
+    if (stat.type !== "use-websocket") {
+      throw new Error(`not a stat: ${JSON.stringify(stat)}`);
+    }
+    expect(stat.sourcesSha).toBe(LIVE_BASE);
+  } finally {
+    restore();
+  }
+});
+
+test("a /stat answered at its own build, or by a content service that does not say, names its own base", async () => {
+  for (const answer of [
+    { ...HOME_APPLICABLE_PATCHES_AT_LIVE, relativeTo: "caller" },
+    {
+      ...HOME_APPLICABLE_PATCHES_AT_LIVE,
+      // Live, but its base not reported yet: it could not be named.
+      liveBuild: {
+        ...HOME_APPLICABLE_PATCHES_AT_LIVE.liveBuild,
+        sourcesSha: null,
+      },
+      relativeTo: "caller",
+    },
+    HOME_APPLICABLE_PATCHES_AFTER_DEPLOYMENT,
+  ]) {
+    const { ops, restore } = opsForStat(answer);
+    try {
+      const stat = await ops.getStat(STAT_PARAMS);
+      if (stat.type !== "use-websocket") throw new Error("not a stat");
+      expect(stat.sourcesSha).toBe(await ops.getSourcesSha());
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("only /stat asks for the chain at the live build; every read reports the base", async () => {
+  const { ops, sent, restore } = opsForStat(HOME_APPLICABLE_PATCHES_AT_LIVE);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: false });
+    const asked = new URL(sent[0].url).searchParams;
+    expect(asked.get("relative_to")).toBeNull();
+    expect(asked.get("sources_sha")).toBe(await ops.getSourcesSha());
+    // A read applies the chain to this build's own base: never another's.
+    expect("chainBase" in res).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — `GET /v1/project-source` by version: a strong `ETag` (the sha256
+ * of the answer) and a 304 to `If-None-Match` (valbuild/home
+ * `getProjectSource.ts`). Val's publish proxy carries both ways; the code
+ * tools' reader (`createProjectSourceReader`) sends the tag it holds. The e2e
+ * mock does the same, and `scenarios/src/projectSource.scenario.test.ts`
+ * drives it through the app.
+ */
+test("the project's source is read by version through the publish proxy", async () => {
+  const etag = `"${"ab".repeat(32)}"`;
+  const originalFetch = global.fetch;
+  const sent: { url: string; headers: Headers }[] = [];
+  global.fetch = (async (url: string, init?: RequestInit) => {
+    sent.push({ url: String(url), headers: new Headers(init?.headers) });
+    if (String(url).endsWith("/publish-token")) {
+      return new Response(
+        JSON.stringify({
+          token: "publish-token",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          publicProjectId: "p",
+          productionUrl: null,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    const held = new Headers(init?.headers).get("if-none-match");
+    return held === etag
+      ? new Response(null, { status: 304, headers: { etag } })
+      : new Response(
+          JSON.stringify({ files: {}, publicFiles: null, publicPaths: [] }),
+          {
+            status: 200,
+            headers: { etag, "content-type": "application/json" },
+          },
+        );
+  }) as unknown as typeof fetch;
+  try {
+    const ops = new ValOpsHttp(
+      CONTENT_URL,
+      PROJECT,
+      { commit: "commit-sha", branch: "main" },
+      { apiKey: "key" },
+      { modules: [] } as never,
+    );
+    const first = await ops.publishApi("/project-source", { method: "GET" });
+    expect(first.status).toBe(200);
+    expect(first.etag).toBe(etag);
+    const again = await ops.publishApi("/project-source", {
+      method: "GET",
+      ifNoneMatch: etag,
+    });
+    expect(again.status).toBe(304);
+    expect(again.etag).toBe(etag);
+    const toContent = sent.filter((r) => r.url.endsWith("/v1/project-source"));
+    expect(toContent.map((r) => r.headers.get("if-none-match"))).toEqual([
+      null,
+      etag,
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+/**
+ * `home` — `VAL_OVERLAY`, as the platform hands it to a proposal's isolate
+ * once content says which modules' code is staged (`staged`, each with its
+ * schema version `staged:<inputs>`; valbuild/home `stagedSchemas`), and
+ * `VAL_BUILD_INPUTS` beside the build's hash: the staging the build serving
+ * the address was made of (the overlay's `codeInputs`, from content's
+ * `PUT /__api/proposals/:name/code` `stagedInputs`). Absent while the base
+ * serves the address.
+ */
+test("an overlay that says which modules are staged, and the build's inputs, are read", () => {
+  const proposal = proposalFromEnv({
+    VAL_PROPOSAL: PROPOSAL.name,
+    VAL_BRANCH: PROPOSAL.branch,
+    VAL_OVERLAY: JSON.stringify({
+      version: 4,
+      commit: "save2",
+      modules: { "/content/a.val.ts": { title: "Spring" } },
+      files: { "content/a.val.ts": "export default 1;\n" },
+      staged: { "/content/a.val.ts": `staged:${"d".repeat(64)}` },
+    }),
+    VAL_BUILD_INPUTS: "c".repeat(64),
+  });
+  expect(proposal).toEqual({
+    name: PROPOSAL.name,
+    branch: PROPOSAL.branch,
+    commit: "save2",
+    modules: { "/content/a.val.ts": { title: "Spring" } },
+    files: { "content/a.val.ts": "export default 1;\n" },
+    staged: { "/content/a.val.ts": `staged:${"d".repeat(64)}` },
+    buildInputs: "c".repeat(64),
+  });
+});
+
+test("an overlay from before either says nothing is staged, on a build of no staging", () => {
+  const proposal = proposalFromEnv({
+    VAL_PROPOSAL: PROPOSAL.name,
+    VAL_BRANCH: PROPOSAL.branch,
+    VAL_OVERLAY: JSON.stringify({ version: 4, commit: null, modules: {} }),
+  });
+  expect(proposal?.staged).toEqual({});
+  expect(proposal?.buildInputs).toBeNull();
+});
+
+/**
+ * `home` — `Api["/commit"]["POST"]["body"]["modules"][path].staged`: a save
+ * at a proposal's address of a module whose code is staged and not in the
+ * build that saved it names the staging, so content records `staged:<inputs>`
+ * as the version's schema instead of the build's (`writeCommitArchive`).
+ */
+test("a save of a module staged after the build names its staging, beside the build's schema", async () => {
+  const INPUTS = "e".repeat(64);
+  const AFTER = `staged:${"f".repeat(64)}`;
+  const proposal: ValProposal = {
+    ...PROPOSAL,
+    files: {
+      "content/page.val.ts": `import { c, s } from "../val.config";\n\nexport default c.define("/content/page.val.ts", s.object({ title: s.string(), button: s.string() }), { title: "Spring", button: "Buy" });\n`,
+    },
+    staged: { "/content/page.val.ts": AFTER },
+    buildInputs: INPUTS,
+  };
+  const { ops, sent, restore } = opsAnswering(
+    { updatedFiles: [], commit: "c-save", branch: PROPOSAL.branch },
+    200,
+    { proposal },
+  );
+  try {
+    await ops.commit(
+      {
+        ...EMPTY_PREPARED,
+        moduleVersions: {
+          ["/content/page.val.ts" as ModuleFilePath]: {
+            source: { title: "Spring", button: "Buy now" },
+            schema: {
+              type: "object",
+              items: {},
+              opt: false,
+            } as unknown as SerializedSchema,
+            staged: AFTER,
+          },
+        },
+      },
+      "Saved before the code was changed",
+      PROFILE,
+      "/public/val",
+    );
+    const body = sent.find((r) => r.url.endsWith("/save"))?.body as {
+      modules: Record<string, unknown>;
+    };
+    expect(body.modules["/content/page.val.ts"]).toEqual({
+      source: { title: "Spring", button: "Buy now" },
+      schema: { type: "object", items: {}, opt: false },
+      staged: AFTER,
+    });
+  } finally {
+    restore();
+  }
+});
+
 /** `home` — `Api["/patches"]["DELETE"]["res"]`, keyed by branch. */
 const HOME_DELETE = {
   deleted: ["44444444-4444-4444-8444-444444444444"],
@@ -1028,6 +1514,487 @@ test("a content API that does not say which changes are publishing leaves it abs
   try {
     const res = await ops.fetchPatches({ excludePatchOps: true });
     expect(res).not.toHaveProperty("publishingPatches");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A proposal's address (valbuild/home `docs/proposals.md`). The e2e mock
+ * keeps a chain per branch, saves, stagings and merges now
+ * (`scenarios/src/proposals.scenario.test.ts`), so what it is held to is
+ * pinned here against `home`'s `Api.ts`.
+ */
+const PROPOSAL: ValProposal = {
+  name: "0123456789abcdef0123",
+  branch: "val/p/0123456789abcdef0123",
+  commit: "save1",
+  modules: {},
+  files: {},
+};
+
+const EMPTY_PREPARED = {
+  patchedSourceFiles: {},
+  patchedJsonEntries: {},
+  previousSourceFiles: {},
+  partiallyPatchedSourceFiles: {},
+  patchedBinaryFilesDescriptors: {},
+  appliedPatches: {},
+  hasErrors: false,
+  sourceFilePatchErrors: {},
+  binaryFilePatchErrors: {},
+  unappliablePatches: {},
+  skippedPatches: {},
+  triedPatches: {},
+  moduleVersions: {},
+};
+
+test("a save in a proposal is `/proposals/:name/save`, answered as `/commit` is", async () => {
+  // `home` -- `Api["/proposals/:proposalName/save"]["POST"]` is
+  // `Api["/commit"]["POST"]`: the same body and the same answer.
+  const { ops, sent, restore } = opsAnswering(
+    {
+      updatedFiles: ["/content/page.val.ts"],
+      commit: "save2",
+      branch: PROPOSAL.branch,
+      headVersion: 7,
+    },
+    200,
+    { proposal: PROPOSAL },
+  );
+  try {
+    const res = await ops.commit(
+      EMPTY_PREPARED,
+      "save",
+      PROFILE,
+      "/public/val",
+    );
+    expect(res.error).toBeUndefined();
+    expect("branch" in res && res.branch).toBe(PROPOSAL.branch);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/save`,
+    );
+    const body = sent[0]?.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("newBranch");
+    expect(body.committer).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("a proposal's server reads its own chain: its branch, from its save", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_APPLICABLE_PATCHES, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    await ops.fetchPatches({ excludePatchOps: true });
+    const read = sent.find((request) =>
+      request.url.includes("/applicable/patches"),
+    );
+    expect(read).toBeDefined();
+    const query = new URL(read?.url ?? "").searchParams;
+    // `getApplicablePatches` -- `branch` and `commit` are its position.
+    expect(query.get("branch")).toBe(PROPOSAL.branch);
+    expect(query.get("commit")).toBe(PROPOSAL.commit);
+  } finally {
+    restore();
+  }
+});
+
+test("a staging sends the Source its module files declare, and home's answer comes back", async () => {
+  // `home` -- `Api["/proposals/:proposalName/files"]["POST"]`, since #369.
+  const HOME_STAGED = {
+    commit: "stage1",
+    staged: {
+      files: ["content/page.val.ts"],
+      inputs: "inputs1",
+      buildRequired: true,
+    },
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_STAGED, 200, {
+    proposal: PROPOSAL,
+  });
+  const text = `export default c.define("/content/page.val.ts", s.object({ title: s.string() }), { title: "Staged" });\n`;
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/files`,
+      {
+        method: "POST",
+        body: JSON.stringify({ files: { "content/page.val.ts": text } }),
+      },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_STAGED);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/files`,
+    );
+    // Keyed by module file path, for a file staged in the same request: the
+    // only `modules` home accepts.
+    expect(sent[0]?.body).toEqual({
+      files: { "content/page.val.ts": text },
+      modules: { "/content/page.val.ts": { title: "Staged" } },
+    });
+  } finally {
+    restore();
+  }
+});
+
+test("a proposal's socket nonce names its branch", async () => {
+  const { ops, sent, restore } = opsAnswering(
+    { nonce: "n1", url: "wss://content.val.build/ws" },
+    200,
+    { proposal: PROPOSAL },
+  );
+  try {
+    const res = await ops.getWebSocketNonce(PROFILE);
+    expect(res.status).toBe("success");
+    expect((sent[0]?.body as Record<string, unknown>).branch).toBe(
+      PROPOSAL.branch,
+    );
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * Code mode and Commit (valbuild/home's code-mode contract, v1): code mode on
+ * every `ProposalJson`, `git` on a read of one, and `/code-mode` and
+ * `/commit`, reached through the proposals proxy at the proposal's own
+ * address. The e2e mock implements the same (`e2e/mock-content-host`), and
+ * `scenarios/src/codeMode.scenario.test.ts` drives it.
+ */
+const HOME_PROPOSAL_IN_CODE_MODE = {
+  proposal: {
+    name: PROPOSAL.name,
+    branch: PROPOSAL.branch,
+    displayName: "Spring campaign",
+    description: null,
+    ownerId: PROFILE,
+    status: "open",
+    updatedAt: "2026-11-02T10:05:00.000Z",
+    codeMode: {
+      on: true,
+      changedBy: PROFILE,
+      changedAt: "2026-11-02T10:00:00.000Z",
+    },
+    pushedGitSha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+    git: {
+      branch: PROPOSAL.branch,
+      branchUrl: `https://github.com/acme/site/tree/${PROPOSAL.branch}`,
+      committed: {
+        sha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+        url: "https://github.com/acme/site/commit/1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+        save: "save1",
+        by: PROFILE,
+        at: "2026-11-02T09:00:00.000Z",
+      },
+      head: "save2",
+      uncommitted: true,
+    },
+  },
+  events: [
+    {
+      kind: "code-mode",
+      actorId: PROFILE,
+      data: { on: true },
+    },
+  ],
+};
+
+test("a proposal's code mode is read from home's answer, before a code write", () => {
+  const read = ProposalCodeModeRead.parse(HOME_PROPOSAL_IN_CODE_MODE);
+  expect(read.proposal.codeMode).toEqual({
+    on: true,
+    changedBy: PROFILE,
+    changedAt: "2026-11-02T10:00:00.000Z",
+  });
+  // Content older than code mode keeps none: there is no switch to turn.
+  const { codeMode: _none, ...older } = HOME_PROPOSAL_IN_CODE_MODE.proposal;
+  expect(
+    ProposalCodeModeRead.parse({ proposal: older }).proposal.codeMode,
+  ).toBeUndefined();
+});
+
+test("code mode is `/proposals/:name/code-mode`, at the proposal's own address", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_PROPOSAL_IN_CODE_MODE, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/code-mode`,
+      { method: "POST", body: JSON.stringify({ on: true }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_PROPOSAL_IN_CODE_MODE);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/code-mode`,
+    );
+    expect(sent[0]?.body).toEqual({ on: true });
+    expect(sent[0]?.headers["x-val-profile-id"]).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("Commit is `/proposals/:name/commit`, and home's answer comes back", async () => {
+  const HOME_COMMITTED = {
+    commit: {
+      sha: "2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a",
+      url: "https://github.com/acme/site/commit/2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a",
+      save: "save2",
+      pushed: true,
+    },
+    proposal: HOME_PROPOSAL_IN_CODE_MODE.proposal,
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_COMMITTED, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/commit`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message: "Spring campaign", save: "save2" }),
+      },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_COMMITTED);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/commit`,
+    );
+    expect(sent[0]?.body).toEqual({
+      message: "Spring campaign",
+      save: "save2",
+    });
+  } finally {
+    restore();
+  }
+});
+
+test("a Commit refused because someone pushed comes back as home said it", async () => {
+  const HOME_SOMEONE_PUSHED = {
+    statusCode: 409,
+    // `commitRefusal` in home's `content/src/val/proposalGit.ts`.
+    message: `Ada Lovelace pushed to ${PROPOSAL.branch} (3c4d5e6) at 2026-11-02 14:03 UTC. Val does not commit over a push it has not seen.`,
+    details: {
+      code: "someone-pushed",
+      branch: PROPOSAL.branch,
+      branchUrl: `https://github.com/acme/site/tree/${PROPOSAL.branch}`,
+      expected: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+      theirs: {
+        sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+        url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+        message:
+          "Fix the hero's spacing\n\nThe gap above the heading was 2rem.",
+        author: {
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          login: "ada",
+          avatarUrl: null,
+        },
+        at: "2026-11-02T14:03:00.000Z",
+      },
+    },
+  };
+  const { ops, restore } = opsAnswering(HOME_SOMEONE_PUSHED, 409, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/commit`,
+      { method: "POST", body: JSON.stringify({ message: "Spring" }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(409);
+    expect(JSON.parse(answer.body)).toEqual(HOME_SOMEONE_PUSHED);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * Build on their push (valbuild/home's take-push contract, v2): somebody's
+ * push to `val/p/<name>` brought into the proposal, at its own address. The
+ * e2e mock implements the same, and `codeMode.scenario.test.ts` (C7-C10)
+ * drives it through the Studio's `buildOnTheirPush`.
+ */
+const THEIRS = {
+  sha: "3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+  url: "https://github.com/acme/site/commit/3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b",
+  message: "Fix the hero's spacing\n\nThe gap above the heading was 2rem.",
+  author: {
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    login: "ada",
+    avatarUrl: null,
+  },
+  at: "2026-11-02T14:03:00.000Z",
+};
+
+test("taking in their push is `/proposals/:name/take-push`, and home's answer comes back", async () => {
+  const HOME_TAKEN = {
+    theirs: THEIRS,
+    commit: "save3",
+    taken: [
+      {
+        path: "src/components/Hero.tsx",
+        change: "modified",
+        binary: false,
+      },
+      { path: "public/hero.png", change: "added", binary: true },
+    ],
+    keptOurs: [{ path: "content/home.val.ts", reason: "val-content" }],
+    notTaken: [{ path: ".github/workflows/ci.yml", reason: "outside-project" }],
+    rewritten: false,
+    merges: [],
+    already: false,
+    proposal: {
+      ...HOME_PROPOSAL_IN_CODE_MODE.proposal,
+      pushedGitSha: THEIRS.sha,
+      git: {
+        ...HOME_PROPOSAL_IN_CODE_MODE.proposal.git,
+        committed: {
+          sha: THEIRS.sha,
+          url: THEIRS.url,
+          save: null,
+          by: null,
+          at: THEIRS.at,
+        },
+        head: "save3",
+        uncommitted: true,
+        takenIn: {
+          sha: THEIRS.sha,
+          url: THEIRS.url,
+          by: PROFILE,
+          at: "2026-11-02T14:10:00.000Z",
+          building: true,
+        },
+      },
+    },
+  };
+  const { ops, sent, restore } = opsAnswering(HOME_TAKEN, 200, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/take-push`,
+      { method: "POST", body: JSON.stringify({ sha: THEIRS.sha }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual(HOME_TAKEN);
+    expect(sent[0]?.url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/proposals/${PROPOSAL.name}/take-push`,
+    );
+    expect(sent[0]?.body).toEqual({ sha: THEIRS.sha });
+    expect(sent[0]?.headers["x-val-profile-id"]).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("taking in a push that moved again is refused naming the newer one, as home said it", async () => {
+  const NEWER = {
+    ...THEIRS,
+    sha: "4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b3c",
+    url: "https://github.com/acme/site/commit/4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d1a2b3c",
+    message: "And a footer",
+  };
+  const HOME_MOVED_AGAIN = {
+    statusCode: 409,
+    message: `Ada Lovelace pushed to ${PROPOSAL.branch} (4d5e6f7) at 2026-11-02 14:20 UTC. Val does not commit over a push it has not seen.`,
+    details: {
+      code: "someone-pushed",
+      branch: PROPOSAL.branch,
+      branchUrl: `https://github.com/acme/site/tree/${PROPOSAL.branch}`,
+      expected: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+      theirs: NEWER,
+    },
+  };
+  const { ops, restore } = opsAnswering(HOME_MOVED_AGAIN, 409, {
+    proposal: PROPOSAL,
+  });
+  try {
+    const answer = await ops.proposalsApi(
+      `/${PROPOSAL.name}/take-push`,
+      { method: "POST", body: JSON.stringify({ sha: THEIRS.sha }) },
+      PROFILE,
+    );
+    expect(answer.status).toBe(409);
+    expect(JSON.parse(answer.body)).toEqual(HOME_MOVED_AGAIN);
+  } finally {
+    restore();
+  }
+});
+
+test("a take-in refused -- nothing to take, GitHub down, the plan -- comes back as home said it", async () => {
+  const refusals: [number, unknown][] = [
+    [
+      409,
+      {
+        statusCode: 409,
+        message: `There is nothing to take in: ${PROPOSAL.branch} is where Val left it.`,
+        details: {
+          code: "nothing-to-take",
+          tip: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d",
+        },
+      },
+    ],
+    [
+      502,
+      {
+        statusCode: 502,
+        message: "GitHub could not be reached. Nothing was taken in.",
+        details: { code: "github-unavailable", reason: "ETIMEDOUT" },
+      },
+    ],
+    [
+      // The plan's refusal: the body a save or a staging gets (v2, 9).
+      403,
+      {
+        statusCode: 403,
+        message: "The trial has ended. Add a card to keep changing content.",
+        error: {
+          code: "trial-over",
+          fix: "add-card",
+          billingUrl: "https://admin.val.build/acme/billing",
+        },
+      },
+    ],
+  ];
+  for (const [status, refusal] of refusals) {
+    const { ops, restore } = opsAnswering(refusal, status, {
+      proposal: PROPOSAL,
+    });
+    try {
+      const answer = await ops.proposalsApi(
+        `/${PROPOSAL.name}/take-push`,
+        { method: "POST", body: JSON.stringify({ sha: THEIRS.sha }) },
+        PROFILE,
+      );
+      expect(answer.status).toBe(status);
+      expect(JSON.parse(answer.body)).toEqual(refusal);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("the site's server neither turns a proposal's code mode, commits it, nor takes a push into it", async () => {
+  const { ops, sent, restore } = opsAnswering(HOME_PROPOSAL_IN_CODE_MODE);
+  try {
+    for (const write of ["code-mode", "commit", "take-push"]) {
+      const answer = await ops.proposalsApi(
+        `/${PROPOSAL.name}/${write}`,
+        { method: "POST", body: JSON.stringify({ on: true }) },
+        PROFILE,
+      );
+      expect(answer.status).toBe(403);
+    }
+    expect(sent).toEqual([]);
   } finally {
     restore();
   }

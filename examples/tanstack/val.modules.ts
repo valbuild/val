@@ -24,6 +24,13 @@ const e2eFixtures = process.env.VAL_E2E_FIXTURES === "true";
 const e2eRemoteMedia =
   e2eFixtures && process.env.VAL_E2E_REMOTE_MEDIA === "true";
 
+/**
+ * The fixtures AT SIZE, separately: `VAL_E2E_SCALE` entries in each (see
+ * `content/scale/posts.val.ts`), for `e2e/tanstack/scale.spec.ts` alone, which
+ * runs only when asked for. Off unless that number is set.
+ */
+const e2eScale = e2eFixtures && Number(process.env.VAL_E2E_SCALE || 0) > 0;
+
 export default modules(config, [
   // The project's settings: one per project, at the root of the content tree.
   { def: () => import("./settings.val") },
@@ -88,6 +95,15 @@ export default modules(config, [
         { def: () => import("./src/routes/_site.support.$slug.val") },
         { def: () => import("./src/routes/_site.notes.$note.val") },
         { def: () => import("./src/routes/_site.generic.$.val") },
+      ]
+    : []),
+  ...(e2eScale
+    ? [
+        { def: () => import("./content/scale/images.val") },
+        { def: () => import("./content/scale/files.val") },
+        { def: () => import("./content/scale/videos.val") },
+        { def: () => import("./content/scale/posts.val") },
+        { def: () => import("./content/scale/featured.val") },
       ]
     : []),
   ...(e2eRemoteMedia

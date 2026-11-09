@@ -47,6 +47,16 @@ export function siteDesignTabUrl(here: string, name: string): string | null {
 }
 
 /**
+ * The proposal's own Studio, at its `address`: where its content is edited
+ * and where Publish -- and Build on their push, which only the proposal's
+ * own address may press -- are offered. What the design tab's "Proposal's
+ * Studio" link and its "Open the proposal" both go to.
+ */
+export function proposalStudioUrl(address: string): string {
+  return new URL("/val", address).toString();
+}
+
+/**
  * The page at `route` on the proposal's `address`, for the frame -- or `null`
  * when what was typed is not a page of it: a protocol-relative `//host`, which
  * would leave the proposal's origin, or nothing a URL can be made of.

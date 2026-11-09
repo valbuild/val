@@ -106,6 +106,8 @@ function ConnectedChat({
     isLoadingSession,
     answerToolQuestions,
     cancelToolQuestion,
+    enableCodeMode,
+    declineCodeMode,
     cancel,
     shared,
     sessionModel,
@@ -196,6 +198,8 @@ function ConnectedChat({
       isLoadingSession={isLoadingSession}
       onAnswerToolQuestions={answerToolQuestions}
       onCancelToolQuestion={cancelToolQuestion}
+      onEnableCodeMode={enableCodeMode}
+      onDeclineCodeMode={declineCodeMode}
       // In a proposal its chats are everyone's on the project (valbuild/home
       // `docs/proposals.md`, Flow H): names on messages, whose question runs,
       // and who is in each chat.

@@ -20,6 +20,16 @@ describe("describePublishRefusal", () => {
     expect(said.details).toContain("/b.val.ts");
   });
 
+  test("edits held for a schema change offer the edits, where they are settled", () => {
+    const said = describePublishRefusal({
+      status: "refused",
+      reason: "held-edits",
+      patchIds: ["p1" as PatchId, "p2" as PatchId],
+    });
+    expect(said.message).toContain("2 edits do not fit");
+    expect(said.action).toBe("show-held-edits");
+  });
+
   test("a publish already running says so", () => {
     expect(
       describePublishRefusal({

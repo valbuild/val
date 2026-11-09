@@ -1,14 +1,22 @@
-import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import { statSnapshotOf } from "./statSnapshotOf";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
+import type { ActivitySink } from "../activity";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
 import type { RequestPublish } from "../PublishSeam";
 import type { SavedPatches } from "../PatchSync";
 import { chunkPatchIds } from "./patchIdChunks";
+import { registryOfEntry } from "./loadValModules";
+import {
+  registryEntryUrl,
+  type ImportRegistry,
+  type ReloadStudio,
+} from "../buildCode";
+import type { JsonEntryResult } from "./jsonEntriesBatch";
 import {
   isRecord,
   jsonOrUndefined,
@@ -72,6 +80,11 @@ export function createValSystem(
      * jest, and a test that had to stub `Worker` would be testing the stub.
      */
     schemaValidation?: SchemaValidationBridge;
+    /**
+     * Where the stores record the work they do (`activity.ts`). Nothing by
+     * default; the scenario harness passes a `RecordingActivity` to count it.
+     */
+    activity?: ActivitySink;
     /** A press of Publish as a publish job, for a managed project. See `RequestPublish`. */
     requestPublish?: RequestPublish;
     /**
@@ -84,6 +97,16 @@ export function createValSystem(
       filePath: string;
       data: string | null;
     }) => string | null;
+    /**
+     * Import a build's registry from its entry. Defaults to `import()` of
+     * the URL; the scenario harness hands over the build it deployed.
+     */
+    importRegistry?: ImportRegistry;
+    /**
+     * Reload the page. Defaults to `window.location.reload()`; the scenario
+     * harness counts it.
+     */
+    reloadStudio?: ReloadStudio;
   },
 ): System {
   /**
@@ -97,45 +120,87 @@ export function createValSystem(
   let built: System | null = null;
   const system = createSystem({
     /**
-     * A `POST /stat` with no body: what the server runs right now, rather than
-     * a long poll. Only its `schemaSha` is read — see `SchemaFreshnessWatch`.
+     * `GET /manifest`, "since" the manifest held: what each module is on the
+     * server (`ManifestSource`). A 304 while nothing moved.
      */
-    readServedSchemaSha: async () => {
-      const res = await client("/stat", "POST", { body: null });
-      if (res.status !== 200) return null;
-      // Not only the hash: in `fs` mode this answer has drained the server's
-      // removed-patch notices, and they are delivered nowhere else.
-      if ("removed" in res.json && res.json.removed !== undefined) {
-        built?.stat.noteRemovedByServer(res.json.removed);
-      }
-      return res.json.schemaSha;
-    },
-    /**
-     * The base of the build a `/stat` came from, when it is not the bundle's.
-     *
-     * Un-patched and unvalidated: the Studio applies the chain itself, and all
-     * it needs from the server here is the source that chain is relative to.
-     * The sha comes back with it, so `BaseAlignment` can tell a base from a
-     * third build -- the pointer that made the stat differ can move again.
-     */
-    fetchBaseSources: async () => {
-      const res = await client("/sources/~", "PUT", {
-        path: undefined,
+    fetchManifest: async (held) => {
+      const res = await client("/manifest", "GET", {
+        headers: { "if-none-match": held?.tag },
         query: {
-          apply_patches: false,
-          exclude_patches: true,
-          validate_sources: false,
-          validate_binary_files: false,
+          since: held !== null ? String(held.seq) : undefined,
         },
       });
-      if (res.status !== 200) return null;
-      const sources: Record<ModuleFilePath, Json> = {};
-      for (const [moduleFilePath, module] of Object.entries(res.json.modules)) {
-        if (isModuleFilePath(moduleFilePath) && module.source !== undefined) {
-          sources[moduleFilePath] = module.source;
-        }
+      if (res.status === 304) return { kind: "unchanged" };
+      if (res.status !== 200 || res.json === null || res.json === undefined) {
+        return {
+          kind: "error",
+          message:
+            res.json !== null && res.json !== undefined && "message" in res.json
+              ? res.json.message
+              : `GET /manifest failed with status ${res.status ?? "network"}`,
+        };
       }
-      return { sourcesSha: res.json.sourcesSha, sources };
+      if (res.json.superseded === true) return { kind: "superseded" };
+      return {
+        kind: "manifest",
+        project: res.json.project,
+        modules: res.json.modules,
+        ...(res.json.tag !== undefined ? { tag: res.json.tag } : {}),
+        ...(res.json.since !== undefined ? { since: res.json.since } : {}),
+        ...(res.json.registry !== undefined
+          ? { registry: res.json.registry }
+          : {}),
+      };
+    },
+    /**
+     * A new build's registry, from the entry its manifest names: on the
+     * site's own origin, imported into this realm as the page imported its
+     * own (`BuildCode`).
+     */
+    importRegistry:
+      options?.importRegistry ??
+      (async (entry) => {
+        // Never code from anywhere but the site itself: see
+        // `registryEntryUrl`. Refused, it is a registry that did not load,
+        // and the page reloads instead.
+        const url = registryEntryUrl(entry, window.location.href);
+        if (url === null) {
+          throw new Error(
+            `The new build's code is not on this site (${entry}), so it was not loaded.`,
+          );
+        }
+        return registryOfEntry(await import(/* @vite-ignore */ url));
+      }),
+    /**
+     * The page, reloaded: for a build whose code cannot be taken in place
+     * (`BuildCode`, once every edit is on the server).
+     */
+    reloadStudio: options?.reloadStudio ?? (() => window.location.reload()),
+    /**
+     * `GET /modules/~<path>`: one module at a version, or the patches from
+     * the version held (`originTier`).
+     */
+    fetchModule: async (moduleFilePath, query) => {
+      const res = await client("/modules/~", "GET", {
+        path: moduleFilePath,
+        query: { v: query.v, have: query.have },
+      });
+      if (res.status === 200) return res.json;
+      if (res.status === 404) {
+        return {
+          kind: "not-held",
+          ...("current" in res.json && res.json.current !== undefined
+            ? { current: res.json.current }
+            : {}),
+        };
+      }
+      return {
+        kind: "error",
+        message:
+          "message" in res.json
+            ? res.json.message
+            : `GET /modules failed with status ${res.status ?? "network"}`,
+      };
     },
     /**
      * Schema validation, on a thread.
@@ -148,6 +213,7 @@ export function createValSystem(
      */
     schemaValidation:
       options?.schemaValidation ?? createSchemaValidationBridge(),
+    ...(options?.activity !== undefined ? { activity: options.activity } : {}),
     ...(options?.uploadSettings !== undefined
       ? {
           /**
@@ -346,12 +412,17 @@ export function createValSystem(
       };
     },
 
-    fetchJsonEntry: async (moduleFilePath, key) => {
+    /**
+     * One `GET /json` for the keys the source store batched (it keeps each
+     * batch inside the route's limit and the URL budget). A key the answer
+     * does not mention is an error, never a read that does not settle.
+     */
+    fetchJsonEntries: async (moduleFilePath, keys) => {
       const res = await client("/json", "GET", {
         query: {
           path: moduleFilePath,
           key: undefined,
-          keys: [key],
+          keys,
           offset: undefined,
           limit: undefined,
           // The store owns local patches and applies them itself. Letting the
@@ -360,32 +431,31 @@ export function createValSystem(
           apply_patches: false,
         },
       });
+      const results: Record<string, JsonEntryResult> = {};
       if (res.status !== 200 || !("entries" in res.json)) {
-        return {
-          status: "error",
-          message:
-            res.status !== 200 && "message" in res.json
-              ? res.json.message
-              : `GET /json failed with status ${res.status ?? "network"}`,
-        };
+        const message =
+          res.status !== 200 && "message" in res.json
+            ? res.json.message
+            : `GET /json failed with status ${res.status ?? "network"}`;
+        for (const key of keys) results[key] = { status: "error", message };
+        return results;
       }
-      const entry = res.json.entries.find((candidate) => candidate.key === key);
-      if (entry === undefined) {
-        const failed = res.json.errors.find(
-          (candidate) => candidate.key === key,
-        );
-        if (failed !== undefined) {
-          return { status: "error", message: failed.message };
-        }
-        // In `missing`, or absent from the response altogether. Both mean the
-        // server could not resolve a key we were told exists — deleted on disk
-        // between the source sync and this request.
-        return {
+      for (const entry of res.json.entries) {
+        results[entry.key] = { status: "ok", content: entry.content ?? null };
+      }
+      for (const failed of res.json.errors) {
+        results[failed.key] ??= { status: "error", message: failed.message };
+      }
+      // In `missing`, or absent from the response altogether. Both mean the
+      // server could not resolve a key we were told exists — deleted on disk
+      // between the source sync and this request.
+      for (const key of keys) {
+        results[key] ??= {
           status: "error",
           message: `Entry not found: ${key} in ${moduleFilePath}`,
         };
       }
-      return { status: "ok", content: entry.content ?? null };
+      return results;
     },
 
     mode: options?.mode,
@@ -691,11 +761,6 @@ export function createValSystem(
   });
   built = system;
   return system;
-}
-
-/** A `/sources/~` key: the response is keyed by module file path, which is absolute. */
-function isModuleFilePath(path: string): path is ModuleFilePath {
-  return path.startsWith("/");
 }
 
 /**

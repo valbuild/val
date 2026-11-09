@@ -24,6 +24,7 @@ import {
 } from "@valbuild/core";
 import { useRemoteHost } from "./ValRemoteProvider";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
+import { writePatch as writeFieldPatch } from "../stores/react/writePatch";
 import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
 import type { SyncState } from "../stores/PatchSync";
@@ -488,20 +489,11 @@ export function useAddPatch(
             "Cannot write: no store system is mounted. The edit was dropped.",
         };
       }
-      const res = await val.system.patchStore.createPatch(
-        target,
-        patch,
-        undefined,
+      return writeFieldPatch(val.system, target, patch, {
         creatorId,
         onProgress,
-        undefined,
-        undefined,
         fileType,
-      );
-      if (res.status !== "created") {
-        return { status: "error", message: res.message };
-      }
-      return { status: "ok", patchId: res.record.patchId };
+      });
     },
     [val, creatorId],
   );
@@ -1263,40 +1255,6 @@ export function useResolveNavPath(): (
   );
 }
 
-/**
- * Progress of the `.jsonValues()` entries the project has loaded so far.
- *
- * NOTE: `percentage` is 100 while `status` is `"idle"`, so check the status
- * before showing it.
- *
- * Counted from source and the loaded map on every read, rather than accumulated
- * as fetches are issued. The engine counted requests and resolutions, which made
- * the total the number of entries someone had ASKED for — so the bar restarted
- * every time a new module was opened, and reached 100% while entries were still
- * missing. These two numbers come from the same place a read does, so a full bar
- * means the content is actually there.
- */
-export function useJsonEntriesProgress(): JsonEntriesProgress {
-  const val = useValSystem();
-  const version = useSourcesVersion(val);
-  return useMemo<JsonEntriesProgress>(() => {
-    if (val === null) {
-      return { status: "idle", loaded: 0, total: 0, percentage: 100 };
-    }
-    void version;
-    const { total, loaded } = val.system.sourceStore.allEntriesProgress();
-    if (total === 0 || loaded === total) {
-      return { status: "idle", loaded, total, percentage: 100 };
-    }
-    return {
-      status: "loading",
-      loaded,
-      total,
-      percentage: Math.round((loaded / total) * 100),
-    };
-  }, [val, version]);
-}
-
 export function useAllPreviews(): Record<
   ModuleFilePath,
   ReifiedPreview | null
@@ -1337,18 +1295,6 @@ export function useAllPreviews(): Record<
 }
 
 const EMPTY_PREVIEWS: Record<ModuleFilePath, ReifiedPreview | null> = {};
-
-/**
- * How far the `.jsonValues()` entry load has got. See
- * {@link useJsonEntriesProgress}.
- */
-export type JsonEntriesProgress = {
-  status: "idle" | "loading";
-  loaded: number;
-  total: number;
-  /** 100 while idle — check `status` first. */
-  percentage: number;
-};
 
 function walkSourcePath(
   modulePath: ModulePath,

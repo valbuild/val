@@ -20,6 +20,11 @@ package because they are one decision — what a published build IS.
   `BuildTarget` and produces the server, client and (optionally) RSC bundles,
   the CSS, the assets and the chunk map. It runs on `@rolldown/browser`, so it
   runs in a tab.
+- **The build's Val modules, for an open Studio.** Beside its client chunks,
+  every build emits the project's `val.modules` as one ES module named after
+  the build (`val-modules-<build>.js`, `valModulesEntry`). The server running
+  the build names it on its manifest, and a Studio opened on an older build
+  imports it to take the new schemas in without reloading the page.
 - **The wiring.** `wireUp(files, options)` turns an imported checkout into
   something a host with no filesystem can serve: it writes the project's
   `src/val/val.server.ts` against `@valbuild/tanstack/server`. That file is the
