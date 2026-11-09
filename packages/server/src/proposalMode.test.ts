@@ -1129,6 +1129,110 @@ describe("proposalFromEnv", () => {
     });
   });
 
+  /**
+   * A module whose own file is not staged can still be staged after the
+   * build, through a file it imports: its schema moved with code the build
+   * was not made of. The overlay names only staged MODULE files, so the rule
+   * takes what the build was made of (its own source, `projectSource`) and
+   * what each module of it depends on (`moduleDependencies`, recorded by the
+   * build): a module that reaches a file whose text the proposal changed
+   * since is staged after the build too.
+   */
+  describe("through what a module imports", () => {
+    const BUTTON = "src/schemas/button.ts";
+    const HOME = "/content/home.val.ts";
+    const OTHER = "/content/other.val.ts";
+    const build = {
+      source: {
+        [BUTTON]: "export const button = 1;",
+        "content/home.val.ts": "home",
+        "content/other.val.ts": "other",
+      },
+      moduleDependencies: {
+        "content/home.val.ts": [BUTTON],
+        "content/other.val.ts": [],
+      },
+    };
+    const proposal = (
+      files: Record<string, string>,
+      staged: Record<string, string> = {},
+      buildInputs: string | null = null,
+    ) => ({ files, staged, buildInputs });
+
+    test("a module that imports a file staged after the build is staged after it", () => {
+      const after = stagedAfterBuild(
+        proposal({ [BUTTON]: "export const button = 2;" }),
+        build,
+      );
+      expect(Object.keys(after)).toEqual([HOME]);
+      expect(after[HOME as ModuleFilePath]).toMatch(/^staged:[0-9a-f]{64}$/);
+    });
+
+    test("is named after the staging when the overlay names one", () => {
+      const after = stagedAfterBuild(
+        proposal(
+          { [BUTTON]: "export const button = 2;" },
+          { [OTHER]: `staged:${LATER}` },
+          INPUTS,
+        ),
+        build,
+      );
+      expect(after).toEqual({
+        [HOME]: `staged:${LATER}`,
+        [OTHER]: `staged:${LATER}`,
+      });
+    });
+
+    test("a file the build was made of, unchanged, moves nothing", () => {
+      expect(
+        stagedAfterBuild(
+          proposal({ [BUTTON]: "export const button = 1;" }),
+          build,
+        ),
+      ).toEqual({});
+    });
+
+    test("a module that imports a module staged after the build is staged after it", () => {
+      const after = stagedAfterBuild(
+        proposal({}, { [OTHER]: `staged:${LATER}` }, INPUTS),
+        {
+          ...build,
+          moduleDependencies: {
+            "content/home.val.ts": ["content/other.val.ts"],
+            "content/other.val.ts": [],
+          },
+        },
+      );
+      expect(after).toEqual({
+        [HOME]: `staged:${LATER}`,
+        [OTHER]: `staged:${LATER}`,
+      });
+    });
+
+    test("a saved .val.ts is content, not code: it moves nothing", () => {
+      expect(
+        stagedAfterBuild(proposal({ "content/other.val.ts": "saved" }), build),
+      ).toEqual({});
+    });
+
+    test("without what the build depends on, only staged module files count", () => {
+      expect(
+        stagedAfterBuild(proposal({ [BUTTON]: "export const button = 2;" })),
+      ).toEqual({});
+    });
+
+    test("the readers leave its saved Source out too", () => {
+      const read = proposalAsBuilt(
+        {
+          ...proposal({ [BUTTON]: "export const button = 2;" }),
+          modules: { [HOME]: { title: "Saved" }, [OTHER]: { title: "Kept" } },
+        },
+        build,
+      );
+      expect(read.modules).toEqual({ [OTHER]: { title: "Kept" } });
+    });
+  });
+
   test("the readers leave out the Source of a module staged after the build", () => {
     const p = proposalFromEnv({
       VAL_PROPOSAL: NAME,

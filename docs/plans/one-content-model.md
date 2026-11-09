@@ -1058,15 +1058,19 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     this release against a server of the release before sees no registry
     and reloads instead of showing the dialog. Nothing in valbuild/home
     changed. **Public API:** unchanged.
-  - **Not built:** the C11 gaps -- a module new in the proposal that the
-    build serving the address does not have, and a module whose own file is
-    not staged but whose schema a staged import moved (the overlay names
-    only staged module files) -- both need the server to evaluate staged
-    code, or the content service to name the modules a staging moved
-    (which only an evaluation knows); neither is in reach without running
-    code where the Studio cannot. Edits that do not fit after a reload are
-    held, as since phase 9's first part; "have the assistant move them" is
-    not built. A build's registry imported in a real browser is not driven
+  - **The C11 gaps, built after the release (2026-11-09),** without
+    evaluating anything on the server. A module new in the proposal is read
+    from its staged text like any other staged module and saved with
+    `schema: null` beside `staged` (C11d), or held when made by code (C11e).
+    A module whose own file is not staged but whose schema a staged import
+    moved is found through the build's import graph: tanstack-build records
+    each module's dependencies while bundling the registry and hands them to
+    Val as `moduleDependencies` (a new optional option of `initValServer` /
+    `initValContent`, asked and agreed), and `stagedAfterBuild` marks every
+    module depending on a staged file whose text differs from the build's
+    (C11f). Edits that do not fit after a reload are held, as since phase
+    9's first part, and the banner offers to have the assistant move each
+    one (`heldEditPrompt`). A build's registry imported in a real browser is not driven
     by an e2e test (the example apps are not platform builds): the import
     is `import()` of a URL, as staged code's is, and the rest is pinned by
     `buildCode.test.ts` and the scenarios. The reload in place of the
@@ -1210,20 +1214,12 @@ Not on the list, deliberately:
 
 Genuinely not built, each with what it would take:
 
-- **The C11 gaps** (phase 9). A module new in a proposal that the build
-  serving its address does not have at all, and a module whose own file is
-  not staged but whose schema a staged import moved (the overlay names only
-  staged module files). Both need the server to evaluate staged code, or the
-  content service to name the modules a staging moved, which only an
-  evaluation knows.
 - **Staged code where the page cannot run the builder.** The Studio is
   usually not cross-origin isolated (`canBuildHere`), and there nothing is
   evaluated and the schema arrives with a build. A builder tab or the server
   bundling it, with the Studio evaluating the code it is handed, would also
   let a held module (C11c) be saved before a build. The cost of an
   evaluation is not measured ([Cost](#cost)).
-- **"Have the assistant move it"** for a held edit (S14). Held edits can be
-  discarded or made again by hand; the assistant is not offered them.
 - **"Used by" and the long tasks at 10,000 entries** (phase 10). On a built
   Studio it was 3.5 s with 21 long tasks of up to 179 ms; after the
   release (2026-11-08) it is 1.7 s with 3-6 of 76-90 ms: the surfaced
@@ -2565,7 +2561,7 @@ takes the chat, the unsaved edits and the navigation with it.
 ### What exists today
 
 _Built since this was written (phase 9, 2026-11-03): everything under "What
-it should be" below except the C11 gaps, with two changes -- a build's entry
+it should be" below (the C11 gaps too, since 2026-11-09), with two changes -- a build's entry
 is `/_app/val-modules-<build>.js` (the loader's client chunks), named on the
 manifest as `registry` rather than `project.modulesEntry`; and a deploy with
 no entry (Next.js, a self-hosted TanStack Start) reloads the Studio by

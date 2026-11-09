@@ -2,6 +2,7 @@ import {
   proposalJsonEntries,
   layeredSnapshot,
   proposalSnapshot,
+  servingBuildOf,
   stagedAfterBuild,
   type ValContentVersion,
   type ValProposal,
@@ -648,6 +649,8 @@ export class ValOpsHttp extends ValOps {
       root?: string;
       /** See `projectSource` on {@link ValApiOptions}. */
       projectSource?: Record<string, string>;
+      /** See `moduleDependencies` on {@link ValApiOptions}. */
+      moduleDependencies?: Record<string, string[]>;
       /** See `publishJob` on {@link ValApiOptions}. */
       publishJob?: string;
       /** See `publishBuild` on {@link ValApiOptions}. */
@@ -673,7 +676,10 @@ export class ValOpsHttp extends ValOps {
      * their staged text, versioned as their staging. See `stagedAfterBuild`.
      */
     const proposal = options?.proposal;
-    const staged = proposal !== undefined ? stagedAfterBuild(proposal) : {};
+    const staged =
+      proposal !== undefined
+        ? stagedAfterBuild(proposal, servingBuildOf(options ?? {}))
+        : {};
     const stagedPaths = Object.keys(staged);
     super(
       valModules,
@@ -692,7 +698,15 @@ export class ValOpsHttp extends ValOps {
                         Object.fromEntries(
                           stagedPaths.map((path) => {
                             const file = path.replace(/^\/+/, "");
-                            return [file, proposal.files[file] ?? null];
+                            // A module staged after the build through a file
+                            // it imports has its own text unstaged: the
+                            // build's, unless a save rewrote it.
+                            return [
+                              file,
+                              proposal.files[file] ??
+                                options.projectSource?.[file] ??
+                                null,
+                            ];
                           }),
                         ),
                       ),

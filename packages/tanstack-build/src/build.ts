@@ -257,6 +257,12 @@ const CSS_URL_ID = "\0platform:css-url";
  * would be both a leak and, for a real app, enormous.
  */
 export const PROJECT_SOURCE = "platform:project-source";
+/**
+ * The global the server build defines as each Val module's project
+ * dependencies (`valModulesEntry`), read by the generated `val.server.ts`.
+ */
+export const MODULE_DEPENDENCIES_GLOBAL =
+  "globalThis.__VAL_MODULE_DEPENDENCIES__";
 const PROJECT_SOURCE_ID = "\0platform:project-source";
 
 export const PUBLIC_PREFIX = "PUBLIC_";
@@ -820,6 +826,7 @@ async function buildOnce(
   assetUrls: Map<string, string> = new Map(),
   cssModules: Record<string, Record<string, string>> = {},
   aliases: AliasMap | null = null,
+  moduleDependencies: Record<string, string[]> | null = null,
 ) {
   const vendor = vendorRules(input.target);
   /*
@@ -879,7 +886,24 @@ async function buildOnce(
     // and no type-checking on the publish path. Types are the editor's job.
     transform: {
       jsx: { runtime: "automatic", importSource: "react" },
-      define: defineFor(input.env ?? {}, target, warnings),
+      define: {
+        ...defineFor(input.env ?? {}, target, warnings),
+        /*
+         * What each Val module depends on, as the registry's bundle resolved
+         * its imports, for the generated `val.server.ts` to hand Val's
+         * server (`moduleDependencies`): at a proposal's address it is how a
+         * module whose own file is not staged is known to be of code this
+         * build was not made of, through a file it imports. A define rather
+         * than an import, so neither side breaks the other across versions:
+         * an older builder leaves the global undefined, and an older
+         * generated file never reads it. Server builds only.
+         */
+        ...(target === "server" && moduleDependencies !== null
+          ? {
+              [MODULE_DEPENDENCIES_GLOBAL]: JSON.stringify(moduleDependencies),
+            }
+          : {}),
+      },
     },
     output: {
       format: "esm",
@@ -989,6 +1013,18 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     warnings.push(...compiled.warnings);
   }
 
+  /*
+   * The build's `val.modules` registry, as an ES module of its own beside
+   * the client chunks and named after the build: what a Studio opened on an
+   * older build imports to take this one's code in, rather than reloading
+   * the page (`valModulesEntry`). The build's name is a hash of its inputs,
+   * so it is known before anything is emitted. Before the server build,
+   * because what each module depends on (read while bundling it) is handed
+   * to the server's bundle.
+   */
+  const hash = await buildInputId(input);
+  const registryEntry = await valModulesEntry(input, hash, warnings);
+
   const serverStarted = performance.now();
   const serverBuild = await buildOnce(
     input,
@@ -1001,6 +1037,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     assetUrls,
     css.modules,
     aliases,
+    registryEntry.dependencies,
   );
   const server = performance.now() - serverStarted;
 
@@ -1018,16 +1055,6 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     aliases,
   );
   const client = performance.now() - clientStarted;
-
-  /*
-   * The build's `val.modules` registry, as an ES module of its own beside
-   * the client chunks and named after the build: what a Studio opened on an
-   * older build imports to take this one's code in, rather than reloading
-   * the page (`valModulesEntry`). The build's name is a hash of its inputs,
-   * so it is known before anything is emitted.
-   */
-  const hash = await buildInputId(input);
-  const registryEntry = await valModulesEntry(input, hash, warnings);
 
   // Paths are relative to `rsc/app.js`, one directory down, so both layers are
   // addressed with a leading `../`. Getting this wrong does not fail the build;
@@ -1049,6 +1076,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
         assetUrls,
         css.modules,
         aliases,
+        registryEntry.dependencies,
       )
     : undefined;
 
@@ -1064,7 +1092,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     serverCode: serverBuild.code,
     clientCode: clientBuild.code,
     serverChunks: serverBuild.chunks,
-    clientChunks: { ...clientBuild.chunks, ...registryEntry },
+    clientChunks: { ...clientBuild.chunks, ...registryEntry.files },
     assetFiles,
     publicFiles,
     cssCode: styles,

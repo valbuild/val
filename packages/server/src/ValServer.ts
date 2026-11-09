@@ -261,6 +261,8 @@ export type ValServerConfig = ValServerOptions &
         root?: string;
         /** See `projectSource` on {@link ValApiOptions}. */
         projectSource?: Record<string, string>;
+        /** See `moduleDependencies` on {@link ValApiOptions}. */
+        moduleDependencies?: Record<string, string[]>;
         /** See `publishJob` on {@link ValApiOptions}. */
         publishJob?: string;
         /** See `publishBuild` on {@link ValApiOptions}. */

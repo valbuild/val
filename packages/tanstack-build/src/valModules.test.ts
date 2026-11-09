@@ -14,9 +14,13 @@ type Probe =
       modules: Record<string, { schema: string; source: unknown }>;
       external: boolean;
     }
-  | { error: string };
+  | { error: string }
+  | { dependencies: Record<string, string[]> | null; warnings: string[] };
 
-function probe(files: Record<string, string>, mode?: "entry"): Probe {
+function probe(
+  files: Record<string, string>,
+  mode?: "entry" | "dependencies",
+): Probe {
   const out = execFileSync(
     path.join(__dirname, "..", "node_modules", ".bin", "tsx"),
     [
@@ -139,5 +143,64 @@ describe("valModulesEntry", () => {
       rootRelative: true,
       warnings: [],
     });
+  });
+});
+
+/**
+ * What each module depends on, as the build resolved its imports: handed to
+ * Val's server at a proposal's address (`moduleDependencies`), where a module
+ * whose own file is not staged can still be of code the build was not made
+ * of, through a file it imports (`stagedAfterBuild` in `@valbuild/server`).
+ * Relative imports and tsconfig aliases alike, because they are resolved by
+ * the bundle's own resolution; transitive; project files only, and never an
+ * entry's `.val.json`, which is content.
+ */
+describe("valModulesEntry's dependencies", () => {
+  test("every project file a module reaches, aliases included", () => {
+    expect(probe(project(), "dependencies")).toEqual({
+      dependencies: {
+        "src/home.val.ts": ["src/shared.ts", "val.config.ts"],
+        "src/notes.val.ts": ["val.config.ts"],
+      },
+      warnings: [],
+    });
+  });
+
+  test("through a file that imports another, and through another module", () => {
+    expect(
+      probe(
+        project({
+          "src/shared.ts": `import { PREFIX } from "./prefix";\nexport const TITLE: string = PREFIX + "Sale";`,
+          "src/prefix.ts": `export const PREFIX = "Big ";`,
+          "src/notes.val.ts": [
+            `import { s, c } from "../val.config";`,
+            `import home from "./home.val";`,
+            `export default c.define("/src/notes.val.ts", s.record(s.keyOf(home)), {});`,
+          ].join("\n"),
+        }),
+        "dependencies",
+      ),
+    ).toEqual({
+      dependencies: {
+        "src/home.val.ts": ["src/prefix.ts", "src/shared.ts", "val.config.ts"],
+        "src/notes.val.ts": [
+          "src/home.val.ts",
+          "src/prefix.ts",
+          "src/shared.ts",
+          "val.config.ts",
+        ],
+      },
+      warnings: [],
+    });
+  });
+
+  test("none, when the Val modules cannot be bundled", () => {
+    const answer = probe(
+      project({
+        "src/shared.ts": `import slugify from "slugify";\nexport const TITLE: string = slugify("Sale");`,
+      }),
+      "dependencies",
+    );
+    expect(answer).toMatchObject({ dependencies: null });
   });
 });

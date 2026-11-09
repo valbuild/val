@@ -147,6 +147,10 @@ function differences(a: ValServerConfig, b: ValServerConfig): string[] {
     check("git", sameValue(a.git, b.git));
     check("root", a.root === b.root);
     check("projectSource", sameValue(a.projectSource, b.projectSource));
+    check(
+      "moduleDependencies",
+      sameValue(a.moduleDependencies, b.moduleDependencies),
+    );
     check("publishJob", a.publishJob === b.publishJob);
     check("publishBuild", a.publishBuild === b.publishBuild);
     check("proposal", sameValue(a.proposal, b.proposal));

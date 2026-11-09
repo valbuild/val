@@ -529,3 +529,59 @@ describe("serving a content version", () => {
     );
   });
 });
+
+/**
+ * What each Val module depends on, as the build resolved its imports
+ * (`valModulesEntry`): the build defines it as a global, and the generated
+ * file hands it to Val's server as `moduleDependencies`, beside
+ * `projectSource`. At a proposal's address that is how a module whose own
+ * file is not staged is known to be of code the build was not made of,
+ * through a file it imports. A site wired before it gets it by a rebake, or
+ * no project published before could tell.
+ */
+describe("handing Val each module's dependencies", () => {
+  const DEPENDENCIES_LINE =
+    "const MODULE_DEPENDENCIES = globalThis.__VAL_MODULE_DEPENDENCIES__;";
+  const OPTION =
+    "        ...(MODULE_DEPENDENCIES !== undefined\n          ? { moduleDependencies: MODULE_DEPENDENCIES }\n          : {}),\n";
+  /** A file as wired before it: the block and its option cut out. */
+  const wiredBefore = () => {
+    const files = wired();
+    const source = files[VAL_SERVER_PATH];
+    const start = source.indexOf("/*\n * WHAT EACH VAL MODULE DEPENDS ON");
+    const end = source.indexOf("const valConfig = {");
+    expect(start).toBeGreaterThan(-1);
+    const old = (source.slice(0, start) + source.slice(end)).replace(
+      OPTION,
+      "",
+    );
+    expect(old).not.toContain(DEPENDENCIES_LINE);
+    return { ...files, [VAL_SERVER_PATH]: old };
+  };
+
+  test("a fresh file reads it and hands it to Val", () => {
+    const source = wired()[VAL_SERVER_PATH];
+    expect(source).toContain(DEPENDENCIES_LINE);
+    expect(source).toContain(OPTION);
+  });
+
+  test("a file wired before it gets exactly what a fresh one has, once", () => {
+    const rebaked = rebakeGit(wiredBefore(), null);
+    expect(rebaked[VAL_SERVER_PATH]).toBe(wired()[VAL_SERVER_PATH]);
+    expect(rebakeGit(rebaked, null)[VAL_SERVER_PATH]).toBe(
+      rebaked[VAL_SERVER_PATH],
+    );
+  });
+
+  test("an edited file it cannot place the option in is left as it was", () => {
+    const before = wiredBefore();
+    const edited = before[VAL_SERVER_PATH].replace(
+      "        ...(contentVersion !== undefined ? { contentVersion } : {}),\n",
+      "",
+    );
+    const files = { ...before, [VAL_SERVER_PATH]: edited };
+    expect(rebakeGit(files, null)[VAL_SERVER_PATH]).not.toContain(
+      DEPENDENCIES_LINE,
+    );
+  });
+});

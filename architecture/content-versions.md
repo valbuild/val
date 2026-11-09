@@ -738,6 +738,28 @@ staging the serving build was made of (`ValProposal.staged`,
 - one whose Source cannot be read from its text (made by code, or a
   `.jsonValues()` record) is **held**: a save that touches it is refused with
   the reason ("build the proposal, then save"), and the edit stays pending.
+  The banner that shows held edits offers to have the assistant make the
+  change where the field is now (`heldEditPrompt`); the editor discards the
+  held edit after.
+
+Two kinds of module are staged after the build without their own file being
+one the build lacks a version for, and each was a gap once (C11):
+
+- **A module new in the proposal.** The build has no schema for it at all.
+  Its Source is read from its staged text like any other (`stagedNewSources`,
+  so `getSources` has it), and a save sends it with `schema: null` beside
+  `staged` -- content records the staging's version and refuses a `null`
+  schema that names none. Made by code, it is held, as above.
+- **A module whose schema a staged import moved.** Its own file is the
+  build's, but `src/schemas/title.ts` it imports is staged. The overlay names
+  only staged MODULE files, so the server needs the build's import graph:
+  `@valbuild/tanstack-build` records what each module depends on while it
+  bundles the registry, the server build bakes it in
+  (`__VAL_MODULE_DEPENDENCIES__`), and the generated `val.server.ts` hands it
+  to Val as `moduleDependencies`, beside `projectSource`. `stagedAfterBuild`
+  marks every module that depends on a staged file whose text differs from
+  the build's (`ServingBuild`, `servingBuildOf`). A build older than this
+  hands no map, and is read as before.
 
 ## Code mode on proposals
 

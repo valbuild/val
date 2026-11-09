@@ -533,6 +533,95 @@ export default c.define(
   });
 
   /**
+   * C11f A module whose own file is not staged, but which imports a file the
+   * proposal staged after the build, is of code the build was not made of:
+   * its schema moved with the import. The overlay names only staged MODULE
+   * files, so the server reads it from what the build was made of -- its
+   * source and the dependencies the build recorded per module -- and treats
+   * the module as staged after the build: versioned as a staging, saved
+   * against its text, and left out of what the page's readers read until a
+   * build of the staging serves the address.
+   */
+  test("C11f a module whose imported schema is staged after the build is not read with the build's schema", async () => {
+    const TITLE_FILE = "src/schemas/title.ts";
+    const titleText = (schema: string) =>
+      `import { s } from "../../val.config";\n\nexport const titleSchema = ${schema};\n`;
+    const homeText = (title: string) => `import { c, s } from "../val.config";
+import { titleSchema } from "../src/schemas/title";
+
+export default c.define(
+  "${HOME}",
+  s.object({ title: titleSchema }),
+  { title: ${JSON.stringify(title)} },
+);
+`;
+    // What the staging evaluates to: the same module, its title capped.
+    const capped = c.define(
+      HOME,
+      s.object({ title: s.string().maxLength(20) }),
+      { title: "Hello" },
+    );
+    const w = await createWorld({
+      config,
+      modules: [before],
+      server: "http",
+      sourceText: {
+        [HOME]: homeText("Hello"),
+        [`/${TITLE_FILE}`]: titleText("s.string()"),
+      },
+      proposal: { open: "Spring campaign" },
+      moduleDependencies: { [HOME_FILE]: [TITLE_FILE, "val.config.ts"] },
+    });
+    world = w;
+    const proposal = w.proposal;
+    if (proposal === null) throw new Error("not at a proposal's address");
+    const editor = await w.studio("editor");
+    w.page("/", { draftMode: false }).reads("proposal", async (val) => {
+      return (await val.fetchVal(capped)).title;
+    });
+    await proposal.codeMode(true);
+    editor.reads("field", capped, ["title"]);
+
+    // Only the imported file is staged: `home.val.ts` is not.
+    const staged = await proposal.stage(
+      { [TITLE_FILE]: titleText("s.string().maxLength(20)") },
+      "Cap the title",
+      { studio: editor, modules: [capped] },
+    );
+    expect(staged.isError).toBe(false);
+    await w.settle();
+    const manifest = await w.manifest();
+    expect(
+      manifest.modules[HOME as keyof typeof manifest.modules]?.schema,
+    ).toMatch(/^staged:[0-9a-f]{64}$/);
+
+    await editor.edit(capped, ["title"], "Spring");
+    await w.settle();
+    const next = await proposal.stage({ [HERO_FILE]: heroText }, undefined, {
+      studio: editor,
+      modules: [capped],
+    });
+    expect(next.isError).toBe(false);
+    expect(
+      (await proposal.client.files(proposal.name)).files[HOME_FILE],
+    ).toContain('"Spring"');
+    await w.settle();
+    await w.observe();
+    // Not built: the page reads the module from its own bundle, never the
+    // Source saved for code it has not got.
+    expect(w.frames.last("proposal")).toBe("Hello");
+    expect(w.frames.last("field")).toBe("Spring");
+
+    // Built: the build is made of the staging, and serves the saved edit.
+    await proposal.redeploy();
+    await w.settle();
+    await w.observe();
+    expect(w.frames.last("proposal")).toBe("Spring");
+    expect(w.frames.last("field")).toBe("Spring");
+    expect(editor.errors()).toEqual([]);
+  });
+
+  /**
    * C12 Staged code that does not run leaves the Studio on the schema it had,
    * and the assistant is told why.
    */
