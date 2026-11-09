@@ -67,6 +67,12 @@ export const Ultrawide2560 = at(2560, 1440);
 /** Sketch and the assistant share a column; Content and the preview keep theirs. */
 export const Desktop1920 = at(1920, 1080);
 
+/** Sketch in front of its tab: Build where the Select was. */
+export const Desktop1920Sketching = at(1920, 1080, {
+  front: "sketch",
+  recent: ["sketch", "content", "chat"],
+});
+
 /** As wide as a 14" MacBook gets. */
 export const MacBook1512 = at(1512, 945);
 
@@ -122,8 +128,17 @@ export const Tablet1024Chatting = at(1024, 768, {
   recent: ["chat", "content", "sketch"],
 });
 
+/** A tablet, sketching: the Sketch tab in front, with Build. */
+export const Tablet1024Sketching = at(1024, 768, {
+  front: "sketch",
+  recent: ["sketch", "content", "chat"],
+});
+
 /** A phone: one pane at a time. */
 export const Phone = at(390, 844);
+
+/** A phone, on the Sketch tab: its name, and Build. */
+export const PhoneSketch = at(390, 844, { phonePane: "sketch" });
 
 /** A phone, after Content's Select: the preview, picking a field. */
 export const PhoneContentSelect = at(390, 844, {

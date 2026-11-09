@@ -3,6 +3,7 @@ import {
   CodeXml,
   Database,
   FileText,
+  Hammer,
   ImageIcon,
   Monitor,
   Bell,
@@ -249,21 +250,14 @@ function ColumnsMock({
   );
 }
 
-/**
- * The column that holds the Assistant, whose header carries the Select that
- * picks for it -- or, with the Assistant closed, the one that holds Sketch,
- * and a pick opens the Assistant beside it.
- */
+/** The column that holds the Assistant, whose header carries its Select. */
 function assistantColumn(columns: WorkspaceColumn[]): number {
   const chat = columns.findIndex(
     (column) =>
       (column.type === "tabs" && column.panes.includes("chat")) ||
       (column.type === "pane" && column.pane === "chat"),
   );
-  if (chat !== -1) return chat;
-  return columns.findIndex(
-    (column) => column.type === "pane" && column.pane === "sketch",
-  );
+  return chat;
 }
 
 function ColumnMock({
@@ -462,9 +456,14 @@ function ContentHeader({
 }
 
 /**
- * Sketch and Assistant's header, the mirror of Content's: the Select on the
- * left, toward the preview, and the tabs on the right. A column holding one
- * of them shows its one tab, so the header reads the same either way.
+ * Sketch and Assistant's header.
+ *
+ * - **Sketch on its own** (its own column, or a phone): its name on the
+ *   left, Build on the right.
+ * - **The Assistant on its own**: its Select on the left, toward the
+ *   preview, and its name as a tab on the right -- the mirror of Content's.
+ * - **The two as tabs**: the tabs on the right, and on the left what the
+ *   one in front does: Build for Sketch, Select for the Assistant.
  */
 function SideHeader({
   controls,
@@ -481,19 +480,35 @@ function SideHeader({
   select: boolean;
   onClose?: () => void;
 }) {
+  if (panes.length === 1 && front === "sketch") {
+    return (
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-3">
+        <PenLine size={14} className="text-fg-secondary" />
+        <span className="text-xs font-medium">Sketch</span>
+        <div className="flex-1" />
+        <BuildButton controls={controls} />
+        {onClose && <CloseButton onClick={onClose} />}
+      </div>
+    );
+  }
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-2">
-      {select && controls.state.open.preview && (
-        <SelectButton
-          tool="chat"
-          controls={controls}
-          label={width >= SELECT_LABEL_FROM}
-          title={
-            controls.state.codeMode
-              ? "Select anything on the page, to ask the assistant about it"
-              : "Select a field on the page, to ask the assistant about it"
-          }
-        />
+      {front === "sketch" ? (
+        <BuildButton controls={controls} />
+      ) : (
+        select &&
+        controls.state.open.preview && (
+          <SelectButton
+            tool="chat"
+            controls={controls}
+            label={width >= SELECT_LABEL_FROM}
+            title={
+              controls.state.codeMode
+                ? "Select anything on the page, to ask the assistant about it"
+                : "Select a field on the page, to ask the assistant about it"
+            }
+          />
+        )
       )}
       <div className="flex-1" />
       <Tabs
@@ -507,6 +522,24 @@ function SideHeader({
       />
       {onClose && <CloseButton onClick={onClose} />}
     </div>
+  );
+}
+
+/** Hands the sketch to the assistant to build: the Assistant comes forward. */
+function BuildButton({ controls }: { controls: Controls }) {
+  return (
+    <button
+      type="button"
+      title="Ask the assistant to build this sketch"
+      onClick={(event) => {
+        event.stopPropagation();
+        controls.use("chat");
+      }}
+      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-fg-primary px-2.5 text-xs font-medium text-bg-primary hover:opacity-90"
+    >
+      <Hammer size={13} />
+      Build
+    </button>
   );
 }
 
@@ -566,7 +599,7 @@ function SelectButton({
 
 function PaneBody({ pane, controls }: { pane: SidePane; controls: Controls }) {
   if (pane === "content") return <ContentMock controls={controls} />;
-  if (pane === "sketch") return <SketchMock controls={controls} />;
+  if (pane === "sketch") return <SketchMock />;
   return <ChatMock controls={controls} />;
 }
 
@@ -870,7 +903,7 @@ const SKETCH_BOXES = [
   "Footer: sign up for the newsletter",
 ];
 
-function SketchMock({ controls }: { controls: Controls }) {
+function SketchMock() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
       <div>
@@ -887,14 +920,6 @@ function SketchMock({ controls }: { controls: Controls }) {
           </div>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={() => controls.use("chat")}
-        className="inline-flex h-8 items-center gap-1.5 self-start rounded-md border border-border-float px-3 text-xs font-medium hover:bg-bg-float-raised"
-      >
-        <Sparkles size={13} />
-        Ask the assistant
-      </button>
     </div>
   );
 }
