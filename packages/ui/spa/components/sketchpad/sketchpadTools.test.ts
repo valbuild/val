@@ -292,3 +292,26 @@ describe("images in a sketch the assistant writes", () => {
     expect(ok.isError).toBe(false);
   });
 });
+
+describe("images already in a sketch", () => {
+  test("do not block a later write", async () => {
+    const client = fakeClient();
+    const created = await client.create({
+      text: "[hero](image: /public/val/old.jpg)\n",
+      page: null,
+    });
+    if (created.status !== "ok") throw new Error("not created");
+    // The image has since been replaced in the content.
+    const mediaKnown = () => false;
+    const res = await runSketchpadTool(
+      "write_sketchpad",
+      {
+        id: created.sketchpad.id,
+        baseVersion: created.sketchpad.version,
+        text: "# New\n[hero](image: /public/val/old.jpg)\n",
+      },
+      { client, state: null, mediaKnown },
+    );
+    expect(res.isError).toBe(false);
+  });
+});

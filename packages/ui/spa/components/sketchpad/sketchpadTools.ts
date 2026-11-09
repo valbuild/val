@@ -322,12 +322,21 @@ export async function runSketchpadTool(
   },
 ): Promise<SketchpadToolOutcome> {
   const { client, state } = deps;
-  const unknownMedia = (text: string): SketchpadToolOutcome | null => {
+  /**
+   * The images `text` ADDS that the project does not have. One already in
+   * the sketch is the person's, or was checked when it was written: an
+   * image since replaced in the content must not block every later write.
+   */
+  const unknownMedia = (
+    text: string,
+    before = "",
+  ): SketchpadToolOutcome | null => {
     if (!deps.mediaKnown) {
       return null;
     }
+    const already = new Set(sketchMediaSrcs(before));
     const unknown = sketchMediaSrcs(text).filter(
-      (src) => !deps.mediaKnown?.(src),
+      (src) => !already.has(src) && !deps.mediaKnown?.(src),
     );
     return unknown.length === 0
       ? null
@@ -405,8 +414,15 @@ export async function runSketchpadTool(
       if (!parsed.success) {
         return invalid(parsed.error);
       }
-      const refusedMedia =
-        parsed.data.text === undefined ? null : unknownMedia(parsed.data.text);
+      let refusedMedia: SketchpadToolOutcome | null = null;
+      if (parsed.data.text !== undefined && deps.mediaKnown) {
+        const current =
+          state?.getSnapshot().byId[parsed.data.id] ??
+          (await client
+            .get(parsed.data.id)
+            .then((res) => (res.status === "ok" ? res.sketchpad : undefined)));
+        refusedMedia = unknownMedia(parsed.data.text, current?.text);
+      }
       if (refusedMedia) {
         return refusedMedia;
       }

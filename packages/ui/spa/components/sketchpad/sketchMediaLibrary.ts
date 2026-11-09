@@ -6,7 +6,10 @@ import {
   type Source,
   type SourcePath,
 } from "@valbuild/core";
-import { SESSION_MEDIA_PREFIX } from "@valbuild/shared/internal";
+import {
+  forEachRichTextImage,
+  SESSION_MEDIA_PREFIX,
+} from "@valbuild/shared/internal";
 import { useMemo } from "react";
 import {
   useAllSources,
@@ -53,7 +56,9 @@ export function sketchMediaLibraryOf(input: {
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
     const schema = schemas[moduleFilePath];
-    if (!isGallerySchema(schema) || schema.hidden) {
+    // A hidden gallery is out of the nav, not out of the project: a field
+    // can still pick from it, and so can a box.
+    if (!isGallerySchema(schema)) {
       continue;
     }
     galleryPaths.add(moduleFilePath);
@@ -98,30 +103,39 @@ export function sketchMediaLibraryOf(input: {
     contentSchemas[moduleFilePath] = schemas[moduleFilePath];
     contentSources[moduleFilePath] = sources[moduleFilePath];
   }
+  const addSite = (
+    sourcePath: SourcePath,
+    type: "image" | "video",
+    value: unknown,
+  ) => {
+    if (!isObject(value) || typeof value.path !== "string") {
+      return;
+    }
+    const path = value.path;
+    if (site.has(path)) {
+      return;
+    }
+    const alt = value.alt;
+    site.set(path, {
+      src: path,
+      url: urlOf(path),
+      type,
+      label: typeof alt === "string" && alt !== "" ? alt : fileName(path),
+      detail: whereIs(sourcePath, schemas),
+    });
+  };
   traverseSchemas(
     contentSchemas,
     contentSources,
     (sourcePath, schema, source) => {
-      if (schema.type !== "image" && schema.type !== "video") {
-        return;
+      if (schema.type === "image" || schema.type === "video") {
+        addSite(sourcePath, schema.type, source);
+      } else if (schema.type === "richtext") {
+        // An image in rich text is on the site as much as one in a field.
+        forEachRichTextImage(sourcePath, source, (srcPath, src) =>
+          addSite(srcPath, "image", src),
+        );
       }
-      // Read as data: a media value's fields are what the walk has to check.
-      const value: unknown = source;
-      if (!isObject(value) || typeof value.path !== "string") {
-        return;
-      }
-      const path = value.path;
-      if (site.has(path)) {
-        return;
-      }
-      const alt = value.alt;
-      site.set(path, {
-        src: path,
-        url: urlOf(path),
-        type: schema.type,
-        label: typeof alt === "string" && alt !== "" ? alt : fileName(path),
-        detail: whereIs(sourcePath, schemas),
-      });
     },
   );
 

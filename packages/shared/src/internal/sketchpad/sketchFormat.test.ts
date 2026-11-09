@@ -321,6 +321,27 @@ describe("text linked to a field", () => {
     );
   });
 
+  test("survives text that looks like a link, or like something else", () => {
+    for (const [text, link] of [
+      ["Hello {field: x}", undefined],
+      ["icon x M", field],
+      ["a {field: b}", field],
+      ["--- /about", field],
+    ] as const) {
+      const line = formatSketchText(0, text, link) + "\n";
+      expect(checkSketch(line)).toEqual([]);
+      expect(parseSketch(line).blocks).toEqual([
+        {
+          type: "text",
+          line: 1,
+          level: 0,
+          text,
+          ...(link ? { field: link } : {}),
+        },
+      ]);
+    }
+  });
+
   test("only text is linked", () => {
     expect(parseSketch(`[hero: Big] {field: ${field}}\n`).errors).toEqual([
       expect.objectContaining({ line: 1 }),

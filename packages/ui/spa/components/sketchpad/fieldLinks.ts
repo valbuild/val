@@ -38,6 +38,8 @@ export type FieldLinkInfo =
   | { status: "ok"; label: string; value: string }
   /** The path is there, and is not a text field: nothing is written. */
   | { status: "not-text"; label: string }
+  /** A text field of several lines, which one block cannot hold. */
+  | { status: "multiline"; label: string }
   /** No such field (any more): nothing is written. */
   | { status: "missing"; label: string };
 
@@ -83,6 +85,10 @@ export function fieldLinkInfo(
     typeof value !== "string"
   ) {
     return { status: "not-text", label };
+  }
+  // A block is one line: written back, the field's line breaks would go.
+  if (resolved.schema.multiline) {
+    return { status: "multiline", label };
   }
   return { status: "ok", label, value };
 }
@@ -172,20 +178,33 @@ export function fieldLinks(
       if (!transactions.some((tr) => tr.docChanged)) {
         return null;
       }
-      const seen = new Set<string>();
-      let tr: Transaction | null = null;
+      // Every block linked to each field, in order.
+      const byField = new Map<string, { pos: number; node: PMNode }[]>();
       state.doc.descendants((node, pos) => {
         const field = linkOf(node);
-        if (field === null) {
+        if (field !== null) {
+          byField.set(field, [...(byField.get(field) ?? []), { pos, node }]);
+        }
+      });
+      // The link stays with the text: Enter at the START of a linked
+      // paragraph gives the empty line above it the same attributes, and
+      // that line must not take the link -- typing there would write it.
+      let tr: Transaction | null = null;
+      byField.forEach((blocks) => {
+        if (blocks.length < 2) {
           return;
         }
-        if (seen.has(field)) {
-          tr = (tr ?? state.tr).setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            field: null,
-          });
+        const keep =
+          blocks.find((block) => block.node.textContent.trim() !== "") ??
+          blocks[0];
+        for (const block of blocks) {
+          if (block !== keep) {
+            tr = (tr ?? state.tr).setNodeMarkup(block.pos, undefined, {
+              ...block.node.attrs,
+              field: null,
+            });
+          }
         }
-        seen.add(field);
       });
       return tr;
     },
@@ -269,7 +288,9 @@ function chipElement(
       ? `Linked to ${field}: typing here changes it.`
       : link.status === "not-text"
         ? `${field} is not a text field, so typing here does not change it.`
-        : `${field} is not in the content, so typing here changes nothing.`;
+        : link.status === "multiline"
+          ? `${field} holds several lines, and a block one, so typing here does not change it.`
+          : `${field} is not in the content, so typing here changes nothing.`;
   const label = document.createElement("span");
   label.textContent =
     link.status === "ok"
@@ -278,7 +299,9 @@ function chipElement(
         : link.label
       : link.status === "not-text"
         ? `${link.label}: not a text field`
-        : `${link.label}: not found`;
+        : link.status === "multiline"
+          ? `${link.label}: several lines, not linked`
+          : `${link.label}: not found`;
   el.append(label);
 
   const button = (text: string, onPress: () => void) => {

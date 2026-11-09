@@ -39,35 +39,82 @@ export const HIGHLIGHT_COLORS: Record<
   },
 };
 
-export const highlightsKey = new PluginKey<SketchHighlight[]>("highlights");
+type HighlightsState = {
+  list: SketchHighlight[];
+  /** Where each highlight's blocks are, by id: mapped as the doc changes. */
+  positions: Map<string, number[]>;
+};
+
+export const highlightsKey = new PluginKey<HighlightsState>("highlights");
 
 /**
- * The highlights as node decorations. They follow the document: a line names
- * a block where the highlight was made, and the decoration then moves with
- * that block as the person types above it.
+ * The highlights as node decorations. A line names a block where the
+ * highlight was made; from then on the block is followed by its position,
+ * so typing above it does not move the highlight onto another block.
  */
-export function highlights(): Plugin<SketchHighlight[]> {
-  return new Plugin<SketchHighlight[]>({
+export function highlights(): Plugin<HighlightsState> {
+  return new Plugin<HighlightsState>({
     key: highlightsKey,
     state: {
-      init: () => [],
-      apply: (tr, value) => tr.getMeta(highlightsKey) ?? value,
+      init: () => ({ list: [], positions: new Map() }),
+      apply: (tr, value) => {
+        const list: SketchHighlight[] | undefined = tr.getMeta(highlightsKey);
+        if (list) {
+          // New or changed highlights are placed by line; ones already
+          // placed keep following their blocks.
+          const lines = sketchLinePositions(tr.doc);
+          const positions = new Map<string, number[]>();
+          for (const highlight of list) {
+            const known = value.list.find(
+              (h) =>
+                h.id === highlight.id &&
+                h.lines.join(",") === highlight.lines.join(","),
+            );
+            const kept = known ? value.positions.get(highlight.id) : undefined;
+            positions.set(
+              highlight.id,
+              kept
+                ? kept.flatMap((pos) => {
+                    const mapped = tr.mapping.mapResult(pos);
+                    return mapped.deleted ? [] : [mapped.pos];
+                  })
+                : highlight.lines.flatMap((line) => {
+                    const pos = lines.get(line);
+                    return pos === undefined ? [] : [pos];
+                  }),
+            );
+          }
+          return { list, positions };
+        }
+        if (!tr.docChanged || value.list.length === 0) {
+          return value;
+        }
+        const positions = new Map<string, number[]>();
+        value.positions.forEach((all, id) =>
+          positions.set(
+            id,
+            all.flatMap((pos) => {
+              const mapped = tr.mapping.mapResult(pos);
+              return mapped.deleted ? [] : [mapped.pos];
+            }),
+          ),
+        );
+        return { list: value.list, positions };
+      },
     },
     props: {
       decorations(state) {
-        const list = highlightsKey.getState(state) ?? [];
-        if (list.length === 0) {
+        const value = highlightsKey.getState(state);
+        if (!value || value.list.length === 0) {
           return DecorationSet.empty;
         }
-        const positions = sketchLinePositions(state.doc);
         const decorations: Decoration[] = [];
         const seen = new Set<number>();
-        for (const highlight of list) {
+        for (const highlight of value.list) {
           const color = HIGHLIGHT_COLORS[highlight.color];
-          highlight.lines.forEach((line, i) => {
-            const pos = positions.get(line);
-            const node = pos === undefined ? null : state.doc.nodeAt(pos);
-            if (pos === undefined || !node || seen.has(pos)) {
+          (value.positions.get(highlight.id) ?? []).forEach((pos, i) => {
+            const node = state.doc.nodeAt(pos);
+            if (!node || seen.has(pos)) {
               return;
             }
             seen.add(pos);

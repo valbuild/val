@@ -51,7 +51,12 @@ export function useLinkedFields(): {
       const info = fieldInfoRef.current?.(field);
       const at = splitField(field);
       // Only a text field that is there, and only when it is not already so.
-      if (!val || !at || info?.status !== "ok" || info.value === text) {
+      if (
+        !val ||
+        !at ||
+        info?.status !== "ok" ||
+        info.value.replace(/\s+/g, " ").trim() === text
+      ) {
         return;
       }
       const res = await writePatch(

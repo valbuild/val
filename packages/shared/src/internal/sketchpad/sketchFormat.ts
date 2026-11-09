@@ -239,7 +239,7 @@ export function parseSketch(source: string): ParsedSketch {
 }
 
 /** The link to a content field at the end of a text line. */
-const FIELD = / \{field: (.+)\}$/;
+const FIELD = / \{field: (\/[^{}]*)\}$/;
 
 function parseContent(
   whole: string,
@@ -348,17 +348,22 @@ export function formatSketchText(
   field?: string,
 ): string {
   const flat = text.replace(/\s+/g, " ").trim();
-  const link = field ? ` {field: ${field.replace(/\s+/g, " ").trim()}}` : "";
+  const path = field?.replace(/\s+/g, " ").trim();
+  // A source path, and one the line can be read back with: no braces.
+  const link = path && /^\/[^{}]*$/.test(path) ? ` {field: ${path}}` : "";
   if (level > 0) {
     return "#".repeat(level) + " " + flat + link;
   }
+  // Read as the whole line will be, link and all: `icon x M` is text, and
+  // `icon x M {field: ...}` would be an icon.
+  const whole = flat + link;
   const ambiguous =
     flat.startsWith("\\") ||
     flat.startsWith("[") ||
-    CONTAINER.test(flat) ||
-    ROUTE.test(flat) ||
-    HEADING.test(flat) ||
-    ICON.test(flat);
+    CONTAINER.test(whole) ||
+    ROUTE.test(whole) ||
+    HEADING.test(whole) ||
+    ICON.test(whole);
   return (ambiguous ? "\\" + flat : flat) + link;
 }
 

@@ -15,11 +15,7 @@ import { baseKeymap, setBlockType } from "prosemirror-commands";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { history, redo, undo } from "prosemirror-history";
-import {
-  InputRule,
-  inputRules,
-  textblockTypeInputRule,
-} from "prosemirror-inputrules";
+import { InputRule, inputRules } from "prosemirror-inputrules";
 import { keymap } from "prosemirror-keymap";
 import type { Node as PMNode, NodeType } from "prosemirror-model";
 import {
@@ -404,24 +400,59 @@ function replaceChanged(
  * `setBlockType`, keeping the link to a field: a paragraph made a heading is
  * still the same text, written to the same field.
  */
-function setTextType(
+export function setTextType(
   type: NodeType,
   attrs: Record<string, unknown> = {},
 ): Command {
-  return (state, dispatch) => {
-    const field: unknown = state.selection.$from.parent.attrs.field;
-    return setBlockType(type, {
-      ...attrs,
-      field: typeof field === "string" ? field : null,
-    })(state, dispatch);
-  };
+  return (state, dispatch) =>
+    setBlockType(type, { ...attrs, field: null })(
+      state,
+      dispatch &&
+        ((tr) => {
+          // Each block keeps its own link: `setBlockType` gives every block
+          // in the selection the same attributes.
+          const { from, to } = state.selection;
+          state.doc.nodesBetween(from, to, (node, pos) => {
+            const field: unknown = node.attrs.field;
+            if (!node.isTextblock || typeof field !== "string") {
+              return;
+            }
+            const at = tr.mapping.map(pos);
+            const now = tr.doc.nodeAt(at);
+            if (now?.isTextblock) {
+              tr.setNodeMarkup(at, undefined, { ...now.attrs, field });
+            }
+          });
+          dispatch(tr);
+        }),
+    );
 }
 
 function buildInputRules(): InputRule[] {
   return [
-    textblockTypeInputRule(/^(#{1,3})\s$/, nodes.heading, (match) => ({
-      level: match[1].length,
-    })),
+    // `# ` makes a heading, keeping the paragraph's link to a field.
+    new InputRule(/^(#{1,3})\s$/, (state, match, start, end) => {
+      const $start = state.doc.resolve(start);
+      if (
+        !$start.parent.isTextblock ||
+        !$start
+          .node(-1)
+          .canReplaceWith(
+            $start.index(-1),
+            $start.indexAfter(-1),
+            nodes.heading,
+          )
+      ) {
+        return null;
+      }
+      const field: unknown = $start.parent.attrs.field;
+      return state.tr
+        .delete(start, end)
+        .setBlockType(start, start, nodes.heading, {
+          level: match[1].length,
+          field: typeof field === "string" ? field : null,
+        });
+    }),
     // `[kind: label]` typed into an empty paragraph becomes that box.
     new InputRule(/^\[([^\]:]+)(?::\s*([^\]]*))?\]$/, (state, match, start) => {
       const $start = state.doc.resolve(start);
