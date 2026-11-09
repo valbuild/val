@@ -3023,6 +3023,7 @@ export abstract class ValOps {
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
       | PlanRefusedError
+      | ServiceErrorSavingPatch
     >
   > {
     const saveRes = await this.saveSourceFilePatch(
@@ -3040,10 +3041,20 @@ export abstract class ValOps {
         return result.err(saveRes.error);
       }
       Internal.log.error(
-        `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
+        `Could not save source patch at path: '${path}'. Error: ${
+          saveRes.error.errorType === "other"
+            ? saveRes.error.message
+            : saveRes.error.errorType === "service-error"
+              ? `${saveRes.error.message} (${saveRes.error.details})`
+              : saveRes.error.errorType
+        }`,
       );
       if (saveRes.error.errorType === "patch-head-conflict") {
         return result.err({ errorType: "patch-head-conflict" });
+      }
+      if (saveRes.error.errorType === "service-error") {
+        // Not the patch's fault: the Studio keeps it and offers to retry.
+        return result.err(saveRes.error);
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }
@@ -3577,7 +3588,27 @@ export type SaveSourceFilePatchResult = result.Result<
   | ({ errorType: "other" } & GenericErrorMessage)
   | { errorType: "patch-head-conflict" }
   | PlanRefusedError
+  | ServiceErrorSavingPatch
 >;
+
+/**
+ * The content service failed to take the patch: it answered with a server
+ * error, or could not be reached at all.
+ *
+ * Its own error rather than an `other`, for the same reason
+ * {@link PlanRefusedError} is: an `other` becomes a 400, and the Studio drops a
+ * patch it is told is bad -- the field reverts and the edit is gone. Nothing is
+ * wrong with this patch. The service is, and the Studio keeps the edit and
+ * offers to send it again. Only `retryable` failures are this; a 4xx from the
+ * service is still a refusal of the patch.
+ */
+export type ServiceErrorSavingPatch = {
+  errorType: "service-error";
+  /** For the person. See `ContentServiceFailure`. */
+  message: string;
+  /** The status line and the service's own words. */
+  details: string;
+};
 
 /**
  * The content API refused a write for the project's plan (a 403 that says why

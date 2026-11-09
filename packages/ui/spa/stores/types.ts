@@ -387,6 +387,20 @@ export type SystemEvent =
       attempt: number;
     }
   /**
+   * The content service failed to take a save, past the quick retry, and the
+   * queue is now held. The edits are KEPT -- unlike `patch:save-rejected` --
+   * and go up on Try again (`PatchSync.retry`) or the timed retry.
+   *
+   * Once per hold. `details` is the service's status line and words.
+   */
+  | {
+      type: "patch:save-failed";
+      patches: PatchId[];
+      message: string;
+      details?: string;
+      attempt: number;
+    }
+  /**
    * Val Build refused a save for the project's plan: the Free week's changes
    * are used, or a trial is over. The edits are KEPT -- unlike
    * `patch:save-rejected` -- and saved once the plan allows.

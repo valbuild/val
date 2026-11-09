@@ -240,6 +240,12 @@ export type PublishResult =
        * fix) is what to say, not the connection.
        */
       planRefusal?: string;
+      /**
+       * What the content service said when it failed to take the edits (the
+       * sync is holding them as `failed`): the service's own sentence, which
+       * says what failed, where "check the connection" would be a guess.
+       */
+      saveFailure?: string;
     }
   /**
    * An edit landed while the gate was validating, so what was checked is not
