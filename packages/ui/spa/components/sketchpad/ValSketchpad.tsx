@@ -1,13 +1,21 @@
 import { Internal } from "@valbuild/core";
 import type { SketchpadT } from "@valbuild/shared/internal";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { parseSketch, sketchRoutes } from "@valbuild/shared/internal";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sketchpad, type SketchpadAssistantStatus } from "./Sketchpad";
+import type { SketchBlockType } from "./boxNodeView";
+import type { SketchHighlight } from "./highlights";
+import type { SketchMediaLibrary } from "./SketchpadMediaPicker";
+import { SketchpadPreview } from "./SketchpadPreview";
+import { blockTypesOfSchemas } from "./sketchBlockTypes";
+import { useSketchMediaLibrary } from "./sketchMediaLibrary";
+import { useLinkedFields } from "./useLinkedFields";
 import type { SketchpadClient } from "./sketchpadClient";
 import type { SketchpadListItem } from "./SketchpadList";
 import { useSketchpadsSnapshot, type SketchpadsState } from "./SketchpadsState";
 import { SketchpadWorkspace } from "./SketchpadWorkspace";
 import { useShellBreakpoint } from "../shell/useShellBreakpoint";
-import { useFilePatchIds } from "../ValFieldProvider";
+import { useFilePatchIds, useSchemas } from "../ValFieldProvider";
 import {
   SketchpadSaver,
   type SaverProblem,
@@ -28,6 +36,7 @@ export function ValSketchpad({
   client,
   sketchpads,
   onSendToAssistant,
+  onStartFromRoute,
   onOpenAssistant,
   pageOptions,
   currentProfileId,
@@ -41,16 +50,39 @@ export function ValSketchpad({
   };
   /** Opens the chat and asks it to read the sketchpad. Absent without one. */
   onSendToAssistant?: (sketchpad: SketchpadT) => void;
+  /** Asks the chat to write a page into an empty sketchpad. */
+  onStartFromRoute?: (sketchpad: SketchpadT, route: string) => void;
   /** Opens the chat. Absent without one. */
   onOpenAssistant?: () => void;
+  /** The site's routes: its pages, and its page types (`/blog/[slug]`). */
   pageOptions: string[];
   currentProfileId: string | null;
 }) {
   const snapshot = useSketchpadsSnapshot(state);
+  // What a box may show, and the kinds of section the site has: read only
+  // while a sketchpad is open, since both walk the whole project.
+  const mediaLibrary = useSketchMediaLibrary(state);
+  const schemas = useSchemas();
+  const blockTypes = useMemo(
+    () =>
+      schemas.status === "success"
+        ? blockTypesOfSchemas(schemas.data)
+        : undefined,
+    [schemas],
+  );
   const id = snapshot.openId;
   const known = id !== null ? snapshot.byId[id] : undefined;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [archivedId, setArchivedId] = useState<string | null>(null);
+  // The page beside the sketch: the one last pressed in it, and until then
+  // its first route -- or, for a sketch with none yet, where it was started.
+  const [pressedRoute, setPressedRoute] = useState<string | null>(null);
+  useEffect(() => setPressedRoute(null), [id]);
+  const routesInSketch = useMemo(
+    () => (known ? sketchRoutes(parseSketch(known.text).blocks) : []),
+    [known],
+  );
+  const activeRoute = pressedRoute ?? routesInSketch[0] ?? known?.page ?? null;
 
   // Fetched every time it is opened: what this tab has may be from before
   // someone else's change. What it has is shown meanwhile, and the newer
@@ -172,7 +204,7 @@ export function ValSketchpad({
 
   return (
     <SketchpadWorkspace
-      preview={<PagePreview page={known?.page ?? null} />}
+      preview={<SketchpadPreview route={activeRoute} />}
       sketchpads={{
         sketchpads: sketchpads.items,
         currentId: id,
@@ -250,13 +282,27 @@ export function ValSketchpad({
             client={client}
             state={state}
             onSaved={sketchpads.refresh}
-            onPageChange={(page) => void change(known, { page })}
             onArchive={() => void archive(known)}
             onSendToAssistant={
               onSendToAssistant && (() => onSendToAssistant(known))
             }
+            onStartFromRoute={
+              onStartFromRoute &&
+              ((route) => {
+                setPressedRoute(route);
+                onStartFromRoute(known, route);
+              })
+            }
             onOpenAssistant={onOpenAssistant}
             pageOptions={pageOptions}
+            activeRoute={activeRoute}
+            onOpenRoute={setPressedRoute}
+            mediaLibrary={mediaLibrary}
+            blockTypes={blockTypes}
+            highlights={snapshot.highlights[known.id]}
+            onClearHighlight={(highlightId) =>
+              state.clearHighlight(known.id, highlightId)
+            }
             currentProfileId={currentProfileId}
             assistantRead={snapshot.assistantRead[known.id]}
             problem={snapshot.problems[known.id]}
@@ -278,11 +324,17 @@ function OpenSketchpad({
   client,
   state,
   onSaved,
-  onPageChange,
   onArchive,
   onSendToAssistant,
+  onStartFromRoute,
   onOpenAssistant,
   pageOptions,
+  activeRoute,
+  onOpenRoute,
+  mediaLibrary,
+  blockTypes,
+  highlights,
+  onClearHighlight,
   currentProfileId,
   list,
   assistantRead,
@@ -292,11 +344,17 @@ function OpenSketchpad({
   client: SketchpadClient;
   state: SketchpadsState;
   onSaved: () => void;
-  onPageChange: (page: string | null) => void;
   onArchive: () => void;
   onSendToAssistant?: () => void;
+  onStartFromRoute?: (route: string) => void;
   onOpenAssistant?: () => void;
   pageOptions: string[];
+  activeRoute: string | null;
+  onOpenRoute: (route: string) => void;
+  mediaLibrary?: SketchMediaLibrary;
+  blockTypes?: SketchBlockType[];
+  highlights?: SketchHighlight[];
+  onClearHighlight: (id: string | null) => void;
   currentProfileId: string | null;
   list: Parameters<typeof Sketchpad>[0]["sketchpads"];
   /** The version the assistant last read or wrote, if any. */
@@ -391,7 +449,10 @@ function OpenSketchpad({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [saver, status.unsaved]);
 
+  // A block linked to a content field writes the field as it is typed in.
+  const linkedFields = useLinkedFields();
   const onChange = (next: string) => {
+    linkedFields.write(text, next);
     setText(next);
     saver.edit(next);
   };
@@ -467,9 +528,16 @@ function OpenSketchpad({
         value={text}
         onChange={onChange}
         title={sketchpad.title ?? undefined}
-        page={sketchpad.page}
-        onPageChange={onPageChange}
         pageOptions={pageOptions}
+        activeRoute={activeRoute}
+        onOpenRoute={onOpenRoute}
+        onStartFromRoute={onStartFromRoute}
+        startRoute={sketchpad.page}
+        mediaLibrary={mediaLibrary}
+        blockTypes={blockTypes}
+        highlights={highlights}
+        fieldInfo={linkedFields.fieldInfo}
+        onClearHighlight={onClearHighlight}
         status={
           status.saving
             ? "Saving…"
@@ -487,37 +555,9 @@ function OpenSketchpad({
         sketchpads={list}
         fullscreenPreview={
           breakpoint === "mobile" ? (
-            <PagePreview page={sketchpad.page} />
+            <SketchpadPreview route={activeRoute} />
           ) : undefined
         }
-      />
-    </div>
-  );
-}
-
-/** The page the sketch is about, as the site serves it now. */
-function PagePreview({ page }: { page: string | null }) {
-  if (page === null) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-sm text-fg-secondary">
-        This sketch is not about a page yet. Pick one under its title to see the
-        page beside it.
-      </div>
-    );
-  }
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-        <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs text-fg-secondary">
-          {page}
-        </span>
-      </div>
-      <iframe
-        key={page}
-        title={`The page ${page}`}
-        src={page}
-        className="min-h-0 w-full flex-1 bg-white"
       />
     </div>
   );

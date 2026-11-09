@@ -34,6 +34,24 @@ export function buildSketchpadMessage(sketchpad: {
   ].join("\n");
 }
 
+/**
+ * "Start from a page", sent as the person's own message: the sketchpad as a
+ * card, and a request to write that page into it as it is now. Nothing on
+ * the site changes; the sketch is where the changes are made next.
+ */
+export function startFromRouteMessage(
+  sketchpad: { id: string; title: string | null },
+  route: string,
+): string {
+  const title = sketchpad.title ?? "Untitled sketch";
+  const attr = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return [
+    `<sketchpad id="${attr(sketchpad.id)}" title="${attr(title)}" routes="${attr(route)}"></sketchpad>`,
+    `Start this sketchpad from the page at ${route}. Find its content (get_source_path_from_route, then get_source) and write it into the sketchpad with write_sketchpad, under a "--- ${route}" divider: its headings and text, each section as a box named after its kind, and its images by their path exactly as the content has it. Link each heading and paragraph that comes from a plain text field (s.string(), not rich text) to that field by ending its line with {field: <its source path>}, so typing in the sketch changes the page. Write only the sketch: change no content.`,
+  ].join("\n");
+}
+
 /** The card a `<sketchpad>` tag in a chat message is drawn as. */
 export function SketchpadMessageCard({
   id,

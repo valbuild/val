@@ -6,6 +6,7 @@ import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
 import { Sketchpad } from "../Sketchpad";
 import type { SketchBlockType } from "../boxNodeView";
 import type { SketchHighlight } from "../highlights";
+import { fieldLabel, linkedFieldChanges } from "../fieldLinks";
 import type {
   SketchMediaLibrary,
   SketchMediaOption,
@@ -37,6 +38,8 @@ import { SketchpadWorkspace } from "../SketchpadWorkspace";
  * - **Build.** What the button sends: the sketchpad as a card in the chat,
  *   and a request to change the pages to match it.
  * - Columns share their row equally: the width controls are gone.
+ * - **Linked text.** A heading or paragraph linked to a text field writes
+ *   it as it is typed in, and can be unlinked.
  */
 const meta: Meta = {
   title: "Components/Sketchpad/Routes, images and Build",
@@ -473,5 +476,115 @@ export const NewPageOfAType: Story = {
         name: /Add \/journal\/Traceable-wool/,
       }),
     ).toBeInTheDocument();
+  },
+};
+
+const HOME_TITLE = '/app/page.val.ts?p="hero"."title"';
+const HOME_LEAD = '/app/page.val.ts?p="hero"."lead"';
+const HOME_CTA = '/app/page.val.ts?p="cta"."text"';
+
+/** The page's content, as a site would render it: what the links write. */
+function LinkedContentPage({ content }: { content: Record<string, string> }) {
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-auto bg-white p-8 text-neutral-900">
+      <span className="text-[11px] uppercase tracking-wide text-neutral-500">
+        nordic-retail.example
+      </span>
+      <h1 className="text-3xl font-semibold">{content[HOME_TITLE]}</h1>
+      <p className="text-neutral-600">{content[HOME_LEAD]}</p>
+      <span className="self-start rounded-full bg-neutral-900 px-4 py-2 text-sm text-white">
+        {content[HOME_CTA]}
+      </span>
+    </div>
+  );
+}
+
+function LinkedFieldsDemo() {
+  const [content, setContent] = useState<Record<string, string>>({
+    [HOME_TITLE]: "Coats that last",
+    [HOME_LEAD]: "Made by hand in Bergen since 1987.",
+    // Changed in the Studio after the sketch was written.
+    [HOME_CTA]: "Shop the autumn coats",
+  });
+  const [value, setValue] = useState(`--- /
+# Coats that last {field: ${HOME_TITLE}}
+Made by hand in Bergen since 1987. {field: ${HOME_LEAD}}
+[hero: Autumn](image: /public/val/gallery/accent-amber_37f8b.png)
+[button: Shop now]
+Shop the new coats {field: ${HOME_CTA}}
+[team: The workshop]
+
+${ICONS}
+`);
+  return (
+    <div className="h-screen bg-bg-secondary p-3">
+      <SketchpadWorkspace
+        preview={<LinkedContentPage content={content} />}
+        sketchpads={{
+          sketchpads: [],
+          onOpen: () => undefined,
+          onReopen: () => undefined,
+        }}
+        sketchpad={
+          <Sketchpad
+            value={value}
+            onChange={(next) => {
+              const changes = linkedFieldChanges(value, next);
+              if (changes.length > 0) {
+                setContent((all) => ({
+                  ...all,
+                  ...Object.fromEntries(
+                    changes.map(({ field, text }) => [field, text]),
+                  ),
+                }));
+              }
+              setValue(next);
+            }}
+            title="Home"
+            status="Saved just now"
+            pageOptions={ROUTES}
+            activeRoute="/"
+            mediaLibrary={LIBRARY}
+            blockTypes={BLOCK_TYPES}
+            fieldInfo={(field) =>
+              field in content
+                ? {
+                    status: "ok",
+                    label: fieldLabel(field),
+                    value: content[field],
+                  }
+                : { status: "missing", label: fieldLabel(field) }
+            }
+            onAskAssistant={() => undefined}
+            assistantStatus="changed"
+          />
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Text linked to the page's fields. The heading and the lead are linked
+ * (the chips say to what): type in them and the page beside the sketch
+ * changes, as typing in the field would. The last line's field was changed
+ * elsewhere since, so it says so, and "Use the content's" takes that text.
+ * "Unlink" breaks a link: the text stays, and is only the sketch's again.
+ */
+export const LinkedToFields: Story = {
+  render: () => <LinkedFieldsDemo />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      await canvas.findByText("cta › text: changed elsewhere"),
+    ).toBeInTheDocument();
+    const page = within(await canvas.findByLabelText("Sketchpad page"));
+    await userEvent.click(
+      await page.findByRole("heading", { level: 1, name: /Coats that last/ }),
+    );
+    await userEvent.keyboard("!");
+    // The page beside the sketch has it too: the field was written.
+    const preview = canvasElement.querySelector("h1.text-3xl");
+    await expect(preview?.textContent).toContain("!");
   },
 };

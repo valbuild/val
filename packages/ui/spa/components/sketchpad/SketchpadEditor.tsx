@@ -35,6 +35,7 @@ import { cn } from "../designSystem/cn";
 import { BoxView, type SketchBlockType } from "./boxNodeView";
 import { dragHandles } from "./dragBlocks";
 import { highlights, highlightsKey, type SketchHighlight } from "./highlights";
+import { fieldLinks, fieldLinksKey, type FieldLinkInfo } from "./fieldLinks";
 import { RouteView, type RouteMenuRequest } from "./routeNodeView";
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
@@ -82,6 +83,11 @@ export type SketchpadEditorProps = {
   /** Blocks the assistant points at; see `SketchHighlight`. */
   highlights?: SketchHighlight[];
   /**
+   * What a linked block's field is now (`fieldLinks.ts`). Without it, links
+   * are kept in the text and not shown.
+   */
+  fieldInfo?: (field: string) => FieldLinkInfo;
+  /**
    * More ProseMirror plugins. This is where working together plugs in: a
    * proposal's Sketchpad is shared the way its chats are (Flow H), so the
    * relay's `prosemirror-collab` plugin and, later, presence decorations go
@@ -128,6 +134,7 @@ export function SketchpadEditor({
   onOpenRoute,
   onRouteMenu,
   highlights: highlightList = NO_HIGHLIGHTS,
+  fieldInfo,
   plugins = [],
   toolbar = "top",
   touch = false,
@@ -152,6 +159,7 @@ export function SketchpadEditor({
     activeRoute,
     onOpenRoute,
     onRouteMenu,
+    fieldInfo,
     readOnly,
   });
   latest.current = {
@@ -166,6 +174,7 @@ export function SketchpadEditor({
     activeRoute,
     onOpenRoute,
     onRouteMenu,
+    fieldInfo,
     readOnly,
   };
   const [, setRevision] = useState(0);
@@ -190,6 +199,7 @@ export function SketchpadEditor({
           placeholders(),
           dragHandles(),
           highlights(),
+          fieldLinks(() => latest.current.fieldInfo),
           ...plugins,
         ],
       }),
@@ -309,6 +319,18 @@ export function SketchpadEditor({
     }
   }, [highlightList]);
 
+  // The content moved: the links say how it is now.
+  const fieldInfoRevision = useRef(0);
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view) {
+      fieldInfoRevision.current += 1;
+      view.dispatch(
+        view.state.tr.setMeta(fieldLinksKey, fieldInfoRevision.current),
+      );
+    }
+  }, [fieldInfo]);
+
   const view = viewRef.current;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -378,6 +400,23 @@ function replaceChanged(
   }
 }
 
+/**
+ * `setBlockType`, keeping the link to a field: a paragraph made a heading is
+ * still the same text, written to the same field.
+ */
+function setTextType(
+  type: NodeType,
+  attrs: Record<string, unknown> = {},
+): Command {
+  return (state, dispatch) => {
+    const field: unknown = state.selection.$from.parent.attrs.field;
+    return setBlockType(type, {
+      ...attrs,
+      field: typeof field === "string" ? field : null,
+    })(state, dispatch);
+  };
+}
+
 function buildInputRules(): InputRule[] {
   return [
     textblockTypeInputRule(/^(#{1,3})\s$/, nodes.heading, (match) => ({
@@ -426,10 +465,10 @@ function buildKeymap(): Record<string, Command> {
       }
       return true;
     },
-    "Mod-Alt-0": setBlockType(nodes.paragraph),
-    "Mod-Alt-1": setBlockType(nodes.heading, { level: 1 }),
-    "Mod-Alt-2": setBlockType(nodes.heading, { level: 2 }),
-    "Mod-Alt-3": setBlockType(nodes.heading, { level: 3 }),
+    "Mod-Alt-0": setTextType(nodes.paragraph),
+    "Mod-Alt-1": setTextType(nodes.heading, { level: 1 }),
+    "Mod-Alt-2": setTextType(nodes.heading, { level: 2 }),
+    "Mod-Alt-3": setTextType(nodes.heading, { level: 3 }),
   };
 }
 
@@ -628,25 +667,25 @@ function Toolbar({
       {
         label: "Text",
         icon: Pilcrow,
-        command: setBlockType(nodes.paragraph),
+        command: setTextType(nodes.paragraph),
         active: isBlock(nodes.paragraph),
       },
       {
         label: "Heading 1",
         icon: Heading1,
-        command: setBlockType(nodes.heading, { level: 1 }),
+        command: setTextType(nodes.heading, { level: 1 }),
         active: isBlock(nodes.heading, 1),
       },
       {
         label: "Heading 2",
         icon: Heading2,
-        command: setBlockType(nodes.heading, { level: 2 }),
+        command: setTextType(nodes.heading, { level: 2 }),
         active: isBlock(nodes.heading, 2),
       },
       {
         label: "Heading 3",
         icon: Heading3,
-        command: setBlockType(nodes.heading, { level: 3 }),
+        command: setTextType(nodes.heading, { level: 3 }),
         active: isBlock(nodes.heading, 3),
       },
     ],

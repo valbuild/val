@@ -117,6 +117,8 @@ describe("the editor writes what formatSketch writes", () => {
     "--- /\n# Home\n--- /about\nrow\n  col\n    About",
     "row\n",
     "# Title\n\n\nText\n",
+    '# Hi {field: /c.val.ts?p="title"}\nrow\n  col\n    Body {field: /c.val.ts?p="body"}\n',
+    '# One {field: /c.val.ts?p="t"}\n## Two {field: /c.val.ts?p="t"}\n',
   ])("%j", (source) => {
     const { blocks, icons } = parseSketch(source);
     const { doc, icons: docIcons } = docFromSketch(source);

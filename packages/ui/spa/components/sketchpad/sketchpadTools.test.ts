@@ -200,3 +200,95 @@ describe("SketchpadsState", () => {
     expect(sent).toEqual(["hi"]);
   });
 });
+
+describe("pointing at blocks", () => {
+  const text =
+    "# Pricing\n[hero: Plans]\n[pricing-table: Three plans]\n\nicon hero M2 2h20\nicon pricing-table M2 2h20\n";
+
+  test("by line or by its text, and the person sees it", async () => {
+    const client = fakeClient();
+    const state = new SketchpadsState();
+    const created = await client.create({ text, page: null });
+    if (created.status !== "ok") throw new Error("not created");
+    const id = created.sketchpad.id;
+
+    const res = await runSketchpadTool(
+      "highlight_sketchpad_blocks",
+      {
+        id,
+        lines: [2],
+        match: ["  [pricing-table: Three plans]"],
+        color: "amber",
+        note: "These need code",
+      },
+      { client, state, newId: () => "h1" },
+    );
+    expect(res).toEqual({
+      isError: false,
+      result: { highlightId: "h1", lines: [2, 3] },
+    });
+    expect(state.getSnapshot().highlights[id]).toEqual([
+      { id: "h1", lines: [2, 3], color: "amber", note: "These need code" },
+    ]);
+    // Opened, so the person sees what it points at.
+    expect(state.getSnapshot().openId).toBe(id);
+
+    await runSketchpadTool(
+      "clear_sketchpad_highlights",
+      { id },
+      { client, state },
+    );
+    expect(state.getSnapshot().highlights[id]).toBeUndefined();
+  });
+
+  test("names what is not there, rather than marking nothing", async () => {
+    const client = fakeClient();
+    const state = new SketchpadsState();
+    const created = await client.create({ text, page: null });
+    if (created.status !== "ok") throw new Error("not created");
+    const res = await runSketchpadTool(
+      "highlight_sketchpad_blocks",
+      {
+        id: created.sketchpad.id,
+        lines: [4, 40],
+        match: ["[team: People]"],
+        color: "red",
+        note: "?",
+      },
+      { client, state, newId: () => "h1" },
+    );
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.result)).toContain("line 40");
+    expect(JSON.stringify(res.result)).toContain("[team: People]");
+    expect(state.getSnapshot().highlights).toEqual({});
+  });
+
+  test("without a Sketchpad on screen, says so", async () => {
+    const res = await runSketchpadTool(
+      "highlight_sketchpad_blocks",
+      { id: "pad-1", lines: [1], color: "red", note: "x" },
+      { client: fakeClient(), state: null },
+    );
+    expect(res.isError).toBe(true);
+  });
+});
+
+describe("images in a sketch the assistant writes", () => {
+  test("are the project's, or it is not written", async () => {
+    const client = fakeClient();
+    const mediaKnown = (src: string) => src === "/public/val/hero.jpg";
+    const refused = await runSketchpadTool(
+      "create_sketchpad",
+      { text: "[hero](image: /val/hero.jpg)\n" },
+      { client, state: null, mediaKnown },
+    );
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.result)).toContain("/val/hero.jpg");
+    const ok = await runSketchpadTool(
+      "create_sketchpad",
+      { text: "[hero](image: /public/val/hero.jpg)\n" },
+      { client, state: null, mediaKnown },
+    );
+    expect(ok.isError).toBe(false);
+  });
+});

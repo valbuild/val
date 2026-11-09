@@ -37,15 +37,17 @@ export const sketchSchema = new Schema({
       draggable: true,
       toDOM: (node) => ["div", { "data-route": node.attrs.route }],
     },
+    // `field`: the content field the text is linked to (`fieldLinks.ts`).
     paragraph: {
       group: "block item",
+      attrs: { field: { default: null } },
       content: "text*",
       parseDOM: [{ tag: "p" }],
       toDOM: () => ["p", { class: "relative text-sm text-fg-secondary" }, 0],
     },
     heading: {
       group: "block item",
-      attrs: { level: { default: 1 } },
+      attrs: { level: { default: 1 }, field: { default: null } },
       content: "text*",
       defining: true,
       parseDOM: [
@@ -143,8 +145,14 @@ function toNodes(block: SketchNode, inRow: boolean): PMNode[] {
     case "text":
       return [
         block.level === 0
-          ? nodes.paragraph.create(null, textOf(block.text))
-          : nodes.heading.create({ level: block.level }, textOf(block.text)),
+          ? nodes.paragraph.create(
+              { field: block.field ?? null },
+              textOf(block.text),
+            )
+          : nodes.heading.create(
+              { level: block.level, field: block.field ?? null },
+              textOf(block.text),
+            ),
       ];
     case "placeholder":
       return [
@@ -219,6 +227,16 @@ function writeSketch(
 ): { text: string; positions: Map<number, number> } {
   const lines: string[] = [];
   const positions = new Map<number, number>();
+  // One block per field, as `formatSketch` writes it: the first keeps it.
+  const linked = new Set<string>();
+  const linkOf = (node: PMNode): string | undefined => {
+    const field: unknown = node.attrs.field;
+    if (typeof field !== "string" || field === "" || linked.has(field)) {
+      return undefined;
+    }
+    linked.add(field);
+    return field;
+  };
   const push = (line: string, pos: number) => {
     lines.push(line);
     positions.set(lines.length, pos);
@@ -231,12 +249,16 @@ function writeSketch(
     switch (node.type) {
       case nodes.paragraph:
         if (written) {
-          push(indent + formatSketchText(0, text), pos);
+          push(indent + formatSketchText(0, text, linkOf(node)), pos);
         }
         return;
       case nodes.heading:
         if (written) {
-          push(indent + formatSketchText(levelOf(node.attrs.level), text), pos);
+          push(
+            indent +
+              formatSketchText(levelOf(node.attrs.level), text, linkOf(node)),
+            pos,
+          );
         }
         return;
       case nodes.box:

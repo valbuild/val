@@ -14,18 +14,30 @@ import {
   useLockBodyScroll,
   useVisualViewport,
 } from "../shell/useVisualViewport";
-import type { SketchMedia } from "@valbuild/shared/internal";
+import {
+  SESSION_MEDIA_PREFIX,
+  type SketchMedia,
+} from "@valbuild/shared/internal";
 import { defaultMediaUrl, SketchpadEditor } from "./SketchpadEditor";
 import type { SketchBlockType } from "./boxNodeView";
 import { RouteMenu } from "./RouteMenu";
 import type { RouteMenuRequest } from "./routeNodeView";
 import { HIGHLIGHT_COLORS, type SketchHighlight } from "./highlights";
+import type { FieldLinkInfo } from "./fieldLinks";
 import {
   SketchpadMediaPicker,
   type SketchMediaLibrary,
   type SketchMediaOption,
 } from "./SketchpadMediaPicker";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
+
+/**
+ * An image in the chat that this tab has no file of: a grey frame that says
+ * so, rather than a broken image.
+ */
+const SESSION_IMAGE_PLACEHOLDER = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="#f1f1f3"/><text x="160" y="95" font-family="system-ui,sans-serif" font-size="14" fill="#6b6b76" text-anchor="middle">An image in the chat</text></svg>',
+)}`;
 
 export type SketchpadPerson = {
   name: string;
@@ -68,6 +80,11 @@ export type SketchpadProps = {
   blockTypes?: SketchBlockType[];
   /** Blocks the assistant points at (`SketchHighlight`). */
   highlights?: SketchHighlight[];
+  /**
+   * What a block linked to a content field links to now. Given, the links
+   * are shown, and can be broken. See `fieldLinks.ts`.
+   */
+  fieldInfo?: (field: string) => FieldLinkInfo;
   /** Clears one highlight, or all of them with null. */
   onClearHighlight?: (id: string | null) => void;
   /** Shown under the title, e.g. who is editing. */
@@ -167,6 +184,7 @@ export function Sketchpad({
   mediaLibrary,
   blockTypes,
   highlights,
+  fieldInfo,
   onClearHighlight,
   assistantStatus,
   onArchive,
@@ -261,15 +279,24 @@ export function Sketchpad({
         : undefined,
     [mediaLibrary],
   );
+  // An image put in the chat from another tab, or before a reload, is still
+  // the chat's: known, though this tab has no file to show it from.
   const mediaKnown = useMemo(
-    () => (library ? (src: string) => library.has(src) : undefined),
+    () =>
+      library
+        ? (src: string) =>
+            library.has(src) || src.startsWith(SESSION_MEDIA_PREFIX)
+        : undefined,
     [library],
   );
   const libraryUrl = useMemo(
     () =>
       library
         ? (src: string) =>
-            library.get(src)?.url ?? (mediaUrl ?? defaultMediaUrl)(src)
+            library.get(src)?.url ??
+            (src.startsWith(SESSION_MEDIA_PREFIX)
+              ? SESSION_IMAGE_PLACEHOLDER
+              : (mediaUrl ?? defaultMediaUrl)(src))
         : mediaUrl,
     [library, mediaUrl],
   );
@@ -282,10 +309,14 @@ export function Sketchpad({
   // picker has it too, and the box names it there.
   const libraryUpload = mediaLibrary?.upload;
   const attach = libraryUpload
-    ? async (file: File): Promise<SketchMedia | null> => {
-        const option = await libraryUpload(file);
-        return option ? { type: option.type, src: option.src } : null;
-      }
+    ? (file: File) =>
+        upload(async (f) => {
+          const option = await libraryUpload(f);
+          if (!option) {
+            throw new Error("The upload did not finish.");
+          }
+          return option.src;
+        }, file)
     : onAttachMedia
       ? (file: File) => upload(onAttachMedia, file)
       : null;
@@ -431,6 +462,7 @@ export function Sketchpad({
           onOpenRoute={onOpenRoute}
           onRouteMenu={setRouteMenu}
           highlights={highlights}
+          fieldInfo={fieldInfo}
           plugins={plugins}
           toolbar={fullscreen ? "bottom" : "top"}
           touch={fullscreen}

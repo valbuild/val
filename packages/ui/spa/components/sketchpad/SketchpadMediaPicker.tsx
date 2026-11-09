@@ -38,8 +38,9 @@ export type SketchMediaLibrary = {
   /** Images uploaded to the assistant's session. */
   session: SketchMediaOption[];
   /**
-   * Uploads a file to the assistant's session and resolves to it, or to null
-   * when it could not (and said why). Absent, nothing can be uploaded here.
+   * Uploads a file to the assistant's session and resolves to it. Rejects
+   * with what went wrong, in words for the person. Absent, nothing can be
+   * uploaded here.
    */
   upload?: (file: File) => Promise<SketchMediaOption | null>;
 };
@@ -105,12 +106,25 @@ export function SketchpadMediaPicker({
     [library],
   );
 
+  const [uploadError, setUploadError] = useState<{
+    file: File;
+    message: string;
+  } | null>(null);
   const upload = async (file: File) => {
     if (!library.upload) return;
     setUploading(true);
-    const option = await library.upload(file);
-    setUploading(false);
-    if (option) onPick(option);
+    setUploadError(null);
+    try {
+      const option = await library.upload(file);
+      if (option) onPick(option);
+    } catch (error) {
+      setUploadError({
+        file,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -140,7 +154,7 @@ export function SketchpadMediaPicker({
               <input
                 ref={fileInput}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -151,6 +165,24 @@ export function SketchpadMediaPicker({
             </>
           )}
         </div>
+        {uploadError && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-bg-error-secondary px-3 py-1.5 text-xs text-fg-error-secondary"
+          >
+            <span>
+              “{uploadError.file.name}” was not uploaded. {uploadError.message}
+            </span>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => void upload(uploadError.file)}
+              className="cursor-pointer font-medium underline"
+            >
+              Try again
+            </button>
+          </div>
+        )}
         <label className="flex items-center gap-2 rounded-md border border-border-primary px-2.5">
           <Search className="h-3.5 w-3.5 text-fg-tertiary" />
           <input

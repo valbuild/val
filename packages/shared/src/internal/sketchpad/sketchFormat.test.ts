@@ -1,4 +1,5 @@
 import {
+  sketchFieldTexts,
   checkSketch,
   formatSketch,
   sketchRoutes,
@@ -284,5 +285,45 @@ describe("columns", () => {
       message:
         'Columns share a row equally, so a col takes no number: write "col".',
     });
+  });
+});
+
+describe("text linked to a field", () => {
+  const field = '/content/home.val.ts?p="hero"."title"';
+
+  test("is read, written back the one way, and named by field", () => {
+    const text = `--- /\n# Welcome {field: ${field}}\nrow\n  col\n    \\[things] {field: /content/home.val.ts?p="intro"}\n`;
+    const parsed = parseSketch(text);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.blocks[1]).toEqual({
+      type: "text",
+      line: 2,
+      level: 1,
+      text: "Welcome",
+      field,
+    });
+    expect(formatSketch(parsed.blocks, parsed.icons)).toBe(text);
+    expect(checkSketch(text)).toEqual([]);
+    expect(sketchFieldTexts(parsed.blocks)).toEqual(
+      new Map([
+        [field, "Welcome"],
+        ['/content/home.val.ts?p="intro"', "[things]"],
+      ]),
+    );
+  });
+
+  test("one block per field: a second link is not written", () => {
+    const parsed = parseSketch(
+      `# One {field: ${field}}\nTwo {field: ${field}}\n`,
+    );
+    expect(formatSketch(parsed.blocks, parsed.icons)).toBe(
+      `# One {field: ${field}}\nTwo\n`,
+    );
+  });
+
+  test("only text is linked", () => {
+    expect(parseSketch(`[hero: Big] {field: ${field}}\n`).errors).toEqual([
+      expect.objectContaining({ line: 1 }),
+    ]);
   });
 });
