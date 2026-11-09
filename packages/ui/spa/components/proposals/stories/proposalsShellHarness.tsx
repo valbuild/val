@@ -31,7 +31,7 @@ import {
   type PreviewUpdate,
 } from "../ProposalBar";
 import type { PreviewProblem } from "../PreviewProblemCard";
-import { CodeModeWorkspace, type CodeModeBuild } from "../CodeModeWorkspace";
+import { CodeChanges, type CodeModeBuild } from "../CodeChanges";
 import type { CodeModeView } from "../CodeModeButton";
 import {
   CommitRefusedNotice,
@@ -745,29 +745,28 @@ export function ProposalsShell({
       ),
     });
   }
-  const workspace =
-    codeModeOn && codeView === "code" ? (
-      <CodeModeWorkspace
-        key={codeMode?.view ?? "preview"}
-        route="/"
-        pages={["/", "/about", "/products/knitwear", "/products/outerwear"]}
-        onRouteChange={action("open another page in the preview")}
-        onReload={action("reload the preview")}
-        preview={
-          <DesignSiteMock
-            testimonials={
-              codeChanged && codeBuild.state === "up-to-date"
-                ? "cards"
-                : "quote"
-            }
-          />
-        }
-        build={codeBuild}
-        files={codeChanged ? FILES : []}
-        diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
-        initialView={codeMode?.view ?? "preview"}
-      />
-    ) : undefined;
+  /*
+   * Code mode does not replace the workspace: the canvas is the same page in
+   * every mode, and code mode's view is the code changes in the editor's
+   * column, beside it. As `ValShell`.
+   */
+  const inCodeView = codeModeOn && codeView === "code";
+  const codeChanges = inCodeView ? (
+    <CodeChanges
+      build={codeBuild}
+      onReload={action("reload the preview")}
+      files={codeChanged ? FILES : []}
+      diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
+      onEditContent={() => setCodeView("content")}
+    />
+  ) : undefined;
+  const sitePage = (
+    <DesignSiteMock
+      testimonials={
+        codeChanged && codeBuild.state === "up-to-date" ? "cards" : "quote"
+      }
+    />
+  );
   const chat =
     renderChat === undefined
       ? undefined
@@ -794,7 +793,12 @@ export function ProposalsShell({
       <Shell
         initialPanel={panel ?? (chat !== undefined ? "ai" : null)}
         {...(chat !== undefined ? { aiEnabled: true, aiSlot: chat } : {})}
-        {...(workspace !== undefined ? { workspaceOverride: workspace } : {})}
+        {...(codeChanges !== undefined ? { editorOverride: codeChanges } : {})}
+        // The site, as the canvas shows it: the same page in every mode.
+        renderCanvas={() => sitePage}
+        initialCanvasOpen={inCodeView}
+        canvasPinned={inCodeView}
+        dockAssistant={inCodeView}
         initialSelectionId={selectionId ?? null}
         /*
          * In a proposal the status bar names its branch, as `useShellData`

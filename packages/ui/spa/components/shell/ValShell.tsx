@@ -144,7 +144,8 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
-import { CodeModeWorkspaceConnected } from "../proposals/CodeModeWorkspaceConnected";
+import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
+import { nextBuildEpoch, useServedBuild } from "./canvas/useServedBuild";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -1139,6 +1140,33 @@ function ValShellBody({
    */
   const resolveNavPath = useResolveNavPath();
   const reportError = useReportError();
+
+  /**
+   * Which document of the page the canvas holds, beyond its own reloads.
+   *
+   * The canvas is the one preview in every mode -- the content editor, code
+   * mode, the Sketchpad -- so it is what has to follow the code: when the
+   * server serves another build, whoever built it, the page in the frame is
+   * the old build's document until it is loaded again. Content needs nothing
+   * here: the frame relays every edit as it is made.
+   */
+  const servedBuild = useServedBuild();
+  const [buildEpoch, setBuildEpoch] = useState<{
+    build: string | null;
+    epoch: number;
+  }>({ build: null, epoch: 0 });
+  useEffect(() => {
+    setBuildEpoch((previous) => nextBuildEpoch(previous, servedBuild));
+  }, [servedBuild]);
+  /** Code mode's status asked for the page again. */
+  const [codeReloads, setCodeReloads] = useState(0);
+  const documentKey = `${buildEpoch.epoch}:${codeReloads}`;
+  /**
+   * In code mode's view the column beside the canvas holds the code changes,
+   * so a field picked on the page has nowhere to open: picking one puts the
+   * content editor back. Set once the proposals bar is known, below.
+   */
+  const leaveCodeView = useRef<(() => void) | null>(null);
   const openPickedPath = useCallback(
     (paths: SourcePath[]): boolean => {
       const path = paths[0];
@@ -1194,6 +1222,7 @@ function ValShellBody({
         width={width}
         height={height}
         reloadKey={reloadKey}
+        documentKey={documentKey}
         isPicking={isPicking}
         /*
          * The project's accent, for the outlines drawn on the page itself.
@@ -1228,7 +1257,9 @@ function ValShellBody({
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          if (openPickedPath(paths)) onPicked(paths[0] ?? null);
+          if (!openPickedPath(paths)) return;
+          leaveCodeView.current?.();
+          onPicked(paths[0] ?? null);
         }}
         onPinch={onPinch}
         onZoom={onZoom}
@@ -1243,7 +1274,7 @@ function ValShellBody({
         onRefreshingChange={onRefreshingChange}
       />
     );
-  }, [canvasUrl, focusedPath, openPickedPath, tourPagePath]);
+  }, [canvasUrl, documentKey, focusedPath, openPickedPath, tourPagePath]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -1367,6 +1398,14 @@ function ValShellBody({
     owners: studioAccess.access?.owners ?? NO_OWNERS,
     projectUrl: studioAccess.access?.projectUrl ?? null,
   });
+  const setCodeView = proposalsBar?.codeMode?.onViewChange;
+  const inCodeView = codeWorkspace !== null;
+  useEffect(() => {
+    leaveCodeView.current =
+      inCodeView && setCodeView !== undefined
+        ? () => setCodeView("content")
+        : null;
+  }, [inCodeView, setCodeView]);
 
   /**
    * The settings panel's sections.
@@ -1550,20 +1589,18 @@ function ValShellBody({
           sketchpad={sketchpads.sketchpad}
           onSketchPage={sketchpads.onSketchPage}
           /*
-           * The Sketchpad when it is open; otherwise code mode's workspace,
-           * for the person whose view it is (`CodeModeView`).
+           * The Sketchpad when it is open. Code mode no longer replaces the
+           * workspace: the canvas is the same in every mode, and code mode's
+           * view is the code changes in the editor's column, beside it.
            */
-          workspaceOverride={
-            sketchpads.workspaceOverride ??
-            (codeWorkspace !== null ? (
-              <CodeModeWorkspaceConnected
-                name={codeWorkspace.name}
-                build={codeWorkspace.build}
-                pages={canvasRoutes}
-                initialRoute={canvasUrl ?? "/"}
-              />
-            ) : undefined)
-          }
+          workspaceOverride={sketchpads.workspaceOverride}
+          /*
+           * Code mode's view is the code changes beside the page: the canvas
+           * is held open, and the assistant that changes the page is docked
+           * beside it rather than over it.
+           */
+          canvasPinned={inCodeView}
+          dockAssistant={inCodeView}
           renderHistory={renderHistory}
           data={data}
           theme={resolvedTheme}
@@ -1600,7 +1637,17 @@ function ValShellBody({
                 )
               : undefined
           }
-          editorOverride={overrideEditor}
+          editorOverride={
+            overrideEditor ??
+            (codeWorkspace !== null ? (
+              <CodeChangesConnected
+                name={codeWorkspace.name}
+                build={codeWorkspace.build}
+                onReload={() => setCodeReloads((count) => count + 1)}
+                onEditContent={() => setCodeView?.("content")}
+              />
+            ) : undefined)
+          }
           notice={editorNotice}
           floatingNotices={proposalNotices}
           renderPlanStatus={planStatus}

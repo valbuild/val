@@ -4,8 +4,7 @@ import { createProposalsClient } from "../../proposals/proposalsClient";
 import { useProposalBuild } from "../../proposals/useProposalBuild";
 import { changedFiles, type ChangedFile } from "../../design/changedFiles";
 import { lineDiff, type DiffLine } from "../../design/lineDiff";
-import { previewUrl } from "../../design/designTabUrl";
-import { CodeModeWorkspace, type CodeModeBuild } from "./CodeModeWorkspace";
+import { CodeChanges, type CodeModeBuild } from "./CodeChanges";
 
 type Read =
   | { status: "loading" }
@@ -18,27 +17,20 @@ type Read =
   | { status: "error"; message: string };
 
 /**
- * Code mode's workspace, in the Studio at the proposal's own address: the
- * proposal's site in a frame at this address -- served from its last build,
- * so it shows the code as it is now -- and what it changes of the site's
+ * {@link CodeChanges}, read from the proposal: what it changes of the site's
  * files, read again whenever the code moves (a staging, a build).
- *
- * Shown in place of the editor and the canvas to the person whose view is
- * code mode's (`CodeModeView`); everyone else in the proposal keeps the
- * content editor.
  */
-export function CodeModeWorkspaceConnected({
+export function CodeChangesConnected({
   name,
   build,
-  pages,
-  initialRoute,
+  onReload,
+  onEditContent,
 }: {
   /** The proposal this Studio is in. */
   name: string;
   build: CodeModeBuild;
-  /** The site's pages, to choose from. */
-  pages: string[];
-  initialRoute: string;
+  onReload: () => void;
+  onEditContent: () => void;
 }) {
   const proposals = useMemo(
     () => createProposalsClient({ api: "/api/val" }),
@@ -77,7 +69,7 @@ export function CodeModeWorkspaceConnected({
     };
   }, [name, proposals, changed, attempt]);
 
-  // Once per file and read, as the design tab does: a diff can be large.
+  // Once per file and read: a diff can be large.
   const diffOf = useMemo(() => {
     const diffs = new Map<string, DiffLine[]>();
     return (path: string): DiffLine[] => {
@@ -91,37 +83,13 @@ export function CodeModeWorkspaceConnected({
     };
   }, [read]);
 
-  const [route, setRoute] = useState(initialRoute);
-  const [reloadKey, setReloadKey] = useState(0);
-  // A build served is a new page at this address: shown without a reload.
-  useEffect(() => {
-    setReloadKey((key) => key + 1);
-  }, [changed]);
-  const src = previewUrl(window.location.origin, route);
-  const choices = pages.includes(route) ? pages : [route, ...pages];
   return (
-    <CodeModeWorkspace
-      route={route}
-      pages={choices}
-      onRouteChange={setRoute}
-      onReload={() => setReloadKey((key) => key + 1)}
-      preview={
-        src === null ? (
-          <p className="p-6 text-sm text-fg-secondary">
-            {route} is not a page of this site.
-          </p>
-        ) : (
-          <iframe
-            key={reloadKey}
-            src={src}
-            title="The proposal's preview"
-            className="h-full w-full border-0"
-          />
-        )
-      }
+    <CodeChanges
       build={build}
+      onReload={onReload}
       files={read.status === "ready" ? read.files : []}
       diffOf={diffOf}
+      onEditContent={onEditContent}
       filesError={
         read.status === "error"
           ? {

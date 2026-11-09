@@ -351,3 +351,32 @@ test("a build's registry is imported only from the site's own origin", () => {
     expect(registryEntryUrl(elsewhere, page)).toBe(null);
   }
 });
+
+/**
+ * The preview reloads when the server serves another build (`CanvasFrame`):
+ * the page in it is the old build's document until it is loaded again,
+ * whoever made the new one.
+ */
+test("the build being served is named, and a new one is announced once", async () => {
+  const b1: BuildRegistry = {
+    entry: valModulesEntryPath("b1"),
+    core: Internal.VERSION.core,
+  };
+  const studio = setup({
+    mode: "http",
+    registry: (build) => (build === "b2" ? ours : b1),
+  });
+  let announced = 0;
+  studio.system.manifest.onServedBuild(() => announced++);
+  await studio.stat();
+  expect(studio.system.manifest.servedBuild()).toBe(b1.entry);
+  expect(announced).toBe(1);
+
+  await studio.stat();
+  expect(announced).toBe(1);
+
+  studio.deploy();
+  await studio.stat();
+  expect(studio.system.manifest.servedBuild()).toBe(ENTRY);
+  expect(announced).toBe(2);
+});
