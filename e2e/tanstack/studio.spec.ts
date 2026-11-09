@@ -98,34 +98,50 @@ test.describe("the Studio on TanStack Start", () => {
   });
 
   /*
-   * The schema hash the Vite-built page folds is the one the server folds.
+   * The schema versions the Vite-built page computes are the ones the server
+   * names on its manifest.
    *
    * Nothing visible depends on it until a schema is deployed under an open
-   * Studio, and then everything does: `SchemaFreshnessWatch` only arms once the
-   * two have agreed, so a bundler that serialized a schema differently would
-   * turn the reload prompt off for every TanStack project, silently.
-   * `e2e/http/schemaFreshness.spec.ts` checks the same against Next.
+   * Studio, and then everything does: the Studio takes a build's code in, or
+   * reloads for it, only where the two disagree (`BuildCode`), and moves to
+   * the server's content only under the schema it was made with -- so a
+   * bundler that serialized a schema differently would leave every TanStack
+   * Studio on the old fields, silently. `e2e/http/buildCode.spec.ts` checks
+   * the same against the Next.js app in http mode.
    */
-  test("the Studio's schema hash is the server's", async ({ page }) => {
+  test("the Studio's schema versions are the server's", async ({ page }) => {
     const served = page
       .waitForResponse(
         (res) =>
-          res.request().method() === "POST" &&
-          new URL(res.url()).pathname === "/api/val/stat" &&
-          res.ok(),
+          res.request().method() === "GET" &&
+          new URL(res.url()).pathname === "/api/val/manifest" &&
+          res.status() === 200,
       )
-      .then(async (res) => Reflect.get(Object(await res.json()), "schemaSha"));
+      .then(
+        async (res): Promise<Record<string, { schema: string }>> =>
+          Object(Reflect.get(Object(await res.json()), "modules")),
+      );
 
     await openStudio(page);
 
-    const running = await page.evaluate(() => {
+    const modules = await served;
+    const paths = Object.keys(modules);
+    expect(paths.length).toBeGreaterThan(0);
+    const running = await page.evaluate((paths) => {
       const stores: unknown = Reflect.get(window, "__VAL_STORES__");
       const system: unknown = Reflect.get(Object(stores), "system");
-      const host: unknown = Reflect.get(Object(system), "host");
-      const schemaSha: unknown = Reflect.get(Object(host), "schemaSha");
-      if (typeof schemaSha !== "function") throw new Error("no schemaSha");
-      return schemaSha.call(host);
-    });
-    expect(running).toBe(await served);
+      const sourceStore: unknown = Reflect.get(Object(system), "sourceStore");
+      const of: unknown = Reflect.get(
+        Object(sourceStore),
+        "schemaVersionOfModule",
+      );
+      if (typeof of !== "function") throw new Error("no schemaVersionOfModule");
+      return Object.fromEntries(
+        paths.map((path) => [path, of.call(sourceStore, path)]),
+      );
+    }, paths);
+    expect(running).toEqual(
+      Object.fromEntries(paths.map((path) => [path, modules[path].schema])),
+    );
   });
 });

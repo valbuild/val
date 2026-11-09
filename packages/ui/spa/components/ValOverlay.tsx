@@ -960,6 +960,8 @@ function ChatWindow({
     isLoadingSession,
     answerToolQuestions,
     cancelToolQuestion,
+    enableCodeMode,
+    declineCodeMode,
   } = useAI(chatRef, {
     initialSessionId: initialBornSessionIdRef.current,
     onSessionBorn: setBornSessionId,
@@ -1154,6 +1156,8 @@ function ChatWindow({
               isLoadingSession={isLoadingSession}
               onAnswerToolQuestions={answerToolQuestions}
               onCancelToolQuestion={cancelToolQuestion}
+              onEnableCodeMode={enableCodeMode}
+              onDeclineCodeMode={declineCodeMode}
             />
           )}
         </div>

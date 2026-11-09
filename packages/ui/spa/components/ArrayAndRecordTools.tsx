@@ -32,6 +32,7 @@ import {
   useParent,
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
+import { keyOfScanTarget } from "./getKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
 import { mergeReferences, ReferencesResult } from "./useJsonValuesLoad";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
@@ -92,12 +93,14 @@ export function useArrayAndRecordTools(path: SourcePath): {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const parts = splitIntoInitAndLastParts(path);
   const last = parts[parts.length - 1];
-  const refs = useKeysOf(
-    maybeParentPath as unknown as ModuleFilePath,
-    isParentRecord(path, maybeParentPath, parentSchemaAtPath)
-      ? last?.part
-      : undefined,
-  );
+  const scanTarget = keyOfScanTarget({
+    path,
+    parentPath: maybeParentPath,
+    parentSchema: parentSchemaAtPath,
+    schema: "data" in schemaAtPath ? schemaAtPath.data : undefined,
+    key: last?.part,
+  });
+  const refs = useKeysOf(scanTarget?.parent, scanTarget?.key);
   const srcFolder = usePageRouterSrcFolder();
   /**
    * Memoised, because these arrays are PROPS that end up in a dependency list.

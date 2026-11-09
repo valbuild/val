@@ -5,6 +5,7 @@ import { SearchItem } from "./SearchItem";
 import { useGetNavPath } from "./ValFieldProvider";
 import { Fragment } from "react";
 import { JsonValuesLoadStatus } from "./useJsonValuesLoad";
+import { ContentLoadError, ContentLoadProgress } from "./ContentLoadStatus";
 
 export type SearchResult = {
   path: SourcePath;
@@ -42,15 +43,20 @@ export function SearchResultsList({
     <CommandList className="absolute top-full left-0 right-0 h-[min(420px,100vh-56px)]">
       <ScrollArea className="h-[calc(min(420px,100vh-56px)-124px)] z-50 p-2 pb-0 bg-bg-primary border border-t-0 border-border-primary rounded-lg rounded-t-none shadow-lg ">
         {indexing?.status === "loading" && (
-          <div className="px-3 py-2 text-xs text-fg-tertiary">
-            Searching… {indexing.percentage}% indexed
-          </div>
+          <ContentLoadProgress
+            label="Loading content to search"
+            loaded={indexing.loaded}
+            total={indexing.total}
+            className="px-3 py-2"
+          />
         )}
         {indexing?.status === "error" && (
-          <div className="px-3 py-2 text-xs text-fg-tertiary">
-            Some content could not be loaded, so these results may be
-            incomplete.
-          </div>
+          <ContentLoadError
+            what="these results"
+            message={indexing.message}
+            retry={indexing.retry}
+            className="px-3 py-2"
+          />
         )}
         {/* "No results" would be a lie while the index is still filling. */}
         {results.length === 0 && !stillIndexing && (

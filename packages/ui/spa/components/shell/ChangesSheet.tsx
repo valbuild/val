@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   GitBranch,
+  GitCommit,
   GitCompare,
   Globe,
   Hammer,
@@ -65,13 +66,22 @@ export function ChangesSheet({
     onClose();
     action();
   };
-  const blocked =
-    here !== null &&
-    here.unsaved > 0 &&
-    proposals?.saveBlockedBy !== undefined &&
-    proposals.saveBlockedBy.errors > 0
+  const errors =
+    proposals?.saveBlockedBy !== undefined && proposals.saveBlockedBy.errors > 0
       ? proposals.saveBlockedBy
       : null;
+  // In code mode a save is never refused for the content (`ProposalActionButton`).
+  const codeMode = proposals?.codeMode?.on === true;
+  const blocked =
+    here !== null && here.unsaved > 0 && !codeMode ? errors : null;
+  const commit = proposals?.commit;
+  const publishRefusedBy =
+    here === null
+      ? null
+      : (here.publishBlockedBy ??
+        (errors !== null && (codeMode || saveAndUpdate !== undefined)
+          ? `Fix the ${errors.errors === 1 ? "validation error" : `${errors.errors} validation errors`} first: only valid content is published.`
+          : null));
   return (
     <FloatingPanel
       side="right"
@@ -210,12 +220,28 @@ export function ChangesSheet({
                   : "Build"}
             </SheetRow>
           )}
+        {commit !== undefined && here !== null && (
+          <SheetRow
+            icon={<GitCommit size={16} />}
+            disabled={commit.state === "committing" || commit.upToDate === true}
+            detail={
+              commit.state === "committing"
+                ? "Committing the proposal to its branch…"
+                : commit.upToDate === true
+                  ? `Everything saved is committed to ${commit.branch}.`
+                  : `Commits the proposal to ${commit.branch}, for developers to find in git.`
+            }
+            onClick={choose(commit.onCommit)}
+          >
+            {commit.state === "committing" ? "Committing…" : "Commit"}
+          </SheetRow>
+        )}
         {proposals !== undefined && here !== null && (
           <SheetRow
             icon={<Upload size={16} />}
-            disabled={here.publishBlockedBy !== null}
+            disabled={publishRefusedBy !== null}
             detail={
-              here.publishBlockedBy ??
+              publishRefusedBy ??
               (here.unsaved > 0
                 ? "Saves the proposal, then publishes it"
                 : "Merges the proposal into the site")

@@ -349,6 +349,8 @@ module.exports = defineConfig([
     "**/out",
     "**/tsconfig.tsbuildinfo",
     "**/*.js",
+    // wrangler's scratch, beside the isolate probe's wrangler.jsonc.
+    "**/.wrangler/",
     // Unzipped `val debug` snapshots: customer source, not ours to lint.
     "debug/*/",
   ]),

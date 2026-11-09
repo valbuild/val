@@ -313,6 +313,13 @@ export class ValidationStore {
     this.invalidate(
       dependents.length === 0 ? modules : [...modules, ...dependents],
     );
+    // A module whose schema is gone was removed from the project: nothing is
+    // left to validate, so its last errors must not stand in for new ones.
+    for (const moduleFilePath of modules) {
+      if (this.schemaStore.get(moduleFilePath) !== undefined) continue;
+      this.previous.delete(moduleFilePath);
+      this.stale.delete(moduleFilePath);
+    }
   }
 
   /**

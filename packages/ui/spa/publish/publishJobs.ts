@@ -265,8 +265,9 @@ export function heldBackPatchIds(
  *
  * Content stops listing a change the moment its publish ends. If it ended in
  * a seal, this Studio has yet to take that in: the patch store adopts the
- * applied list and the new base on its own schedule (`BaseAlignment` fetches
- * it), and until then the change still reads as unpublished. Releasing it with
+ * applied list on its own schedule, and the new base with the manifest read
+ * after the stat (`ManifestSource`), and until then the change still reads as
+ * unpublished. Releasing it with
  * content's list lit Publish for that fetch, over a change already published.
  *
  * So a change leaves this set only when content lists it as PENDING -- in the

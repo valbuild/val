@@ -5,324 +5,109 @@ import {
   type RouteValueOf,
   SET_AUTO_TAG_JSX_ENABLED,
   SET_RSC,
-  stegaEncode,
 } from "@valbuild/react/stega";
 import {
-  ModuleFilePath,
+  type Ready,
+  type ReadEnv,
+  awaitResolved,
+  fetchValFrom,
+  isJsonValuesRecordSchema,
+  resolveVal,
+  resolveValEntry,
+  type ValDraft,
+} from "@valbuild/react/internal";
+import {
   ValConfig,
   ValModules,
   Internal,
-  type Json,
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { cache } from "react";
+import { type ContentSource } from "@valbuild/shared/internal";
 import {
-  VAL_SESSION_COOKIE,
-  memoizePerRequest,
-  type RequestScopedMemo,
-} from "@valbuild/shared/internal";
-import { createValServer, ValServer } from "@valbuild/server";
+  createValRuntime,
+  draftForRequest,
+  readDraftChanges,
+  readerSchemaVersion,
+  type ValRuntime,
+} from "@valbuild/server/internal";
 import { VERSION } from "../version";
-import {
-  bundledJsonEntryImport,
-  fillJsonValuesRecord,
-  getJsonEntryStegaRoot,
-  getValRouteUrlFromVal,
-  initValRouteFromVal,
-  isJsonValuesRecordSchema,
-  jsonValuesRecordToFill,
-} from "../routeFromVal";
+import { getValRouteUrlFromVal, initValRouteFromVal } from "../routeFromVal";
 
 SET_RSC(true);
 
-/**
- * The `modules` map every `fetchVal` in one render shares.
- *
- * Derived from the route's own response type rather than restated, so it cannot
- * drift from what `/sources/~` actually returns.
+/*
+ * The readers below are `resolveVal` (`@valbuild/react/stega`) over this
+ * request's sources: the draft (`serverDraftSource`, in `@valbuild/server`),
+ * then the bundle. Only the sources are Next's; the rule that picks between
+ * them is the same in `@valbuild/tanstack` and in the hooks. See
+ * `docs/plans/one-content-model.md`, "One way to load".
  */
-export type DraftSources = Extract<
-  Awaited<ReturnType<ValServer["/sources/~"]["PUT"]>>,
-  { status: 200 }
->["json"]["modules"];
 
 /**
- * The slice of `ValServer` the draft-sources reader uses.
- *
- * Narrower than `ValServer` for the same reason `JsonEntryValServer` below is:
- * it says what the dependency IS, and it lets a test drive the reader with a
- * one-route fake instead of casting a partial object to the whole server type.
+ * What the readers read: this process's runtime for the app's `val.modules`
+ * (`createValRuntime`), the same one the API route's server is built on.
+ * Its head is the draft, read with the request's session.
  */
-export type DraftSourcesValServer = Pick<ValServer, "/sources/~">;
+export type ReaderRuntime = Promise<ValRuntime>;
 
-/** What the route readers need: the tree, plus the single-entry route. */
-export type RouteReaderValServer = Pick<ValServer, "/sources/~" | "/json">;
+/** What a misuse of a reader is told, beside what went wrong. */
+const WHERE = "fetchVal can only be used server-side. Use useVal on clients.";
 
 /**
- * Where the reader gets its per-request memo box.
- *
- * Injected rather than reached for, so that "this reader needs a request to
- * scope its cache to" is part of its contract and a test can supply a scope it
- * controls — in jest, React's non-`react-server` build makes `cache` a
- * pass-through, so the real wiring memoises nothing there.
+ * What a read in this request reads, in order: the draft (in draft mode),
+ * then -- added by every read -- the bundle. Edit tags are decided here,
+ * once, from draft mode.
  */
-export type GetDraftSourcesScope =
-  () => Promise<RequestScopedMemo<DraftSources | null> | null>;
-
-/**
- * A per-request memo box, from React's request memoisation.
- *
- * `cache()` is what makes this safe: in an RSC render React hands back the SAME
- * object for the length of one request and a fresh one for the next. Outside
- * that — a route handler, a test, the non-`react-server` build of React —
- * `cache` is a pass-through, so every call gets its own object, the memo misses,
- * and the reader does exactly what it did before. Ineffective, never shared.
- * See `memoizePerRequest`. `fetchVal` is an RSC API (`SET_RSC(true)` above, and
- * its own error messages say so), so the effective case is the normal one.
- *
- * Built PER `initValRsc` rather than once for the module, because the box is
- * only as specific as the `cache()` it came from: two Val servers in one
- * process sharing one would answer each other's reads within a request, and
- * they hold different content.
- */
-export function createReactCacheScope(): GetDraftSourcesScope {
-  const getBox = cache((): RequestScopedMemo<DraftSources | null> => ({}));
-  return async () => getBox();
-}
-
-/**
- * ONE read of the whole module tree, for the session in `sessionCookie`.
- *
- * `path` stays `"/"` on purpose, and the measurement is why. `/sources/~`
- * evaluates, previews and validates EVERY module and only THEN filters the
- * response by `req.path` (the two TODOs in `ValServer.ts` say so), so narrowing
- * the path shrinks the answer and changes the work not at all: on a 60-module
- * project, `path: "/"` took 53.6ms and a single-module path 53.5ms. And this is
- * an in-process call rather than a round trip, so the object it builds is never
- * serialised or sent anywhere — the bytes it saves are not bytes anyone pays
- * for. Narrowing would also give each caller a different answer to cache, which
- * is what would cost the saving that IS real (2.7x on the same project).
- *
- * `draftRead.perf.test.ts` prints both numbers; re-run it before believing
- * anything different.
- *
- * Returns `null` when the session is not one the server accepts; the caller
- * then renders published content, which is what it did before.
- */
-async function loadDraftSources(
-  valServerPromise: Promise<DraftSourcesValServer>,
-  sessionCookie: string | undefined,
-): Promise<DraftSources | null> {
-  const valServer = await valServerPromise;
-  const treeRes = await valServer["/sources/~"]["PUT"]({
-    path: "/",
-    query: {
-      validate_sources: true,
-      validate_binary_files: false,
-      exclude_patches: false,
-      // RSC pre-render uses the legacy "server applies patches" path.
-      apply_patches: undefined,
-    },
-    cookies: {
-      [VAL_SESSION_COOKIE]: sessionCookie,
-    },
-  });
-  if (treeRes.status === 200) {
-    return treeRes.json.modules;
+function requestEnv(enabled: boolean, draft: ContentSource | null): ReadEnv {
+  if (enabled) {
+    SET_AUTO_TAG_JSX_ENABLED(true);
   }
-  if (treeRes.status === 401) {
-    Internal.log.debug("authentication error: ", treeRes.json.message);
-    return null;
-  }
-  throw Error(JSON.stringify(treeRes.json, null, 2));
-}
-
-export const initFetchValStega =
-  (
-    config: ValConfig,
-    valApiEndpoints: string,
-    valServerPromise: Promise<DraftSourcesValServer>,
-    isEnabled: () => Promise<boolean>,
-    getHeaders: () => Promise<{
-      get(name: string): string | null;
-    }>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-    getDraftSourcesScope: GetDraftSourcesScope,
-  ) =>
-  <T extends Resolvable>(selector: T): Promise<ResolvedVal<T>> => {
-    const exec = async (): Promise<ResolvedVal<T>> => {
-      let enabled = false;
-      try {
-        enabled = await isEnabled();
-      } catch (err) {
-        Internal.log.error(
-          "could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
-          err,
-        );
-      }
-      if (enabled) {
-        SET_AUTO_TAG_JSX_ENABLED(true);
-        let headers;
-        try {
-          headers = await getHeaders();
-          if (typeof headers.get !== "function") {
-            throw new Error("Invalid headers");
-          }
-        } catch (err) {
-          Internal.log.error(
-            "could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
-            err,
-          );
-          headers = null;
-        }
-
-        let cookies: {
-          get(name: string): { name: string; value: string } | undefined;
-        } | null;
-        try {
-          cookies = await getCookies();
-        } catch (err) {
-          Internal.log.error(
-            "could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
-            err,
-          );
-          cookies = null;
-        }
-
-        const host: string | null = headers && getHost(headers);
-        if (host && cookies) {
-          const sessionCookie = cookies?.get(VAL_SESSION_COOKIE)?.value;
-          /*
-           * Once per request, however many times the page reads.
-           *
-           * Every `fetchVal` in one render asks the same question — same query,
-           * same session — so the second and third answer were identical and
-           * cost the same as the first. `fetchValRouteUrl` made that worse by
-           * calling `fetchVal` again on top of the caller's own.
-           *
-           * The key is the session, so a box that somehow outlived its request
-           * misses rather than serving another author's draft. See
-           * `memoizePerRequest`.
-           */
-          const modules = await memoizePerRequest(
-            await getDraftSourcesScope(),
-            sessionCookie ?? "",
-            () => loadDraftSources(valServerPromise, sessionCookie),
-          );
-          if (modules) {
-            return stegaEncode(selector, {
-              disabled: !enabled,
-              getModule: await withJsonValuesEntries(selector, (path) => [
-                modules[path]?.source,
-              ]),
-            });
-          }
-        }
-      }
-      return stegaEncode(selector, {
-        disabled: !enabled,
-        getModule: await withJsonValuesEntries(selector, () => []),
-      });
-    };
-    return exec().catch(async (err) => {
-      Internal.log.error("failed to fetch ", err);
-      return stegaEncode(selector, {
-        getModule: await withJsonValuesEntries(selector, () => []).catch(
-          () => () => undefined,
-        ),
-      });
-    });
+  return {
+    sources: draft === null ? [] : [draft],
+    encode: enabled,
+    schemaVersionOf: readerSchemaVersion,
   };
-
-/**
- * `getModule` for `stegaEncode`, with a whole `.jsonValues()` record's entries
- * filled in: its own source holds only lazy markers, so the entries the draft
- * does not have are imported from the bundle, together. Every other module,
- * and a selector that is not such a record, reads the first of `sourcesOf`
- * that has it, as before. `fetchValKey` is the reader for one entry.
- */
-async function withJsonValuesEntries(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  selector: any,
-  sourcesOf: (path: ModuleFilePath) => (Json | undefined)[],
-): Promise<(path: string) => Json | undefined> {
-  const first = (path: string) =>
-    sourcesOf(path as ModuleFilePath).find((source) => source !== undefined);
-  const plan = jsonValuesRecordToFill(selector, sourcesOf);
-  if (plan === null) {
-    return first;
-  }
-  const loaded = Object.fromEntries(
-    await Promise.all(
-      plan.load.map(async (key) => {
-        const thunk = bundledJsonEntryImport(plan.module, key);
-        return [key, thunk ? (await thunk()).default : undefined] as const;
-      }),
-    ),
-  );
-  const filled = fillJsonValuesRecord(plan.record, loaded) as Json;
-  return (path) => (path === plan.modulePath ? filled : first(path));
 }
 
-function getHost(headers: { get(name: string): string | null } | undefined) {
-  // TODO: does NextJs have a way to determine this?
-  const host = headers?.get("host");
-  let proto = "https";
-  if (headers?.get("x-forwarded-proto") === "http") {
-    proto = "http";
-  } else if (headers?.get("referer")?.startsWith("http://")) {
-    proto = "http";
-  } else if (host?.startsWith("localhost")) {
-    proto = "http";
-  }
-  if (host && proto) {
-    return `${proto}://${host}`;
-  }
-  return null;
+/** What a reader needs from the app and the request. */
+export type ReaderDeps = {
+  runtime: ReaderRuntime;
+  isEnabled: () => Promise<boolean>;
+  getHeaders: () => Promise<{ get(name: string): string | null }>;
+  getCookies: () => Promise<{
+    get(name: string): { name: string; value: string } | undefined;
+  }>;
+};
+
+/** `fetchVal`, with what it read: see `readsOfFetchVal`. */
+function fetchValWithReads(deps: ReaderDeps) {
+  return async <T extends Resolvable>(
+    selector: T,
+    opts?: { entries?: boolean },
+  ): Promise<Ready<ResolvedVal<T>>> => {
+    const { enabled, draft } = await draftForRequest({
+      runtime: deps.runtime,
+      isEnabled: deps.isEnabled,
+      getCookies: deps.getCookies,
+      modules: { getHeaders: deps.getHeaders },
+      where: WHERE,
+    });
+    const env = requestEnv(enabled, draft);
+    return awaitResolved((settled) =>
+      resolveVal(selector, env, { settled, ...opts }),
+    );
+  };
 }
 
-// TODO: remove
-// function getValAuthHeaders(cookies: {
-//   get(name: string): { name: string; value: string } | undefined;
-// }): Record<string, string> {
-//   try {
-//     const session = cookies.get(Internal.VAL_SESSION_COOKIE);
-//     if (session) {
-//       return {
-//         Cookie: `${Internal.VAL_SESSION_COOKIE}=${encodeURIComponent(
-//           session.value
-//         )}`,
-//       };
-//     }
-//     return {};
-//   } catch (err) {
-//     console.error(
-//       "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
-//       err
-//     );
-//     return {};
-//   }
-// }
+export const initFetchValStega = (deps: ReaderDeps) =>
+  fetchValFrom(fetchValWithReads(deps));
 
-const initFetchValRouteStega =
-  (
-    config: ValConfig,
-    valApiEndpoints: string,
-    valServerPromise: Promise<RouteReaderValServer>,
-    isEnabled: () => Promise<boolean>,
-    getHeaders: () => Promise<{
-      get(name: string): string | null;
-    }>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-    getDraftSourcesScope: GetDraftSourcesScope,
-  ) =>
-  async <T extends ResolvableModule>(
+const initFetchValRouteStega = (deps: ReaderDeps) => {
+  const fetchVal = fetchValWithReads(deps);
+  const fetchValKey = initFetchValKeyStega(deps);
+  return async <T extends ResolvableModule>(
     selector: T,
     params:
       | Promise<Record<string, string | string[]>>
@@ -336,298 +121,115 @@ const initFetchValRouteStega =
     const path = valModule && Internal.getValPath(valModule);
     const schema = valModule && Internal.getSchema(valModule);
     // `.jsonValues()` router: map params → the entry key and load ONLY that
-    // entry's backing `*.val.json`, instead of eagerly resolving the whole
-    // record via `fetchVal`.
+    // entry, instead of the whole record.
     if (isJsonValuesRecordSchema(schema)) {
-      const source = valModule && Internal.getSource(valModule);
       const url = getValRouteUrlFromVal(
         resolvedParams,
         "fetchValRoute",
         path,
         schema,
-        source,
+        valModule && Internal.getSource(valModule),
       );
       if (!url) {
         return null as RouteValueOf<T>;
       }
-      let enabled = false;
-      try {
-        enabled = await isEnabled();
-      } catch {
-        // not in a server context where draftMode is readable — treat as disabled
-      }
-      let draft: DraftJsonEntry = { status: "unavailable" };
-      if (enabled && path) {
-        SET_AUTO_TAG_JSX_ENABLED(true);
-        draft = await loadDraftJsonEntry(
-          valServerPromise,
-          getCookies,
-          path as unknown as ModuleFilePath,
-          url,
-        );
-      }
-      const content = await resolveDraftOrCommittedEntry(draft, () =>
-        loadJsonEntryContent(source, url),
-      );
-      if (content === undefined) {
-        return null as RouteValueOf<T>;
-      }
-      return stegaEncode(content, {
-        disabled: !enabled,
-        root: getJsonEntryStegaRoot(valModule, url),
-      });
+      const content = await fetchValKey(valModule, url);
+      return (content === undefined ? null : content) as RouteValueOf<T>;
     }
-    const fetchVal = initFetchValStega(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      isEnabled,
-      getHeaders,
-      getCookies,
-      getDraftSourcesScope,
-    );
-    const val = valModule && (await fetchVal(valModule));
-    const route = initValRouteFromVal(
+    const val = valModule && (await fetchVal(valModule)).value;
+    return initValRouteFromVal(
       resolvedParams,
       "fetchValRoute",
       path,
       schema,
       val,
     );
-    return route;
   };
-
-/**
- * Resolves a single `.jsonValues()` entry's content by key from a module's local
- * source markers (one dynamic import). Returns `undefined` when the key is
- * missing or its marker has no runtime thunk (transport marker / draft entry).
- */
-async function loadJsonEntryContent(
-  source: unknown,
-  key: string,
-): Promise<unknown | undefined> {
-  if (!source || typeof source !== "object") {
-    return undefined;
-  }
-  const marker = (source as Record<string, unknown>)[key];
-  if (!Internal.isJson(marker)) {
-    return undefined;
-  }
-  const thunk = Internal.getJsonImport(marker);
-  if (!thunk) {
-    return undefined;
-  }
-  return (await thunk()).default;
-}
-
-/**
- * Loads a single `.jsonValues()` entry's DRAFT content via the in-process
- * `/json` endpoint (which replays pending patches). Returns `undefined` when the
- * entry has no draft content to serve — the caller then falls back to the
- * locally-bundled committed content.
- */
-/**
- * What the draft state says about an entry.
- *
- * The three cases have to stay distinct: `absent` is an ANSWER — the entry is not
- * there in the draft state, e.g. a pending patch removed it — while `unavailable`
- * means we could not ask. Collapsing them into `undefined` is what made a
- * draft-deleted entry keep rendering its committed content: the caller could not
- * tell "it is gone" from "ask the committed source instead".
- */
-/**
- * The slice of `ValServer` the single-entry readers actually use. Narrower than
- * `ValServer` on purpose: it says what the dependency IS, and it lets a test
- * drive these readers with a one-route fake instead of casting a partial object
- * to the whole server type.
- */
-export type JsonEntryValServer = Pick<ValServer, "/json">;
-
-export type DraftJsonEntry =
-  | { status: "content"; content: unknown }
-  | { status: "absent" }
-  | { status: "unavailable" };
-
-/**
- * Picks the content a draft-aware single-entry read should render.
- *
- * The rule the two callers share: the draft state WINS when it has an answer —
- * including the answer "this entry is gone" — and the committed content is used
- * only when there is no draft answer to be had (Val disabled, or we could not
- * ask). Returning `undefined` means "render nothing"; both callers turn that into
- * a null/undefined result.
- */
-export async function resolveDraftOrCommittedEntry(
-  draft: DraftJsonEntry,
-  loadCommitted: () => Promise<unknown | undefined>,
-): Promise<unknown | undefined> {
-  if (draft.status === "content") {
-    return draft.content;
-  }
-  if (draft.status === "absent") {
-    // Falling back here would render an entry the editor has just deleted.
-    return undefined;
-  }
-  return loadCommitted();
-}
-
-async function loadDraftJsonEntry(
-  valServerPromise: Promise<JsonEntryValServer>,
-  getCookies: () => Promise<{
-    get(name: string): { name: string; value: string } | undefined;
-  }>,
-  moduleFilePath: ModuleFilePath,
-  key: string,
-): Promise<DraftJsonEntry> {
-  let cookies;
-  try {
-    cookies = await getCookies();
-  } catch {
-    // not in a server context where cookies are readable
-    return { status: "unavailable" };
-  }
-  const valServer = await valServerPromise;
-  const res = await valServer["/json"]["GET"]({
-    query: {
-      path: moduleFilePath,
-      key,
-      keys: undefined, // single-entry shape
-      offset: undefined,
-      limit: undefined,
-      apply_patches: true,
-    },
-    cookies: {
-      [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
-    },
-  });
-  if (res.status === 200 && "content" in res.json) {
-    return { status: "content", content: res.json.content };
-  }
-  if (res.status === 401) {
-    Internal.log.debug("authentication error: ", res.json.message);
-    return { status: "unavailable" };
-  }
-  if (res.status === 404) {
-    // Authoritative: the draft state has no such entry (removed by a pending
-    // patch, or never existed). Not a reason to fall back to committed content.
-    return { status: "absent" };
-  }
-  Internal.log.error(
-    "could not load draft JSON entry: ",
-    "message" in res.json ? res.json.message : `status ${res.status}`,
-  );
-  return { status: "unavailable" };
-}
+};
 
 /**
  * Resolves ONE `.jsonValues()` entry by key, loading only that entry instead of
  * the whole record — the runtime-scaling counterpart to the eager `fetchVal`.
  *
- * Production (Val disabled): resolves the entry's lazy import thunk from the
- * locally-bundled module. One dynamic import, no server round-trip.
+ * Production (Val disabled): the entry's lazy import from the bundle. One
+ * dynamic import, no server round-trip.
  *
- * Enabled (draft mode): reads the entry through `/json`, which replays pending
- * patches, so uncommitted Studio edits show up. Falls back to the local thunk if
- * the draft read yields nothing.
+ * Draft mode: the entry from the runtime's head, with the pending patches the
+ * draft holds for it, so uncommitted Studio edits show up; an entry the draft
+ * deleted is not there. An entry of a record no patch touched is the bundle's.
  */
 export const initFetchValKeyStega =
-  (
-    valServerPromise: Promise<JsonEntryValServer>,
-    isEnabled: () => Promise<boolean>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-  ) =>
+  (deps: Omit<ReaderDeps, "getHeaders">) =>
   async <T extends ResolvableModule>(
     selector: T,
     key: string,
   ): Promise<JsonEntryContentOf<T> | undefined> => {
-    let enabled = false;
-    try {
-      enabled = await isEnabled();
-    } catch {
-      // not in a server context where draftMode is readable — treat as disabled
-    }
-    // A view is a pointer: everything below reads a path and a source off this,
-    // and a pointer has neither. See `resolveViewedModule`.
-    const valModule = Internal.resolveViewedModule<SourceObject>(selector);
-    const source = valModule && Internal.getSource(valModule);
-    const moduleFilePath =
-      valModule &&
-      (Internal.getValPath(valModule) as unknown as ModuleFilePath);
-    let draft: DraftJsonEntry = { status: "unavailable" };
-    if (enabled && moduleFilePath) {
-      SET_AUTO_TAG_JSX_ENABLED(true);
-      draft = await loadDraftJsonEntry(
-        valServerPromise,
-        getCookies,
-        moduleFilePath,
-        key,
-      );
-    }
-    const content = await resolveDraftOrCommittedEntry(draft, () =>
-      loadJsonEntryContent(source, key),
-    );
-    if (content === undefined) {
-      // deleted in the draft state, a missing key, or a transport marker with no
-      // runtime thunk
-      return undefined;
-    }
-    return stegaEncode(content, {
-      disabled: !enabled,
-      root: getJsonEntryStegaRoot(valModule, key),
+    const { enabled, draft } = await draftForRequest({
+      runtime: deps.runtime,
+      isEnabled: deps.isEnabled,
+      getCookies: deps.getCookies,
     });
+    const env = requestEnv(enabled, draft);
+    return (
+      await awaitResolved((settled) =>
+        resolveValEntry(selector, key, env, { settled }),
+      )
+    ).value;
   };
 
-const initFetchValRouteUrl =
-  (
-    config: ValConfig,
-    valApiEndpoints: string,
-    valServerPromise: Promise<RouteReaderValServer>,
-    isEnabled: () => Promise<boolean>,
-    getHeaders: () => Promise<{
-      get(name: string): string | null;
-    }>,
-    getCookies: () => Promise<{
-      get(name: string): { name: string; value: string } | undefined;
-    }>,
-    getDraftSourcesScope: GetDraftSourcesScope,
-  ) =>
-  async <T extends ResolvableModule>(
+const initFetchValRouteUrl = (deps: ReaderDeps) => {
+  const fetchVal = fetchValWithReads(deps);
+  return async <T extends ResolvableModule>(
     selector: T,
     params?:
       | Promise<Record<string, string | string[]>>
       | Record<string, string | string[]>
       | unknown,
   ): Promise<string | null> => {
-    const fetchVal = initFetchValStega(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      isEnabled,
-      getHeaders,
-      getCookies,
-      getDraftSourcesScope,
-    );
     const resolvedParams =
       params === undefined ? undefined : await Promise.resolve(params);
     // A view is a pointer: everything below reads a path, a schema and a source
     // off this, and a pointer has none of them. See `resolveViewedModule`.
     const valModule = Internal.resolveViewedModule<SourceObject>(selector);
-    const path = valModule && Internal.getValPath(valModule);
-    const schema = valModule && Internal.getSchema(valModule);
-    const val = valModule && (await fetchVal(valModule));
-    const route = getValRouteUrlFromVal(
+    // The url is made of the params and the module's path: a `.jsonValues()`
+    // router's entries are not imported for it.
+    const val =
+      valModule && (await fetchVal(valModule, { entries: false })).value;
+    return getValRouteUrlFromVal(
       resolvedParams,
       "fetchValRouteUrl",
-      path,
-      schema,
+      valModule && Internal.getValPath(valModule),
+      valModule && Internal.getSchema(valModule),
       val,
     );
-    return route;
   };
+};
 
-const valApiEndpoints = "/api/val";
+/**
+ * The draft a page in this request should start from, or `null` for none:
+ * what `<ValProvider draft>` takes. See `ValDraft`.
+ *
+ * `null` -- and no read at all -- unless the request is in draft mode: a
+ * visitor pays one `draftMode()` lookup, which does not make a static route
+ * dynamic. In draft mode it is the source of every module the editor's draft
+ * changes, from the runtime's head -- the one every `fetchVal` reads -- so
+ * the server renders the draft and the browser hydrates the same thing, with
+ * the version of each, so the page compares versions with what the Studio
+ * relays rather than content. Also `null` when the session is not one Val
+ * accepts, or the draft could not be read (logged): the published page.
+ *
+ * The read is `readDraftChanges` in `@valbuild/server`, which
+ * `@valbuild/tanstack/server`'s `fetchValDraft` is too; only where draft mode
+ * and the cookies come from is Next's.
+ */
+export const initFetchValDraft =
+  (deps: Omit<ReaderDeps, "getHeaders">) =>
+  async (): Promise<ValDraft | null> => {
+    const changes = await readDraftChanges(deps);
+    return changes === null
+      ? null
+      : { sources: changes.sources, versions: changes.versions };
+  };
 
 type ValNextRscConfig = {
   draftMode: typeof draftMode;
@@ -644,6 +246,17 @@ export function initValRsc(
   fetchValKeyStega: ReturnType<typeof initFetchValKeyStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
   fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
+  /**
+   * The draft for `<ValProvider draft>`, or `null` outside draft mode. Call
+   * it in the root layout (a Server Component) and pass what it returns:
+   *
+   * ```tsx
+   * <ValProvider config={config} draft={await fetchValDraft()}>
+   * ```
+   *
+   * See "The `draft` prop" in the README, and `ValDraft`.
+   */
+  fetchValDraft: ReturnType<typeof initFetchValDraft>;
 } {
   const coreVersion = Internal.VERSION.core;
   if (!coreVersion) {
@@ -653,9 +266,9 @@ export function initValRsc(
   if (!nextVersion) {
     throw new Error("Could not get @valbuild/next package version");
   }
-  const draftSourcesScope = createReactCacheScope();
-
-  const valServerPromise = createValServer(
+  // One runtime per process for these modules: the API route's server is
+  // built on the same one, so a save through it moves what these read.
+  const runtime = createValRuntime(
     valModules,
     "/api/val",
     {
@@ -667,72 +280,18 @@ export function initValRsc(
       ...config,
     },
     config,
-    {
-      async isEnabled() {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async onEnable() {
-        (await rscNextConfig.draftMode()).enable();
-      },
-      async onDisable() {
-        (await rscNextConfig.draftMode()).disable();
-      },
-    },
   );
+  const deps: ReaderDeps = {
+    runtime,
+    isEnabled: async () => (await rscNextConfig.draftMode()).isEnabled,
+    getHeaders: async () => await rscNextConfig.headers(),
+    getCookies: async () => await rscNextConfig.cookies(),
+  };
   return {
-    fetchValStega: initFetchValStega(
-      config,
-      valApiEndpoints, // TODO: get from config
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.headers();
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
-    fetchValKeyStega: initFetchValKeyStega(
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-    ),
-    fetchValRouteStega: initFetchValRouteStega(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.headers();
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
-    fetchValRouteUrl: initFetchValRouteUrl(
-      config,
-      valApiEndpoints,
-      valServerPromise,
-      async () => {
-        return (await rscNextConfig.draftMode()).isEnabled;
-      },
-      async () => {
-        return await rscNextConfig.headers();
-      },
-      async () => {
-        return await rscNextConfig.cookies();
-      },
-      draftSourcesScope,
-    ),
+    fetchValStega: initFetchValStega(deps),
+    fetchValKeyStega: initFetchValKeyStega(deps),
+    fetchValRouteStega: initFetchValRouteStega(deps),
+    fetchValRouteUrl: initFetchValRouteUrl(deps),
+    fetchValDraft: initFetchValDraft(deps),
   };
 }

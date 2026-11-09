@@ -1,6 +1,7 @@
 import type { Json, ModuleFilePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
+import { STAGED_SCHEMA_PREFIX } from "@valbuild/shared/internal";
 import ts from "typescript";
 import { analyzeValModule } from "./patch/ts/valModule";
 import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
@@ -53,24 +54,80 @@ export type ValProposal = {
   /**
    * Saved `.val.ts` text, by path with no leading slash, laid over the
    * build's `projectSource`: the next save patches the text the last one
-   * wrote, not the text the base build was made from.
+   * wrote, not the text the base build was made from. A staged module file's
+   * text is here too: what the assistant staged, with every save since.
    */
   files: Record<string, string>;
+  /**
+   * The module files whose CODE the proposal has staged, by module file path,
+   * each with the schema version content records for it: `staged:<inputs>`,
+   * `inputs` being the proposal's staged inputs (valbuild/home
+   * `stagedSchemas`). `{}` when nothing that is a module is staged, or when
+   * the overlay does not say. It names the STAGING, not whether this build
+   * was made of it: see {@link buildInputs} and {@link stagedAfterBuild}.
+   *
+   * Optional, as {@link buildInputs} is: a `val.server.ts` generated before
+   * these existed hands Val a proposal without them, and must still compile.
+   */
+  staged?: Record<string, string>;
+  /**
+   * Which staging the build serving the address was made of: its staged
+   * inputs (`VAL_BUILD_INPUTS`), or `null` when it was made of none -- the
+   * proposal's base serves it -- or the platform does not say.
+   */
+  buildInputs?: string | null;
 };
+
+/** What a staged module's schema version starts with: `staged:<inputs>`. */
+export { STAGED_SCHEMA_PREFIX };
+
+/**
+ * The modules whose staged code the build serving the address was NOT made
+ * of, each with its schema version (`staged:<inputs>`): every module the
+ * overlay names as staged, except those whose version names the very inputs
+ * the build was made of. Those the build evaluated: they are served as any
+ * other module.
+ *
+ * A module staged after the build has a schema this server does not have.
+ * Its Source is read from its staged text ({@link ValProposal.files}), its
+ * version is the staging's, so no reader takes it for the build's, and a save
+ * applies to that text (`docs/plans/one-content-model.md`, "Phase 9 without
+ * phases 6 and 7"; valbuild/home `docs/proposals.md`, "Staged schemas").
+ *
+ * Whole-staging inputs, not one per module, and that is what makes this
+ * sound: a module's schema can move with a file it imports, so "its own file
+ * is unchanged" never says its code is in the build.
+ */
+export function stagedAfterBuild(
+  proposal: Pick<ValProposal, "staged" | "buildInputs">,
+): Record<ModuleFilePath, string> {
+  const inBuild =
+    proposal.buildInputs === null || proposal.buildInputs === undefined
+      ? null
+      : `${STAGED_SCHEMA_PREFIX}${proposal.buildInputs}`;
+  const after: Record<ModuleFilePath, string> = {};
+  for (const [path, version] of Object.entries(proposal.staged ?? {})) {
+    if (version === inBuild) continue;
+    after[path as ModuleFilePath] = version;
+  }
+  return after;
+}
 
 /**
  * The proposal a platform describes in its runtime env, or `undefined` when
  * this is not a proposal's address.
  *
  * `VAL_PROPOSAL` and `VAL_BRANCH` name it; `VAL_OVERLAY` is the snapshot as
- * JSON (`{ commit, modules, files }`). Throws on a snapshot that does not
- * parse rather than serving the base build as though it were the proposal: a
+ * JSON (`{ commit, modules, files, staged }`); `VAL_BUILD_INPUTS` says which
+ * staging the build was made of. Throws on a snapshot that does not parse
+ * rather than serving the base build as though it were the proposal: a
  * reviewer would be looking at the wrong content and nothing would say so.
  */
 export function proposalFromEnv(env: {
   VAL_PROPOSAL?: string | undefined;
   VAL_BRANCH?: string | undefined;
   VAL_OVERLAY?: string | undefined;
+  VAL_BUILD_INPUTS?: string | undefined;
 }): ValProposal | undefined {
   const name = env.VAL_PROPOSAL;
   const branch = env.VAL_BRANCH;
@@ -112,7 +169,62 @@ export function proposalFromEnv(env: {
       files[path] = text;
     }
   }
-  return { name, branch, commit, modules: modulesIn, files };
+  return {
+    name,
+    branch,
+    commit,
+    modules: modulesIn,
+    files,
+    staged: stagedOf(name, parsed["staged"]),
+    buildInputs: buildInputsOf(name, env.VAL_BUILD_INPUTS),
+  };
+}
+
+/**
+ * The overlay's `staged`, checked: `{}` when it does not say (an overlay
+ * written before it). One that says something else than module paths with
+ * `staged:` versions is thrown: read as "none staged", a save would apply to
+ * a staged module as a build that never evaluated it.
+ */
+function stagedOf(name: string, staged: unknown): Record<string, string> {
+  if (staged === undefined || staged === null) return {};
+  if (!isObject(staged)) {
+    throw new Error(
+      `Val: proposal ${name}: VAL_OVERLAY's staged must be an object`,
+    );
+  }
+  const out: Record<string, string> = {};
+  for (const [path, version] of Object.entries(staged)) {
+    if (
+      !path.startsWith("/") ||
+      typeof version !== "string" ||
+      !version.startsWith(STAGED_SCHEMA_PREFIX)
+    ) {
+      throw new Error(
+        `Val: proposal ${name}: VAL_OVERLAY's staged must name module files with staged:<inputs> versions (${JSON.stringify(path)})`,
+      );
+    }
+    out[path] = version;
+  }
+  return out;
+}
+
+/**
+ * `VAL_BUILD_INPUTS`: 64 hex, or nothing. Anything else is thrown, for the
+ * same reason as {@link stagedOf}, in the other direction: read as "the
+ * build has it", a save would apply to staged code as though it were built.
+ */
+function buildInputsOf(
+  name: string,
+  inputs: string | undefined,
+): string | null {
+  if (inputs === undefined || inputs === "") return null;
+  if (!/^[0-9a-f]{64}$/.test(inputs)) {
+    throw new Error(
+      `Val: proposal ${name}: VAL_BUILD_INPUTS is not a build's staged inputs (64 hex)`,
+    );
+  }
+  return inputs;
 }
 
 /**
@@ -307,6 +419,26 @@ export function layeredSnapshot(
     modules: { ...contentVersion.modules, ...proposal.modules },
     files: { ...contentVersion.files, ...proposal.files },
   };
+}
+
+/**
+ * The proposal as a reader whose code is the serving build reads it: without
+ * the Source of a module staged after that build ({@link stagedAfterBuild}),
+ * which was made for code the reader has not got. Left out, such a module
+ * reads as the site or the build has it -- content of the code that reads it
+ * -- until a build of the staging serves the address. The same rule as
+ * `layered`'s, for the one source that carries no version.
+ */
+export function proposalAsBuilt<
+  P extends Pick<ValProposal, "modules" | "staged" | "buildInputs">,
+>(proposal: P): P {
+  const after = stagedAfterBuild(proposal);
+  if (Object.keys(after).length === 0) return proposal;
+  const modules: Record<string, unknown> = {};
+  for (const [path, source] of Object.entries(proposal.modules)) {
+    if (after[path as ModuleFilePath] === undefined) modules[path] = source;
+  }
+  return { ...proposal, modules };
 }
 
 /**

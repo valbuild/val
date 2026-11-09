@@ -74,6 +74,7 @@ import type {
   AskUserQuestionItem,
   ToolActivity,
 } from "./AIChatToolActivities";
+import type { CodeModeRequest } from "./CodeModeRequestCard";
 import { Spinner } from "./designSystem/spinner";
 import { Avatar } from "./Avatar";
 import { PeopleStack } from "./proposals/PeopleStack";
@@ -274,6 +275,15 @@ export type AIChatHandle = {
     toolCallId: string,
     toolName: string,
     questions?: AskUserQuestionItem[],
+  ) => void;
+  /**
+   * Show a tool call as the assistant asking for code mode, or move the card
+   * on: asking, turning on, on, declined. See `CodeModeRequestCard`.
+   */
+  setCodeModeRequest: (
+    messageId: string,
+    toolCallId: string,
+    request: CodeModeRequest,
   ) => void;
   /** Mark a tool call as complete */
   completeToolCall: (messageId: string, toolCallId: string) => void;
@@ -1078,6 +1088,42 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         }
         return prev;
       });
+    },
+    setCodeModeRequest(
+      messageId: string,
+      toolCallId: string,
+      request: CodeModeRequest,
+    ) {
+      const withRequest = (activities: ToolActivity[] | undefined) =>
+        (activities ?? []).map((t) =>
+          t.toolCallId === toolCallId ? { ...t, codeModeRequest: request } : t,
+        );
+      setCurrentMessage((prev) => {
+        if (!prev || prev.message.id !== messageId) return prev;
+        return {
+          lastActivityAt: Date.now(),
+          message: withPauseSynced(
+            {
+              ...prev.message,
+              toolActivities: withRequest(prev.message.toolActivities),
+            },
+            Date.now(),
+          ),
+        };
+      });
+      // A card answered after its turn ended is in the transcript by then.
+      setCompletedMessages((prev) =>
+        prev.some((message) => message.id === messageId)
+          ? prev.map((message) =>
+              message.id === messageId
+                ? {
+                    ...message,
+                    toolActivities: withRequest(message.toolActivities),
+                  }
+                : message,
+            )
+          : prev,
+      );
     },
     completeToolCall(messageId: string, toolCallId: string) {
       setCurrentMessage((prev) => {

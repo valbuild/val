@@ -8,6 +8,7 @@ don't. Written for a human reading it once, not as a reference to be exhaustive.
 | [terminology.md](./terminology.md)                   | Source, module file, schema, selector, paths — one meaning each, and the synonyms that cause trouble                                 |
 | [media.md](./media.md)                               | `s.imagedir()`, `s.filedir()`, `s.fontdir()`, `s.image()`, `s.file()` — collections vs fields, where bytes land, how a URL is chosen |
 | [stores.md](./stores.md)                             | The Studio's client state: ten stores, two realms, and the one rule the whole design turns on                                        |
+| [content-versions.md](./content-versions.md)         | The one content model: base + chain through one engine, versions and `seq`, the head, the manifest, the readers, how a page settles  |
 | [quirks.md](./quirks.md)                             | Things that are true, surprising, and cost someone an afternoon                                                                      |
 | [tanstack-performance.md](./tanstack-performance.md) | What Val costs a visitor who is not editing: measured, and where the bytes come from                                                 |
 | [patch-store.md](./patch-store.md)                   | Where unpublished edits live in `fs` mode: the log, the lock, and the failure that decided the shape                                 |

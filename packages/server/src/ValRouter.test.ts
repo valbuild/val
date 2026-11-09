@@ -103,7 +103,7 @@ describe("ValRouter", () => {
       expectedBaseSource: authorsSource,
     },
   ])(
-    "/sources/~ returns previews (query: $query)",
+    "/sources/~ answers sources, not previews (query: $query)",
     async ({ query, expectedSource, expectedBaseSource }) => {
       // This case creates a real pending patch, and an fs-mode server stores
       // patches under `${process.cwd()}/.val`. Rooted at the repo that writes
@@ -229,26 +229,14 @@ describe("ValRouter", () => {
       expect(json.modules["/content/authors.val.ts"]?.baseSource).toEqual(
         expectedBaseSource,
       );
-      expect(json.modules["/content/authors.val.ts"]?.preview).toEqual({
-        "/content/authors.val.ts": {
-          status: "success",
-          data: {
-            rows: {
-              parent: "record",
-              items: Object.entries(patchedAuthorsSource).map(
-                ([key, author]) => [
-                  key,
-                  {
-                    title: author.name,
-                    subtitle: author.birthdate,
-                    image: undefined,
-                  },
-                ],
-              ),
-            },
-          },
-        },
-      });
+      // Previews and validation left the read path in phase 6 of
+      // `docs/plans/one-content-model.md`: the Studio computes previews from
+      // its own schema instances, and validates through `/validate`.
+      expect(json.modules["/content/authors.val.ts"]?.preview).toBeUndefined();
+      expect(
+        json.modules["/content/authors.val.ts"] &&
+          "validationErrors" in json.modules["/content/authors.val.ts"],
+      ).toBe(false);
     }
   }
 

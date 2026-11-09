@@ -17,17 +17,27 @@
       "module": "./browser/dist/valbuild-server-browser.esm.js",
       "default": "./browser/dist/valbuild-server-browser.cjs.js"
     },
+    "./internal": {
+      "module": "./internal/dist/valbuild-server-internal.esm.js",
+      "default": "./internal/dist/valbuild-server-internal.cjs.js"
+    },
+    "./internal/browser": {
+      "module": "./internal/browser/dist/valbuild-server-internal-browser.esm.js",
+      "default": "./internal/browser/dist/valbuild-server-internal-browser.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
   "preconstruct": {
     "entrypoints": [
       "./index.ts",
-      "./browser/index.ts"
+      "./browser/index.ts",
+      "./internal/index.ts",
+      "./internal/browser/index.ts"
     ],
     "exports": true
   },
-  "version": "0.150.23",
+  "version": "0.151.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -56,6 +66,7 @@
   "files": [
     "CHANGELOG.md",
     "dist",
-    "browser"
+    "browser",
+    "internal"
   ]
 }

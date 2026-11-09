@@ -1,3 +1,4 @@
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
@@ -15,24 +16,43 @@ export type TransientError = {
   message: string;
   timestamp: number;
   details?: string;
+  /** The next step, where the Studio has one: a button beside the message. */
+  action?: TransientErrorAction;
 };
 
 /**
- * Whether the schema the client holds is still the one the server has.
+ * A next step a store can name without knowing the UI: data, so it crosses
+ * any seam, and the toast turns it into a button.
  *
- * `out-of-date` is a GATE, not a warning: a patch written against a schema that
- * has been redeployed can be applied to source the server will reject, or worse
- * accepted against a shape that no longer means the same thing. So it stops
- * writes rather than annotating them.
+ * - `show-held-edits`: the edits a publish was refused for, in their banner,
+ *   where they are copied and discarded (`HeldEditsBanner`).
  */
-export type SchemaFreshness = "current" | "out-of-date";
+export type TransientErrorAction = "show-held-edits";
+
+/**
+ * An edit that stopped fitting its module when the module's code changed: a
+ * field renamed or removed under a pending edit to it.
+ *
+ * Held, not deleted. Deleting is right for a patch that could never have
+ * applied; this one did, until the schema moved, and it is somebody's work.
+ * The editor sees it, and chooses: discard it, or have it moved to where the
+ * field went. Until then it is in the chain, applies nowhere, and stops a
+ * publish.
+ */
+export type HeldEdit = {
+  patchId: PatchId;
+  moduleFilePath: ModuleFilePath;
+  /** Why it does not apply now, as the engine said it. */
+  message: string;
+};
 
 export type StatusSnapshot = {
   errors: readonly TransientError[];
   /** When the network started failing, or `null`. See `reportNetworkError`. */
   networkErrorSince: number | null;
   schemaError: string | null;
-  schema: SchemaFreshness;
+  /** See {@link HeldEdit}. In chain order. */
+  held: readonly HeldEdit[];
 };
 
 /**
@@ -68,7 +88,7 @@ export class StatusStore {
   private snapshot: StatusSnapshot | null = null;
   private networkErrorSince: number | null = null;
   private schemaError: string | null = null;
-  private freshness: SchemaFreshness = "current";
+  private held: readonly HeldEdit[] = [];
   private nextId = 0;
 
   constructor(private readonly activity: ActivitySink = noopActivity) {}
@@ -80,13 +100,18 @@ export class StatusStore {
    * say, and ten copies of it in a toast stack is worse than one. The timestamp
    * is refreshed so the newest occurrence is what expires.
    */
-  reportError(message: string, details?: string): void {
+  reportError(
+    message: string,
+    details?: string,
+    action?: TransientErrorAction,
+  ): void {
     const existing = this.transient.find(
       (candidate) => candidate.message === message,
     );
     if (existing !== undefined) {
       existing.timestamp = Date.now();
       existing.details = details ?? existing.details;
+      existing.action = action ?? existing.action;
       this.announce();
       return;
     }
@@ -97,6 +122,7 @@ export class StatusStore {
         message,
         timestamp: Date.now(),
         details,
+        ...(action !== undefined ? { action } : {}),
       },
     ];
     this.activity.work("status:report-error");
@@ -140,17 +166,21 @@ export class StatusStore {
   }
 
   /**
-   * The server's schema is not the one this client holds.
-   *
-   * One-way on purpose: a client whose schema went stale cannot decide for itself
-   * that it is fresh again, because the only thing that would make it fresh is a
-   * reload. Announcing recovery it cannot deliver would leave writes enabled
-   * against a schema it still does not have.
+   * The edits held because their module's code changed under them: the whole
+   * list, replaced. See {@link HeldEdit}.
    */
-  reportSchemaOutOfDate(): void {
-    if (this.freshness === "out-of-date") return;
-    this.freshness = "out-of-date";
-    this.activity.work("status:schema-out-of-date");
+  reportHeld(held: readonly HeldEdit[]): void {
+    if (
+      held.length === this.held.length &&
+      held.every(
+        (edit, index) =>
+          edit.patchId === this.held[index].patchId &&
+          edit.message === this.held[index].message,
+      )
+    ) {
+      return;
+    }
+    this.held = held;
     this.announce();
   }
 
@@ -161,7 +191,7 @@ export class StatusStore {
         errors: this.transient,
         networkErrorSince: this.networkErrorSince,
         schemaError: this.schemaError,
-        schema: this.freshness,
+        held: this.held,
       };
     }
     return this.snapshot;

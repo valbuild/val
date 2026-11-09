@@ -1,36 +1,53 @@
 import type { Api } from "@valbuild/shared/internal";
 import type { z } from "zod";
+import type { PatchId } from "@valbuild/core";
 import type { StatSnapshot } from "../StatStore";
 
 /**
- * What the stores take from a `/stat` answer read OUTSIDE the provider's poll:
- * the re-sync after a parent conflict.
+ * What the stores take from a `/stat` answer: the one mapping from what the
+ * server said to what `StatStore.receiveStat` takes.
  *
- * Its own function so nothing the provider's intake carries is dropped here.
- * `schemaSha` was: a conflict is often how a client first meets a server that
- * has moved — a deploy whose websocket message it missed — and in websocket
- * mode the next poll can be twenty minutes away, so the reload prompt waited
- * that long while the editor kept writing against the old schema.
+ * Used by the provider's intake (`ValStoreProvider`, fed by the poll in
+ * `useStatus`), by the re-sync after a parent conflict (`createValSystem`),
+ * and by the scenario harness (`scenarios/`). It was two copies, and one of
+ * them dropped a field the other took: one mapping, so the stores never
+ * adopt half an answer.
  */
-export function statSnapshotOf(json: StatResponseJson): StatSnapshot {
+export function statSnapshotOf(stat: StatSnapshotSource): StatSnapshot {
   return {
-    baseSha: json.baseSha,
-    sourcesSha: json.sourcesSha,
-    schemaSha: json.schemaSha,
-    patches: json.patches,
-    appliedPatches: json.appliedPatches,
-    headCommitSha: json.headCommitSha,
+    baseSha: stat.baseSha,
+    sourcesSha: stat.sourcesSha,
+    patches: stat.patches,
+    appliedPatches: stat.appliedPatches,
+    headCommitSha: stat.headCommitSha,
     // The new head is the whole point of a re-sync: a conflict means the
     // parent we named was not it. `fs` answers without one.
-    headPatchId: "headPatchId" in json ? json.headPatchId : undefined,
-    headVersion: "headVersion" in json ? json.headVersion : undefined,
+    headPatchId: stat.headPatchId,
+    headVersion: stat.headVersion,
+    ...(stat.version !== undefined ? { seq: stat.version.seq } : {}),
     // Drained by the server as it answers (`fs` mode), so dropped here they
     // are lost: nobody is told their unpublished work was removed.
-    ...("removed" in json && json.removed !== undefined
-      ? { removed: json.removed }
-      : {}),
+    ...(stat.removed !== undefined ? { removed: stat.removed } : {}),
   };
 }
+
+/**
+ * The parts of a `/stat` answer the stores read. Structural, so a 200 body
+ * (`StatResponseJson`), the poll's `StatData` and the provider's `stat` prop
+ * all fit without being converted first.
+ */
+export type StatSnapshotSource = {
+  baseSha: string;
+  patches: PatchId[];
+  sourcesSha?: string;
+  appliedPatches?: PatchId[];
+  headCommitSha?: string;
+  headPatchId?: PatchId | null;
+  headVersion?: number;
+  /** The answer's project version: only its `seq` is taken. */
+  version?: { seq: number };
+  removed?: { patchId: PatchId; reason: string }[];
+};
 
 /** The 200 body of `/stat`. */
 export type StatResponseJson = Extract<
