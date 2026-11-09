@@ -81,20 +81,20 @@ export const Laptop1366Chatting = at(1366, 768, {
 /** Option (b): Content comes over the preview, and the assistant stays. */
 export const Laptop1366Overlay = at(1366, 768, { narrow: "overlay" });
 
-/** Content's Select: the fields on the page, solid. A click opens the field. */
+/** Content's Select, at the end of its header: fields, solid. A click opens one. */
 export const ContentSelect = at(1512, 945, {
   selecting: "content",
   focused: "lead",
 });
 
-/** The Assistant's Select, outside code mode: it can point at fields only. */
+/** Sketch and Assistant's Select, at the start of their header: fields only, outside code mode. */
 export const AssistantPointing = at(1512, 945, {
   selecting: "chat",
   hovered: "p.lead · “Six new dishes…”",
   recent: ["chat", "content", "sketch"],
 });
 
-/** The Assistant's Select in code mode: anything, the footer included. */
+/** Sketch and Assistant's Select in code mode: anything, the footer included. */
 export const CodeModePointing = at(1920, 1080, {
   codeMode: true,
   selecting: "chat",

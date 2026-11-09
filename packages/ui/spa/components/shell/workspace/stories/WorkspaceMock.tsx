@@ -62,12 +62,17 @@ export type MockState = {
   /**
    * Which pane is picking on the page, if any. Each has its own Select:
    *
-   * - `content`: Content's, at the edge toward the preview. Picks FIELDS, in
-   *   every mode, and opens the one picked. Stays on until turned off.
-   * - `chat`: the Assistant's, in its composer. Picks what the next message
-   *   is about: fields, or in code mode any element. Once, then off.
+   * - `content`: Content's, at the end of its header, toward the preview.
+   *   Picks FIELDS, in every mode, and opens the one picked. Stays on until
+   *   turned off.
+   * - `chat`: Sketch and Assistant's, at the start of their header, toward
+   *   the preview. Picks what the next message to the assistant is about:
+   *   fields, or in code mode any element. Once, then off, and the
+   *   Assistant comes to the front with it.
    */
   selecting: SelectTool | null;
+  /** Content's two views: the module's structure, or the fields on the page. */
+  contentTab: "content" | "page";
   /** The field open in Content, by the preview's names for them. */
   focused: string | null;
   /** What the next chat message is about. */
@@ -86,6 +91,7 @@ export const DEFAULT_MOCK_STATE: MockState = {
   phonePane: "preview",
   codeMode: false,
   selecting: "content",
+  contentTab: "page",
   focused: "title",
   pointedAt: null,
 };
@@ -190,7 +196,12 @@ function ColumnsMock({
         style={{ top: TOP, bottom: GUTTER, left, right: GUTTER, gap: GAP }}
       >
         {layout.columns.map((column, index) => (
-          <ColumnMock key={index} column={column} controls={controls} />
+          <ColumnMock
+            key={index}
+            column={column}
+            controls={controls}
+            sideSelect={index === firstSideColumn(layout.columns)}
+          />
         ))}
         {layout.overlay !== null && (
           <div
@@ -210,6 +221,7 @@ function ColumnsMock({
             <ColumnMock
               column={layout.overlay.column}
               controls={controls}
+              sideSelect
               // Closing a sheet hands the room back to the pane beside it.
               onClose={() =>
                 controls.use(
@@ -226,37 +238,36 @@ function ColumnsMock({
   );
 }
 
+/**
+ * The first column after the preview that holds Sketch or Assistant: the one
+ * whose header carries their Select, beside the preview.
+ */
+function firstSideColumn(columns: WorkspaceColumn[]): number {
+  return columns.findIndex(
+    (column) =>
+      column.type === "tabs" ||
+      (column.type === "pane" &&
+        (column.pane === "sketch" || column.pane === "chat")),
+  );
+}
+
 function ColumnMock({
   column,
   controls,
   onClose,
+  sideSelect = false,
 }: {
   column: WorkspaceColumn;
   controls: Controls;
   onClose?: () => void;
+  /** Whether this column's header carries Sketch and Assistant's Select. */
+  sideSelect?: boolean;
 }) {
   if (column.type === "strip") {
     return <StripMock column={column} controls={controls} />;
   }
   const style: CSSProperties = { width: column.width, flex: "none" };
-  if (column.type === "tabs") {
-    return (
-      <Card style={style} onPointerDown={() => controls.use(column.front)}>
-        <PaneTabs
-          tabs={column.panes.map((pane) => ({
-            value: pane,
-            label: PANES[pane].label,
-            icon: PANES[pane].icon,
-          }))}
-          value={column.front}
-          onChange={(pane) => controls.use(pane)}
-          onClose={onClose}
-        />
-        <PaneBody pane={column.front} controls={controls} />
-      </Card>
-    );
-  }
-  if (column.pane === "preview") {
+  if (column.type === "pane" && column.pane === "preview") {
     return (
       <Card
         style={style}
@@ -266,15 +277,36 @@ function ColumnMock({
       </Card>
     );
   }
-  const pane = column.pane;
+  if (column.type === "pane" && column.pane === "content") {
+    return (
+      <Card style={style} onPointerDown={() => controls.use("content")}>
+        <ContentHeader
+          controls={controls}
+          width={column.width}
+          onClose={onClose}
+        />
+        <ContentMock controls={controls} />
+      </Card>
+    );
+  }
+  const panes: ("sketch" | "chat")[] =
+    column.type === "tabs"
+      ? column.panes
+      : column.pane === "sketch"
+        ? ["sketch"]
+        : ["chat"];
+  const front = column.type === "tabs" ? column.front : panes[0];
   return (
-    <Card style={style} onPointerDown={() => controls.use(pane)}>
-      <PaneHeader
-        icon={PANES[pane].icon}
-        label={PANES[pane].label}
+    <Card style={style} onPointerDown={() => controls.use(front)}>
+      <SideHeader
+        controls={controls}
+        panes={panes}
+        front={front}
+        width={column.width}
+        select={sideSelect}
         onClose={onClose}
       />
-      <PaneBody pane={pane} controls={controls} />
+      <PaneBody pane={front} controls={controls} />
     </Card>
   );
 }
@@ -310,25 +342,6 @@ function Card({
   );
 }
 
-function PaneHeader({
-  icon: Icon,
-  label,
-  onClose,
-}: {
-  icon: LucideIcon;
-  label: string;
-  onClose?: () => void;
-}) {
-  return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-3 text-xs font-medium">
-      <Icon size={14} className="text-fg-secondary" />
-      {label}
-      <div className="flex-1" />
-      {onClose && <CloseButton onClick={onClose} />}
-    </div>
-  );
-}
-
 function CloseButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -345,70 +358,149 @@ function CloseButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function PaneTabs<T extends string>({
+function Tabs<T extends string>({
   tabs,
   value,
   onChange,
-  onClose,
-  end,
 }: {
   tabs: { value: T; label: string; icon?: LucideIcon }[];
   value: T;
   onChange: (value: T) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      className="inline-flex h-7 shrink-0 items-center rounded-md border border-border-float p-0.5"
+    >
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.value}
+            type="button"
+            role="tab"
+            aria-selected={tab.value === value}
+            onClick={() => onChange(tab.value)}
+            className={cn(
+              "inline-flex h-full items-center gap-1.5 rounded px-2 text-xs font-medium",
+              tab.value === value
+                ? "bg-bg-float-raised text-fg-primary"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {Icon && <Icon size={13} />}
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Below this a header's Select drops its label and keeps its icon. */
+const SELECT_LABEL_FROM = 320;
+
+/**
+ * Content's header: its views on the left, its Select on the right, the
+ * side the preview is on. Close, where there is one, on the outer edge.
+ */
+function ContentHeader({
+  controls,
+  width,
+  onClose,
+}: {
+  controls: Controls;
+  width: number;
   onClose?: () => void;
-  /** At the end of the row: toward the preview, for Content. */
-  end?: ReactNode;
+}) {
+  const { state, update } = controls;
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-2">
+      {onClose && <CloseButton onClick={onClose} />}
+      <Tabs
+        tabs={[
+          { value: "content", label: "Content" },
+          { value: "page", label: "On this page" },
+        ]}
+        value={state.contentTab}
+        onChange={(contentTab) => update({ contentTab })}
+      />
+      <div className="flex-1" />
+      <SelectButton
+        tool="content"
+        controls={controls}
+        label={width >= SELECT_LABEL_FROM}
+        title="Select a field on the page to edit it"
+      />
+    </div>
+  );
+}
+
+/**
+ * Sketch and Assistant's header, the mirror of Content's: the Select on the
+ * left, toward the preview, and the tabs on the right. A column holding one
+ * of them shows its one tab, so the header reads the same either way.
+ */
+function SideHeader({
+  controls,
+  panes,
+  front,
+  width,
+  select,
+  onClose,
+}: {
+  controls: Controls;
+  panes: ("sketch" | "chat")[];
+  front: "sketch" | "chat";
+  width: number;
+  select: boolean;
+  onClose?: () => void;
 }) {
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-2">
-      <div
-        role="tablist"
-        className="inline-flex h-7 items-center rounded-md border border-border-float p-0.5"
-      >
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              role="tab"
-              aria-selected={tab.value === value}
-              onClick={() => onChange(tab.value)}
-              className={cn(
-                "inline-flex h-full items-center gap-1.5 rounded px-2 text-xs font-medium",
-                tab.value === value
-                  ? "bg-bg-float-raised text-fg-primary"
-                  : "text-fg-secondary hover:text-fg-primary",
-              )}
-            >
-              {Icon && <Icon size={13} />}
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      {select && (
+        <SelectButton
+          tool="chat"
+          controls={controls}
+          label={width >= SELECT_LABEL_FROM}
+          title={
+            controls.state.codeMode
+              ? "Select anything on the page, to ask the assistant about it"
+              : "Select a field on the page, to ask the assistant about it"
+          }
+        />
+      )}
       <div className="flex-1" />
-      {end}
+      <Tabs
+        tabs={panes.map((pane) => ({
+          value: pane,
+          label: PANES[pane].label,
+          icon: PANES[pane].icon,
+        }))}
+        value={front}
+        onChange={(pane) => controls.use(pane)}
+      />
       {onClose && <CloseButton onClick={onClose} />}
     </div>
   );
 }
 
-/** A pane's own Select: it picks on the preview, for that pane. */
+/**
+ * A pane's own Select: it picks on the preview, for that pane. The two look
+ * the same at rest; while picking, Content's is solid and the Assistant's
+ * dashed, in the proposal's colour in code mode, as their outlines are.
+ */
 function SelectButton({
   tool,
   controls,
   label,
-  icon: Icon,
   title,
-  badge,
 }: {
   tool: SelectTool;
   controls: Controls;
-  label: string;
-  icon: LucideIcon;
+  /** Whether there is room for the word beside the icon. */
+  label: boolean;
   title: string;
-  badge?: ReactNode;
 }) {
   const { state, update } = controls;
   const active = state.selecting === tool;
@@ -416,6 +508,7 @@ function SelectButton({
     <button
       type="button"
       aria-pressed={active}
+      aria-label={label ? undefined : "Select"}
       title={title}
       onClick={(event) => {
         event.stopPropagation();
@@ -434,12 +527,14 @@ function SelectButton({
             : state.codeMode
               ? "border-dashed border-border-proposal bg-bg-proposal-soft text-fg-proposal"
               : "border-dashed border-border-brand-secondary bg-bg-float-raised text-fg-primary"
-          : "border-transparent text-fg-secondary hover:text-fg-primary",
+          : "border-border-float text-fg-secondary hover:text-fg-primary",
       )}
     >
-      <Icon size={14} />
-      {label}
-      {badge}
+      <MousePointerSquareDashed size={14} />
+      {label && "Select"}
+      {tool === "chat" && state.codeMode && (
+        <CodeXml size={11} aria-label="code mode" />
+      )}
     </button>
   );
 }
@@ -691,33 +786,16 @@ const FIELDS: { id: string; label: string; value: string }[] = [
 
 function ContentMock({ controls }: { controls: Controls }) {
   const { state, update } = controls;
-  const [tab, setTab] = useState<"structure" | "page">("page");
+  const tab = state.contentTab;
   return (
     <>
-      <PaneTabs
-        tabs={[
-          { value: "structure", label: "Structure" },
-          { value: "page", label: "On this page" },
-        ]}
-        value={tab}
-        onChange={setTab}
-        end={
-          <SelectButton
-            tool="content"
-            controls={controls}
-            label="Select"
-            icon={MousePointerSquareDashed}
-            title="Pick a field on the page to edit it"
-          />
-        }
-      />
       <div className="min-h-0 flex-1 overflow-auto p-4">
         <div className="mb-3 flex items-center gap-1 text-xs text-fg-secondary">
           <ChevronLeft size={13} />
           Blog
         </div>
         <h2 className="mb-4 text-base font-medium">Spring menu</h2>
-        {tab === "structure" ? (
+        {tab === "content" ? (
           <ul className="flex flex-col gap-1 text-sm">
             {["Title", "Lead", "Hero image", "Sections", "Author", "SEO"].map(
               (label) => (
@@ -832,22 +910,6 @@ function ChatMock({ controls }: { controls: Controls }) {
         )}
         <div className="flex items-center gap-2 text-xs text-fg-secondary-alt">
           <span className="flex-1">Ask for a change…</span>
-          <SelectButton
-            tool="chat"
-            controls={controls}
-            label="Point"
-            icon={MousePointerClick}
-            title={
-              state.codeMode
-                ? "Point at anything on the page, to ask about it"
-                : "Point at a field on the page, to ask about it"
-            }
-            badge={
-              state.codeMode ? (
-                <CodeXml size={11} aria-label="code mode" />
-              ) : undefined
-            }
-          />
           <Send size={14} />
         </div>
       </div>
@@ -1105,6 +1167,17 @@ function PhoneMock({
           </Card>
         ) : (
           <Card className="flex-1">
+            {layout.pane === "content" ? (
+              <ContentHeader controls={controls} width={366} />
+            ) : (
+              <SideHeader
+                controls={controls}
+                panes={[layout.pane]}
+                front={layout.pane}
+                width={366}
+                select
+              />
+            )}
             <PaneBody pane={layout.pane} controls={controls} />
           </Card>
         )}
