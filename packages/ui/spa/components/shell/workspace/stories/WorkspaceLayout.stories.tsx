@@ -81,9 +81,23 @@ export const Laptop1366Chatting = at(1366, 768, {
 /** Option (b): Content comes over the preview, and the assistant stays. */
 export const Laptop1366Overlay = at(1366, 768, { narrow: "overlay" });
 
-/** Code mode: Select picks any element, and it goes with the next message. */
-export const CodeModeSelecting = at(1920, 1080, {
+/** Content's Select: the fields on the page, solid. A click opens the field. */
+export const ContentSelect = at(1512, 945, {
+  selecting: "content",
+  focused: "lead",
+});
+
+/** The Assistant's Select, outside code mode: it can point at fields only. */
+export const AssistantPointing = at(1512, 945, {
+  selecting: "chat",
+  hovered: "p.lead · “Six new dishes…”",
+  recent: ["chat", "content", "sketch"],
+});
+
+/** The Assistant's Select in code mode: anything, the footer included. */
+export const CodeModePointing = at(1920, 1080, {
   codeMode: true,
+  selecting: "chat",
   pointedAt: "h1 · “Spring has come to Oslo”",
   hovered: "footer",
 });
@@ -99,5 +113,16 @@ export const Tablet1024Chatting = at(1024, 768, {
 /** A phone: one pane at a time. */
 export const Phone = at(390, 844);
 
-/** A phone in code mode, looking at the preview. */
-export const PhoneCodeMode = at(390, 844, { codeMode: true });
+/** A phone, after Content's Select: the preview, picking a field. */
+export const PhoneContentSelect = at(390, 844, {
+  phonePane: "preview",
+  selecting: "content",
+});
+
+/** A phone in code mode, pointing for the assistant. */
+export const PhoneCodeModePointing = at(390, 844, {
+  codeMode: true,
+  phonePane: "preview",
+  selecting: "chat",
+  hovered: "footer",
+});

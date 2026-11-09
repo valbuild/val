@@ -5,6 +5,7 @@ import {
   FileText,
   ImageIcon,
   Monitor,
+  MousePointerClick,
   MousePointerSquareDashed,
   PenLine,
   RotateCw,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   useCallback,
+  useEffect,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -48,14 +50,24 @@ export type MockState = {
   narrow: NarrowStrategy;
   phonePane: WorkspacePane;
   codeMode: boolean;
-  selecting: boolean;
+  /**
+   * Which pane is picking on the page, if any. Each has its own Select:
+   *
+   * - `content`: Content's, at the edge toward the preview. Picks FIELDS, in
+   *   every mode, and opens the one picked. Stays on until turned off.
+   * - `chat`: the Assistant's, in its composer. Picks what the next message
+   *   is about: fields, or in code mode any element. Once, then off.
+   */
+  selecting: SelectTool | null;
   /** The field open in Content, by the preview's names for them. */
   focused: string | null;
-  /** In code mode: what the next chat message is about. */
+  /** What the next chat message is about. */
   pointedAt: string | null;
   /** For a still picture of a hover: the element the pointer is over. */
   hovered?: string | null;
 };
+
+export type SelectTool = "content" | "chat";
 
 export const DEFAULT_MOCK_STATE: MockState = {
   open: { content: true, sketch: true, chat: true },
@@ -64,7 +76,7 @@ export const DEFAULT_MOCK_STATE: MockState = {
   narrow: "strips",
   phonePane: "preview",
   codeMode: false,
-  selecting: true,
+  selecting: "content",
   focused: "title",
   pointedAt: null,
 };
@@ -124,8 +136,16 @@ export function WorkspaceMock({
   height: number;
   controls: Controls;
 }) {
-  const { state } = controls;
+  const { state, update } = controls;
   const layout = workspaceLayout({ width, ...state });
+  useEffect(() => {
+    if (state.selecting === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") update({ selecting: null });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state.selecting, update]);
   return (
     <div
       className="relative overflow-hidden bg-bg-canvas font-sans text-fg-primary"
@@ -319,11 +339,14 @@ function PaneTabs<T extends string>({
   value,
   onChange,
   onClose,
+  end,
 }: {
   tabs: { value: T; label: string; icon?: LucideIcon }[];
   value: T;
   onChange: (value: T) => void;
   onClose?: () => void;
+  /** At the end of the row: toward the preview, for Content. */
+  end?: ReactNode;
 }) {
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-float px-2">
@@ -354,8 +377,59 @@ function PaneTabs<T extends string>({
         })}
       </div>
       <div className="flex-1" />
+      {end}
       {onClose && <CloseButton onClick={onClose} />}
     </div>
+  );
+}
+
+/** A pane's own Select: it picks on the preview, for that pane. */
+function SelectButton({
+  tool,
+  controls,
+  label,
+  icon: Icon,
+  title,
+  badge,
+}: {
+  tool: SelectTool;
+  controls: Controls;
+  label: string;
+  icon: LucideIcon;
+  title: string;
+  badge?: ReactNode;
+}) {
+  const { state, update } = controls;
+  const active = state.selecting === tool;
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      title={title}
+      onClick={(event) => {
+        event.stopPropagation();
+        // On a phone the page is another pane: go to it to pick.
+        update(
+          active
+            ? { selecting: null }
+            : { selecting: tool, phonePane: "preview" },
+        );
+      }}
+      className={cn(
+        "inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium",
+        active
+          ? tool === "content"
+            ? "border-border-brand-secondary bg-bg-float-raised text-fg-primary"
+            : state.codeMode
+              ? "border-dashed border-border-proposal bg-bg-proposal-soft text-fg-proposal"
+              : "border-dashed border-border-brand-secondary bg-bg-float-raised text-fg-primary"
+          : "border-transparent text-fg-secondary hover:text-fg-primary",
+      )}
+    >
+      <Icon size={14} />
+      {label}
+      {badge}
+    </button>
   );
 }
 
@@ -519,6 +593,15 @@ function ContentMock({ controls }: { controls: Controls }) {
         ]}
         value={tab}
         onChange={setTab}
+        end={
+          <SelectButton
+            tool="content"
+            controls={controls}
+            label="Select"
+            icon={MousePointerSquareDashed}
+            title="Pick a field on the page to edit it"
+          />
+        }
       />
       <div className="min-h-0 flex-1 overflow-auto p-4">
         <div className="mb-3 flex items-center gap-1 text-xs text-fg-secondary">
@@ -620,8 +703,15 @@ function ChatMock({ controls }: { controls: Controls }) {
       </div>
       <div className="m-3 flex flex-col gap-2 rounded-lg border border-border-float p-2">
         {state.pointedAt !== null && (
-          <span className="inline-flex items-center gap-1 self-start rounded border border-dashed border-border-proposal px-1.5 py-0.5 text-[11px] text-fg-proposal">
-            <MousePointerSquareDashed size={12} />
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 self-start rounded border border-dashed px-1.5 py-0.5 text-[11px]",
+              state.codeMode
+                ? "border-border-proposal text-fg-proposal"
+                : "border-border-brand-secondary text-fg-primary",
+            )}
+          >
+            <MousePointerClick size={12} />
             {state.pointedAt}
             <button
               type="button"
@@ -634,6 +724,22 @@ function ChatMock({ controls }: { controls: Controls }) {
         )}
         <div className="flex items-center gap-2 text-xs text-fg-secondary-alt">
           <span className="flex-1">Ask for a change…</span>
+          <SelectButton
+            tool="chat"
+            controls={controls}
+            label="Point"
+            icon={MousePointerClick}
+            title={
+              state.codeMode
+                ? "Point at anything on the page, to ask about it"
+                : "Point at a field on the page, to ask about it"
+            }
+            badge={
+              state.codeMode ? (
+                <CodeXml size={11} aria-label="code mode" />
+              ) : undefined
+            }
+          />
           <Send size={14} />
         </div>
       </div>
@@ -660,13 +766,14 @@ function PreviewMock({
   const [device, setDevice] = useState<DeviceId>("desktop");
   const narrow = width < 640;
   const pick = (field: string | null, element: string) => {
-    if (!state.selecting) return;
-    if (!state.codeMode && field === null) return;
-    update({
-      ...(field !== null ? { focused: field } : {}),
-      ...(state.codeMode ? { pointedAt: element } : {}),
-    });
-    if (field !== null) controls.use("content");
+    if (!pickable(state, field)) return;
+    if (state.selecting === "content" && field !== null) {
+      update({ focused: field });
+      controls.use("content");
+    } else if (state.selecting === "chat") {
+      update({ pointedAt: element, selecting: null });
+      controls.use("chat");
+    }
   };
   return (
     <>
@@ -692,32 +799,6 @@ function PreviewMock({
               <Icon size={14} />
             </button>
           ))}
-        <button
-          type="button"
-          aria-pressed={state.selecting}
-          title={
-            state.codeMode
-              ? "Select any element: its field opens, and it goes with your next message"
-              : "Select a field on the page"
-          }
-          onClick={() => update({ selecting: !state.selecting })}
-          className={cn(
-            "inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium",
-            state.selecting
-              ? "bg-bg-float-raised text-fg-primary"
-              : "text-fg-secondary",
-          )}
-        >
-          <MousePointerSquareDashed size={14} />
-          {!narrow && "Select"}
-          {state.codeMode && (
-            <CodeXml
-              size={11}
-              className="text-fg-proposal"
-              aria-label="code mode"
-            />
-          )}
-        </button>
         <span
           className="inline-flex h-7 items-center gap-1 px-1 text-xs text-fg-secondary"
           title="Reload"
@@ -726,13 +807,44 @@ function PreviewMock({
           {state.codeMode && !narrow && "Up to date"}
         </span>
       </div>
+      {state.selecting !== null && (
+        <div
+          className={cn(
+            "flex h-8 shrink-0 items-center gap-2 border-b px-3 text-xs",
+            state.selecting === "content"
+              ? "border-border-float text-fg-secondary"
+              : state.codeMode
+                ? "border-dashed border-border-proposal bg-bg-proposal-soft text-fg-proposal"
+                : "border-dashed border-border-brand-secondary text-fg-primary",
+          )}
+        >
+          {state.selecting === "content" ? (
+            <MousePointerSquareDashed size={13} />
+          ) : (
+            <MousePointerClick size={13} />
+          )}
+          <span className="min-w-0 flex-1 truncate">
+            {state.selecting === "content"
+              ? "Click a field to edit it"
+              : state.codeMode
+                ? "Click anything to ask the assistant about it"
+                : "Click a field to ask the assistant about it"}
+          </span>
+          <button
+            type="button"
+            onClick={() => update({ selecting: null })}
+            className="font-medium hover:underline"
+          >
+            Done
+          </button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto bg-bg-canvas p-3">
         <SitePage
           maxWidth={
             device === "mobile" ? 390 : device === "tablet" ? 834 : undefined
           }
-          selecting={state.selecting}
-          codeMode={state.codeMode}
+          state={state}
           focused={state.focused}
           hovered={state.hovered ?? null}
           onPick={pick}
@@ -742,42 +854,65 @@ function PreviewMock({
   );
 }
 
+/** Whether the Select that is on can take this element. */
+function pickable(state: MockState, field: string | null): boolean {
+  if (state.selecting === null) return false;
+  if (state.selecting === "chat" && state.codeMode) return true;
+  return field !== null;
+}
+
 /** The site in the preview: a restaurant's spring menu. */
 function SitePage({
   maxWidth,
-  selecting,
-  codeMode,
+  state,
   focused,
   hovered,
   onPick,
 }: {
   maxWidth?: number;
-  selecting: boolean;
-  codeMode: boolean;
+  state: MockState;
   focused: string | null;
   hovered: string | null;
   onPick: (field: string | null, element: string) => void;
 }) {
-  const el = (field: string | null, element: string) => ({
-    onClick: () => onPick(field, element),
-    className: cn(
-      "rounded-sm",
-      selecting &&
-        field !== null &&
-        "cursor-pointer outline outline-1 outline-offset-2 outline-[color-mix(in_srgb,var(--border-brand-secondary)_45%,transparent)]",
-      selecting &&
-        field !== null &&
-        focused === field &&
-        "outline-2 outline-border-brand-secondary",
-      selecting &&
-        codeMode &&
-        "cursor-pointer hover:outline-dashed hover:outline-2 hover:-outline-offset-2 hover:outline-border-proposal",
-      selecting &&
-        codeMode &&
-        hovered === element &&
-        "outline-dashed outline-2 -outline-offset-2 outline-border-proposal",
-    ),
-  });
+  // Content's Select draws the fields it can open, solid. The Assistant's
+  // draws nothing until hovered, dashed: in code mode it can take anything.
+  const forContent = state.selecting === "content";
+  const forChat = state.selecting === "chat";
+  const pointColor = state.codeMode
+    ? "hover:outline-border-proposal"
+    : "hover:outline-border-brand-secondary";
+  const el = (field: string | null, element: string) => {
+    const can = pickable(state, field);
+    return {
+      onClick: () => onPick(field, element),
+      className: cn(
+        "rounded-sm",
+        forContent &&
+          field !== null &&
+          "cursor-pointer outline outline-1 outline-offset-2 outline-[color-mix(in_srgb,var(--border-brand-secondary)_45%,transparent)]",
+        forContent &&
+          field !== null &&
+          focused === field &&
+          "outline-2 outline-border-brand-secondary",
+        forChat &&
+          can &&
+          cn(
+            "cursor-pointer hover:outline-dashed hover:outline-2 hover:-outline-offset-2",
+            pointColor,
+          ),
+        forChat &&
+          can &&
+          hovered === element &&
+          cn(
+            "outline-dashed outline-2 -outline-offset-2",
+            state.codeMode
+              ? "outline-border-proposal"
+              : "outline-border-brand-secondary",
+          ),
+      ),
+    };
+  };
   return (
     <div
       className="mx-auto overflow-hidden rounded-md bg-white text-[#1d2420] shadow-sm"
@@ -823,7 +958,8 @@ function SitePage({
       </div>
       <footer
         {...el(null, "footer")}
-        // Nothing in the footer is content: only code mode can pick it.
+        // Nothing in the footer is content: only the Assistant's Select, in
+        // code mode, can pick it.
       >
         <div className="border-t border-[#e6e3dc] px-5 py-3 text-xs text-[#5b6660]">
           Grünerløkka, Oslo · Open Tue–Sun
