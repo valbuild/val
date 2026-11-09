@@ -212,16 +212,14 @@ test("the canvas", async ({ page }) => {
   await shot(page, "09-preview-menu");
   await page.keyboard.press("Escape");
 
-  // Preview mode off: the canvas says so rather than showing a dead page.
+  // Preview mode off: the canvas turns it on by itself, with a spinner while
+  // it does (`CanvasPreviewNotice`).
   await studio.getByRole("button", { name: /Open the canvas/ }).click();
-  const enable = studio.getByRole("button", { name: /Turn on preview mode/ });
-  await expect(enable).toBeVisible({ timeout: 25000 });
   await page.waitForTimeout(800);
-  await shot(page, "10-canvas-preview-off");
+  await shot(page, "10-canvas-loading");
 
-  await enable.click();
   const fieldsTab = studio.getByRole("tab", { name: /On page/ });
-  await expect(fieldsTab).toBeVisible({ timeout: 30000 });
+  await expect(fieldsTab).toBeVisible({ timeout: 60000 });
   await page.waitForTimeout(2000);
   await shot(page, "11-canvas-normal");
 
