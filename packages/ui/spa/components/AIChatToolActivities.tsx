@@ -195,6 +195,18 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
       label: "Changing the sketchpad",
       icon: <PencilRuler className="h-3 w-3" />,
     },
+    convert_session_image: {
+      label: "Converting an image",
+      icon: <Paperclip className="h-3 w-3" />,
+    },
+    highlight_sketchpad_blocks: {
+      label: "Pointing at blocks in the sketchpad",
+      icon: <PencilRuler className="h-3 w-3" />,
+    },
+    clear_sketchpad_highlights: {
+      label: "Clearing the sketchpad's highlights",
+      icon: <PencilRuler className="h-3 w-3" />,
+    },
   };
 
 type ToolDisplay = { label: string; icon: React.ReactNode };

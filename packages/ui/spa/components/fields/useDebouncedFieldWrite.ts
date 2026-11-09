@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 /**
  * How long a field waits after the last keystroke before it writes a patch.
@@ -140,5 +140,21 @@ export function useDebouncedFieldWrite<T>(
   // Unmount, not every render: `writePending` is stable, so this attaches once.
   useEffect(() => writePending, [writePending]);
 
-  return { push, flush: writePending, hasPending };
+  /*
+   * ONE object for the life of the field, and that is load-bearing.
+   *
+   * The fields list `write` as a dependency of the effect that resets the
+   * input from source, on the understanding that it never changes. A fresh
+   * object per render made that effect run on EVERY render instead of when
+   * source moved -- including the render between this write firing (nothing
+   * pending any more) and its patch being registered (no unsaved edit yet),
+   * where the field's source is still the pre-edit value. That render put the
+   * old value back in the input, and while the edit stayed unsaved nothing put
+   * the typed one back: a save the content service failed to take showed the
+   * field as reverted while the edit was kept. See `e2e/http/saveFailure.spec.ts`.
+   */
+  return useMemo(
+    () => ({ push, flush: writePending, hasPending }),
+    [push, writePending, hasPending],
+  );
 }

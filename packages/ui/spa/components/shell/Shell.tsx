@@ -222,6 +222,8 @@ export type ShellProps = {
   /** How Val is running. See `StatusBarProps`. */
   mode?: StatusBarProps["mode"];
   saveState?: SaveState;
+  /** See `StatusBarProps.onRetrySave`. */
+  onRetrySave?: () => void;
   /**
    * Whether changes are written to the working tree on a pause in typing.
    *
@@ -645,6 +647,7 @@ export function Shell({
   onThemeChange,
   mode,
   saveState = "saved",
+  onRetrySave,
   autoSave = false,
   onAutoSaveChange,
   isDevMode = true,
@@ -1649,6 +1652,7 @@ export function Shell({
           <StatusBar
             breakpoint={breakpoint}
             saveState={saveState}
+            onRetrySave={onRetrySave}
             mode={mode}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}

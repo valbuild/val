@@ -1,6 +1,8 @@
 import {
+  sketchFieldTexts,
   checkSketch,
   formatSketch,
+  sketchRoutes,
   sketchTitle,
   formatSketchBox,
   formatSketchText,
@@ -13,7 +15,7 @@ describe("parseSketch", () => {
       [
         "# Our people",
         "row",
-        "  col 2",
+        "  col",
         "    We are 40 people.",
         "  col",
         "    [image: Team photo]",
@@ -30,7 +32,6 @@ describe("parseSketch", () => {
           {
             type: "col",
             line: 3,
-            weight: 2,
             children: [
               { type: "text", line: 4, level: 0, text: "We are 40 people." },
             ],
@@ -38,7 +39,6 @@ describe("parseSketch", () => {
           {
             type: "col",
             line: 5,
-            weight: 1,
             children: [
               {
                 type: "placeholder",
@@ -176,7 +176,7 @@ describe("checkSketch", () => {
   test("a sketch as the Sketchpad writes it passes", () => {
     expect(
       checkSketch(
-        "# Title\nrow\n  col 2\n    [hero: A](image: /a.jpg)\n  col\n    Text\n\nicon hero M3 5h18\n",
+        "# Title\nrow\n  col\n    [hero: A](image: /a.jpg)\n  col\n    Text\n\nicon hero M3 5h18\n",
       ),
     ).toEqual([]);
     expect(checkSketch("")).toEqual([]);
@@ -226,5 +226,125 @@ describe("sketchTitle", () => {
     );
     expect(sketchTitle(parseSketch("## Sub\n").blocks)).toBe("Sub");
     expect(sketchTitle(parseSketch("Just text\n").blocks)).toBeNull();
+  });
+});
+
+describe("route dividers", () => {
+  const SKETCH = [
+    "# Shared intro",
+    "--- /",
+    "# Home",
+    "row",
+    "  col",
+    "    [hero: Welcome](image: /public/val/hero.webp)",
+    "--- /about",
+    "## About us",
+    "[team](image: session:3f2a.webp)",
+    "",
+  ].join("\n");
+
+  test("start the part about a page, and one sketch can name several", () => {
+    const { blocks, errors } = parseSketch(SKETCH);
+    expect(errors).toEqual([]);
+    expect(sketchRoutes(blocks)).toEqual(["/", "/about"]);
+    // A divider closes the row above it: what follows is another page.
+    expect(blocks.map((b) => b.type)).toEqual([
+      "text",
+      "route",
+      "text",
+      "row",
+      "route",
+      "text",
+      "placeholder",
+    ]);
+  });
+
+  test("are written one way", () => {
+    expect(checkSketch(SKETCH)).toEqual([]);
+    const { blocks, icons } = parseSketch(SKETCH);
+    expect(formatSketch(blocks, icons)).toBe(SKETCH);
+  });
+
+  test.each([
+    ["no route", "---\n", "names one page"],
+    ["not a route", "--- about\n", "names one page"],
+    ["indented", "row\n  col\n    --- /about\n", "top level"],
+  ])("say what is wrong: %s", (_, source, message) => {
+    expect(checkSketch(source)[0].message).toContain(message);
+  });
+
+  test("a paragraph that would read as one is kept as text", () => {
+    expect(formatSketchText(0, "--- not a route")).toBe("\\--- not a route");
+  });
+});
+
+describe("columns", () => {
+  test("share a row equally: a col takes no number", () => {
+    expect(checkSketch("row\n  col 2\n    Text\n")[0]).toEqual({
+      line: 2,
+      message:
+        'Columns share a row equally, so a col takes no number: write "col".',
+    });
+  });
+});
+
+describe("text linked to a field", () => {
+  const field = '/content/home.val.ts?p="hero"."title"';
+
+  test("is read, written back the one way, and named by field", () => {
+    const text = `--- /\n# Welcome {field: ${field}}\nrow\n  col\n    \\[things] {field: /content/home.val.ts?p="intro"}\n`;
+    const parsed = parseSketch(text);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.blocks[1]).toEqual({
+      type: "text",
+      line: 2,
+      level: 1,
+      text: "Welcome",
+      field,
+    });
+    expect(formatSketch(parsed.blocks, parsed.icons)).toBe(text);
+    expect(checkSketch(text)).toEqual([]);
+    expect(sketchFieldTexts(parsed.blocks)).toEqual(
+      new Map([
+        [field, "Welcome"],
+        ['/content/home.val.ts?p="intro"', "[things]"],
+      ]),
+    );
+  });
+
+  test("one block per field: a second link is not written", () => {
+    const parsed = parseSketch(
+      `# One {field: ${field}}\nTwo {field: ${field}}\n`,
+    );
+    expect(formatSketch(parsed.blocks, parsed.icons)).toBe(
+      `# One {field: ${field}}\nTwo\n`,
+    );
+  });
+
+  test("survives text that looks like a link, or like something else", () => {
+    for (const [text, link] of [
+      ["Hello {field: x}", undefined],
+      ["icon x M", field],
+      ["a {field: b}", field],
+      ["--- /about", field],
+    ] as const) {
+      const line = formatSketchText(0, text, link) + "\n";
+      expect(checkSketch(line)).toEqual([]);
+      expect(parseSketch(line).blocks).toEqual([
+        {
+          type: "text",
+          line: 1,
+          level: 0,
+          text,
+          ...(link ? { field: link } : {}),
+        },
+      ]);
+    }
+  });
+
+  test("only text is linked", () => {
+    expect(parseSketch(`[hero: Big] {field: ${field}}\n`).errors).toEqual([
+      expect.objectContaining({ line: 1 }),
+    ]);
   });
 });

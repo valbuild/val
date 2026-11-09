@@ -22,7 +22,7 @@ import { Sketchpad, type SketchpadProps } from "../Sketchpad";
  * Any other line                     text (a paragraph)
  * [image: Team photo]                a box: [kind] or [kind: label]
  * row                                its children side by side
- *   col 2                            its children stacked; 2 shares of a row
+ *   col                              its children stacked; columns share a row
  * [hero: Roof](image: /roof.jpg)     a box with an image (or video) in it
  *
  * icon stat M3 17l6-6 4 4 8-8        how every [stat] box is drawn
@@ -109,7 +109,7 @@ row
 row
   col
     [image: Portrait of Kari]
-  col 3
+  col
     "We stopped sending Word documents to our developers."
     Kari Nordmann, head of marketing
 
@@ -117,7 +117,7 @@ ${icons("button", "image")}
 `;
 
 const ARTICLE = `row
-  col 3
+  col
     # How we moved our CMS into git
     By Ola Nordmann, 12 March
     [image: The team at the whiteboard]
@@ -146,7 +146,7 @@ export const LandingPage: Story = {
   args: { value: LANDING, title: "/" },
 };
 
-/** A wide column and a sidebar: `col 3` takes three shares of the row. */
+/** A main column and a sidebar: columns share their row equally. */
 export const ArticleWithSidebar: Story = {
   args: { value: ARTICLE, title: "/blog/cms-in-git" },
 };
@@ -171,7 +171,7 @@ row
   [stat: Open proposals 17]
   [stat: Broken links 3]
 row
-  col 2
+  col
     ## Traffic
     [chart: Visitors per day, line]
   col
@@ -270,7 +270,7 @@ row
   [pricing: Enterprise, talk to us]
 [logos: Customers who switched last year]
 row
-  col 2
+  col
     [testimonial: "Our editors publish on their own now."]
   col
     [newsletter: Get the launch email]
@@ -289,7 +289,7 @@ export const Nested: Story = {
     title: "/contact",
     value: `# Contact us
 row
-  col 2
+  col
     ## Send us a message
     [form: Name, email and message]
     row
