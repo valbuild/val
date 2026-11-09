@@ -315,6 +315,14 @@ export abstract class ValOps {
    */
   private heldStaged: Map<ModuleFilePath, string> = new Map();
   /**
+   * The Source of each module NEW in the proposal -- staged after the build,
+   * and not in it at all -- read from its staged text: what a save applies
+   * its patches to and records (`getSources`, `prepare`). Not served: no
+   * reader at this build has its schema, and the page's code has not got
+   * the module. See {@link readStagedSources}.
+   */
+  private stagedNewSources: Sources = {};
+  /**
    * What the BUILD evaluated each module to, and its version: before a
    * snapshot, a staging or a publish put anything over it. What a reader's
    * own bundle holds, so where the head's version is this one a draft reader
@@ -526,6 +534,7 @@ export abstract class ValOps {
           ? this.options?.snapshotSources
           : { ...this.options?.snapshotSources, ...staged.sources };
       this.heldStaged = staged?.held ?? new Map();
+      this.stagedNewSources = staged?.added ?? {};
       /*
        * The bundle's own Source for every module either layer replaces: a
        * replaced `.jsonValues()` module's markers came as JSON, and an entry
@@ -604,9 +613,12 @@ export abstract class ValOps {
    * routes through a schema this server has not got -- is held, and keeps
    * what it had: its version says it is not this build's either way.
    */
-  private async readStagedSources(
-    bundled: Sources,
-  ): Promise<{ sources: Sources; held: Map<ModuleFilePath, string> } | null> {
+  private async readStagedSources(bundled: Sources): Promise<{
+    sources: Sources;
+    /** Of {@link sources}, the modules this build does not have at all. */
+    added: Sources;
+    held: Map<ModuleFilePath, string>;
+  } | null> {
     const staged = this.options?.stagedAfterBuild;
     if (staged === undefined) return null;
     const paths = Object.keys(staged.versions) as ModuleFilePath[];
@@ -618,13 +630,10 @@ export abstract class ValOps {
       Internal.log.error("could not read the staged modules' Source", err);
     }
     const sources: Sources = {};
+    const added: Sources = {};
     const held = new Map<ModuleFilePath, string>();
     for (const path of paths) {
       const source = read[path];
-      if (bundled[path] === undefined) {
-        // Not in this build at all: nothing here serves it, or saves it.
-        continue;
-      }
       if (source === undefined) {
         held.set(
           path,
@@ -639,9 +648,19 @@ export abstract class ValOps {
         );
         continue;
       }
+      if (bundled[path] === undefined) {
+        // New in the proposal: this build has no such module. Its Source is
+        // saved from its text all the same (a save applies its patches to
+        // it, with no schema), and it is not served: see `stagedNewSources`.
+        // It used to be skipped here, so a save recorded its text and no
+        // Source, and the address went on serving what the module was
+        // created with after the build (C11d).
+        added[path] = source;
+        continue;
+      }
       sources[path] = source;
     }
-    return { sources, held };
+    return { sources, added, held };
   }
 
   /**
@@ -1568,7 +1587,9 @@ export abstract class ValOps {
     };
     for (const patchData of analysis.patches) {
       const path = patchData.path;
-      const base = sources[path];
+      // A module new in the proposal has no base in this build: its staged
+      // text's Source is the one its patches apply to.
+      const base = sources[path] ?? this.stagedNewSources[path];
       if (base === undefined) {
         if (!errors[path]) {
           errors[path] = [];
@@ -2993,6 +3014,23 @@ export abstract class ValOps {
         // other module its history.
         serialized = undefined;
       }
+      const staged = stagedAfterBuild[path];
+      if (
+        !serialized &&
+        staged !== undefined &&
+        this.stagedNewSources[path] !== undefined
+      ) {
+        // New in the proposal: no schema of this build's, and content records
+        // the staging's. Without this the save recorded the module's text
+        // and no Source (C11d).
+        const source = sourcesAfter[path];
+        moduleVersions[path] = {
+          source: source === undefined ? null : (source as JSONValue),
+          schema: null,
+          staged,
+        };
+        continue;
+      }
       if (!serialized) {
         continue;
       }
@@ -3733,17 +3771,27 @@ export type PreparedCommit = {
    */
   moduleVersions: Record<
     ModuleFilePath,
-    {
-      source: JSONValue | null;
-      schema: SerializedSchema;
-      /**
-       * `staged:<inputs>`: the module's code is staged in the proposal and
-       * not in this build, so `schema` is not the one `source` fits; content
-       * records this as the version's schema instead (valbuild/home,
-       * "Staged schemas"). Absent for every other module.
-       */
-      staged?: string;
-    }
+    | {
+        source: JSONValue | null;
+        schema: SerializedSchema;
+        /**
+         * `staged:<inputs>`: the module's code is staged in the proposal and
+         * not in this build, so `schema` is not the one `source` fits;
+         * content records this as the version's schema instead
+         * (valbuild/home, "Staged schemas"). Absent for every other module.
+         */
+        staged?: string;
+      }
+    | {
+        source: JSONValue | null;
+        /**
+         * A module NEW in the proposal, which this build does not have at
+         * all: there is no schema of this build's to send, and content
+         * records the staging's ({@link staged}) without reading one.
+         */
+        schema: null;
+        staged: string;
+      }
   >;
   /**
    * Diagnosis only: what the source file looks like with the appliable patches

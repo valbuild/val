@@ -67,6 +67,20 @@ export default c.define(
   { title: ${JSON.stringify(title)}, button: { label: ${JSON.stringify(label)} } },
 );
 `;
+const PROMO = "/content/promo.val.ts";
+const PROMO_FILE = "content/promo.val.ts";
+// A module the proposal adds, which the build before it does not have.
+const promo = c.define(PROMO, s.object({ headline: s.string() }), {
+  headline: "Spring sale",
+});
+const promoText = (headline: string) => `import { c, s } from "../val.config";
+
+export default c.define(
+  "${PROMO}",
+  s.object({ headline: s.string() }),
+  { headline: ${JSON.stringify(headline)} },
+);
+`;
 const heroText = `export function Hero() {\n  return <h1>Hero</h1>;\n}\n`;
 const FOOTER_FILE = "src/components/Footer.tsx";
 const footerText = `export function Footer() {\n  return <footer>Footer</footer>;\n}\n`;
@@ -406,6 +420,114 @@ export default c.define(
     const saved = await proposal.client.files(proposal.name);
     expect(saved.files[HOME_FILE]).toContain('"Buy now"');
     expect(saved.files[HOME_FILE]).toContain("title: TITLE");
+    expect((await proposal.client.get(proposal.name)).changes).toBe(0);
+    expect(editor.errors()).toEqual([]);
+  });
+
+  /**
+   * C11d A module NEW in the proposal, which the build serving the address
+   * does not have at all, is the editor's to fill in before a build, and its
+   * edit is saved by the next code write -- never dropped.
+   *
+   * The assistant stages a new `.val.ts` (and registers it); the tab
+   * evaluates the staging, so the Studio has the module and its schema. The
+   * server at the address runs the build before the staging, which has no
+   * such module: it must not take the Studio's module away (a build's
+   * registry replaces, it does not merge), and the save before the next code
+   * write must apply the edit to the staged text. The page, whose code does
+   * not have the module, reads it once a build of the staging serves the
+   * address.
+   */
+  test("C11d a module new in the proposal is edited, saved and served, never dropped", async () => {
+    const { world, proposal, editor } = await open();
+    world.page("/", { draftMode: false }).reads("proposal", async (val) => {
+      const read = await val.fetchVal(promo);
+      return read.headline;
+    });
+    await proposal.codeMode(true);
+    editor.reads("field", promo, ["headline"]);
+
+    const staged = await proposal.stage(
+      { [PROMO_FILE]: promoText("Spring sale") },
+      "A promo",
+      { studio: editor, modules: [before, promo] },
+    );
+    expect(staged.isError).toBe(false);
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Spring sale");
+
+    await editor.edit(promo, ["headline"], "Spring sale, today");
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Spring sale, today");
+
+    // The next code write saves the edit into the staged text first.
+    const next = await proposal.stage({ [HERO_FILE]: heroText }, undefined, {
+      studio: editor,
+      modules: [before, promo],
+    });
+    expect(next.isError).toBe(false);
+    const files = await proposal.client.files(proposal.name);
+    expect(files.files[PROMO_FILE]).toContain('"Spring sale, today"');
+    expect((await proposal.client.get(proposal.name)).changes).toBe(0);
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Spring sale, today");
+
+    // Built: the address serves it, to the page too.
+    await proposal.redeploy();
+    await world.settle();
+    await world.observe();
+    expect(world.frames.last("field")).toBe("Spring sale, today");
+    expect(world.frames.last("proposal")).toBe("Spring sale, today");
+    world.frames.expectNeverGoesBack();
+    expect(editor.errors()).toEqual([]);
+  });
+
+  /**
+   * C11e A module new in the proposal whose content is made by code -- here
+   * its headline is a constant -- cannot be read without running it, so an
+   * edit to it is HELD, as C11c's is: the next code write is refused, saying
+   * which module and to build the proposal first, and the edit stays
+   * pending. Once a build of the staging serves the address, the same write
+   * saves it.
+   */
+  test("C11e an edit to a new module the server cannot read is held until a build, and the assistant is told why", async () => {
+    const { world, proposal, editor } = await open();
+    await proposal.codeMode(true);
+    const byCode = `import { c, s } from "../val.config";
+
+const HEADLINE = "Spring sale";
+
+export default c.define(
+  "${PROMO}",
+  s.object({ headline: s.string() }),
+  { headline: HEADLINE },
+);
+`;
+    await proposal.stage({ [PROMO_FILE]: byCode }, "A promo", {
+      studio: editor,
+      modules: [before, promo],
+    });
+    await world.settle();
+    await editor.edit(promo, ["headline"], "Spring sale, today");
+    await world.settle();
+
+    const held = await proposal.stage({ [HERO_FILE]: heroText });
+    expect(held.isError).toBe(true);
+    expect(JSON.stringify(held.result)).toMatch(
+      /content\/promo\.val\.ts cannot be saved here: .*Build the proposal, then save/,
+    );
+    expect((await proposal.client.get(proposal.name)).changes).toBe(1);
+
+    await proposal.redeploy();
+    await world.settle();
+    expect((await proposal.stage({ [HERO_FILE]: heroText })).isError).toBe(
+      false,
+    );
+    const saved = await proposal.client.files(proposal.name);
+    expect(saved.files[PROMO_FILE]).toContain('"Spring sale, today"');
     expect((await proposal.client.get(proposal.name)).changes).toBe(0);
     expect(editor.errors()).toEqual([]);
   });
