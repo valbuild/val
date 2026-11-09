@@ -1528,6 +1528,9 @@ export function createSystem(options: SystemOptions): System {
             ...(syncState.status === "refused"
               ? { planRefusal: syncState.message }
               : {}),
+            ...(syncState.status === "failed"
+              ? { saveFailure: syncState.message }
+              : {}),
           };
         }
 

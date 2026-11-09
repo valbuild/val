@@ -37,10 +37,23 @@ export function describePublishRefusal(refusal: Refusal): {
           details: `${refusal.planRefusal}\n\nNothing was published, and your changes are kept.`,
         };
       }
+      if (refusal.saveFailure !== undefined) {
+        // The content service failed to take them, and said so: its sentence
+        // names what failed. Not "check the connection" -- it answered.
+        return {
+          message: "Cannot publish: your latest changes could not be saved.",
+          details: `${refusal.saveFailure}\n\nNothing was published, so no work is lost: your changes are kept in this tab. Save them again, then publish.`,
+          action: "retry-save",
+        };
+      }
+      // Still being retried -- a request that did not complete, a conflict, an
+      // answer that could not be read. Which one is in the status bar's
+      // report; guessing "the connection" here blamed the network for all of
+      // them.
       return {
         message: "Cannot publish: your latest changes could not be saved.",
         details:
-          "Nothing was published, so no work is lost. Check the connection and try again.",
+          "Nothing was published, so no work is lost: your changes are kept in this tab. Val keeps trying to save them; publish once the status bar says they are saved.",
       };
     case "chain-moved":
       return {

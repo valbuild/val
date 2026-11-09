@@ -26,8 +26,10 @@ export type TransientError = {
  *
  * - `show-held-edits`: the edits a publish was refused for, in their banner,
  *   where they are copied and discarded (`HeldEditsBanner`).
+ * - `retry-save`: send a save the content service failed to take again
+ *   (`PatchSync.retry`), the same as Try again in the status bar.
  */
-export type TransientErrorAction = "show-held-edits";
+export type TransientErrorAction = "show-held-edits" | "retry-save";
 
 /**
  * An edit that stopped fitting its module when the module's code changed: a
