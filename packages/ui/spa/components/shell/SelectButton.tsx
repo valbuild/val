@@ -27,6 +27,7 @@ export function SelectButton({
   onPressedChange,
   codeMode = false,
   label = true,
+  unavailable,
   className,
 }: {
   selectFor: SelectFor;
@@ -36,6 +37,11 @@ export function SelectButton({
   codeMode?: boolean;
   /** Whether there is room for the word beside the icon. */
   label?: boolean;
+  /**
+   * Nothing on the page can be picked yet: it has not said what is on it.
+   * Shown, so the header does not shift when it does, and said why.
+   */
+  unavailable?: string;
   className?: string;
 }) {
   const proposal = selectFor === "assistant" && codeMode;
@@ -43,13 +49,16 @@ export function SelectButton({
     <button
       type="button"
       aria-pressed={pressed}
+      disabled={unavailable !== undefined}
       aria-label={ACCESSIBLE_NAME[selectFor][pressed ? "on" : "off"]}
       title={
-        selectFor === "content"
-          ? "Select a field on the page to edit it"
-          : codeMode
-            ? "Select anything on the page, to ask the assistant about it"
-            : "Select a field on the page, to ask the assistant about it"
+        unavailable !== undefined
+          ? unavailable
+          : selectFor === "content"
+            ? "Select a field on the page to edit it"
+            : codeMode
+              ? "Select anything on the page, to ask the assistant about it"
+              : "Select a field on the page, to ask the assistant about it"
       }
       onClick={() => onPressedChange(!pressed)}
       className={cn(
@@ -61,6 +70,7 @@ export function SelectButton({
               ? "border-dashed border-border-proposal bg-bg-proposal-soft text-fg-proposal"
               : "border-dashed border-border-brand-secondary bg-bg-float-raised text-fg-primary"
           : "border-border-float text-fg-secondary hover:text-fg-primary",
+        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-fg-secondary",
         className,
       )}
     >

@@ -493,8 +493,16 @@ export function PageWorkspace({
   const contentSelectButton = (compact: boolean) => (
     <SelectButton
       selectFor="content"
-      pressed={isPicking}
+      // Pressed only once there is something to pick: before the page has
+      // said what is on it, a click on it goes to the page, and a page with
+      // the focus is one the preview will not turn preview mode on in.
+      pressed={isPicking && fieldCount > 0}
       onPressedChange={setIsPicking}
+      unavailable={
+        fieldCount > 0
+          ? undefined
+          : "Nothing on the page can be selected until the preview has loaded it"
+      }
       label={!compact}
       className={
         compact && isPhone

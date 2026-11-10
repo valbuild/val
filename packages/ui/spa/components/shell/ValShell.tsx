@@ -1742,6 +1742,14 @@ function ValShellBody({
                     pressed: assistantSelecting,
                     onPressedChange: setAssistantSelecting,
                     codeMode: assistantPick.codeMode,
+                    // As Content's: a page that has not reported is one
+                    // whose picker is not listening yet.
+                    ...(canvasPaths.length === 0
+                      ? {
+                          unavailable:
+                            "Nothing on the page can be selected until the preview has loaded it",
+                        }
+                      : {}),
                   }
                 : undefined
             }

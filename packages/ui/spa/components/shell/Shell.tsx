@@ -442,6 +442,8 @@ export type ShellProps = {
     pressed: boolean;
     onPressedChange: (pressed: boolean) => void;
     codeMode: boolean;
+    /** Why nothing can be picked yet, while the page has not reported. */
+    unavailable?: string;
   };
   /** The top bar's Sketchpad button, once there is a Sketchpad. */
   sketchpad?: TopBarSketchpad;
@@ -1979,6 +1981,7 @@ export function Shell({
                   pressed={assistantPicking}
                   onPressedChange={pressAssistantSelect}
                   codeMode={assistantSelect.codeMode}
+                  unavailable={assistantSelect.unavailable}
                 />
               ) : undefined
             }
