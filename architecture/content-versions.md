@@ -632,7 +632,10 @@ arrived, or its save was confirmed): `PatchStore.decidedGone`, ordered by
 carried was asked for when that stat was (`StatStore.asked`, `stat:ask`), so
 it decides at that moment, not when it is read: a save confirmed while the
 stat was out may be missing from it without being gone. A stat whose asking
-nobody said carries a manifest that is not taken. It is settled at the stat and
+nobody said carries a manifest that is not taken, and so does one whose
+patch list is not the last one with patches added: a publish in fs mode
+wakes the long poll as its patches are deleted, before the build that has
+them in its base is up, and that manifest names the old base without them. It is settled at the stat and
 again when its manifest lands (`PatchStore.manifestAdopted`). A moved base
 says it was published rather than discarded.
 

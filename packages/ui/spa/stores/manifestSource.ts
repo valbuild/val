@@ -232,6 +232,8 @@ export class ManifestSource {
   } | null = null;
   /** The epoch the `/stat` in flight was asked at (`stat:ask`). */
   private askedAt: number | null = null;
+  /** The patch list the last stat named, for {@link onlyAppended}. */
+  private lastPatches: readonly PatchId[] | null = null;
 
   constructor(
     private readonly host: HostStore,
@@ -340,10 +342,17 @@ export class ManifestSource {
       this.statSeen = true;
       const askedAt = this.askedAt;
       this.askedAt = null;
+      const appended = onlyAppended(this.lastPatches, event.patches);
+      this.lastPatches = event.patches;
       // Only from a stat whose asking was said: without that moment there is
-      // nothing to decide at, and the manifest is asked for instead.
+      // nothing to decide at, and the manifest is asked for instead. And only
+      // for a chain that grew: a stat that stopped naming patches can be a
+      // publish answered by the build before it (fs: the long poll wakes as
+      // the published patches are deleted, before the build that has them in
+      // its base is up), whose manifest names its old base without them --
+      // the page would show the content from before the publish, then after.
       this.carried =
-        event.manifest !== undefined && askedAt !== null
+        event.manifest !== undefined && askedAt !== null && appended
           ? {
               manifest: event.manifest,
               ...(event.seq !== undefined ? { seq: event.seq } : {}),
@@ -768,4 +777,17 @@ export class ManifestSource {
     });
     return null;
   }
+}
+
+/**
+ * Whether `next` is `previous` with patches added at the end, and nothing
+ * taken away: what another editor's keystroke does to the chain, and what a
+ * publish or a discard does not. `false` before there is a previous list.
+ */
+function onlyAppended(
+  previous: readonly PatchId[] | null,
+  next: readonly PatchId[],
+): boolean {
+  if (previous === null || next.length < previous.length) return false;
+  return previous.every((patchId, i) => next[i] === patchId);
 }

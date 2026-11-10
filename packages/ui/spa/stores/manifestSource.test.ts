@@ -317,6 +317,21 @@ describe("another editor's keystroke", () => {
     expect(manifestRequests() - before).toBe(1);
   });
 
+  // A publish answered by the build before it names its old base without
+  // the published patches: taken, the page would go back to before them.
+  test("asks for the manifest when the stat stopped naming a patch", async () => {
+    const { stat, server, carried, statCarrying, manifestRequests } =
+      counting();
+    server.chain.push(theirs);
+    stat();
+    await settle();
+    const before = manifestRequests();
+    server.chain.length = 0;
+    statCarrying(await carried());
+    await settle();
+    expect(manifestRequests() - before).toBe(1);
+  });
+
   test("asks for the manifest when the delta is relative to one it does not hold", async () => {
     const { stat, keywords, server, carried, statCarrying, manifestRequests } =
       counting();
