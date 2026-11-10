@@ -694,7 +694,6 @@ export class ValidationStore {
       held = { schemaVersion, byKey: new Map(), record: null };
       this.entryErrors.set(moduleFilePath, held);
     }
-    const shell: Record<string, Json> = {};
     const changed: Record<string, Json> = {};
     const entryPaths = new Map<SourcePath, string>();
     const kept = new Map<string, EntryErrors>();
@@ -703,11 +702,7 @@ export class ValidationStore {
     const keys: string[] = [];
     for (const [key, entry] of Object.entries(source)) {
       keys.push(entry === null ? `${key}\u0000null` : key);
-      if (entry === null || Internal.isJson(entry)) {
-        shell[key] = entry;
-        continue;
-      }
-      shell[key] = UNLOADED_ENTRY;
+      if (entry === null || Internal.isJson(entry)) continue;
       const before = held.byKey.get(key);
       if (before !== undefined && before.entry === entry) {
         kept.set(key, before);
@@ -725,7 +720,7 @@ export class ValidationStore {
     } else {
       recordErrors = await this.schemaValidation.validate(
         moduleFilePath,
-        shell,
+        shellOf(source),
         serializedSchema,
         schemaVersion,
       );
@@ -1156,6 +1151,16 @@ function entryPathOf(moduleFilePath: ModuleFilePath, key: string): SourcePath {
     moduleFilePath,
     Internal.patchPathToModulePath([key]),
   );
+}
+
+/** The record with every loaded entry put back to an un-loaded marker. */
+function shellOf(source: Record<string, Json>): Record<string, Json> {
+  const shell: Record<string, Json> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    shell[key] =
+      entry === null || Internal.isJson(entry) ? entry : UNLOADED_ENTRY;
+  }
+  return shell;
 }
 
 function sameKeys(a: readonly string[], b: readonly string[]): boolean {
