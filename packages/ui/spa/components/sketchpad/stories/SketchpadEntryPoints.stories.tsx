@@ -232,7 +232,7 @@ function EntryPoint({ start }: Props) {
               onToggle: open ? closeSketchpad : openSketchpad,
             }
       }
-      workspaceOverride={
+      sketchPane={
         open && value !== null ? (
           <SketchpadWorkspace
             preview={<PreviewMock />}

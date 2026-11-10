@@ -248,7 +248,7 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
       }
       pendingChanges={3}
       onCompare={() => console.log("open the review view")}
-      workspaceOverride={
+      sketchPane={
         <SketchpadWorkspace
           preview={<PreviewMock />}
           sketchpads={list}

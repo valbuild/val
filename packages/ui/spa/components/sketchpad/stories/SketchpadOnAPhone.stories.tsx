@@ -101,7 +101,7 @@ function PhoneSketchpad({ fullscreen }: Props) {
         />
       }
       pendingChanges={3}
-      workspaceOverride={
+      sketchPane={
         <SketchpadWorkspace
           preview={<PreviewMock />}
           sketchpads={{

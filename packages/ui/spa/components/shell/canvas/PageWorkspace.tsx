@@ -23,6 +23,9 @@ import { CanvasFields } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
+import type { ContentPlacement } from "../workspace/placePanes";
+import { PaneStrip } from "../workspace/WorkspaceChrome";
+import { GAP, GUTTER, RAIL_WIDTH } from "../workspace/workspaceLayout";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { EditorDensityProvider } from "../../EditorDensity";
 import { SourcePath } from "@valbuild/core";
@@ -141,6 +144,17 @@ export type PageWorkspaceProps = {
    */
   isAssistantPicking?: boolean;
   onStopAssistantPicking?: () => void;
+  /**
+   * Where Content goes, from `workspaceLayout` (`placePanes`): its column at
+   * the width the rule gives it, folded to a strip, or on a tablet a sheet
+   * over the preview. Absent on a phone, and in the stories that predate the
+   * rule: the column keeps its own width.
+   */
+  contentPlacement?: ContentPlacement;
+  /** Content was used: a click in it. Decides what keeps a column. */
+  onUseContent?: () => void;
+  /** Close Content's sheet, handing the room back to the pane beside it. */
+  onFoldContent?: () => void;
 };
 
 /** Stable, so a page that has reported nothing does not re-merge every render. */
@@ -237,6 +251,9 @@ export function PageWorkspace({
   skipTransition,
   isAssistantPicking = false,
   onStopAssistantPicking,
+  contentPlacement,
+  onUseContent,
+  onFoldContent,
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
@@ -788,6 +805,16 @@ export function PageWorkspace({
           style={railPadding}
           className="flex shrink-0 items-center gap-2 px-4 md:px-6 pt-20 pb-2.5"
         >
+          {contentPlacement?.kind === "sheet" && onFoldContent && (
+            <button
+              type="button"
+              aria-label="Close Content"
+              onClick={onFoldContent}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border-float bg-bg-float text-fg-secondary hover:text-fg-primary"
+            >
+              <X size={15} />
+            </button>
+          )}
           {viewToggle}
           <div className="flex-1" />
           {contentSelectButton(!selectHasRoom)}
@@ -1023,28 +1050,59 @@ export function PageWorkspace({
     );
   }
 
+  const contentFolded = contentPlacement?.kind === "strip";
+  const contentSheet = contentPlacement?.kind === "sheet";
+  /** What is left of the column: the rail on a desktop, the gutter below. */
+  const contentInset = breakpoint === "desktop" ? RAIL_WIDTH : GUTTER;
+  const stripRoom =
+    contentPlacement !== undefined && contentPlacement.kind === "strip"
+      ? contentInset + contentPlacement.width + GAP
+      : 0;
+
   return (
     <div
       ref={splitRef}
       className="absolute inset-0 flex overflow-hidden bg-bg-canvas"
     >
+      {open && contentFolded && (
+        <div className="relative h-full shrink-0" style={{ width: stripRoom }}>
+          <PaneStrip
+            panes={["content"]}
+            onUse={() => onUseContent?.()}
+            style={{ left: contentInset, width: contentPlacement.width }}
+          />
+        </div>
+      )}
       <div
+        onPointerDownCapture={onUseContent}
         style={{
-          width: open
-            ? columnPx !== null
-              ? `${columnPx}px`
-              : COLUMN_WIDTH
-            : "100%",
+          width: !open
+            ? "100%"
+            : contentSheet
+              ? `${contentPlacement.width + contentInset}px`
+              : columnPx !== null
+                ? `${columnPx}px`
+                : contentPlacement?.kind === "column"
+                  ? `${contentPlacement.width + contentInset}px`
+                  : COLUMN_WIDTH,
           // A width being animated cannot also be dragged — the column would
           // lag a third of a second behind the pointer — so the transition
           // belongs to opening and closing, not to the drag.
           transition: isDragging ? undefined : ease(["width"]),
         }}
-        className="relative h-full min-w-0 shrink-0"
+        className={cn(
+          "relative h-full min-w-0 shrink-0",
+          // Folded, it stays mounted, so coming back is where it was left.
+          open && contentFolded && "hidden",
+          // A sheet over the preview: the same column, placed over it.
+          open &&
+            contentSheet &&
+            "absolute inset-y-0 left-0 z-window bg-bg-canvas shadow-2xl",
+        )}
       >
         {column}
       </div>
-      {open && (
+      {open && !contentFolded && !contentSheet && (
         <SplitDivider
           isDragging={isDragging}
           onPointerDown={onDividerPointerDown}

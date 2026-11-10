@@ -43,18 +43,24 @@ export function useStudioSketchpads(options: {
   pageTypes?: string[];
   currentProfileId: string | null;
   /**
-   * Where the Studio is. Going somewhere else -- a page, the Explorer, a
-   * search hit, the assistant's navigate_to -- closes the sketchpad, which
-   * otherwise covers where it went.
+   * Show a page in the workspace's preview: the one the open sketch is
+   * about. The Sketch pane then has no preview of its own. `null` on a phone,
+   * where the Sketchpad takes the screen with its own preview until the
+   * phone has a pane bar.
    */
-  location: string;
+  onShowRoute: ((route: string) => void) | null;
 }): {
   wrap: (children: ReactNode) => ReactNode;
   sketchpad: TopBarSketchpad | undefined;
   onSketchPage: ((page: ShellPage) => void) | undefined;
-  workspaceOverride: ReactNode | undefined;
+  /**
+   * The Sketch pane, while a sketchpad is open: one of the workspace's
+   * panes, beside Content and the preview, not in place of them -- so going
+   * somewhere else in the Studio leaves it open.
+   */
+  sketchPane: ReactNode | undefined;
 } {
-  const { openAssistant, pages, pageTypes, currentProfileId, location } =
+  const { openAssistant, pages, pageTypes, currentProfileId, onShowRoute } =
     options;
   const valClient = useClient();
   const client = useMemo(() => createSketchpadClient(valClient), [valClient]);
@@ -91,14 +97,6 @@ export function useStudioSketchpads(options: {
       lastOpened.current = snapshot.openId;
     }
   }, [snapshot.openId]);
-
-  const lastLocation = useRef(location);
-  useEffect(() => {
-    if (lastLocation.current !== location) {
-      lastLocation.current = location;
-      state.close();
-    }
-  }, [location, state]);
 
   // The list's rows, with anything this tab knows newer than the list.
   const items: SketchpadListItem[] = useMemo(
@@ -224,7 +222,7 @@ export function useStudioSketchpads(options: {
           }
         : undefined,
     onSketchPage: available ? (page) => void onSketchPage(page) : undefined,
-    workspaceOverride:
+    sketchPane:
       snapshot.openId !== null ? (
         <ValSketchpad
           state={state}
@@ -235,6 +233,7 @@ export function useStudioSketchpads(options: {
           onOpenAssistant={openAssistant ?? undefined}
           pageOptions={pageOptions}
           currentProfileId={currentProfileId}
+          onShowRoute={onShowRoute ?? undefined}
         />
       ) : undefined,
   };

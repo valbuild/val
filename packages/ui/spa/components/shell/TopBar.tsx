@@ -150,6 +150,11 @@ export type TopBarProps = {
   /** See `ShellData.studioMode`. */
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
+  /**
+   * Whether the assistant is open, where it is a pane of the workspace
+   * rather than one of the panels (above a phone). Absent: `openPanel`.
+   */
+  aiOpen?: boolean;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
   onOpenMenu: () => void;
@@ -305,6 +310,7 @@ export function TopBar({
   webComponentsUrl,
   studioMode,
   openPanel,
+  aiOpen,
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
@@ -677,7 +683,7 @@ export function TopBar({
         {aiEnabled && !isMobile && (
           <IconButton
             label="AI assistant"
-            active={openPanel === "ai"}
+            active={aiOpen ?? openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
             tourTarget="ai"
           >

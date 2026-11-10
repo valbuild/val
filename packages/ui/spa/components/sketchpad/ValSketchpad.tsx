@@ -41,6 +41,7 @@ export function ValSketchpad({
   onOpenAssistant,
   pageOptions,
   currentProfileId,
+  onShowRoute,
 }: {
   state: SketchpadsState;
   client: SketchpadClient;
@@ -58,6 +59,12 @@ export function ValSketchpad({
   /** The site's routes: its pages, and its page types (`/blog/[slug]`). */
   pageOptions: string[];
   currentProfileId: string | null;
+  /**
+   * Show the page the sketch is about in the Studio's preview, which is a
+   * pane of the workspace beside this one. Without it the Sketchpad has a
+   * preview of its own (`SketchpadPreview`), as in the stories.
+   */
+  onShowRoute?: (route: string) => void;
 }) {
   const snapshot = useSketchpadsSnapshot(state);
   // What a box may show, and the kinds of section the site has: read only
@@ -84,6 +91,14 @@ export function ValSketchpad({
     [known],
   );
   const activeRoute = pressedRoute ?? routesInSketch[0] ?? known?.page ?? null;
+  // The workspace's preview follows the page the sketch is about: pressed in
+  // it, or the one it starts with. Only a page, not a page type.
+  const onShowRouteRef = useRef(onShowRoute);
+  onShowRouteRef.current = onShowRoute;
+  useEffect(() => {
+    if (activeRoute === null || isRoutePattern(activeRoute)) return;
+    onShowRouteRef.current?.(activeRoute);
+  }, [activeRoute]);
 
   // Fetched every time it is opened: what this tab has may be from before
   // someone else's change. What it has is shown meanwhile, and the newer
@@ -206,11 +221,13 @@ export function ValSketchpad({
   return (
     <SketchpadWorkspace
       preview={
-        <SketchpadPreview
-          route={activeRoute}
-          onRouteChange={setPressedRoute}
-          routes={pagesOf(pageOptions)}
-        />
+        onShowRoute !== undefined ? null : (
+          <SketchpadPreview
+            route={activeRoute}
+            onRouteChange={setPressedRoute}
+            routes={pagesOf(pageOptions)}
+          />
+        )
       }
       sketchpads={{
         sketchpads: sketchpads.items,

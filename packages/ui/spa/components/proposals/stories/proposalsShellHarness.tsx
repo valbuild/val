@@ -794,7 +794,6 @@ export function ProposalsShell({
         renderCanvas={() => sitePage}
         initialCanvasOpen={inCodeView}
         canvasPinned={inCodeView}
-        dockAssistant={inCodeView}
         initialSelectionId={selectionId ?? null}
         /*
          * In a proposal the status bar names its branch, as `useShellData`

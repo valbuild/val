@@ -47,6 +47,7 @@ import { ValSettingsSections } from "./ValSettingsSections";
 import { SiteUpdateSection } from "./SiteUpdateSection";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { useValPortal } from "../ValPortalProvider";
+import { useShellBreakpoint } from "./useShellBreakpoint";
 import { useContentSearch } from "./useContentSearch";
 import {
   parseShellUrlState,
@@ -629,12 +630,19 @@ function ValShellBody({
    * page, the workspace while one is open, and the state the assistant's
    * tools share with them. See `sketchpad/useStudioSketchpads.tsx`.
    */
+  const shellBreakpoint = useShellBreakpoint();
+  const showRouteRef = useRef<((route: string) => void) | null>(null);
   const sketchpads = useStudioSketchpads({
     openAssistant: isAIChatEnabled ? openAIPanel : null,
     pages: data.pages,
     pageTypes: data.newPage?.routes.map((route) => route.patternString),
     currentProfileId: useCurrentProfileId(),
-    location: navigation.currentSourcePath,
+    // Above a phone the Sketch pane is beside the one preview, and the page
+    // the sketch is about is shown there (`onCanvasRouteChange`, below).
+    onShowRoute:
+      shellBreakpoint === "mobile"
+        ? null
+        : (route) => showRouteRef.current?.(route),
   });
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
@@ -920,6 +928,7 @@ function ValShellBody({
     },
     [routeSourcePaths, navigation],
   );
+  showRouteRef.current = onCanvasRouteChange;
 
   /**
    * The routes the address bar offers, in URL order.
@@ -1728,14 +1737,13 @@ function ValShellBody({
              * workspace: the canvas is the same in every mode, and code mode's
              * view is the code changes in the editor's column, beside it.
              */
-            workspaceOverride={sketchpads.workspaceOverride}
+            sketchPane={sketchpads.sketchPane}
             /*
              * Code mode's view is the code changes beside the page: the canvas
              * is held open, and the assistant that changes the page is docked
              * beside it rather than over it.
              */
             canvasPinned={inCodeView}
-            dockAssistant={inCodeView}
             assistantSelect={
               isAIChatEnabled
                 ? {

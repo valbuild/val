@@ -93,27 +93,32 @@ assistant a sheet over the preview when in use; 390 → one pane.
   the top bar beside the account, and the bell into the account menu.
   Replaces today's `MobileBottomBar` (assistant, bell, Preview, one primary
   action).
+- **When one column fits beside the preview** (about 1200-1500 px) the
+  other folds to a **strip** at its edge. Content never floats over the
+  preview (`narrow: "strips"`).
+- **History takes the preview's place** while it is open: "now | at commit"
+  in the middle, the preview back when History closes. Content keeps its
+  column.
+- **The code diff is in Review** ("Compare with the site"), with the
+  content changes. Code mode's `</>` menu links there; Content's header has
+  no Code tab.
+- **The preview's minimum stays 560 px.**
+- **On a tablet** the side pane in use is a **sheet over the preview** (the
+  rule's step 4), not a docked column with the preview below 560 px.
 - **Code mode is said subtly**: the `</>` pressed in the top bar, the
   preview's frame in the proposal's colour, the `</>` on the Assistant's
   Select, the dashed outline.
 
 ## Open (ask before building on a guess)
 
-1. At 1200-1500 px, when one column fits: fold the other to a **strip**
-   (option a, the default) or float **Content over the preview** (b)?
-2. **History** today splits the editor column ("now | at commit"): does it
-   take Content's column, or the preview's?
-3. ~~**Phone**: where do Save/Publish and the bell go?~~ Decided, see
-   below.
-4. **Tablet**: the assistant as a sheet covers most of the preview. Accept,
-   or dock it and let the preview go below 560 px?
-5. Is **560 px** the right preview minimum? It decides every breakpoint.
 6. **Quick preview** (a proposal's staged code shown before a build) had its
    only UI in the design tab: bring it to code mode's status, or drop it?
 7. **Code checkpoints** (the design tab's history menu): keep in the `</>`
    menu, or drop?
-8. Where does the **code diff** live once Content is a pane: a tab of
-   Content, Review ("Compare with the site"), or a pane of its own?
+
+Answered (and moved to Decided below): 1 (strips), 2 (History takes the
+preview's place), 3 (the phone's bar is the four panes), 4 (a sheet on a
+tablet), 5 (560 px), 8 (the code diff is in Review).
 
 ## How to build it
 

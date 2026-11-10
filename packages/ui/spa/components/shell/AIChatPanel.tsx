@@ -19,6 +19,10 @@ export type AIChatPanelProps = {
   headerStart?: ReactNode;
   /** `false`: no scrim, so a click outside does not close it. */
   modal?: boolean;
+  /** After the title: the tabs, when it shares its column with Sketch. */
+  headerEnd?: ReactNode;
+  /** It was used: a click or a key in it. Decides what keeps a column. */
+  onUse?: () => void;
   /**
    * The assistant itself.
    *
@@ -50,6 +54,8 @@ export function AIChatPanel({
   onClose,
   headerStart,
   modal,
+  headerEnd,
+  onUse,
   children,
 }: AIChatPanelProps) {
   return (
@@ -67,11 +73,18 @@ export function AIChatPanel({
       onClose={onClose}
       headerStart={headerStart}
       modal={modal}
+      headerAction={headerEnd}
     >
       {/* `h-full` and no scrolling of its own: the chat is a column with its
           own scroll area for the transcript and a composer pinned under it, so
           a second scroller here would move the composer off screen. */}
-      <div className="h-full overflow-hidden">{children}</div>
+      <div
+        className="h-full overflow-hidden"
+        onPointerDownCapture={onUse}
+        onFocusCapture={onUse}
+      >
+        {children}
+      </div>
     </FloatingPanel>
   );
 }

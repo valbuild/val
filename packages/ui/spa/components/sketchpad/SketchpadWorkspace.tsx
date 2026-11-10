@@ -9,8 +9,12 @@ import {
 export type SketchpadPane = "preview" | "sketchpad";
 
 export type SketchpadWorkspaceProps = {
-  /** The site, as it is now: what the sketch is about to change. */
-  preview: ReactNode;
+  /**
+   * The site, as it is now: what the sketch is about to change. `null` in
+   * the Studio's workspace, where the preview is a pane of its own and this
+   * is the Sketch pane alone.
+   */
+  preview: ReactNode | null;
   /** Null when none is open: every one in the project is archived, say. */
   sketchpad: ReactNode | null;
   /** The project's sketchpads: where one comes back from when none is open. */
@@ -64,16 +68,17 @@ export function SketchpadWorkspace({
   }, []);
 
   const closed = sketchpad === null;
-  const showPreview = both || pane === "preview";
-  const showSketchpad = both || pane === "sketchpad";
+  const hasPreview = preview !== null;
+  const showPreview = hasPreview && (both || pane === "preview");
+  const showSketchpad = !hasPreview || both || pane === "sketchpad";
   // With nothing to sketch on, the Sketchpad's place is what can be
   // reopened: a strip beside the preview, or the whole list on its own.
-  const strip = closed && both;
+  const strip = closed && both && hasPreview;
 
   return (
     <div ref={ref} className="flex h-full min-h-0 w-full flex-col gap-2">
       {notice}
-      {!both && (
+      {!both && hasPreview && (
         <PaneSwitch
           options={[
             { value: "preview", label: "Preview" },
