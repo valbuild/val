@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useRef, useState } from "react";
 import { AIChat, type AIChatHandle, type ChatMessage } from "../../AIChat";
 import { Shell } from "../../shell/Shell";
+import { mockCanvasPage } from "../../shell/canvas/mockCanvasPage";
 import { mockSelectionIds, mockShellData } from "../../shell/mockShellData";
 import {
   Sketchpad,
@@ -10,7 +11,7 @@ import {
 } from "../Sketchpad";
 import type { SketchpadListItem } from "../SketchpadList";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
-import { PreviewMock, SKETCH } from "./sketchpadFixtures";
+import { SKETCH } from "./sketchpadFixtures";
 
 /**
  * Sketchpad in the Studio: the Preview and the Sketchpad, with the chat
@@ -229,6 +230,9 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
 
   return (
     <Shell
+      // The Studio's preview: the Sketch pane beside it shows its page.
+      canvasPage={mockCanvasPage}
+      initialCanvasOpen
       key={theme}
       data={mockShellData}
       theme={currentTheme}
@@ -250,7 +254,9 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
       onCompare={() => console.log("open the review view")}
       sketchPane={
         <SketchpadWorkspace
-          preview={<PreviewMock />}
+          // The Sketch pane: the page it is about is in the Studio's own
+          // preview, beside it.
+          preview={null}
           sketchpads={list}
           notice={
             archivedPad && (

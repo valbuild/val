@@ -580,7 +580,12 @@ export function PageWorkspace({
    * over any `pl-*` utility regardless of class order.
    */
   const railPadding =
-    breakpoint === "desktop" && (open || replacePreview !== undefined)
+    breakpoint === "desktop" &&
+    (open ||
+      replacePreview !== undefined ||
+      // The middle of the workspace, with Sketch or the Assistant beside it:
+      // no longer a centred column the rail is clear of.
+      contentPlacement?.kind === "anchor")
       ? { paddingLeft: "5.5rem" }
       : undefined;
 
