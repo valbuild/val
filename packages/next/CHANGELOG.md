@@ -1,5 +1,35 @@
 # @valbuild/next
 
+## 0.153.0
+
+### Minor Changes
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Removed what 0.151.0 kept only so that a Studio, a page and a server from the release before could still talk to each other during a deploy:
+
+  - **`PUT /api/val/sources/~`** is gone. Nothing in 0.151.0 asked it: the Studio reads modules through `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and `fetchVal`, `useVal` and the MCP tools read the server's content in-process. If a script or test of yours read content through it, read one module with `GET /api/val/modules/~<path>` instead. Its answer has the module's `source` and `version`, and an `entries` map holding the `.jsonValues()` entries pending changes touched.
+  - **`ValDraft.base`** is gone from the type. It has not been sent or read since 0.151.0, so a `draft` you pass to `ValProvider` is not affected.
+  - **A page no longer accepts edits relayed by a Studio from before 0.151.0.** Such a Studio sent each module as a bare `source`. After the upgrade, the Studio and your pages come from the same deploy, so this only matters while an older Studio is still open in a tab during a rollout. Reloading that tab fixes it.
+  - **`/api/val/stat`** no longer needs `sourcesSha` and `schemaSha`. The Studio now tells your local server which version it last saw, and the server still sends both fields for a Studio of 0.151.0. They stop being sent in the next release.
+
+### Patch Changes
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - `/api/val/enable`, `/api/val/disable` and Val's other routes that take `redirect_to` now accept a path on your site, such as `?redirect_to=/blog`, and redirect to it on the same origin. In a Next.js app a path used to answer 500. A value that is neither a path starting with `/` nor an absolute URL is refused with a 400 that says what is accepted.
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **Point the assistant at something on the page.** With the preview open, the assistant has a **Select** in its header: press it, click a field on the page, and what you picked shows above the message box and goes with your next message, so "make this shorter" means that field. In code mode it can pick any element, outlined in the proposal's colour. Press the × on it to take it off.
+
+  - Selecting a field to edit has moved from the preview's toolbar to the top of the editor column, beside **Structure | On page**. Esc turns it off, from the Studio or from the page.
+  - On a desktop the assistant now sits beside the preview instead of over it, so it never covers what you point it at.
+  - The assistant can read the page in the preview, and take a picture of it, to see what you see.
+
+- Updated dependencies [[`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`27e51ba`](https://github.com/valbuild/val/commit/27e51baadce61b2cbee2d5ef227aae045ccb2e21), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`56ab7d5`](https://github.com/valbuild/val/commit/56ab7d5818772a9e310a561ebdb798b27ee704c9)]:
+  - @valbuild/ui@0.153.0
+  - @valbuild/core@0.153.0
+  - @valbuild/server@0.153.0
+  - @valbuild/shared@0.153.0
+  - @valbuild/react@0.153.0
+  - @valbuild/language-server@0.153.0
+  - @valbuild/mcp@0.153.0
+
 ## 0.152.2
 
 ### Patch Changes
