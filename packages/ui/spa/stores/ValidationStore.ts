@@ -1,6 +1,7 @@
 import {
   Internal,
   resolveSettingsModule,
+  VAL_EXTENSION,
   type Json,
   type ModuleFilePath,
   type SerializedSchema,
@@ -649,6 +650,172 @@ export class ValidationStore {
     return last;
   }
 
+  /**
+   * The schema half for a `.jsonValues()` record, one entry at a time: what a
+   * batch of entries arriving costs is those entries, not the record.
+   *
+   * Every batch moves the module's source, so the record is stale after each,
+   * and validating it whole sent all of it across the worker seam every time
+   * -- at 10,000 posts the structured clone alone was 172 ms of main-thread
+   * time per batch (`scenarios/measure/results.md`). A record's errors are the
+   * union of two things that do not depend on each other:
+   *
+   * - **The record's own**: its keys, its router's keys, the keys it declares,
+   *   its locale scope. None reads an entry's content, so they are validated
+   *   on a SHELL -- the same keys, every entry an un-loaded marker -- which
+   *   `executeValidate` already walks past without looking inside, and only
+   *   when the keys moved: a batch moves none.
+   * - **Each entry's**: what the item schema says about it, at its own path.
+   *   Kept per key, by the entry object it was computed for, so an entry that
+   *   did not change is not validated again: an entry's object is new exactly
+   *   when its content moved (it arrived, or an edit copied its path).
+   *
+   * The entries that changed go as one record of just them, through the same
+   * `validate`; what it says outside an entry (its own record-level checks,
+   * about a record of the wrong keys) and its key errors (the shell's) are not
+   * theirs and are dropped.
+   */
+  private async validateEntriesRecord(
+    moduleFilePath: ModuleFilePath,
+    source: Json,
+    serializedSchema: SerializedSchema,
+    schemaVersion: string,
+  ): Promise<ValidationErrors> {
+    if (!isJsonObjectSource(source)) {
+      return this.schemaValidation.validate(
+        moduleFilePath,
+        source as Source,
+        serializedSchema,
+        schemaVersion,
+      );
+    }
+    let held = this.entryErrors.get(moduleFilePath);
+    if (held === undefined || held.schemaVersion !== schemaVersion) {
+      held = { schemaVersion, byKey: new Map(), record: null };
+      this.entryErrors.set(moduleFilePath, held);
+    }
+    const changed: Record<string, Json> = {};
+    const entryPaths = new Map<SourcePath, string>();
+    const kept = new Map<string, EntryErrors>();
+    // What the record's own checks read: its keys, in order, and which
+    // entries are null (a declared key nobody has filled in yet).
+    const keys: string[] = [];
+    for (const [key, entry] of Object.entries(source)) {
+      keys.push(entry === null ? `${key}\u0000null` : key);
+      if (entry === null || Internal.isJson(entry)) continue;
+      const before = held.byKey.get(key);
+      if (before !== undefined && before.entry === entry) {
+        kept.set(key, before);
+        continue;
+      }
+      changed[key] = entry;
+      entryPaths.set(entryPathOf(moduleFilePath, key), key);
+    }
+    // Not sent again while the keys stand: entries arriving, or an edit in
+    // one, move no key, and the shell of 10,000 keys was the cost (its
+    // structured clone, its walk, and its errors cloned back carrying it).
+    let recordErrors: ValidationErrors;
+    if (held.record !== null && sameKeys(held.record.keys, keys)) {
+      recordErrors = held.record.errors;
+    } else {
+      recordErrors = await this.schemaValidation.validate(
+        moduleFilePath,
+        shellOf(source),
+        serializedSchema,
+        schemaVersion,
+      );
+      held.record = { keys, errors: recordErrors };
+    }
+    if (entryPaths.size > 0) {
+      this.activity.work(
+        "validation:validate-entries",
+        moduleFilePath,
+        entryPaths.size,
+      );
+      const subset = await this.schemaValidation.validate(
+        moduleFilePath,
+        changed,
+        serializedSchema,
+        schemaVersion,
+      );
+      const byKey = new Map<string, Record<SourcePath, ValidationError[]>>();
+      for (const [pathS, errors] of Object.entries(subset || {})) {
+        const path = pathS as SourcePath;
+        const key = entryKeyOf(entryPaths, path);
+        // Outside every entry: a record-level check, which the shell answers.
+        if (key === undefined) continue;
+        // The key's own: the shell has every key, and says so there.
+        const own = errors.filter((error) => error.keyError !== true);
+        if (own.length === 0) continue;
+        let entryErrors = byKey.get(key);
+        if (entryErrors === undefined) {
+          entryErrors = {};
+          byKey.set(key, entryErrors);
+        }
+        entryErrors[path] = own;
+      }
+      for (const [, key] of entryPaths) {
+        kept.set(key, { entry: changed[key], errors: byKey.get(key) ?? null });
+      }
+    }
+    // Only the entries still here and loaded: one that left, or was put back
+    // to a marker, is not reported, and not kept.
+    held.byKey = kept;
+    return unionWithEntries(recordErrors, kept);
+  }
+
+  private collectCustomTargets(
+    moduleFilePath: ModuleFilePath,
+    serializedSchema: SerializedSchema,
+    source: Json,
+  ): SourcePath[] {
+    this.activity.work("validation:collect-custom-targets", moduleFilePath);
+    return collectCustomValidateTargets(
+      moduleFilePath,
+      serializedSchema,
+      source as Source,
+    ).paths;
+  }
+
+  /** Whether a module's schema declares any `.validate(...)`, by version. */
+  private declaresCustomValidate(
+    moduleFilePath: ModuleFilePath,
+    serializedSchema: SerializedSchema,
+    schemaVersion: string,
+  ): boolean {
+    const held = this.customValidateDeclared.get(moduleFilePath);
+    if (held !== undefined && held.schemaVersion === schemaVersion) {
+      return held.declared;
+    }
+    const declared = declaresCustomValidate(serializedSchema);
+    this.customValidateDeclared.set(moduleFilePath, {
+      schemaVersion,
+      declared,
+    });
+    return declared;
+  }
+
+  private customValidateDeclared = new Map<
+    ModuleFilePath,
+    { schemaVersion: string; declared: boolean }
+  >();
+
+  /**
+   * Each `.jsonValues()` record's entry errors, by key, as computed for the
+   * entry object they were computed for ({@link validateEntriesRecord}).
+   * Dropped when the schema version moves: they were computed against the
+   * schema before it.
+   */
+  private entryErrors = new Map<
+    ModuleFilePath,
+    {
+      schemaVersion: string;
+      byKey: Map<string, EntryErrors>;
+      /** The record's own errors, and the keys they were computed for. */
+      record: { keys: string[]; errors: ValidationErrors } | null;
+    }
+  >();
+
   private async runOnce(
     moduleFilePath: ModuleFilePath,
   ): Promise<ValidationResult> {
@@ -667,22 +834,34 @@ export class ValidationStore {
     // Across the worker seam: source and schema ARE the structured clone, which
     // is why they are arguments rather than something the far side reads.
     this.activity.work("validation:schema-validate", moduleFilePath);
-    const schemaErrors = await this.schemaValidation.validate(
-      moduleFilePath,
-      source as Source,
-      serializedSchema,
-      String(this.schemaStore.version(moduleFilePath)),
-    );
+    const schemaVersion = String(this.schemaStore.version(moduleFilePath));
+    const schemaErrors = isJsonValuesRecord(serializedSchema)
+      ? await this.validateEntriesRecord(
+          moduleFilePath,
+          source,
+          serializedSchema,
+          schemaVersion,
+        )
+      : await this.schemaValidation.validate(
+          moduleFilePath,
+          source as Source,
+          serializedSchema,
+          schemaVersion,
+        );
 
     // The walk runs here, on the serialized schema: it can see that a validator
     // was DECLARED even though it cannot call it. The host, holding a real
     // instance, could call one but could not tell us it had skipped any.
-    this.activity.work("validation:collect-custom-targets", moduleFilePath);
-    const customValidatePaths = collectCustomValidateTargets(
+    // Not at all when the schema declares no validator: the walk goes through
+    // the whole source, every loaded entry of a `.jsonValues()` record
+    // included, to find nothing.
+    const customValidatePaths = this.declaresCustomValidate(
       moduleFilePath,
       serializedSchema,
-      source as Source,
-    ).paths;
+      schemaVersion,
+    )
+      ? this.collectCustomTargets(moduleFilePath, serializedSchema, source)
+      : [];
 
     let errors = schemaErrors;
     let customValidateStatus: CustomValidateStatus = "not-needed";
@@ -929,6 +1108,104 @@ function sameErrors(
     }
   }
   return true;
+}
+
+/**
+ * Whether anything in a serialized schema says `customValidate: true`. The
+ * serialized schema is plain data and says so wherever a `.validate(...)` was
+ * declared, at any depth, whatever the schema type: so this looks at every
+ * object in it rather than knowing each type's children, which a new schema
+ * type would then have to be added to.
+ */
+function declaresCustomValidate(schema: unknown): boolean {
+  if (Array.isArray(schema)) return schema.some(declaresCustomValidate);
+  if (typeof schema !== "object" || schema === null) return false;
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "customValidate" && value === true) return true;
+    if (declaresCustomValidate(value)) return true;
+  }
+  return false;
+}
+
+/** One `.jsonValues()` entry's errors, and the entry they are about. */
+type EntryErrors = {
+  entry: Json;
+  errors: Record<SourcePath, ValidationError[]> | null;
+};
+
+/** What an un-loaded entry is in the shell a record is validated as. */
+const UNLOADED_ENTRY: Json = { [VAL_EXTENSION]: "json" };
+
+function isJsonValuesRecord(schema: SerializedSchema): boolean {
+  return schema.type === "record" && schema.jsonValues === true;
+}
+
+function isJsonObjectSource(source: Json): source is Record<string, Json> {
+  return (
+    typeof source === "object" && source !== null && !Array.isArray(source)
+  );
+}
+
+function entryPathOf(moduleFilePath: ModuleFilePath, key: string): SourcePath {
+  return Internal.joinModuleFilePathAndModulePath(
+    moduleFilePath,
+    Internal.patchPathToModulePath([key]),
+  );
+}
+
+/** The record with every loaded entry put back to an un-loaded marker. */
+function shellOf(source: Record<string, Json>): Record<string, Json> {
+  const shell: Record<string, Json> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    shell[key] =
+      entry === null || Internal.isJson(entry) ? entry : UNLOADED_ENTRY;
+  }
+  return shell;
+}
+
+function sameKeys(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Which entry `path` is at or under, of the ones in `entryPaths`. */
+function entryKeyOf(
+  entryPaths: ReadonlyMap<SourcePath, string>,
+  path: SourcePath,
+): string | undefined {
+  const exact = entryPaths.get(path);
+  if (exact !== undefined) return exact;
+  // A path below an entry is the entry's path and more: the first segment
+  // boundary after the module part that names a known entry is it.
+  for (let at = path.indexOf("."); at !== -1; at = path.indexOf(".", at + 1)) {
+    const key = entryPaths.get(path.slice(0, at) as SourcePath);
+    if (key !== undefined) return key;
+  }
+  return undefined;
+}
+
+/**
+ * The record's own errors and every entry's, in one object: built once, not
+ * merged entry by entry, which would copy the whole object per entry.
+ */
+function unionWithEntries(
+  recordErrors: ValidationErrors,
+  entries: ReadonlyMap<string, EntryErrors>,
+): ValidationErrors {
+  let union: Record<SourcePath, ValidationError[]> | null =
+    recordErrors === false ? null : { ...recordErrors };
+  for (const { errors } of entries.values()) {
+    if (errors === null) continue;
+    union ??= {};
+    for (const [pathS, pathErrors] of Object.entries(errors)) {
+      const path = pathS as SourcePath;
+      const existing = union[path];
+      union[path] =
+        existing === undefined ? pathErrors : [...existing, ...pathErrors];
+    }
+  }
+  return union ?? false;
 }
 
 /**

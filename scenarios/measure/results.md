@@ -1218,6 +1218,41 @@ module, from the second profile (3.5 s busy):
   design: what a read would find is counted from the view.
 - **Mapping its keys to paths** (`useShallowSourceAtPath`, about 236 ms).
 
+### After: the record's entries validated as they arrive
+
+Measured 2026-11-10 on the built Studio, the same way (load 2.0-2.6, four
+cores), `main` at `27e51ba` three times and the change three times.
+
+The first cut validated the record's own checks on a SHELL (its keys, every
+entry a marker) and each entry only when its object changed. A CPU profile
+of the scroll (unminified build, 200 µs sampling) showed it saved nothing
+there: the scroll loads about 480 of the 10,000 posts, so the module sent
+across the seam was already 10,000 keys of markers, and the shell is the
+same 10,000 keys. What was expensive was the keys, not the entries. So the
+record's own checks are now kept with the key list they were computed for,
+and run again only when a key moves (`ValidationStore.validateEntriesRecord`):
+a batch crosses the seam as its own entries and nothing else
+(`jsonValuesValidation.test.ts` pins one call carrying exactly the batch).
+The walk for custom validators, which went through every loaded entry, is
+not made for a schema that declares none.
+
+Main-thread time in validation over the forty scroll steps, two profiles
+each:
+
+| In the profile                                   | `main`     | after      |
+| ------------------------------------------------ | ---------- | ---------- |
+| `ValidationStore.runOnce` (the pass, inclusive)  | 268-273 ms | 136-138 ms |
+| `collectCustomValidateTargets` (inside the pass) | 78-90 ms   | 0 ms       |
+
+What is left, about 3 ms a batch, is the pass over the 10,000 keys that
+tells whether one moved. The wall clock does not show the 130 ms: the
+scroll's runs spread wider than that on this machine, on both sides.
+
+| Surface: ms (long tasks, longest, long-task total) | `main` (3 runs)                          | after (3 runs)                        |
+| -------------------------------------------------- | ---------------------------------------- | ------------------------------------- |
+| Scroll the record list, 40 steps of 1,500 px       | 5,636-6,470 (22-25, 75-109, 1,236-1,574) | 5,376-6,589 (10-33, 84-95, 619-2,074) |
+| Select an image: "used by"                         | 1,080-1,630 (1-4, 53-76, 53-240)         | 1,060-1,710 (1-2, 56-68, 58-118)      |
+
 ### Not measured, and why
 
 - **Upload, and bulk upload into a 10k library** (`ModuleGallery` uploads

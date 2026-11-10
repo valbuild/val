@@ -191,6 +191,11 @@ export type WorkKind =
   | "validation:share-in-flight"
   /** The worker-seam call. Expensive and always needed. */
   | "validation:schema-validate"
+  /**
+   * `.jsonValues()` entries validated because they changed: `count` is how
+   * many. The rest of the record's entries kept their errors.
+   */
+  | "validation:validate-entries"
   /** The serialized-schema walk that finds where custom validators live. */
   | "validation:collect-custom-targets"
   | "validation:merge"
