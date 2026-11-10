@@ -8,7 +8,7 @@ import React, {
 import type { Json, PatchId, ValidationErrors } from "@valbuild/core";
 import { applyPatch, JSONOps, type JSONValue } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
-import type { ParentRef, PickedElement } from "@valbuild/shared/internal";
+import type { ParentRef } from "@valbuild/shared/internal";
 
 /**
  * The JSON patch applier, shared by every speculative validation below.
@@ -134,20 +134,10 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
-  designSystemPrompt,
   pickedElementPrompt,
-  DESIGN_CREATE_PATCH_TOOL,
-  DESIGN_QUICK_PREVIEW_TOOL,
-  DESIGN_READ_PAGE_TOOL,
   isCodeTool,
   REQUEST_CODE_MODE_TOOL,
   runCodeTool,
-  runQuickPreviewTool,
-  runReadPage,
-  runScreenshotPage,
-  type QuickPreviewResult,
-  type ReadPageDeps,
-  type ScreenshotPageDeps,
 } from "../proposals/proposalCode";
 import {
   markTypeErrorsTold,
@@ -681,55 +671,7 @@ const ALL_TOOLS: AITool[] = [
   GET_RECORD_KEYS_TOOL,
 ];
 
-/**
- * The tools the design tab gives the assistant besides the code tools: its own
- * `create_patch`, which writes content into the proposal's FILES with the code
- * (`DESIGN_CREATE_PATCH_TOOL`), the ones that READ content, and the ones that
- * talk to the person. Nothing that writes the site's content or moves the
- * Studio: the tab is served by the site's build, and the reading tools read
- * the site's content.
- */
-const DESIGN_TOOLS: AITool[] = [
-  DESIGN_CREATE_PATCH_TOOL,
-  DESIGN_READ_PAGE_TOOL,
-  // Not `DESIGN_SCREENSHOT_TOOL`: its picture did not come back from the
-  // page, and read_page answers what it was for
-  DESIGN_QUICK_PREVIEW_TOOL,
-  GET_ALL_SCHEMA_TOOL,
-  GET_SOURCE_TOOL,
-  SEARCH_CONTENT_TOOL,
-  GET_CURRENT_CONTEXT_TOOL,
-  SET_SESSION_NAME_TOOL,
-  ASK_USER_QUESTION_TOOL,
-  COUNT_ENTRIES_TOOL,
-  GET_RECORD_KEYS_TOOL,
-];
-const DESIGN_TOOL_NAMES = new Set(DESIGN_TOOLS.map((tool) => tool.name));
-
 export type UseAIOptions = {
-  /**
-   * The design tab's proposal (valbuild/home `docs/design-tab.md`): the code
-   * tools act on it rather than on the proposal this Studio is open in, which
-   * in the tab is none -- it is served by the site's build -- and only the
-   * tools that read content are offered with them.
-   */
-  design?: {
-    proposal: { name: string; displayName: string };
-    /**
-     * The element picked in the preview: it goes with the next message
-     * (`pickedElementPrompt`), and `onPointedAtSent` is told it has gone.
-     */
-    pointedAt?: PickedElement | null;
-    onPointedAtSent?: () => void;
-    /** Reads the page the preview shows: `read_page`. */
-    readPage?: ReadPageDeps["readPage"];
-    /** Pictures the page the preview shows: `screenshot_page`. */
-    screenshotPage?: ScreenshotPageDeps["screenshotPage"];
-    /** Switches the preview's width: `read_page`'s `device`. */
-    setDevice?: ReadPageDeps["setDevice"];
-    /** Shows the proposal's change in seconds: `quick_preview`. */
-    quickPreview?: (() => Promise<QuickPreviewResult>) | null;
-  };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
   /** Called when the session transitions from unborn → born (first send) or when an existing session is loaded. */
@@ -815,23 +757,12 @@ export function useAI(
    * proposal this Studio is in, its build, and the two APIs they read. Refs,
    * because the message handler below is subscribed once.
    */
-  const design = opts?.design ?? null;
   const studioProposal = useCurrentProposal();
-  const currentProposal = design?.proposal ?? studioProposal;
+  const currentProposal = studioProposal;
   const currentProposalRef = useRef(currentProposal);
   currentProposalRef.current = currentProposal;
-  const designRef = useRef(design);
-  designRef.current = design;
-  const proposalBuild = useProposalBuild(undefined, design?.proposal.name, {
-    onServer: design !== null,
-  }).build;
+  const proposalBuild = useProposalBuild().build;
   const proposalBuildRef = useRef(proposalBuild);
-  /**
-   * The element the last message carried. The pick is cleared once it is
-   * sent, and the turn that message starts is when `read_page`'s `picked`
-   * is asked for: it means this one.
-   */
-  const lastPointedAtRef = useRef<PickedElement | null>(null);
   /**
    * `uploadAiImage`, for the message handler above where it is declared:
    * `screenshot_page` uploads its picture as an image of the chat.
@@ -842,11 +773,10 @@ export function useAI(
   /** The files this tab put in the chat, by key: `convert_session_image`. */
   const sessionFilesRef = useRef(new Map<string, File>());
   /** The picked element, taken for a message that waits in the queue. */
-  const captureSendContext = useCallback((): SendContext => {
-    const pointedAt = designRef.current?.pointedAt ?? null;
-    if (pointedAt !== null) designRef.current?.onPointedAtSent?.();
-    return { pointedAt };
-  }, []);
+  const captureSendContext = useCallback(
+    (): SendContext => ({ pointedAt: null }),
+    [],
+  );
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
     () => ({
@@ -1134,7 +1064,7 @@ export function useAI(
    *
    * A chat keeps the model it began with: changing it halfway through hands the
    * rest of the conversation to a model that did not write the first half, and
-   * the picker is shared by every surface (the design tab, the panel, the
+   * the picker is shared by every surface (the panel, the
    * on-page window), so a pick made for a new chat in one of them would
    * otherwise move a chat already running in another. Kept here because the
    * content server does not say which model a chat used: a chat loaded from the
@@ -1179,11 +1109,9 @@ export function useAI(
 
   /*
    * A proposal's chats are everyone's on the project (valbuild/home
-   * `docs/proposals.md`, Flow H). Not the design tab's: it names its proposal
-   * itself and its chats are not a proposal's chats.
+   * `docs/proposals.md`, Flow H).
    */
-  const sharedProposalName =
-    design === null ? (studioProposal?.name ?? null) : null;
+  const sharedProposalName = studioProposal?.name ?? null;
   const sharedProposalNameRef = useRef(sharedProposalName);
   sharedProposalNameRef.current = sharedProposalName;
   const viewerId = useCurrentAuthorId();
@@ -1410,27 +1338,7 @@ export function useAI(
             askQuestions,
           );
         }
-        if (
-          designRef.current !== null &&
-          !DESIGN_TOOL_NAMES.has(message.name) &&
-          !isCodeTool(message.name)
-        ) {
-          // Only the tools offered are run: a call to another -- from an
-          // older turn, or a model that reached past its list -- would change
-          // the SITE's content from a tab that says content is not changed
-          // here.
-          sendWsMessage({
-            type: "ai_tool_result",
-            toolCallId: message.toolCallId,
-            result: {
-              success: false,
-              error:
-                "That tool is not available in the design tab. Change content with create_patch, which writes it into the proposal's files, and code with write_files.",
-            },
-            isError: true,
-          });
-          chatRef.current?.errorToolCall(message.id, message.toolCallId);
-        } else if (message.name === "request_code_mode") {
+        if (message.name === "request_code_mode") {
           const reason = z
             .object({ reason: z.string() })
             .safeParse(message.arguments);
@@ -1551,10 +1459,7 @@ export function useAI(
             result: errors,
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
-        } else if (
-          message.name === "create_patch" &&
-          designRef.current === null
-        ) {
+        } else if (message.name === "create_patch") {
           const args = message.arguments as {
             module_file_path: string;
             patch: unknown[];
@@ -2309,80 +2214,7 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
-        } else if (
-          designRef.current !== null &&
-          message.name === "quick_preview"
-        ) {
-          const toolCallId = message.toolCallId;
-          const messageId = message.id;
-          void runQuickPreviewTool(designRef.current.quickPreview ?? null).then(
-            ({ result, isError }) => {
-              sendWsMessage({
-                type: "ai_tool_result",
-                toolCallId,
-                result,
-                ...(isError ? { isError: true } : {}),
-              });
-              chatRef.current?.completeToolCall(messageId, toolCallId);
-            },
-          );
-        } else if (
-          designRef.current !== null &&
-          message.name === "screenshot_page"
-        ) {
-          const toolCallId = message.toolCallId;
-          const messageId = message.id;
-          const design = designRef.current;
-          void runScreenshotPage(message.arguments, {
-            screenshotPage: design.screenshotPage ?? null,
-            ...(design.setDevice !== undefined
-              ? { setDevice: design.setDevice }
-              : {}),
-            uploadImage: (file) => {
-              const upload = uploadAiImageRef.current;
-              if (upload === null) {
-                return Promise.reject(
-                  new Error("The chat cannot take images yet."),
-                );
-              }
-              return upload(file);
-            },
-          }).then(({ result, isError, images }) => {
-            sendWsMessage({
-              type: "ai_tool_result",
-              toolCallId,
-              result,
-              ...(isError ? { isError: true } : {}),
-              ...(images !== undefined ? { images } : {}),
-            });
-            chatRef.current?.completeToolCall(messageId, toolCallId);
-          });
-        } else if (designRef.current !== null && message.name === "read_page") {
-          const toolCallId = message.toolCallId;
-          const messageId = message.id;
-          const design = designRef.current;
-          void runReadPage(message.arguments, {
-            readPage: design.readPage ?? null,
-            // Picked now, or carried by the message this turn answers.
-            pointedAt: design.pointedAt ?? lastPointedAtRef.current,
-            ...(design.setDevice !== undefined
-              ? { setDevice: design.setDevice }
-              : {}),
-          }).then(({ result, isError }) => {
-            sendWsMessage({
-              type: "ai_tool_result",
-              toolCallId,
-              result,
-              ...(isError ? { isError: true } : {}),
-            });
-            chatRef.current?.completeToolCall(messageId, toolCallId);
-          });
-        } else if (
-          isCodeTool(message.name) ||
-          // The design tab's create_patch writes into the proposal's files:
-          // `DESIGN_CREATE_PATCH_TOOL`.
-          (designRef.current !== null && message.name === "create_patch")
-        ) {
+        } else if (isCodeTool(message.name)) {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
           const toolName = message.name;
@@ -2475,9 +2307,7 @@ export function useAI(
                   },
                 }
               : {}),
-            design: designRef.current !== null,
-            // The design tab's code is the tab's own: no code mode there.
-            ...(designRef.current === null && proposalName !== null
+            ...(proposalName !== null
               ? {
                   codeMode: () =>
                     readCodeMode(
@@ -3264,17 +3094,9 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt =
-        context !== undefined
-          ? context.pointedAt
-          : (designRef.current?.pointedAt ?? null);
+      const pointedAt = context?.pointedAt ?? null;
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
-      }
-      lastPointedAtRef.current = pointedAt;
-      // Taken with the message when it was written, when it carries one.
-      if (context === undefined && pointedAt !== null) {
-        designRef.current?.onPointedAtSent?.();
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
@@ -3307,12 +3129,7 @@ export function useAI(
             // refused. Null means AI is off, which is checked before we get
             // here.
             model,
-            systemPrompt:
-              designRef.current !== null
-                ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
-                    valReads.getAssistantSettings(),
-                  )}`
-                : `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
+            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
@@ -3395,27 +3212,24 @@ Do not describe what you will do unless you do it for clarification — just do 
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
-                    valReads.getAssistantSettings(),
-                  )}${
-                    hostedRef.current
-                      ? codeToolsPromptSection(
-                          currentProposalRef.current !== null
-                            ? { kind: "proposal" }
-                            : { kind: "site" },
-                        )
-                      : ""
-                  }`,
-            tools:
-              designRef.current !== null
-                ? [...DESIGN_TOOLS, ...CODE_TOOLS]
-                : [
-                    ...ALL_TOOLS,
-                    ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-                    // Hosted only: see `hostedRef`.
-                    ...(hostedRef.current
-                      ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
-                      : []),
-                  ],
+              valReads.getAssistantSettings(),
+            )}${
+              hostedRef.current
+                ? codeToolsPromptSection(
+                    currentProposalRef.current !== null
+                      ? { kind: "proposal" }
+                      : { kind: "site" },
+                  )
+                : ""
+            }`,
+            tools: [
+              ...ALL_TOOLS,
+              ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+              // Hosted only: see `hostedRef`.
+              ...(hostedRef.current
+                ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                : []),
+            ],
           },
         ],
       };

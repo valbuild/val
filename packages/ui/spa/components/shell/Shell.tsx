@@ -419,6 +419,19 @@ export type ShellProps = {
    * canvas pane is.
    */
   workspaceOverride?: ReactNode;
+  /**
+   * Hold the canvas open: code mode's view is the code changes in the
+   * editor's column, beside the page, and the page is the point of it. While
+   * this is on, moving to something that is not on the page does not close
+   * the canvas, and turning it on opens it.
+   */
+  canvasPinned?: boolean;
+  /**
+   * Dock the assistant beside the workspace on a desktop rather than float it
+   * over it, as it is beside a Sketchpad: in code mode the assistant and the
+   * page it changes are worked on together, so neither may cover the other.
+   */
+  dockAssistant?: boolean;
   /** The top bar's Sketchpad button, once there is a Sketchpad. */
   sketchpad?: TopBarSketchpad;
   /** "Sketch changes" in a page's menu in the Pages panel. */
@@ -669,6 +682,8 @@ export function Shell({
   renderExternalPages,
   editorOverride,
   workspaceOverride,
+  canvasPinned = false,
+  dockAssistant = false,
   sketchpad,
   onSketchPage,
   notice,
@@ -781,6 +796,9 @@ export function Shell({
   }, [data.externalPages, data.externalSchemes]);
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
+  useEffect(() => {
+    if (canvasPinned) setIsCanvasOpen(true);
+  }, [canvasPinned]);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
   /**
    * Which pane a phone is looking at. Meaningless at any other breakpoint,
@@ -1177,8 +1195,11 @@ export function Shell({
    * Not while the navigation is still loading, where nothing resolves to a row
    * yet and a link that asked for the canvas would have it shut immediately.
    */
+  const pinned = useRef(canvasPinned);
+  pinned.current = canvasPinned;
   useEffect(() => {
     if (isLoading) return;
+    if (pinned.current) return;
     if (
       canvasShowsEditedContent({
         selectionKind: selection?.kind ?? null,
@@ -1415,7 +1436,7 @@ export function Shell({
     aiEnabled &&
     openPanel === "ai" &&
     breakpoint === "desktop" &&
-    workspaceOverride !== undefined;
+    (workspaceOverride !== undefined || dockAssistant);
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (

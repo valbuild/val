@@ -94,6 +94,13 @@ export type CanvasFrameProps = {
   throughEnable?: boolean;
   /** Bumped to reload. */
   reloadKey: number;
+  /**
+   * Which document of the page to hold, besides the reloads asked for: moves
+   * when the server serves another build (`useServedBuild`), or when code
+   * mode's status asks for the page again. A new value is a new document,
+   * exactly as a new `reloadKey` is.
+   */
+  documentKey?: string | number;
   /** Whether a click on the page picks the element under it. */
   isPicking: boolean;
   /**
@@ -228,6 +235,7 @@ export function CanvasFrame({
   relaySources = true,
   throughEnable = false,
   reloadKey,
+  documentKey = 0,
   isPicking,
   selectionColors,
   highlightedPath,
@@ -307,7 +315,7 @@ export function CanvasFrame({
   useEffect(() => {
     setState({ status: "waiting" });
     onRefreshingChange?.(false);
-  }, [frameSrc, reloadKey, onRefreshingChange]);
+  }, [frameSrc, reloadKey, documentKey, onRefreshingChange]);
 
   useEffect(() => {
     if (state.status !== "waiting") return;
@@ -316,7 +324,7 @@ export function CanvasFrame({
       ANSWER_TIMEOUT_MS,
     );
     return () => clearTimeout(timer);
-  }, [state.status, frameSrc, reloadKey]);
+  }, [state.status, frameSrc, reloadKey, documentKey]);
 
   // What the page says.
   useEffect(() => {
@@ -780,7 +788,7 @@ export function CanvasFrame({
         // Remounting is the reload: assigning the same `src` to a live frame is
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
-        key={`${frameSrc}-${reloadKey}`}
+        key={`${frameSrc}-${reloadKey}-${documentKey}`}
         src={throughEnable ? enableUrlOf(frameSrc, origin) : frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}

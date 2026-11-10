@@ -14,8 +14,9 @@ import type { ProposalSummary, StudioLocation } from "./types";
 /**
  * Code mode, in the top bar: the `</>` right of the proposal switcher.
  *
- * In code mode the assistant may change the proposal's code, and the
- * workspace shows the proposal's build instead of the content editor. The
+ * In code mode the assistant may change the proposal's code, and the column
+ * beside the preview shows the code changes instead of the content editor
+ * (the preview is the Studio's canvas in every mode). The
  * assistant always HAS the code tools in a hosted Studio; with code mode off
  * they refuse, and the assistant asks for it to be turned on instead (see
  * `CodeModeRequestCard`).
@@ -52,8 +53,9 @@ export type TopBarCodeMode = {
    */
   turnedOn?: CodeModeTurnedOn | null;
   /**
-   * What this person sees while code mode is on: its workspace (the preview
-   * and the code), or the content editor. Each person's own: an editor
+   * What this person sees beside the preview while code mode is on: the
+   * code changes, or the content editor. The preview is the same either
+   * way. Each person's own: an editor
    * fixing text can stay in the content editor while someone else's
    * assistant changes the code. Default `"code"`; the app starts everyone
    * but the person who turned it on in the content editor.
@@ -226,7 +228,7 @@ export function CodeModeButton({
                 <ViewItem
                   selected={view === "code"}
                   icon={<CodeXml size={14} />}
-                  label="Preview and code"
+                  label="Code changes"
                   detail="The proposal as its code is now"
                   onClick={chooseView("code")}
                 />

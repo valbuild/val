@@ -9,32 +9,59 @@ import {
 import {
   CanvasPreviewNotice,
   CanvasPreviewStatus,
-  PREVIEW_WARNING_DELAY_MS,
+  PREVIEW_RECOVERY,
+  previewRecoveryPhase,
+  shouldAutoEnable,
 } from "./CanvasPreviewNotice";
 import { ANSWER_TIMEOUT_MS, CanvasFrame } from "./CanvasFrame";
 
+const { quietMs, retryEveryMs, retryForMs } = PREVIEW_RECOVERY;
+
 /**
- * What the canvas says when it cannot do its job.
+ * What the canvas says, and does, when it cannot do its job.
  *
  * It used to be a panel over the frame with a blurred backdrop: the published
  * page underneath - which is real, and worth reading and scrolling - was
- * unreachable behind an explanation of why it could not be EDITED. And because
- * the panel appeared during ordinary slowness (a first `next dev` compile of a
- * route), the normal path to a working canvas went through a screen that looked
- * like a failure.
+ * unreachable behind an explanation of why it could not be EDITED. Then it was
+ * a pill that offered "Turn on preview mode" as soon as the page said it was
+ * off, which made the commonest state of a first visit a button to press.
  *
- * Three things are pinned here: the notice is not a blocker, it looks like
- * loading before it looks like a problem, and the long explanation is behind a
- * disclosure rather than on screen.
+ * Now the Studio presses it: every five seconds for thirty, while the page
+ * says preview mode is off or does not answer. For the first ten seconds a
+ * spinner is all there is; then the pill says what is being done; only after
+ * thirty is the person asked, with the button and the explanation.
  */
 describe("the canvas preview notice", () => {
-  const notice = (status: CanvasPreviewStatus) => (
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const notice = (
+    status: CanvasPreviewStatus,
+    onEnable: () => void = () => undefined,
+    attempt?: number,
+  ) => (
     <CanvasPreviewNotice
       status={status}
-      onEnable={() => undefined}
+      attempt={attempt}
+      onEnable={onEnable}
       onReload={() => undefined}
     />
   );
+  /**
+   * A second at a time, as a browser would render them: one `act` over thirty
+   * seconds lets React fold every tick of the clock into one render.
+   */
+  const wait = (ms: number) => {
+    for (let left = ms; left > 0; left -= 1_000) {
+      act(() => {
+        jest.advanceTimersByTime(Math.min(1_000, left));
+      });
+    }
+  };
 
   test("says nothing at all once the canvas works", () => {
     const { container } = render(notice("live"));
@@ -53,171 +80,144 @@ describe("the canvas preview notice", () => {
     );
   });
 
-  test("reads as loading before it reads as a problem", () => {
-    jest.useFakeTimers();
-    try {
-      // A page that has answered "draft mode is off" is a definite answer, and
-      // it is STILL not accused for the first stretch: turning preview on is a
-      // redirect and a fresh document, and compiling a route can take seconds.
-      render(notice("connecting"));
-      expect(screen.queryByText("Preview is not ready yet")).not.toBeNull();
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
-      });
-      expect(screen.queryByText("No answer from the page")).not.toBeNull();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  /**
-   * One thing on the pill.
-   *
-   * Where the fix fits on a button, the button IS the message: a sentence
-   * beside it saying "Preview is not ready yet" is a vaguer copy of what the
-   * button already says, and two of them read as two problems rather than one
-   * act. The sentence is kept for a screen reader, because `role="status"` is
-   * what announces the canvas's state and a button appearing announces
-   * nothing.
-   */
-  test("where there is a button to press, the button is the whole message", () => {
-    jest.useFakeTimers();
-    try {
-      render(notice("preview-off"));
-      const said = screen.getByText("Preview is not ready yet");
-      expect(said.closest(".sr-only")).not.toBeNull();
-      expect(
-        screen.queryByRole("button", { name: /Turn on preview mode/ }),
-      ).not.toBeNull();
-
-      /*
-       * And the diagnosis comes back once the wait is up, drawn this time: by
-       * then the button has been on screen for twenty seconds without working,
-       * so which way it is failing is the part that is worth reading.
-       */
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
-      });
-      const diagnosed = screen.getByText("Preview mode is off");
-      expect(diagnosed.closest(".sr-only")).toBeNull();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  /**
-   * The enabling state said the same thing twice, with two spinners: the pill's
-   * own label reads "Turning on preview mode…", and a chip beside it read
-   * "Turning on…".
-   */
-  test("turning on is said once", () => {
-    render(notice("enabling"));
-    expect(screen.queryByText("Turning on preview mode…")).not.toBeNull();
-    expect(screen.queryByText("Turning on…")).toBeNull();
-  });
-
-  test("a silent page is named as one, once the wait is up", () => {
-    jest.useFakeTimers();
-    try {
-      render(notice("no-answer"));
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
-      });
-      expect(screen.queryByText("No answer from the page")).not.toBeNull();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  test("the wait survives the diagnosis changing", () => {
-    jest.useFakeTimers();
-    try {
-      // `connecting` becoming `preview-off` is the same attempt ten
-      // milliseconds later, not a new one. Restarting the clock there is how
-      // the warning would never arrive on a page that answers immediately.
-      const { rerender } = render(notice("connecting"));
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS / 2);
-      });
-      rerender(notice("preview-off"));
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS / 2);
-      });
-      expect(screen.queryByText("Preview mode is off")).not.toBeNull();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  /**
-   * The one-click fix is one click. It used to be behind the disclosure, which
-   * put the commonest act in the Studio's canvas - "turn preview mode on" -
-   * two clicks away, and the E2E suites that drive the canvas found it there.
-   */
-  test("the fix is on the pill, once there is something to fix", () => {
-    render(notice("preview-off"));
-    expect(
-      screen.queryByRole("button", { name: /Turn on preview mode/ }),
-    ).not.toBeNull();
-  });
-
-  test("and not before: a page that has not answered yet is not accused", () => {
+  test("for the first ten seconds, a spinner and nothing else", () => {
     render(notice("connecting"));
+    // Read out, not drawn: a spinner announces nothing on its own.
+    const said = screen.getByText("Loading the preview…");
+    expect(said.className).toContain("sr-only");
+    expect(screen.queryByRole("button", { name: /Details/ })).toBeNull();
     expect(
       screen.queryByRole("button", { name: /Turn on preview mode/ }),
     ).toBeNull();
   });
 
-  test("a page that never answered is offered it too", () => {
-    // The same navigation fixes both, which is why the old panel offered this
-    // button for both.
-    render(notice("no-answer"));
+  test("then it says what it is doing, and not what is wrong", () => {
+    render(notice("preview-off"));
+    wait(quietMs);
+    const said = screen.getByText("Turning on preview mode…");
+    expect(said.className).not.toContain("sr-only");
+    expect(screen.queryByText("Preview mode is off")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Details/ })).not.toBeNull();
+  });
+
+  test("it turns preview mode on by itself, every five seconds for thirty", () => {
+    const onEnable = jest.fn();
+    render(notice("preview-off", onEnable));
+    expect(onEnable).toHaveBeenCalledTimes(1);
+    wait(retryEveryMs);
+    expect(onEnable).toHaveBeenCalledTimes(2);
+    wait(retryForMs);
+    expect(onEnable).toHaveBeenCalledTimes(retryForMs / retryEveryMs);
+  });
+
+  test("and only then asks, with the button and what is wrong", () => {
+    render(notice("preview-off"));
+    expect(
+      screen.queryByRole("button", { name: /Turn on preview mode/ }),
+    ).toBeNull();
+    wait(retryForMs);
+    expect(screen.queryByText("Preview mode is off")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Turn on preview mode/ }),
+    ).not.toBeNull();
+  });
+
+  test("a page that never answered is turned on too, and named once it gives up", () => {
+    const onEnable = jest.fn();
+    render(notice("no-answer", onEnable));
+    expect(onEnable).toHaveBeenCalledTimes(1);
+    wait(retryForMs);
+    expect(screen.queryByText("No answer from the page")).not.toBeNull();
     expect(
       screen.queryByRole("button", { name: /Turn on preview mode/ }),
     ).not.toBeNull();
   });
 
   /**
-   * A reload is a new attempt even when the STATUS cannot say so: reloading a
-   * page that has already given up leaves it at `no-answer`, and without an
-   * attempt identity the clock went on timing the attempt before it - so the
-   * warning was already showing a second into the new one.
+   * Navigating the frame while a document is on its way would cut short the
+   * load that was about to answer: a first `next dev` compile, or the enable
+   * redirect itself.
    */
-  test("a fresh attempt restarts the wait, whatever the status does", () => {
-    jest.useFakeTimers();
-    try {
-      const { rerender } = render(
-        <CanvasPreviewNotice
-          status="no-answer"
-          attempt="1:0"
-          onEnable={() => undefined}
-          onReload={() => undefined}
-        />,
-      );
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
-      });
-      expect(screen.queryByText("No answer from the page")).not.toBeNull();
-      rerender(
-        <CanvasPreviewNotice
-          status="no-answer"
-          attempt="2:0"
-          onEnable={() => undefined}
-          onReload={() => undefined}
-        />,
-      );
-      expect(screen.queryByText("Preview is not ready yet")).not.toBeNull();
-      act(() => {
-        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
-      });
-      expect(screen.queryByText("No answer from the page")).not.toBeNull();
-    } finally {
-      jest.useRealTimers();
+  test("it does not navigate a page that is still loading", () => {
+    const onEnable = jest.fn();
+    render(notice("connecting", onEnable));
+    wait(retryForMs);
+    expect(onEnable).not.toHaveBeenCalled();
+    render(notice("enabling", onEnable));
+    wait(retryForMs);
+    expect(onEnable).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Each attempt goes `preview-off` → `enabling` → `preview-off`. If that
+   * restarted the clock, the retries would never run out and the message
+   * would never arrive.
+   */
+  test("its own attempts do not restart the clock", () => {
+    const onEnable = jest.fn();
+    const { rerender } = render(notice("preview-off", onEnable));
+    for (let at = 0; at < retryForMs; at += retryEveryMs) {
+      rerender(notice("enabling", onEnable));
+      wait(1_000);
+      rerender(notice("preview-off", onEnable));
+      wait(retryEveryMs - 1_000);
     }
+    expect(screen.queryByText("Preview mode is off")).not.toBeNull();
+  });
+
+  test("pressing the button starts it all again", () => {
+    const onEnable = jest.fn();
+    render(notice("preview-off", onEnable));
+    wait(retryForMs);
+    const calls = onEnable.mock.calls.length;
+    fireEvent.click(
+      screen.getByRole("button", { name: /Turn on preview mode/ }),
+    );
+    expect(onEnable.mock.calls.length).toBeGreaterThan(calls);
+    expect(screen.getByText("Turning on preview mode…").className).toContain(
+      "sr-only",
+    );
+  });
+
+  /**
+   * A reload is a new attempt even when the STATUS cannot say so: reloading a
+   * page that has already given up leaves it at `no-answer`.
+   */
+  test("a reload starts it all again, whatever the status does", () => {
+    const onEnable = jest.fn();
+    const { rerender } = render(notice("no-answer", onEnable, 1));
+    wait(retryForMs);
+    expect(screen.queryByText("No answer from the page")).not.toBeNull();
+    const calls = onEnable.mock.calls.length;
+    rerender(notice("no-answer", onEnable, 2));
+    expect(screen.queryByText("No answer from the page")).toBeNull();
+    expect(onEnable.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  /**
+   * The site may send the canvas to its own sign-in page, and the editor signs
+   * in there. Turning preview mode on navigates the frame, which would throw
+   * away what they are typing.
+   */
+  test("it leaves a page alone while someone is using it", () => {
+    const onEnable = jest.fn();
+    render(
+      <div>
+        <iframe title="the page" tabIndex={0} />
+        {notice("no-answer", onEnable)}
+      </div>,
+    );
+    act(() => {
+      screen.getByTitle("the page").focus();
+    });
+    onEnable.mockClear();
+    wait(retryEveryMs * 2);
+    expect(onEnable).not.toHaveBeenCalled();
   });
 
   test("the explanation and the reload are behind Details", () => {
     render(notice("connecting"));
+    wait(quietMs);
     expect(screen.queryByText("Reload")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Details/ }));
     expect(screen.queryByText("Reload")).not.toBeNull();
@@ -229,30 +229,17 @@ describe("the canvas preview notice", () => {
   });
 
   /**
-   * The panel does not keep the pill's silence.
-   *
-   * The pill withholds a diagnosis for the first stretch because it appears
-   * without being asked for. The panel was opened on purpose, and answering
-   * "the page has not reported what is on it yet" to a page that has reported
-   * — and reported that preview mode is off — is the one place being unhelpful
-   * on purpose.
+   * The pill keeps quiet about the diagnosis while it is still fixing it. The
+   * panel was opened on purpose, and says what the page reported.
    */
-  test("but the explanation says what is known, without waiting", () => {
+  test("but the explanation says what is known, and what is being done", () => {
     render(notice("preview-off"));
+    wait(quietMs);
     fireEvent.click(screen.getByRole("button", { name: /Details/ }));
     expect(screen.queryByText(/Without preview mode/)).not.toBeNull();
-    expect(
-      screen.queryByText(/The page has not reported what is on it yet/),
-    ).toBeNull();
+    expect(screen.queryByText(/again every few seconds/)).not.toBeNull();
   });
 
-  /**
-   * The checklist used to be offered only where the page never answered, on the
-   * grounds that a page which answered is wired up correctly. That withheld it
-   * from the person most likely to want it: someone whose preview mode will not
-   * stay on presses the button, lands back on `preview-off`, and was then in
-   * the one state with no route to the setup help.
-   */
   test("the developer's checklist is reachable from every state", () => {
     for (const status of [
       "connecting",
@@ -261,10 +248,40 @@ describe("the canvas preview notice", () => {
       "preview-off",
     ] as const) {
       const { unmount } = render(notice(status));
+      wait(quietMs);
       fireEvent.click(screen.getByRole("button", { name: /Details/ }));
       expect(screen.queryByText("Setup instructions")).not.toBeNull();
       unmount();
     }
+  });
+});
+
+describe("the clock", () => {
+  test("is quiet, then recovering, then gives up", () => {
+    expect(previewRecoveryPhase(0, PREVIEW_RECOVERY)).toBe("loading");
+    expect(previewRecoveryPhase(quietMs, PREVIEW_RECOVERY)).toBe("recovering");
+    expect(previewRecoveryPhase(retryForMs, PREVIEW_RECOVERY)).toBe("gave-up");
+  });
+
+  test("retries only on a reason, on time, and not past the end", () => {
+    const at = (
+      status: CanvasPreviewStatus,
+      elapsedMs: number,
+      sinceLastEnableMs: number | null,
+    ) =>
+      shouldAutoEnable({
+        status,
+        elapsedMs,
+        sinceLastEnableMs,
+        timing: PREVIEW_RECOVERY,
+      });
+    expect(at("preview-off", 0, null)).toBe(true);
+    expect(at("no-answer", 0, null)).toBe(true);
+    expect(at("connecting", 0, null)).toBe(false);
+    expect(at("enabling", 0, null)).toBe(false);
+    expect(at("preview-off", 3_000, 3_000)).toBe(false);
+    expect(at("preview-off", 5_000, 5_000)).toBe(true);
+    expect(at("preview-off", retryForMs, null)).toBe(false);
   });
 });
 

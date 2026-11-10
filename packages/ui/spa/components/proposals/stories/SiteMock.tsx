@@ -1,13 +1,12 @@
 /**
- * The proposal's page as the design tab's frame would show it: the customer's
- * own look, nothing of Val's. In the real tab this is an iframe at the
- * proposal's address; here it is the page itself, so the story needs no
- * server.
+ * A proposal's page as the canvas shows it: the customer's own look, nothing
+ * of Val's. In the Studio this is the site in the canvas's frame; here it is
+ * the page itself, so the story needs no server.
  *
  * `testimonials` is the change the assistant is making in the stories: a
  * component the site does not have.
  */
-export function DesignSiteMock({
+export function SiteMock({
   testimonials,
 }: {
   testimonials: "none" | "cards" | "quote";
