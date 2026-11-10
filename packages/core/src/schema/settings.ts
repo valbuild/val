@@ -417,6 +417,11 @@ export function settings(): SettingsSchema<SettingsSource> {
         .describe(
           "How to translate into each language: dialect, formality, and the words that stay untranslated.",
         ),
+      webSearch: boolean()
+        .nullable()
+        .describe(
+          "Whether the assistant may search the web. Off unless turned on. After a search it asks before changing code.",
+        ),
     }),
     theme: new SettingsSchema<ThemeSettingsSource>({
       accent: color({ format: "hex" })

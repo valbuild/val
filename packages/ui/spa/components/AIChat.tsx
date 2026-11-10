@@ -10,6 +10,7 @@ import React, {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import { assistantMarkdownComponents } from "./assistantMarkdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
@@ -2504,7 +2505,9 @@ function MessageBubble({
                 </div>
               )}
               {textContent ? (
-                <ReactMarkdown>{textContent}</ReactMarkdown>
+                <ReactMarkdown components={assistantMarkdownComponents}>
+                  {textContent}
+                </ReactMarkdown>
               ) : isStreamingMsg ||
                 isError ||
                 fileUrls.length > 0 ||

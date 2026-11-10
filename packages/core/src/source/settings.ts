@@ -268,6 +268,16 @@ export type AssistantSettingsSource = {
    * field unset and nothing is required.
    */
   translation?: Record<string, string | null> | null;
+  /**
+   * Whether the assistant may search the web.
+   *
+   * Off unless someone turns it on: a search puts text a stranger wrote in
+   * front of a model that can change this project, and each search is billed
+   * to the project's own AI key. When it is on, a turn that has searched asks
+   * the editor before it changes any code (see `webSearchGate.ts` in the
+   * Studio, and `docs/plans/assistant-web-search.md` in valbuild/home).
+   */
+  webSearch?: boolean | null;
 };
 
 /**

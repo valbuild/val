@@ -166,6 +166,11 @@ export const AIAgentDefinition = z.object({
   model: AIModel,
   tools: z.array(AITool).optional(),
   description: z.string().optional(),
+  /**
+   * Let the agent search the web with the provider's own search tool, which
+   * the server adds. From the project's `assistant.webSearch` setting.
+   */
+  webSearch: z.boolean().optional(),
 });
 
 export type AIAgentDefinition = z.infer<typeof AIAgentDefinition>;
@@ -180,6 +185,16 @@ export const AIToolCallMessage = z.object({
   arguments: z.unknown(),
 });
 export type AIToolCallMessage = z.infer<typeof AIToolCallMessage>;
+
+/**
+ * The provider searched the web during the turn. The rest of the turn is
+ * tainted: see `webSearchGate.ts`.
+ */
+export const AIWebSearchMessage = z.object({
+  type: z.literal("ai_web_search"),
+  id: z.string(),
+  query: z.string(),
+});
 
 export const AIErrorCode = z.enum([
   "max_iterations_reached",
@@ -365,6 +380,7 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIResponseMessage,
   AIStreamingMessage,
   AIToolCallMessage,
+  AIWebSearchMessage,
   AIErrorMessage,
   AICancelledMessage,
   AISessionUnhiddenMessage,
