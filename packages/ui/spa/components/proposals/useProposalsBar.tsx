@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { SourcePath } from "@valbuild/core";
 import type { TopBarProposals } from "../shell/TopBar";
+import { useSettledProjectSeq } from "../shell/canvas/useServedBuild";
 import {
   useCurrentAuthorId,
   useCurrentProposal,
@@ -81,7 +82,6 @@ import {
 import type { FloatingNoticeItem } from "../shell/FloatingNotices";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
-import { designTabUrl, siteDesignTabUrl } from "../../design/designTabUrl";
 import { MergedProposalDialog } from "./MergedProposalDialog";
 import {
   asksForCodeMode,
@@ -572,6 +572,20 @@ export function useProposalsBar({
     }, CODE_MODE_POLL_MS);
     return () => clearInterval(timer);
   }, [inAProposal, refresh]);
+  /*
+   * And at once when the proposal's version moves: someone else staged
+   * code (valbuild/home `patches.countStaging`) or a build was served, so
+   * code mode's status says what the preview shows ("Save to update",
+   * "Quick preview") for everyone in it, not only for whoever made the
+   * change. Once per burst of saves (`useSettledProjectSeq`).
+   */
+  const seq = useSettledProjectSeq();
+  const seqSeen = useRef(seq);
+  useEffect(() => {
+    if (seq === seqSeen.current) return;
+    seqSeen.current = seq;
+    if (inAProposal) void refresh();
+  }, [seq, inAProposal, refresh]);
   useEffect(() => {
     reportCodeMode(
       here === null || currentJson === null
@@ -1587,17 +1601,6 @@ export function useProposalsBar({
     };
   }
 
-  // Where the design tab is: the site's address, never this one.
-  const designUrl =
-    location.kind !== "proposal"
-      ? null
-      : ready?.siteUrl
-        ? designTabUrl(
-            window.location.href,
-            location.proposal.name,
-            ready.siteUrl,
-          )
-        : siteDesignTabUrl(window.location.href, location.proposal.name);
   const proposals: TopBarProposals = {
     location,
     // Where this Studio is, or which proposal it is, still being read.
@@ -1688,9 +1691,6 @@ export function useProposalsBar({
       toast.success("Link copied");
     },
     onClose: () => openDialog("close"),
-    ...(designUrl !== null
-      ? { onOpenDesign: () => window.open(designUrl, "_blank") }
-      : {}),
   };
 
   const currentSummary =

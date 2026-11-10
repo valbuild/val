@@ -21,6 +21,10 @@ import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
  * - `rejected` (400) — the patches are permanently bad. NOT retryable.
  * - `refused` (403) — Val Build refused them for the project's plan. The
  *   patches are fine and are KEPT; they are sent again later, not in a loop.
+ * - `server-error` (502) — the content service failed to take them: it
+ *   answered with a server error or could not be reached. The patches are
+ *   fine and are KEPT; after a quick retry the queue is held and the editor is
+ *   offered Try again. See {@link PatchSync.retry}.
  * - `network-error` — retryable, and says nothing about the patches.
  * - `unparseable-response` — retryable, but usually permanent: reported after a
  *   couple of attempts instead of retried in silence.
@@ -80,6 +84,26 @@ export type SaveResult =
    */
   | { status: "unparseable-response"; message: string }
   | { status: "unauthorized"; message: string }
+  /**
+   * The content service behind the server failed to take the write: it
+   * answered with a server error (a 500 from a database missing a column was
+   * the one that found this), or the server could not reach it.
+   *
+   * Not `rejected`: nothing is wrong with the patches, and dropping them reverted
+   * the field while the status bar said "All changes saved". Not quite a
+   * `network-error` either: the server DID answer, with the reason, and that
+   * reason is worth showing -- and a service that keeps failing does not get
+   * better by being asked every thirty seconds forever.
+   *
+   * `saved` is the part of the batch the service took before it failed.
+   */
+  | {
+      status: "server-error";
+      saved: SavedPatches;
+      message: string;
+      /** The service's status line and words, for "Details". */
+      details?: string;
+    }
   /**
    * Val Build refused the write for the project's plan: the Free week's
    * changes are used, or a trial is over.
@@ -157,6 +181,27 @@ export function refusedRetryMs(
 }
 
 /**
+ * How long a save the content service failed waits before it is sent again
+ * by itself: the first time. Each failure after it doubles the wait, up to
+ * {@link FAILED_RETRY_MAX_MS}.
+ *
+ * The editor does not have to wait for it -- Try again sends at once (see
+ * {@link PatchSync.retry}). This is for the editor who has walked away: a
+ * service that comes back saves their work without them. It backs off because
+ * a service failing the same way on every write is not helped by more of them.
+ */
+export const FAILED_RETRY_MS = 30_000;
+export const FAILED_RETRY_MAX_MS = 10 * 60_000;
+
+/** When to send a held, failed save again. `held` counts holds in a row, from 1. */
+export function failedRetryMs(held: number): number {
+  return Math.min(
+    FAILED_RETRY_MS * 2 ** Math.max(0, held - 1),
+    FAILED_RETRY_MAX_MS,
+  );
+}
+
+/**
  * Has the write queue failed for long enough to stop waiting on it?
  *
  * The same threshold the sync reports a stuck save at, so a caller waiting for
@@ -165,7 +210,8 @@ export function refusedRetryMs(
  */
 export function isSaveStuck(state: SyncState): boolean {
   return (
-    state.status === "retrying" && state.attempt >= SAVE_STUCK_AFTER_ATTEMPTS
+    state.status === "failed" ||
+    (state.status === "retrying" && state.attempt >= SAVE_STUCK_AFTER_ATTEMPTS)
   );
 }
 
@@ -191,9 +237,26 @@ export type SyncState =
       reason:
         | "conflict"
         | "network-error"
+        | "server-error"
         | "unparseable-response"
         | "unauthorized";
       message: string;
+      attempt: number;
+    }
+  /**
+   * The content service failed to take these, more than once. They are kept
+   * and the queue is HELD: sent again by {@link PatchSync.retry} (the
+   * editor's Try again), by a timed retry ({@link failedRetryMs}), and not by
+   * every keystroke meanwhile -- an edit made while held joins them.
+   *
+   * `message` is for the editor; `details` is the service's status line and
+   * words, for "Details".
+   */
+  | {
+      status: "failed";
+      patches: PatchId[];
+      message: string;
+      details?: string;
       attempt: number;
     }
   /**
@@ -297,6 +360,13 @@ function sameState(a: SyncState, b: SyncState): boolean {
   if (a.status === "refused" && b.status === "refused") {
     return a.message === b.message;
   }
+  if (a.status === "failed" && b.status === "failed") {
+    return (
+      a.message === b.message &&
+      a.details === b.details &&
+      a.attempt === b.attempt
+    );
+  }
   return true;
 }
 
@@ -375,6 +445,16 @@ export class PatchSync {
    * every retry.
    */
   private reportedRefusal: string | null = null;
+  /**
+   * Saving is held because the content service failed to take the last write,
+   * more than once: see the `failed` {@link SyncState}. While held, a flush
+   * sends nothing; {@link retry} and the timed retry release it.
+   */
+  private failed: { message: string; details?: string } | null = null;
+  /** Bumped per hold and per release, so only the latest timed retry runs. */
+  private failures = 0;
+  /** Holds in a row since the last save went through; sets the backoff. */
+  private consecutiveFailures = 0;
   private state: SyncState = { status: "in-sync" };
   private stopped = false;
 
@@ -608,6 +688,18 @@ export class PatchSync {
         });
         return;
       }
+      if (this.failed !== null) {
+        this.setState({
+          status: "failed",
+          patches: records.map((record) => record.patchId),
+          message: this.failed.message,
+          ...(this.failed.details !== undefined
+            ? { details: this.failed.details }
+            : {}),
+          attempt: this.attempt,
+        });
+        return;
+      }
       const save = this.savePatches;
       if (save === undefined) {
         // Nowhere to write. Reported as pending rather than retrying, because
@@ -687,6 +779,7 @@ export class PatchSync {
       this.reportedStuck = false;
       this.reportedRefusal = null;
       this.consecutiveRefusals = 0;
+      this.consecutiveFailures = 0;
       this.recordSaved(result, parentRef);
       // Keep looping. More may have been created while this request was in
       // flight, and the loop's own emptiness check is what terminates it — a
@@ -729,6 +822,9 @@ export class PatchSync {
         if (refusal === this.refusals) this.retryRefused();
       });
       return true;
+    }
+    if (result.status === "server-error") {
+      return this.handleServerError(result, parentRef);
     }
     if (result.status === "rejected") {
       this.reportedStuck = false;
@@ -805,6 +901,90 @@ export class PatchSync {
     }
     await this.sleep(this.backoffMs(this.attempt));
     return this.stopped;
+  }
+
+  /**
+   * The content service failed to take the write. Keep everything, retry once
+   * quickly, then hold and say so.
+   *
+   * The quick retry is for the blip -- a service restarting, one dropped
+   * connection -- which should never reach the editor as "could not save".
+   * After it, the failure is real: the queue is held as `failed`, which the
+   * status bar shows as "Could not save" with Try again beside it. Never as
+   * "All changes saved", which is what a dropped patch used to leave behind.
+   */
+  private async handleServerError(
+    result: Extract<SaveResult, { status: "server-error" }>,
+    parentRef: ParentRef,
+  ): Promise<boolean> {
+    if (result.saved.newPatchIds.length > 0) {
+      // The part of the batch the service took before it failed is saved, and
+      // is what the retry goes on top of.
+      this.recordSaved(result.saved, parentRef);
+    }
+    this.attempt++;
+    this.activity.work("patch:save-retry");
+    const held = this.patchStore
+      .unsavedRecords()
+      .map((record) => record.patchId);
+    if (this.attempt < SAVE_STUCK_AFTER_ATTEMPTS) {
+      this.setState({
+        status: "retrying",
+        patches: held,
+        reason: "server-error",
+        message: result.message,
+        attempt: this.attempt,
+      });
+      await this.sleep(this.backoffMs(this.attempt));
+      return this.stopped;
+    }
+    this.failed = {
+      message: result.message,
+      ...(result.details !== undefined ? { details: result.details } : {}),
+    };
+    this.setState({
+      status: "failed",
+      patches: held,
+      message: result.message,
+      ...(result.details !== undefined ? { details: result.details } : {}),
+      attempt: this.attempt,
+    });
+    this.events.emit({
+      type: "patch:save-failed",
+      patches: held,
+      message: result.message,
+      ...(result.details !== undefined ? { details: result.details } : {}),
+      attempt: this.attempt,
+    });
+    this.consecutiveFailures++;
+    const failure = ++this.failures;
+    void this.sleep(failedRetryMs(this.consecutiveFailures)).then(() => {
+      if (failure === this.failures) this.releaseFailed();
+    });
+    return true;
+  }
+
+  /**
+   * Send a save the content service failed again, now: the editor's Try again.
+   *
+   * Sends the same patches the failed save carried -- they were kept -- plus
+   * anything typed since, in one batch on the current head. Resolves when the
+   * queue has drained or stopped again; read {@link currentState} to see which.
+   *
+   * Only a `failed` save is released. A plan refusal is not this button's to
+   * lift (the shell resumes it when Val Build says so, see {@link resume}),
+   * and a save that is merely retrying is already on its way: flushing joins it.
+   */
+  retry(): Promise<void> {
+    this.releaseFailed();
+    return this.flush();
+  }
+
+  private releaseFailed(): void {
+    if (this.failed === null || this.stopped) return;
+    this.failed = null;
+    this.failures++;
+    void this.flush();
   }
 
   /**

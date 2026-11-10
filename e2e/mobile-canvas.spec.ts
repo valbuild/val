@@ -239,12 +239,10 @@ test.describe("the preview modes on a phone", () => {
     await openPreview(page);
 
     // A fresh browser has no preview cookie, so the page mounts none of Val's
-    // client code and reports nothing to pick.
-    const enable = page.getByRole("button", { name: /Turn on preview mode/ });
-    await expect(enable).toBeVisible({ timeout: 30_000 });
-    await enable.click();
+    // client code and reports nothing to pick -- until the canvas turns
+    // preview mode on by itself (`CanvasPreviewNotice`).
     const fields = mode(page, "On page");
-    await expect(fields).toBeVisible({ timeout: 30_000 });
+    await expect(fields).toBeVisible({ timeout: 60_000 });
 
     // On page arms picking; Preview then puts the page in front of you with it
     // still armed, which is the state a pick happens in.
@@ -327,10 +325,8 @@ test.describe("the preview modes on a phone", () => {
     page,
   }) => {
     await openPreview(page);
-    const enable = page.getByRole("button", { name: /Turn on preview mode/ });
-    await expect(enable).toBeVisible({ timeout: 30_000 });
-    await enable.click();
-    await expect(mode(page, "On page")).toBeVisible({ timeout: 30_000 });
+    // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
+    await expect(mode(page, "On page")).toBeVisible({ timeout: 60_000 });
     await mode(page, "On page").click();
 
     const fields = page.getByRole("heading", { name: "On this page" });

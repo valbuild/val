@@ -137,6 +137,8 @@ export class ManifestSource {
    */
   private inStep = false;
   private inStepListeners = new Set<() => void>();
+  private servedBuildListeners = new Set<() => void>();
+  private seqListeners = new Set<() => void>();
 
   /**
    * Modules whose schema this Studio moved to by new code (HMR, staged code
@@ -206,6 +208,44 @@ export class ManifestSource {
     this.inStepListeners.add(listener);
     return () => {
       this.inStepListeners.delete(listener);
+    };
+  }
+
+  /**
+   * The build the server is serving: its registry's entry, from the last
+   * manifest adopted, or `null` where none named one (local development, a
+   * deploy the platform did not build, no manifest yet).
+   *
+   * What the preview reloads on (`CanvasFrame`): the page in it is the old
+   * build's document until it is loaded again, whoever built the new one --
+   * this tab, another editor, Val Build.
+   */
+  servedBuild(): string | null {
+    return this.manifest?.registry?.entry ?? null;
+  }
+
+  /**
+   * The project's `seq` in the last manifest adopted: moves with every
+   * write, delete and publish, each new build, and -- in a proposal -- each
+   * staging (valbuild/home `patches.countStaging`). `null` before the first.
+   */
+  seq(): number | null {
+    return this.manifest?.project.seq ?? null;
+  }
+
+  /** Call `listener` whenever {@link seq} changes. */
+  onSeq(listener: () => void): () => void {
+    this.seqListeners.add(listener);
+    return () => {
+      this.seqListeners.delete(listener);
+    };
+  }
+
+  /** Call `listener` whenever {@link servedBuild} changes. */
+  onServedBuild(listener: () => void): () => void {
+    this.servedBuildListeners.add(listener);
+    return () => {
+      this.servedBuildListeners.delete(listener);
     };
   }
 
@@ -320,6 +360,8 @@ export class ManifestSource {
       this.markInStep();
       return;
     }
+    const servedBefore = this.servedBuild();
+    const seqBefore = this.seq();
     this.manifest = loaded.manifest;
     this.incomplete = loaded.incomplete;
     this.decidedAt = epoch;
@@ -328,6 +370,12 @@ export class ManifestSource {
     // manifest, which was asked for after it.
     this.patchStore.manifestAdopted();
     this.markInStep();
+    if (this.servedBuild() !== servedBefore) {
+      for (const listener of [...this.servedBuildListeners]) listener();
+    }
+    if (this.seq() !== seqBefore) {
+      for (const listener of [...this.seqListeners]) listener();
+    }
   }
 
   /**

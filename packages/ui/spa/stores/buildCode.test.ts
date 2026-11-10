@@ -351,3 +351,55 @@ test("a build's registry is imported only from the site's own origin", () => {
     expect(registryEntryUrl(elsewhere, page)).toBe(null);
   }
 });
+
+/**
+ * The preview reloads when the server serves another build (`CanvasFrame`):
+ * the page in it is the old build's document until it is loaded again,
+ * whoever made the new one.
+ */
+test("the build being served is named, and a new one is announced once", async () => {
+  const b1: BuildRegistry = {
+    entry: valModulesEntryPath("b1"),
+    core: Internal.VERSION.core,
+  };
+  const studio = setup({
+    mode: "http",
+    registry: (build) => (build === "b2" ? ours : b1),
+  });
+  let announced = 0;
+  studio.system.manifest.onServedBuild(() => announced++);
+  await studio.stat();
+  expect(studio.system.manifest.servedBuild()).toBe(b1.entry);
+  expect(announced).toBe(1);
+
+  await studio.stat();
+  expect(announced).toBe(1);
+
+  studio.deploy();
+  await studio.stat();
+  expect(studio.system.manifest.servedBuild()).toBe(ENTRY);
+  expect(announced).toBe(2);
+});
+
+/**
+ * What a Studio re-reads a proposal's staged files on (`useProjectSeq`): the
+ * project's `seq`, which in a proposal moves with each staging, anyone's.
+ */
+test("the project's seq is named, and each move is announced", async () => {
+  const studio = setup({ mode: "http" });
+  const seen: (number | null)[] = [];
+  studio.system.manifest.onSeq(() => seen.push(studio.system.manifest.seq()));
+  expect(studio.system.manifest.seq()).toBeNull();
+  await studio.stat();
+  const first = studio.system.manifest.seq();
+  expect(first).not.toBeNull();
+  expect(seen).toEqual([first]);
+  // Nothing moved: nothing announced
+  await studio.stat();
+  expect(seen).toEqual([first]);
+  studio.deploy();
+  await studio.stat();
+  const second = studio.system.manifest.seq();
+  expect(second).not.toBe(first);
+  expect(seen).toEqual([first, second]);
+});

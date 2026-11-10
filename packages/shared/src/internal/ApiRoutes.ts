@@ -1663,6 +1663,26 @@ export const Api = {
             headVersion: z.number().optional(),
           }),
         }),
+        /*
+         * The content service failed to take a patch: it answered with a
+         * server error, or could not be reached. Not the 400 above either,
+         * because the patches are fine -- the Studio keeps them and offers
+         * to send them again. `message` is for the editor and `details` (the
+         * status line and the service's own words) for whoever they ask.
+         *
+         * As with the 403, the patches BEFORE the failed one were saved.
+         */
+        z.object({
+          status: z.literal(502),
+          json: z.object({
+            type: z.literal("service-error"),
+            message: z.string(),
+            details: z.string().optional(),
+            newPatchIds: z.array(PatchId),
+            parentRef: ParentRef,
+            headVersion: z.number().optional(),
+          }),
+        }),
         z.object({
           status: z.literal(200),
           json: z.object({
@@ -1703,6 +1723,8 @@ export const Api = {
           json: z.object({
             message: z.string(),
             error: GenericError,
+            /** What the content service said: its status line and words. */
+            details: z.string().optional(),
           }),
         }),
         z.object({

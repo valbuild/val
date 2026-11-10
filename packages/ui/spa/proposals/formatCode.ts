@@ -1,6 +1,6 @@
 /**
  * Formatting a proposal's files the way the project does, in the tab: the
- * assistant's `format_files` (valbuild/home `docs/design-tab.md`).
+ * assistant's `format_files`.
  *
  * In the tab rather than on the site's Val server because on the platform the
  * server has no formatter to run: Prettier's bundle crashes in a Worker isolate,

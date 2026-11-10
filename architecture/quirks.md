@@ -309,11 +309,23 @@ api key or a `.val/pat.json`. A local checkout has neither, so adding one
 `s.image().remote()` stops a project from publishing plain text. This is why the
 example app's remote gallery is opt-in (see `examples/next/val.modules.ts`).
 
-**Every commit failure reads "Unknown error".** `ValOpsHttp.commit` parses the
-error body with zod and then passes the _safeParse result_ — not the payload — to
-`getErrorMessageFromUnknownJson`, so the service's own message never survives.
-When a publish fails in proxy mode, read the content service's log, not the
-Studio's.
+**Every commit failure read "Unknown error", until it did not.**
+`ValOpsHttp.commit` parsed the error body with zod and passed the _safeParse
+result_ — not the payload — to `getErrorMessageFromUnknownJson`, so the
+service's own message never survived. It reads the payload now, through
+`contentServiceFailure.ts`, like the other content-service errors. Older
+deployments still say "Unknown error": read the content service's log.
+
+**A content-service error is not a bad patch, and must not become a 400.**
+`ValServer`'s `PUT /patches` answered every non-conflict failure with a 400
+`patch-error`, and a 400 is what `PatchSync` reads as `rejected` — permanent, so
+the patch is DROPPED. A content service answering 500 (a self-hosted engine
+missing a database column found it) therefore reverted the editor's field while
+the status bar said "All changes saved". `ValOpsHttp.saveSourceFilePatch` now
+reports a 5xx, 408, 429 or an unreachable service as `service-error`, the server
+answers it 502, and the Studio keeps the patch, holds the queue as `failed`, and
+offers Try again (`PatchSync.retry`). A 4xx is still a refusal of the patch.
+`e2e/http/saveFailure.spec.ts` and the mock's `/__test__/fail-patches` pin it.
 
 **A remote upload and the commit that ships it key the same file differently.**
 The browser uploads bytes under the file path (the store splits the ref first),
@@ -703,6 +715,18 @@ which jest cannot parse. Mock `../validation/schemaValidationBridge` at that sea
 **A render error in jsdom is console noise, not a failed test.** The DOM committed
 before the throw still asserts fine, so a test can pass against a crash. Wrap the
 subject in an error boundary that records the message and assert on that.
+
+**A field's `write` must be the same object on every render.** `StringField`,
+`CodeField` and `NumberField` reset their input from source in an effect that
+lists `write` (from `useDebouncedFieldWrite`) as a dependency, guarded by "no
+keystroke pending" and "no unsaved edit of my own". The hook returned a fresh
+object per render, so the effect ran on every render — including the one between
+the debounced write firing and its patch being registered, where neither guard
+holds and the field's (self-suppressed) source is still the pre-edit value. That
+put the old text back in the input. A save that succeeded healed it a moment
+later; one that stayed unsaved never did, so a failed save looked reverted while
+the store held the edit. Only under load, about one run in two, and logging in
+the effect was enough to hide it. Pinned by "useDebouncedFieldWrite's identity".
 
 **`rerender()` with the same element reference lets React skip the subtree.** Build
 a fresh element each time or the probe never runs again.

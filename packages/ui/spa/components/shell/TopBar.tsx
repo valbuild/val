@@ -119,11 +119,6 @@ export type TopBarProposals = {
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
-  /**
-   * Open the proposal's design tab, on the site's address (valbuild/home
-   * `docs/design-tab.md`). Absent while the site's address is not known.
-   */
-  onOpenDesign?: () => void;
   /** For stories. */
   defaultSwitcherOpen?: boolean;
   /** The Save/Publish button's caret menu, the proposal's acts with it. */
@@ -369,9 +364,6 @@ export function TopBar({
       onCompare={proposals.onCompare}
       onCopyLink={proposals.onCopyLink}
       onClose={proposals.onClose}
-      {...(proposals.onOpenDesign !== undefined
-        ? { onOpenDesign: proposals.onOpenDesign }
-        : {})}
       loading={proposals.loading}
       leaving={proposals.leaving ?? null}
       problem={proposals.previewProblem ?? null}

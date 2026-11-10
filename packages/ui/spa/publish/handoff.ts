@@ -122,7 +122,7 @@ export type HandoffIntent =
   | { kind: "build-proposal"; name: string }
   /**
    * Bundle a proposal's client code for a quick preview and hand the files
-   * back (`buildQuickPreview`): the design tab's Quick preview, from a page
+   * back (`buildQuickPreview`): a quick preview, asked for from a page
    * that cannot build. Nothing is uploaded; the page shows them.
    */
   | { kind: "quick-preview"; name: string };

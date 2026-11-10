@@ -538,18 +538,19 @@ describe("the proposals API, for the Studio", () => {
     }
     expect(sent).toEqual([]);
 
-    // The site's server writes and builds any of them: the design tab, which
-    // the site's build serves so that a build broken in the proposal cannot
-    // take its tools down (valbuild/home docs/design-tab.md, step 2).
+    // Nor does the site's server write or build any of them: code is changed
+    // in the proposal's own Studio, in code mode.
     const site = ops(undefined);
     for (const path of [`/${NAME}/files`, `/${NAME}/build`]) {
-      await site.proposalsApi(path, { method: "POST", body: "{}" }, "p");
+      const answer = await site.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+      expect(JSON.parse(answer.body).message).toMatch(/open the proposal/);
     }
-    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
-      `POST /v1/org/project/proposals/${NAME}/files`,
-      `POST /v1/org/project/proposals/${NAME}/build`,
-    ]);
-    sent.length = 0;
+    expect(sent).toEqual([]);
     // Reading another proposal's files is reading it, as GET of it is.
     await ops(undefined).proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
     expect(sent).toHaveLength(1);
@@ -647,20 +648,18 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toEqual([]);
   });
 
-  test("reporting a proposal's typecheck is its own server's and the site's -- the design tab's -- and no other proposal's", async () => {
+  test("reporting a proposal's typecheck is its own server's, and no other's", async () => {
     // valbuild/home docs/adept.md, step 7, decision 20: what blocks Publish.
-    // The same program from either address: the proposal's staged files
-    // checked against the site's (docs/design-tab.md).
     const own = ops(proposal("save-2"));
     const body = JSON.stringify({ inputs: "i", newErrors: [] });
     await own.proposalsApi(`/${NAME}/typecheck`, { method: "POST", body }, "p");
-    await ops(undefined).proposalsApi(
+    const fromSite = await ops(undefined).proposalsApi(
       `/${NAME}/typecheck`,
       { method: "POST", body },
       "p",
     );
+    expect(fromSite.status).toBe(403);
     expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
-      `POST /v1/org/project/proposals/${NAME}/typecheck`,
       `POST /v1/org/project/proposals/${NAME}/typecheck`,
     ]);
     sent.length = 0;

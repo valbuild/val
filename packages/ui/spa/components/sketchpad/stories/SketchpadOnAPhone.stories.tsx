@@ -15,10 +15,10 @@ import { PreviewMock, SKETCH } from "./sketchpadFixtures";
  * title at the top. Everything else is at the bottom, where the thumb is: the
  * tools, and under them one bar -- the chat at the left, as in the Studio's
  * own bar; one button to the other view (it says **Page** on the sketch and
- * **Sketch** on the page); **Send to AI**; and **X** to leave.
+ * **Sketch** on the page); **Build**; and **X** to leave.
  *
  * The sheet is pinned to what is visible, as the overlay's full-screen sheets
- * are, so with the keyboard up the tools sit on top of it -- and "Send to AI"
+ * are, so with the keyboard up the tools sit on top of it -- and "Build"
  * steps aside while typing, and is back when the keyboard goes.
  *
  * Box buttons (add an image, remove it) are always shown on a touch screen,
@@ -124,7 +124,7 @@ export const InTheStudio: Story = {
   args: { fullscreen: false },
 };
 
-/** Full screen, on the sketch: the tools at the bottom, Send to AI under them. */
+/** Full screen, on the sketch: the tools at the bottom, Build under them. */
 export const FullScreen: Story = {
   args: { fullscreen: true },
 };
@@ -147,7 +147,7 @@ export const FullScreenSending: Story = {
   args: { fullscreen: true },
   play: async ({ canvasElement }) => {
     await userEvent.click(
-      within(canvasElement).getByRole("button", { name: /Send to AI/ }),
+      within(canvasElement).getByRole("button", { name: /Build/ }),
     );
   },
 };

@@ -1,5 +1,47 @@
 # @valbuild/tanstack
 
+## 0.152.2
+
+### Patch Changes
+
+- Updated dependencies [[`077ab3e`](https://github.com/valbuild/val/commit/077ab3eeccc2ab75b1b6fd4a5cf14b71c9ee8344)]:
+  - @valbuild/ui@0.152.2
+  - @valbuild/react@0.152.2
+  - @valbuild/server@0.152.2
+  - @valbuild/language-server@0.152.2
+  - @valbuild/mcp@0.152.2
+
+## 0.152.1
+
+### Patch Changes
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **What the design tab needed is removed with it.** The page's canvas bridge
+  now answers `read_page`, `screenshot_page` and a quick preview only to the
+  Studio at the page's own origin, and no longer asks the server whether another
+  origin is the site's design tab. The site's server no longer writes a
+  proposal's files or offers the `patch-file` route: code and content are
+  changed in the proposal's own Studio. The assistant's `build_proposal` no
+  longer takes a `reason`.
+- Updated dependencies [[`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4), [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4), [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4), [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4)]:
+  - @valbuild/ui@0.152.1
+  - @valbuild/server@0.152.1
+  - @valbuild/shared@0.152.1
+  - @valbuild/react@0.152.1
+  - @valbuild/language-server@0.152.1
+  - @valbuild/mcp@0.152.1
+
+## 0.152.0
+
+### Patch Changes
+
+- Updated dependencies [[`f4e0660`](https://github.com/valbuild/val/commit/f4e06601495dbee680a4b9000344f84cd3af717f), [`3bb76d7`](https://github.com/valbuild/val/commit/3bb76d74d82b499aa15023838d63018a70fd7ce7), [`08a3977`](https://github.com/valbuild/val/commit/08a39779dbe43702a72ae57cbf8cf29b14e64672)]:
+  - @valbuild/ui@0.152.0
+  - @valbuild/server@0.152.0
+  - @valbuild/shared@0.152.0
+  - @valbuild/mcp@0.152.0
+  - @valbuild/react@0.152.0
+  - @valbuild/language-server@0.152.0
+
 ## 0.151.0
 
 ### Patch Changes

@@ -1,5 +1,5 @@
 /**
- * Looking at a page from the design tab (valbuild/home `docs/design-tab.md`):
+ * Looking at a page from the Studio:
  * where it is -- its path and scroll, so a new build opens at the same place
  * -- and what is on it, so the assistant can check its own change
  * (`read_page`).

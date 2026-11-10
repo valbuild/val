@@ -42,7 +42,6 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
-import { patchModuleFiles } from "./patchModuleText";
 import { stagedModuleSources } from "./stagedModuleSources";
 import {
   MoveInputs,
@@ -83,18 +82,17 @@ import {
   type TypeScriptKit,
 } from "./patch/ts/loadTypeScriptKit";
 import { VAL_CLIENT_HEADERS } from "./valClient";
+import {
+  contentServiceAnswered,
+  contentServiceFailureText,
+  contentServiceName,
+  contentServiceUnreachable,
+} from "./contentServiceFailure";
 
 const textEncoder = new TextEncoder();
 
 /** The body of the content API's 403 for a write the project's plan refuses. */
 const PlanRefusedBody = z.object({ error: PlanRefusalError });
-
-/** `POST /proposals-api/<name>/patch-file`: see `patchFileInProposal`. */
-const PatchFileBody = z.object({
-  moduleFilePath: z.string().regex(/^\/.+\.val\.(ts|js)$/),
-  patch: Patch,
-  message: z.string().max(500).optional(),
-});
 
 /** A staging's body, as `write_files` sends it. */
 const StageFilesBody = z.object({
@@ -121,11 +119,6 @@ async function withStagedModuleSources(body: string): Promise<string> {
   if (Object.keys(modules).length === 0) return body;
   return JSON.stringify({ ...parsed, modules });
 }
-
-/** What `patchFileInProposal` reads of content's answer for a proposal's files. */
-const ProposalFilesRead = z.object({
-  files: z.record(z.string(), z.string().nullable()),
-});
 
 const PatchId = z.string().refine((s): s is PatchId => !!s); // TODO: validate
 const CommitSha = z.string().refine((s): s is CommitSha => !!s); // TODO: validate
@@ -1247,42 +1240,14 @@ export class ValOpsHttp extends ValOps {
   }
 
   /**
-   * The writes the SITE's server may make to a proposal's files: what the
-   * design tab does (valbuild/home `docs/design-tab.md`, step 2) -- stage
-   * code, build it, and report its typecheck. The tab is served by the site's
-   * build so that a build the assistant breaks in the proposal cannot take
-   * down the tools it would fix it with; at the proposal's address those
-   * tools run on the proposal's own code.
-   *
-   * The typecheck too, though it blocks the proposal's Publish (adept.md,
-   * decision 20): it is the proposal's staged files checked against the
-   * site's, the same program from either address, and the content service
-   * keeps it only for the inputs it was made from. Without it the tab's
-   * Types check, and the assistant's `typecheck`, had nothing to show.
-   *
-   * And a quick preview: the browser half of a build of the staged files,
-   * which Val Build makes and nothing serves.
-   *
-   * The rest stay the proposal's own: Update from the site and the lockfile
-   * are answered from the proposal's build and schemas, and bringing back a
-   * point's code is the Studio at its address finishing a restore.
-   */
-  private static readonly SITE_MAY_WRITE = new Set([
-    "files",
-    "build",
-    "quick-preview",
-    "typecheck",
-  ]);
-
-  /**
    * Whether this server may make a write to a proposal's files: the
-   * proposal's own server, any of them; the site's, the design tab's; and a
-   * proposal's address, none to another proposal. Either way the site's own
-   * files change only when a proposal is merged.
+   * proposal's own server, to its own files, and no other. The site's server
+   * makes none -- code is changed in the proposal's own Studio, in code mode
+   * -- and a proposal's address none to another proposal. Either way the
+   * site's own files change only when a proposal is merged.
    */
   private mayWriteFiles(write: { name: string; write: string }): boolean {
-    if (this.proposal !== null) return write.name === this.proposal.name;
-    return ValOpsHttp.SITE_MAY_WRITE.has(write.write);
+    return this.proposal !== null && write.name === this.proposal.name;
   }
 
   /**
@@ -1332,10 +1297,6 @@ export class ValOpsHttp extends ValOps {
     const updating = /^\/([0-9a-f]{20})\/update-content$/.exec(path)?.[1];
     if (updating !== undefined && init.method === "POST") {
       return this.updateContentFromSite(updating, init.body, profileId);
-    }
-    const patching = /^\/([0-9a-f]{20})\/patch-file$/.exec(path)?.[1];
-    if (patching !== undefined && init.method === "POST") {
-      return this.patchFileInProposal(patching, init.body, profileId);
     }
     const withCode = /^\/([0-9a-f]{20})\/update-code$/.exec(path)?.[1];
     if (withCode !== undefined && init.method === "POST") {
@@ -1411,148 +1372,6 @@ export class ValOpsHttp extends ValOps {
       status: res.status,
       body: await res.text(),
       contentType: res.headers.get("Content-Type") ?? json,
-    };
-  }
-
-  /**
-   * A patch written into a module's FILE in a proposal, and staged there as
-   * code: the design tab's `create_patch` (valbuild/home `docs/design-tab.md`).
-   * The assistant there changes the proposal's code, so content it writes goes
-   * with that code -- a field it just added is filled in the same change, and
-   * built and rendered with it -- rather than into the proposal's saves, which
-   * the site's server does not write.
-   *
-   * Answered here, at `POST /<name>/patch-file`: the file is the proposal's
-   * copy if it has one, otherwise the one this build was made from, and the
-   * patch is written into it as a save writes one (`patchModuleText`). Who may
-   * is who may stage files: {@link ValOpsHttp.mayWriteFiles}.
-   */
-  private async patchFileInProposal(
-    name: string,
-    body: string | undefined,
-    profileId: string | null,
-  ): Promise<{ status: number; body: string; contentType: string }> {
-    const json = "application/json";
-    const answer = (status: number, value: unknown) => ({
-      status,
-      contentType: json,
-      body: JSON.stringify(value),
-    });
-    if (!this.mayWriteFiles({ name, write: "files" })) {
-      return answer(403, {
-        message:
-          "Files are changed in the proposal this Studio is open in, not in another.",
-      });
-    }
-    let parsedBody: unknown;
-    try {
-      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
-    } catch {
-      return answer(400, { message: "The patch's body is not JSON." });
-    }
-    const request = PatchFileBody.safeParse(parsedBody);
-    if (!request.success) {
-      return answer(400, {
-        message: `Invalid patch: ${fromError(request.error).toString()}`,
-      });
-    }
-    const { moduleFilePath, patch, message } = request.data;
-    const content = this.proposalContent(name, profileId);
-    const read = await content("/files");
-    if (!read.ok) {
-      return {
-        status: read.status,
-        contentType: json,
-        body: await read.text(),
-      };
-    }
-    const files = ProposalFilesRead.safeParse(await read.json());
-    if (!files.success) {
-      return answer(502, {
-        message: `Content answered the proposal's files in a shape this Val does not read: ${fromError(files.error).toString()}`,
-      });
-    }
-    const filePath = moduleFilePath.replace(/^\/+/, "");
-    const own = files.data.files[filePath];
-    if (own === null) {
-      return answer(409, {
-        message: `${moduleFilePath} is deleted in this proposal.`,
-      });
-    }
-    if (own === undefined && this.projectSource === null) {
-      return answer(409, {
-        message: `This build does not carry its source, so ${moduleFilePath} can only be patched once the proposal has its own copy: write it with write_files.`,
-      });
-    }
-    const text = own ?? this.projectSource?.[filePath];
-    if (text === undefined) {
-      return answer(404, {
-        message: `There is no module file ${moduleFilePath} in this proposal or on the site.`,
-      });
-    }
-    const patched = await patchModuleFiles(
-      moduleFilePath,
-      text,
-      (path) => {
-        const proposalCopy = files.data.files[path];
-        return proposalCopy !== undefined
-          ? proposalCopy
-          : this.projectSource?.[path];
-      },
-      patch,
-    );
-    if (result.isErr(patched)) {
-      return answer(422, {
-        message: `The patch does not apply to ${moduleFilePath}: ${patched.error}`,
-      });
-    }
-    const formatter = this.options?.formatter;
-    const format = async (
-      written: string,
-      path: string,
-    ): Promise<result.Result<string, string>> => {
-      if (!formatter) return result.ok(written);
-      try {
-        return result.ok(await formatter(written, path));
-      } catch (error) {
-        return result.err(
-          `The patched ${path} could not be formatted: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    };
-    const staging: Record<string, string> = {};
-    if (patched.value.moduleText !== null) {
-      const formatted = await format(patched.value.moduleText, moduleFilePath);
-      if (result.isErr(formatted)) {
-        return answer(422, { message: formatted.error });
-      }
-      staging[filePath] = formatted.value;
-    }
-    // An entry's file as a save writes it: see `ValOps.prepare`.
-    for (const [entryFile, content] of Object.entries(patched.value.entries)) {
-      const formatted = await format(
-        JSON.stringify(content, null, 2),
-        `/${entryFile}`,
-      );
-      if (result.isErr(formatted)) {
-        return answer(422, { message: formatted.error });
-      }
-      staging[entryFile] = formatted.value;
-    }
-    const modules = await stagedModuleSources(staging);
-    const staged = await content("/files", {
-      method: "POST",
-      body: JSON.stringify({
-        files: staging,
-        // The Source the patched text declares: see `stagedModuleSources`.
-        ...(Object.keys(modules).length > 0 ? { modules } : {}),
-        ...(message !== undefined ? { message } : {}),
-      }),
-    });
-    return {
-      status: staged.status,
-      contentType: staged.headers.get("Content-Type") ?? json,
-      body: await staged.text(),
     };
   }
 
@@ -2538,9 +2357,13 @@ export class ValOpsHttp extends ValOps {
         return {
           status: "error" as const,
           error: {
-            message:
-              "Could not get nonce. Error: " +
-              (e instanceof Error ? e.message : e.toString()),
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "connect for live updates",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -2854,11 +2677,17 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
+      const failure = contentServiceAnswered(
+        contentServiceName(this.contentUrl),
+        "load your changes",
+        {
+          status: patchesRes.status,
+          statusText: patchesRes.statusText,
+          body: await patchesRes.text().catch(() => ""),
+        },
+      );
       Internal.log.error(
-        "Could not get patches. HTTP error: " +
-          patchesRes.status +
-          " " +
-          patchesRes.statusText,
+        `Could not get patches. ${failure.message} ${failure.details}`,
       );
       if (patchesRes.status === 401) {
         return {
@@ -2871,27 +2700,37 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
+      /*
+       * The service ANSWERED, so this is not a network problem -- it used to
+       * say "most likely due to a network issue. Check your network
+       * connection" about a 500, to an editor whose network was fine. What it
+       * said goes in `details`. The Studio asks again on the next `/stat`,
+       * which fails fast and is retried while the service is failing.
+       */
       return {
         patches,
         error: {
-          message:
-            "Could not get your changes. It is most likely due to a network issue. Check your network connection and please try again.",
+          message: failure.message,
+          details: failure.details,
         },
       } as ExcludePatchOps extends true
         ? OrderedPatchesMetadata
         : OrderedPatches;
     } catch (err) {
+      const failure = contentServiceUnreachable(
+        contentServiceName(this.contentUrl),
+        "load your changes",
+        err,
+      );
       Internal.log.error(
-        "Could not get patches (connection error):",
-        err instanceof Error ? err.message : JSON.stringify(err),
+        `Could not get patches. ${failure.message} ${failure.details}`,
       );
       return {
         patches: [],
         networkError: true,
         error: {
-          message: `Error: ${
-            err instanceof Error ? err.message : JSON.stringify(err)
-          }`,
+          message: failure.message,
+          details: failure.details,
         },
       };
     }
@@ -2956,8 +2795,27 @@ export class ValOpsHttp extends ValOps {
             message: "Conflict: " + (await res.text()),
           });
         }
-        if (res.headers.get("Content-Type")?.includes("application/json")) {
-          const json = await res.json();
+        const body = await res.text();
+        const failure = contentServiceAnswered(
+          contentServiceName(this.contentUrl),
+          "save your change",
+          { status: res.status, statusText: res.statusText, body },
+        );
+        if (failure.retryable) {
+          /*
+           * The SERVICE failed -- a 500 from a database missing a column was
+           * the one that found this. It used to be an `other`, which the
+           * Studio is told is a bad patch and drops: the field went back to
+           * its old value and the status bar said "All changes saved".
+           */
+          return result.err({
+            errorType: "service-error",
+            message: failure.message,
+            details: failure.details,
+          });
+        }
+        const json = parseJsonOrNull(body);
+        if (json !== null) {
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           /*
            * Refused for the plan: the patch is fine, and the reason comes as
@@ -2981,19 +2839,19 @@ export class ValOpsHttp extends ValOps {
         }
         return result.err({
           errorType: "other",
-          message:
-            "Could not save patch. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
+          message: `${failure.message} ${failure.details}`,
         });
       })
       .catch((e): SaveSourceFilePatchResult => {
+        const failure = contentServiceUnreachable(
+          contentServiceName(this.contentUrl),
+          "save your change",
+          e,
+        );
         return result.err({
-          errorType: "other",
-          message: `Could save source file patch (connection error?): ${
-            e instanceof Error ? e.message : e.toString()
-          }`,
+          errorType: "service-error",
+          message: failure.message,
+          details: failure.details,
         });
       });
   }
@@ -3052,11 +2910,17 @@ export class ValOpsHttp extends ValOps {
           }
           return {
             error: {
-              message:
-                "Could not save patch file. HTTP error: " +
-                res.status +
-                " " +
-                res.statusText,
+              message: contentServiceFailureText(
+                contentServiceAnswered(
+                  contentServiceName(this.contentUrl),
+                  "save the file",
+                  {
+                    status: res.status,
+                    statusText: res.statusText,
+                    body: await res.text().catch(() => ""),
+                  },
+                ),
+              ),
             },
           };
         },
@@ -3064,7 +2928,13 @@ export class ValOpsHttp extends ValOps {
       .catch((e): WithGenericError<{ patchId: PatchId; filePath: string }> => {
         return {
           error: {
-            message: `Could save source binary file in patch (connection error?): ${e.toString()}`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "save the file",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3151,20 +3021,30 @@ export class ValOpsHttp extends ValOps {
         }
         return {
           error: {
-            message:
-              "Could not get files. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "load the files",
+                {
+                  status: res.status,
+                  statusText: res.statusText,
+                  body: await res.text().catch(() => ""),
+                },
+              ),
+            ),
           },
         };
       })
       .catch((e) => {
         return {
           error: {
-            message: `Could not get file (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "load the files",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3353,11 +3233,17 @@ export class ValOpsHttp extends ValOps {
       return {
         errors: [
           {
-            message:
-              "Could not get metadata. HTTP error: " +
-              metadataRes.status +
-              " " +
-              metadataRes.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "read the file's details",
+                {
+                  status: metadataRes.status,
+                  statusText: metadataRes.statusText,
+                  body: await metadataRes.text().catch(() => ""),
+                },
+              ),
+            ),
             filePath,
           },
         ],
@@ -3366,11 +3252,13 @@ export class ValOpsHttp extends ValOps {
       return {
         errors: [
           {
-            message:
-              "Could not get metadata (connection error?): " +
-              (err instanceof Error
-                ? err.message
-                : err?.toString() || "unknown error"),
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "read the file's details",
+                err,
+              ),
+            ),
           },
         ],
       };
@@ -3459,20 +3347,30 @@ export class ValOpsHttp extends ValOps {
         }
         return {
           error: {
-            message:
-              "Could not delete patches. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+            message: contentServiceFailureText(
+              contentServiceAnswered(
+                contentServiceName(this.contentUrl),
+                "discard the changes",
+                {
+                  status: res.status,
+                  statusText: res.statusText,
+                  body: await res.text().catch(() => ""),
+                },
+              ),
+            ),
           },
         };
       })
       .catch((e) => {
         return {
           error: {
-            message: `Could not delete patches (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
+            message: contentServiceFailureText(
+              contentServiceUnreachable(
+                contentServiceName(this.contentUrl),
+                "discard the changes",
+                e,
+              ),
+            ),
           },
         };
       });
@@ -3606,42 +3504,45 @@ export class ValOpsHttp extends ValOps {
           },
         };
       }
-      if (res.headers.get("Content-Type")?.includes("application/json")) {
-        const json = z
-          .object({ isNotFastForward: z.boolean().optional() })
-          .safeParse(await res.json());
-        if (json.success && json.data.isNotFastForward) {
-          return {
-            isNotFastForward: true,
-            error: {
-              message: "Could not commit. Not a fast-forward commit",
-            },
-          };
-        }
-        const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+      const body = await res.text().catch(() => "");
+      const payload = parseJsonOrNull(body);
+      const notFastForward = z
+        .object({ isNotFastForward: z.boolean().optional() })
+        .safeParse(payload);
+      if (notFastForward.success && notFastForward.data.isNotFastForward) {
         return {
+          isNotFastForward: true,
           error: {
-            message,
+            message: "Could not commit. Not a fast-forward commit",
           },
         };
       }
+      /*
+       * The service's own words, read from the PAYLOAD. This used to hand
+       * `getErrorMessageFromUnknownJson` the zod `safeParse` result, which
+       * has no `message`, so every commit failure read "Unknown error".
+       */
       return {
         error: {
-          message:
-            "Could not commit. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
+          message: contentServiceFailureText(
+            contentServiceAnswered(
+              contentServiceName(this.contentUrl),
+              "publish",
+              { status: res.status, statusText: res.statusText, body },
+            ),
+          ),
         },
       };
     } catch (err) {
       return {
         error: {
-          message: `Could not commit (connection error?): ${
-            err instanceof Error
-              ? err.message
-              : err?.toString() || "unknown error"
-          }`,
+          message: contentServiceFailureText(
+            contentServiceUnreachable(
+              contentServiceName(this.contentUrl),
+              "publish",
+              err,
+            ),
+          ),
         },
       };
     }

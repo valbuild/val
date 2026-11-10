@@ -3,6 +3,7 @@ import type { TransientError } from "../stores/StatusStore";
 import { useGlobalTransientErrors } from "./ValProvider";
 import { toast } from "./designSystem/sonner";
 import { namedAction } from "./transientErrorActions";
+import { useRetrySave } from "./ValFieldProvider";
 
 const TOAST_DURATION = 6000;
 
@@ -28,6 +29,9 @@ export function TransientErrorToasts({
   const shownIds = useRef<Set<string>>(new Set());
   const actionForRef = useRef(actionFor);
   actionForRef.current = actionFor;
+  const retrySave = useRetrySave();
+  const retrySaveRef = useRef(retrySave);
+  retrySaveRef.current = retrySave;
 
   useEffect(() => {
     const currentIds = new Set<string>();
@@ -36,7 +40,9 @@ export function TransientErrorToasts({
       if (shownIds.current.has(error.id)) {
         continue;
       }
-      const action = actionForRef.current?.(error) ?? namedAction(error.action);
+      const action =
+        actionForRef.current?.(error) ??
+        namedAction(error.action, { retrySave: () => retrySaveRef.current() });
       toast.error(error.message, {
         id: error.id,
         description: error.details,

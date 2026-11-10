@@ -223,3 +223,26 @@ describe("useDebouncedFieldWrite", () => {
     });
   });
 });
+
+/**
+ * The same object on every render.
+ *
+ * `StringField`, `CodeField` and `NumberField` list `write` as a dependency of
+ * the effect that resets the input from source, because it is meant never to
+ * change. A fresh object per render ran that effect on every render, and one of
+ * those renders falls between the write firing and its patch existing -- where
+ * source is still the pre-edit value. It put the old text back in the input.
+ */
+describe("useDebouncedFieldWrite's identity", () => {
+  test("does not change between renders", () => {
+    const seen: ReturnType<typeof useDebouncedFieldWrite<string>>[] = [];
+    const view = render(
+      <Probe written={[]} maxWaitMs={1000} onReady={(api) => seen.push(api)} />,
+    );
+    view.rerender(
+      <Probe written={[]} maxWaitMs={1000} onReady={(api) => seen.push(api)} />,
+    );
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen[seen.length - 1]).toBe(seen[0]);
+  });
+});

@@ -21,7 +21,10 @@ import { PlanStatusBar } from "./planLimits/PlanStatusBar";
 import type { Owner } from "./planLimits/studioAccess";
 import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
-import { useSteadySaveState } from "./useSteadySaveState";
+import { saveStateOf, useSteadySaveState } from "./useSteadySaveState";
+import { SaveFailedNotice } from "./SaveFailedNotice";
+import type { FloatingNoticeItem } from "./FloatingNotices";
+import { AlertTriangle } from "lucide-react";
 import { PublishState } from "./TopBar";
 import {
   ShellBreakpoint,
@@ -131,7 +134,9 @@ import {
 import {
   useFilePatchIds,
   useGetNavPath,
+  usePatchSyncState,
   useResolveNavPath,
+  useRetrySave,
 } from "../ValFieldProvider";
 import type { NavPathResolution } from "../getNavPath";
 import { refToUrl } from "../MediaPicker/refToUrl";
@@ -144,7 +149,12 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
-import { CodeModeWorkspaceConnected } from "../proposals/CodeModeWorkspaceConnected";
+import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
+import { useBuildEpoch } from "./canvas/useServedBuild";
+import {
+  useCodeModeQuickPreview,
+  withQuickPreviewState,
+} from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -372,6 +382,8 @@ function ValShellBody({
   const commitState = useHistoricalCommit(history.commitSha);
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
+  const syncState = usePatchSyncState();
+  const retrySave = useRetrySave();
   const { patchErrors } = useAllPatchErrors();
   const validationErrors = useAllValidationErrors();
   // The query the search overlay is showing, so the content index can answer
@@ -618,6 +630,7 @@ function ValShellBody({
   const sketchpads = useStudioSketchpads({
     openAssistant: isAIChatEnabled ? openAIPanel : null,
     pages: data.pages,
+    pageTypes: data.newPage?.routes.map((route) => route.patternString),
     currentProfileId: useCurrentProfileId(),
     location: navigation.currentSourcePath,
   });
@@ -1139,6 +1152,39 @@ function ValShellBody({
    */
   const resolveNavPath = useResolveNavPath();
   const reportError = useReportError();
+
+  /**
+   * Which document of the page the canvas holds, beyond its own reloads.
+   *
+   * The canvas is the one preview in every mode -- the content editor, code
+   * mode, the Sketchpad -- so it is what has to follow the code: when the
+   * server serves another build, whoever built it, the page in the frame is
+   * the old build's document until it is loaded again. Content needs nothing
+   * here: the frame relays every edit as it is made.
+   */
+  const buildEpoch = useBuildEpoch();
+  /**
+   * In a proposal, the proposal's client code shown on the page in seconds
+   * after each change, before a build: see `useCodeModeQuickPreview`. The
+   * canvas opens the page as the quick preview while one is shown.
+   */
+  const [canvasLive, setCanvasLive] = useState(false);
+  const quickPreview = useCodeModeQuickPreview({
+    pageLive: canvasLive,
+    buildEpoch,
+  });
+  const quickId = quickPreview.quickId;
+  const setQuickStorer = quickPreview.setStorer;
+  const onQuickDocument = quickPreview.onDocument;
+  /** Code mode's status asked for the page again. */
+  const [codeReloads, setCodeReloads] = useState(0);
+  const documentKey = `${buildEpoch}:${codeReloads}`;
+  /**
+   * In code mode's view the column beside the canvas holds the code changes,
+   * so a field picked on the page has nowhere to open: picking one puts the
+   * content editor back. Set once the proposals bar is known, below.
+   */
+  const leaveCodeView = useRef<(() => void) | null>(null);
   const openPickedPath = useCallback(
     (paths: SourcePath[]): boolean => {
       const path = paths[0];
@@ -1191,9 +1237,13 @@ function ValShellBody({
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
         url={canvasUrl}
+        quickPreviewId={quickId}
+        onQuickPreviewStorer={setQuickStorer}
+        onDocument={onQuickDocument}
         width={width}
         height={height}
         reloadKey={reloadKey}
+        documentKey={documentKey}
         isPicking={isPicking}
         /*
          * The project's accent, for the outlines drawn on the page itself.
@@ -1228,7 +1278,9 @@ function ValShellBody({
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          if (openPickedPath(paths)) onPicked(paths[0] ?? null);
+          if (!openPickedPath(paths)) return;
+          leaveCodeView.current?.();
+          onPicked(paths[0] ?? null);
         }}
         onPinch={onPinch}
         onZoom={onZoom}
@@ -1239,11 +1291,23 @@ function ValShellBody({
          * the frame is. See `CanvasPreviewNotice`.
          */
         enableKey={enableKey}
-        onStatusChange={onStatusChange}
+        onStatusChange={(status) => {
+          onStatusChange(status);
+          setCanvasLive(status === "live");
+        }}
         onRefreshingChange={onRefreshingChange}
       />
     );
-  }, [canvasUrl, focusedPath, openPickedPath, tourPagePath]);
+  }, [
+    canvasUrl,
+    documentKey,
+    focusedPath,
+    openPickedPath,
+    tourPagePath,
+    quickId,
+    setQuickStorer,
+    onQuickDocument,
+  ]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -1322,17 +1386,45 @@ function ValShellBody({
    * "saving": patches are applied locally first, so the editor is never
    * waiting on a round trip to show your change.
    */
-  const rawSaveState: SaveState = useMemo(() => {
-    const hasPatchErrors = Object.values(patchErrors ?? {}).some(
-      (forModule) => Object.keys(forModule ?? {}).length > 0,
-    );
-    if (hasPatchErrors || connectionStatus === "service-unavailable") {
-      return "error";
-    }
-    return pendingClientSidePatchIds.length > 0 ? "saving" : "saved";
-  }, [patchErrors, connectionStatus, pendingClientSidePatchIds]);
+  const rawSaveState: SaveState = useMemo(
+    () =>
+      saveStateOf({
+        sync: syncState,
+        unsavedCount: pendingClientSidePatchIds.length,
+        hasPatchErrors: Object.values(patchErrors ?? {}).some(
+          (forModule) => Object.keys(forModule ?? {}).length > 0,
+        ),
+        serviceUnavailable: connectionStatus === "service-unavailable",
+      }),
+    [syncState, patchErrors, connectionStatus, pendingClientSidePatchIds],
+  );
   /** Held through a burst of writes, so typing does not blink the bar. */
   const saveState = useSteadySaveState(rawSaveState);
+  /**
+   * A save the content service would not take: said where it stays until it
+   * is fixed, with Try again beside it. One id for the whole spell, so a
+   * dismissed notice folds into the status bar and is not pushed back up by
+   * every timed retry that fails the same way.
+   */
+  const saveFailedNotice: FloatingNoticeItem | null = useMemo(
+    () =>
+      syncState?.status === "failed"
+        ? {
+            id: "save-failed",
+            label: "Not saved",
+            icon: <AlertTriangle size={13} />,
+            content: (
+              <SaveFailedNotice
+                message={syncState.message}
+                details={syncState.details}
+                changeCount={syncState.patches.length}
+                onRetry={retrySave}
+              />
+            ),
+          }
+        : null,
+    [syncState, retrySave],
+  );
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
@@ -1367,6 +1459,14 @@ function ValShellBody({
     owners: studioAccess.access?.owners ?? NO_OWNERS,
     projectUrl: studioAccess.access?.projectUrl ?? null,
   });
+  const setCodeView = proposalsBar?.codeMode?.onViewChange;
+  const inCodeView = codeWorkspace !== null;
+  useEffect(() => {
+    leaveCodeView.current =
+      inCodeView && setCodeView !== undefined
+        ? () => setCodeView("content")
+        : null;
+  }, [inCodeView, setCodeView]);
 
   /**
    * The settings panel's sections.
@@ -1550,20 +1650,18 @@ function ValShellBody({
           sketchpad={sketchpads.sketchpad}
           onSketchPage={sketchpads.onSketchPage}
           /*
-           * The Sketchpad when it is open; otherwise code mode's workspace,
-           * for the person whose view it is (`CodeModeView`).
+           * The Sketchpad when it is open. Code mode no longer replaces the
+           * workspace: the canvas is the same in every mode, and code mode's
+           * view is the code changes in the editor's column, beside it.
            */
-          workspaceOverride={
-            sketchpads.workspaceOverride ??
-            (codeWorkspace !== null ? (
-              <CodeModeWorkspaceConnected
-                name={codeWorkspace.name}
-                build={codeWorkspace.build}
-                pages={canvasRoutes}
-                initialRoute={canvasUrl ?? "/"}
-              />
-            ) : undefined)
-          }
+          workspaceOverride={sketchpads.workspaceOverride}
+          /*
+           * Code mode's view is the code changes beside the page: the canvas
+           * is held open, and the assistant that changes the page is docked
+           * beside it rather than over it.
+           */
+          canvasPinned={inCodeView}
+          dockAssistant={inCodeView}
           renderHistory={renderHistory}
           data={data}
           theme={resolvedTheme}
@@ -1600,9 +1698,23 @@ function ValShellBody({
                 )
               : undefined
           }
-          editorOverride={overrideEditor}
+          editorOverride={
+            overrideEditor ??
+            (codeWorkspace !== null ? (
+              <CodeChangesConnected
+                name={codeWorkspace.name}
+                build={withQuickPreviewState(codeWorkspace.build, quickPreview)}
+                onReload={() => setCodeReloads((count) => count + 1)}
+                onEditContent={() => setCodeView?.("content")}
+              />
+            ) : undefined)
+          }
           notice={editorNotice}
-          floatingNotices={proposalNotices}
+          floatingNotices={
+            saveFailedNotice === null
+              ? proposalNotices
+              : [saveFailedNotice, ...proposalNotices]
+          }
           renderPlanStatus={planStatus}
           statusNotice={remoteFilesStatusNotice}
           publishSlot={
@@ -1611,6 +1723,7 @@ function ValShellBody({
           publishState={publishState}
           publishIndicator={publishIndicatorState}
           saveState={saveState}
+          onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
           autoSave={autoPublish}
           onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
           pendingChanges={data.pendingChanges ?? 0}

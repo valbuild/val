@@ -1,4 +1,4 @@
-import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
+import { SiteMock } from "../../proposals/stories/SiteMock";
 
 /**
  * What the Sketchpad stories share: the Nordic Retail home page as the
@@ -56,7 +56,7 @@ export function PreviewMock() {
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <DesignSiteMock testimonials="none" />
+        <SiteMock testimonials="none" />
       </div>
     </div>
   );

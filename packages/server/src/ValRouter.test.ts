@@ -474,7 +474,7 @@ describe("ValRouter", () => {
     expect("json" in serverRes && serverRes.json).toBeTruthy();
   });
 
-  test("serves the design tab's quick preview worker, allowed the whole origin", async () => {
+  test("serves the quick preview worker, allowed the whole origin", async () => {
     const serverRes = await onRoute(
       fakeRequest({
         method: "GET",

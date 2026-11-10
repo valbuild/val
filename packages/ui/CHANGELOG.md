@@ -1,5 +1,113 @@
 # @valbuild/ui
 
+## 0.152.2
+
+### Patch Changes
+
+- [#1022](https://github.com/valbuild/val/pull/1022) [`077ab3e`](https://github.com/valbuild/val/commit/077ab3eeccc2ab75b1b6fd4a5cf14b71c9ee8344) Thanks [@freekh](https://github.com/freekh)! - **Code mode builds on Val Build, and shows a change in seconds before it is
+  built.**
+
+  - **Builds:** a proposal is now built by Val Build, whether Save, the
+    preview's Try again or the assistant starts it. No bundler is loaded in the
+    Studio and no builder tab is opened, on an iPhone as everywhere else. The
+    Studio builds in the tab only for a project Val Build does not build.
+  - **Quick preview:** a second after code is staged in a proposal, the
+    Studio's preview shows the change as a quick preview: its components,
+    layout, styles and text, in seconds, without a build. What runs on the
+    server stays the last build's until the proposal is built. Code mode's
+    status says "Quick preview" while it is shown, and the preview goes back to
+    the served build when a new one is ready.
+  - **The assistant** shows a change now with `quick_preview`, and builds
+    only when a quick preview cannot show the change (server code, routes, a
+    schema, a dependency) or when the change is complete.
+  - **Everyone in the proposal sees it.** When someone's assistant stages code,
+    every Studio open on the proposal shows the change as a quick preview too,
+    and code mode's status follows, with no reload. A Studio hears of it the
+    way it hears of a save.
+  - **Never under your hands.** A new build or quick preview waits while you
+    are using the page in the preview (typing in it, say), and comes in when
+    you leave it, at the same page and scroll.
+
+## 0.152.1
+
+### Patch Changes
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **The canvas turns preview mode on by itself.** When the page in the canvas
+  says preview mode is off, or does not answer, the Studio now turns preview
+  mode on for you, every five seconds for up to thirty seconds, instead of
+  asking you to press a button.
+
+  - For the first ten seconds you only see a small spinner above the page.
+  - After that, the pill says what is happening: "Loading the preview…" or
+    "Turning on preview mode…".
+  - If the page still is not in preview mode after thirty seconds, you get the
+    message you had before, with **Turn on preview mode** and **Details**.
+    Pressing the button, or reloading, starts the thirty seconds over.
+
+  The canvas never reloads the page while it is still loading, or while you are
+  using it (for example signing in to your site inside the canvas).
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **Code mode uses the Studio's own preview.** Code mode used to replace the
+  editor and the preview with a separate view of the proposal's site, where
+  nothing could be selected and content edits did not show. Now the preview is
+  the same in every mode:
+
+  - In code mode the column beside the preview shows the code changes, with
+    **Edit content** to go back to the content editor. Selecting a field on the
+    page does the same.
+  - The preview has the same device sizes, zoom, reload and selection as
+    everywhere else, and shows content edits as you type.
+  - The assistant sits beside the preview in code mode instead of over it.
+  - The preview loads the page again whenever the proposal serves a new build,
+    whoever built it.
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **What the design tab needed is removed with it.** The page's canvas bridge
+  now answers `read_page`, `screenshot_page` and a quick preview only to the
+  Studio at the page's own origin, and no longer asks the server whether another
+  origin is the site's design tab. The site's server no longer writes a
+  proposal's files or offers the `patch-file` route: code and content are
+  changed in the proposal's own Studio. The assistant's `build_proposal` no
+  longer takes a `reason`.
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **The design tab is gone.** Code is changed in a proposal's own Studio, in
+  code mode, where the preview is the same canvas as everywhere else: content
+  edits show on it as you type, and it loads the page again when a new build is
+  served. "Open design tab" is no longer in the proposal's menu.
+
+## 0.152.0
+
+### Minor Changes
+
+- [#1015](https://github.com/valbuild/val/pull/1015) [`08a3977`](https://github.com/valbuild/val/commit/08a39779dbe43702a72ae57cbf8cf29b14e64672) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad covers several pages, builds what it shows, and can be linked to the content.
+
+  - **Route dividers.** A sketchpad is no longer about one page. A `--- /about` line starts the part about a page, so one sketch can cover a page and the pages it links to. Press a route to see that page beside the sketch, in the Studio's own live preview, which follows edits as they are made. A divider's menu changes its page, or adds a new one from a page type the site has (`/blog/[slug]`). A route the site has no page type for is allowed too, and is marked as needing code.
+  - **Start from a page.** An empty sketchpad offers to start from a page. The assistant writes that page into it, images and all, and changes nothing.
+  - **Build.** The button that sent the sketchpad to the assistant is now **Build**. It sends the sketchpad as a card in the chat (press it to open the sketchpad), with a request to change the pages to match the sketch. It is disabled while the sketch is empty.
+  - **Images that exist.** A box shows an image from a gallery, from the site's content, or one uploaded to the chat, and the picker offers exactly those, with search and Upload (which puts the file in the chat first). A box naming any other image says so. When the assistant writes a sketch with an image that is not in the project, the write is refused. Images are named by their content path (`/public/val/hero.webp`) and shown where the site serves them, including uploads that are not published yet.
+  - **Block types.** A box's kind is a combobox of the kinds of section the site's pages have, read from the schema. Any other word is allowed, and is marked as a new type that needs code.
+  - **Drag.** Blocks, rows, columns and images can be dragged to a new place. Columns share a row equally, so the width controls are gone.
+  - **Highlights.** The assistant can point at blocks, in a colour and with a note (for example, the ones that need code), with `highlight_sketchpad_blocks`. The highlights can be cleared, by the person or by the assistant.
+  - **Linked text (a try-out).** A heading or paragraph can be linked to a plain text field with `{field: <source path>}`. Typing in it then changes that field, as typing in the field would. The block shows what it is linked to and has an **Unlink** button. When the field was changed elsewhere, the block says so and offers the field's text. A sketchpad the assistant starts from a page links its text this way.
+  - **Converting images.** The assistant can convert an image in the chat to WebP, or scale it down, with `convert_session_image`, using the same encoder as the Studio's uploads.
+
+### Patch Changes
+
+- [#1017](https://github.com/valbuild/val/pull/1017) [`f4e0660`](https://github.com/valbuild/val/commit/f4e06601495dbee680a4b9000344f84cd3af717f) Thanks [@freekh](https://github.com/freekh)! - The third kind of site update in the Studio's Updates is now called **Full update** (it was "Full upgrade"), the same word Val Build uses when it runs updates in a project's Updates.
+
+- [#1013](https://github.com/valbuild/val/pull/1013) [`3bb76d7`](https://github.com/valbuild/val/commit/3bb76d74d82b499aa15023838d63018a70fd7ce7) Thanks [@freekh](https://github.com/freekh)! - A save that the content service fails to take no longer looks like a successful one.
+
+  Before, when the content service answered a save with a server error (or could not be reached), the Studio treated the edit as invalid and dropped it: the field went back to its old value, and the status bar kept saying "All changes saved". Now:
+
+  - **Your edit is kept.** The field keeps what you typed.
+  - **The Studio says the save failed.** The status bar shows "Could not save" (never "All changes saved" while a save has failed or is still pending), and a notice says which service failed, with the service's own message under **Details**.
+  - **Try again** sends the same save again. The Studio also retries by itself in the background, so if you leave the tab open your changes are saved once the service is back.
+
+  Pressing Publish while a save has failed now says what failed, in the service's words, with a **Save again** button, instead of "Check the connection and try again".
+
+  Saves that the service refuses because of your plan, and saves that conflict with someone else's change, work as before.
+
+  Error messages from the content service also stop blaming your network. "Could not get your changes. It is most likely due to a network issue. Check your network connection" was shown even when the service had answered with a 500. These messages now say what actually happened (the service answered with an error, refused the request, or could not be reached from your site's server) and name the service. The status code and the service's response are kept as details for whoever needs to look into it. Publish failures now also show the service's own message, where they used to say "Unknown error".
+
 ## 0.151.0
 
 ### Patch Changes
