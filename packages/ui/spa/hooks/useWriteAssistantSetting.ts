@@ -3,7 +3,12 @@ import { ModuleFilePath } from "@valbuild/core";
 import { useWriteSettingsSection } from "./useWriteSettingsSection";
 
 /** The assistant's fields, in the order a new section is written with. */
-export const ASSISTANT_FIELDS = ["enabled", "context", "tone"] as const;
+export const ASSISTANT_FIELDS = [
+  "enabled",
+  "context",
+  "tone",
+  "webSearch",
+] as const;
 
 export type AssistantField = (typeof ASSISTANT_FIELDS)[number];
 

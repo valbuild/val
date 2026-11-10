@@ -42,6 +42,12 @@ import {
   storedToolActivities,
 } from "./sharedChat";
 import { AskUserQuestionArgs } from "./askUserQuestion";
+import {
+  needsWebSearchConfirmation,
+  webSearchConfirmationOf,
+  webSearchConfirmationQuestions,
+  withWebSearchWaits,
+} from "./webSearchGate";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -73,6 +79,7 @@ import type {
   AIModel,
   AISession,
   AIServerMessage,
+  AIToolCallMessage,
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
@@ -1255,6 +1262,17 @@ export function useAI(
   const pendingQuestionsRef = useRef<Map<string, string>>(new Map());
   // The `request_code_mode` cards shown, by tool call: what each asked.
   const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
+  // Prompts whose turn has searched the web: see `webSearchGate.ts`.
+  const webSearchedPromptsRef = useRef<Set<string>>(new Set());
+  // Tool calls waiting on the person after a web search, by tool call, and
+  // the ones they allowed, which run without asking again.
+  const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
+  const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // The message handler, so an allowed call can be run by the same code that
+  // runs every other.
+  const handleServerMessageRef = useRef<
+    ((message: AIServerMessage) => void) | null
+  >(null);
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
@@ -1350,6 +1368,56 @@ export function useAI(
           message.outputTokens,
           !message.estimated,
         );
+      } else if (message.type === "ai_web_search") {
+        // The rest of this turn is tainted: see `webSearchGate.ts`.
+        webSearchedPromptsRef.current.add(message.id);
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        // The provider ran it, so it has no tool call id of its own and is
+        // already done: a row that says so, so the person can see it happened.
+        const rowId = `web_search:${randomUUID()}`;
+        chatRef.current.addToolCall(message.id, rowId, "web_search");
+        chatRef.current.completeToolCall(message.id, rowId);
+      } else if (
+        message.type === "ai_tool_call" &&
+        !webAllowedCallsRef.current.has(message.toolCallId) &&
+        needsWebSearchConfirmation(
+          message.name,
+          webSearchedPromptsRef.current.has(message.id),
+        )
+      ) {
+        if (!chatRef.current) {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: false,
+              error:
+                "This needs the person's permission after a web search, and the chat is not available to ask. Do not change code in this answer.",
+            },
+            isError: true,
+          });
+          return;
+        }
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        // The Studio's own question, on the tool's row. Answered through
+        // `answerToolQuestions`, which runs the call if it is allowed.
+        chatRef.current.addToolCall(
+          message.id,
+          message.toolCallId,
+          message.name,
+          webSearchConfirmationQuestions(message.name),
+        );
+        webGatedCallsRef.current.set(message.toolCallId, message);
+        pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -1385,8 +1453,12 @@ export function useAI(
             return;
           }
         }
-        // Ensure assistant message is active so tool indicators can be shown
-        if (chatRef.current) {
+        // Ensure assistant message is active so tool indicators can be shown.
+        // A call the person allowed after a web search has its row already.
+        if (
+          chatRef.current &&
+          !webAllowedCallsRef.current.has(message.toolCallId)
+        ) {
           if (activeIdRef.current !== message.id) {
             activeIdRef.current = message.id;
             chatRef.current.startAssistantMessage(message.id);
@@ -3041,6 +3113,7 @@ export function useAI(
       }
     };
 
+    handleServerMessageRef.current = handler;
     return subscribeToWsMessages(handler);
   }, [
     subscribeToWsMessages,
@@ -3237,6 +3310,12 @@ export function useAI(
             // refused. Null means AI is off, which is checked before we get
             // here.
             model,
+            // The project's setting; the server adds the provider's search
+            // tool. Sent only when on, so a server that does not know it is
+            // never asked.
+            ...(valReads.getAssistantSettings().webSearch
+              ? { webSearch: true }
+              : {}),
             systemPrompt:
               designRef.current !== null
                 ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
@@ -3335,7 +3414,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                         )
                       : ""
                   }`,
-            tools:
+            tools: withWebSearchWaits(
               designRef.current !== null
                 ? [...DESIGN_TOOLS, ...CODE_TOOLS]
                 : [
@@ -3346,6 +3425,8 @@ Do not describe what you will do unless you do it for clarification — just do 
                       ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
                       : []),
                   ],
+              valReads.getAssistantSettings().webSearch === true,
+            ),
           },
         ],
       };
@@ -3424,8 +3505,43 @@ Do not describe what you will do unless you do it for clarification — just do 
     return true;
   }, [sendWsMessage, chatRef]);
 
+  /**
+   * The person answered the Studio's question about a call after a web search
+   * (or closed it, `null`): run the call, or tell the model they said no.
+   */
+  const answerWebSearchConfirmation = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
+      const call = webGatedCallsRef.current.get(toolCallId);
+      if (call === undefined) return false;
+      webGatedCallsRef.current.delete(toolCallId);
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const confirmation = webSearchConfirmationOf(answers);
+      if (confirmation.allow) {
+        webAllowedCallsRef.current.add(toolCallId);
+        handleServerMessageRef.current?.(call);
+        return true;
+      }
+      if (messageId !== undefined) {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+      const sent = sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result: confirmation.result,
+        isError: true,
+      });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+      }
+      return true;
+    },
+    [sendWsMessage, failUndeliveredQuestion, chatRef],
+  );
+
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
+      if (answerWebSearchConfirmation(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3437,11 +3553,12 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion],
+    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
   );
 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
+      if (answerWebSearchConfirmation(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3454,7 +3571,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion],
+    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
   );
 
   /** Answer a `request_code_mode` card, and move it on. */
@@ -3562,6 +3679,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
+      webGatedCallsRef.current.clear();
     },
     [sendWsMessage],
   );
