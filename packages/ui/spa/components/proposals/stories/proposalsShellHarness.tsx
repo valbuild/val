@@ -37,13 +37,9 @@ import {
   CommitRefusedNotice,
   type BuildOnPushState,
 } from "../CommitRefusedNotice";
-import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
-import {
-  FILES,
-  PROPOSAL,
-  SITE,
-} from "../../design/stories/designStoryFixtures";
-import { lineDiff } from "../../../design/lineDiff";
+import { SiteMock } from "./SiteMock";
+import { FILES, PROPOSAL, SITE } from "./codeFixtures";
+import { lineDiff } from "../../../proposals/lineDiff";
 
 /**
  * The whole Studio with proposals on, for the proposals stories: what
@@ -761,7 +757,7 @@ export function ProposalsShell({
     />
   ) : undefined;
   const sitePage = (
-    <DesignSiteMock
+    <SiteMock
       testimonials={
         codeChanged && codeBuild.state === "up-to-date" ? "cards" : "quote"
       }

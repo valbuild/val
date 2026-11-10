@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { AIChat, type AIChatHandle, type ChatMessage } from "../../AIChat";
 import type { ToolActivity } from "../../AIChatToolActivities";
 import type { CodeModeRequest } from "../../CodeModeRequestCard";
-import { MESSAGES } from "../../design/stories/designStoryFixtures";
+import { MESSAGES } from "./codeFixtures";
 import { mockSelectionIds } from "../../shell/mockShellData";
 import {
   inProposal,

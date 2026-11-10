@@ -8,7 +8,6 @@ import {
   Globe,
   Link2,
   List,
-  Paintbrush,
   Pencil,
   Plus,
   X,
@@ -53,7 +52,6 @@ export function ProposalSwitcher({
   onCompare,
   onCopyLink,
   onClose,
-  onOpenDesign,
   loading = false,
   leaving = null,
   problem = null,
@@ -78,11 +76,6 @@ export function ProposalSwitcher({
   onCopyLink?: () => void;
   /** Close it -- discard it, for an upgrade. */
   onClose?: () => void;
-  /**
-   * Its design tab, where the assistant changes its code (valbuild/home
-   * `docs/design-tab.md`). Absent: not offered.
-   */
-  onOpenDesign?: () => void;
   /** See `TopBarProposals.loading`. */
   loading?: boolean;
   /** See `TopBarProposals.leaving`: said here, and nothing more to choose. */
@@ -219,14 +212,6 @@ export function ProposalSwitcher({
                   icon={<GitCompare size={14} />}
                   label="Compare with the site"
                   onClick={choose(onCompare)}
-                />
-              )}
-              {onOpenDesign !== undefined && (
-                <MenuRow
-                  icon={<Paintbrush size={14} />}
-                  label="Open design tab"
-                  detail="Change its code with the assistant"
-                  onClick={choose(onOpenDesign)}
                 />
               )}
               {/* An upgrade is named by Val Build, after its kind. */}

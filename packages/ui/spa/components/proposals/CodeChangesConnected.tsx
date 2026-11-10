@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import { createProposalsClient } from "../../proposals/proposalsClient";
 import { useProposalBuild } from "../../proposals/useProposalBuild";
-import { changedFiles, type ChangedFile } from "../../design/changedFiles";
-import { lineDiff, type DiffLine } from "../../design/lineDiff";
+import { changedFiles, type ChangedFile } from "../../proposals/changedFiles";
+import { lineDiff, type DiffLine } from "../../proposals/lineDiff";
 import { CodeChanges, type CodeModeBuild } from "./CodeChanges";
 
 type Read =

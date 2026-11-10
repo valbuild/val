@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { PencilLine } from "lucide-react";
-import type { ChangedFile } from "../../design/changedFiles";
-import type { DiffLine } from "../../design/lineDiff";
-import { DiffArea } from "../design/DesignTabView";
+import type { ChangedFile } from "../../proposals/changedFiles";
+import type { DiffLine } from "../../proposals/lineDiff";
+import { DiffArea } from "./DiffArea";
 import { CodeModeStatus, type CodeModeBuild } from "./CodeModeStatus";
 
 export type { CodeModeBuild } from "./CodeModeStatus";

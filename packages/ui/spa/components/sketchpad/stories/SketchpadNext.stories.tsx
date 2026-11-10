@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { AIChat, type ChatMessage } from "../../AIChat";
-import { DesignSiteMock } from "../../design/stories/DesignSiteMock";
+import { SiteMock } from "../../proposals/stories/SiteMock";
 import { Sketchpad } from "../Sketchpad";
 import type { SketchBlockType } from "../boxNodeView";
 import type { SketchHighlight } from "../highlights";
@@ -165,7 +165,7 @@ function RoutePreview({ route }: { route: string }) {
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <DesignSiteMock testimonials="none" />
+        <SiteMock testimonials="none" />
       </div>
     </div>
   );
