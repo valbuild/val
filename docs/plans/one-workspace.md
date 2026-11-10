@@ -119,6 +119,11 @@ In order, each step shippable on its own:
    `CanvasWindow`, `CanvasToolbar`, `CanvasRouteBar`, `CanvasPreviewNotice`
    and the frame) into a `SitePreview`, and use it in `PageWorkspace` and in
    `SketchpadPreview`, so the Sketchpad's preview has the same toolbar.
+   **Done:** `shell/canvas/SitePreview.tsx` owns the device, zoom, fit,
+   reload and preview-mode state; the caller renders the page and adds what
+   is its own (the canvas's Exit Preview and Select, the Sketchpad's route).
+   The Sketchpad's address bar can be typed in. Storybook:
+   **Shell/SitePreview**.
 2. **The two Selects.** Content's is today's field picking (`isPicking`),
    moved to Content's header. The Assistant's is `CanvasFrame`'s
    `elementPicking` (any element, `PickedElement`, which already carries
