@@ -2252,8 +2252,10 @@ export function useAI(
           const page = pageRef.current;
           void runReadPage(message.arguments, {
             readPage: page?.readPage() ?? null,
-            // Picked now, or carried by the message this turn answers.
-            pointedAt: page?.pointedAt ?? lastPointedAtRef.current,
+            // What the message this turn answers was about first: a pick
+            // made since is for the NEXT message. Only a turn whose message
+            // carried none reads the one waiting by the composer.
+            pointedAt: lastPointedAtRef.current ?? page?.pointedAt ?? null,
             noPage: NO_PREVIEW,
           }).then(({ result, isError }) => {
             sendWsMessage({

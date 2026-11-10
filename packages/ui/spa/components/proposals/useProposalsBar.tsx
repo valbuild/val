@@ -88,7 +88,6 @@ import {
   registerCodeModeTurnOn,
   reportCodeMode,
   setCodeModeBusy,
-  setCodeModeView,
   useCodeModeState,
   withCodeModeParam,
   withoutCodeModeParam,
@@ -635,8 +634,6 @@ export function useProposalsBar({
       setCodeModeBusy(true);
       try {
         await client.setCodeMode(here.name, on);
-        // Whoever turns it on sees it; turning it off sends nobody anywhere.
-        if (on) setCodeModeView("code");
         return null;
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
@@ -691,7 +688,6 @@ export function useProposalsBar({
       "",
       withoutCodeModeParam(window.location.href),
     );
-    setCodeModeView("code");
     if (!codeOn) void toggleCodeMode(true);
   }, [ownRead, codeOn, toggleCodeMode]);
 
@@ -1679,8 +1675,6 @@ export function useProposalsBar({
               ago: formatRelativeTime(codeModeJson.changedAt, Date.now()),
             }
           : null,
-      view: codeModeStore.view,
-      onViewChange: setCodeModeView,
       onOpenProposalInCodeMode: (name) => void openProposal(name, true),
       onNewProposalInCodeMode: () => {
         newInCodeMode.current = true;

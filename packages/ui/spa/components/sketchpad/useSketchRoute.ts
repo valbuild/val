@@ -12,11 +12,17 @@ import { isRoutePattern } from "./routePatterns";
  *
  * `pressed` says the person asked for it, as opposed to the sketch opening
  * on its first page: on a phone that is a reason to go and look.
+ *
+ * A first route the person did not press is followed only once it is one
+ * of the site's pages (`knownRoutes`): a divider being typed passes through
+ * `/b`, `/bl` and `/blo` on its way to `/blog`, and the preview -- and the
+ * content editor that follows it -- must not go to each.
  */
 export function useSketchRoute({
   sketchId,
   routesInSketch,
   startedFrom,
+  knownRoutes,
   onShowRoute,
 }: {
   /** Which sketchpad is open: another one starts on its own first page. */
@@ -24,6 +30,8 @@ export function useSketchRoute({
   routesInSketch: readonly string[];
   /** The page the sketch was started from, when it has no route of its own. */
   startedFrom: string | null;
+  /** The site's pages. Absent: every route is followed. */
+  knownRoutes?: readonly string[];
   onShowRoute: (route: string, how: { pressed: boolean }) => void;
 }): { activeRoute: string | null; pressRoute: (route: string) => void } {
   const [pressedRoute, setPressedRoute] = useState<string | null>(null);
@@ -33,10 +41,16 @@ export function useSketchRoute({
   const activeRoute = pressedRoute ?? routesInSketch[0] ?? startedFrom ?? null;
   const onShowRouteRef = useRef(onShowRoute);
   onShowRouteRef.current = onShowRoute;
+  const knownRef = useRef(knownRoutes);
+  knownRef.current = knownRoutes;
   useEffect(() => {
     const pressed = pressing.current;
     pressing.current = false;
     if (activeRoute === null || isRoutePattern(activeRoute)) return;
+    const known = knownRef.current;
+    if (!pressed && known !== undefined && !known.includes(activeRoute)) {
+      return;
+    }
     onShowRouteRef.current(activeRoute, { pressed });
   }, [activeRoute]);
   /**

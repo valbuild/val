@@ -89,6 +89,7 @@ export function ValSketchpad({
     sketchId: id,
     routesInSketch,
     startedFrom: known?.page ?? null,
+    knownRoutes: pageOptions,
     onShowRoute,
   });
 

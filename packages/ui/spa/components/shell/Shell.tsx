@@ -500,6 +500,8 @@ export type ShellProps = {
     editor: ReactNode,
     breakpoint: "mobile" | "tablet" | "desktop",
   ) => ReactNode;
+  /** In the preview's header: code mode's status. See `PageWorkspace`. */
+  previewStatus?: ReactNode;
   /**
    * The past, in parts, for above a phone: the editor stays in Content as
    * "now", and the module at the commit takes the PREVIEW's place while
@@ -732,6 +734,7 @@ export function Shell({
   initialDismissedNotices,
   renderPlanStatus,
   renderHistory,
+  previewStatus,
   history,
   onPublish,
   publishSlot,
@@ -917,7 +920,12 @@ export function Shell({
       setPhonePane((current) => {
         const pane: WorkspacePane = current === "preview" ? "canvas" : "editor";
         const value = typeof next === "function" ? next(pane) : next;
-        return value === "canvas" ? "preview" : "content";
+        if (value === "canvas") return "preview";
+        // Off the page means Content only from the page: the assistant or
+        // the sketch in front stays in front -- the assistant's own
+        // navigation moving the editor must not pull the phone out of the
+        // conversation.
+        return current === "preview" ? "content" : current;
       }),
     [],
   );
@@ -1221,8 +1229,12 @@ export function Shell({
    */
   const canCanvas = renderCanvas !== undefined || canvasPage !== undefined;
   /** Whether there is a preview for the Assistant's Select to pick on. */
+  // Not while History is in the preview's place: no page to pick on.
   const canPointAssistant =
-    assistantSelect !== undefined && isCanvasOpen && canCanvas;
+    assistantSelect !== undefined &&
+    isCanvasOpen &&
+    canCanvas &&
+    history === undefined;
   const assistantPicking =
     canPointAssistant && assistantSelect?.pressed === true;
   // With the preview gone there is nothing to pick on.
@@ -1880,6 +1892,7 @@ export function Shell({
             isDevMode={isDevMode}
             onAttachToChat={aiEnabled ? attachToChat : undefined}
             skipTransition={skipTransition}
+            previewStatus={previewStatus}
             replacePreview={
               breakpoint !== "mobile" && history !== undefined ? (
                 <HistoryInPreviewsPlace label={history.label}>
@@ -1891,8 +1904,19 @@ export function Shell({
             codeMode={assistantSelect?.codeMode === true}
             onUseContent={() => usePane("content")}
             // Closing Content's sheet hands its room back to the pane
-            // beside it.
-            onFoldContent={() => usePane(sideFront)}
+            // beside it -- or, with none open, switches Content off, since
+            // there is nothing to fold it behind (the top bar's switch
+            // brings it back).
+            onFoldContent={() => {
+              const shown: Record<"sketch" | "chat", boolean> = {
+                sketch: sketchOpen,
+                chat: aiEnabled && chatOpen,
+              };
+              const other = sideFront === "sketch" ? "chat" : "sketch";
+              if (shown[sideFront]) usePane(sideFront);
+              else if (shown[other]) usePane(other);
+              else setContentOpen(false);
+            }}
             isAssistantPicking={assistantPicking}
             onStopAssistantPicking={
               assistantPicking ? () => stopAssistantPicking?.(false) : undefined
@@ -2341,7 +2365,9 @@ export function Shell({
             // A sheet over the preview folds back to its strip when closed,
             // handing its room back to the page; a column closes.
             onClose={
-              placed?.chat?.sheet === true
+              // With Content switched off there is nothing to fold back
+              // to, so the X closes it.
+              placed?.chat?.sheet === true && contentOpen
                 ? () => usePane("content")
                 : closeAssistant
             }

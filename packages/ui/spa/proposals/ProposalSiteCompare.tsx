@@ -56,6 +56,34 @@ export function ProposalSiteCompare({
   initialView?: "code";
 }) {
   if (!open || changes.status === "off") return null;
+  /*
+   * Opened on the code changes while the site is still being read, or could
+   * not be: the code changes do not depend on it, so they are not held back
+   * behind it. The content side comes with the next open.
+   */
+  if (changes.status !== "ready" && code && initialView === "code") {
+    return (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent
+          container={portalContainer}
+          className="flex h-[min(90vh,56rem)] max-w-5xl flex-col gap-0 overflow-hidden border-border-float bg-bg-float p-0"
+        >
+          <DialogTitle className="sr-only">Code changes</DialogTitle>
+          <DialogDescription className="sr-only">
+            The proposal's code, beside the site's.
+          </DialogDescription>
+          <div className="min-h-0 flex-1">
+            <CodeChangesConnected
+              name={code.name}
+              build={code.build}
+              onReload={code.onReload}
+              onEditContent={() => onOpenChange(false)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
   if (changes.status !== "ready") {
     return (
       <Dialog open onOpenChange={onOpenChange}>

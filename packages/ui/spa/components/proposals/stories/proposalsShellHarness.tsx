@@ -34,7 +34,6 @@ import type { PreviewProblem } from "../PreviewProblemCard";
 import { CodeChanges, type CodeModeBuild } from "../CodeChanges";
 import { CompareDialog } from "../../../compare/CompareDialog";
 import { siteBasisModel } from "../../../compare/fixtures";
-import type { CodeModeView } from "../CodeModeButton";
 import {
   CommitRefusedNotice,
   type BuildOnPushState,
@@ -236,11 +235,6 @@ export type HarnessProps = {
     progress?: number | null;
     /** Who turned it on: "you", or a name. Default: Kari Nordmann. */
     turnedOnBy?: string;
-    /**
-     * This person stays in the content editor while code mode is on
-     * (`CodeModeView`): someone else's assistant is changing the code.
-     */
-    contentView?: boolean;
     /** Review open on the code changes, as the `</>` menu opens it. */
     reviewOpen?: boolean;
   };
@@ -325,9 +319,6 @@ export function ProposalsShell({
   );
   const [leaving, setLeaving] = useState(initialLeaving);
   const [codeOn, setCodeOn] = useState(codeMode?.on ?? false);
-  const [codeView, setCodeView] = useState<CodeModeView>(
-    codeMode?.contentView === true ? "content" : "code",
-  );
   const [committing, setCommitting] = useState(false);
   const [refusedShown, setRefusedShown] = useState(commitRefused !== false);
   const [buildOn, setBuildOn] = useState<BuildOnPushState>(
@@ -622,16 +613,11 @@ export function ProposalsShell({
       ? {
           codeMode: {
             on: codeModeOn,
-            onToggle: () => {
-              setCodeOn((on) => !on);
-              setCodeView("code");
-            },
+            onToggle: () => setCodeOn((on) => !on),
             turnedOn: {
               by: codeMode.turnedOnBy ?? "Kari Nordmann",
               ago: "10 minutes ago",
             },
-            view: codeView,
-            onViewChange: setCodeView,
             // As `ValShell`: the code changes are in Review.
             onShowCode: () => setReviewOnCode(true),
             onOpenProposalInCodeMode: openInCodeMode,

@@ -157,6 +157,11 @@ export type PageWorkspaceProps = {
    * not mounted meanwhile.
    */
   replacePreview?: ReactNode;
+  /**
+   * In the preview's header, before the way out: code mode's status --
+   * up to date, updating, could not update -- with its reload.
+   */
+  previewStatus?: ReactNode;
   /** Content was used: a click in it. Decides what keeps a column. */
   onUseContent?: () => void;
   /** Code mode: the preview's frame is in the proposal's colour. */
@@ -263,6 +268,7 @@ export function PageWorkspace({
   onStopAssistantPicking,
   contentPlacement,
   replacePreview,
+  previewStatus,
   onUseContent,
   codeMode = false,
   onFoldContent,
@@ -839,7 +845,8 @@ export function PageWorkspace({
           )}
           {viewToggle}
           <div className="flex-1" />
-          {contentSelectButton(!selectHasRoom)}
+          {/* Nothing to pick on while History is in the preview's place. */}
+          {replacePreview === undefined && contentSelectButton(!selectHasRoom)}
         </div>
       )}
       <div className="min-h-0 flex-1">
@@ -876,6 +883,7 @@ export function PageWorkspace({
            * strip, and the page is what a Select picks on: so Content's Select
            * is here too, where a pick is made and where it is stopped.
            */}
+          {previewStatus}
           {isPhone && contentSelectButton(true)}
           <button
             type="button"

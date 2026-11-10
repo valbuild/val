@@ -62,3 +62,44 @@ describe("the page a sketch is about, in the Studio's preview", () => {
     expect(hook.result.current.activeRoute).toBe("/");
   });
 });
+
+/**
+ * A divider being typed is not a page being asked for: `/b`, `/bl` and
+ * `/blo` on the way to `/blog` are not shown, and `/blog` is, once it is
+ * one of the site's pages.
+ */
+describe("a first route being typed", () => {
+  test("is followed only once it names one of the site's pages", () => {
+    const shown: string[] = [];
+    const hook = renderHook(
+      ({ routesInSketch }: { routesInSketch: string[] }) =>
+        useSketchRoute({
+          sketchId: "pad",
+          routesInSketch,
+          startedFrom: null,
+          knownRoutes: ["/", "/blog"],
+          onShowRoute: (route) => shown.push(route),
+        }),
+      { initialProps: { routesInSketch: ["/"] } },
+    );
+    for (const typed of ["/b", "/bl", "/blo", "/blog"]) {
+      hook.rerender({ routesInSketch: [typed] });
+    }
+    expect(shown).toEqual(["/", "/blog"]);
+  });
+
+  test("a page that is not there yet is still shown when pressed", () => {
+    const shown: string[] = [];
+    const hook = renderHook(() =>
+      useSketchRoute({
+        sketchId: "pad",
+        routesInSketch: ["/"],
+        startedFrom: null,
+        knownRoutes: ["/"],
+        onShowRoute: (route) => shown.push(route),
+      }),
+    );
+    act(() => hook.result.current.pressRoute("/new-page"));
+    expect(shown).toEqual(["/", "/new-page"]);
+  });
+});

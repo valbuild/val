@@ -4,6 +4,7 @@
 import { act, render } from "@testing-library/react";
 import {
   VAL_CANVAS_MESSAGE,
+  isValCanvasStudioMessage,
   type PickedElement,
   type ValCanvasPageMessage,
   type ValCanvasStudioMessage,
@@ -37,9 +38,9 @@ describe("the Assistant's Select on the frame", () => {
     const posted: ValCanvasStudioMessage[] = [];
     jest
       .spyOn(frame.contentWindow, "postMessage")
-      .mockImplementation((message: unknown) =>
-        posted.push(message as ValCanvasStudioMessage),
-      );
+      .mockImplementation((message: unknown) => {
+        if (isValCanvasStudioMessage(message)) posted.push(message);
+      });
     const fromPage = (message: ValCanvasPageMessage) =>
       act(() => {
         window.dispatchEvent(

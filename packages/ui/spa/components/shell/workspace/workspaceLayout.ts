@@ -1,3 +1,7 @@
+import {
+  SHELL_DESKTOP_BREAKPOINT,
+  SHELL_MOBILE_BREAKPOINT,
+} from "../useShellBreakpoint";
 /**
  * Where the workspace's panes go, at a given window width.
  *
@@ -89,9 +93,13 @@ export type WorkspaceLayout =
       arrangement: "all" | "tabbed" | "one-column" | "single";
     };
 
-/** The Studio's own breakpoints (`useShellBreakpoint`). */
-export const PHONE_BELOW = 768;
-export const DESKTOP_FROM = 1200;
+/**
+ * The Studio's own breakpoints (`useShellBreakpoint`), not a copy of them:
+ * the shell decides "mobile" from those, and a layout that disagreed would
+ * place panes on a breakpoint that renders none.
+ */
+export const PHONE_BELOW = SHELL_MOBILE_BREAKPOINT;
+export const DESKTOP_FROM = SHELL_DESKTOP_BREAKPOINT;
 
 /** The left rail on a desktop, with its gap (`pl-[5.5rem]` in `Shell`). */
 export const RAIL_WIDTH = 88;

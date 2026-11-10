@@ -162,6 +162,7 @@ import {
 } from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
+import { CodeModeStatus } from "../proposals/CodeModeStatus";
 import { AdeptView } from "./AdeptView";
 import { ContentAnalyticsProvider } from "../../analytics/ContentAnalyticsProvider";
 
@@ -1804,8 +1805,15 @@ function ValShellBody({
                     onPressedChange: setAssistantSelecting,
                     codeMode: assistantPick.codeMode,
                     // As Content's: a page that has not reported is one
-                    // whose picker is not listening yet.
-                    ...(canvasPaths.length === 0
+                    // whose picker is not listening yet. In code mode any
+                    // element can be picked, so a page with no Val fields
+                    // on it -- a new route being built -- is enough once it
+                    // answers.
+                    ...((
+                      assistantPick.codeMode
+                        ? !canvasLive
+                        : canvasPaths.length === 0
+                    )
                       ? {
                           unavailable:
                             "Nothing on the page can be selected until the preview has loaded it",
@@ -1813,6 +1821,14 @@ function ValShellBody({
                       : {}),
                   }
                 : undefined
+            }
+            previewStatus={
+              codeChanges !== null ? (
+                <CodeModeStatus
+                  build={withQuickPreviewState(codeChanges.build, quickPreview)}
+                  onReload={() => setCodeReloads((count) => count + 1)}
+                />
+              ) : undefined
             }
             renderHistory={renderHistory}
             history={historyParts}
