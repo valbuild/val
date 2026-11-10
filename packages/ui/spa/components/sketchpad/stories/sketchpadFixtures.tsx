@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { SiteMock } from "../../proposals/stories/SiteMock";
+import { SitePreview } from "../../shell/canvas/SitePreview";
+import { useShellBreakpoint } from "../../shell/useShellBreakpoint";
 
 /**
  * What the Sketchpad stories share: the Nordic Retail home page as the
@@ -45,19 +48,27 @@ export function sketchingSteps(sketch: string): string[] {
   ];
 }
 
-/** The site's page as it is now, in a frame with its address. */
-export function PreviewMock() {
+/**
+ * The site's page as it is now, in the Studio's own preview: its address
+ * bar and toolbar, around the mock site in place of a frame.
+ */
+export function PreviewMock({ route: initial = "/" }: { route?: string }) {
+  const [route, setRoute] = useState(initial);
+  // As `SketchpadPreview`: a phone starts on the phone layout.
+  const isPhone = useShellBreakpoint() === "mobile";
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-        <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs text-fg-secondary">
-          nordic-retail.example/
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <SiteMock testimonials="none" />
-      </div>
-    </div>
+    <SitePreview
+      route={route}
+      initialDevice={isPhone ? "mobile" : "desktop"}
+      onRouteChange={setRoute}
+      routes={["/", "/stores", "/journal", "/about"]}
+      // There is no running site to load again in Storybook.
+      reloadable={false}
+      renderPage={({ width, height }) => (
+        <div style={{ width, minHeight: height }} className="flex flex-col">
+          <SiteMock testimonials="none" />
+        </div>
+      )}
+    />
   );
 }

@@ -1,63 +1,63 @@
-import { useState } from "react";
+import { useShellBreakpoint } from "../shell/useShellBreakpoint";
 import { CanvasFrame } from "../shell/canvas/CanvasFrame";
-import {
-  CanvasPreviewNotice,
-  type CanvasPreviewStatus,
-} from "../shell/canvas/CanvasPreviewNotice";
+import { SitePreview } from "../shell/canvas/SitePreview";
 import { useBuildEpoch } from "../shell/canvas/useServedBuild";
 
 /**
- * The page a route divider names, beside the sketch: the Studio's own canvas,
- * so it is the page as it is being edited -- a field changed in the Studio,
- * or by the assistant building the sketch, shows here as it does on the
- * canvas, not after a reload.
+ * The page a route divider names, beside the sketch: the Studio's own
+ * preview, with the canvas's address bar and toolbar, so it is the page as
+ * it is being edited -- a field changed in the Studio, or by the assistant
+ * building the sketch, shows here as it does on the canvas, not after a
+ * reload.
+ *
+ * Nothing on it can be picked yet: a pick opens a field in the content
+ * editor, and the Sketchpad has none beside it.
  */
-export function SketchpadPreview({ route }: { route: string | null }) {
-  const [reloadKey, setReloadKey] = useState(0);
-  const [enableKey, setEnableKey] = useState(0);
-  const [status, setStatus] = useState<CanvasPreviewStatus>("connecting");
+export function SketchpadPreview({
+  route,
+  onRouteChange,
+  routes,
+}: {
+  route: string | null;
+  /** Show another page: typed into the address bar. */
+  onRouteChange?: (route: string) => void;
+  /** Pages offered in the address bar. */
+  routes?: readonly string[];
+}) {
   // A new build served is a new page here too, as on the canvas.
   const buildEpoch = useBuildEpoch();
+  const isPhone = useShellBreakpoint() === "mobile";
   if (route === null) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-sm text-fg-secondary">
+      <div className="flex h-full items-center justify-center rounded-xl border border-border-float bg-bg-float-raised p-6 text-center text-sm text-fg-secondary">
         Press a page in the sketch to see it here.
       </div>
     );
   }
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-        <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs font-semibold text-fg-secondary">
-          {route}
-        </span>
-      </div>
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+    <SitePreview
+      route={route}
+      onRouteChange={onRouteChange}
+      routes={routes}
+      initialDevice={isPhone ? "mobile" : "desktop"}
+      renderPage={(viewport) => (
         <CanvasFrame
+          // Another page is another document, with its own preview mode.
           key={route}
           url={route}
-          width="100%"
-          height="100%"
-          reloadKey={reloadKey}
+          width={viewport.width}
+          height={viewport.height}
+          reloadKey={viewport.reloadKey}
           documentKey={buildEpoch}
           isPicking={false}
           highlightedPath={null}
-          enableKey={enableKey}
-          onStatusChange={setStatus}
+          onPinch={viewport.onPinch}
+          onZoom={viewport.onZoom}
+          enableKey={viewport.enableKey}
+          onStatusChange={viewport.onStatusChange}
+          onRefreshingChange={viewport.onRefreshingChange}
         />
-        <CanvasPreviewNotice
-          status={status}
-          /*
-           * The reloads the person asked for, and the route: not the enables,
-           * which the notice makes itself while it retries and which must not
-           * restart the clock that decides when it stops.
-           */
-          attempt={`${route}:${reloadKey}`}
-          onEnable={() => setEnableKey((key) => key + 1)}
-          onReload={() => setReloadKey((key) => key + 1)}
-        />
-      </div>
-    </div>
+      )}
+    />
   );
 }

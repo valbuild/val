@@ -7,6 +7,7 @@ import type { SketchBlockType } from "./boxNodeView";
 import type { SketchHighlight } from "./highlights";
 import type { SketchMediaLibrary } from "./SketchpadMediaPicker";
 import { SketchpadPreview } from "./SketchpadPreview";
+import { isRoutePattern } from "./routePatterns";
 import { blockTypesOfSchemas } from "./sketchBlockTypes";
 import { useSketchMediaLibrary } from "./sketchMediaLibrary";
 import { useLinkedFields } from "./useLinkedFields";
@@ -204,7 +205,13 @@ export function ValSketchpad({
 
   return (
     <SketchpadWorkspace
-      preview={<SketchpadPreview route={activeRoute} />}
+      preview={
+        <SketchpadPreview
+          route={activeRoute}
+          onRouteChange={setPressedRoute}
+          routes={pagesOf(pageOptions)}
+        />
+      }
       sketchpads={{
         sketchpads: sketchpads.items,
         currentId: id,
@@ -555,12 +562,24 @@ function OpenSketchpad({
         sketchpads={list}
         fullscreenPreview={
           breakpoint === "mobile" ? (
-            <SketchpadPreview route={activeRoute} />
+            <SketchpadPreview
+              route={activeRoute}
+              onRouteChange={onOpenRoute}
+              routes={pagesOf(pageOptions)}
+            />
           ) : undefined
         }
       />
     </div>
   );
+}
+
+/**
+ * The pages among the site's routes: an address bar offers places it can
+ * go, and a page type (`/blog/[slug]`) is not one.
+ */
+function pagesOf(routes: readonly string[]): string[] {
+  return routes.filter((route) => !isRoutePattern(route));
 }
 
 export function relative(iso: string, now: Date = new Date()): string {

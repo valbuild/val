@@ -469,7 +469,7 @@ export function Sketchpad({
         />
       </div>
       {fullscreen && shown === "page" && (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden p-2">
           {fullscreenPreview}
         </div>
       )}

@@ -87,7 +87,10 @@ export function SketchpadWorkspace({
         <section
           hidden={!showPreview}
           className={cn(
-            "min-h-0 min-w-0 flex-[1_1_0] flex-col overflow-hidden rounded-lg border border-border-primary bg-bg-primary",
+            // No frame of its own: the preview is the Studio's `SitePreview`,
+            // which frames the page and puts its address bar and toolbar
+            // around it, as on the canvas.
+            "min-h-0 min-w-0 flex-[1_1_0] flex-col",
             showPreview ? "flex" : "hidden",
           )}
         >
