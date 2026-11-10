@@ -464,6 +464,13 @@ export function ValProvider({
   // config parameter is unused but kept for API compatibility
   void _config;
   const demo = useValDemo();
+  /*
+   * Said to the stores as each `/stat` is sent (`StatStore.asked`), so the
+   * manifest its answer carries is decided at that moment. A ref: the system
+   * is built below, from what this hook's answers configure.
+   */
+  const statAskedRef = useRef<() => void>(() => {});
+  const statAsked = useCallback(() => statAskedRef.current(), []);
   const [
     stat,
     _setStat,
@@ -477,7 +484,7 @@ export function ValProvider({
     contentHolds,
     contentHoldsAt,
     refreshStat,
-  ] = useStatus(client);
+  ] = useStatus(client, statAsked);
 
   const isStatConnected = "data" in stat && !!stat.data;
   /**
@@ -783,6 +790,13 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings, demo],
   );
+
+  useEffect(() => {
+    statAskedRef.current = () => system.stat.asked();
+    return () => {
+      statAskedRef.current = () => {};
+    };
+  }, [system]);
 
   /** See {@link ValContextValue.serverPublishingPatchIds}. */
   const heldByContentRef = useRef<ReadonlySet<string>>(new Set());

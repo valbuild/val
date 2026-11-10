@@ -1409,7 +1409,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
     // the component unmounts.
     let wake: (() => void) | null = null;
     const ask = async () => {
-      const res = await requestStat(client, stat);
+      const res = await requestStat(client, stat, () => system.stat.asked());
       const next = statStateAfterAnswer(stat, res, socket !== null, Date.now());
       if (next === null) {
         throw new Error(`/stat answered ${res.status}`);

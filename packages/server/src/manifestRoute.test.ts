@@ -208,6 +208,59 @@ describe("/manifest", () => {
     );
   });
 
+  test("/stat carries the manifest when asked: whole, then what GET /manifest?since would say, then unchanged while seq stands", async () => {
+    const { send, manifest, edit } = start();
+    const StatWithManifest = Stat.extend({
+      baseSha: z.string(),
+      manifest: z.unknown().optional(),
+    });
+    const stat = async (body: unknown) => {
+      const res = await send("POST", "/stat", { json: body });
+      expect(res.status).toBe(200);
+      return StatWithManifest.parse("json" in res ? res.json : null);
+    };
+    const first = await stat(null);
+    // Not asked: not read.
+    expect(first.manifest).toBeUndefined();
+    // A base the server does not have answers at once, rather than parking.
+    const asked = { baseSha: "elsewhere", version: first.version, patches: [] };
+
+    const whole = await stat({ ...asked, manifest: null });
+    const held = Manifest.extend({ sinceTag: z.string().optional() }).parse(
+      whole.manifest,
+    );
+    expect(Object.keys(held.modules).sort()).toEqual([
+      "/content/footer.val.ts",
+      "/content/home.val.ts",
+    ]);
+    expect(held.since).toBeUndefined();
+    expect(held.sinceTag).toBeUndefined();
+    expect(held.project).toEqual(whole.version);
+
+    await edit(p1, "Hello world");
+    const echo = { tag: held.tag ?? "", seq: held.project.seq };
+    const moved = await stat({ ...asked, manifest: echo });
+    const delta = Manifest.extend({ sinceTag: z.string() }).parse(
+      moved.manifest,
+    );
+    expect(delta.sinceTag).toBe(held.tag);
+    expect(delta.since).toBe(held.project.seq);
+    expect(Object.keys(delta.modules)).toEqual(["/content/home.val.ts"]);
+    // The same answer the manifest route gives the same client: one function.
+    const viaGet = await manifest(echo.tag, echo.seq);
+    expect(viaGet.json).toEqual({
+      project: delta.project,
+      modules: delta.modules,
+      tag: delta.tag,
+      since: delta.since,
+    });
+
+    // `seq` did not move since the manifest named: not read, handed back.
+    const again = { tag: delta.tag ?? "", seq: delta.project.seq };
+    const stood = await stat({ ...asked, patches: [p1], manifest: again });
+    expect(stood.manifest).toEqual({ unchanged: true, ...again });
+  });
+
   test("a new build is counted once, and two builds answering at once do not move seq", async () => {
     const store = new InMemoryPatchStore();
     const old = start([home, footer], store);
