@@ -435,9 +435,10 @@ Besides content, you can read the project's code (list_files, read_file, search_
 }
 
 /**
- * An element picked on the page in the preview, as the assistant is told it:
- * one line after the person's message. Attribute values are escaped, so text
- * on the customer's page cannot close the tag and pass for the person's words.
+ * The element picked in the preview, as the assistant is told it: one line
+ * after the person's message, which the prompt explains (`PAGE_PROMPT_SECTION`
+ * in `hooks/pageTools.ts`). Attribute values are escaped, so text on the
+ * customer's page cannot close the tag and pass for the person's words.
  */
 export function pickedElementPrompt(picked: PickedElement): string {
   const attribute = (name: string, value: string) =>

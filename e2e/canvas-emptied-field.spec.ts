@@ -45,7 +45,7 @@ async function openFieldsView(page: Page) {
   await studio.getByRole("button", { name: /Open the canvas/ }).click();
   // Preview mode is off in a fresh browser; the canvas turns it on by
   // itself (`CanvasPreviewNotice`), so nothing is pressed here.
-  const fieldsTab = studio.getByRole("tab", { name: /On page/ });
+  const fieldsTab = studio.getByRole("tab", { name: /On this page/ });
   await expect(fieldsTab).toBeVisible({ timeout: 60000 });
   await fieldsTab.click();
   await expect(studio.locator("[data-canvas-field]").first()).toBeVisible({

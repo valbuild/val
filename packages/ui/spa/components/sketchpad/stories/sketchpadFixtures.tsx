@@ -1,8 +1,6 @@
-import { SiteMock } from "../../proposals/stories/SiteMock";
-
 /**
  * What the Sketchpad stories share: the Nordic Retail home page as the
- * assistant sketched it, and the site's page as it is now.
+ * assistant sketched it.
  */
 export const SKETCH = `# Clothes that outlast the season.
 Made in Bergen from wool we can trace to the farm. Repaired free, for as long as you own it.
@@ -43,21 +41,4 @@ export function sketchingSteps(sketch: string): string[] {
     ...cuts.map((cut) => lines.slice(0, cut).join("\n") + "\n"),
     `${body}\n\n${icons}`,
   ];
-}
-
-/** The site's page as it is now, in a frame with its address. */
-export function PreviewMock() {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-        <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs text-fg-secondary">
-          nordic-retail.example/
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <SiteMock testimonials="none" />
-      </div>
-    </div>
-  );
 }

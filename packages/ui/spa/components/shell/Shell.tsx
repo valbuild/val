@@ -2,6 +2,7 @@ import {
   CSSProperties,
   Fragment,
   ReactNode,
+  SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -11,7 +12,14 @@ import {
 import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { AI_PANEL_WIDTH, AIChatPanel } from "./AIChatPanel";
+import { AIChatPanel } from "./AIChatPanel";
+import { SelectButton } from "./SelectButton";
+import {
+  ChevronDown,
+  History as HistoryIcon,
+  MousePointerSquareDashed,
+} from "lucide-react";
+import { cn } from "../designSystem/cn";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
 import { toRows } from "./externalPageGroups";
@@ -37,7 +45,6 @@ import {
 } from "./GlobalSearch";
 import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
-import { MobileBottomBar } from "./MobileChrome";
 import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
@@ -88,7 +95,18 @@ import {
   type TourStep,
 } from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
-import { useShellBreakpoint } from "./useShellBreakpoint";
+import { useShellBreakpoint, useWindowWidth } from "./useShellBreakpoint";
+import {
+  GUTTER,
+  workspaceLayout,
+  type SidePane,
+  type WorkspacePane as PhonePane,
+} from "./workspace/workspaceLayout";
+import { PhonePaneBar, type PhonePaneButton } from "./workspace/PhonePaneBar";
+import { PaneTabsProvider } from "./workspace/PaneTabs";
+import { placePanes } from "./workspace/placePanes";
+import { PaneStrip, SideTabs } from "./workspace/WorkspaceChrome";
+import { PaneSwitches, type PaneSwitch } from "./workspace/PaneSwitches";
 import type { JsonValuesLoadStatus } from "../useJsonValuesLoad";
 import {
   ShellBreakpoint,
@@ -412,13 +430,11 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
-   * Something to show in place of the whole page workspace -- the editor
-   * column and the canvas both -- under the same chrome: the Sketchpad's
-   * panes, which need the width the column is not allowed to take. It is
-   * inset to clear the top bar, the rail and the status bar, the way the
-   * canvas pane is.
+   * The Sketch pane, while a sketchpad is open: one of the workspace's panes,
+   * laid out beside Content and the preview by `workspaceLayout`. On a phone,
+   * until its pane bar exists, it takes the whole screen as it did.
    */
-  workspaceOverride?: ReactNode;
+  sketchPane?: ReactNode;
   /**
    * Hold the canvas open: code mode's view is the code changes in the
    * editor's column, beside the page, and the page is the point of it. While
@@ -427,11 +443,23 @@ export type ShellProps = {
    */
   canvasPinned?: boolean;
   /**
-   * Dock the assistant beside the workspace on a desktop rather than float it
-   * over it, as it is beside a Sketchpad: in code mode the assistant and the
-   * page it changes are worked on together, so neither may cover the other.
+   * Bumped to bring the preview in front: the Sketch's "Show it in the
+   * preview". Above a phone it is beside the Sketch already; on a phone the
+   * preview pane comes to the front.
    */
-  dockAssistant?: boolean;
+  revealPreview?: number;
+  /**
+   * The Assistant's Select: picks on the preview what the next message is
+   * about (`SelectButton`). Shown in the assistant's header while the
+   * preview is open, since there is nothing to pick otherwise.
+   */
+  assistantSelect?: {
+    pressed: boolean;
+    onPressedChange: (pressed: boolean) => void;
+    codeMode: boolean;
+    /** Why nothing can be picked yet, while the page has not reported. */
+    unavailable?: string;
+  };
   /** The top bar's Sketchpad button, once there is a Sketchpad. */
   sketchpad?: TopBarSketchpad;
   /** "Sketch changes" in a page's menu in the Pages panel. */
@@ -472,6 +500,19 @@ export type ShellProps = {
     editor: ReactNode,
     breakpoint: "mobile" | "tablet" | "desktop",
   ) => ReactNode;
+  /** In the preview's header: code mode's status. See `PageWorkspace`. */
+  previewStatus?: ReactNode;
+  /**
+   * The past, in parts, for above a phone: the editor stays in Content as
+   * "now", and the module at the commit takes the PREVIEW's place while
+   * History is open -- the preview comes back when it closes. On a phone
+   * `renderHistory` is used, which makes them one pane and a toggle.
+   */
+  history?: {
+    label: string;
+    now: (editor: ReactNode) => ReactNode;
+    past: ReactNode;
+  };
   onPublish?: () => void;
   /**
    * The real publish control, when there is one. See `TopBarProps` — the app
@@ -681,9 +722,10 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
-  workspaceOverride,
+  sketchPane,
   canvasPinned = false,
-  dockAssistant = false,
+  revealPreview = 0,
+  assistantSelect,
   sketchpad,
   onSketchPage,
   notice,
@@ -692,6 +734,8 @@ export function Shell({
   initialDismissedNotices,
   renderPlanStatus,
   renderHistory,
+  previewStatus,
+  history,
   onPublish,
   publishSlot,
   onPreview,
@@ -731,7 +775,58 @@ export function Shell({
   onOpenSearchResult,
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
-  const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
+  const breakpointRef = useRef(breakpoint);
+  breakpointRef.current = breakpoint;
+  const [openPanel, setOpenPanelState] = useState<ShellPanel | null>(
+    initialPanel,
+  );
+  /**
+   * The assistant: a PANE of the workspace (`workspaceLayout`), open or not
+   * on its own, so opening Pages or Media does not close it. Above a phone
+   * it has a column, tabs, a strip or a sheet; on a phone it is one of the
+   * panes the bottom bar switches between.
+   */
+  const [chatOpen, setChatOpen] = useState(false);
+  /**
+   * Which pane a phone shows: one at a time, switched from the bottom bar
+   * (`PhonePaneBar`). Each stays mounted while it is open -- the page, the
+   * sketch, the conversation -- whichever is in front.
+   *
+   * Starts on the preview when a link says the canvas is open, for the same
+   * reason a press of Preview goes there: an opened preview you are not
+   * looking at is an odd thing to be given.
+   */
+  const [phonePane, setPhonePane] = useState<PhonePane>(
+    initialCanvasOpen ? "preview" : "content",
+  );
+  /**
+   * `setOpenPanel`, with the assistant routed to its pane, so every place
+   * that opens it -- the top bar, the pane bar, a field's mention, a
+   * restored link -- opens the pane, and on a phone puts it in front.
+   */
+  const setOpenPanel = useCallback(
+    (next: SetStateAction<ShellPanel | null>) =>
+      setOpenPanelState((current) => {
+        const value = typeof next === "function" ? next(current) : next;
+        if (value === "ai") {
+          setChatOpen(true);
+          if (breakpointRef.current === "mobile") setPhonePane("chat");
+          return current === "ai" ? null : current;
+        }
+        return value;
+      }),
+    [],
+  );
+  // A link that names the assistant as its panel: its pane.
+  useEffect(() => {
+    if (openPanel !== "ai") return;
+    setOpenPanelState(null);
+    setChatOpen(true);
+    if (breakpointRef.current === "mobile") setPhonePane("chat");
+  }, [openPanel]);
+  /** Whether the assistant is on screen: in its place, or in front on a phone. */
+  const assistantOpen =
+    breakpoint === "mobile" ? chatOpen && phonePane === "chat" : chatOpen;
   /*
    * Dismissed floating notices, by id. In memory: a reload shows them again,
    * which is what a reload is for, and a notice with new words has a new id.
@@ -814,8 +909,25 @@ export function Shell({
    * reason a click on Preview goes there: an opened canvas you are not looking
    * at is an odd thing to be given.
    */
-  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>(
-    initialCanvasOpen ? "canvas" : "editor",
+  /**
+   * The phone's two panes as `PageWorkspace` knows them: the editor and the
+   * page. The other two -- Sketch and the Assistant -- are `Shell`'s own.
+   */
+  const workspacePane: WorkspacePane =
+    phonePane === "preview" ? "canvas" : "editor";
+  const setWorkspacePane = useCallback(
+    (next: SetStateAction<WorkspacePane>) =>
+      setPhonePane((current) => {
+        const pane: WorkspacePane = current === "preview" ? "canvas" : "editor";
+        const value = typeof next === "function" ? next(pane) : next;
+        if (value === "canvas") return "preview";
+        // Off the page means Content only from the page: the assistant or
+        // the sketch in front stays in front -- the assistant's own
+        // navigation moving the editor must not pull the phone out of the
+        // conversation.
+        return current === "preview" ? "content" : current;
+      }),
+    [],
   );
   // The canvas's own position, kept here only so it can be reported outward
   // with the rest of the view state — the canvas owns it.
@@ -842,12 +954,21 @@ export function Shell({
   }, [restoreEpoch]);
   useEffect(() => {
     onViewStateChange?.({
-      panel: openPanel,
+      // The link carries one panel: the assistant's pane when nothing else
+      // is open, so a link to a conversation opens it.
+      panel: openPanel ?? (chatOpen ? "ai" : null),
       canvasOpen: isCanvasOpen,
       canvasView,
       canvasTransform,
     });
-  }, [onViewStateChange, openPanel, isCanvasOpen, canvasView, canvasTransform]);
+  }, [
+    onViewStateChange,
+    openPanel,
+    chatOpen,
+    isCanvasOpen,
+    canvasView,
+    canvasTransform,
+  ]);
   const [deploymentsOpen, setDeploymentsOpen] = useState(
     initialDeploymentsOpen,
   );
@@ -1054,7 +1175,8 @@ export function Shell({
     if (openPanel === "ai" && !aiEnabled) {
       setOpenPanel(null);
     }
-  }, [openPanel, aiEnabled]);
+    if (chatOpen && !aiEnabled) setChatOpen(false);
+  }, [openPanel, chatOpen, aiEnabled, setOpenPanel]);
   // The phone's own sheets. Above a phone the switcher, the proposal's menu and
   // the top bar's buttons are those things, so a sheet left open across a
   // resize - or restored from a link - would be a second copy of them.
@@ -1106,6 +1228,57 @@ export function Shell({
    * those degrade on their own, to `/` and to an empty fields view.
    */
   const canCanvas = renderCanvas !== undefined || canvasPage !== undefined;
+  /** Whether there is a preview for the Assistant's Select to pick on. */
+  // Not while History is in the preview's place: no page to pick on.
+  const canPointAssistant =
+    assistantSelect !== undefined &&
+    isCanvasOpen &&
+    canCanvas &&
+    history === undefined;
+  const assistantPicking =
+    canPointAssistant && assistantSelect?.pressed === true;
+  // With the preview gone there is nothing to pick on.
+  const stopAssistantPicking = assistantSelect?.onPressedChange;
+  useEffect(() => {
+    if (!canPointAssistant && assistantSelect?.pressed === true) {
+      stopAssistantPicking?.(false);
+    }
+  }, [canPointAssistant, assistantSelect?.pressed, stopAssistantPicking]);
+  /**
+   * On a phone the preview and the assistant are not on screen together:
+   * pressing the Select goes to the page to pick, and the assistant comes
+   * back once it has, or once the Select is stopped.
+   */
+  const backToAssistant = useRef(false);
+  const pressAssistantSelect = useCallback(
+    (pressed: boolean) => {
+      stopAssistantPicking?.(pressed);
+      if (pressed && breakpoint === "mobile") {
+        backToAssistant.current = true;
+        setPhonePane("preview");
+      }
+    },
+    [stopAssistantPicking, breakpoint],
+  );
+  useEffect(() => {
+    if (assistantPicking || !backToAssistant.current) return;
+    backToAssistant.current = false;
+    setPhonePane("chat");
+  }, [assistantPicking]);
+  /*
+   * Esc stops the Select rather than closing the assistant: the window's
+   * capture phase is first to hear it, before the panel's own Esc.
+   */
+  useEffect(() => {
+    if (!assistantPicking) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      stopAssistantPicking?.(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [assistantPicking, stopAssistantPicking]);
   /**
    * What the Preview button does.
    *
@@ -1118,6 +1291,13 @@ export function Shell({
    * the fields" and "I am done with this page" are not the same intention and
    * were the same button.
    */
+  const lastReveal = useRef(revealPreview);
+  useEffect(() => {
+    if (lastReveal.current === revealPreview) return;
+    lastReveal.current = revealPreview;
+    setIsCanvasOpen(true);
+    if (breakpointRef.current === "mobile") setPhonePane("preview");
+  }, [revealPreview]);
   const togglePreview = useCallback(() => {
     if (breakpoint !== "mobile") {
       setIsCanvasOpen((open) => !open);
@@ -1213,9 +1393,28 @@ export function Shell({
     setWorkspacePane("editor");
   }, [isLoading, selection?.kind]);
 
-  const closePanel = useCallback(() => setOpenPanel(null), []);
-  const togglePanel = useCallback((panel: ShellPanel) => {
-    setOpenPanel((current) => (current === panel ? null : panel));
+  const closePanel = useCallback(() => setOpenPanel(null), [setOpenPanel]);
+  const togglePanel = useCallback(
+    (panel: ShellPanel) => {
+      if (panel === "ai") {
+        if (breakpointRef.current !== "mobile") {
+          setChatOpen((open) => !open);
+        } else if (chatOpen && phonePane === "chat") {
+          setPhonePane("content");
+        } else {
+          setChatOpen(true);
+          setPhonePane("chat");
+        }
+        return;
+      }
+      setOpenPanel((current) => (current === panel ? null : panel));
+    },
+    [setOpenPanel, chatOpen, phonePane],
+  );
+  /** The assistant's own close: its pane goes, and a phone shows Content. */
+  const closeAssistant = useCallback(() => {
+    setChatOpen(false);
+    setPhonePane((pane) => (pane === "chat" ? "content" : pane));
   }, []);
   // On mobile a panel covers the editor, so selecting something has to get
   // the panel out of the way of the thing that was just selected.
@@ -1386,30 +1585,30 @@ export function Shell({
               ? undefined
               : proposals.saveBlockedBy
           }
-          className="h-9 min-w-[5.5rem]"
+          className="h-8 min-w-[5rem]"
         />
       ) : phoneAction === "save" ? (
         <ProposalSaveButton
           location={phoneProposal}
           onSave={proposals.onSave}
           blockedBy={proposals.saveBlockedBy}
-          className="h-9 min-w-[5.5rem]"
+          className="h-8 min-w-[5rem]"
         />
       ) : phoneAction === "build" && proposals.onBuild !== undefined ? (
         <ProposalBuildButton
           location={phoneProposal}
           onBuild={proposals.onBuild}
-          className="h-9"
+          className="h-8"
         />
       ) : (
         <ProposalPublishButton
           location={phoneProposal}
           onPublish={proposals.onPublish}
-          className="h-9"
+          className="h-8"
         />
       )
     ) : proposals?.loading ? (
-      <PublishPlaceholder className="h-9" />
+      <PublishPlaceholder className="h-8" />
     ) : (
       (publishSlot ?? (
         <PublishButton
@@ -1420,23 +1619,195 @@ export function Shell({
               ? "blocked"
               : publishState
           }
-          className="h-9"
+          className="h-8"
         />
       ))
     );
 
   /*
-   * The assistant beside a sketchpad rather than over it, where there is
-   * room for both: a desktop. The two are worked on together, so neither may
-   * cover the other. Anywhere else it floats as it always has, and a click
-   * outside it dismisses it. On a tablet the work area left beside it would
-   * be a few words wide, so it floats there too, and on a phone it is a sheet.
+   * The workspace's panes, laid out by `workspaceLayout` above a phone:
+   * Content and the preview, and Sketch and the Assistant beside them -- as
+   * columns, as tabs sharing one, folded to strips, or on a tablet a sheet
+   * over the preview. `recent` decides what keeps its column when not
+   * everything fits: what was used last.
    */
-  const chatDocked =
-    aiEnabled &&
-    openPanel === "ai" &&
-    breakpoint === "desktop" &&
-    (workspaceOverride !== undefined || dockAssistant);
+  const windowWidth = useWindowWidth();
+  const [recentPanes, setRecentPanes] = useState<SidePane[]>([
+    "content",
+    "chat",
+    "sketch",
+  ]);
+  const [sideFront, setSideFront] = useState<"sketch" | "chat">("chat");
+  const usePane = useCallback((pane: SidePane) => {
+    setRecentPanes((current) =>
+      current[0] === pane
+        ? current
+        : [pane, ...current.filter((p) => p !== pane)],
+    );
+    if (pane !== "content") setSideFront(pane);
+  }, []);
+  const sketchOpen = sketchPane !== undefined;
+  /**
+   * Content, switched on and off from the top bar (`PaneSwitches`): off, to
+   * look at the page alone, or beside the assistant. Going to something to
+   * edit opens it again -- a field opened is a field to be seen.
+   */
+  const [contentOpen, setContentOpen] = useState(true);
+  useEffect(() => {
+    setContentOpen(true);
+  }, [selectionId]);
+  const openPanes = useMemo(
+    () => ({
+      content: contentOpen,
+      // History takes the preview's place: the column is there either way.
+      preview: (isCanvasOpen && canCanvas) || history !== undefined,
+      sketch: sketchOpen,
+      chat: aiEnabled && chatOpen,
+    }),
+    [
+      contentOpen,
+      isCanvasOpen,
+      canCanvas,
+      history,
+      sketchOpen,
+      aiEnabled,
+      chatOpen,
+    ],
+  );
+  const placed = useMemo(() => {
+    if (breakpoint === "mobile") return null;
+    const layout = workspaceLayout({
+      width: windowWidth,
+      open: openPanes,
+      recent: recentPanes,
+      front: sideFront,
+      narrow: "strips",
+      phonePane: "preview",
+    });
+    return layout.kind === "columns" ? placePanes(layout, openPanes) : null;
+  }, [breakpoint, windowWidth, openPanes, recentPanes, sideFront]);
+  // A pane that opens is the one in use.
+  useEffect(() => {
+    if (chatOpen) usePane("chat");
+  }, [chatOpen, usePane]);
+  useEffect(() => {
+    if (contentOpen) usePane("content");
+  }, [contentOpen, usePane]);
+  /*
+   * The top bar's switches, in the Preview button's place from a tablet up.
+   * The last open pane cannot be switched off: a workspace of nothing is no
+   * use.
+   */
+  const switchedOn = {
+    content: contentOpen,
+    preview: isCanvasOpen && canCanvas,
+    sketch: sketchpad?.open === true,
+    chat: aiEnabled && chatOpen,
+  };
+  const openCount = Object.values(switchedOn).filter(Boolean).length;
+  const lastOpen = (pane: keyof typeof switchedOn) =>
+    switchedOn[pane] && openCount === 1
+      ? "The last open pane stays open"
+      : undefined;
+  const switches: PaneSwitch[] = [
+    {
+      pane: "content",
+      open: contentOpen,
+      onToggle: () => setContentOpen((open) => !open),
+      unavailable: lastOpen("content"),
+    },
+    {
+      pane: "preview",
+      open: switchedOn.preview,
+      onToggle: togglePreview,
+      unavailable: !canCanvas
+        ? "There is no page to show for this"
+        : lastOpen("preview"),
+    },
+  ];
+  if (sketchpad !== undefined) {
+    switches.push({
+      pane: "sketch",
+      open: sketchpad.open,
+      onToggle: sketchpad.onToggle,
+      changed: sketchpad.changed,
+      unavailable: lastOpen("sketch"),
+    });
+  }
+  if (aiEnabled) {
+    switches.push({
+      pane: "chat",
+      open: chatOpen,
+      onToggle: () => togglePanel("ai"),
+      unavailable: lastOpen("chat"),
+    });
+  }
+  /*
+   * The phone's bottom bar: the panes, one in front at a time. A pane not
+   * open yet opens when it is tapped.
+   */
+  const phonePanes: PhonePaneButton[] = [
+    { pane: "content", onShow: () => setPhonePane("content") },
+  ];
+  if (canCanvas) {
+    phonePanes.push({
+      pane: "preview",
+      onShow: () => {
+        setIsCanvasOpen(true);
+        setPhonePane("preview");
+      },
+    });
+  }
+  // While a Sketchpad is open it is a pane whether or not there is a way to
+  // open one from here.
+  if (sketchpad !== undefined || sketchOpen) {
+    phonePanes.push({
+      pane: "sketch",
+      changed: sketchpad?.changed,
+      onShow: () => {
+        if (sketchpad !== undefined && !sketchpad.open) sketchpad.onToggle();
+        setPhonePane("sketch");
+      },
+    });
+  }
+  if (aiEnabled) {
+    phonePanes.push({
+      pane: "chat",
+      onShow: () => {
+        setChatOpen(true);
+        setPhonePane("chat");
+      },
+    });
+  }
+  /** What waits in the activity: unread notifications and errors. */
+  const activityCount =
+    (data.notifications === undefined ? 0 : unreadNotifications) +
+    validationErrorCount;
+  const paneSwitches =
+    breakpoint === "mobile" ? undefined : (
+      <PaneSwitches
+        roomy={windowWidth >= 1500}
+        onPreview={onPreview ?? (() => undefined)}
+        previewHref={previewHref}
+        switches={switches}
+      />
+    );
+  useEffect(() => {
+    if (!sketchOpen) {
+      // Closed while in front on a phone: Content takes its place.
+      setPhonePane((pane) => (pane === "sketch" ? "content" : pane));
+      return;
+    }
+    usePane("sketch");
+    // The sketch is about a page, and the preview is where it is shown.
+    if (canCanvas) setIsCanvasOpen(true);
+    if (breakpointRef.current === "mobile") setPhonePane("sketch");
+  }, [sketchOpen, usePane, canCanvas]);
+  /** Whether the assistant is on screen: in its place, or its phone sheet. */
+  const assistantVisible =
+    breakpoint === "mobile"
+      ? assistantOpen
+      : chatOpen && placed !== null && placed.chat !== null;
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
@@ -1486,56 +1857,150 @@ export function Shell({
          * or the Sketchpad's panes.
          */}
         <div
-          className="absolute inset-0"
-          style={chatDocked ? { right: AI_PANEL_WIDTH + 12 } : undefined}
+          className={cn(
+            "absolute inset-0",
+            // On a phone, while Sketch or the Assistant is in front: still
+            // mounted, so the page and the editor are as they were left.
+            breakpoint === "mobile" &&
+              (phonePane === "sketch" || phonePane === "chat") &&
+              "hidden",
+          )}
+          style={
+            placed !== null && placed.rightWidth > 0
+              ? { right: placed.rightWidth }
+              : undefined
+          }
         >
-          {workspaceOverride !== undefined ? (
-            <div
-              className={
-                breakpoint === "mobile"
-                  ? "absolute inset-0 px-3 pt-[4.5rem] pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
-                  : breakpoint === "desktop"
-                    ? "absolute inset-0 pt-20 pb-14 pr-3 pl-[5.5rem]"
-                    : "absolute inset-0 pt-20 pb-14 px-3"
-              }
-            >
-              {workspaceOverride}
-            </div>
-          ) : (
-            <PageWorkspace
-              breakpoint={breakpoint}
-              page={canCanvas ? canvasPage : undefined}
-              renderCanvas={canCanvas ? renderCanvas : undefined}
-              canvasPaths={canCanvas ? canvasPaths : undefined}
-              onSelectCanvasPath={onSelectCanvasPath}
-              selectedCanvasPath={selectedCanvasPath}
-              canvasRoute={canCanvas ? canvasRoute : undefined}
-              onCanvasRouteChange={onCanvasRouteChange}
-              canvasRoutes={canvasRoutes}
-              initialTransform={initialCanvasTransform}
-              onTransformChange={setCanvasTransform}
-              isCanvasOpen={isCanvasOpen && canCanvas}
-              onCloseCanvas={closeCanvas}
-              view={canvasView}
-              onViewChange={setCanvasView}
-              pane={workspacePane}
-              onPaneChange={setWorkspacePane}
-              isDevMode={isDevMode}
-              onAttachToChat={aiEnabled ? attachToChat : undefined}
-              skipTransition={skipTransition}
-            >
-              {/*
-               * The editor column, built once and then either rendered on its own
-               * or handed to `renderHistory` as the left half. Built once because
-               * the alternative - the same tree written twice, in two branches -
-               * is the shape where the two quietly stop matching.
-               */}
-              {renderHistory
+          <PageWorkspace
+            breakpoint={breakpoint}
+            page={canCanvas ? canvasPage : undefined}
+            renderCanvas={canCanvas ? renderCanvas : undefined}
+            canvasPaths={canCanvas ? canvasPaths : undefined}
+            onSelectCanvasPath={onSelectCanvasPath}
+            selectedCanvasPath={selectedCanvasPath}
+            canvasRoute={canCanvas ? canvasRoute : undefined}
+            onCanvasRouteChange={onCanvasRouteChange}
+            canvasRoutes={canvasRoutes}
+            initialTransform={initialCanvasTransform}
+            onTransformChange={setCanvasTransform}
+            isCanvasOpen={isCanvasOpen && canCanvas}
+            onCloseCanvas={closeCanvas}
+            view={canvasView}
+            onViewChange={setCanvasView}
+            pane={workspacePane}
+            onPaneChange={setWorkspacePane}
+            isDevMode={isDevMode}
+            onAttachToChat={aiEnabled ? attachToChat : undefined}
+            skipTransition={skipTransition}
+            previewStatus={previewStatus}
+            replacePreview={
+              breakpoint !== "mobile" && history !== undefined ? (
+                <HistoryInPreviewsPlace label={history.label}>
+                  {history.past}
+                </HistoryInPreviewsPlace>
+              ) : undefined
+            }
+            contentPlacement={placed?.content}
+            codeMode={assistantSelect?.codeMode === true}
+            onUseContent={() => usePane("content")}
+            // Closing Content's sheet hands its room back to the pane
+            // beside it -- or, with none open, switches Content off, since
+            // there is nothing to fold it behind (the top bar's switch
+            // brings it back).
+            onFoldContent={() => {
+              const shown: Record<"sketch" | "chat", boolean> = {
+                sketch: sketchOpen,
+                chat: aiEnabled && chatOpen,
+              };
+              const other = sideFront === "sketch" ? "chat" : "sketch";
+              if (shown[sideFront]) usePane(sideFront);
+              else if (shown[other]) usePane(other);
+              else setContentOpen(false);
+            }}
+            isAssistantPicking={assistantPicking}
+            onStopAssistantPicking={
+              assistantPicking ? () => stopAssistantPicking?.(false) : undefined
+            }
+          >
+            {/*
+             * The editor column, built once and then either rendered on its own
+             * or handed to `renderHistory` as the left half. Built once because
+             * the alternative - the same tree written twice, in two branches -
+             * is the shape where the two quietly stop matching.
+             */}
+            {breakpoint !== "mobile" && history !== undefined
+              ? history.now(editorColumn)
+              : renderHistory
                 ? renderHistory(editorColumn, breakpoint)
                 : editorColumn}
-            </PageWorkspace>
-          )}
+          </PageWorkspace>
         </div>
+
+        {/*
+         * The Sketch pane, mounted for as long as a sketchpad is open and
+         * placed rather than moved: a sketch keeps its caret, its undo and
+         * what is not saved yet only while it stays where it is in the tree.
+         * Hidden, not unmounted, while it is folded or behind the
+         * Assistant's tab.
+         */}
+        {sketchPane !== undefined && (
+          <div
+            data-val-pane="sketch"
+            onPointerDownCapture={() => usePane("sketch")}
+            className={cn(
+              "absolute flex flex-col gap-2",
+              breakpoint === "mobile"
+                ? // A phone's pane: below the top bar, above the pane bar.
+                  cn(
+                    "inset-x-3 top-[4.5rem] bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]",
+                    phonePane !== "sketch" && "hidden",
+                  )
+                : cn(
+                    "top-20 bottom-14",
+                    placed?.sketch == null && "hidden",
+                    placed?.sketch?.sheet === true && "z-window",
+                  ),
+            )}
+            style={
+              breakpoint !== "mobile" && placed?.sketch != null
+                ? {
+                    right: GUTTER + placed.sketch.right,
+                    width: placed.sketch.width,
+                  }
+                : undefined
+            }
+          >
+            <div
+              className={cn(
+                "min-h-0 flex-1",
+                placed?.sketch?.sheet === true && "rounded-lg shadow-2xl",
+              )}
+            >
+              {/* In the sketch's own header, beside Build: see `PaneTabs`. */}
+              <PaneTabsProvider
+                tabs={
+                  placed?.sketch?.tabs != null ? (
+                    <SideTabs
+                      tabs={placed.sketch.tabs}
+                      front="sketch"
+                      onChange={usePane}
+                    />
+                  ) : null
+                }
+              >
+                {sketchPane}
+              </PaneTabsProvider>
+            </div>
+          </div>
+        )}
+        {placed?.strips.map((strip) => (
+          <PaneStrip
+            key={strip.panes.join(",")}
+            panes={strip.panes}
+            style={{ right: GUTTER + strip.right, width: strip.width }}
+            onUse={usePane}
+          />
+        ))}
 
         {breakpoint === "desktop" && (
           <LeftRail
@@ -1558,6 +2023,7 @@ export function Shell({
           studioMode={data.studioMode}
           logo={data.logo}
           openPanel={openPanel}
+          aiOpen={assistantOpen}
           onTogglePanel={togglePanel}
           // The menu button opens the first destination this project has, which
           // is Pages wherever there is one — but a project with no routes has to
@@ -1595,6 +2061,25 @@ export function Shell({
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
           isCanvasOpen={isCanvasOpen}
+          paneSwitches={paneSwitches}
+          phoneActions={
+            <>
+              {/* The tour's Publish step points here on a phone. */}
+              <span data-val-tour="publish" className="inline-flex">
+                {mobilePrimary}
+              </span>
+              <button
+                type="button"
+                aria-label="More for these changes"
+                aria-pressed={openPanel === "changes"}
+                onClick={() => togglePanel("changes")}
+                className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+              >
+                <ChevronDown size={15} />
+              </button>
+            </>
+          }
+          accountDot={activityCount > 0}
           onPublish={onPublish ?? (() => undefined)}
           publishSlot={publishSlot}
           pendingChanges={pendingChanges}
@@ -1608,46 +2093,7 @@ export function Shell({
         />
 
         {breakpoint === "mobile" ? (
-          <MobileBottomBar
-            onPreview={onPreview ?? (() => undefined)}
-            previewHref={previewHref}
-            onToggleCanvas={canCanvas ? togglePreview : undefined}
-            isCanvasOpen={isCanvasOpen}
-            /*
-             * What the button does NEXT, said plainly, because on a phone it is
-             * three different acts depending on where you are — see
-             * `togglePreview`. A control that swaps has to say which way.
-             */
-            canvasActionLabel={
-              !isCanvasOpen
-                ? "Open the canvas"
-                : workspacePane === "canvas"
-                  ? "Back to the editor"
-                  : "Back to the preview"
-            }
-            // The main half no longer closes the canvas on a phone, so the way
-            // out has to be somewhere the menu can offer it too.
-            onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
-            primary={mobilePrimary}
-            onOpenChanges={() => togglePanel("changes")}
-            isChangesOpen={openPanel === "changes"}
-            onOpenActivity={() => togglePanel("notifications")}
-            isActivityOpen={openPanel === "notifications"}
-            activityCount={
-              (data.notifications === undefined ? 0 : unreadNotifications) +
-              validationErrorCount
-            }
-            /*
-             * The same gate and the same ACT as the top bar's button above
-             * this breakpoint: absent when there is no assistant, and a
-             * toggle rather than an open, so the button that shows the panel
-             * as open is the button that closes it. It only opened, which on
-             * a phone - where the panel covers the editor - meant the
-             * obvious way to dismiss it did nothing.
-             */
-            onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
-            isAIOpen={openPanel === "ai"}
-          />
+          <PhonePaneBar panes={phonePanes} shown={phonePane} />
         ) : (
           <StatusBar
             breakpoint={breakpoint}
@@ -1830,6 +2276,14 @@ export function Shell({
             }
             upgrade={breakpoint === "mobile" ? upgrade : undefined}
             versions={versions}
+            activity={
+              breakpoint === "mobile"
+                ? {
+                    count: activityCount,
+                    onOpen: () => setOpenPanel("notifications"),
+                  }
+                : undefined
+            }
             members={
               breakpoint === "mobile" &&
               orgOfProject(data.projectName) !== null &&
@@ -1889,12 +2343,55 @@ export function Shell({
          * cannot, because closing it would drop a turn in flight — see `hidden`
          * on `FloatingPanel`.
          */}
+        {/*
+         * On a phone the Assistant's Select is in a sheet that is out of the
+         * way while it picks, so its pressed state is said here, over the
+         * page it is picking on, with the way out.
+         */}
+        {breakpoint === "mobile" && assistantPicking && (
+          <PointingPill
+            codeMode={assistantSelect?.codeMode === true}
+            onCancel={() => stopAssistantPicking?.(false)}
+          />
+        )}
         {aiEnabled && (
           <AIChatPanel
             breakpoint={breakpoint}
-            hidden={openPanel !== "ai"}
-            docked={chatDocked}
-            onClose={closePanel}
+            hidden={!assistantVisible}
+            docked={placed?.chat != null && !placed.chat.sheet}
+            // While pointing, a click on the page is a pick, not a click
+            // outside the panel that closes it.
+            modal={!assistantPicking}
+            // A sheet over the preview folds back to its strip when closed,
+            // handing its room back to the page; a column closes.
+            onClose={
+              // With Content switched off there is nothing to fold back
+              // to, so the X closes it.
+              placed?.chat?.sheet === true && contentOpen
+                ? () => usePane("content")
+                : closeAssistant
+            }
+            onUse={() => usePane("chat")}
+            headerEnd={
+              placed?.chat?.tabs != null ? (
+                <SideTabs
+                  tabs={placed.chat.tabs}
+                  front="chat"
+                  onChange={usePane}
+                />
+              ) : undefined
+            }
+            headerStart={
+              canPointAssistant && assistantSelect !== undefined ? (
+                <SelectButton
+                  selectFor="assistant"
+                  pressed={assistantPicking}
+                  onPressedChange={pressAssistantSelect}
+                  codeMode={assistantSelect.codeMode}
+                  unavailable={assistantSelect.unavailable}
+                />
+              ) : undefined
+            }
           >
             {aiSlot ?? <NoAssistantConfigured />}
           </AIChatPanel>
@@ -2093,4 +2590,76 @@ export function findShellSelection(
   const module = data.data.find((entry) => entry.id === id);
   if (module) return toDataSelection(module);
   return null;
+}
+
+/**
+ * "Pointing the assistant", over the page on a phone while the Assistant's
+ * Select is picking: the pressed button it stands in for is in the
+ * assistant's sheet, which is out of the way. Cancel goes back to the
+ * assistant, as a pick does.
+ *
+ * Where the preview's own notice is, at the top of the page, and dashed as
+ * the outlines it draws are -- in the proposal's colour in code mode.
+ */
+function PointingPill({
+  codeMode,
+  onCancel,
+}: {
+  codeMode: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="pointer-events-none absolute inset-x-3 z-window flex justify-center"
+      style={{ top: "10.75rem" }}
+    >
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-2 rounded-full border border-dashed py-1 pl-3 pr-1 text-xs shadow-lg",
+          codeMode
+            ? "border-border-proposal bg-bg-proposal-soft text-fg-proposal"
+            : "border-border-brand-secondary bg-bg-float text-fg-primary",
+        )}
+      >
+        <MousePointerSquareDashed size={14} aria-hidden />
+        <span>
+          {codeMode
+            ? "Tap anything to ask the assistant about it"
+            : "Tap a field to ask the assistant about it"}
+        </span>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full border border-border-float bg-bg-float-raised px-2.5 py-1 font-medium text-fg-secondary hover:text-fg-primary"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The module at a commit, where the preview is while History is open: the
+ * editor beside it is "now", so the two read left to right as now and then.
+ */
+function HistoryInPreviewsPlace({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2" data-val-pane="history">
+      <div className="flex h-8 shrink-0 items-center gap-2 px-1 text-xs font-medium text-fg-secondary">
+        <HistoryIcon size={14} aria-hidden />
+        {label}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-float bg-bg-float p-4">
+        {children}
+      </div>
+    </div>
+  );
 }

@@ -6,11 +6,12 @@ import type {
   ToolActivity,
 } from "../../AIChatToolActivities";
 import { Shell } from "../../shell/Shell";
+import { mockCanvasPage } from "../../shell/canvas/mockCanvasPage";
 import { mockSelectionIds, mockShellData } from "../../shell/mockShellData";
 import { parseSketch, sketchTitle } from "@valbuild/shared/internal";
 import { Sketchpad } from "../Sketchpad";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
-import { PreviewMock, SKETCH, sketchingSteps } from "./sketchpadFixtures";
+import { SKETCH, sketchingSteps } from "./sketchpadFixtures";
 
 /**
  * The three ways into the Sketchpad. None of them asks anyone to use it:
@@ -187,6 +188,9 @@ function EntryPoint({ start }: Props) {
 
   return (
     <Shell
+      // The Studio's preview: the Sketch pane beside it shows its page.
+      canvasPage={mockCanvasPage}
+      initialCanvasOpen
       data={mockShellData}
       theme="light"
       onThemeChange={() => undefined}
@@ -232,10 +236,9 @@ function EntryPoint({ start }: Props) {
               onToggle: open ? closeSketchpad : openSketchpad,
             }
       }
-      workspaceOverride={
+      sketchPane={
         open && value !== null ? (
           <SketchpadWorkspace
-            preview={<PreviewMock />}
             sketchpads={{
               sketchpads: [
                 {

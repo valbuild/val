@@ -18,34 +18,19 @@ import { cn } from "../../designSystem/cn";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
-import { CanvasToolbar } from "./CanvasToolbar";
-import {
-  CanvasPinch,
-  CanvasWindow,
-  CanvasWindowHandle,
-  ZOOM_STEP,
-} from "./CanvasWindow";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
-import { CanvasRouteBar } from "./CanvasRouteBar";
-import {
-  CanvasPreviewNotice,
-  CanvasPreviewStatus,
-} from "./CanvasPreviewNotice";
+import { SitePreview, SitePreviewViewport } from "./SitePreview";
+import { SelectButton } from "../SelectButton";
+import type { ContentPlacement } from "../workspace/placePanes";
+import { PaneStrip } from "../workspace/WorkspaceChrome";
+import { GAP, GUTTER, RAIL_WIDTH } from "../workspace/workspaceLayout";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { EditorDensityProvider } from "../../EditorDensity";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
-import {
-  CANVAS_DEVICE_HEIGHTS,
-  CANVAS_DEVICE_WIDTHS,
-  CanvasDevice,
-  CanvasPageData,
-  CanvasPoint,
-  CanvasTransform,
-  CanvasView,
-} from "./types";
+import { CanvasPageData, CanvasTransform, CanvasView } from "./types";
 
 // Re-exported: this module named the type before the canvas had a types file,
 // and the whole shell imports it from here.
@@ -71,78 +56,26 @@ export type PageWorkspaceProps = {
    * device switch is owned here: the page has to be re-laid-out at the new
    * width, and something that was handed over already sized could not follow.
    */
-  renderCanvas?: (viewport: {
-    device: CanvasDevice;
-    width: number;
-    height: number;
-    /**
-     * Bumped every time the reload control is used.
-     *
-     * Handed over rather than kept here because only the caller knows what
-     * reloading means for what it rendered — for a frame it is a remount, and
-     * the caller is the one holding its `key`.
-     */
-    reloadKey: number;
-    /**
-     * Whether a click on the page picks the element under it.
-     *
-     * Follows the view, which is where that decision already lives: in the
-     * normal view the canvas is the page and a click on a link should follow
-     * it. Passed down rather than taken as a prop so there is one answer.
-     */
-    isPicking: boolean;
-    /** Ask for the page again, as the reload control does. */
-    onRequestReload: () => void;
-    /**
-     * Report that the page is re-rendering because of an edit.
-     *
-     * Only the page knows: its client store updates at once, and anything
-     * rendered on the server changes only after a `router.refresh()` and its
-     * round trip. Unsaid, the gap between typing and the canvas changing looks
-     * like the canvas being stuck rather than busy.
-     */
-    onRefreshingChange: (isRefreshing: boolean) => void;
-    /**
-     * A two-finger gesture that landed on the page.
-     *
-     * The page is a frame and a frame keeps its own touches, so a pinch there
-     * is invisible here unless the page relays it. Without this the only zoom
-     * on a phone is the toolbar's + and -, which is not the gesture anyone
-     * reaches for. See `ValCanvasBridge`.
-     */
-    onPinch: (gesture: CanvasPinch) => void;
-    /** A ctrl/cmd + wheel zoom over the page, relayed for the same reason. */
-    onZoom: (factor: number, center: CanvasPoint) => void;
-    /**
-     * Something on the page was picked.
-     *
-     * The pick itself is the caller's to act on — it owns navigation — but the
-     * canvas has to know one happened, because selecting on the page is a
-     * request to go and edit the thing selected, and where that is is the
-     * canvas's business: the fields column, and on a phone the pane holding it.
-     *
-     * Carries the path that was picked, because the column's "changed only"
-     * filter has to know whether it is hiding it. `null` where a pick has no
-     * source path behind it — the demo page's fields are not Val's.
-     */
-    onPicked: (path: SourcePath | null) => void;
-    /**
-     * Bumped when the notice's "Turn on preview mode" is used.
-     *
-     * The button is in the notice, which sits outside the zoom transform, and
-     * the act is a navigation of whatever is on the canvas — so, like
-     * `reloadKey`, it goes to the thing that can perform it.
-     */
-    enableKey: number;
-    /**
-     * How the canvas is getting on with what it is showing.
-     *
-     * Reported up here because the notice must NOT be inside the zoom
-     * transform: at auto-fit on a narrow pane that is a status bar rendered at
-     * half size. See `CanvasPreviewNotice`.
-     */
-    onStatusChange: (status: CanvasPreviewStatus) => void;
-  }) => ReactNode;
+  renderCanvas?: (
+    viewport: SitePreviewViewport & {
+      /**
+       * Something on the page was picked.
+       *
+       * The pick itself is the caller's to act on — it owns navigation — but
+       * the canvas has to know one happened, because selecting on the page is
+       * a request to go and edit the thing selected, and where that is is the
+       * canvas's business: the fields column, and on a phone the pane holding
+       * it.
+       *
+       * Carries the path that was picked, because the column's "changed only"
+       * filter has to know whether it is hiding it. `null` where a pick has no
+       * source path behind it — the demo page's fields are not Val's.
+       */
+      onPicked: (path: SourcePath | null) => void;
+      /** Esc on the page while picking fields: Content's Select turns off. */
+      onPickingStopped: () => void;
+    },
+  ) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
    *
@@ -202,6 +135,39 @@ export type PageWorkspaceProps = {
   onAttachToChat?: (sourcePath: string) => void;
   /** Skips the entrance transition — for screenshots and for tests. */
   skipTransition?: boolean;
+  /**
+   * Whether the assistant's Select is picking on the page.
+   *
+   * A click on the page has one owner, so Content's Select is off while the
+   * assistant's is on, and pressing Content's stops the assistant's
+   * (`onStopAssistantPicking`).
+   */
+  isAssistantPicking?: boolean;
+  onStopAssistantPicking?: () => void;
+  /**
+   * Where Content goes, from `workspaceLayout` (`placePanes`): its column at
+   * the width the rule gives it, folded to a strip, or on a tablet a sheet
+   * over the preview. Absent on a phone, and in the stories that predate the
+   * rule: the column keeps its own width.
+   */
+  contentPlacement?: ContentPlacement;
+  /**
+   * Something in the preview's place: History's past, while it is open.
+   * The column is there whether or not the preview is, and the preview is
+   * not mounted meanwhile.
+   */
+  replacePreview?: ReactNode;
+  /**
+   * In the preview's header, before the way out: code mode's status --
+   * up to date, updating, could not update -- with its reload.
+   */
+  previewStatus?: ReactNode;
+  /** Content was used: a click in it. Decides what keeps a column. */
+  onUseContent?: () => void;
+  /** Code mode: the preview's frame is in the proposal's colour. */
+  codeMode?: boolean;
+  /** Close Content's sheet, handing the room back to the pane beside it. */
+  onFoldContent?: () => void;
 };
 
 /** Stable, so a page that has reported nothing does not re-merge every render. */
@@ -217,6 +183,8 @@ const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
  * page is not a preview of it.
  */
 const MIN_COLUMN_PX = 320;
+/** Content in the middle, with the preview switched off: a readable line. */
+const READABLE_WIDTH = 720;
 const MIN_CANVAS_PX = 280;
 /**
  * How wide the editor column may be dragged, as a share of the workspace.
@@ -296,6 +264,14 @@ export function PageWorkspace({
   isDevMode,
   onAttachToChat,
   skipTransition,
+  isAssistantPicking = false,
+  onStopAssistantPicking,
+  contentPlacement,
+  replacePreview,
+  previewStatus,
+  onUseContent,
+  codeMode = false,
+  onFoldContent,
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
@@ -333,46 +309,18 @@ export function PageWorkspace({
       : properties.map((p) => `${p} ${OPEN_MS}ms ${OPEN_EASE}`).join(", ");
 
   /**
-   * Which width the page is shown at.
+   * The position a link carried, for the first time the canvas opens and only
+   * then.
    *
-   * A phone starts on the phone layout, and that is not a nicety: a 1280px page
-   * fitted into a phone-width pane lands at about 25%, which is a thumbnail
-   * rather than a preview. The layout someone on a phone almost certainly wants
-   * to look at is the one they are holding.
-   *
-   * The starting value only, so the switch stays theirs after that — including
-   * the perfectly reasonable "check the desktop layout from my phone".
+   * The preview applies it instead of fitting the page, which is right when
+   * the link is what opened it. Once the canvas has been closed, opening it
+   * again is a new look at the page, and it fits like any other opening: the
+   * link's position belonged to the session it was copied from.
    */
-  const [device, setDevice] = useState<CanvasDevice>(
-    isPhone ? "mobile" : "desktop",
-  );
-  /**
-   * How far the page is zoomed.
-   *
-   * Only the zoom: where the window is scrolled belongs to the browser now,
-   * and is read back off the element rather than mirrored here. Keeping it in
-   * state as well would mean a render of the whole workspace on every frame of
-   * a flick, to tell it something it can already see.
-   */
-  const [scale, setScale] = useState(() => initialTransform?.scale ?? 1);
-  const scaleRef = useRef(scale);
-  scaleRef.current = scale;
-  const scrollRef = useRef<CanvasPoint>({
-    x: initialTransform?.x ?? 0,
-    y: initialTransform?.y ?? 0,
-  });
-  // Reported on every change, including the fit: the fitted position is a
-  // position, and a link copied without touching anything should restore it.
+  const [linkTransform, setLinkTransform] = useState(initialTransform ?? null);
   useEffect(() => {
-    onTransformChange?.({ scale, ...scrollRef.current });
-  }, [scale, onTransformChange]);
-  const onScrollChange = useCallback(
-    (next: CanvasPoint) => {
-      scrollRef.current = next;
-      onTransformChange?.({ scale: scaleRef.current, ...next });
-    },
-    [onTransformChange],
-  );
+    if (!open) setLinkTransform(null);
+  }, [open]);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
   /**
@@ -404,7 +352,6 @@ export function PageWorkspace({
     setAttachedFieldIds((current) => (current.length === 0 ? current : []));
   }, [open]);
 
-  const canvasWindowRef = useRef<CanvasWindowHandle>(null);
   const splitRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -417,10 +364,15 @@ export function PageWorkspace({
    * dragging is choosing.
    */
   const [columnPx, setColumnPx] = useState<number | null>(null);
-  // The canvas shows a document Val does not render: a server component
-  // re-reads content when the page is requested, so some changes only arrive
-  // on a reload.
+  /**
+   * How many times the preview's reload control was used.
+   *
+   * The preview reloads the page itself; this only counts, because the fields
+   * the page reported are reset by a reload the person asked for and by
+   * nothing else. See `useRetainedCanvasPaths`.
+   */
   const [reloadKey, setReloadKey] = useState(0);
+  const onPreviewReload = useCallback(() => setReloadKey((key) => key + 1), []);
   const [isDragging, setIsDragging] = useState(false);
   // The workspace's own width, which is what the limits are relative to: the
   // same column is reasonable on a 1600px screen and far too wide on a 900px
@@ -511,92 +463,6 @@ export function PageWorkspace({
     [columnPx, clampColumn],
   );
 
-  const pageWidth = CANVAS_DEVICE_WIDTHS[device];
-
-  /**
-   * Whether the window should keep the page at the width of the pane.
-   *
-   * The window does the fitting — it is the only thing that knows its own size
-   * — but whether a fit is still WANTED is decided here, and it stops being
-   * wanted the moment someone zooms. A link that names a position has already
-   * answered the question fitting exists to answer, so it is not overruled by
-   * one.
-   */
-  const [autoFit, setAutoFit] = useState(initialTransform == null);
-
-  /**
-   * Back to the default view: the page at the pane's width, from the top.
-   *
-   * Both halves, and the second is why this is a call rather than only
-   * `setAutoFit(true)`. Holding the fit is the window's own business and
-   * deliberately does not move the window — a page someone scrolled down must
-   * not jump to the top because the divider moved — so the top is pinned here,
-   * at the moments a fit is ASKED for. Those are all in this component: opening
-   * the canvas, switching device, reloading, and the fit button.
-   *
-   * `setAutoFit(true)` on its own also does nothing at all when the fit is
-   * already armed, which is exactly the state the fit button is pressed in
-   * after scrolling: no state changed, so nothing re-ran, so the button did
-   * nothing.
-   */
-  const fitPage = useCallback(() => {
-    setAutoFit(true);
-    canvasWindowRef.current?.fit();
-  }, []);
-
-  /**
-   * Opening the canvas, and switching device, both change the box the page has
-   * to fit into. The column also finishes moving a third of a second after the
-   * click, and the observer above catches that too.
-   *
-   * A CHANGE in the box, not merely a render in which the box has a value. A
-   * link that names a position has already answered the question fitting exists
-   * to answer, and the canvas can be open from the very first render when a link
-   * says so — so anything that treats the first run as a transition overwrites
-   * exactly what the link was carrying, and the link looks like it did not work.
-   *
-   * The previous box is a ref updated inside the effect rather than a flag the
-   * first run consumes: an effect can be run more than once for one commit —
-   * StrictMode does exactly that on mount — and a flag consumed by the first run
-   * turns the second into a spurious "the box changed".
-   */
-  const lastBox = useRef({ device, open });
-  useEffect(() => {
-    if (lastBox.current.device === device && lastBox.current.open === open) {
-      return;
-    }
-    lastBox.current = { device, open };
-    fitPage();
-  }, [device, open, fitPage]);
-
-  const reload = useCallback(() => {
-    setReloadKey((key) => key + 1);
-    // A reloaded page is the page from the beginning again, so the view it is
-    // shown at is the default one again.
-    fitPage();
-  }, [fitPage]);
-
-  /**
-   * A zoom someone asked for ends the fit.
-   *
-   * Answered once, by the window, rather than at each of the four ways of
-   * asking: the buttons and the relayed gestures come through here, but a
-   * ctrl/cmd + wheel over the canvas background never leaves the window at all.
-   * That path had no way to say so, so a zoom made that way stayed armed for a
-   * fit and was thrown away by the next resize — the split divider, the browser
-   * window, or the column's own opening animation a third of a second later.
-   */
-  const onUserZoom = useCallback(() => setAutoFit(false), []);
-  const zoomByUser = useCallback(
-    (factor: number, center: CanvasPoint | null) => {
-      canvasWindowRef.current?.zoomBy(factor, center);
-    },
-    [],
-  );
-  const onPinch = useCallback((gesture: CanvasPinch) => {
-    canvasWindowRef.current?.pinch(gesture);
-  }, []);
-
   const attachField = useCallback(
     (fieldId: string) => {
       setAttachedFieldIds((current) =>
@@ -608,8 +474,78 @@ export function PageWorkspace({
     [page, onAttachToChat],
   );
 
-  /** See {@link usePickingDefault} — the view sets the default, the button disagrees. */
-  const [isPicking, setIsPicking] = usePickingDefault(view);
+  /**
+   * Content's Select. See {@link usePickingDefault} — the view sets the
+   * default, the button disagrees.
+   */
+  const [contentSelect, setContentSelect] = usePickingDefault(view);
+  /** Content's Select, unless the assistant's has the page. */
+  const isPicking = contentSelect && !isAssistantPicking;
+  useEffect(() => {
+    if (isAssistantPicking) setContentSelect(false);
+  }, [isAssistantPicking, setContentSelect]);
+  const setIsPicking = useCallback(
+    (next: boolean) => {
+      setContentSelect(next);
+      if (!next) return;
+      onStopAssistantPicking?.();
+      // On a phone the page is the other pane: go to it to pick. A pick
+      // brings you back (`onPicked`).
+      if (isPhone) onPaneChange("canvas");
+    },
+    [setContentSelect, onStopAssistantPicking, isPhone, onPaneChange],
+  );
+  const stopPicking = useCallback(
+    () => setContentSelect(false),
+    [setContentSelect],
+  );
+  /*
+   * Esc stops it, from anywhere in the Studio. From the page it comes as a
+   * message, since the page has the keyboard once it has been clicked
+   * (`onPickingStopped`).
+   */
+  useEffect(() => {
+    if (!open || !isPicking) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContentSelect(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, isPicking, setContentSelect]);
+  /*
+   * Content's Select, in Content's header: on the right of the column, the
+   * side the preview is on. Only while there is a preview to pick on.
+   */
+  /**
+   * Whether "Select" can be written beside the icon, in the header beside
+   * the preview: the view switch takes about 260px of it, the padding 48px
+   * and, on a desktop, the rail another 88px. Below that the word goes and
+   * the icon stays, rather than the switch's count being cut off.
+   */
+  const columnWidth =
+    columnPx ?? Math.min(520, Math.max(340, splitWidth * 0.34));
+  const selectHasRoom = columnWidth >= (breakpoint === "desktop" ? 470 : 390);
+  const contentSelectButton = (compact: boolean) => (
+    <SelectButton
+      selectFor="content"
+      // Pressed only once there is something to pick: before the page has
+      // said what is on it, a click on it goes to the page, and a page with
+      // the focus is one the preview will not turn preview mode on in.
+      pressed={isPicking && fieldCount > 0}
+      onPressedChange={setIsPicking}
+      unavailable={
+        fieldCount > 0
+          ? undefined
+          : "Nothing on the page can be selected until the preview has loaded it"
+      }
+      label={!compact}
+      className={
+        compact && isPhone
+          ? "h-[2.125rem] w-[2.125rem] justify-center px-0"
+          : undefined
+      }
+    />
+  );
 
   /**
    * Selecting something on the page takes you to it.
@@ -649,40 +585,20 @@ export function PageWorkspace({
   );
 
   /**
-   * Whether the page is re-rendering because of an edit.
-   *
-   * Reported by the page, because only it knows: an edit updates its client
-   * store at once, and anything rendered on the server changes only after a
-   * `router.refresh()` and its round trip. Without saying so, the gap between
-   * typing and the canvas changing looks like the canvas being stuck.
-   */
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  /**
-   * How the canvas is getting on with the page, and the way to fix it.
-   *
-   * Held here rather than in `CanvasFrame` because the notice that shows it
-   * cannot be in there: everything `renderCanvas` returns is inside the zoom
-   * transform, so a bar drawn beside the page would shrink with the page — at
-   * auto-fit on a narrow pane, to about half legibility. `enableKey` goes the
-   * other way for the same reason: the button is here, and only the thing
-   * holding the frame can navigate it.
-   *
-   * `live` to begin with, so the demo page — which reports nothing, because
-   * Storybook has no frame to report — shows no notice at all.
-   */
-  const [previewStatus, setPreviewStatus] =
-    useState<CanvasPreviewStatus>("live");
-  const [enableKey, setEnableKey] = useState(0);
-
-  /**
    * Clears the floating rail, which the narrowed column now reaches under.
    *
    * Inline because `md:px-6` lives in a media query and would otherwise win
    * over any `pl-*` utility regardless of class order.
    */
   const railPadding =
-    breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
+    breakpoint === "desktop" &&
+    (open ||
+      replacePreview !== undefined ||
+      // The middle of the workspace, with Sketch or the Assistant beside it:
+      // no longer a centred column the rail is clear of.
+      contentPlacement?.kind === "anchor")
+      ? { paddingLeft: "5.5rem" }
+      : undefined;
 
   /**
    * The switch that decides what the column holds.
@@ -734,14 +650,9 @@ export function PageWorkspace({
    * comes and goes cannot explain its own absence. It explains itself instead;
    * see {@link FieldsAwaitingPage}.
    */
-  const mobileMode: MobileMode =
-    pane === "canvas" ? "preview" : view === "fields" ? "fields" : "normal";
+  const mobileMode: MobileMode = view === "fields" ? "fields" : "normal";
   const setMobileMode = useCallback(
     (next: MobileMode) => {
-      if (next === "preview") {
-        onPaneChange("canvas");
-        return;
-      }
       onPaneChange("editor");
       onViewChange(next);
     },
@@ -808,7 +719,15 @@ export function PageWorkspace({
        * which clips the editor on both sides instead of scrolling it.
        */}
       <div
-        style={{ maxWidth: CANVAS_MAX_WIDTH, ...railPadding }}
+        style={{
+          // In the middle of the workspace, with the preview switched off,
+          // the fields are kept to a width a line of them can be read at.
+          maxWidth:
+            contentPlacement?.kind === "anchor"
+              ? READABLE_WIDTH + (railPadding !== undefined ? RAIL_WIDTH : 0)
+              : CANVAS_MAX_WIDTH,
+          ...railPadding,
+        }}
         className={cn(
           "w-full mx-auto px-4 md:px-6 pb-24",
           // See `columnClearsTopBar`: whatever is above the column supplies the
@@ -858,10 +777,10 @@ export function PageWorkspace({
       className={cn(
         "h-full px-4 md:px-6",
         // Clear of whatever is along the bottom: the status bar, or on a phone
-        // the floating bottom bar, which ends 62px up (more under a large
-        // safe area) rather than 56px - see `MobileBottomBar`.
+        // the floating pane bar, which ends 68px up (more under a large
+        // safe area) - see `PhonePaneBar`.
         isPhone
-          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
           : "pb-14",
         paneTopPadding,
       )}
@@ -910,8 +829,24 @@ export function PageWorkspace({
   const column = (
     <div className="flex h-full min-h-0 flex-col">
       {columnHasHeaderRow && (
-        <div style={railPadding} className="shrink-0 px-4 md:px-6 pt-20 pb-2.5">
+        <div
+          style={railPadding}
+          className="flex shrink-0 items-center gap-2 px-4 md:px-6 pt-20 pb-2.5"
+        >
+          {contentPlacement?.kind === "sheet" && onFoldContent && (
+            <button
+              type="button"
+              aria-label="Close Content"
+              onClick={onFoldContent}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border-float bg-bg-float text-fg-secondary hover:text-fg-primary"
+            >
+              <X size={15} />
+            </button>
+          )}
           {viewToggle}
+          <div className="flex-1" />
+          {/* Nothing to pick on while History is in the preview's place. */}
+          {replacePreview === undefined && contentSelectButton(!selectHasRoom)}
         </div>
       )}
       <div className="min-h-0 flex-1">
@@ -920,157 +855,99 @@ export function PageWorkspace({
     </div>
   );
 
-  const routeBar = canvasRoute !== undefined && onCanvasRouteChange && (
-    <CanvasRouteBar
-      value={canvasRoute}
-      routes={canvasRoutes ?? []}
-      onChange={onCanvasRouteChange}
-      // Takes the row it is on, up to a width where a real route is readable
-      // without the field running the length of a desk.
-      className="min-w-0 flex-1 md:max-w-[28rem]"
-    />
-  );
-
   /**
-   * The canvas: an address bar, the page, and the page's controls — in that
-   * order, each on its own row.
-   *
-   * All three used to float on top of the page. That is fine over a mockup and
-   * wrong over a real site, because a real site puts its most important things
-   * exactly where the chrome was sitting: the address bar covered the header
-   * and whatever navigation was in it, and the toolbar covered the footer. You
-   * could scroll the page under them, but a preview you have to scroll to see
-   * the top of is not showing you the top of the page.
-   *
-   * Docking them costs about 80px of page height and gives back the two edges,
-   * which is the right trade for a thing whose whole job is to be looked at.
+   * The canvas: the site's preview, with what this workspace adds to it — the
+   * way out, and what a pick on the page does here.
    */
   const canvasPane = open && (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      {(routeBar || !isPhone) && (
-        <div className="flex shrink-0 items-center gap-2">
-          {routeBar}
+    <SitePreview
+      route={canvasRoute}
+      onRouteChange={onCanvasRouteChange}
+      routes={canvasRoutes}
+      /*
+       * Leaving the canvas, said as well as drawn.
+       *
+       * An X on its own is ambiguous — it could close the page, the studio,
+       * or the thing the page is showing — and this one does something worth
+       * being sure about, so where the canvas is a region beside the editor
+       * the word is there beside the icon.
+       *
+       * On a phone the icon alone: the preview is a pane of its own there,
+       * reached from the pane bar, and this is the one way to stop the page
+       * from it.
+       */
+      headerEnd={
+        <>
           {/*
-           * Leaving the canvas, said as well as drawn.
-           *
-           * An X on its own is ambiguous — it could close the page, the studio,
-           * or the thing the page is showing — and this one does something
-           * worth being sure about, so where the canvas is a region beside the
-           * editor the word is there beside the icon.
-           *
-           * Not on a phone. There the canvas is one of three modes, and the way
-           * out of all three is one X on the strip that switches between them —
-           * a second one here would be a way out that exists in one mode and
-           * not the others, which is the sort of "sometimes" this screen is
-           * meant to be rid of.
+           * On a phone the preview is a pane of its own, away from Content's
+           * strip, and the page is what a Select picks on: so Content's Select
+           * is here too, where a pick is made and where it is stopped.
            */}
-          {!isPhone && (
-            <button
-              type="button"
-              aria-label="Exit Preview"
-              onClick={onCloseCanvas}
-              className={cn(
-                "ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pl-2.5 pr-3",
-                "border border-border-float bg-bg-float text-fg-secondary",
-                "hover:text-fg-primary",
-              )}
-            >
-              <X size={15} />
+          {previewStatus}
+          {isPhone && contentSelectButton(true)}
+          <button
+            type="button"
+            aria-label="Exit Preview"
+            title="Close the preview, and stop the page"
+            onClick={onCloseCanvas}
+            className={cn(
+              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md",
+              // On a phone the height of the Select beside it.
+              isPhone
+                ? "h-[2.125rem] w-[2.125rem] justify-center"
+                : "h-8 pl-2.5 pr-3",
+              "border border-border-float bg-bg-float text-fg-secondary",
+              "hover:text-fg-primary",
+            )}
+          >
+            <X size={15} />
+            {/* The word where there is room: on a phone the icon alone. */}
+            {!isPhone && (
               <span className="text-xs font-medium">Exit Preview</span>
-            </button>
-          )}
-        </div>
-      )}
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
-        {/*
-         * Above the page and outside the zoom, which is the whole reason the
-         * status is lifted out of the frame. It used to be a panel over the
-         * frame with a blurred backdrop, so the published page - which is real,
-         * and worth reading - was unreachable behind an explanation of why it
-         * could not be edited.
-         */}
-        <CanvasPreviewNotice
-          status={previewStatus}
-          /*
-           * Which attempt this is: the reloads the person asked for. Not the
-           * enables, because the notice makes those itself while it retries,
-           * and they must not restart the clock that decides when it stops.
-           * Reloading a page that has given up leaves it at `no-answer`, so
-           * the status alone cannot say a new attempt began.
-           */
-          attempt={reloadKey}
-          onEnable={() => setEnableKey((key) => key + 1)}
-          onReload={reload}
-        />
-        <CanvasWindow
-          ref={canvasWindowRef}
-          pageWidth={pageWidth}
-          scale={scale}
-          onScaleChange={setScale}
-          autoFit={autoFit}
-          onUserZoom={onUserZoom}
-          initialScroll={
-            initialTransform && { x: initialTransform.x, y: initialTransform.y }
-          }
-          onScrollChange={onScrollChange}
-          className="h-full"
-        >
-          <div className="shadow-2xl" onClick={() => setSelectedFieldId(null)}>
-            {renderCanvas?.({
-              device,
-              width: pageWidth,
-              height: CANVAS_DEVICE_HEIGHTS[device],
-              reloadKey,
-              isPicking,
-              onRequestReload: reload,
-              onRefreshingChange: setIsRefreshing,
-              onPinch,
-              onZoom: (factor, center) => zoomByUser(factor, center),
-              onPicked,
-              enableKey,
-              onStatusChange: setPreviewStatus,
-            }) ??
-              (page && (
-                <CanvasPage
-                  page={page}
-                  device={device}
-                  selectedFieldId={isPicking ? selectedFieldId : null}
-                  attachedFieldIds={isPicking ? attachedFieldIds : []}
-                  onSelectField={(fieldId) => {
-                    if (!isPicking) return;
-                    setSelectedFieldId(fieldId);
-                    // The demo page's version of what a pick does on a real one:
-                    // go to the field. Kept in step deliberately, since this is
-                    // the copy the design is reviewed against.
-                    onPicked(null);
-                  }}
-                  isSelectMode={isPicking}
-                />
-              ))}
-          </div>
-        </CanvasWindow>
-      </div>
-
-      <div className="flex shrink-0 justify-center">
-        <CanvasToolbar
-          className="max-w-full"
-          device={device}
-          onDeviceChange={setDevice}
-          scale={scale}
-          onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
-          onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
-          onFit={fitPage}
-          // Only where there is something to select. The demo page reports no
-          // paths, so a click on it has nothing to open.
-          isPicking={isPicking}
-          onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
-          isRefreshing={isRefreshing}
-          // Only where reloading means something. The demo page renders from
-          // data that is already live, so it has nothing to fetch again.
-          onReload={renderCanvas && reload}
-        />
-      </div>
-    </div>
+            )}
+          </button>
+        </>
+      }
+      /*
+       * A phone starts on the phone layout, and that is not a nicety: a
+       * 1280px page fitted into a phone-width pane lands at about 25%, which
+       * is a thumbnail rather than a preview.
+       */
+      initialDevice={isPhone ? "mobile" : "desktop"}
+      initialTransform={linkTransform}
+      onTransformChange={onTransformChange}
+      isPicking={isPicking}
+      // Only where reloading means something. The demo page renders from
+      // data that is already live, so it has nothing to fetch again.
+      reloadable={renderCanvas !== undefined}
+      onReload={onPreviewReload}
+      onPageClick={() => setSelectedFieldId(null)}
+      tone={codeMode ? "proposal" : undefined}
+      renderPage={(viewport) =>
+        renderCanvas?.({
+          ...viewport,
+          onPicked,
+          onPickingStopped: stopPicking,
+        }) ??
+        (page && (
+          <CanvasPage
+            page={page}
+            device={viewport.device}
+            selectedFieldId={isPicking ? selectedFieldId : null}
+            attachedFieldIds={isPicking ? attachedFieldIds : []}
+            onSelectField={(fieldId) => {
+              if (!isPicking) return;
+              setSelectedFieldId(fieldId);
+              // The demo page's version of what a pick does on a real one: go
+              // to the field. Kept in step deliberately, since this is the
+              // copy the design is reviewed against.
+              onPicked(null);
+            }}
+            isSelectMode={isPicking}
+          />
+        ))
+      }
+    />
   );
 
   if (isPhone) {
@@ -1113,7 +990,16 @@ export function PageWorkspace({
          */}
         <div
           className="h-full overflow-clip"
-          style={open ? { paddingTop: PHONE_STRIP_CLEARANCE } : undefined}
+          style={
+            open
+              ? {
+                  // Below the strip of Content's header on the editor's
+                  // pane; on the page's, the strip is not there.
+                  paddingTop:
+                    pane === "editor" ? PHONE_STRIP_CLEARANCE : PHONE_STRIP_TOP,
+                }
+              : undefined
+          }
         >
           {/*
            * The transform is dropped while the track is at rest, and that is
@@ -1154,9 +1040,9 @@ export function PageWorkspace({
               // this pane adding another put the address bar 38px under it.
               <div
                 data-val-pane="canvas"
-                // Clears the floating bottom bar, which rises with the safe
-                // area - see `MobileBottomBar`.
-                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+                // Clears the floating pane bar, which rises with the safe
+                // area - see `PhonePaneBar`.
+                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
               >
                 {canvasPane}
               </div>
@@ -1171,7 +1057,7 @@ export function PageWorkspace({
          * and `relative` alone does not scope it — without this the address bar
          * of a page you are not looking at can paint over the strip.
          */}
-        {open && (
+        {open && pane === "editor" && (
           <div
             className="absolute inset-x-3 z-window flex items-center gap-2"
             style={{ top: PHONE_STRIP_TOP }}
@@ -1184,58 +1070,72 @@ export function PageWorkspace({
               fieldCount={fieldCount > 0 ? fieldCount : undefined}
               animate={!reducedMotion}
             />
-            {/*
-             * The way out, from any of the three modes.
-             *
-             * Same height and same shell as the switch beside it. It is a
-             * different kind of thing — a way out rather than a way around, so
-             * it stands apart rather than being a fourth option — but one that
-             * is a couple of pixels shorter than its neighbour reads as a
-             * mistake, not as a distinction.
-             */}
-            <button
-              type="button"
-              aria-label="Exit Preview"
-              onClick={onCloseCanvas}
-              style={{
-                height: PHONE_STRIP_CONTROL_HEIGHT,
-                width: PHONE_STRIP_CONTROL_HEIGHT,
-              }}
-              className={cn(
-                "ml-auto grid shrink-0 place-items-center rounded-md",
-                "border border-border-float bg-bg-float text-fg-secondary",
-              )}
-            >
-              <X size={15} />
-            </button>
+            <div className="ml-auto" />
+            {contentSelectButton(true)}
           </div>
         )}
       </div>
     );
   }
 
+  /** Whether the preview's column is there: the preview, or History. */
+  const split = open || replacePreview !== undefined;
+  const contentFolded = contentPlacement?.kind === "strip";
+  /** Switched off from the top bar: still mounted, not on screen. */
+  const contentHidden = contentPlacement?.kind === "hidden";
+  const contentSheet = contentPlacement?.kind === "sheet";
+  /** What is left of the column: the rail on a desktop, the gutter below. */
+  const contentInset = breakpoint === "desktop" ? RAIL_WIDTH : GUTTER;
+  const stripRoom =
+    contentPlacement !== undefined && contentPlacement.kind === "strip"
+      ? contentInset + contentPlacement.width + GAP
+      : 0;
+
   return (
     <div
       ref={splitRef}
       className="absolute inset-0 flex overflow-hidden bg-bg-canvas"
     >
+      {split && contentFolded && (
+        <div className="relative h-full shrink-0" style={{ width: stripRoom }}>
+          <PaneStrip
+            panes={["content"]}
+            onUse={() => onUseContent?.()}
+            style={{ left: contentInset, width: contentPlacement.width }}
+          />
+        </div>
+      )}
       <div
+        onPointerDownCapture={onUseContent}
         style={{
-          width: open
-            ? columnPx !== null
-              ? `${columnPx}px`
-              : COLUMN_WIDTH
-            : "100%",
+          width: !split
+            ? "100%"
+            : contentSheet
+              ? `${contentPlacement.width + contentInset}px`
+              : columnPx !== null
+                ? `${columnPx}px`
+                : contentPlacement?.kind === "column"
+                  ? `${contentPlacement.width + contentInset}px`
+                  : COLUMN_WIDTH,
           // A width being animated cannot also be dragged — the column would
           // lag a third of a second behind the pointer — so the transition
           // belongs to opening and closing, not to the drag.
           transition: isDragging ? undefined : ease(["width"]),
         }}
-        className="relative h-full min-w-0 shrink-0"
+        className={cn(
+          "relative h-full min-w-0 shrink-0",
+          // Folded, it stays mounted, so coming back is where it was left.
+          split && contentFolded && "hidden",
+          contentHidden && "hidden",
+          // A sheet over the preview: the same column, placed over it.
+          split &&
+            contentSheet &&
+            "absolute inset-y-0 left-0 z-window bg-bg-canvas shadow-2xl",
+        )}
       >
         {column}
       </div>
-      {open && (
+      {split && !contentFolded && !contentSheet && !contentHidden && (
         <SplitDivider
           isDragging={isDragging}
           onPointerDown={onDividerPointerDown}
@@ -1266,12 +1166,15 @@ export function PageWorkspace({
            * right, which reads as the divider being nudged towards the page.
            */
           "min-w-0 flex-1 pt-20 pb-14 pl-1.5 pr-3",
-          open
+          // With Content switched off the preview starts where it would
+          // have: clear of the rail, or of the gutter.
+          contentHidden && (breakpoint === "desktop" ? "pl-[5.5rem]" : "pl-3"),
+          split
             ? "scale-100 opacity-100"
             : "invisible pointer-events-none scale-95 opacity-0",
         )}
       >
-        {canvasPane}
+        {replacePreview ?? canvasPane}
       </div>
     </div>
   );
@@ -1397,7 +1300,7 @@ export type WorkspacePane = "editor" | "canvas";
  * The view and the pane, as the one question they are on a screen that can only
  * show one of them at a time. See `mobileMode` in `PageWorkspace`.
  */
-type MobileMode = "normal" | "fields" | "preview";
+type MobileMode = "normal" | "fields";
 
 /** One option on {@link MobileModeToggle}. */
 type MobileModeOption = {
@@ -1594,9 +1497,13 @@ function MobileModeToggle({
   animate: boolean;
 }) {
   const options: ReadonlyArray<MobileModeOption> = [
-    { value: "normal", label: "Structure", icon: MousePointerSquareDashed },
-    { value: "fields", label: "On page", icon: ListTree, badge: fieldCount },
-    { value: "preview", label: "Preview", icon: Eye },
+    { value: "normal", label: "Content", icon: MousePointerSquareDashed },
+    {
+      value: "fields",
+      label: "On this page",
+      icon: ListTree,
+      badge: fieldCount,
+    },
   ];
   return (
     <SegmentedControl
@@ -1644,12 +1551,12 @@ function ViewToggle({
       options={[
         {
           value: "normal",
-          label: "Structure",
+          label: "Content",
           icon: MousePointerSquareDashed,
         },
         {
           value: "fields",
-          label: "On page",
+          label: "On this page",
           icon: ListTree,
           badge: fieldCount,
         },

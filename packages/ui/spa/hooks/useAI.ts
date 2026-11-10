@@ -150,6 +150,19 @@ import {
 } from "../proposals/proposalCode";
 import { quickPreviewRunner } from "../proposals/quickPreviewControl";
 import {
+  NO_PREVIEW,
+  PAGE_PROMPT_SECTION,
+  READ_PAGE_TOOL,
+  runReadPage,
+  runScreenshotPage,
+  SCREENSHOT_PAGE_TOOL,
+} from "./pageTools";
+import {
+  takePointedAt,
+  type AssistantPage,
+} from "../components/shell/canvas/AssistantPage";
+import type { PickedElement } from "@valbuild/shared/internal";
+import {
   markTypeErrorsTold,
   scheduleTypecheck,
   typecheckProposal,
@@ -688,6 +701,12 @@ export type UseAIOptions = {
   onSessionBorn?: (id: string) => void;
   /** Called when the session returns to the unborn state (newSession, or loadSession failure). */
   onSessionCleared?: () => void;
+  /**
+   * The page in the Studio's preview: what the Assistant's Select pointed at,
+   * which goes with the next message, and the page `read_page` and
+   * `screenshot_page` read. Absent outside the Studio.
+   */
+  page?: AssistantPage | null;
 };
 
 /**
@@ -782,9 +801,19 @@ export function useAI(
   >(null);
   /** The files this tab put in the chat, by key: `convert_session_image`. */
   const sessionFilesRef = useRef(new Map<string, File>());
+  const pageRef = useRef(opts?.page ?? null);
+  pageRef.current = opts?.page ?? null;
+  /**
+   * The element the last message carried. The pick is cleared once it is
+   * sent, and the turn that message starts is when `read_page`'s `picked` is
+   * asked for: it means this one.
+   */
+  const lastPointedAtRef = useRef<PickedElement | null>(null);
   /** The picked element, taken for a message that waits in the queue. */
   const captureSendContext = useCallback(
-    (): SendContext => ({ pointedAt: null }),
+    (): SendContext => ({
+      pointedAt: takePointedAt(undefined, pageRef.current),
+    }),
     [],
   );
   proposalBuildRef.current = proposalBuild;
@@ -2289,6 +2318,51 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (message.name === "read_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const page = pageRef.current;
+          void runReadPage(message.arguments, {
+            readPage: page?.readPage() ?? null,
+            // What the message this turn answers was about first: a pick
+            // made since is for the NEXT message. Only a turn whose message
+            // carried none reads the one waiting by the composer.
+            pointedAt: lastPointedAtRef.current ?? page?.pointedAt ?? null,
+            noPage: NO_PREVIEW,
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (message.name === "screenshot_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runScreenshotPage(message.arguments, {
+            screenshotPage: pageRef.current?.screenshotPage() ?? null,
+            noPage: NO_PREVIEW,
+            uploadImage: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (upload === null) {
+                return Promise.reject(
+                  new Error("The chat cannot take images yet."),
+                );
+              }
+              return upload(file);
+            },
+          }).then(({ result, isError, images }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+              ...(images !== undefined ? { images } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (message.name === "quick_preview") {
           // Shown in the shell's canvas, which registered it.
           const toolCallId = message.toolCallId;
@@ -3185,7 +3259,8 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt = context?.pointedAt ?? null;
+      const pointedAt = takePointedAt(context, pageRef.current);
+      lastPointedAtRef.current = pointedAt;
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
       }
@@ -3310,7 +3385,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}${
+            )}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
               hostedRef.current
                 ? codeToolsPromptSection(
                     currentProposalRef.current !== null
@@ -3323,6 +3398,10 @@ Do not describe what you will do unless you do it for clarification — just do 
               [
                 ...ALL_TOOLS,
                 ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                // In the Studio: the page in its preview.
+                ...(pageRef.current !== null
+                  ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL]
+                  : []),
                 // Hosted only: see `hostedRef`.
                 ...(hostedRef.current
                   ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]

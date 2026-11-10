@@ -6,7 +6,6 @@ import {
   Link2,
   List,
   Pencil,
-  PencilLine,
   Plus,
   X,
 } from "lucide-react";
@@ -127,30 +126,13 @@ export function ProposalSheet({
             >
               Code mode
             </SheetRow>
-            {/* Each person's own: what they see while it is on. */}
-            {codeMode.on && codeMode.onViewChange !== undefined && (
+            {codeMode.on && codeMode.onShowCode !== undefined && (
               <SheetRow
-                icon={
-                  (codeMode.view ?? "code") === "code" ? (
-                    <PencilLine size={16} />
-                  ) : (
-                    <CodeXml size={16} />
-                  )
-                }
-                detail={
-                  (codeMode.view ?? "code") === "code"
-                    ? "Edit content while the code changes"
-                    : "The proposal as its code is now"
-                }
-                onClick={choose(() =>
-                  codeMode.onViewChange?.(
-                    (codeMode.view ?? "code") === "code" ? "content" : "code",
-                  ),
-                )}
+                icon={<CodeXml size={16} />}
+                detail="In Review, beside the content changes"
+                onClick={choose(codeMode.onShowCode)}
               >
-                {(codeMode.view ?? "code") === "code"
-                  ? "Show the content editor"
-                  : "Show the preview and code"}
+                Code changes
               </SheetRow>
             )}
           </div>

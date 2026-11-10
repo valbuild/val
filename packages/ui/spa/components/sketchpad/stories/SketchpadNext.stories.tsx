@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { AIChat, type ChatMessage } from "../../AIChat";
 import { SiteMock } from "../../proposals/stories/SiteMock";
+import { SitePreview } from "../../shell/canvas/SitePreview";
 import { Sketchpad } from "../Sketchpad";
 import type { SketchBlockType } from "../boxNodeView";
 import type { SketchHighlight } from "../highlights";
@@ -16,6 +17,7 @@ import {
   OpenSketchpadContext,
 } from "../SketchpadMessageCard";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
+import { isRoutePattern } from "../routePatterns";
 
 /**
  * What the Sketchpad does next, for a look before it is wired into the
@@ -154,20 +156,45 @@ Six tailors and a weaver, in one workshop by the harbour.
 ${ICONS}
 `;
 
-/** The page at a route, in a frame with its address, as the preview shows it. */
-function RoutePreview({ route }: { route: string }) {
+/**
+ * The Sketch pane beside the Studio's preview, as the workspace lays them
+ * out on a wide screen: the Sketchpad has no preview of its own.
+ */
+function BesideThePreview({
+  preview,
+  children,
+}: {
+  preview: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-        <span className="text-xs font-medium text-fg-secondary">Preview</span>
-        <span className="min-w-0 flex-1 truncate rounded-md bg-bg-secondary px-2 py-1 text-xs text-fg-secondary">
-          nordic-retail.example{route}
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <SiteMock testimonials="none" />
-      </div>
+    <div className="flex h-screen gap-2 bg-bg-secondary p-3">
+      <div className="min-w-0 flex-1">{preview}</div>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
+  );
+}
+
+/** The page at a route, in the Studio's preview, with its address. */
+function RoutePreview({
+  route,
+  onRouteChange,
+}: {
+  route: string;
+  onRouteChange: (route: string) => void;
+}) {
+  return (
+    <SitePreview
+      route={route}
+      onRouteChange={onRouteChange}
+      routes={ROUTES.filter((option) => !isRoutePattern(option))}
+      reloadable={false}
+      renderPage={({ width, height }) => (
+        <div style={{ width, minHeight: height }} className="flex flex-col">
+          <SiteMock testimonials="none" />
+        </div>
+      )}
+    />
   );
 }
 
@@ -207,9 +234,10 @@ function Workspace({
   }, [drafting, draft]);
 
   return (
-    <div className="h-screen bg-bg-secondary p-3">
+    <BesideThePreview
+      preview={<RoutePreview route={route} onRouteChange={setRoute} />}
+    >
       <SketchpadWorkspace
-        preview={<RoutePreview route={route} />}
         sketchpads={{
           sketchpads: [],
           onOpen: () => undefined,
@@ -254,7 +282,7 @@ function Workspace({
           />
         }
       />
-    </div>
+    </BesideThePreview>
   );
 }
 
@@ -276,9 +304,7 @@ export const RouteDividers: Story = {
         name: /Show \/about in the preview/,
       }),
     );
-    await expect(
-      await canvas.findByText("nordic-retail.example/about"),
-    ).toBeInTheDocument();
+    await expect(await canvas.findByDisplayValue("/about")).toBeInTheDocument();
   },
 };
 
@@ -486,16 +512,24 @@ const HOME_CTA = '/app/page.val.ts?p="cta"."text"';
 /** The page's content, as a site would render it: what the links write. */
 function LinkedContentPage({ content }: { content: Record<string, string> }) {
   return (
-    <div className="flex h-full flex-col gap-3 overflow-auto bg-white p-8 text-neutral-900">
-      <span className="text-[11px] uppercase tracking-wide text-neutral-500">
-        nordic-retail.example
-      </span>
-      <h1 className="text-3xl font-semibold">{content[HOME_TITLE]}</h1>
-      <p className="text-neutral-600">{content[HOME_LEAD]}</p>
-      <span className="self-start rounded-full bg-neutral-900 px-4 py-2 text-sm text-white">
-        {content[HOME_CTA]}
-      </span>
-    </div>
+    <SitePreview
+      reloadable={false}
+      renderPage={({ width, height }) => (
+        <div
+          style={{ width, minHeight: height }}
+          className="flex flex-col gap-3 bg-white p-8 text-neutral-900"
+        >
+          <span className="text-[11px] uppercase tracking-wide text-neutral-500">
+            nordic-retail.example
+          </span>
+          <h1 className="text-3xl font-semibold">{content[HOME_TITLE]}</h1>
+          <p className="text-neutral-600">{content[HOME_LEAD]}</p>
+          <span className="self-start rounded-full bg-neutral-900 px-4 py-2 text-sm text-white">
+            {content[HOME_CTA]}
+          </span>
+        </div>
+      )}
+    />
   );
 }
 
@@ -517,9 +551,8 @@ Shop the new coats {field: ${HOME_CTA}}
 ${ICONS}
 `);
   return (
-    <div className="h-screen bg-bg-secondary p-3">
+    <BesideThePreview preview={<LinkedContentPage content={content} />}>
       <SketchpadWorkspace
-        preview={<LinkedContentPage content={content} />}
         sketchpads={{
           sketchpads: [],
           onOpen: () => undefined,
@@ -560,7 +593,7 @@ ${ICONS}
           />
         }
       />
-    </div>
+    </BesideThePreview>
   );
 }
 

@@ -1,19 +1,7 @@
-import {
-  Archive,
-  ChevronDown,
-  FileText,
-  Maximize2,
-  PencilRuler,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { Archive, ChevronDown, Sparkles, X } from "lucide-react";
 import type { Plugin } from "prosemirror-state";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
-import {
-  useLockBodyScroll,
-  useVisualViewport,
-} from "../shell/useVisualViewport";
 import {
   SESSION_MEDIA_PREFIX,
   type SketchMedia,
@@ -30,6 +18,7 @@ import {
   type SketchMediaOption,
 } from "./SketchpadMediaPicker";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
+import { usePaneTabs } from "../shell/workspace/PaneTabs";
 
 /**
  * An image in the chat that this tab has no file of: a grey frame that says
@@ -118,6 +107,12 @@ export type SketchpadProps = {
    * and the list of sketchpads reopens it.
    */
   onArchive?: () => void;
+  /**
+   * A phone: the tools at the bottom, by the thumb, and tap-sized controls.
+   * The Sketch is a pane there like the editor, and the page it is about is
+   * in the preview pane, one tap away on the pane bar.
+   */
+  touch?: boolean;
   /** The session's other sketchpads, behind the title, to switch or reopen. */
   sketchpads?: SketchpadListProps;
   /**
@@ -126,22 +121,6 @@ export type SketchpadProps = {
    * what tells the person their changes are not news to it yet.
    */
   assistantStatus?: SketchpadAssistantStatus;
-  /**
-   * The page as the site serves it, for full screen. Given, the header has a
-   * full-screen button: on a phone, the sketch and its page take the whole
-   * screen, the Studio's bars and all. The tools are by the thumb, and under
-   * them one bar: the chat, a button to the other view, "Send to AI" and X. Where there is room for the
-   * two side by side, leave it out.
-   */
-  fullscreenPreview?: ReactNode;
-  /** Opens in full screen. */
-  defaultFullscreen?: boolean;
-  /**
-   * Opens the assistant's chat. In full screen that is the small button at
-   * the left of the bottom bar, where the Studio's own bar has it; it leaves
-   * full screen, since the chat is the Studio's and full screen covers it.
-   */
-  onOpenChat?: () => void;
 };
 
 /**
@@ -188,34 +167,11 @@ export function Sketchpad({
   onClearHighlight,
   assistantStatus,
   onArchive,
+  touch = false,
   sketchpads,
   pageOptions,
-  fullscreenPreview,
-  defaultFullscreen = false,
-  onOpenChat,
 }: SketchpadProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [fullscreen, setFullscreen] = useState(
-    defaultFullscreen && fullscreenPreview !== undefined,
-  );
-  const [shown, setShown] = useState<"sketch" | "page">("sketch");
-  // Pinned to what is visible, so the tools and "Send to AI" sit on top of
-  // a phone's keyboard rather than under it -- as the overlay's full-screen
-  // sheets do. See `useVisualViewport`.
-  const viewport = useVisualViewport(fullscreen);
-  useLockBodyScroll(fullscreen);
-  useEffect(() => {
-    if (!fullscreen) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setFullscreen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [fullscreen]);
 
   const upload = async (
     store: (file: File) => Promise<string>,
@@ -256,6 +212,8 @@ export function Sketchpad({
     resolve: (media: SketchMedia | null) => void;
   } | null>(null);
   const [started, setStarted] = useState(false);
+  /** Sketch and the Assistant's tabs, while they share a column. */
+  const paneTabs = usePaneTabs();
   const [routeMenu, setRouteMenu] = useState<RouteMenuRequest | null>(null);
   const library = useMemo(() => {
     if (!mediaLibrary) return null;
@@ -367,66 +325,36 @@ export function Sketchpad({
     </button>
   );
 
+  const buildButton = onAskAssistant && (
+    <AskAssistant
+      status={assistantStatus ?? "changed"}
+      onAsk={onAskAssistant}
+      empty={value === ""}
+    />
+  );
+
   return (
-    <div
-      role={fullscreen ? "dialog" : undefined}
-      aria-label={fullscreen ? "Sketchpad, full screen" : undefined}
-      aria-modal={fullscreen ? true : undefined}
-      style={
-        fullscreen
-          ? { top: viewport.offsetTop, height: viewport.height }
-          : undefined
-      }
-      className={cn(
-        "flex min-h-0 flex-col overflow-hidden bg-bg-primary text-fg-primary",
-        fullscreen
-          ? "fixed inset-x-0 z-overlay"
-          : "h-full rounded-lg border border-border-primary",
-      )}
-    >
-      {fullscreen ? (
-        <div className="shrink-0 border-b border-border-primary">
-          {/* Only what it is: every button is in the bar at the bottom. */}
-          <div className="px-3 py-2">{titleBlock}</div>
-          {notice && (
-            <div className="px-2 pb-2">
-              <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-3 py-2">
-          {/* On a phone the title has a line of its own, or it is a few letters. */}
-          <div className="min-w-0 flex-1 basis-full sm:basis-0">
-            {titleBlock}
-          </div>
-          {people && people.length > 0 && <People people={people} />}
-          {onAskAssistant && (
-            <AskAssistant
-              status={assistantStatus ?? "changed"}
-              onAsk={onAskAssistant}
-              empty={value === ""}
-            />
-          )}
-          {fullscreenPreview !== undefined && (
-            <button
-              type="button"
-              onClick={() => {
-                setShown("sketch");
-                setFullscreen(true);
-              }}
-              title="Full screen: the sketch and its page, with nothing else"
-              className="flex h-7 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border-primary px-2 text-xs font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-            >
-              <Maximize2 className="h-3.5 w-3.5" /> Full screen
-            </button>
-          )}
-          {archiveButton}
-          {notice && (
-            <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
-          )}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border-primary bg-bg-primary text-fg-primary">
+      {/*
+       * Sharing a column with the Assistant, as tabs: what this tab does on
+       * the left, the tabs on the right, and the sketch's name under them.
+       */}
+      {paneTabs !== null && (
+        <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
+          {buildButton}
+          {paneTabs}
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-3 py-2">
+        {/* On a phone the title has a line of its own, or it is a few letters. */}
+        <div className="min-w-0 flex-1 basis-full sm:basis-0">{titleBlock}</div>
+        {people && people.length > 0 && <People people={people} />}
+        {paneTabs === null && buildButton}
+        {archiveButton}
+        {notice && (
+          <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
+        )}
+      </div>
 
       {highlights && highlights.length > 0 && (
         <HighlightBar highlights={highlights} onClear={onClearHighlight} />
@@ -443,7 +371,6 @@ export function Sketchpad({
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col",
-          fullscreen && shown === "page" && "hidden",
           value === "" && onStartFromRoute && !started && !readOnly && "hidden",
         )}
       >
@@ -464,82 +391,10 @@ export function Sketchpad({
           highlights={highlights}
           fieldInfo={fieldInfo}
           plugins={plugins}
-          toolbar={fullscreen ? "bottom" : "top"}
-          touch={fullscreen}
+          toolbar={touch ? "bottom" : "top"}
+          touch={touch}
         />
       </div>
-      {fullscreen && shown === "page" && (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {fullscreenPreview}
-        </div>
-      )}
-      {/*
-       * Under the tools, where the thumb is -- and out of the way while the
-       * keyboard is up, when what is being done is typing. The chat at the
-       * left, as in the Studio's own bar; leaving at the right.
-       */}
-      {fullscreen && !viewport.isKeyboardOpen && (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border-primary px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {onOpenChat && (
-            <button
-              type="button"
-              onClick={() => {
-                setFullscreen(false);
-                onOpenChat();
-              }}
-              aria-label="AI chat"
-              title="Open the chat with the assistant"
-              className="grid h-12 w-12 shrink-0 cursor-pointer place-items-center rounded-md border border-border-primary text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-            >
-              <Sparkles className="h-5 w-5" />
-            </button>
-          )}
-          {/*
-           * One button, naming the other view: on the sketch it says Page,
-           * on the page Sketch. A fixed width, so the bar does not shift
-           * when it is pressed.
-           */}
-          <button
-            type="button"
-            onClick={() => setShown(shown === "sketch" ? "page" : "sketch")}
-            title={
-              shown === "sketch"
-                ? "Show the page this sketches"
-                : "Back to the sketch"
-            }
-            className="flex h-12 w-24 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border-primary text-base font-medium text-fg-primary hover:bg-bg-secondary"
-          >
-            {shown === "sketch" ? (
-              <>
-                <FileText className="h-4 w-4" /> Page
-              </>
-            ) : (
-              <>
-                <PencilRuler className="h-4 w-4" /> Sketch
-              </>
-            )}
-          </button>
-          <div className="min-w-0 flex-1">
-            {onAskAssistant && (
-              <AskAssistant
-                status={assistantStatus ?? "changed"}
-                onAsk={onAskAssistant}
-                empty={value === ""}
-                size="bar"
-              />
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setFullscreen(false)}
-            aria-label="Leave full screen"
-            title="Leave full screen"
-            className="grid h-12 w-12 shrink-0 cursor-pointer place-items-center rounded-md border border-border-primary text-fg-primary hover:bg-bg-secondary"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      )}
       {routeMenu && (
         <RouteMenu
           menu={routeMenu}
@@ -578,14 +433,11 @@ function AskAssistant({
   status,
   onAsk,
   empty = false,
-  size = "inline",
 }: {
   status: SketchpadAssistantStatus;
   onAsk: () => void;
   /** Nothing sketched yet, so nothing to build: the button waits. */
   empty?: boolean;
-  /** `bar`: the width of the screen, under a phone's thumb. */
-  size?: "inline" | "bar";
 }) {
   const hint = empty
     ? "Nothing to build yet. Start the sketch first"
@@ -602,19 +454,14 @@ function AskAssistant({
       title={hint}
       className={cn(
         "relative inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-medium disabled:cursor-default disabled:opacity-60",
-        size === "bar"
-          ? "h-12 w-full justify-center whitespace-nowrap text-base"
-          : "h-7 px-2 text-xs",
+        "h-7 px-2 text-xs",
         status === "changed" && !empty
           ? "border-border-brand-primary bg-bg-brand-primary text-fg-brand-primary hover:bg-bg-brand-primary-hover"
           : "border-border-primary bg-bg-primary text-fg-secondary hover:bg-bg-secondary",
       )}
     >
       <Sparkles
-        className={cn(
-          size === "bar" ? "h-5 w-5" : "h-3.5 w-3.5",
-          status === "reading" && "animate-pulse",
-        )}
+        className={cn("h-3.5 w-3.5", status === "reading" && "animate-pulse")}
       />
       {status === "reading" ? "Building…" : "Build"}
       <span className="sr-only">. {hint}.</span>

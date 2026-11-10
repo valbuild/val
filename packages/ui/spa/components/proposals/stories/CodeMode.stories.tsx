@@ -122,10 +122,13 @@ export const CodeModeOnLight = shell({
   renderChat: codeChat(MESSAGES),
 });
 
-/** Changes: the proposal's code against the site's. */
+/**
+ * The code changes: in Review ("Compare with the site"), beside the content
+ * changes, as the `</>` menu's "Code changes" opens it.
+ */
 export const CodeModeChanges = shell({
   location: inProposal({ unsaved: 0 }),
-  codeMode: { on: true, view: "changes" },
+  codeMode: { on: true, view: "changes", reviewOpen: true },
   saveBuilds: true,
   renderChat: codeChat(MESSAGES),
 });
@@ -508,20 +511,20 @@ export const PhoneCodeModeOn = shell({
 /**
  * Code mode on, by someone else: the `</>` is pressed for everyone in the
  * proposal, and the switcher's menu says who turned it on and when. This
- * person stays in the content editor -- the view is each person's -- and
- * their edits are saved before each of the assistant's code writes.
+ * person keeps editing content, and their edits are saved before each of
+ * the assistant's code writes.
  */
 export const OnBySomeoneElseInTheEditor = shell({
   location: inProposal({ unsaved: 2 }),
   selectionId: mockSelectionIds.home,
-  codeMode: { on: true, contentView: true, turnedOnBy: "Kari Nordmann" },
+  codeMode: { on: true, turnedOnBy: "Kari Nordmann" },
   saveBuilds: true,
   switcherOpen: true,
 });
 
 /**
- * The `</>` pressed while code mode is on: who turned it on, which view this
- * person sees, and Turn off -- for everyone, discarding nothing.
+ * The `</>` pressed while code mode is on: who turned it on, the code
+ * changes (in Review), and Turn off -- for everyone, discarding nothing.
  */
 export const CodeModeMenu = shell({
   location: inProposal({ unsaved: 0 }),
@@ -537,7 +540,7 @@ export const CodeModeMenu = shell({
  */
 export const SaveMenuWithCommit = shell({
   location: inProposal({ unsaved: 2 }),
-  codeMode: { on: true, contentView: true },
+  codeMode: { on: true },
   saveBuilds: true,
   commit: {},
   validationErrors: 2,

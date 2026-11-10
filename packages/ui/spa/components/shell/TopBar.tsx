@@ -150,6 +150,28 @@ export type TopBarProps = {
   /** See `ShellData.studioMode`. */
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
+  /**
+   * Content | Preview | Sketch | Assistant (`PaneSwitches`), in the Preview
+   * button's place from a tablet up. Given, it is also the Sketchpad's and the
+   * assistant's switch, and their own buttons are not shown.
+   */
+  paneSwitches?: ReactNode;
+  /**
+   * On a phone, beside the account: Save or Publish and what else there is
+   * to do with the changes. The bottom bar is the workspace's panes and
+   * nothing else (`PhonePaneBar`).
+   */
+  phoneActions?: ReactNode;
+  /**
+   * Something waits in the activity behind the account's sheet, where a
+   * phone's notifications are.
+   */
+  accountDot?: boolean;
+  /**
+   * Whether the assistant is open, where it is a pane of the workspace
+   * rather than one of the panels (above a phone). Absent: `openPanel`.
+   */
+  aiOpen?: boolean;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
   onOpenMenu: () => void;
@@ -305,6 +327,10 @@ export function TopBar({
   webComponentsUrl,
   studioMode,
   openPanel,
+  aiOpen,
+  paneSwitches,
+  phoneActions,
+  accountDot,
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
@@ -543,14 +569,16 @@ export function TopBar({
              * than `contents`: a box with no layout of its own measures zero,
              * and a spotlight on a zero-sized box is a dot.
              */}
-            <span data-val-tour="preview" className="inline-flex">
-              <PreviewButton
-                onPreview={onPreview}
-                previewHref={previewHref}
-                onToggleCanvas={onToggleCanvas}
-                isCanvasOpen={isCanvasOpen}
-              />
-            </span>
+            {paneSwitches ?? (
+              <span data-val-tour="preview" className="inline-flex">
+                <PreviewButton
+                  onPreview={onPreview}
+                  previewHref={previewHref}
+                  onToggleCanvas={onToggleCanvas}
+                  isCanvasOpen={isCanvasOpen}
+                />
+              </span>
+            )}
             <span data-val-tour="publish" className="inline-flex">
               {inProposal !== null ? (
                 // In a proposal, Save -- then Publish -- is where Publish is
@@ -648,12 +676,12 @@ export function TopBar({
           </IconButton>
         )}
         {/*
-         * Above mobile only: on a phone the assistant is in the bottom bar,
-         * where the thumb is - see `MobileBottomBar`. Two Sparkles buttons on
-         * one screen would be two places to look for the same panel, and the
+         * Above mobile only: on a phone the Sketchpad is a pane in the bottom
+         * bar, where the thumb is - see `PhonePaneBar`. Two ways to the same
+         * pane on one screen would be two places to look for it, and the
          * top right corner of a phone is the furthest point from a thumb.
          */}
-        {sketchpad && (
+        {sketchpad && !isMobile && paneSwitches === undefined && (
           <IconButton
             label={
               sketchpad.open
@@ -674,10 +702,10 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {aiEnabled && !isMobile && (
+        {aiEnabled && !isMobile && paneSwitches === undefined && (
           <IconButton
             label="AI assistant"
-            active={openPanel === "ai"}
+            active={aiOpen ?? openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
             tourTarget="ai"
           >
@@ -717,6 +745,7 @@ export function TopBar({
          * save and the deploy feed are behind it, and nothing else on a phone
          * leads to them.
          */}
+        {isMobile && phoneActions}
         {(user || accountError || isMobile) && (
           <>
             {/* On a phone there is nothing before it to divide it from. */}
@@ -741,7 +770,16 @@ export function TopBar({
                   <UserRound size={15} />
                 </span>
               )}
-              {accountError && <AccountErrorDot />}
+              {accountError ? (
+                <AccountErrorDot />
+              ) : (
+                accountDot && (
+                  <span
+                    aria-hidden
+                    className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-fg-primary ring-2 ring-bg-float"
+                  />
+                )
+              )}
             </button>
           </>
         )}
@@ -982,7 +1020,7 @@ export function PreviewButton({
   );
 }
 
-function PreviewMenuItem({
+export function PreviewMenuItem({
   icon: Icon,
   label,
   detail,

@@ -6,22 +6,17 @@ import { Shell } from "../../shell/Shell";
 import { mockSelectionIds, mockShellData } from "../../shell/mockShellData";
 import { Sketchpad, type SketchpadAssistantStatus } from "../Sketchpad";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
-import { PreviewMock, SKETCH } from "./sketchpadFixtures";
+import { SKETCH } from "./sketchpadFixtures";
+import { mockCanvasPage } from "../../shell/canvas/mockCanvasPage";
 
 /**
- * The Sketchpad on a phone. There is no room for the page beside the sketch,
- * so the Sketchpad offers the whole screen to the two of them instead: the
- * full-screen button in its header covers the Studio's bars and leaves the
- * title at the top. Everything else is at the bottom, where the thumb is: the
- * tools, and under them one bar -- the chat at the left, as in the Studio's
- * own bar; one button to the other view (it says **Page** on the sketch and
- * **Sketch** on the page); **Build**; and **X** to leave.
+ * The Sketchpad on a phone: one of the workspace's panes, switched from the
+ * pane bar at the bottom (Content | Preview | Sketch | Assistant), like the
+ * editor. The page it is about is in the Preview pane -- the Studio's one
+ * preview -- and "Show it in the preview" on a route divider goes there.
  *
- * The sheet is pinned to what is visible, as the overlay's full-screen sheets
- * are, so with the keyboard up the tools sit on top of it -- and "Build"
- * steps aside while typing, and is back when the keyboard goes.
- *
- * Box buttons (add an image, remove it) are always shown on a touch screen,
+ * The tools are at the bottom of the sketch, where the thumb is, and box
+ * buttons (add an image, remove it) are always shown on a touch screen,
  * which has no hover to show them on.
  */
 const meta: Meta<typeof PhoneSketchpad> = {
@@ -35,15 +30,11 @@ type Story = StoryObj<typeof PhoneSketchpad>;
 
 const ADDED_QUOTE = "  [testimonial: Mari, wears the coat her mother bought]";
 
-type Props = {
-  /** Opens in full screen, rather than in the Studio's column. */
-  fullscreen: boolean;
-};
-
-function PhoneSketchpad({ fullscreen }: Props) {
+function PhoneSketchpad() {
   const [value, setValue] = useState(SKETCH);
   const [read, setRead] = useState(SKETCH);
   const [reading, setReading] = useState(false);
+  const [route, setRoute] = useState("/");
 
   const status: SketchpadAssistantStatus = reading
     ? "reading"
@@ -79,9 +70,7 @@ function PhoneSketchpad({ fullscreen }: Props) {
       onAskAssistant={sendToAssistant}
       assistantStatus={status}
       onArchive={() => undefined}
-      fullscreenPreview={<PreviewMock />}
-      defaultFullscreen={fullscreen}
-      onOpenChat={() => undefined}
+      touch
     />
   );
 
@@ -101,9 +90,13 @@ function PhoneSketchpad({ fullscreen }: Props) {
         />
       }
       pendingChanges={3}
-      workspaceOverride={
+      // The Studio's preview: the Preview pane, a tap away.
+      canvasPage={mockCanvasPage}
+      canvasRoute={route}
+      onCanvasRouteChange={setRoute}
+      canvasRoutes={["/", "/stores", "/journal", "/about"]}
+      sketchPane={
         <SketchpadWorkspace
-          preview={<PreviewMock />}
           sketchpads={{
             sketchpads: [],
             onOpen: () => undefined,
@@ -116,25 +109,14 @@ function PhoneSketchpad({ fullscreen }: Props) {
   );
 }
 
-/**
- * In the Studio's column, as it opens: the full-screen button is beside the
- * archive button in the Sketchpad's header.
- */
-export const InTheStudio: Story = {
-  args: { fullscreen: false },
-};
+/** The Sketch pane, in front as it opens, with its tools at the bottom. */
+export const SketchPane: Story = {};
 
-/** Full screen, on the sketch: the tools at the bottom, Build under them. */
-export const FullScreen: Story = {
-  args: { fullscreen: true },
-};
-
-/** Full screen, on the page it sketches: the button now says Sketch. */
-export const FullScreenOnThePage: Story = {
-  args: { fullscreen: true },
+/** The Preview pane: the Studio's own preview, of the page the sketch is about. */
+export const PreviewPane: Story = {
   play: async ({ canvasElement }) => {
     await userEvent.click(
-      within(canvasElement).getByRole("button", { name: "Page" }),
+      within(canvasElement).getByRole("button", { name: "Preview" }),
     );
   },
 };
@@ -143,8 +125,7 @@ export const FullScreenOnThePage: Story = {
  * Sent to the assistant: the button says it is reading, the sketch waits
  * while it does, and its change lands in the sketch -- a third quote.
  */
-export const FullScreenSending: Story = {
-  args: { fullscreen: true },
+export const Sending: Story = {
   play: async ({ canvasElement }) => {
     await userEvent.click(
       within(canvasElement).getByRole("button", { name: /Build/ }),
