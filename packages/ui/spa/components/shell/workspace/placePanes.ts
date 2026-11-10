@@ -31,12 +31,16 @@ export type StripPlacement = {
   panes: SidePane[];
 };
 
-/** Content's place: the left column, folded to a strip, a sheet, or the middle. */
+/**
+ * Content's place: the left column, folded to a strip, a sheet, the middle,
+ * or switched off.
+ */
 export type ContentPlacement =
   | { kind: "column"; width: number }
   | { kind: "strip"; width: number }
   | { kind: "sheet"; width: number }
-  | { kind: "anchor" };
+  | { kind: "anchor" }
+  | { kind: "hidden" };
 
 export type PlacedPanes = {
   content: ContentPlacement;
@@ -67,8 +71,13 @@ export function placePanes(
   const index = layout.columns.findIndex(
     (column) => column.type === "pane" && column.pane === anchor,
   );
-  const left = index === -1 ? [] : layout.columns.slice(0, index);
-  const right = index === -1 ? [] : layout.columns.slice(index + 1);
+  // Sketch or the Assistant in the middle -- Content and the preview both
+  // switched off -- is placed as the side panes are: PageWorkspace has nothing
+  // to show, and everything is to its right.
+  const sideAnchor = anchor === "sketch" || anchor === "chat";
+  const left = index === -1 || sideAnchor ? [] : layout.columns.slice(0, index);
+  const right =
+    index === -1 ? [] : layout.columns.slice(sideAnchor ? index : index + 1);
 
   let content: ContentPlacement = { kind: "anchor" };
   const [first] = left;
@@ -125,5 +134,6 @@ export function placePanes(
     }
   }
 
+  if (!open.content) content = { kind: "hidden" };
   return { content, rightWidth, sketch, chat, strips };
 }

@@ -130,6 +130,11 @@ export type SitePreviewProps = {
   onReload?: () => void;
   /** Around the page, under its shadow: where a click off a field lands. */
   onPageClick?: () => void;
+  /**
+   * Code mode: the frame is in the proposal's colour, one of the subtle
+   * ways the Studio says what the assistant can change.
+   */
+  tone?: "proposal";
   className?: string;
 };
 
@@ -169,6 +174,7 @@ export function SitePreview({
   reloadable = true,
   onReload,
   onPageClick,
+  tone,
   className,
 }: SitePreviewProps) {
   /**
@@ -331,7 +337,15 @@ export function SitePreview({
           {headerEnd}
         </div>
       )}
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
+      <div
+        data-val-preview-tone={tone}
+        className={cn(
+          "relative min-h-0 flex-1 overflow-hidden rounded-xl border bg-bg-float-raised",
+          tone === "proposal"
+            ? "border-border-proposal"
+            : "border-border-float",
+        )}
+      >
         {/*
          * Above the page and outside the zoom, which is the whole reason the
          * status is lifted out of the frame. It used to be a panel over the

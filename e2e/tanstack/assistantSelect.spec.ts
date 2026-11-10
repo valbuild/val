@@ -25,7 +25,9 @@ test.describe("pointing at the page", () => {
     await page.getByRole("button", { name: "Open the canvas" }).click();
     // The canvas turns preview mode on by itself; the page reporting its
     // fields is when there is something to pick.
-    await expect(page.getByRole("tab", { name: /On page \d/ })).toBeVisible({
+    await expect(
+      page.getByRole("tab", { name: /On this page \d/ }),
+    ).toBeVisible({
       timeout: 60_000,
     });
 

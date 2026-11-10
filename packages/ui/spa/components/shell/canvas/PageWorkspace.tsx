@@ -159,6 +159,8 @@ export type PageWorkspaceProps = {
   replacePreview?: ReactNode;
   /** Content was used: a click in it. Decides what keeps a column. */
   onUseContent?: () => void;
+  /** Code mode: the preview's frame is in the proposal's colour. */
+  codeMode?: boolean;
   /** Close Content's sheet, handing the room back to the pane beside it. */
   onFoldContent?: () => void;
 };
@@ -176,6 +178,8 @@ const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
  * page is not a preview of it.
  */
 const MIN_COLUMN_PX = 320;
+/** Content in the middle, with the preview switched off: a readable line. */
+const READABLE_WIDTH = 720;
 const MIN_CANVAS_PX = 280;
 /**
  * How wide the editor column may be dragged, as a share of the workspace.
@@ -260,6 +264,7 @@ export function PageWorkspace({
   contentPlacement,
   replacePreview,
   onUseContent,
+  codeMode = false,
   onFoldContent,
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
@@ -713,7 +718,15 @@ export function PageWorkspace({
        * which clips the editor on both sides instead of scrolling it.
        */}
       <div
-        style={{ maxWidth: CANVAS_MAX_WIDTH, ...railPadding }}
+        style={{
+          // In the middle of the workspace, with the preview switched off,
+          // the fields are kept to a width a line of them can be read at.
+          maxWidth:
+            contentPlacement?.kind === "anchor"
+              ? READABLE_WIDTH + (railPadding !== undefined ? RAIL_WIDTH : 0)
+              : CANVAS_MAX_WIDTH,
+          ...railPadding,
+        }}
         className={cn(
           "w-full mx-auto px-4 md:px-6 pb-24",
           // See `columnClearsTopBar`: whatever is above the column supplies the
@@ -894,6 +907,7 @@ export function PageWorkspace({
       reloadable={renderCanvas !== undefined}
       onReload={onPreviewReload}
       onPageClick={() => setSelectedFieldId(null)}
+      tone={codeMode ? "proposal" : undefined}
       renderPage={(viewport) =>
         renderCanvas?.({
           ...viewport,
@@ -1067,6 +1081,8 @@ export function PageWorkspace({
   /** Whether the preview's column is there: the preview, or History. */
   const split = open || replacePreview !== undefined;
   const contentFolded = contentPlacement?.kind === "strip";
+  /** Switched off from the top bar: still mounted, not on screen. */
+  const contentHidden = contentPlacement?.kind === "hidden";
   const contentSheet = contentPlacement?.kind === "sheet";
   /** What is left of the column: the rail on a desktop, the gutter below. */
   const contentInset = breakpoint === "desktop" ? RAIL_WIDTH : GUTTER;
@@ -1110,6 +1126,7 @@ export function PageWorkspace({
           "relative h-full min-w-0 shrink-0",
           // Folded, it stays mounted, so coming back is where it was left.
           split && contentFolded && "hidden",
+          contentHidden && "hidden",
           // A sheet over the preview: the same column, placed over it.
           split &&
             contentSheet &&
@@ -1118,7 +1135,7 @@ export function PageWorkspace({
       >
         {column}
       </div>
-      {split && !contentFolded && !contentSheet && (
+      {split && !contentFolded && !contentSheet && !contentHidden && (
         <SplitDivider
           isDragging={isDragging}
           onPointerDown={onDividerPointerDown}
@@ -1149,6 +1166,9 @@ export function PageWorkspace({
            * right, which reads as the divider being nudged towards the page.
            */
           "min-w-0 flex-1 pt-20 pb-14 pl-1.5 pr-3",
+          // With Content switched off the preview starts where it would
+          // have: clear of the rail, or of the gutter.
+          contentHidden && (breakpoint === "desktop" ? "pl-[5.5rem]" : "pl-3"),
           split
             ? "scale-100 opacity-100"
             : "invisible pointer-events-none scale-95 opacity-0",
@@ -1477,8 +1497,13 @@ function MobileModeToggle({
   animate: boolean;
 }) {
   const options: ReadonlyArray<MobileModeOption> = [
-    { value: "normal", label: "Structure", icon: MousePointerSquareDashed },
-    { value: "fields", label: "On page", icon: ListTree, badge: fieldCount },
+    { value: "normal", label: "Content", icon: MousePointerSquareDashed },
+    {
+      value: "fields",
+      label: "On this page",
+      icon: ListTree,
+      badge: fieldCount,
+    },
     { value: "preview", label: "Preview", icon: Eye },
   ];
   return (
@@ -1527,12 +1552,12 @@ function ViewToggle({
       options={[
         {
           value: "normal",
-          label: "Structure",
+          label: "Content",
           icon: MousePointerSquareDashed,
         },
         {
           value: "fields",
-          label: "On page",
+          label: "On this page",
           icon: ListTree,
           badge: fieldCount,
         },

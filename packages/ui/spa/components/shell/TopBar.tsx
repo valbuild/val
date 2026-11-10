@@ -151,6 +151,12 @@ export type TopBarProps = {
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
   /**
+   * Content | Preview | Sketch | Assistant (`PaneSwitches`), in the Preview
+   * button's place from a tablet up. Given, it is also the Sketchpad's and the
+   * assistant's switch, and their own buttons are not shown.
+   */
+  paneSwitches?: ReactNode;
+  /**
    * Whether the assistant is open, where it is a pane of the workspace
    * rather than one of the panels (above a phone). Absent: `openPanel`.
    */
@@ -311,6 +317,7 @@ export function TopBar({
   studioMode,
   openPanel,
   aiOpen,
+  paneSwitches,
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
@@ -549,14 +556,16 @@ export function TopBar({
              * than `contents`: a box with no layout of its own measures zero,
              * and a spotlight on a zero-sized box is a dot.
              */}
-            <span data-val-tour="preview" className="inline-flex">
-              <PreviewButton
-                onPreview={onPreview}
-                previewHref={previewHref}
-                onToggleCanvas={onToggleCanvas}
-                isCanvasOpen={isCanvasOpen}
-              />
-            </span>
+            {paneSwitches ?? (
+              <span data-val-tour="preview" className="inline-flex">
+                <PreviewButton
+                  onPreview={onPreview}
+                  previewHref={previewHref}
+                  onToggleCanvas={onToggleCanvas}
+                  isCanvasOpen={isCanvasOpen}
+                />
+              </span>
+            )}
             <span data-val-tour="publish" className="inline-flex">
               {inProposal !== null ? (
                 // In a proposal, Save -- then Publish -- is where Publish is
@@ -659,7 +668,7 @@ export function TopBar({
          * one screen would be two places to look for the same panel, and the
          * top right corner of a phone is the furthest point from a thumb.
          */}
-        {sketchpad && (
+        {sketchpad && (isMobile || paneSwitches === undefined) && (
           <IconButton
             label={
               sketchpad.open
@@ -680,7 +689,7 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {aiEnabled && !isMobile && (
+        {aiEnabled && !isMobile && paneSwitches === undefined && (
           <IconButton
             label="AI assistant"
             active={aiOpen ?? openPanel === "ai"}
@@ -988,7 +997,7 @@ export function PreviewButton({
   );
 }
 
-function PreviewMenuItem({
+export function PreviewMenuItem({
   icon: Icon,
   label,
   detail,

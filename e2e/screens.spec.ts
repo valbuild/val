@@ -218,7 +218,7 @@ test("the canvas", async ({ page }) => {
   await page.waitForTimeout(800);
   await shot(page, "10-canvas-loading");
 
-  const fieldsTab = studio.getByRole("tab", { name: /On page/ });
+  const fieldsTab = studio.getByRole("tab", { name: /On this page/ });
   await expect(fieldsTab).toBeVisible({ timeout: 60000 });
   await page.waitForTimeout(2000);
   await shot(page, "11-canvas-normal");

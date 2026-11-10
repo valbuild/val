@@ -32,7 +32,10 @@ function modeSwitch(page: Page): Locator {
   return page.getByRole("tablist", { name: "Workspace view" });
 }
 
-function mode(page: Page, name: "Structure" | "On page" | "Preview"): Locator {
+function mode(
+  page: Page,
+  name: "Content" | "On this page" | "Preview",
+): Locator {
   return modeSwitch(page).getByRole("tab", { name, exact: false });
 }
 
@@ -94,7 +97,7 @@ test.describe("the preview modes on a phone", () => {
       expect(gap).toBeLessThan(24);
     };
 
-    await mode(page, "Structure").click();
+    await mode(page, "Content").click();
     const column = page.locator("#val-content-area");
     const normalGap = await gapUnder(column);
     expected(normalGap);
@@ -107,7 +110,7 @@ test.describe("the preview modes on a phone", () => {
     );
     expect(paddingTop).toBeLessThan(8);
 
-    await mode(page, "On page").click();
+    await mode(page, "On this page").click();
     const fieldsGap = await gapUnder(page.locator('[data-val-pane="fields"]'));
     expected(fieldsGap);
 
@@ -147,7 +150,7 @@ test.describe("the preview modes on a phone", () => {
      * And the whole row still fits on the screen.
      *
      * The options are words, and words get renamed: "Normal" and "Fields"
-     * became "Structure" and "On page", which is four more characters on a row
+     * became "Content" and "On this page", which is four more characters on a row
      * that does not wrap. The X is pushed right by `ml-auto`, so a row that has
      * outgrown the screen does not look cramped — it takes the X off the end of
      * it, and on a narrower phone Preview, the only visible way to the page,
@@ -182,11 +185,11 @@ test.describe("the preview modes on a phone", () => {
 
     // Every hop the three modes offer, including the two that swap what the
     // left pane holds while the page sits off screen.
-    const hops: ReadonlyArray<"Structure" | "On page" | "Preview"> = [
-      "Structure",
-      "On page",
+    const hops: ReadonlyArray<"Content" | "On this page" | "Preview"> = [
+      "Content",
+      "On this page",
       "Preview",
-      "Structure",
+      "Content",
     ];
     for (const name of hops) {
       // Clicked without asking whether it is there. Skipping a missing mode
@@ -241,7 +244,7 @@ test.describe("the preview modes on a phone", () => {
     // A fresh browser has no preview cookie, so the page mounts none of Val's
     // client code and reports nothing to pick -- until the canvas turns
     // preview mode on by itself (`CanvasPreviewNotice`).
-    const fields = mode(page, "On page");
+    const fields = mode(page, "On this page");
     await expect(fields).toBeVisible({ timeout: 60_000 });
 
     // On page arms picking; Preview then puts the page in front of you with it
@@ -265,7 +268,7 @@ test.describe("the preview modes on a phone", () => {
       })
       .toContain('."hero"."lead"');
     // ...and the phone is looking at the fields, not still at the page.
-    await expect(mode(page, "On page")).toHaveAttribute(
+    await expect(mode(page, "On this page")).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -326,8 +329,8 @@ test.describe("the preview modes on a phone", () => {
   }) => {
     await openPreview(page);
     // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
-    await expect(mode(page, "On page")).toBeVisible({ timeout: 60_000 });
-    await mode(page, "On page").click();
+    await expect(mode(page, "On this page")).toBeVisible({ timeout: 60_000 });
+    await mode(page, "On this page").click();
 
     const fields = page.getByRole("heading", { name: "On this page" });
     await expect(fields).toBeVisible();
@@ -424,7 +427,7 @@ test.describe("dragging a list row on a phone", () => {
 
   test("keeps the dragged row under the finger", async ({ page }) => {
     await openPreview(page);
-    await mode(page, "Structure").click();
+    await mode(page, "Content").click();
 
     const grip = page
       .locator("#val-shadow-root")

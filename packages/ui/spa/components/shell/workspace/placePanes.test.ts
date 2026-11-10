@@ -84,4 +84,24 @@ describe("placePanes", () => {
     expect(panes.sketch).toBeNull();
     expect(panes.chat).toBeNull();
   });
+
+  test("Content switched off: hidden, and the preview is in the middle", () => {
+    const panes = placed({
+      open: { content: false, preview: true, sketch: false, chat: true },
+    });
+    expect(panes.content).toEqual({ kind: "hidden" });
+    expect(panes.chat).toMatchObject({ right: 0, sheet: false });
+  });
+
+  test("Content and the preview off: Sketch in the middle, the Assistant beside it", () => {
+    const panes = placed({
+      width: 1920,
+      open: { content: false, preview: false, sketch: true, chat: true },
+    });
+    expect(panes.content).toEqual({ kind: "hidden" });
+    expect(panes.chat).toMatchObject({ right: 0, width: SIDE_WIDTH });
+    expect(panes.sketch?.right).toBe(SIDE_WIDTH + GAP);
+    // The middle takes the rest of the width.
+    expect(panes.sketch?.width).toBeGreaterThan(SIDE_WIDTH);
+  });
 });

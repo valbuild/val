@@ -100,6 +100,7 @@ import {
 } from "./workspace/workspaceLayout";
 import { placePanes } from "./workspace/placePanes";
 import { PaneStrip, SideTabs } from "./workspace/WorkspaceChrome";
+import { PaneSwitches, type PaneSwitch } from "./workspace/PaneSwitches";
 import type { JsonValuesLoadStatus } from "../useJsonValuesLoad";
 import {
   ShellBreakpoint,
@@ -1586,15 +1587,32 @@ export function Shell({
     if (pane !== "content") setSideFront(pane);
   }, []);
   const sketchOpen = sketchPane !== undefined;
+  /**
+   * Content, switched on and off from the top bar (`PaneSwitches`): off, to
+   * look at the page alone, or beside the assistant. Going to something to
+   * edit opens it again -- a field opened is a field to be seen.
+   */
+  const [contentOpen, setContentOpen] = useState(true);
+  useEffect(() => {
+    setContentOpen(true);
+  }, [selectionId]);
   const openPanes = useMemo(
     () => ({
-      content: true,
+      content: contentOpen,
       // History takes the preview's place: the column is there either way.
       preview: (isCanvasOpen && canCanvas) || history !== undefined,
       sketch: sketchOpen,
       chat: aiEnabled && chatOpen,
     }),
-    [isCanvasOpen, canCanvas, history, sketchOpen, aiEnabled, chatOpen],
+    [
+      contentOpen,
+      isCanvasOpen,
+      canCanvas,
+      history,
+      sketchOpen,
+      aiEnabled,
+      chatOpen,
+    ],
   );
   const placed = useMemo(() => {
     if (breakpoint === "mobile") return null;
@@ -1612,6 +1630,67 @@ export function Shell({
   useEffect(() => {
     if (chatOpen) usePane("chat");
   }, [chatOpen, usePane]);
+  useEffect(() => {
+    if (contentOpen) usePane("content");
+  }, [contentOpen, usePane]);
+  /*
+   * The top bar's switches, in the Preview button's place from a tablet up.
+   * The last open pane cannot be switched off: a workspace of nothing is no
+   * use.
+   */
+  const switchedOn = {
+    content: contentOpen,
+    preview: isCanvasOpen && canCanvas,
+    sketch: sketchpad?.open === true,
+    chat: aiEnabled && chatOpen,
+  };
+  const openCount = Object.values(switchedOn).filter(Boolean).length;
+  const lastOpen = (pane: keyof typeof switchedOn) =>
+    switchedOn[pane] && openCount === 1
+      ? "The last open pane stays open"
+      : undefined;
+  const switches: PaneSwitch[] = [
+    {
+      pane: "content",
+      open: contentOpen,
+      onToggle: () => setContentOpen((open) => !open),
+      unavailable: lastOpen("content"),
+    },
+    {
+      pane: "preview",
+      open: switchedOn.preview,
+      onToggle: togglePreview,
+      unavailable: !canCanvas
+        ? "There is no page to show for this"
+        : lastOpen("preview"),
+    },
+  ];
+  if (sketchpad !== undefined) {
+    switches.push({
+      pane: "sketch",
+      open: sketchpad.open,
+      onToggle: sketchpad.onToggle,
+      changed: sketchpad.changed,
+      unavailable: lastOpen("sketch"),
+    });
+  }
+  if (aiEnabled) {
+    switches.push({
+      pane: "chat",
+      open: chatOpen,
+      onToggle: () => togglePanel("ai"),
+      unavailable: lastOpen("chat"),
+    });
+  }
+  const paneSwitches =
+    breakpoint === "mobile" ? undefined : (
+      <PaneSwitches
+        roomy={windowWidth >= 1500}
+        onPreview={onPreview ?? (() => undefined)}
+        previewHref={previewHref}
+        switches={switches}
+      />
+    );
   useEffect(() => {
     if (!sketchOpen) return;
     usePane("sketch");
@@ -1721,6 +1800,7 @@ export function Shell({
                 ) : undefined
               }
               contentPlacement={placed?.content}
+              codeMode={assistantSelect?.codeMode === true}
               onUseContent={() => usePane("content")}
               // Closing Content's sheet hands its room back to the pane
               // beside it.
@@ -1857,6 +1937,7 @@ export function Shell({
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
           isCanvasOpen={isCanvasOpen}
+          paneSwitches={paneSwitches}
           onPublish={onPublish ?? (() => undefined)}
           publishSlot={publishSlot}
           pendingChanges={pendingChanges}
