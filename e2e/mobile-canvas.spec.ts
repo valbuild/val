@@ -54,11 +54,16 @@ function canvasFrame(page: Page): Locator {
  * Open the studio on the home page with the canvas already up.
  *
  * `canvas=1` rather than pressing Preview, because what these tests are about
- * is what happens once the page is open. It opens on Content, with the strip.
+ * is what happens once the page is open. A link that says the preview is open
+ * opens on the Preview pane.
  */
 async function openPreview(page: Page): Promise<void> {
   await openStudio(page, `${HOME}&canvas=1`);
-  await expect(modeSwitch(page)).toBeVisible();
+  await expect(paneButton(page, "Preview")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(canvasFrame(page)).toBeVisible();
 }
 
 /** Where a phone can be with the page open: two views of Content, or Preview. */
@@ -85,6 +90,7 @@ test.describe("the panes on a phone", () => {
     page,
   }) => {
     await openPreview(page);
+    await goTo(page, "Content");
 
     const stripBox = await modeSwitch(page).boundingBox();
     if (stripBox === null) {
@@ -118,7 +124,6 @@ test.describe("the panes on a phone", () => {
       expect(gap).toBeLessThan(24);
     };
 
-    await goTo(page, "Content");
     const column = page.locator("#val-content-area");
     const normalGap = (await top(column)) - stripBottom;
     expected(normalGap);
@@ -257,6 +262,7 @@ test.describe("the panes on a phone", () => {
     // A fresh browser has no preview cookie, so the page mounts none of Val's
     // client code and reports nothing to pick -- until the canvas turns
     // preview mode on by itself (`CanvasPreviewNotice`).
+    await paneButton(page, "Content").click();
     const fields = mode(page, "On this page");
     await expect(fields).toBeVisible({ timeout: 60_000 });
 
@@ -296,8 +302,6 @@ test.describe("the panes on a phone", () => {
 
   test("stops the page when you exit", async ({ page }) => {
     await openPreview(page);
-    await goTo(page, "Preview");
-    await expect(canvasFrame(page)).toBeVisible();
 
     await page.getByRole("button", { name: "Exit Preview" }).click();
 
@@ -346,6 +350,7 @@ test.describe("the panes on a phone", () => {
     page,
   }) => {
     await openPreview(page);
+    await paneButton(page, "Content").click();
     // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
     await expect(mode(page, "On this page")).toBeVisible({ timeout: 60_000 });
     await mode(page, "On this page").click();
@@ -445,7 +450,7 @@ test.describe("dragging a list row on a phone", () => {
 
   test("keeps the dragged row under the finger", async ({ page }) => {
     await openPreview(page);
-    await mode(page, "Content").click();
+    await goTo(page, "Content");
 
     const grip = page
       .locator("#val-shadow-root")

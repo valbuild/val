@@ -185,7 +185,11 @@ export function FloatingPanel({
             : { width }
         }
         className={cn(
-          "absolute z-full flex flex-col",
+          "absolute flex flex-col",
+          // A phone's pane is part of the workspace, like the panes beside
+          // it: under the scrim and the sheets a phone opens over it (the
+          // account, the menu), not over them.
+          isMobile && mobileVariant === "pane" ? "z-hover" : "z-full",
           "bg-bg-float border border-border-float shadow-lg",
           // `display: none`, so the subtree keeps its state and its effects but
           // takes no space, catches no clicks and leaves the accessibility tree.

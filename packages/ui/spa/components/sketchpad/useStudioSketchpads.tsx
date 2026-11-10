@@ -114,9 +114,14 @@ export function useStudioSketchpads(options: {
     [summaries, snapshot.byId],
   );
 
+  /*
+   * The Sketch pane, and only that. The assistant is a pane of its own: it
+   * opens when something is sent to it (Build, a page to start from), not
+   * because a sketch did -- opening both put the assistant in front of the
+   * sketch that was asked for, wherever the two share a place.
+   */
   const open = (id: string) => {
     state.open(id);
-    openAssistant?.();
   };
   // Stable, so the chat's messages do not re-render with every change here.
   const openRef = useRef(open);

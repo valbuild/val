@@ -870,24 +870,35 @@ export function PageWorkspace({
        * from it.
        */
       headerEnd={
-        <button
-          type="button"
-          aria-label="Exit Preview"
-          title="Close the preview, and stop the page"
-          onClick={onCloseCanvas}
-          className={cn(
-            "ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md",
-            isPhone ? "w-8 justify-center" : "pl-2.5 pr-3",
-            "border border-border-float bg-bg-float text-fg-secondary",
-            "hover:text-fg-primary",
-          )}
-        >
-          <X size={15} />
-          {/* The word where there is room: on a phone the icon alone. */}
-          {!isPhone && (
-            <span className="text-xs font-medium">Exit Preview</span>
-          )}
-        </button>
+        <>
+          {/*
+           * On a phone the preview is a pane of its own, away from Content's
+           * strip, and the page is what a Select picks on: so Content's Select
+           * is here too, where a pick is made and where it is stopped.
+           */}
+          {isPhone && contentSelectButton(true)}
+          <button
+            type="button"
+            aria-label="Exit Preview"
+            title="Close the preview, and stop the page"
+            onClick={onCloseCanvas}
+            className={cn(
+              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md",
+              // On a phone the height of the Select beside it.
+              isPhone
+                ? "h-[2.125rem] w-[2.125rem] justify-center"
+                : "h-8 pl-2.5 pr-3",
+              "border border-border-float bg-bg-float text-fg-secondary",
+              "hover:text-fg-primary",
+            )}
+          >
+            <X size={15} />
+            {/* The word where there is room: on a phone the icon alone. */}
+            {!isPhone && (
+              <span className="text-xs font-medium">Exit Preview</span>
+            )}
+          </button>
+        </>
       }
       /*
        * A phone starts on the phone layout, and that is not a nicety: a

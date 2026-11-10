@@ -131,8 +131,9 @@ In order, each step shippable on its own:
    **Done:** `shell/canvas/SitePreview.tsx` owns the device, zoom, fit,
    reload and preview-mode state; the caller renders the page and adds what
    is its own (the canvas's Exit Preview and Select, the Sketchpad's route).
-   The Sketchpad's address bar can be typed in. Storybook:
-   **Shell/SitePreview**.
+   Storybook: **Shell/SitePreview**. Since step 5 the Sketchpad has no
+   preview at all (`SketchpadPreview` is gone): it uses the Studio's, and
+   so does Review's page comparison, on both sides.
 2. **The two Selects.** Content's is today's field picking (`isPicking`),
    moved to Content's header. The Assistant's is `CanvasFrame`'s
    `elementPicking` (any element, `PickedElement`, which already carries
@@ -169,10 +170,26 @@ In order, each step shippable on its own:
    strips or a sheet; both stay mounted where they are and are placed, so a
    conversation and a sketch keep their state. History takes the preview's
    place; code mode's code changes are in Review, and its `</>` menu opens
-   them there. The phone is as it was, until step 5.
+   them there.
 4. **The top bar's switches**, replacing the Preview button.
+   **Done:** `PaneSwitches`, from a tablet up: Content | Preview | Sketch |
+   Assistant, the last open pane cannot be switched off, and the Preview
+   switch keeps the new-tab preview behind its chevron.
 5. **Phone and tablet**, once the open questions are answered; then the
    tour's steps (`tourSteps.ts`), which point at controls that move.
+   **Done:** on a phone `PhonePaneBar` is the bottom bar -- the four panes,
+   one on screen at a time (`phonePane` in `Shell`), a pane not open yet
+   opening when it is tapped -- in place of `MobileBottomBar`. Save/Publish
+   (and its menu) are in the top bar beside the account; the notifications
+   are an Activity row in the account sheet, with a dot on the avatar. The
+   strip above Content is Content | On this page and Content's Select; the
+   Preview pane's header has the address bar, the Select and the way out.
+   The assistant is a pane (`mobileVariant="pane"`), under the sheets a
+   phone opens. The Sketchpad is a pane too, and uses the Studio's preview:
+   a route divider shows its page there (`useSketchRoute`), and opening a
+   sketch no longer opens the assistant with it. A tablet's side pane is a
+   sheet over the preview (step 3). The tour's targets are on the pane bar
+   (`preview`, `ai`) and the phone's Publish. e2e: `mobile-canvas.spec.ts`.
 
 Tests to keep honest: `workspaceLayout.test.ts` (the rule), the canvas and
 code-mode e2e specs (`canvasSuite.ts`, `previewFollowsBuild.spec.ts`), and
