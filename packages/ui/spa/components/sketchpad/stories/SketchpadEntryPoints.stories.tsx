@@ -239,9 +239,6 @@ function EntryPoint({ start }: Props) {
       sketchPane={
         open && value !== null ? (
           <SketchpadWorkspace
-            // The Sketch pane: the page it is about is in the Studio's own
-            // preview, beside it.
-            preview={null}
             sketchpads={{
               sketchpads: [
                 {

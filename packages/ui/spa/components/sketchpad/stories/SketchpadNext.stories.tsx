@@ -156,6 +156,25 @@ Six tailors and a weaver, in one workshop by the harbour.
 ${ICONS}
 `;
 
+/**
+ * The Sketch pane beside the Studio's preview, as the workspace lays them
+ * out on a wide screen: the Sketchpad has no preview of its own.
+ */
+function BesideThePreview({
+  preview,
+  children,
+}: {
+  preview: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-screen gap-2 bg-bg-secondary p-3">
+      <div className="min-w-0 flex-1">{preview}</div>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
 /** The page at a route, in the Studio's preview, with its address. */
 function RoutePreview({
   route,
@@ -215,9 +234,10 @@ function Workspace({
   }, [drafting, draft]);
 
   return (
-    <div className="h-screen bg-bg-secondary p-3">
+    <BesideThePreview
+      preview={<RoutePreview route={route} onRouteChange={setRoute} />}
+    >
       <SketchpadWorkspace
-        preview={<RoutePreview route={route} onRouteChange={setRoute} />}
         sketchpads={{
           sketchpads: [],
           onOpen: () => undefined,
@@ -262,7 +282,7 @@ function Workspace({
           />
         }
       />
-    </div>
+    </BesideThePreview>
   );
 }
 
@@ -531,9 +551,8 @@ Shop the new coats {field: ${HOME_CTA}}
 ${ICONS}
 `);
   return (
-    <div className="h-screen bg-bg-secondary p-3">
+    <BesideThePreview preview={<LinkedContentPage content={content} />}>
       <SketchpadWorkspace
-        preview={<LinkedContentPage content={content} />}
         sketchpads={{
           sketchpads: [],
           onOpen: () => undefined,
@@ -574,7 +593,7 @@ ${ICONS}
           />
         }
       />
-    </div>
+    </BesideThePreview>
   );
 }
 

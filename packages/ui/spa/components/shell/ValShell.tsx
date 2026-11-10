@@ -47,7 +47,6 @@ import { ValSettingsSections } from "./ValSettingsSections";
 import { SiteUpdateSection } from "./SiteUpdateSection";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { useValPortal } from "../ValPortalProvider";
-import { useShellBreakpoint } from "./useShellBreakpoint";
 import { useContentSearch } from "./useContentSearch";
 import {
   parseShellUrlState,
@@ -633,19 +632,22 @@ function ValShellBody({
    * page, the workspace while one is open, and the state the assistant's
    * tools share with them. See `sketchpad/useStudioSketchpads.tsx`.
    */
-  const shellBreakpoint = useShellBreakpoint();
+  /** Bumped when the sketch asks for its page to be looked at. */
+  const [revealPreview, setRevealPreview] = useState(0);
   const showRouteRef = useRef<((route: string) => void) | null>(null);
   const sketchpads = useStudioSketchpads({
     openAssistant: isAIChatEnabled ? openAIPanel : null,
     pages: data.pages,
     pageTypes: data.newPage?.routes.map((route) => route.patternString),
     currentProfileId: useCurrentProfileId(),
-    // Above a phone the Sketch pane is beside the one preview, and the page
-    // the sketch is about is shown there (`onCanvasRouteChange`, below).
-    onShowRoute:
-      shellBreakpoint === "mobile"
-        ? null
-        : (route) => showRouteRef.current?.(route),
+    // The page the sketch is about, in the Studio's one preview -- as
+    // picking it in Pages would (`onCanvasRouteChange`, below). Pressed in
+    // the sketch, it is also a request to look at it: on a phone, the
+    // preview pane comes to the front (`ShellProps.revealPreview`).
+    onShowRoute: (route, how) => {
+      showRouteRef.current?.(route);
+      if (how.pressed) setRevealPreview((count) => count + 1);
+    },
   });
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
@@ -1791,7 +1793,10 @@ function ValShellBody({
              * is held open, and the assistant that changes the page is docked
              * beside it rather than over it.
              */
-            canvasPinned={inCodeMode}
+            // Held open while code mode is on, and while a sketchpad is: the
+            // sketch is about a page, and the preview is where it is shown.
+            canvasPinned={inCodeMode || sketchpads.sketchPane !== undefined}
+            revealPreview={revealPreview}
             assistantSelect={
               isAIChatEnabled
                 ? {

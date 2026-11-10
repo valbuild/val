@@ -43,12 +43,10 @@ export function useStudioSketchpads(options: {
   pageTypes?: string[];
   currentProfileId: string | null;
   /**
-   * Show a page in the workspace's preview: the one the open sketch is
-   * about. The Sketch pane then has no preview of its own. `null` on a phone,
-   * where the Sketchpad takes the screen with its own preview until the
-   * phone has a pane bar.
+   * Show a page in the Studio's preview: the one the open sketch is about.
+   * The Sketch pane has no preview of its own. See `ValSketchpad`.
    */
-  onShowRoute: ((route: string) => void) | null;
+  onShowRoute: (route: string, how: { pressed: boolean }) => void;
 }): {
   wrap: (children: ReactNode) => ReactNode;
   sketchpad: TopBarSketchpad | undefined;
@@ -230,10 +228,9 @@ export function useStudioSketchpads(options: {
           sketchpads={{ items, refresh: () => void refresh() }}
           onSendToAssistant={openAssistant ? sendToAssistant : undefined}
           onStartFromRoute={openAssistant ? startFromRoute : undefined}
-          onOpenAssistant={openAssistant ?? undefined}
           pageOptions={pageOptions}
           currentProfileId={currentProfileId}
-          onShowRoute={onShowRoute ?? undefined}
+          onShowRoute={onShowRoute}
         />
       ) : undefined,
   };

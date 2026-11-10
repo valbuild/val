@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import {
+  Bell,
   ArrowUpCircle,
   Compass,
   ExternalLink,
@@ -79,6 +80,11 @@ export type AccountPanelProps = {
    */
   members?: ReactNode;
   /**
+   * The notifications, on a phone: their bell was in the bottom bar, which
+   * is the workspace's panes now. A row that opens them, with how many wait.
+   */
+  activity?: { count: number; onOpen: () => void };
+  /**
    * The Updates notice, on a phone, where the top bar has no room for it
    * (valbuild/home `docs/plans/upgrades-v2.md`, piece E). Absent while there
    * is nothing to upgrade.
@@ -123,6 +129,7 @@ export function AccountPanel({
   onSignOut,
   onStartTour,
   members,
+  activity,
   upgrade,
   versions,
   onClose,
@@ -154,6 +161,24 @@ export function AccountPanel({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activity && (
+          <div className="px-4 pb-2">
+            <button
+              type="button"
+              onClick={activity.onOpen}
+              className="flex h-10 w-full items-center gap-2.5 rounded-md bg-bg-float-raised px-3 text-left text-xs font-medium text-fg-primary"
+            >
+              <Bell size={15} className="shrink-0 text-fg-secondary" />
+              <span className="flex-1">Activity</span>
+              {activity.count > 0 && (
+                <span className="grid h-5 min-w-5 place-items-center rounded-full bg-fg-primary px-1.5 text-[0.625rem] font-semibold tabular-nums text-bg-float">
+                  {activity.count > 9 ? "9+" : activity.count}
+                </span>
+              )}
+            </button>
           </div>
         )}
 

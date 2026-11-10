@@ -90,10 +90,10 @@ export const OnTheCanvas: Story = {
 };
 
 /**
- * As beside the Sketchpad: a pane about as wide as the Sketchpad's. The
- * toolbar is the canvas's own.
+ * In a narrow pane, as when the content column or the Sketchpad takes most
+ * of the window. The toolbar is the same one.
  */
-export const BesideTheSketchpad: Story = {
+export const NarrowPane: Story = {
   args: { width: 460 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

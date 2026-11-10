@@ -10,4 +10,4 @@
 - History shows the past where the preview is, with the editor beside it as "now".
 - In code mode, the code changes are in Review, beside the content changes; "Code changes" in the code menu opens them there. The preview stays open while code mode is on.
 
-On a phone nothing changes yet.
+On a phone the bar along the bottom is the same panes, one on screen at a time: Content, Preview, Sketch and Assistant. Save and Publish are in the top bar beside your account, and notifications are in the account menu.

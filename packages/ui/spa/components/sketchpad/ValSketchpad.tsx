@@ -6,8 +6,7 @@ import { Sketchpad, type SketchpadAssistantStatus } from "./Sketchpad";
 import type { SketchBlockType } from "./boxNodeView";
 import type { SketchHighlight } from "./highlights";
 import type { SketchMediaLibrary } from "./SketchpadMediaPicker";
-import { SketchpadPreview } from "./SketchpadPreview";
-import { isRoutePattern } from "./routePatterns";
+import { useSketchRoute } from "./useSketchRoute";
 import { blockTypesOfSchemas } from "./sketchBlockTypes";
 import { useSketchMediaLibrary } from "./sketchMediaLibrary";
 import { useLinkedFields } from "./useLinkedFields";
@@ -38,7 +37,6 @@ export function ValSketchpad({
   sketchpads,
   onSendToAssistant,
   onStartFromRoute,
-  onOpenAssistant,
   pageOptions,
   currentProfileId,
   onShowRoute,
@@ -54,17 +52,17 @@ export function ValSketchpad({
   onSendToAssistant?: (sketchpad: SketchpadT) => void;
   /** Asks the chat to write a page into an empty sketchpad. */
   onStartFromRoute?: (sketchpad: SketchpadT, route: string) => void;
-  /** Opens the chat. Absent without one. */
-  onOpenAssistant?: () => void;
   /** The site's routes: its pages, and its page types (`/blog/[slug]`). */
   pageOptions: string[];
   currentProfileId: string | null;
   /**
-   * Show the page the sketch is about in the Studio's preview, which is a
-   * pane of the workspace beside this one. Without it the Sketchpad has a
-   * preview of its own (`SketchpadPreview`), as in the stories.
+   * Show the page the sketch is about in the Studio's preview: the one
+   * preview, beside the Sketch or a tap away on a phone. The Sketchpad has
+   * none of its own. `pressed` when the person asked for it -- a route
+   * divider's "Show it in the preview" -- rather than when the sketch opened
+   * on its first page: on a phone the first is a reason to go and look.
    */
-  onShowRoute?: (route: string) => void;
+  onShowRoute: (route: string, how: { pressed: boolean }) => void;
 }) {
   const snapshot = useSketchpadsSnapshot(state);
   // What a box may show, and the kinds of section the site has: read only
@@ -82,23 +80,17 @@ export function ValSketchpad({
   const known = id !== null ? snapshot.byId[id] : undefined;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [archivedId, setArchivedId] = useState<string | null>(null);
-  // The page beside the sketch: the one last pressed in it, and until then
-  // its first route -- or, for a sketch with none yet, where it was started.
-  const [pressedRoute, setPressedRoute] = useState<string | null>(null);
-  useEffect(() => setPressedRoute(null), [id]);
   const routesInSketch = useMemo(
     () => (known ? sketchRoutes(parseSketch(known.text).blocks) : []),
     [known],
   );
-  const activeRoute = pressedRoute ?? routesInSketch[0] ?? known?.page ?? null;
-  // The workspace's preview follows the page the sketch is about: pressed in
-  // it, or the one it starts with. Only a page, not a page type.
-  const onShowRouteRef = useRef(onShowRoute);
-  onShowRouteRef.current = onShowRoute;
-  useEffect(() => {
-    if (activeRoute === null || isRoutePattern(activeRoute)) return;
-    onShowRouteRef.current?.(activeRoute);
-  }, [activeRoute]);
+  // The page the sketch is about, shown in the Studio's one preview.
+  const { activeRoute, pressRoute } = useSketchRoute({
+    sketchId: id,
+    routesInSketch,
+    startedFrom: known?.page ?? null,
+    onShowRoute,
+  });
 
   // Fetched every time it is opened: what this tab has may be from before
   // someone else's change. What it has is shown meanwhile, and the newer
@@ -220,15 +212,6 @@ export function ValSketchpad({
 
   return (
     <SketchpadWorkspace
-      preview={
-        onShowRoute !== undefined ? null : (
-          <SketchpadPreview
-            route={activeRoute}
-            onRouteChange={setPressedRoute}
-            routes={pagesOf(pageOptions)}
-          />
-        )
-      }
       sketchpads={{
         sketchpads: sketchpads.items,
         currentId: id,
@@ -313,14 +296,13 @@ export function ValSketchpad({
             onStartFromRoute={
               onStartFromRoute &&
               ((route) => {
-                setPressedRoute(route);
+                pressRoute(route);
                 onStartFromRoute(known, route);
               })
             }
-            onOpenAssistant={onOpenAssistant}
             pageOptions={pageOptions}
             activeRoute={activeRoute}
-            onOpenRoute={setPressedRoute}
+            onOpenRoute={pressRoute}
             mediaLibrary={mediaLibrary}
             blockTypes={blockTypes}
             highlights={snapshot.highlights[known.id]}
@@ -351,7 +333,6 @@ function OpenSketchpad({
   onArchive,
   onSendToAssistant,
   onStartFromRoute,
-  onOpenAssistant,
   pageOptions,
   activeRoute,
   onOpenRoute,
@@ -371,7 +352,6 @@ function OpenSketchpad({
   onArchive: () => void;
   onSendToAssistant?: () => void;
   onStartFromRoute?: (route: string) => void;
-  onOpenAssistant?: () => void;
   pageOptions: string[];
   activeRoute: string | null;
   onOpenRoute: (route: string) => void;
@@ -388,8 +368,7 @@ function OpenSketchpad({
 }) {
   // What is on screen: the server's text until someone types here.
   const [text, setText] = useState(sketchpad.text);
-  // A phone has no room for the page beside the sketch, so it offers the
-  // whole screen to the two of them instead.
+  // On a phone the tools are at the bottom, by the thumb.
   const breakpoint = useShellBreakpoint();
   // A box's image is as often the page's own content path, copied by the
   // assistant, as a web address: shown where the Studio shows that image,
@@ -572,31 +551,14 @@ function OpenSketchpad({
                 : `Saved ${relative(sketchpad.updatedAt)}`
         }
         onAskAssistant={onSendToAssistant}
-        onOpenChat={onOpenAssistant}
         mediaUrl={mediaUrl}
         assistantStatus={assistantStatus}
         onArchive={onArchive}
         sketchpads={list}
-        fullscreenPreview={
-          breakpoint === "mobile" ? (
-            <SketchpadPreview
-              route={activeRoute}
-              onRouteChange={onOpenRoute}
-              routes={pagesOf(pageOptions)}
-            />
-          ) : undefined
-        }
+        touch={breakpoint === "mobile"}
       />
     </div>
   );
-}
-
-/**
- * The pages among the site's routes: an address bar offers places it can
- * go, and a page type (`/blog/[slug]`) is not one.
- */
-function pagesOf(routes: readonly string[]): string[] {
-  return routes.filter((route) => !isRoutePattern(route));
 }
 
 export function relative(iso: string, now: Date = new Date()): string {

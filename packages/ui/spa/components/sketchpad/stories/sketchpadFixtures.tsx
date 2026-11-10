@@ -1,11 +1,6 @@
-import { useState } from "react";
-import { SiteMock } from "../../proposals/stories/SiteMock";
-import { SitePreview } from "../../shell/canvas/SitePreview";
-import { useShellBreakpoint } from "../../shell/useShellBreakpoint";
-
 /**
  * What the Sketchpad stories share: the Nordic Retail home page as the
- * assistant sketched it, and the site's page as it is now.
+ * assistant sketched it.
  */
 export const SKETCH = `# Clothes that outlast the season.
 Made in Bergen from wool we can trace to the farm. Repaired free, for as long as you own it.
@@ -46,29 +41,4 @@ export function sketchingSteps(sketch: string): string[] {
     ...cuts.map((cut) => lines.slice(0, cut).join("\n") + "\n"),
     `${body}\n\n${icons}`,
   ];
-}
-
-/**
- * The site's page as it is now, in the Studio's own preview: its address
- * bar and toolbar, around the mock site in place of a frame.
- */
-export function PreviewMock({ route: initial = "/" }: { route?: string }) {
-  const [route, setRoute] = useState(initial);
-  // As `SketchpadPreview`: a phone starts on the phone layout.
-  const isPhone = useShellBreakpoint() === "mobile";
-  return (
-    <SitePreview
-      route={route}
-      initialDevice={isPhone ? "mobile" : "desktop"}
-      onRouteChange={setRoute}
-      routes={["/", "/stores", "/journal", "/about"]}
-      // There is no running site to load again in Storybook.
-      reloadable={false}
-      renderPage={({ width, height }) => (
-        <div style={{ width, minHeight: height }} className="flex flex-col">
-          <SiteMock testimonials="none" />
-        </div>
-      )}
-    />
-  );
 }

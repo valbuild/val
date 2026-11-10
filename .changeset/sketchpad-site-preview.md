@@ -2,4 +2,4 @@
 "@valbuild/ui": patch
 ---
 
-The Sketchpad's preview has the canvas's controls: an address bar you can type another page into, device widths, zoom, fit and reload. The canvas and the Sketchpad now show the site through one component, so the two previews look and behave the same.
+The Sketchpad now uses the Studio's preview instead of a preview of its own. Pressing a page in the Sketchpad shows it in the preview beside it, with the same address bar, device widths, zoom, Select and quick preview as everywhere else, and closing the Sketchpad leaves the preview where it was rather than loading the page again. Review's "Compare with the site" shows both sides in the same preview too.

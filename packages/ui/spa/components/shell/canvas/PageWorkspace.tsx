@@ -644,14 +644,9 @@ export function PageWorkspace({
    * comes and goes cannot explain its own absence. It explains itself instead;
    * see {@link FieldsAwaitingPage}.
    */
-  const mobileMode: MobileMode =
-    pane === "canvas" ? "preview" : view === "fields" ? "fields" : "normal";
+  const mobileMode: MobileMode = view === "fields" ? "fields" : "normal";
   const setMobileMode = useCallback(
     (next: MobileMode) => {
-      if (next === "preview") {
-        onPaneChange("canvas");
-        return;
-      }
       onPaneChange("editor");
       onViewChange(next);
     },
@@ -776,10 +771,10 @@ export function PageWorkspace({
       className={cn(
         "h-full px-4 md:px-6",
         // Clear of whatever is along the bottom: the status bar, or on a phone
-        // the floating bottom bar, which ends 62px up (more under a large
-        // safe area) rather than 56px - see `MobileBottomBar`.
+        // the floating pane bar, which ends 68px up (more under a large
+        // safe area) - see `PhonePaneBar`.
         isPhone
-          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
           : "pb-14",
         paneTopPadding,
       )}
@@ -870,28 +865,29 @@ export function PageWorkspace({
        * being sure about, so where the canvas is a region beside the editor
        * the word is there beside the icon.
        *
-       * Not on a phone. There the canvas is one of three modes, and the way
-       * out of all three is one X on the strip that switches between them — a
-       * second one here would be a way out that exists in one mode and not
-       * the others, which is the sort of "sometimes" this screen is meant to
-       * be rid of.
+       * On a phone the icon alone: the preview is a pane of its own there,
+       * reached from the pane bar, and this is the one way to stop the page
+       * from it.
        */
       headerEnd={
-        !isPhone && (
-          <button
-            type="button"
-            aria-label="Exit Preview"
-            onClick={onCloseCanvas}
-            className={cn(
-              "ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pl-2.5 pr-3",
-              "border border-border-float bg-bg-float text-fg-secondary",
-              "hover:text-fg-primary",
-            )}
-          >
-            <X size={15} />
+        <button
+          type="button"
+          aria-label="Exit Preview"
+          title="Close the preview, and stop the page"
+          onClick={onCloseCanvas}
+          className={cn(
+            "ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md",
+            isPhone ? "w-8 justify-center" : "pl-2.5 pr-3",
+            "border border-border-float bg-bg-float text-fg-secondary",
+            "hover:text-fg-primary",
+          )}
+        >
+          <X size={15} />
+          {/* The word where there is room: on a phone the icon alone. */}
+          {!isPhone && (
             <span className="text-xs font-medium">Exit Preview</span>
-          </button>
-        )
+          )}
+        </button>
       }
       /*
        * A phone starts on the phone layout, and that is not a nicety: a
@@ -975,7 +971,16 @@ export function PageWorkspace({
          */}
         <div
           className="h-full overflow-clip"
-          style={open ? { paddingTop: PHONE_STRIP_CLEARANCE } : undefined}
+          style={
+            open
+              ? {
+                  // Below the strip of Content's header on the editor's
+                  // pane; on the page's, the strip is not there.
+                  paddingTop:
+                    pane === "editor" ? PHONE_STRIP_CLEARANCE : PHONE_STRIP_TOP,
+                }
+              : undefined
+          }
         >
           {/*
            * The transform is dropped while the track is at rest, and that is
@@ -1016,9 +1021,9 @@ export function PageWorkspace({
               // this pane adding another put the address bar 38px under it.
               <div
                 data-val-pane="canvas"
-                // Clears the floating bottom bar, which rises with the safe
-                // area - see `MobileBottomBar`.
-                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+                // Clears the floating pane bar, which rises with the safe
+                // area - see `PhonePaneBar`.
+                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
               >
                 {canvasPane}
               </div>
@@ -1033,7 +1038,7 @@ export function PageWorkspace({
          * and `relative` alone does not scope it — without this the address bar
          * of a page you are not looking at can paint over the strip.
          */}
-        {open && (
+        {open && pane === "editor" && (
           <div
             className="absolute inset-x-3 z-window flex items-center gap-2"
             style={{ top: PHONE_STRIP_TOP }}
@@ -1048,30 +1053,6 @@ export function PageWorkspace({
             />
             <div className="ml-auto" />
             {contentSelectButton(true)}
-            {/*
-             * The way out, from any of the three modes.
-             *
-             * Same height and same shell as the switch beside it. It is a
-             * different kind of thing — a way out rather than a way around, so
-             * it stands apart rather than being a fourth option — but one that
-             * is a couple of pixels shorter than its neighbour reads as a
-             * mistake, not as a distinction.
-             */}
-            <button
-              type="button"
-              aria-label="Exit Preview"
-              onClick={onCloseCanvas}
-              style={{
-                height: PHONE_STRIP_CONTROL_HEIGHT,
-                width: PHONE_STRIP_CONTROL_HEIGHT,
-              }}
-              className={cn(
-                "grid shrink-0 place-items-center rounded-md",
-                "border border-border-float bg-bg-float text-fg-secondary",
-              )}
-            >
-              <X size={15} />
-            </button>
           </div>
         )}
       </div>
@@ -1300,7 +1281,7 @@ export type WorkspacePane = "editor" | "canvas";
  * The view and the pane, as the one question they are on a screen that can only
  * show one of them at a time. See `mobileMode` in `PageWorkspace`.
  */
-type MobileMode = "normal" | "fields" | "preview";
+type MobileMode = "normal" | "fields";
 
 /** One option on {@link MobileModeToggle}. */
 type MobileModeOption = {
@@ -1504,7 +1485,6 @@ function MobileModeToggle({
       icon: ListTree,
       badge: fieldCount,
     },
-    { value: "preview", label: "Preview", icon: Eye },
   ];
   return (
     <SegmentedControl

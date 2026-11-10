@@ -63,7 +63,8 @@ export function AIChatPanel({
       side="right"
       width={AI_PANEL_WIDTH}
       title="AI assistant"
-      mobileVariant="bottom-sheet"
+      // On a phone, one of the workspace's panes (`PhonePaneBar`).
+      mobileVariant="pane"
       // The chat is a transcript above a pinned composer, so the sheet has to
       // have a height for that column to fill. See `FloatingPanel`'s `fill`.
       fill

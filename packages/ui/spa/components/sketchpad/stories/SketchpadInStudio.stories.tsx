@@ -254,9 +254,6 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
       onCompare={() => console.log("open the review view")}
       sketchPane={
         <SketchpadWorkspace
-          // The Sketch pane: the page it is about is in the Studio's own
-          // preview, beside it.
-          preview={null}
           sketchpads={list}
           notice={
             archivedPad && (

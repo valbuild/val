@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MobileBottomBar } from "./MobileChrome";
+import { PhonePaneBar } from "./workspace/PhonePaneBar";
 import { TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { ShellBreakpoint } from "./types";
@@ -59,15 +59,16 @@ function topBar(aiEnabled: boolean, breakpoint: ShellBreakpoint = "desktop") {
   );
 }
 
-function mobileBar(onOpenAI?: () => void) {
+/** The phone's pane bar, with the assistant as one of its panes. */
+function paneBar(onShowAssistant: () => void) {
   return (
-    <MobileBottomBar
-      onPreview={() => undefined}
-      primary={null}
-      onOpenChanges={() => undefined}
-      onOpenActivity={() => undefined}
-      activityCount={0}
-      onOpenAI={onOpenAI}
+    <PhonePaneBar
+      shown="content"
+      panes={[
+        { pane: "content", onShow: () => undefined },
+        { pane: "preview", onShow: () => undefined },
+        { pane: "chat", onShow: onShowAssistant },
+      ]}
     />
   );
 }
@@ -99,16 +100,15 @@ describe("the ways into the assistant", () => {
   });
 
   /**
-   * On a phone the button is in the BOTTOM bar, not the top one.
-   *
-   * The top right corner of a phone is the furthest point from a thumb, and it
-   * already holds navigation, notifications and the account avatar. Two
-   * Sparkles buttons would also be two places to look for one panel, which is
-   * the pair of tests below.
+   * On a phone the assistant is one of the panes in the BOTTOM bar, not a
+   * button in the top one: the top right corner of a phone is the furthest
+   * point from a thumb, and two ways to one pane are two places to look.
    */
-  test("on a phone it is in the bottom bar", () => {
-    render(mobileBar(() => undefined));
-    expect(screen.queryByLabelText("AI assistant")).not.toBeNull();
+  test("on a phone it is a pane in the bottom bar, and tapping it shows it", () => {
+    const onShow = jest.fn();
+    render(paneBar(onShow));
+    fireEvent.click(screen.getByRole("button", { name: "Assistant" }));
+    expect(onShow).toHaveBeenCalledTimes(1);
   });
 
   test("and not in the top bar", () => {
@@ -116,35 +116,19 @@ describe("the ways into the assistant", () => {
     expect(screen.queryByLabelText("AI assistant")).toBeNull();
   });
 
-  test("the phone's button closes the panel it opened", () => {
-    // The top bar's button toggles, and on a phone the panel COVERS the
-    // editor - so a button that only ever opens leaves the obvious way to
-    // dismiss it doing nothing.
-    const onOpenAI = jest.fn();
+  test("the bottom bar has no Assistant pane when the project has no assistant", () => {
     render(
-      <MobileBottomBar
-        onPreview={() => undefined}
-        primary={null}
-        onOpenChanges={() => undefined}
-        onOpenActivity={() => undefined}
-        activityCount={0}
-        onOpenAI={onOpenAI}
-        isAIOpen
+      <PhonePaneBar
+        shown="content"
+        panes={[
+          { pane: "content", onShow: () => undefined },
+          { pane: "preview", onShow: () => undefined },
+        ]}
       />,
     );
-    const button = screen.getByLabelText("AI assistant");
-    expect(button.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(button);
-    // `Shell` hands this a toggle; what is pinned here is that the button is
-    // live while the panel is open rather than inert.
-    expect(onOpenAI).toHaveBeenCalledTimes(1);
-  });
-
-  test("the bottom bar offers none when the project has no assistant", () => {
-    render(mobileBar(undefined));
-    expect(screen.queryByLabelText("AI assistant")).toBeNull();
-    // As above: this hides one button, not the row.
-    expect(screen.queryByLabelText("Activity")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Assistant" })).toBeNull();
+    // As above: this leaves out one pane, not the bar.
+    expect(screen.queryByRole("button", { name: "Content" })).not.toBeNull();
   });
 
   test("the quick actions offer one when there is somewhere to go", () => {
