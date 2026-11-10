@@ -103,6 +103,7 @@ import {
   type WorkspacePane as PhonePane,
 } from "./workspace/workspaceLayout";
 import { PhonePaneBar, type PhonePaneButton } from "./workspace/PhonePaneBar";
+import { PaneTabsProvider } from "./workspace/PaneTabs";
 import { placePanes } from "./workspace/placePanes";
 import { PaneStrip, SideTabs } from "./workspace/WorkspaceChrome";
 import { PaneSwitches, type PaneSwitch } from "./workspace/PaneSwitches";
@@ -1945,20 +1946,26 @@ export function Shell({
                 : undefined
             }
           >
-            {placed?.sketch?.tabs != null && (
-              <SideTabs
-                tabs={placed.sketch.tabs}
-                front="sketch"
-                onChange={usePane}
-              />
-            )}
             <div
               className={cn(
                 "min-h-0 flex-1",
                 placed?.sketch?.sheet === true && "rounded-lg shadow-2xl",
               )}
             >
-              {sketchPane}
+              {/* In the sketch's own header, beside Build: see `PaneTabs`. */}
+              <PaneTabsProvider
+                tabs={
+                  placed?.sketch?.tabs != null ? (
+                    <SideTabs
+                      tabs={placed.sketch.tabs}
+                      front="sketch"
+                      onChange={usePane}
+                    />
+                  ) : null
+                }
+              >
+                {sketchPane}
+              </PaneTabsProvider>
             </div>
           </div>
         )}

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SketchpadList, type SketchpadListProps } from "./SketchpadList";
+import { usePaneTabs } from "../shell/workspace/PaneTabs";
 
 export type SketchpadWorkspaceProps = {
   /** Null when none is open: every one in the project is archived, say. */
@@ -24,14 +25,16 @@ export function SketchpadWorkspace({
   sketchpads,
   notice,
 }: SketchpadWorkspaceProps) {
+  const paneTabs = usePaneTabs();
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-2">
       {notice}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {sketchpad ?? (
           <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border-primary bg-bg-primary">
-            <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
+            <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
               Sketchpads
+              {paneTabs}
             </div>
             <SketchpadList {...sketchpads} archivedOpen />
           </div>

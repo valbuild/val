@@ -18,6 +18,7 @@ import {
   type SketchMediaOption,
 } from "./SketchpadMediaPicker";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
+import { usePaneTabs } from "../shell/workspace/PaneTabs";
 
 /**
  * An image in the chat that this tab has no file of: a grey frame that says
@@ -211,6 +212,8 @@ export function Sketchpad({
     resolve: (media: SketchMedia | null) => void;
   } | null>(null);
   const [started, setStarted] = useState(false);
+  /** Sketch and the Assistant's tabs, while they share a column. */
+  const paneTabs = usePaneTabs();
   const [routeMenu, setRouteMenu] = useState<RouteMenuRequest | null>(null);
   const library = useMemo(() => {
     if (!mediaLibrary) return null;
@@ -322,19 +325,31 @@ export function Sketchpad({
     </button>
   );
 
+  const buildButton = onAskAssistant && (
+    <AskAssistant
+      status={assistantStatus ?? "changed"}
+      onAsk={onAskAssistant}
+      empty={value === ""}
+    />
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border-primary bg-bg-primary text-fg-primary">
+      {/*
+       * Sharing a column with the Assistant, as tabs: what this tab does on
+       * the left, the tabs on the right, and the sketch's name under them.
+       */}
+      {paneTabs !== null && (
+        <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
+          {buildButton}
+          {paneTabs}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-3 py-2">
         {/* On a phone the title has a line of its own, or it is a few letters. */}
         <div className="min-w-0 flex-1 basis-full sm:basis-0">{titleBlock}</div>
         {people && people.length > 0 && <People people={people} />}
-        {onAskAssistant && (
-          <AskAssistant
-            status={assistantStatus ?? "changed"}
-            onAsk={onAskAssistant}
-            empty={value === ""}
-          />
-        )}
+        {paneTabs === null && buildButton}
         {archiveButton}
         {notice && (
           <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />

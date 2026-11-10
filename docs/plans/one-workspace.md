@@ -11,7 +11,7 @@ are **Shell/Workspace layout (prototype)**.
 Do not redo these; build on them.
 
 - **One preview.** `CanvasFrame` is the preview of the content editor, of code
-  mode and of the Sketchpad (`SketchpadPreview`). Code mode no longer has a
+  mode and of the Sketchpad. Code mode no longer has a
   workspace of its own: its view is the code changes (`CodeChanges`) in the
   editor's column, beside the canvas, with the canvas held open
   (`canvasPinned`) and the assistant docked beside it (`dockAssistant`).
@@ -22,9 +22,8 @@ Do not redo these; build on them.
   pins both.
 - **Preview mode turns itself on.** `CanvasPreviewNotice`: a spinner for
   10 s, retries every 5 s for 30 s, then the message with the button.
-- **The design tab is gone** from val. (Its server side in valbuild/home --
-  `framedSignIn`, the "design tab first" server-build gate,
-  `docs/design-tab.md` -- is not removed yet.)
+- **The design tab is gone** from val, and its server side from
+  valbuild/home (#383).
 
 ## The layout
 
@@ -155,11 +154,9 @@ In order, each step shippable on its own:
    and goes with the next message (`AssistantPage`, `takePointedAt`). The
    Studio's assistant has `read_page` and `screenshot_page` while the preview
    is open (`hooks/pageTools.ts`), without `device`: the width is the
-   person's switch. To make pointing work before step 3, the assistant is
-   docked beside the preview on a desktop whenever the preview is open.
-   Still to decide: on a phone, nothing says the Assistant's Select is
-   picking while its sheet is out of the way; and Content's tabs are still
-   called Structure | On page.
+   person's switch. On a phone a pill over the preview says the Assistant's
+   Select is picking (`PointingPill`), and Content's tabs are Content | On
+   this page.
 3. **The layout.** Replace `PageWorkspace`'s editor | canvas split, and
    `Shell`'s `workspaceOverride` (the Sketchpad) and docking rules, with
    `workspaceLayout()`: columns, tabs, strips, sheets. The editor column
@@ -195,6 +192,9 @@ In order, each step shippable on its own:
    sketch no longer opens the assistant with it. A tablet's side pane is a
    sheet over the preview (step 3). The tour's targets are on the pane bar
    (`preview`, `ai`) and the phone's Publish. e2e: `mobile-canvas.spec.ts`.
+   Sharing a column with the Assistant, Sketch's header is Build on the
+   left and the tabs on the right, its name under them (`PaneTabs`), as
+   the Assistant's is Select and the tabs.
 
 Tests to keep honest: `workspaceLayout.test.ts` (the rule), the canvas and
 code-mode e2e specs (`canvasSuite.ts`, `previewFollowsBuild.spec.ts`), and
