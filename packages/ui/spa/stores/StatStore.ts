@@ -1,6 +1,7 @@
 import type { PatchId } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
+import type { CarriedManifest } from "./manifestSource";
 
 /**
  * The subset of the `/stat` response this prototype reacts to.
@@ -108,6 +109,11 @@ export type StatSnapshot = {
    * deletions" in `docs/plans/one-content-model.md`.
    */
   sourcesSha?: string;
+  /**
+   * The manifest the answer carried, handed on with `stat:receive` for the
+   * manifest source (`CarriedManifest`). Absent when it carried none.
+   */
+  manifest?: CarriedManifest;
 };
 
 /**
@@ -162,6 +168,17 @@ export class StatStore {
    * — so this guard is what is left for a server that does not.
    */
   private supersededHead: string | null = null;
+
+  /**
+   * A `/stat` is being sent, and the answer to it is the next one this store
+   * receives: the poll is serial. Said so the manifest that answer carries is
+   * decided at THIS moment -- a patch saved after it may be missing from that
+   * manifest without being gone (`ManifestSource`). A caller that never says
+   * so gets no manifest taken from its stats, and the manifest is asked for.
+   */
+  asked(): void {
+    this.events.emit({ type: "stat:ask" });
+  }
 
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
@@ -222,6 +239,9 @@ export class StatStore {
         ? { headVersion: snapshot.headVersion }
         : {}),
       ...(this.seq !== undefined ? { seq: this.seq } : {}),
+      ...(snapshot.manifest !== undefined
+        ? { manifest: snapshot.manifest }
+        : {}),
     });
   }
 

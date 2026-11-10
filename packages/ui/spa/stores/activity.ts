@@ -154,6 +154,11 @@ export type WorkKind =
    * edit, confirmed. Nothing was asked for it.
    */
   | "manifest:memory-hit"
+  /**
+   * A version the manifest named was the one held, extended with patch
+   * records the patch store had fetched anyway: nothing was asked for it.
+   */
+  | "manifest:records-hit"
   /** One `GET /modules`: a module, or the patches from the version held. */
   | "manifest:origin"
   /** Published patches taken out of the chain, source left alone. */

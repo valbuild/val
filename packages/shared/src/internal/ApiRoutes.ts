@@ -384,6 +384,68 @@ const SketchErrorZ = z.object({ line: z.number(), message: z.string() });
 /** The most text a sketchpad holds, in UTF-8 bytes: a page, not a site. */
 export const SKETCHPAD_MAX_TEXT_LENGTH = 256 * 1024;
 
+/**
+ * A manifest as the server answers it: what each module IS on the server
+ * (`GET /manifest`, and the same answer on `/stat` when the Studio asks for it
+ * there -- one function on the server answers both, `manifestAnswer`).
+ */
+export const ManifestJson = z.object({
+  project: ProjectVersionSchema,
+  modules: z.record(ModuleFilePath, ModuleVersionSchema),
+  /** This answer's ETag, as the header has it. */
+  tag: z.string().optional(),
+  /**
+   * Present on a delta only: the `seq` of the manifest it is
+   * relative to, whose modules that are not named here did not
+   * move. Absent: every module is named.
+   */
+  since: z.number().optional(),
+  /**
+   * The build that answered is a previous build still answering
+   * (http mode: the content service counted a newer one live).
+   * Its versions are right for its own bases, which the site does
+   * not serve any more: a Studio does not move to them, and asks
+   * again. Optional: absent from a live build and a server of the
+   * release before.
+   */
+  superseded: z.boolean().optional(),
+  /**
+   * The answering build's `val.modules` registry, as an entry a
+   * Studio can import (`valModulesEntryPath`), and the Val it
+   * runs: where a Studio opened on another build takes this
+   * build's code in without reloading the page. Only a build the
+   * platform made and names (`publishBuild`) has one. Optional
+   * both ways: absent from any other server (local development,
+   * where HMR brings the code; a self-hosted deploy) and from a
+   * server of the release before, and ignored by a Studio of the
+   * release before.
+   */
+  registry: z.object({ entry: z.string(), core: z.string() }).optional(),
+});
+
+export type ManifestJsonT = z.infer<typeof ManifestJson>;
+
+/**
+ * The manifest a `/stat` answer carries, when the request said which one the
+ * Studio holds (`manifest` on the request): what `GET /manifest` would have
+ * answered for it, so another editor's keystroke costs no manifest request.
+ *
+ * - A manifest, whole or a delta. A delta names the ETag it is relative to
+ *   (`sinceTag`): a Studio uses it only while it holds exactly that one.
+ * - `unchanged`: the manifest the request named, at `seq`, is still the
+ *   one for this answer's `seq`. Decided by `seq` alone, and not read: a
+ *   Studio reads a manifest only for a stat whose `seq` moved. It keeps the
+ *   next request naming the same manifest.
+ *
+ * Optional: absent from a server of the release before, and from an answer
+ * to a request that did not ask, and then the Studio reads `GET /manifest`.
+ */
+export const StatManifest = z.union([
+  ManifestJson.extend({ sinceTag: z.string().optional() }),
+  z.object({ unchanged: z.literal(true), tag: z.string(), seq: z.number() }),
+]);
+export type StatManifestT = z.infer<typeof StatManifest>;
+
 export const Api = {
   "/draft/enable": {
     GET: {
@@ -848,41 +910,7 @@ export const Api = {
         }),
         z.object({
           status: z.literal(200),
-          json: z.object({
-            project: ProjectVersionSchema,
-            modules: z.record(ModuleFilePath, ModuleVersionSchema),
-            /** This answer's ETag, as the header has it. */
-            tag: z.string().optional(),
-            /**
-             * Present on a delta only: the `seq` of the manifest it is
-             * relative to, whose modules that are not named here did not
-             * move. Absent: every module is named.
-             */
-            since: z.number().optional(),
-            /**
-             * The build that answered is a previous build still answering
-             * (http mode: the content service counted a newer one live).
-             * Its versions are right for its own bases, which the site does
-             * not serve any more: a Studio does not move to them, and asks
-             * again. Optional: absent from a live build and a server of the
-             * release before.
-             */
-            superseded: z.boolean().optional(),
-            /**
-             * The answering build's `val.modules` registry, as an entry a
-             * Studio can import (`valModulesEntryPath`), and the Val it
-             * runs: where a Studio opened on another build takes this
-             * build's code in without reloading the page. Only a build the
-             * platform made and names (`publishBuild`) has one. Optional
-             * both ways: absent from any other server (local development,
-             * where HMR brings the code; a self-hosted deploy) and from a
-             * server of the release before, and ignored by a Studio of the
-             * release before.
-             */
-            registry: z
-              .object({ entry: z.string(), core: z.string() })
-              .optional(),
-          }),
+          json: ManifestJson,
         }),
         /*
          * Nothing moved since the ETag the client sent. No body on the wire;
@@ -928,6 +956,16 @@ export const Api = {
              * thunk that `JSON.stringify` drops.
              */
             jsonEntriesSha: z.string().optional(),
+            /**
+             * The manifest the Studio holds, by its ETag and `seq`, so the
+             * answer can carry what moved since (`manifest` on the answer):
+             * `null` when it holds none and can take one. Absent from a
+             * Studio of the release before, which reads `GET /manifest`.
+             */
+            manifest: z
+              .object({ tag: z.string(), seq: z.number() })
+              .nullable()
+              .optional(),
           })
           .nullable(),
         cookies: {
@@ -1073,6 +1111,8 @@ export const Api = {
                * that predates versions sends none.
                */
               version: ProjectVersionSchema.optional(),
+              /** See {@link StatManifest}. */
+              manifest: StatManifest.optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -1220,6 +1260,8 @@ export const Api = {
                * that predates versions sends none.
                */
               version: ProjectVersionSchema.optional(),
+              /** See {@link StatManifest}. */
+              manifest: StatManifest.optional(),
             }),
           ]),
         }),

@@ -569,6 +569,51 @@ export class PatchStore {
     for (const patchId of missing) {
       this.fetching.add(patchId);
     }
+    const fetched = this.fetchMissing(missing);
+    this.inFlight.add(fetched);
+    try {
+      await fetched;
+    } finally {
+      this.inFlight.delete(fetched);
+    }
+  }
+
+  /**
+   * Fetches under way, each settled once its records are in (or decided not
+   * delivered): what {@link serverRecordsOf} waits for.
+   */
+  private inFlight = new Set<Promise<void>>();
+
+  /**
+   * The records of one module's patches that the SERVER holds -- the chain
+   * minus this Studio's unsaved ones -- in chain order, once the fetches in
+   * flight have landed. What the manifest source extends the server's version
+   * of the module with, rather than asking the origin for patches this store
+   * already fetched (`ManifestSource.resolve`).
+   *
+   * Waits a turn first: the manifest source hears a stat before this store
+   * does, and the fetch for it starts when this store hears it.
+   */
+  async serverRecordsOf(
+    moduleFilePath: ModuleFilePath,
+  ): Promise<{ patchId: PatchId; patch: Patch }[]> {
+    await Promise.resolve();
+    while (this.inFlight.size > 0) {
+      await Promise.all([...this.inFlight]);
+    }
+    const records: { patchId: PatchId; patch: Patch }[] = [];
+    for (const patchId of this.ordered) {
+      if (this.pendingIds.has(patchId)) continue;
+      const record = this.dataById.get(patchId);
+      if (record === undefined || record.moduleFilePath !== moduleFilePath) {
+        continue;
+      }
+      records.push({ patchId, patch: record.patch });
+    }
+    return records;
+  }
+
+  private async fetchMissing(missing: PatchId[]): Promise<void> {
     // One record per ROUND TRIP, with the batch size, not one per id: the cost
     // being watched here is the request, and a test asserting "one fetch, five
     // ids" would be unable to tell that from five fetches otherwise.

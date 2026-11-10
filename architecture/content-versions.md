@@ -242,6 +242,13 @@ Every module's version and the project's, answered from the head
 - **`registry`**: the answering build's `val.modules` as an ES module a
   Studio can import, and the `@valbuild/core` it runs. Only a build the
   platform made names one. See "Code changes".
+- **On `/stat` too** (`StatManifest`): a `/stat` whose body names the
+  manifest the Studio holds (`manifest: { tag, seq }`, or `null` for none)
+  is answered with the manifest as well -- the same answer, from the same
+  function (`manifestAnswer` in `ValServer.ts`), with the held tag as
+  `sinceTag` on a delta. While the stat's `seq` is the held one's it is not
+  read at all: `{ unchanged: true, tag, seq }` hands the held one back, so a
+  poll that found nothing costs the content service nothing more.
 
 ### `GET /modules/~<path>[?v=<moduleKey>][&have=<moduleKey>]`
 
@@ -545,7 +552,9 @@ waking per path); this is how the content under them is loaded.
 [`packages/ui/spa/stores/manifestSource.ts`](../packages/ui/spa/stores/manifestSource.ts):
 after each `/stat` the stores adopt whose `seq` moved, it reads
 `GET /manifest` "since `seq` N" with the held tag (a 304 while nothing
-moved), shows the manifest to `BuildCode` first (see "Code changes"), reads
+moved) -- or takes the one the stat carried, when that is whole or a delta
+from exactly the tag it holds -- shows the manifest to `BuildCode` first
+(see "Code changes"), reads
 each module at the version named, and moves the source store to all of them
 in ONE turn (`SourceStore.adoptServer`). One read at a time; a stat during
 one reads again after it. A read that fails decides nothing, and the next
@@ -567,12 +576,18 @@ names, the records the review lists); the content follows the manifest.
    `GET /modules` for your own edit is a bug.
 3. **The bundle**: a version with the empty chain on the bundle's base needs
    nothing read.
-4. **`originTier`** ([`originTier.ts`](../packages/ui/spa/stores/originTier.ts)):
+4. **The patch store's records**: the server's version held, extended with
+   the module's records the patch store fetched for the stat and the held
+   version does not have (`PatchStore.serverRecordsOf`, which waits for the
+   fetch in flight), through the same `SourceStore.extendServer` as the
+   origin's delta, and taken only when the chain it computes is the one
+   named. So another editor's keystroke reads no module at all.
+5. **`originTier`** ([`originTier.ts`](../packages/ui/spa/stores/originTier.ts)):
    `GET /modules/~<path>?v=`, with the server's version held of the same
-   schema and base as `have`, so another editor's keystroke is one patch. A
-   base the bundle was not built with (a content version, a publish, a
-   proposal's saves) is read by its version (the empty chain), then the
-   patches from it.
+   schema and base as `have`, so a version the records could not make is
+   the patches from it. A base the bundle was not built with (a content
+   version, a publish, a proposal's saves) is read by its version (the empty
+   chain), and its patches come from the records when they can.
 
 These are the store's tiers, but not the shared `tiered`: the Studio's memory
 holds `ModuleAt`s (content plus what applied and what failed), and the order
@@ -613,7 +628,11 @@ than a patch it does not name. A patch a `/stat` stopped naming is gone when
 the server's version of its module does not have it AND the manifest naming
 that version was asked for after this Studio held the patch (its record
 arrived, or its save was confirmed): `PatchStore.decidedGone`, ordered by
-`nextManifestEpoch`, a counter of the tab's own. It is settled at the stat and
+`nextManifestEpoch`, a counter of the tab's own. A manifest a `/stat`
+carried was asked for when that stat was (`StatStore.asked`, `stat:ask`), so
+it decides at that moment, not when it is read: a save confirmed while the
+stat was out may be missing from it without being gone. A stat whose asking
+nobody said carries a manifest that is not taken. It is settled at the stat and
 again when its manifest lands (`PatchStore.manifestAdopted`). A moved base
 says it was published rather than discarded.
 
