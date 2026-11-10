@@ -111,14 +111,19 @@ assistant a sheet over the preview when in use; 390 → one pane.
 
 ## Open (ask before building on a guess)
 
-6. **Quick preview** (a proposal's staged code shown before a build) had its
-   only UI in the design tab: bring it to code mode's status, or drop it?
-7. **Code checkpoints** (the design tab's history menu): keep in the `</>`
-   menu, or drop?
+Nothing at the moment. Answered (and moved to Decided above): 1 (strips),
+2 (History takes the preview's place), 3 (the phone's bar is the four
+panes), 4 (a sheet on a tablet), 5 (560 px), 8 (the code diff is in
+Review). 6 (quick preview) was answered by #1022: it is in code mode's
+status, made by Val Build a second after the staged files stop changing.
 
-Answered (and moved to Decided below): 1 (strips), 2 (History takes the
-preview's place), 3 (the phone's bar is the four panes), 4 (a sheet on a
-tablet), 5 (560 px), 8 (the code diff is in Review).
+## Later
+
+- **Code checkpoints.** The design tab had a history menu of the
+  proposal's code, to go back to an earlier state of it; it went with the
+  design tab, and nothing has it now. To come back, in the `</>` menu: the
+  points the code was at (each staging, or each Build), and going back to
+  one as a new staging, so going back is itself something to go back from.
 
 ## How to build it
 
