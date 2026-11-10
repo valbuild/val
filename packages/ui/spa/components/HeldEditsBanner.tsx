@@ -90,8 +90,19 @@ export function heldEditPrompt(edit: HeldEditView): string {
     const where =
       change.path === "" ? "the module's root" : `\`${change.path}\``;
     switch (change.value.kind) {
-      case "text":
-        return `- ${where} was set to:\n\n\`\`\`\n${change.value.text}\n\`\`\``;
+      case "text": {
+        // A fence longer than any run of backticks in the value, so a value
+        // that holds one cannot close it early.
+        const fence = "`".repeat(
+          Math.max(
+            3,
+            ...[...change.value.text.matchAll(/`+/g)].map(
+              (m) => m[0].length + 1,
+            ),
+          ),
+        );
+        return `- ${where} was set to:\n\n${fence}\n${change.value.text}\n${fence}`;
+      }
       case "removed":
         return `- ${where} was removed.`;
       case "moved":

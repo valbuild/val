@@ -181,3 +181,27 @@ test("where the assistant cannot be asked, no button offers it", () => {
   ).toBe(null);
   expect(screen.queryByText(/have the assistant do it/)).toBe(null);
 });
+
+test("a value with a code fence in it does not close the prompt's fence", () => {
+  const [edit] = heldEditsOf(
+    [
+      {
+        patchId: p1,
+        moduleFilePath: PAGE,
+        patch: [
+          {
+            op: "replace",
+            path: ["body"],
+            value: "Run:\n```\npnpm dev\n```\nthen open /val",
+          },
+        ],
+      },
+    ],
+    [{ patchId: p1, moduleFilePath: PAGE, message: "Cannot replace: no body" }],
+  );
+  const prompt = heldEditPrompt(edit);
+  // The value's own ``` is inside a longer fence, which closes after it.
+  expect(prompt).toContain(
+    "````\nRun:\n```\npnpm dev\n```\nthen open /val\n````",
+  );
+});

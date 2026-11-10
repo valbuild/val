@@ -246,7 +246,11 @@ export function createValRequestHandler<Res>(
         query = queryRes.data;
       }
       // `redirect_to` is a URL or a path on this site: see `resolveRedirectTo`.
-      if ("redirect_to" in query && typeof query.redirect_to === "string") {
+      if (
+        "redirect_to" in query &&
+        typeof query.redirect_to === "string" &&
+        query.redirect_to !== ""
+      ) {
         const resolved = resolveRedirectTo(query.redirect_to, url.origin);
         if (!resolved.ok) {
           return { status: 400, json: { message: resolved.message } };

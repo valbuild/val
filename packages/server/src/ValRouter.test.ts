@@ -116,7 +116,13 @@ describe("ValRouter", () => {
 
     test("anything else is refused, saying what is accepted", async () => {
       // `//host/path` is another host's URL without a scheme, not a path here.
-      for (const value of ["page", "//evil.example/page"]) {
+      // `/\\host/path` starts with one slash, and a URL parser reads the
+      // backslash as a second: another host too.
+      for (const value of [
+        "page",
+        "//evil.example/page",
+        "/\\evil.example/page",
+      ]) {
         const res = await enable(value);
         expect(res.status).toBe(400);
         expect("json" in res && res.json).toEqual({
