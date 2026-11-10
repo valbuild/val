@@ -233,7 +233,11 @@ export function useProposalsBar({
    * Code mode's workspace, for the person whose view it is: what replaces
    * the editor and the canvas. `null` when they see the content editor.
    */
-  codeWorkspace: { name: string; build: CodeModeBuild } | null;
+  /**
+   * The proposal's code changes, while code mode is on: what Review shows
+   * beside the content changes.
+   */
+  codeChanges: { name: string; build: CodeModeBuild } | null;
 } {
   const mode = useValMode();
   const config = useValConfig();
@@ -1582,7 +1586,7 @@ export function useProposalsBar({
       upgrade: null,
       upgradeSettings: null,
       siteUrl: null,
-      codeWorkspace: null,
+      codeChanges: null,
     };
   }
 
@@ -1922,10 +1926,8 @@ export function useProposalsBar({
     upgrade: upgrade.button,
     upgradeSettings: upgrade.settings,
     siteUrl,
-    codeWorkspace:
-      here !== null && codeOn && codeModeStore.view === "code"
-        ? { name: here.name, build: codeBuild }
-        : null,
+    codeChanges:
+      here !== null && codeOn ? { name: here.name, build: codeBuild } : null,
   };
 }
 

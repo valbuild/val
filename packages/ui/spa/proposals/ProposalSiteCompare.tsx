@@ -1,3 +1,5 @@
+import { CodeChangesConnected } from "../components/proposals/CodeChangesConnected";
+import type { CodeModeBuild } from "../components/proposals/CodeModeStatus";
 import { useCallback, useMemo } from "react";
 import type { SourcePath } from "@valbuild/core";
 import { CompareDialog } from "../compare/CompareDialog";
@@ -36,6 +38,8 @@ export function ProposalSiteCompare({
   open,
   onOpenChange,
   portalContainer,
+  code,
+  initialView,
 }: {
   changes: SiteChanges;
   /** Where the site is served; null until the proposals list has said. */
@@ -43,6 +47,13 @@ export function ProposalSiteCompare({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   portalContainer?: HTMLElement | null;
+  /**
+   * The proposal's code changes, while code mode is on: in Review with the
+   * content changes, rather than a view of the Studio of their own.
+   */
+  code?: { name: string; build: CodeModeBuild; onReload: () => void };
+  /** Open on the code changes. */
+  initialView?: "code";
 }) {
   if (!open || changes.status === "off") return null;
   if (changes.status !== "ready") {
@@ -88,6 +99,8 @@ export function ProposalSiteCompare({
         changes={changes}
         siteUrl={siteUrl}
         onOpenChange={onOpenChange}
+        code={code}
+        initialView={initialView}
       />
     </CompareBeforeSourcesContext.Provider>
   );
@@ -99,10 +112,14 @@ function MountedSiteCompare({
   changes,
   siteUrl,
   onOpenChange,
+  code,
+  initialView,
 }: {
   changes: Extract<SiteChanges, { status: "ready" }>;
   siteUrl: string | null;
   onOpenChange: (open: boolean) => void;
+  code?: { name: string; build: CodeModeBuild; onReload: () => void };
+  initialView?: "code";
 }) {
   const currentAuthorId = useCurrentAuthorId();
   const renderValue = useCallback(
@@ -141,6 +158,24 @@ function MountedSiteCompare({
       mode="http"
       currentAuthorId={currentAuthorId}
       renderPage={renderPage}
+      code={
+        code === undefined
+          ? undefined
+          : {
+              label: "Code changes",
+              render: () => (
+                <CodeChangesConnected
+                  name={code.name}
+                  build={code.build}
+                  onReload={code.onReload}
+                  // Back to the content: Review closes, and the Studio is
+                  // where it was.
+                  onEditContent={() => onOpenChange(false)}
+                />
+              ),
+            }
+      }
+      initialView={initialView}
     />
   );
 }

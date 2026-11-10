@@ -122,10 +122,13 @@ export const CodeModeOnLight = shell({
   renderChat: codeChat(MESSAGES),
 });
 
-/** Changes: the proposal's code against the site's. */
+/**
+ * The code changes: in Review ("Compare with the site"), beside the content
+ * changes, as the `</>` menu's "Code changes" opens it.
+ */
 export const CodeModeChanges = shell({
   location: inProposal({ unsaved: 0 }),
-  codeMode: { on: true, view: "changes" },
+  codeMode: { on: true, view: "changes", reviewOpen: true },
   saveBuilds: true,
   renderChat: codeChat(MESSAGES),
 });

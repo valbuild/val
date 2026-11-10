@@ -62,6 +62,12 @@ export type TopBarCodeMode = {
    */
   view?: CodeModeView;
   onViewChange?: (view: CodeModeView) => void;
+  /**
+   * Show the proposal's code changes: in Review, beside the content
+   * changes. Where it is given, it is the one way to them, and the views
+   * above are not offered.
+   */
+  onShowCode?: () => void;
   /** On the site: go to this proposal, with code mode on. */
   onOpenProposalInCodeMode: (name: string) => void;
   /** On the site: make a new proposal, and open it with code mode on. */
@@ -223,24 +229,40 @@ export function CodeModeButton({
               </p>
             </div>
             <div className="my-1 border-t border-border-float" />
-            {codeMode.onViewChange !== undefined && (
+            {codeMode.onShowCode !== undefined ? (
               <>
                 <ViewItem
-                  selected={view === "code"}
+                  selected={false}
                   icon={<CodeXml size={14} />}
                   label="Code changes"
-                  detail="The proposal as its code is now"
-                  onClick={chooseView("code")}
-                />
-                <ViewItem
-                  selected={view === "content"}
-                  icon={<PencilLine size={14} />}
-                  label="Content editor"
-                  detail="Edit content while the code changes"
-                  onClick={chooseView("content")}
+                  detail="In Review, beside the content changes"
+                  onClick={() => {
+                    setIsOpen(false);
+                    codeMode.onShowCode?.();
+                  }}
                 />
                 <div className="my-1 border-t border-border-float" />
               </>
+            ) : (
+              codeMode.onViewChange !== undefined && (
+                <>
+                  <ViewItem
+                    selected={view === "code"}
+                    icon={<CodeXml size={14} />}
+                    label="Code changes"
+                    detail="The proposal as its code is now"
+                    onClick={chooseView("code")}
+                  />
+                  <ViewItem
+                    selected={view === "content"}
+                    icon={<PencilLine size={14} />}
+                    label="Content editor"
+                    detail="Edit content while the code changes"
+                    onClick={chooseView("content")}
+                  />
+                  <div className="my-1 border-t border-border-float" />
+                </>
+              )
             )}
             <button
               type="button"

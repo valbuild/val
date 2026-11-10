@@ -156,7 +156,6 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
-import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
 import { useBuildEpoch } from "./canvas/useServedBuild";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
@@ -1207,12 +1206,6 @@ function ValShellBody({
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
   const documentKey = `${buildEpoch}:${codeReloads}`;
-  /**
-   * In code mode's view the column beside the canvas holds the code changes,
-   * so a field picked on the page has nowhere to open: picking one puts the
-   * content editor back. Set once the proposals bar is known, below.
-   */
-  const leaveCodeView = useRef<(() => void) | null>(null);
   const openPickedPath = useCallback(
     (paths: SourcePath[]): boolean => {
       const path = paths[0];
@@ -1305,7 +1298,6 @@ function ValShellBody({
          */
         onPick={(paths) => {
           if (!openPickedPath(paths)) return;
-          leaveCodeView.current?.();
           onPicked(paths[0] ?? null);
         }}
         onPickingStopped={onPickingStopped}
@@ -1494,7 +1486,16 @@ function ValShellBody({
   const inProposal = useCurrentProposal() !== null;
   const siteChanges = useSiteChanges(inProposal);
   const [siteCompareOpen, setSiteCompareOpen] = useState(false);
-  const openSiteCompare = useCallback(() => setSiteCompareOpen(true), []);
+  /** Review opened on the code changes, from code mode's menu. */
+  const [siteCompareOnCode, setSiteCompareOnCode] = useState(false);
+  const openSiteCompare = useCallback(() => {
+    setSiteCompareOnCode(false);
+    setSiteCompareOpen(true);
+  }, []);
+  const openCodeChanges = useCallback(() => {
+    setSiteCompareOnCode(true);
+    setSiteCompareOpen(true);
+  }, []);
   const {
     proposals: proposalsBar,
     dialogs: proposalDialogs,
@@ -1503,7 +1504,7 @@ function ValShellBody({
     upgrade,
     upgradeSettings,
     siteUrl: proposalSiteUrl,
-    codeWorkspace,
+    codeChanges,
   } = useProposalsBar({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
@@ -1511,8 +1512,11 @@ function ValShellBody({
     owners: studioAccess.access?.owners ?? NO_OWNERS,
     projectUrl: studioAccess.access?.projectUrl ?? null,
   });
-  const setCodeView = proposalsBar?.codeMode?.onViewChange;
-  const inCodeView = codeWorkspace !== null;
+  /*
+   * Code mode holds the preview open: what the code changes is seen there,
+   * and the changes themselves are in Review (`openCodeChanges`).
+   */
+  const inCodeMode = codeChanges !== null;
   /*
    * In code mode the Assistant's Select takes any element, outlined in the
    * proposal's colour: the one the chrome wears, read off the Studio's own
@@ -1543,12 +1547,6 @@ function ValShellBody({
           },
     );
   }, [codeModeOn, portalContainer]);
-  useEffect(() => {
-    leaveCodeView.current =
-      inCodeView && setCodeView !== undefined
-        ? () => setCodeView("content")
-        : null;
-  }, [inCodeView, setCodeView]);
 
   /**
    * The settings panel's sections.
@@ -1584,9 +1582,22 @@ function ValShellBody({
   const proposals = useMemo(
     () =>
       proposalsBar && inProposal
-        ? { ...proposalsBar, onCompare: openSiteCompare }
+        ? {
+            ...proposalsBar,
+            onCompare: openSiteCompare,
+            // The code changes are in Review, with the content changes, not
+            // a view of their own (the plan's open question 8).
+            ...(proposalsBar.codeMode !== undefined
+              ? {
+                  codeMode: {
+                    ...proposalsBar.codeMode,
+                    onShowCode: openCodeChanges,
+                  },
+                }
+              : {}),
+          }
         : proposalsBar,
-    [proposalsBar, inProposal, openSiteCompare],
+    [proposalsBar, inProposal, openSiteCompare, openCodeChanges],
   );
 
   /**
@@ -1754,7 +1765,7 @@ function ValShellBody({
              * is held open, and the assistant that changes the page is docked
              * beside it rather than over it.
              */
-            canvasPinned={inCodeView}
+            canvasPinned={inCodeMode}
             assistantSelect={
               isAIChatEnabled
                 ? {
@@ -1809,17 +1820,7 @@ function ValShellBody({
                   )
                 : undefined
             }
-            editorOverride={
-              overrideEditor ??
-              (codeWorkspace !== null ? (
-                <CodeChangesConnected
-                  name={codeWorkspace.name}
-                  build={codeWorkspace.build}
-                  onReload={() => setCodeReloads((count) => count + 1)}
-                  onEditContent={() => setCodeView?.("content")}
-                />
-              ) : undefined)
-            }
+            editorOverride={overrideEditor}
             notice={editorNotice}
             floatingNotices={
               saveFailedNotice === null
@@ -1980,6 +1981,16 @@ function ValShellBody({
             open={siteCompareOpen}
             onOpenChange={setSiteCompareOpen}
             portalContainer={portalContainer}
+            code={
+              codeChanges !== null
+                ? {
+                    name: codeChanges.name,
+                    build: codeChanges.build,
+                    onReload: () => setCodeReloads((count) => count + 1),
+                  }
+                : undefined
+            }
+            initialView={siteCompareOnCode ? "code" : undefined}
           />
           {handoff.state !== null && handoffCardInStudio(handoff.state) && (
             /*

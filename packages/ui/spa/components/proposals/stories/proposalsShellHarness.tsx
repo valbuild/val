@@ -32,6 +32,8 @@ import {
 } from "../ProposalBar";
 import type { PreviewProblem } from "../PreviewProblemCard";
 import { CodeChanges, type CodeModeBuild } from "../CodeChanges";
+import { CompareDialog } from "../../../compare/CompareDialog";
+import { siteBasisModel } from "../../../compare/fixtures";
 import type { CodeModeView } from "../CodeModeButton";
 import {
   CommitRefusedNotice,
@@ -239,6 +241,8 @@ export type HarnessProps = {
      * (`CodeModeView`): someone else's assistant is changing the code.
      */
     contentView?: boolean;
+    /** Review open on the code changes, as the `</>` menu opens it. */
+    reviewOpen?: boolean;
   };
   /**
    * A project connected to git: Commit beside Publish in Save's menu.
@@ -354,6 +358,9 @@ export function ProposalsShell({
     }
   }, [buildOn]);
   const [codeChanged, setCodeChanged] = useState(codeMode?.changed ?? true);
+  const [reviewOnCode, setReviewOnCode] = useState(
+    codeMode?.reviewOpen === true,
+  );
   // The `</>` menu, opened by a chat's "Choose a proposal…" on the site.
   const [codeMenuRequests, setCodeMenuRequests] = useState(0);
   // A proposal made from "New proposal in code mode…" opens in code mode.
@@ -625,6 +632,8 @@ export function ProposalsShell({
             },
             view: codeView,
             onViewChange: setCodeView,
+            // As `ValShell`: the code changes are in Review.
+            onShowCode: () => setReviewOnCode(true),
             onOpenProposalInCodeMode: openInCodeMode,
             onNewProposalInCodeMode: () => {
               newInCodeMode.current = true;
@@ -742,20 +751,33 @@ export function ProposalsShell({
     });
   }
   /*
-   * Code mode does not replace the workspace: the canvas is the same page in
-   * every mode, and code mode's view is the code changes in the editor's
-   * column, beside it. As `ValShell`.
+   * Code mode holds the preview open; its changes are in Review, beside the
+   * content changes, opened from the `</>` menu. As `ValShell`.
    */
-  const inCodeView = codeModeOn && codeView === "code";
-  const codeChanges = inCodeView ? (
-    <CodeChanges
-      build={codeBuild}
-      onReload={action("reload the preview")}
-      files={codeChanged ? FILES : []}
-      diffOf={(path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)}
-      onEditContent={() => setCodeView("content")}
+  const reviewWithCode = reviewOnCode ? (
+    <CompareDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) setReviewOnCode(false);
+      }}
+      model={siteBasisModel}
+      code={{
+        label: "Code changes",
+        render: () => (
+          <CodeChanges
+            build={codeBuild}
+            onReload={action("reload the preview")}
+            files={codeChanged ? FILES : []}
+            diffOf={(path) =>
+              lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null)
+            }
+            onEditContent={() => setReviewOnCode(false)}
+          />
+        ),
+      }}
+      initialView="code"
     />
-  ) : undefined;
+  ) : null;
   const sitePage = (
     <SiteMock
       testimonials={
@@ -786,14 +808,14 @@ export function ProposalsShell({
 
   return (
     <>
+      {reviewWithCode}
       <Shell
         initialPanel={panel ?? (chat !== undefined ? "ai" : null)}
         {...(chat !== undefined ? { aiEnabled: true, aiSlot: chat } : {})}
-        {...(codeChanges !== undefined ? { editorOverride: codeChanges } : {})}
         // The site, as the canvas shows it: the same page in every mode.
         renderCanvas={() => sitePage}
-        initialCanvasOpen={inCodeView}
-        canvasPinned={inCodeView}
+        initialCanvasOpen={codeModeOn}
+        canvasPinned={codeModeOn}
         initialSelectionId={selectionId ?? null}
         /*
          * In a proposal the status bar names its branch, as `useShellData`
