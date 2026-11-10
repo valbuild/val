@@ -69,7 +69,6 @@ export class BoxView implements NodeView {
   private readonly header: HTMLElement;
   private readonly icon: SVGSVGElement;
   private readonly kind: HTMLButtonElement;
-  private readonly badge: HTMLElement;
   private readonly grip: HTMLElement;
   private readonly media: HTMLElement;
   private readonly actions: HTMLElement;
@@ -85,7 +84,9 @@ export class BoxView implements NodeView {
   ) {
     this.node = node;
     this.dom = document.createElement("div");
-    this.header = el("div", "flex items-center gap-1.5");
+    // One line, inside the box however narrow its column: the kind is cut
+    // short rather than wrapped, and says itself in full on hover.
+    this.header = el("div", "flex min-w-0 items-center gap-1.5");
     this.header.contentEditable = "false";
     this.icon = document.createElementNS(SVG, "svg");
     for (const [name, value] of Object.entries({
@@ -103,26 +104,19 @@ export class BoxView implements NodeView {
     this.icon.appendChild(document.createElementNS(SVG, "path"));
     this.kind = el(
       "button",
-      "cursor-pointer rounded px-0.5 text-[11px] font-medium text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
+      "min-w-0 cursor-pointer truncate rounded px-0.5 text-left text-[11px] font-medium text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
     );
     this.kind.type = "button";
-    this.kind.title = "Change what kind of box this is";
     this.kind.addEventListener("click", () => this.editKind());
-    this.badge = el(
-      "span",
-      "rounded-full border border-border-warning-secondary bg-bg-warning-secondary px-1.5 text-[10px] font-medium text-fg-warning-secondary",
-    );
-    this.badge.title =
-      "The site has no block of this kind yet, so building it means writing code for it. Pick one of the site's kinds to stay with what it already has.";
     this.grip = gripElement(
       "Drag to move this box",
       (event) => {
         const pos = this.getPos();
         if (pos !== undefined) startBlockDrag(this.view, pos, event, this.dom);
       },
-      "-ml-1 flex h-4 w-4 cursor-grab items-center justify-center rounded text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
+      "-ml-1 flex h-4 w-4 shrink-0 cursor-grab items-center justify-center rounded text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
     );
-    this.header.append(this.grip, this.icon, this.kind, this.badge);
+    this.header.append(this.grip, this.icon, this.kind);
 
     this.media = el("div", "");
     this.media.contentEditable = "false";
@@ -215,11 +209,8 @@ export class BoxView implements NodeView {
     this.icon.style.display = path ? "" : "none";
     this.icon.firstElementChild?.setAttribute("d", path ?? "");
     this.kind.textContent = kind;
+    this.kind.title = `${kind}: press to change what kind of box this is`;
     this.kind.style.display = inline ? "none" : "";
-    const types = this.options.getBlockTypes();
-    const isNew = types !== null && !inline && !isKnownKind(types, kind);
-    this.badge.style.display = isNew ? "" : "none";
-    this.badge.textContent = isNew ? "New type: needs code" : "";
     this.grip.style.display = this.view.editable && !inline ? "" : "none";
 
     this.media.replaceChildren();
@@ -228,15 +219,24 @@ export class BoxView implements NodeView {
       // Never a broken image: say which file is missing, and how to fix it.
       const missing = el(
         "div",
-        "flex flex-col items-start gap-1.5 rounded border border-border-error-secondary bg-bg-error-secondary p-2.5 text-xs text-fg-error-secondary",
+        "flex min-w-0 flex-col items-start gap-1.5 rounded border border-border-error-secondary bg-bg-error-secondary p-2.5 text-xs text-fg-error-secondary",
       );
       const what = el("span", "");
-      what.textContent = `This ${media.type} is not in the project: ${media.src}`;
-      missing.append(what);
+      what.textContent = `This ${media.type} is not in the project.`;
+      // The file's name, on one line: a path broken over five is unreadable
+      // in a narrow column. All of it on hover.
+      const file = el("span", "w-full truncate font-medium");
+      file.textContent = media.src.split("/").pop() || media.src;
+      file.title = media.src;
+      missing.append(what, file);
       if (picker && this.view.editable) {
-        const fix = el("button", "cursor-pointer font-medium underline");
+        const fix = el(
+          "button",
+          "max-w-full cursor-pointer rounded border border-border-error-secondary bg-bg-primary px-2 py-0.5 text-left font-medium hover:bg-bg-secondary",
+        );
         fix.type = "button";
-        fix.textContent = `Pick an ${media.type === "video" ? "video" : "image"} the project has`;
+        fix.textContent = `Pick ${media.type === "video" ? "a video" : "an image"}`;
+        fix.title = `Pick ${media.type === "video" ? "a video" : "an image"} the project has`;
         fix.addEventListener("click", () => this.pick());
         missing.append(fix);
       }
@@ -496,11 +496,11 @@ export class BoxView implements NodeView {
     }
     const input = el(
       "input",
-      "w-28 rounded border border-border-focus bg-bg-primary px-1 text-[11px] text-fg-primary outline-none",
+      "w-28 min-w-0 rounded border border-border-focus bg-bg-primary px-1 text-[11px] text-fg-primary outline-none",
     );
     input.value = String(this.node.attrs.kind);
     input.setAttribute("aria-label", "Kind of box");
-    // The site's kinds to pick from; any other word is a new kind, and says so.
+    // The site's kinds to pick from, and any other word.
     const types = this.options.getBlockTypes();
     const list = el("datalist", "");
     list.id = `sketch-kinds-${Math.random().toString(36).slice(2)}`;
@@ -511,21 +511,6 @@ export class BoxView implements NodeView {
       list.append(option);
     }
     input.setAttribute("list", list.id);
-    const hint = el("span", "text-[10px] text-fg-tertiary");
-    const describe = () => {
-      const kind = input.value.trim();
-      const isNew = types !== null && kind !== "" && !isKnownKind(types, kind);
-      hint.textContent = isNew
-        ? "A new kind: building it needs code"
-        : types !== null
-          ? "One of the site's kinds"
-          : "";
-      hint.className = isNew
-        ? "text-[10px] font-medium text-fg-warning-secondary"
-        : "text-[10px] text-fg-tertiary";
-    };
-    input.addEventListener("input", describe);
-    describe();
     let done = false;
     const finish = (save: boolean) => {
       if (done) {
@@ -535,7 +520,6 @@ export class BoxView implements NodeView {
       const kind = input.value.replace(/[[\]:\s]+/g, "-").replace(/^-|-$/g, "");
       input.replaceWith(this.kind);
       list.remove();
-      hint.remove();
       if (save && kind && kind !== this.node.attrs.kind) {
         this.setAttrs({ kind });
       }
@@ -551,9 +535,7 @@ export class BoxView implements NodeView {
     });
     input.addEventListener("blur", () => finish(true));
     this.kind.replaceWith(input);
-    input.after(hint);
     this.header.append(list);
-    this.badge.style.display = "none";
     input.focus();
     input.select();
   }
@@ -590,11 +572,6 @@ const IMAGE_PLUS =
   "M16 5h6 M19 2v6 M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5 M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21 M9 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4z";
 const TRASH =
   "M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M10 11v6 M14 11v6";
-
-function isKnownKind(types: SketchBlockType[], kind: string): boolean {
-  const lower = kind.toLowerCase();
-  return types.some((type) => type.kind.toLowerCase() === lower);
-}
 
 function hasSketchMedia(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes(MEDIA_DRAG);
