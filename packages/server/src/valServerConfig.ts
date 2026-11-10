@@ -377,6 +377,9 @@ export async function initHandlerOptions(
       ...(opts.projectSource !== undefined
         ? { projectSource: opts.projectSource }
         : {}),
+      ...(opts.moduleDependencies !== undefined
+        ? { moduleDependencies: opts.moduleDependencies }
+        : {}),
       ...(opts.publishJob !== undefined ? { publishJob: opts.publishJob } : {}),
       ...(opts.publishBuild !== undefined
         ? { publishBuild: opts.publishBuild }
@@ -463,6 +466,9 @@ export function createValOps(
         config: options.config,
         ...(options.projectSource !== undefined
           ? { projectSource: options.projectSource }
+          : {}),
+        ...(options.moduleDependencies !== undefined
+          ? { moduleDependencies: options.moduleDependencies }
           : {}),
         ...(options.publishJob !== undefined
           ? { publishJob: options.publishJob }

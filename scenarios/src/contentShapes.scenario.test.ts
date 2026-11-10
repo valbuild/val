@@ -232,14 +232,15 @@ function lastRelayedTitle(events: readonly { type: string }[]): unknown {
     ): e is {
       type: "source-update";
       moduleFilePath: string;
-      source: unknown;
+      read: { status: string; source?: unknown };
     } =>
       e.type === "source-update" &&
       "moduleFilePath" in e &&
       e.moduleFilePath === "/content/pages.val.ts",
   );
   const last = sent.at(-1);
-  return last === undefined ? undefined : entryTitle(last.source, "/a");
+  // What the page keeps: the read's source.
+  return last === undefined ? undefined : entryTitle(last.read.source, "/a");
 }
 
 function fieldOf(value: unknown, key: string): unknown {

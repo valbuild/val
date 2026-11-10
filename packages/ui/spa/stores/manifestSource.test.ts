@@ -8,7 +8,7 @@ import {
 import { createSystem, type System } from "./createSystem";
 import { RecordingActivity } from "./activity";
 import { createFakeManifest } from "./testManifest";
-import type { FetchManifest } from "./manifestSource";
+import type { CarriedManifest, FetchManifest } from "./manifestSource";
 import type { PatchRecord } from "./types";
 
 /**
@@ -145,16 +145,17 @@ describe("the Studio on the server's version, whatever base it is on", () => {
   });
 
   test("a base the bundle was not built with is one read, and the pending edit goes on it", async () => {
-    const { stat, keywords, moduleReads } = setup({
+    const { stat, keywords, moduleReads, activity } = setup({
       base: C2,
       chain: [addZ],
     });
     stat();
     await settle();
     expect(keywords()).toEqual(["c", "d", "a", "z"]);
-    // The base by its version, then the patches from it.
-    expect(moduleReads).toHaveLength(2);
-    expect(moduleReads[1]?.have).toBe(moduleReads[0]?.v);
+    // The base by its version, and nothing more: the patch on it is the
+    // record the patch store fetched for the stat, not a second read.
+    expect(moduleReads).toHaveLength(1);
+    expect(activity.count("manifest:records-hit")).toBe(1);
   });
 
   test("published patches still in the chain on the old base are applied once", async () => {
@@ -222,5 +223,131 @@ describe("the Studio on the server's version, whatever base it is on", () => {
     // The bundle's, as before: nothing that build named was read.
     expect(keywords()).toEqual(C0);
     expect(moduleReads).toEqual([]);
+  });
+});
+
+/**
+ * Another editor's keystroke: one patch the stat names and the patch store
+ * fetches. What it costs this Studio past that fetch is nothing -- the
+ * version the manifest names is the held one with that record on top -- and
+ * the manifest itself can come on the stat (`CarriedManifest`).
+ */
+describe("another editor's keystroke", () => {
+  const theirs: PatchRecord = {
+    patchId: "theirs" as PatchId,
+    moduleFilePath: MODULE,
+    patch: [{ op: "add", path: ["keywords", "-"], value: "theirs" }],
+    createdAt: "2026-01-01T00:00:04.000Z",
+  };
+
+  /** {@link setup}, counting the `GET /manifest`s, and the real one kept. */
+  function counting() {
+    const fetched: FetchManifest[] = [];
+    let asked = 0;
+    const server = { base: C0, chain: [] as PatchRecord[] };
+    const studio = setup({
+      ...server,
+      fetchManifest: (real) => {
+        fetched.push(real);
+        return async (held) => {
+          asked++;
+          return real(held);
+        };
+      },
+    });
+    /** What the server would carry on a stat: its manifest, whole. */
+    const carried = async (): Promise<CarriedManifest> => {
+      const answer = await fetched[0](null);
+      if (answer.kind !== "manifest") throw new Error(answer.kind);
+      return { kind: "manifest", answer };
+    };
+    const statCarrying = (manifest: CarriedManifest, ask = true) => {
+      if (ask) studio.system.stat.asked();
+      studio.system.stat.receiveStat({
+        patches: server.chain.map((record) => record.patchId),
+        baseSha: "base",
+        manifest,
+      });
+    };
+    return {
+      ...studio,
+      server,
+      carried,
+      statCarrying,
+      manifestRequests: () => asked,
+    };
+  }
+
+  test("is the held version and the fetched record: no module is read", async () => {
+    const { stat, keywords, moduleReads, activity, server } = counting();
+    stat();
+    await settle();
+    server.chain.push(theirs);
+    stat();
+    await settle();
+    expect(keywords()).toEqual([...C0, "theirs"]);
+    expect(moduleReads).toEqual([]);
+    expect(activity.count("manifest:records-hit")).toBe(1);
+  });
+
+  test("asks for no manifest when the stat carried one", async () => {
+    const { stat, keywords, server, carried, statCarrying, manifestRequests } =
+      counting();
+    stat();
+    await settle();
+    const before = manifestRequests();
+    server.chain.push(theirs);
+    statCarrying(await carried());
+    await settle();
+    expect(keywords()).toEqual([...C0, "theirs"]);
+    expect(manifestRequests() - before).toBe(0);
+  });
+
+  test("asks for the manifest when the stat's asking was not said", async () => {
+    const { stat, keywords, server, carried, statCarrying, manifestRequests } =
+      counting();
+    stat();
+    await settle();
+    const before = manifestRequests();
+    server.chain.push(theirs);
+    // Without the moment it was asked at, nothing can be decided by it.
+    statCarrying(await carried(), false);
+    await settle();
+    expect(keywords()).toEqual([...C0, "theirs"]);
+    expect(manifestRequests() - before).toBe(1);
+  });
+
+  // A publish answered by the build before it names its old base without
+  // the published patches: taken, the page would go back to before them.
+  test("asks for the manifest when the stat stopped naming a patch", async () => {
+    const { stat, server, carried, statCarrying, manifestRequests } =
+      counting();
+    server.chain.push(theirs);
+    stat();
+    await settle();
+    const before = manifestRequests();
+    server.chain.length = 0;
+    statCarrying(await carried());
+    await settle();
+    expect(manifestRequests() - before).toBe(1);
+  });
+
+  test("asks for the manifest when the delta is relative to one it does not hold", async () => {
+    const { stat, keywords, server, carried, statCarrying, manifestRequests } =
+      counting();
+    stat();
+    await settle();
+    const before = manifestRequests();
+    server.chain.push(theirs);
+    const whole = await carried();
+    if (whole.kind !== "manifest") throw new Error(whole.kind);
+    statCarrying({
+      kind: "manifest",
+      answer: { ...whole.answer, since: 0, modules: {} },
+      sinceTag: "a manifest this Studio never held",
+    });
+    await settle();
+    expect(keywords()).toEqual([...C0, "theirs"]);
+    expect(manifestRequests() - before).toBe(1);
   });
 });

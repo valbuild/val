@@ -43,9 +43,14 @@ silently when it does not.
   place -- the view where a module is computed (`SourceStore.refresh`), the
   revision in `bump`, the fetches in `fetchMoved`, the schema in `SchemaStore`
   -- so a new way for source to change has to go through one of them.
-- The validation and render stores, and `entriesStatus`, are stable by
-  **recompute-and-compare**: the answer is computed again and the old object
-  kept when it is the same answer.
+- The validation and render stores are stable by **recompute-and-compare**:
+  the answer is computed again and the old object kept when it is the same
+  answer. `ValidationStore.surfacedErrors` -- what every whole-project
+  reader of errors gets -- is both: each module's part by its result object
+  (`surfacedOf`), and the whole kept when a recompute says the same.
+- `entriesStatus` is stable by key: the views of the modules asked about and
+  the failures recorded. It is read on every render of whatever waits for a
+  full load, so it must not walk the markers per read.
 
 > The worst bug of the stores' rewrite was this rule broken. A copy-on-write
 > substitution of `.jsonValues()` entries (since deleted) made one loaded entry

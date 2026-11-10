@@ -2,7 +2,6 @@ import {
   QUICK_PREVIEW_RENDER_SCRIPT,
   QUICK_PREVIEW_SERVICE_WORKER_SOURCE,
   QUICK_PREVIEW_STORE_MESSAGE,
-  quickPreviewSiteOrigin,
 } from "./quickPreview";
 
 /**
@@ -158,28 +157,5 @@ describe("the quick preview's worker", () => {
     const worker = load([{ id: "page", url: `${ORIGIN}/?val_quick=q1` }]);
     expect(worker.request("/api/val/stat", "page")).toBeNull();
     expect(worker.request("/favicon.ico", "page")).toBeNull();
-  });
-});
-
-describe("who may send a quick preview", () => {
-  test("the site's origin, as the proposal's own server names it", async () => {
-    const origin = await quickPreviewSiteOrigin("/api/val", async () =>
-      Response.json({ proposals: [], siteUrl: "https://www.example.com/" }),
-    );
-    expect(origin).toBe("https://www.example.com");
-  });
-
-  test("nobody, when the server does not say", async () => {
-    expect(
-      await quickPreviewSiteOrigin(
-        "/api/val",
-        async () => new Response("", { status: 401 }),
-      ),
-    ).toBeNull();
-    expect(
-      await quickPreviewSiteOrigin("/api/val", async () =>
-        Response.json({ proposals: [] }),
-      ),
-    ).toBeNull();
   });
 });

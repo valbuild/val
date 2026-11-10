@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   HeldEditsList,
+  heldEditPrompt,
   heldEditsOf,
   type HeldEditView,
 } from "./HeldEditsBanner";
@@ -141,4 +142,66 @@ test("a publish refused for them offers a button that brings the banner into vie
   expect(action?.label).toBe("Show the edits");
   act(() => action?.onClick());
   expect(document.activeElement?.getAttribute("role")).toBe("alert");
+});
+
+test("where the assistant can be asked, each edit can be handed to it to move", () => {
+  const edits = heldEditsOf(records, held);
+  const asked: string[] = [];
+  render(
+    <HeldEditsList
+      edits={edits}
+      onDiscard={async () => ({ status: "discarded" })}
+      askAssistant={(prompt) => asked.push(prompt)}
+    />,
+  );
+  const move = screen.getAllByRole("button", {
+    name: /Have the assistant move it/,
+  });
+  expect(move).toHaveLength(2);
+  fireEvent.click(move[1]);
+  expect(asked).toEqual([heldEditPrompt(edits[1])]);
+  // What it is asked names the module, what was written and where, and
+  // leaves the held edit for the editor to discard.
+  expect(asked[0]).toContain(PAGE);
+  expect(asked[0]).toContain("`tags.-` was set to:");
+  expect(asked[0]).toContain('"label": "New"');
+  expect(asked[0]).toContain("`subtitle` was removed.");
+  expect(asked[0]).toContain("Cannot add: no tags.");
+  expect(asked[0]).toMatch(/I will discard the held edit/);
+  // Nothing was discarded by asking.
+  expect(
+    screen.getAllByRole("button", { name: /Discard this edit/ }),
+  ).toHaveLength(2);
+});
+
+test("where the assistant cannot be asked, no button offers it", () => {
+  shown(heldEditsOf(records, held));
+  expect(
+    screen.queryByRole("button", { name: /Have the assistant move it/ }),
+  ).toBe(null);
+  expect(screen.queryByText(/have the assistant do it/)).toBe(null);
+});
+
+test("a value with a code fence in it does not close the prompt's fence", () => {
+  const [edit] = heldEditsOf(
+    [
+      {
+        patchId: p1,
+        moduleFilePath: PAGE,
+        patch: [
+          {
+            op: "replace",
+            path: ["body"],
+            value: "Run:\n```\npnpm dev\n```\nthen open /val",
+          },
+        ],
+      },
+    ],
+    [{ patchId: p1, moduleFilePath: PAGE, message: "Cannot replace: no body" }],
+  );
+  const prompt = heldEditPrompt(edit);
+  // The value's own ``` is inside a longer fence, which closes after it.
+  expect(prompt).toContain(
+    "````\nRun:\n```\npnpm dev\n```\nthen open /val\n````",
+  );
 });

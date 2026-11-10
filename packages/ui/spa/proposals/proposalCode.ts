@@ -1,11 +1,7 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
 import { proposalProject, withoutLockfiles } from "@valbuild/shared/publish";
-import type {
-  PageScreenshot,
-  PageSnapshot,
-  PickedElement,
-} from "@valbuild/shared/internal";
+import type { PickedElement } from "@valbuild/shared/internal";
 export { proposalProject };
 import { formatWithProjectPrettier, type FormatOutcome } from "./formatCode";
 import { lintWithValRules, pathsToLint } from "./lintCode";
@@ -112,15 +108,6 @@ const WRITE_FILES_TOOL: AITool = {
   },
 };
 
-/** Why `build_proposal` is called: the only things a quick preview cannot show, or a finished request. */
-const BUILD_REASONS = [
-  "routes",
-  "server",
-  "schema",
-  "dependencies",
-  "finished",
-] as const;
-
 /** How long `build_proposal` and `wait` wait at most: well inside their timeout. */
 const MAX_WAIT_SECONDS = 240;
 const DEFAULT_BUILD_WAIT_SECONDS = 90;
@@ -130,30 +117,19 @@ const BUILD_PROPOSAL_TOOL: AITool = {
   description:
     "Build the proposal's code, so its preview shows the files staged with write_files. " +
     "Nothing is published: the site is unchanged until the proposal is merged. " +
-    "In the design tab a quick preview shows components, layout, styles and text without one, so build only for what it cannot show -- " +
-    "routes added, removed or renamed; code that runs on the server (loaders, server functions, API routes, a route's head); " +
-    "a .val.ts schema; dependencies -- or once when the person's request is finished. Never after each edit. " +
+    "Build once the change is complete, never after each edit. " +
     "Answers when the build ends, or after wait_seconds with status 'building' if it is still going: " +
     "then call wait to wait for it, build_status to see where it is, or cancel_build to stop it. " +
     "A build already running is joined, not started again.",
   parameters: {
     type: "object",
     properties: {
-      reason: {
-        type: "string",
-        enum: [...BUILD_REASONS],
-        description:
-          "Why this needs a build, which a quick preview cannot give: 'routes' (a page added, removed or renamed), " +
-          "'server' (loaders, server functions, API routes, a route's head), 'schema' (a .val.ts schema changed), " +
-          "'dependencies' (package.json), or 'finished' (the person's whole request is done, so it can be published). " +
-          "A change to components, layout, styles, text or content is none of these: the quick preview shows it.",
-      },
       wait_seconds: {
         type: "number",
         description: `How long to wait for the build before answering (default ${DEFAULT_BUILD_WAIT_SECONDS}, at most ${MAX_WAIT_SECONDS}). The build goes on either way.`,
       },
     },
-    required: ["reason"],
+    required: [],
   },
   timeoutMs: 5 * 60_000,
 };
@@ -346,7 +322,7 @@ export type QuickPreviewTiming = { step: string; ms: number };
 export type QuickPreviewResult =
   | { status: "shown"; ms: number; timings: QuickPreviewTiming[] }
   /**
-   * Started by the tab after a change, with nothing to do: Val Build does
+   * Started by itself after a change, with nothing to do: Val Build does
    * not make quick previews here (`off`), or what is staged is shown already
    * (`shown`). See `useQuickPreview`.
    */
@@ -358,11 +334,12 @@ export type QuickPreviewResult =
   | { status: "failed"; message: string; timings: QuickPreviewTiming[] };
 
 /**
- * `quick_preview` in the design tab: the proposal's client code built in the
- * tab and shown in the preview in seconds, with the server's half still the
- * last build's (`quickPreview.ts` in `@valbuild/shared`).
+ * `quick_preview`: the proposal's client code built (by Val Build, or in the
+ * tab) and shown in the Studio's preview in seconds, with the server's half
+ * still the last build's (`quickPreview.ts` in `@valbuild/shared`). Run
+ * through `quickPreviewControl`, where the shell registers it.
  */
-export const DESIGN_QUICK_PREVIEW_TOOL: AITool = {
+export const QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
   description:
     "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
@@ -381,7 +358,8 @@ export async function runQuickPreviewTool(
     return {
       result: {
         success: false,
-        error: "Only an open proposal can be previewed.",
+        error:
+          "There is no preview of a proposal open to show it in. Call build_proposal to see the change.",
       },
       isError: true,
     };
@@ -412,7 +390,7 @@ export async function runQuickPreviewTool(
       result: {
         success: true,
         note: "The preview already shows what is staged.",
-        next: "Check it with read_page. No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
+        next: "No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
       },
       isError: false,
     };
@@ -422,264 +400,14 @@ export async function runQuickPreviewTool(
       success: true,
       seconds: Math.round(result.ms / 100) / 10,
       steps,
-      next: "The preview shows it. Check it with read_page. No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
+      next: "The preview shows it. No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
     },
     isError: false,
   };
 }
 
-/** The preview's widths, as the design tab names them. */
-export type DesignDevice = "desktop" | "tablet" | "mobile";
-const DEVICES: readonly DesignDevice[] = ["desktop", "tablet", "mobile"];
-
-/**
- * `read_page` in the design tab: what the preview shows, read by the page
- * itself through the canvas bridge (`readPageSnapshot`), so the assistant can
- * check its change the way the person would look at it.
- */
-export const DESIGN_READ_PAGE_TOOL: AITool = {
-  name: "read_page",
-  description:
-    "Read the page the preview shows, to check a change: its headings, text, links, buttons, images (with alt text) and inputs in order, " +
-    "each with its box (x, y, width, height in CSS pixels) and a selector. " +
-    "With selector -- one from this answer, or from what the person picked -- that element in detail: its computed styles " +
-    "(font, size, weight, colour, background, spacing, layout), how many lines its text wraps to, and its children. " +
-    "picked: true reads the element the person picked. device switches the preview's width first (desktop, tablet 820px, mobile 390px), " +
-    "which the person sees. Reads the build the preview shows: build first, and wait for it, to read a change.",
-  parameters: {
-    type: "object",
-    properties: {
-      selector: {
-        type: "string",
-        description:
-          "An element to read in detail, as this tool or <picked/> writes selectors.",
-      },
-      picked: {
-        type: "boolean",
-        description: "Read the element the person picked in the preview.",
-      },
-      device: {
-        type: "string",
-        enum: [...DEVICES],
-        description: "Switch the preview to this width before reading.",
-      },
-      max_items: {
-        type: "number",
-        description: "How many items of the outline at most (default 300).",
-      },
-    },
-    required: [],
-  },
-};
-
-/** What `read_page` needs of the design tab. */
-export type ReadPageDeps = {
-  /** Reads the page in front; `null` while no page is there to read. */
-  readPage:
-    | ((options: {
-        selector?: string;
-        maxItems?: number;
-      }) => Promise<PageSnapshot>)
-    | null;
-  /** What the person picked, if anything. */
-  pointedAt: PickedElement | null;
-  /** Switch the preview's width, and wait for the page to take it. */
-  setDevice?: (device: DesignDevice) => Promise<void>;
-};
-
-export async function runReadPage(
-  args: unknown,
-  deps: ReadPageDeps,
-): Promise<CodeToolAnswer> {
-  const fail = (error: string): CodeToolAnswer => ({
-    result: { success: false, error },
-    isError: true,
-  });
-  const input = isRecord(args) ? args : {};
-  if (deps.readPage === null) {
-    return fail(
-      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and read it again.",
-    );
-  }
-  let selector =
-    typeof input["selector"] === "string" ? input["selector"] : undefined;
-  if (input["picked"] === true) {
-    if (deps.pointedAt === null) {
-      return fail(
-        "Nothing is picked in the preview. Read the whole page, or ask the person to pick the element.",
-      );
-    }
-    selector = deps.pointedAt.selector;
-  }
-  if (input["device"] !== undefined) {
-    const device = DEVICES.find((known) => known === input["device"]);
-    if (device === undefined) {
-      return fail(`device must be one of ${DEVICES.join(", ")}.`);
-    }
-    await deps.setDevice?.(device);
-  }
-  const maxItems =
-    typeof input["max_items"] === "number" && input["max_items"] > 0
-      ? Math.min(input["max_items"], 1000)
-      : undefined;
-  try {
-    const snapshot = await deps.readPage({
-      ...(selector !== undefined ? { selector } : {}),
-      ...(maxItems !== undefined ? { maxItems } : {}),
-    });
-    return { result: { success: true, ...snapshot }, isError: false };
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error));
-  }
-}
-
-/**
- * `screenshot_page` in the design tab: a picture of what the preview shows,
- * drawn by the page itself (`screenshotPage`), uploaded as an image of the
- * chat and handed to the model with the answer. `read_page` gives the words
- * and boxes; this is for what they cannot say -- a colour, an overlap, a
- * button that wrapped.
- */
-export const DESIGN_SCREENSHOT_TOOL: AITool = {
-  name: "screenshot_page",
-  description:
-    "See the page the preview shows: a picture of it, as the person sees it, attached to the answer. " +
-    "What is on screen, or full_page: true for the whole page from the top (cut off below 4000px). " +
-    "device switches the preview's width first (desktop, tablet 820px, mobile 390px), which the person sees. " +
-    "It is drawn from the page's HTML and CSS, so images from other sites, videos, canvases and embeds may come out blank: " +
-    "that is the picture, not the page. Use read_page for exact text, sizes and styles. Reads the build the preview shows.",
-  parameters: {
-    type: "object",
-    properties: {
-      full_page: {
-        type: "boolean",
-        description: "The whole page from the top, not only what is on screen.",
-      },
-      device: {
-        type: "string",
-        enum: [...DEVICES],
-        description: "Switch the preview to this width first.",
-      },
-    },
-    required: [],
-  },
-  timeoutMs: 2 * 60_000,
-};
-
-/** What `screenshot_page` needs of the design tab and the chat. */
-export type ScreenshotPageDeps = {
-  /** Pictures the page in front; `null` while no page is there. */
-  screenshotPage:
-    | ((options: { fullPage?: boolean }) => Promise<PageScreenshot>)
-    | null;
-  /** Switch the preview's width, and wait for the page to take it. */
-  setDevice?: (device: DesignDevice) => Promise<void>;
-  /** Upload the picture as an image of the chat: its key. */
-  uploadImage: (file: File) => Promise<{ key: string }>;
-};
-
-/** A tool's answer with images for the model: their keys, as uploaded. */
-export type CodeToolAnswerWithImages = CodeToolAnswer & { images?: string[] };
-
-export async function runScreenshotPage(
-  args: unknown,
-  deps: ScreenshotPageDeps,
-): Promise<CodeToolAnswerWithImages> {
-  const fail = (error: string): CodeToolAnswer => ({
-    result: { success: false, error },
-    isError: true,
-  });
-  const input = isRecord(args) ? args : {};
-  if (deps.screenshotPage === null) {
-    return fail(
-      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and try again.",
-    );
-  }
-  if (input["device"] !== undefined) {
-    const device = DEVICES.find((known) => known === input["device"]);
-    if (device === undefined) {
-      return fail(`device must be one of ${DEVICES.join(", ")}.`);
-    }
-    await deps.setDevice?.(device);
-  }
-  try {
-    const shot = await deps.screenshotPage({
-      fullPage: input["full_page"] === true,
-    });
-    // Decoded here rather than fetched: a page's policy may refuse `data:`.
-    const base64 = shot.dataUrl.slice(shot.dataUrl.indexOf(",") + 1);
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-    const { key } = await deps.uploadImage(
-      new File([bytes], "page.jpg", { type: "image/jpeg" }),
-    );
-    return {
-      result: {
-        success: true,
-        width: shot.width,
-        height: shot.height,
-        full_page: shot.fullPage,
-        ...(shot.clipped
-          ? { note: "The page goes on below the picture." }
-          : {}),
-        image: "attached",
-      },
-      isError: false,
-      images: [key],
-    };
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error));
-  }
-}
-
-/**
- * `create_patch` in the design tab: content written into the module's FILE in
- * the proposal, and staged there with the code (valbuild/home
- * `docs/design-tab.md`). The tab changes code, so a field the assistant adds
- * is filled in the same change and built with it. The same arguments as the
- * Studio's `create_patch`, so what the model knows of patches holds.
- */
-export const DESIGN_CREATE_PATCH_TOOL: AITool = {
-  name: "create_patch",
-  description:
-    "Change content in the proposal: JSON Patch operations, written into the module's file (its .val.ts) and staged " +
-    "with the proposal's code, like write_files -- the preview shows it as a quick preview, with no build. " +
-    "Supported ops: 'replace', 'add', 'remove'. The 'path' is a JSON Pointer AS AN ARRAY (e.g. ['title'], ['items', '0', 'name']); " +
-    "a record key that is a URL ('/foo/bar') is ONE segment: ['/foo/bar']. " +
-    "Use it for content of a module the proposal changes as well as any other: a field you just added to a schema is filled here. " +
-    "Images and files cannot be uploaded here. A .jsonValues() record keeps each entry in its own .val.json file: a patch into an " +
-    "entry (['/blog/hello', 'title']) is written into that file, but adding, replacing or removing a whole entry is a key in the " +
-    ".val.ts and a .val.json beside it -- write those with write_files.",
-  parameters: {
-    type: "object",
-    properties: {
-      module_file_path: {
-        type: "string",
-        description: "The module's file path, e.g. '/content/home.val.ts'.",
-      },
-      patch: {
-        type: "array",
-        description: "The JSON Patch operations.",
-        items: { type: "object" },
-      },
-      message: {
-        type: "string",
-        description:
-          "What the change does, in a sentence, for the proposal's history.",
-      },
-    },
-    required: ["module_file_path", "patch"],
-  },
-};
-
 /** Where the assistant's code tools act: see {@link codeToolsPromptSection}. */
-export type CodeToolsWhere =
-  | { kind: "site" }
-  | { kind: "proposal" }
-  /**
-   * The design tab: served by the site's build, acting on a proposal it names
-   * (valbuild/home `docs/design-tab.md`).
-   */
-  | { kind: "design"; displayName: string };
+export type CodeToolsWhere = { kind: "site" } | { kind: "proposal" };
 
 /**
  * What the assistant is told about the code tools: that code changes in a
@@ -690,9 +418,7 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   const here =
     where.kind === "proposal"
       ? "This Studio is in a proposal: changes go into it."
-      : where.kind === "design"
-        ? `This is the design tab of the proposal "${where.displayName}": code changes go into it, and the person sees its preview beside you. Content is changed here with create_patch, which writes it into the module's file in the proposal, staged with the code. get_source and search_content read the SITE's content: read a module the proposal changed with read_file. When a build fails, or the preview does not render, read the error, fix the files, and build again.`
-        : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
+      : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
   return `
 
 ## The project's code
@@ -700,65 +426,18 @@ Besides content, you can read the project's code (list_files, read_file, search_
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. ${
-    where.kind === "design"
-      ? "The preview shows the change as a quick preview by itself; build_proposal only when the change needs a build (see the design tab's rules), never after each edit."
-      : "Then build_proposal, so the proposal's preview shows it."
-  } Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- The preview: a second after files are staged, the preview shows them as a quick preview by itself -- components, layout, styles and text, in seconds, without a build. Call quick_preview only to see a change now, or when none ran. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build.
 - A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
-${
-  where.kind === "design"
-    ? ""
-    : `- Code mode: in a proposal, the tools that change code (write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
-`
-}- ${here}`;
+- Code mode: in a proposal, the tools that change code (write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
+- ${here}`;
 }
 
 /**
- * What the assistant is in the design tab (valbuild/home `docs/design-tab.md`):
- * someone changing a proposal's code, with its preview beside the chat. Not
- * the Studio's prompt, which is for content editors and names tools the tab
- * does not offer.
- */
-export function designSystemPrompt(displayName: string): string {
-  return `You are a helpful assistant embedded in Val's design tab. You change the code of a proposal -- a copy of the site, published only when someone publishes it -- and the person sees the proposal's preview beside you.
-
-## Who you are talking to
-Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
-
-## What you can do here
-- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files) and check it (lint, typecheck). The preview shows each change as a quick preview, by itself. Build it (build_proposal) only for what a quick preview cannot show -- see below.
-- Change content with create_patch: it is written into the module's file in the proposal and staged with the code, so a field you add to a schema can be filled in the same change.
-- Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content: a module the proposal changed is read with read_file.
-- Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
-
-## What the person points at
-- <picked .../> at the end of a message is the element the person picked on the page in the preview, and "this" or "here" in the message means it. It names the element's tag, its classes, a selector from the page's body, and the text in it; \`path\`, when present, is the Val source path of the content it shows (a module file path, and the field in it). Find the code that renders it: follow \`path\` from the module to the component that shows that field, or search the components for the classes and the text, and change that.
-- <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
-
-## Working
-- Keep each change small enough to check: write it, format it and lint it, then -- once the edits for it are done -- typecheck it and fix what it reports, and look at it in the quick preview with read_page. The typecheck runs in the background after each change; typecheck_status says where it is.
-- A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
-- A build still going when build_proposal answers goes on: wait for it with wait. If it is stuck at one step, cancel_build and build again; if it sticks at the same step twice, tell the person which step.
-- A change to components, layout, styles or text shows in the preview in seconds as a quick preview, which runs by itself after each change where Val Build makes them; call quick_preview when none ran, or to see it now. Do not build to see such a change.
-- build_proposal is for what a quick preview cannot show, and only then:
-  - routes: a page added, removed or renamed (the server does not know a new route until it is built);
-  - code that runs on the server: loaders, server functions, API routes, a route's head (title, meta);
-  - a .val.ts schema change: Val's server reads the schema;
-  - dependencies (package.json): a quick preview cannot load them;
-  - and once when the person's request is finished, so it can be published: the build also checks the page still renders on the server.
-  Build once for all of these together, at the end of the request, not after each edit; build earlier only when you have to check one of them on the page.
-- Check a change with read_page once its build is served, or once quick_preview has shown it: the text, the order, and -- with a selector -- the computed styles and how many lines a heading wraps to. Read the phone width too (device: "mobile") when the change is about layout.
-- When how it LOOKS is the question -- a colour, spacing, an overlap, a layout on a phone -- read it with read_page and a selector: the computed styles, the sizes and where each element is.
-- When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
-}
-
-/**
- * The element picked in the design tab's preview, as the assistant is told
- * it: one line after the person's message, which the design prompt explains
- * ("What the person points at"). Attribute values are escaped, so text on the
- * customer's page cannot close the tag and pass for the person's words.
+ * An element picked on the page in the preview, as the assistant is told it:
+ * one line after the person's message. Attribute values are escaped, so text
+ * on the customer's page cannot close the tag and pass for the person's words.
  */
 export function pickedElementPrompt(picked: PickedElement): string {
   const attribute = (name: string, value: string) =>
@@ -788,7 +467,7 @@ export function isCodeTool(name: string): boolean {
 export type CodeToolDeps = {
   /** The proposal this Studio is open in; `null` on the site. */
   proposal: { name: string } | null;
-  client: Pick<ProposalsClient, "files" | "stageFiles" | "patchFile">;
+  client: Pick<ProposalsClient, "files" | "stageFiles">;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
   /** The proposal's build: start or join it, see where it is, stop it. */
@@ -809,12 +488,11 @@ export type CodeToolDeps = {
   lintCode?: typeof lintWithValRules;
   /** Offer the person a proposal to make the change in. */
   offerProposal: () => void;
-  /** In the design tab, where a quick preview shows a change and a build is seldom needed. */
-  design?: boolean;
   /**
    * Whether the proposal is in code mode now (`readCodeMode`): the tools
    * that change its code refuse when it is not, naming who turned it off.
-   * Absent where code mode does not apply (the design tab).
+   * Absent where code mode does not apply: on the site, where nothing is
+   * changed.
    */
   codeMode?: () => Promise<CodeModeNow>;
   /**
@@ -1002,9 +680,7 @@ export async function runCodeTool(
           buildRequired: staged.staged.buildRequired,
           next: !staged.staged.buildRequired
             ? "The preview already shows these files."
-            : deps.design === true
-              ? "The preview shows them as a quick preview by itself. Build only when the change needs one, once, when the request is done."
-              : "Call build_proposal when the change is complete, so the preview shows it.",
+            : "The preview shows them as a quick preview by itself in a moment. Call build_proposal once the change is complete.",
           ...(evaluated === undefined
             ? {}
             : {
@@ -1016,42 +692,6 @@ export async function runCodeTool(
                       }
                     : stagedCodeNotice(evaluated),
               }),
-        },
-        isError: false,
-      };
-    }
-    if (name === "create_patch") {
-      if (deps.proposal === null) {
-        deps.offerProposal();
-        return fail(
-          "Content is written into a proposal's files only in its design tab.",
-        );
-      }
-      const moduleFilePath = input["module_file_path"];
-      const patch = input["patch"];
-      if (typeof moduleFilePath !== "string") {
-        return fail("module_file_path must be a string.");
-      }
-      if (!Array.isArray(patch) || patch.length === 0) {
-        return fail("patch must be a non-empty array of operations.");
-      }
-      const message =
-        typeof input["message"] === "string" ? input["message"] : undefined;
-      const staged = await deps.client.patchFile(
-        deps.proposal.name,
-        moduleFilePath,
-        patch,
-        message,
-      );
-      return {
-        result: {
-          success: true,
-          staged: staged.staged.files,
-          buildRequired: staged.staged.buildRequired,
-          next:
-            deps.design === true
-              ? "Written into the module's file and staged. The preview shows it as a quick preview by itself: no build is needed for content."
-              : "Written into the module's file and staged. Call build_proposal when the change is complete, so the preview shows it.",
         },
         isError: false,
       };
@@ -1107,9 +747,7 @@ export async function runCodeTool(
             : {}),
           next:
             outcome.errors.length === 0
-              ? deps.design === true
-                ? "No new type errors."
-                : "No new type errors. Call build_proposal when the change is complete."
+              ? "No new type errors. Call build_proposal when the change is complete."
               : "Fix these in the files, then typecheck again.",
         },
         isError: false,
@@ -1120,19 +758,6 @@ export async function runCodeTool(
         deps.offerProposal();
         return fail(
           "Only a proposal is built here, and this Studio is on the site. The person has been offered to open one.",
-        );
-      }
-      // In the design tab a build is for what a quick preview cannot show,
-      // and has to say which: asked without, it is not started
-      const reason = input["reason"];
-      if (
-        deps.design === true &&
-        !BUILD_REASONS.some((known) => known === reason)
-      ) {
-        return fail(
-          "Not built: say why it needs a build (reason). A quick preview already shows changes to components, layout, styles, text and content, " +
-            "with no build. Build only for routes added, removed or renamed ('routes'), code that runs on the server ('server'), " +
-            "a .val.ts schema ('schema'), dependencies ('dependencies'), or once when the person's whole request is done ('finished').",
         );
       }
       const seconds = waitSeconds(
@@ -1376,9 +1001,8 @@ export type CodeSearchMatch = { path: string; line: number; text: string };
 
 /**
  * `search_code`: every line of the project that matches, as grep would.
- * A scan of the files in memory, since that is where they are already
- * (valbuild/home `docs/design-tab.md`, "Searching it is a scan in memory"):
- * a project's own code is small. Lockfiles, and anything long enough to be
+ * A scan of the files in memory, since that is where they are already: a
+ * project's own code is small. Lockfiles, and anything long enough to be
  * minified or generated, are not searched.
  */
 export function searchProject(

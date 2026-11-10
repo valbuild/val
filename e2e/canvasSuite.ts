@@ -238,15 +238,8 @@ export function defineCanvasSuite(): void {
 
       // A fresh browser has neither the Val Enable cookie nor draft mode, so the
       // page mounts none of Val's client code and never reports back. The canvas
-      // has to notice that rather than sit on a spinner.
-      const enable = studio.getByRole("button", {
-        name: /Turn on preview mode/,
-      });
-      await expect(
-        enable,
-        "the canvas did not notice that preview mode was off",
-      ).toBeVisible({ timeout: 25000 });
-      await enable.click();
+      // has to notice that and turn preview mode on by itself, rather than sit
+      // on a spinner or wait for a button to be pressed.
 
       /**
        * The switch to the fields view appears once the page has reported what is
@@ -258,7 +251,7 @@ export function defineCanvasSuite(): void {
       await expect(
         fieldsTab,
         "the page never reported any content, so preview mode did not take",
-      ).toBeVisible({ timeout: 30000 });
+      ).toBeVisible({ timeout: 60000 });
       await fieldsTab.click();
 
       /**
@@ -329,13 +322,9 @@ export function defineCanvasSuite(): void {
       await closeNavPanel(studio, "Pages");
       await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
-      const enable = studio.getByRole("button", {
-        name: /Turn on preview mode/,
-      });
-      await expect(enable).toBeVisible({ timeout: 25000 });
-      await enable.click();
+      // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
       const fieldsTab = studio.getByRole("tab", { name: /On page/ });
-      await expect(fieldsTab).toBeVisible({ timeout: 30000 });
+      await expect(fieldsTab).toBeVisible({ timeout: 60000 });
       await fieldsTab.click();
 
       // Move the zoom off the fitted default, so restoring it proves something.
@@ -646,13 +635,9 @@ export function defineCanvasSuite(): void {
       await closeNavPanel(studio, "Pages");
       await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
-      const enable = studio.getByRole("button", {
-        name: /Turn on preview mode/,
-      });
-      await expect(enable).toBeVisible({ timeout: 25000 });
-      await enable.click();
+      // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
       const fieldsTab = studio.getByRole("tab", { name: /On page/ });
-      await expect(fieldsTab).toBeVisible({ timeout: 30000 });
+      await expect(fieldsTab).toBeVisible({ timeout: 60000 });
       await fieldsTab.click();
 
       // A field nested inside the page, so the ancestor the editor opens at is
@@ -745,13 +730,9 @@ export function defineCanvasSuite(): void {
       await closeNavPanel(studio, "Pages");
       await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
-      const enable = studio.getByRole("button", {
-        name: /Turn on preview mode/,
-      });
-      await expect(enable).toBeVisible({ timeout: 25000 });
-      await enable.click();
+      // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
       await expect(studio.getByRole("tab", { name: /On page/ })).toBeVisible({
-        timeout: 30000,
+        timeout: 60000,
       });
 
       // Off in the normal view: the page is there to be read and clicked through

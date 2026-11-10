@@ -4,6 +4,8 @@ import {
   holdsOfAnswer,
   holdsOfMessage,
   StatData,
+  statRequestBody,
+  statStateAfterSocketMessage,
 } from "./useStatus";
 import { heldByContent } from "../publish/publishJobs";
 
@@ -332,6 +334,75 @@ describe("content's holds", () => {
       patches: ["p1", "p2"],
       appliedPatches: ["p0"],
       publishingPatches: ["p1"],
+    });
+  });
+});
+
+/**
+ * Which manifest a `/stat` says the Studio holds, so the answer carries what
+ * moved since (`StatManifest`): another editor's keystroke then costs no
+ * `GET /manifest`.
+ */
+describe("the manifest a /stat names", () => {
+  const version = { build: "build", seq: 4 };
+  const carried: StatData["manifest"] = {
+    project: version,
+    modules: {},
+    tag: '"build.base.4.e"',
+  };
+
+  test("is none, asked for whole, until an answer carried one", () => {
+    expect(statRequestBody(stat({}))?.manifest).toBeNull();
+  });
+
+  test("is the one the last answer carried, whole or a delta", () => {
+    expect(statRequestBody(stat({ manifest: carried }))?.manifest).toEqual({
+      tag: '"build.base.4.e"',
+      seq: 4,
+    });
+    expect(
+      statRequestBody(
+        stat({ manifest: { ...carried, since: 3, sinceTag: "older" } }),
+      )?.manifest,
+    ).toEqual({ tag: '"build.base.4.e"', seq: 4 });
+  });
+
+  test("stays the one named while the answer says it is unchanged", () => {
+    expect(
+      statRequestBody(
+        stat({ manifest: { unchanged: true, tag: "held", seq: 2 } }),
+      )?.manifest,
+    ).toEqual({ tag: "held", seq: 2 });
+  });
+
+  // A socket message is not an answer to the request that carried the
+  // manifest: the stat built from it must not hand that manifest on again,
+  // and the next request still names it.
+  test("survives a socket message as the echo alone", () => {
+    const next = statStateAfterSocketMessage(
+      {
+        status: "updated-request-again",
+        data: stat({ manifest: carried }),
+        waitStart: now,
+        wait: 0,
+      },
+      {
+        type: "patches",
+        patches: ["p1"] as StatData["patches"],
+        headPatchId: "p1" as StatData["patches"][number],
+        headVersion: 5,
+      },
+      now,
+    );
+    const data = next !== null && "data" in next ? next.data : undefined;
+    expect(data?.manifest).toEqual({
+      unchanged: true,
+      tag: '"build.base.4.e"',
+      seq: 4,
+    });
+    expect(statRequestBody(data)?.manifest).toEqual({
+      tag: '"build.base.4.e"',
+      seq: 4,
     });
   });
 });

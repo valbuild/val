@@ -156,6 +156,16 @@ type ValServerOverrides = Partial<{
    */
   projectSource?: Record<string, string>;
   /**
+   * For each of this build's module files, every project file it depends on
+   * as the build resolved its imports (by path with no leading slash,
+   * transitive): what tells a proposal's address that a module whose own
+   * file is not staged is of code the build was not made of, through a file
+   * it imports. A host that builds the project itself hands it over, beside
+   * {@link projectSource}; the build platform does, as
+   * `platform:val-module-dependencies`. Nothing else should set it.
+   */
+  moduleDependencies?: Record<string, string[]>;
+  /**
    * The publish job the RUNNING build was made for, when a Studio built it in
    * a tab. Such a build has no commit to name its place in the content
    * service's chain with, so it names its job, and the service places it by

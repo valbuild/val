@@ -135,34 +135,40 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
   });
 
   /**
-   * Mechanism 2: the browser runs the previous build's CLIENT code.
+   * Mechanism 2: the browser runs the previous build's CLIENT code (S27).
    *
-   * The server renders the new title. The browser hydrates with client code
-   * from before the build (`/_app/app.js` is an unhashed name, so a cached
-   * copy is possible; whether the platform's cache headers allow it is not
-   * modelled). The module has no pending edit, so the draft store has nothing
-   * for it and `useVal` falls back to the bundle -- the old literal -- which
-   * React renders over the server's text. The overlay's Studio, started from
-   * the same old modules, sees the server's `sourcesSha` differ, rebases onto
-   * the server's base, and relays the new title.
+   * The server renders the new title; if the browser then hydrated with
+   * client code from before the build, `useVal` would fall back to that
+   * bundle's old literal (the module has no pending edit), React would render
+   * it over the server's text, and the overlay would relay the new title back
+   * -- the reproduction below.
    *
-   * SKIPPED, not failing: the cause is known (on the platform, the pinned
-   * `/_app/app.js?b=` falls back to the head when the new build's code is not
-   * yet readable at that edge) and its fix is deferred while coverage is built
-   * out. The reproduction of WHY is the test below, which runs.
+   * On the platform that happened when home's loader answered the page's
+   * pinned `/_app/app.js?b=<build>` with the HEAD's bundle, because KV at that
+   * location had cached a miss for the new build's code -- and the head there
+   * could still be the build before. The loader now reads a pinned build's
+   * code from its R2 copy when KV misses (`readPinnedClientBundle`,
+   * valbuild/home), so a page is hydrated by the build that rendered it, and
+   * only a build that is really gone falls back. That is what the world's
+   * page load does when it is given no `clientModules`: the bundle is the
+   * server's.
    */
-  test.skip("the browser runs the previous build's client code: no flicker", async () => {
+  test("after a deploy, the page hydrates with the code of the build that rendered it: no flicker", async () => {
     const world = await createWorld({ config, modules: [before], server });
     try {
       world.deployCode([after]);
-      await world.loadPage("/", { shows, clientModules: [before] });
+      await world.loadPage("/", { shows });
       await world.settle();
       world.expectInvariants();
+      expect(titles(world)).not.toContain("Old title");
+      expect(world.frames.last("title")).toBe("New title");
     } finally {
       await world.dispose();
     }
   });
 
+  // What a page handed another build's code does: the case the loader's
+  // pinned read no longer produces for a build it keeps.
   test("why it flickers: hydration reads the old bundle, the overlay relays the server's base", async () => {
     const world = await createWorld({ config, modules: [before], server });
     try {

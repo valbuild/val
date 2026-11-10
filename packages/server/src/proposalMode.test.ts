@@ -538,18 +538,19 @@ describe("the proposals API, for the Studio", () => {
     }
     expect(sent).toEqual([]);
 
-    // The site's server writes and builds any of them: the design tab, which
-    // the site's build serves so that a build broken in the proposal cannot
-    // take its tools down (valbuild/home docs/design-tab.md, step 2).
+    // Nor does the site's server write or build any of them: code is changed
+    // in the proposal's own Studio, in code mode.
     const site = ops(undefined);
     for (const path of [`/${NAME}/files`, `/${NAME}/build`]) {
-      await site.proposalsApi(path, { method: "POST", body: "{}" }, "p");
+      const answer = await site.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+      expect(JSON.parse(answer.body).message).toMatch(/open the proposal/);
     }
-    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
-      `POST /v1/org/project/proposals/${NAME}/files`,
-      `POST /v1/org/project/proposals/${NAME}/build`,
-    ]);
-    sent.length = 0;
+    expect(sent).toEqual([]);
     // Reading another proposal's files is reading it, as GET of it is.
     await ops(undefined).proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
     expect(sent).toHaveLength(1);
@@ -647,20 +648,18 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toEqual([]);
   });
 
-  test("reporting a proposal's typecheck is its own server's and the site's -- the design tab's -- and no other proposal's", async () => {
+  test("reporting a proposal's typecheck is its own server's, and no other's", async () => {
     // valbuild/home docs/adept.md, step 7, decision 20: what blocks Publish.
-    // The same program from either address: the proposal's staged files
-    // checked against the site's (docs/design-tab.md).
     const own = ops(proposal("save-2"));
     const body = JSON.stringify({ inputs: "i", newErrors: [] });
     await own.proposalsApi(`/${NAME}/typecheck`, { method: "POST", body }, "p");
-    await ops(undefined).proposalsApi(
+    const fromSite = await ops(undefined).proposalsApi(
       `/${NAME}/typecheck`,
       { method: "POST", body },
       "p",
     );
+    expect(fromSite.status).toBe(403);
     expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
-      `POST /v1/org/project/proposals/${NAME}/typecheck`,
       `POST /v1/org/project/proposals/${NAME}/typecheck`,
     ]);
     sent.length = 0;
@@ -1126,6 +1125,110 @@ describe("proposalFromEnv", () => {
     expect(base?.buildInputs).toBeNull();
     expect(base && stagedAfterBuild(base)).toEqual({
       [PAGE]: `staged:${LATER}`,
+    });
+  });
+
+  /**
+   * A module whose own file is not staged can still be staged after the
+   * build, through a file it imports: its schema moved with code the build
+   * was not made of. The overlay names only staged MODULE files, so the rule
+   * takes what the build was made of (its own source, `projectSource`) and
+   * what each module of it depends on (`moduleDependencies`, recorded by the
+   * build): a module that reaches a file whose text the proposal changed
+   * since is staged after the build too.
+   */
+  describe("through what a module imports", () => {
+    const BUTTON = "src/schemas/button.ts";
+    const HOME = "/content/home.val.ts";
+    const OTHER = "/content/other.val.ts";
+    const build = {
+      source: {
+        [BUTTON]: "export const button = 1;",
+        "content/home.val.ts": "home",
+        "content/other.val.ts": "other",
+      },
+      moduleDependencies: {
+        "content/home.val.ts": [BUTTON],
+        "content/other.val.ts": [],
+      },
+    };
+    const proposal = (
+      files: Record<string, string>,
+      staged: Record<string, string> = {},
+      buildInputs: string | null = null,
+    ) => ({ files, staged, buildInputs });
+
+    test("a module that imports a file staged after the build is staged after it", () => {
+      const after = stagedAfterBuild(
+        proposal({ [BUTTON]: "export const button = 2;" }),
+        build,
+      );
+      expect(Object.keys(after)).toEqual([HOME]);
+      expect(after[HOME as ModuleFilePath]).toMatch(/^staged:[0-9a-f]{64}$/);
+    });
+
+    test("is named after the staging when the overlay names one", () => {
+      const after = stagedAfterBuild(
+        proposal(
+          { [BUTTON]: "export const button = 2;" },
+          { [OTHER]: `staged:${LATER}` },
+          INPUTS,
+        ),
+        build,
+      );
+      expect(after).toEqual({
+        [HOME]: `staged:${LATER}`,
+        [OTHER]: `staged:${LATER}`,
+      });
+    });
+
+    test("a file the build was made of, unchanged, moves nothing", () => {
+      expect(
+        stagedAfterBuild(
+          proposal({ [BUTTON]: "export const button = 1;" }),
+          build,
+        ),
+      ).toEqual({});
+    });
+
+    test("a module that imports a module staged after the build is staged after it", () => {
+      const after = stagedAfterBuild(
+        proposal({}, { [OTHER]: `staged:${LATER}` }, INPUTS),
+        {
+          ...build,
+          moduleDependencies: {
+            "content/home.val.ts": ["content/other.val.ts"],
+            "content/other.val.ts": [],
+          },
+        },
+      );
+      expect(after).toEqual({
+        [HOME]: `staged:${LATER}`,
+        [OTHER]: `staged:${LATER}`,
+      });
+    });
+
+    test("a saved .val.ts is content, not code: it moves nothing", () => {
+      expect(
+        stagedAfterBuild(proposal({ "content/other.val.ts": "saved" }), build),
+      ).toEqual({});
+    });
+
+    test("without what the build depends on, only staged module files count", () => {
+      expect(
+        stagedAfterBuild(proposal({ [BUTTON]: "export const button = 2;" })),
+      ).toEqual({});
+    });
+
+    test("the readers leave its saved Source out too", () => {
+      const read = proposalAsBuilt(
+        {
+          ...proposal({ [BUTTON]: "export const button = 2;" }),
+          modules: { [HOME]: { title: "Saved" }, [OTHER]: { title: "Kept" } },
+        },
+        build,
+      );
+      expect(read.modules).toEqual({ [OTHER]: { title: "Kept" } });
     });
   });
 

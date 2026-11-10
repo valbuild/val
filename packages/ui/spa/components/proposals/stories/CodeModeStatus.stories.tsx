@@ -42,6 +42,8 @@ const PROBLEM: PreviewProblem = {
 const STATES: { label: string; build: CodeModeBuild }[] = [
   { label: "Up to date", build: { state: "up-to-date" } },
   { label: "Behind (Save to update)", build: { state: "behind" } },
+  { label: "Showing a quick preview", build: { state: "previewing" } },
+  { label: "Quick preview shown", build: { state: "quick" } },
   {
     label: "Updating, no estimate",
     build: { state: "updating", progress: null },

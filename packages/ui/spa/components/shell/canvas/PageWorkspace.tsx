@@ -992,13 +992,13 @@ export function PageWorkspace({
         <CanvasPreviewNotice
           status={previewStatus}
           /*
-           * Which attempt this is. Both counters, because both ask the frame
-           * for a new document and neither necessarily changes the STATUS -
-           * reloading a page that has already given up leaves it at
-           * `no-answer`, and the notice's clock would otherwise still be
-           * timing the attempt before it.
+           * Which attempt this is: the reloads the person asked for. Not the
+           * enables, because the notice makes those itself while it retries,
+           * and they must not restart the clock that decides when it stops.
+           * Reloading a page that has given up leaves it at `no-answer`, so
+           * the status alone cannot say a new attempt began.
            */
-          attempt={`${reloadKey}:${enableKey}`}
+          attempt={reloadKey}
           onEnable={() => setEnableKey((key) => key + 1)}
           onReload={reload}
         />

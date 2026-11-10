@@ -57,22 +57,15 @@ export function openBuilder(): void {
 }
 
 /**
- * `proposalName`: the proposal to build, when it is not the one this Studio is
- * open in -- the design tab, which is served by the site's build and builds a
- * proposal it names (valbuild/home `docs/design-tab.md`).
+ * The build of the proposal this Studio is open in.
+ *
+ * Val Build builds it (`buildProposalOnServer`): no bundler in this page, no
+ * builder tab, and the same on an iPhone. Every project on Val's hosting is
+ * built there (valbuild/home `docs/plans/server-builds.md`); this page or a
+ * builder tab builds it only when content says Val Build does not build the
+ * project (`serverFirst`), which today means one switched off by hand.
  */
-export function useProposalBuild(
-  client?: ProposalsClient,
-  proposalName?: string,
-  options: {
-    /**
-     * Ask Val Build to build it first (`serverFirst`). The design tab's, and
-     * the assistant's in it, while server builds roll out there first
-     * (valbuild/home `docs/plans/server-builds.md`).
-     */
-    onServer?: boolean;
-  } = {},
-): {
+export function useProposalBuild(client?: ProposalsClient): {
   state: ProposalBuildState;
   /** `null` off a proposal: nothing to build. */
   build: (() => Promise<ProposalBuildOutcome>) | null;
@@ -92,8 +85,7 @@ export function useProposalBuild(
     () => client ?? createProposalsClient({ api: "/api/val" }),
     [client],
   );
-  const onServer = options.onServer ?? false;
-  const name = proposalName ?? here?.name ?? null;
+  const name = here?.name ?? null;
   const build = useCallback(
     () =>
       runProposalBuild(({ signal, progress }) => {
@@ -132,7 +124,7 @@ export function useProposalBuild(
                 },
                 signal,
               });
-        if (name === null || !onServer) return inThisPage();
+        if (name === null) return inThisPage();
         return serverFirst(
           () =>
             buildProposalOnServer({
@@ -147,7 +139,7 @@ export function useProposalBuild(
           inThisPage,
         );
       }),
-    [deploy, name, proposals, onServer],
+    [deploy, name, proposals],
   );
   const progress: ProposalBuildProgress | null = !state.building
     ? null

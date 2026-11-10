@@ -72,6 +72,12 @@ export type WorkKind =
    * view of a module, never per read: a progress bar asks on every render.
    */
   | "source:count-entries"
+  /**
+   * `entriesStatus` walked the markers of the modules it was asked about.
+   * Once per view of those modules, never per read: it is asked on every
+   * render of whatever waits for a full load.
+   */
+  | "source:entries-status"
   /** One `.jsonValues()` entry's content was delivered into the store. */
   | "source:receive-json-entry"
   /**
@@ -148,6 +154,11 @@ export type WorkKind =
    * edit, confirmed. Nothing was asked for it.
    */
   | "manifest:memory-hit"
+  /**
+   * A version the manifest named was the one held, extended with patch
+   * records the patch store had fetched anyway: nothing was asked for it.
+   */
+  | "manifest:records-hit"
   /** One `GET /modules`: a module, or the patches from the version held. */
   | "manifest:origin"
   /** Published patches taken out of the chain, source left alone. */
@@ -180,6 +191,11 @@ export type WorkKind =
   | "validation:share-in-flight"
   /** The worker-seam call. Expensive and always needed. */
   | "validation:schema-validate"
+  /**
+   * `.jsonValues()` entries validated because they changed: `count` is how
+   * many. The rest of the record's entries kept their errors.
+   */
+  | "validation:validate-entries"
   /** The serialized-schema walk that finds where custom validators live. */
   | "validation:collect-custom-targets"
   | "validation:merge"

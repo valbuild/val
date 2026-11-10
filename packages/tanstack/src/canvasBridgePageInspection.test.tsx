@@ -10,10 +10,10 @@ import {
 import { ValCanvasBridge } from "./ValCanvasBridge";
 
 /**
- * The design tab looking at the page: where it is (so a new build opens at
+ * The Studio looking at the page: where it is (so a new build opens at
  * the same place), scrolling it there, and what is on it (`read_page`).
  */
-describe("the canvas bridge, looked at from the design tab", () => {
+describe("the canvas bridge, looked at from the Studio", () => {
   let posted: ValCanvasPageMessage[];
 
   beforeEach(() => {

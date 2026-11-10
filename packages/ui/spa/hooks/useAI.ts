@@ -8,7 +8,7 @@ import React, {
 import type { Json, PatchId, ValidationErrors } from "@valbuild/core";
 import { applyPatch, JSONOps, type JSONValue } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
-import type { ParentRef, PickedElement } from "@valbuild/shared/internal";
+import type { ParentRef } from "@valbuild/shared/internal";
 
 /**
  * The JSON patch applier, shared by every speculative validation below.
@@ -68,6 +68,12 @@ import {
   type AIMessagesResponse,
 } from "../components/ValProvider";
 import { createSketchpadClient } from "../components/sketchpad/sketchpadClient";
+import {
+  CONVERT_SESSION_IMAGE_TOOL,
+  runConvertSessionImage,
+} from "../utils/convertSessionImage";
+import { encodeImage } from "../utils/encodeImage";
+import { knownSketchMedia } from "../components/sketchpad/sketchMediaLibrary";
 import { useSketchpadsState } from "../components/sketchpad/SketchpadsState";
 import {
   isSketchpadToolName,
@@ -135,21 +141,14 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
-  designSystemPrompt,
   pickedElementPrompt,
-  DESIGN_CREATE_PATCH_TOOL,
-  DESIGN_QUICK_PREVIEW_TOOL,
-  DESIGN_READ_PAGE_TOOL,
   isCodeTool,
+  QUICK_PREVIEW_TOOL,
   REQUEST_CODE_MODE_TOOL,
   runCodeTool,
   runQuickPreviewTool,
-  runReadPage,
-  runScreenshotPage,
-  type QuickPreviewResult,
-  type ReadPageDeps,
-  type ScreenshotPageDeps,
 } from "../proposals/proposalCode";
+import { quickPreviewRunner } from "../proposals/quickPreviewControl";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
@@ -648,14 +647,16 @@ const GET_RECORD_KEYS_TOOL: AITool = {
  * What the system prompt says about sketchpads, when they are offered: see
  * `sketchpadsOn` where the prompt is sent.
  */
-const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad: see "Sketchpads" below.
+const SKETCHPADS_PROMPT_SECTION = `- list_sketchpads, create_sketchpad, read_sketchpad, write_sketchpad, highlight_sketchpad_blocks, clear_sketchpad_highlights: see "Sketchpads" below.
 
 ## Sketchpads
 A sketchpad is a rough page -- headings, text, boxes, columns -- that you and the person work out before anything is built. It is kept on the server for the project, not in this chat: it outlives the conversation, and anyone on the project can open it.
 - When a request changes how a page is laid out (new sections, moving things, a new page), offer to sketch it first with ask_user_question: options "Sketch it first" and "Just do it". Do not insist; "Just do it" is a full answer.
 - create_sketchpad returns an id. Remember it, and use it for the rest of the conversation instead of making another.
 - The person can change the sketchpad at any time. Before you change it or build from it, read_sketchpad, and write with the version you read.
-- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content.
+- When asked to build it, read it, then make the content changes with the content tools as usual. The sketch is a plan, not content. A \`--- /route\` line names the page the blocks under it are about.
+- A box whose kind is not a kind of section the site's schema has needs code. Before building one, point at those blocks with highlight_sketchpad_blocks and ask the person whether to go on; clear the highlights once they answer.
+- An image in a box is a path the content has, \`session:<image_key>\` for one in this chat (put it in the site with the image tools first), or a web address.
 `;
 
 const ALL_TOOLS: AITool[] = [
@@ -665,6 +666,7 @@ const ALL_TOOLS: AITool[] = [
   VALIDATE_CONTENT_TOOL,
   CREATE_PATCH_TOOL,
   ADD_SESSION_IMAGE_TO_GALLERY_TOOL,
+  CONVERT_SESSION_IMAGE_TOOL,
   REMOVE_IMAGE_GALLERY_ENTRY_TOOL,
   NAVIGATE_TO_TOOL,
   GET_CURRENT_CONTEXT_TOOL,
@@ -679,55 +681,7 @@ const ALL_TOOLS: AITool[] = [
   GET_RECORD_KEYS_TOOL,
 ];
 
-/**
- * The tools the design tab gives the assistant besides the code tools: its own
- * `create_patch`, which writes content into the proposal's FILES with the code
- * (`DESIGN_CREATE_PATCH_TOOL`), the ones that READ content, and the ones that
- * talk to the person. Nothing that writes the site's content or moves the
- * Studio: the tab is served by the site's build, and the reading tools read
- * the site's content.
- */
-const DESIGN_TOOLS: AITool[] = [
-  DESIGN_CREATE_PATCH_TOOL,
-  DESIGN_READ_PAGE_TOOL,
-  // Not `DESIGN_SCREENSHOT_TOOL`: its picture did not come back from the
-  // page, and read_page answers what it was for
-  DESIGN_QUICK_PREVIEW_TOOL,
-  GET_ALL_SCHEMA_TOOL,
-  GET_SOURCE_TOOL,
-  SEARCH_CONTENT_TOOL,
-  GET_CURRENT_CONTEXT_TOOL,
-  SET_SESSION_NAME_TOOL,
-  ASK_USER_QUESTION_TOOL,
-  COUNT_ENTRIES_TOOL,
-  GET_RECORD_KEYS_TOOL,
-];
-const DESIGN_TOOL_NAMES = new Set(DESIGN_TOOLS.map((tool) => tool.name));
-
 export type UseAIOptions = {
-  /**
-   * The design tab's proposal (valbuild/home `docs/design-tab.md`): the code
-   * tools act on it rather than on the proposal this Studio is open in, which
-   * in the tab is none -- it is served by the site's build -- and only the
-   * tools that read content are offered with them.
-   */
-  design?: {
-    proposal: { name: string; displayName: string };
-    /**
-     * The element picked in the preview: it goes with the next message
-     * (`pickedElementPrompt`), and `onPointedAtSent` is told it has gone.
-     */
-    pointedAt?: PickedElement | null;
-    onPointedAtSent?: () => void;
-    /** Reads the page the preview shows: `read_page`. */
-    readPage?: ReadPageDeps["readPage"];
-    /** Pictures the page the preview shows: `screenshot_page`. */
-    screenshotPage?: ScreenshotPageDeps["screenshotPage"];
-    /** Switches the preview's width: `read_page`'s `device`. */
-    setDevice?: ReadPageDeps["setDevice"];
-    /** Shows the proposal's change in seconds: `quick_preview`. */
-    quickPreview?: (() => Promise<QuickPreviewResult>) | null;
-  };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
   /** Called when the session transitions from unborn → born (first send) or when an existing session is loaded. */
@@ -813,23 +767,12 @@ export function useAI(
    * proposal this Studio is in, its build, and the two APIs they read. Refs,
    * because the message handler below is subscribed once.
    */
-  const design = opts?.design ?? null;
   const studioProposal = useCurrentProposal();
-  const currentProposal = design?.proposal ?? studioProposal;
+  const currentProposal = studioProposal;
   const currentProposalRef = useRef(currentProposal);
   currentProposalRef.current = currentProposal;
-  const designRef = useRef(design);
-  designRef.current = design;
-  const proposalBuild = useProposalBuild(undefined, design?.proposal.name, {
-    onServer: design !== null,
-  }).build;
+  const proposalBuild = useProposalBuild().build;
   const proposalBuildRef = useRef(proposalBuild);
-  /**
-   * The element the last message carried. The pick is cleared once it is
-   * sent, and the turn that message starts is when `read_page`'s `picked`
-   * is asked for: it means this one.
-   */
-  const lastPointedAtRef = useRef<PickedElement | null>(null);
   /**
    * `uploadAiImage`, for the message handler above where it is declared:
    * `screenshot_page` uploads its picture as an image of the chat.
@@ -837,12 +780,13 @@ export function useAI(
   const uploadAiImageRef = useRef<
     ((file: File) => Promise<{ key: string }>) | null
   >(null);
+  /** The files this tab put in the chat, by key: `convert_session_image`. */
+  const sessionFilesRef = useRef(new Map<string, File>());
   /** The picked element, taken for a message that waits in the queue. */
-  const captureSendContext = useCallback((): SendContext => {
-    const pointedAt = designRef.current?.pointedAt ?? null;
-    if (pointedAt !== null) designRef.current?.onPointedAtSent?.();
-    return { pointedAt };
-  }, []);
+  const captureSendContext = useCallback(
+    (): SendContext => ({ pointedAt: null }),
+    [],
+  );
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
     () => ({
@@ -1130,7 +1074,7 @@ export function useAI(
    *
    * A chat keeps the model it began with: changing it halfway through hands the
    * rest of the conversation to a model that did not write the first half, and
-   * the picker is shared by every surface (the design tab, the panel, the
+   * the picker is shared by every surface (the panel, the
    * on-page window), so a pick made for a new chat in one of them would
    * otherwise move a chat already running in another. Kept here because the
    * content server does not say which model a chat used: a chat loaded from the
@@ -1175,11 +1119,9 @@ export function useAI(
 
   /*
    * A proposal's chats are everyone's on the project (valbuild/home
-   * `docs/proposals.md`, Flow H). Not the design tab's: it names its proposal
-   * itself and its chats are not a proposal's chats.
+   * `docs/proposals.md`, Flow H).
    */
-  const sharedProposalName =
-    design === null ? (studioProposal?.name ?? null) : null;
+  const sharedProposalName = studioProposal?.name ?? null;
   const sharedProposalNameRef = useRef(sharedProposalName);
   sharedProposalNameRef.current = sharedProposalName;
   const viewerId = useCurrentAuthorId();
@@ -1471,27 +1413,7 @@ export function useAI(
             askQuestions,
           );
         }
-        if (
-          designRef.current !== null &&
-          !DESIGN_TOOL_NAMES.has(message.name) &&
-          !isCodeTool(message.name)
-        ) {
-          // Only the tools offered are run: a call to another -- from an
-          // older turn, or a model that reached past its list -- would change
-          // the SITE's content from a tab that says content is not changed
-          // here.
-          sendWsMessage({
-            type: "ai_tool_result",
-            toolCallId: message.toolCallId,
-            result: {
-              success: false,
-              error:
-                "That tool is not available in the design tab. Change content with create_patch, which writes it into the proposal's files, and code with write_files.",
-            },
-            isError: true,
-          });
-          chatRef.current?.errorToolCall(message.id, message.toolCallId);
-        } else if (message.name === "request_code_mode") {
+        if (message.name === "request_code_mode") {
           const reason = z
             .object({ reason: z.string() })
             .safeParse(message.arguments);
@@ -1612,10 +1534,7 @@ export function useAI(
             result: errors,
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
-        } else if (
-          message.name === "create_patch" &&
-          designRef.current === null
-        ) {
+        } else if (message.name === "create_patch") {
           const args = message.arguments as {
             module_file_path: string;
             patch: unknown[];
@@ -2370,13 +2289,11 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
-        } else if (
-          designRef.current !== null &&
-          message.name === "quick_preview"
-        ) {
+        } else if (message.name === "quick_preview") {
+          // Shown in the shell's canvas, which registered it.
           const toolCallId = message.toolCallId;
           const messageId = message.id;
-          void runQuickPreviewTool(designRef.current.quickPreview ?? null).then(
+          void runQuickPreviewTool(quickPreviewRunner()).then(
             ({ result, isError }) => {
               sendWsMessage({
                 type: "ai_tool_result",
@@ -2387,63 +2304,7 @@ export function useAI(
               chatRef.current?.completeToolCall(messageId, toolCallId);
             },
           );
-        } else if (
-          designRef.current !== null &&
-          message.name === "screenshot_page"
-        ) {
-          const toolCallId = message.toolCallId;
-          const messageId = message.id;
-          const design = designRef.current;
-          void runScreenshotPage(message.arguments, {
-            screenshotPage: design.screenshotPage ?? null,
-            ...(design.setDevice !== undefined
-              ? { setDevice: design.setDevice }
-              : {}),
-            uploadImage: (file) => {
-              const upload = uploadAiImageRef.current;
-              if (upload === null) {
-                return Promise.reject(
-                  new Error("The chat cannot take images yet."),
-                );
-              }
-              return upload(file);
-            },
-          }).then(({ result, isError, images }) => {
-            sendWsMessage({
-              type: "ai_tool_result",
-              toolCallId,
-              result,
-              ...(isError ? { isError: true } : {}),
-              ...(images !== undefined ? { images } : {}),
-            });
-            chatRef.current?.completeToolCall(messageId, toolCallId);
-          });
-        } else if (designRef.current !== null && message.name === "read_page") {
-          const toolCallId = message.toolCallId;
-          const messageId = message.id;
-          const design = designRef.current;
-          void runReadPage(message.arguments, {
-            readPage: design.readPage ?? null,
-            // Picked now, or carried by the message this turn answers.
-            pointedAt: design.pointedAt ?? lastPointedAtRef.current,
-            ...(design.setDevice !== undefined
-              ? { setDevice: design.setDevice }
-              : {}),
-          }).then(({ result, isError }) => {
-            sendWsMessage({
-              type: "ai_tool_result",
-              toolCallId,
-              result,
-              ...(isError ? { isError: true } : {}),
-            });
-            chatRef.current?.completeToolCall(messageId, toolCallId);
-          });
-        } else if (
-          isCodeTool(message.name) ||
-          // The design tab's create_patch writes into the proposal's files:
-          // `DESIGN_CREATE_PATCH_TOOL`.
-          (designRef.current !== null && message.name === "create_patch")
-        ) {
+        } else if (isCodeTool(message.name)) {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
           const toolName = message.name;
@@ -2536,9 +2397,7 @@ export function useAI(
                   },
                 }
               : {}),
-            design: designRef.current !== null,
-            // The design tab's code is the tab's own: no code mode there.
-            ...(designRef.current === null && proposalName !== null
+            ...(proposalName !== null
               ? {
                   codeMode: () =>
                     readCodeMode(
@@ -2803,11 +2662,51 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
             }
           })();
+        } else if (message.name === CONVERT_SESSION_IMAGE_TOOL.name) {
+          const { id: messageId, toolCallId } = message;
+          void runConvertSessionImage(message.arguments, {
+            files: sessionFilesRef.current,
+            encode: (file, settings) => encodeImage(file, settings, undefined),
+            upload: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (!upload) {
+                return Promise.reject(new Error("Uploads are not ready."));
+              }
+              return upload(file);
+            },
+          })
+            .catch((error: unknown) => ({
+              isError: true,
+              result: {
+                error:
+                  error instanceof Error
+                    ? `The image could not be converted: ${error.message}`
+                    : "The image could not be converted.",
+              },
+            }))
+            .then(({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            });
         } else if (isSketchpadToolName(message.name)) {
           const { id: messageId, toolCallId, name } = message;
           void runSketchpadTool(name, message.arguments, {
             client: sketchpadClientRef.current,
             state: sketchpadsStateRef.current,
+            // A box names an image the project has, or one in the chat.
+            mediaKnown: knownSketchMedia(
+              valReads.getAllSchemasSnapshot(),
+              valReads.getAllSourcesSnapshot(),
+            ),
           })
             .catch((error: unknown) => ({
               isError: true,
@@ -3188,11 +3087,30 @@ export function useAI(
       if (wasUnborn) {
         onSessionBornRef.current?.(sid);
       }
+      sessionFilesRef.current.set(body.key, file);
+      // A Sketchpad's box can show it, and name it, from now on.
+      sketchpadsStateRef.current?.addSessionImage({
+        key: body.key,
+        url: URL.createObjectURL(file),
+        name: file.name,
+      });
       return body;
     },
     [getDirectFileUploadSettings],
   );
   uploadAiImageRef.current = uploadAiImage;
+  // A file put in a Sketchpad's box goes into this chat's session first.
+  useEffect(
+    () =>
+      sketchpadsState?.registerUploader((file) => {
+        const upload = uploadAiImageRef.current;
+        if (!upload) {
+          return Promise.reject(new Error("The assistant is not ready yet."));
+        }
+        return upload(file);
+      }),
+    [sketchpadsState],
+  );
 
   const sendMessage = useCallback(
     (
@@ -3267,17 +3185,9 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt =
-        context !== undefined
-          ? context.pointedAt
-          : (designRef.current?.pointedAt ?? null);
+      const pointedAt = context?.pointedAt ?? null;
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
-      }
-      lastPointedAtRef.current = pointedAt;
-      // Taken with the message when it was written, when it carries one.
-      if (context === undefined && pointedAt !== null) {
-        designRef.current?.onPointedAtSent?.();
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },
@@ -3316,12 +3226,7 @@ export function useAI(
             ...(valReads.getAssistantSettings().webSearch
               ? { webSearch: true }
               : {}),
-            systemPrompt:
-              designRef.current !== null
-                ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
-                    valReads.getAssistantSettings(),
-                  )}`
-                : `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
+            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
@@ -3404,27 +3309,29 @@ Do not describe what you will do unless you do it for clarification — just do 
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
-                    valReads.getAssistantSettings(),
-                  )}${
-                    hostedRef.current
-                      ? codeToolsPromptSection(
-                          currentProposalRef.current !== null
-                            ? { kind: "proposal" }
-                            : { kind: "site" },
-                        )
-                      : ""
-                  }`,
+              valReads.getAssistantSettings(),
+            )}${
+              hostedRef.current
+                ? codeToolsPromptSection(
+                    currentProposalRef.current !== null
+                      ? { kind: "proposal" }
+                      : { kind: "site" },
+                  )
+                : ""
+            }`,
             tools: withWebSearchWaits(
-              designRef.current !== null
-                ? [...DESIGN_TOOLS, ...CODE_TOOLS]
-                : [
-                    ...ALL_TOOLS,
-                    ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-                    // Hosted only: see `hostedRef`.
-                    ...(hostedRef.current
-                      ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
-                      : []),
-                  ],
+              [
+                ...ALL_TOOLS,
+                ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                // Hosted only: see `hostedRef`.
+                ...(hostedRef.current
+                  ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                  : []),
+                // A quick preview is shown in a proposal's preview.
+                ...(hostedRef.current && currentProposalRef.current !== null
+                  ? [QUICK_PREVIEW_TOOL]
+                  : []),
+              ],
               valReads.getAssistantSettings().webSearch === true,
             ),
           },

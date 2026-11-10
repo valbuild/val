@@ -1,5 +1,5 @@
-import { ModuleFilePath } from "@valbuild/core";
-import { useMemo } from "react";
+import { ModuleFilePath, type SourcePath } from "@valbuild/core";
+import { useEffect, useMemo, useState } from "react";
 import {
   useAllSources,
   useSchemas,
@@ -36,6 +36,7 @@ export function useReferencedFiles(
     [parentPath],
   );
   const scan = useReferenceScanStatus(query);
+  const painted = usePaintedOnce();
   /**
    * The sources the scan walks: current, except while the content it needs
    * is landing, when they move on in tenths of the load.
@@ -55,6 +56,9 @@ export function useReferencedFiles(
     [step, step === null ? allSources : null],
   );
   const referencingSourcePaths = useMemo(() => {
+    if (!painted) {
+      return NOT_SCANNED;
+    }
     if (
       parentPath !== undefined &&
       "data" in schemas &&
@@ -69,11 +73,52 @@ export function useReferencedFiles(
     }
     return [];
   }, [
+    painted,
     loadingStatus,
     scannedSources,
     "data" in schemas && schemas.data,
     parentPath,
     keyValue,
   ]);
+  if (!painted && scan.status === "success") {
+    // Nothing has looked yet, so nothing may be concluded: Delete and Rename
+    // wait on `success`. Said as a scan that has only just started.
+    return NOT_SCANNED_YET;
+  }
   return withReferences(scan, referencingSourcePaths);
+}
+
+const NOT_SCANNED: SourcePath[] = [];
+const NOT_SCANNED_YET: ReferencesResult = {
+  status: "loading",
+  refs: NOT_SCANNED,
+  percentage: 0,
+  loaded: 0,
+  total: 0,
+};
+
+/**
+ * False on the first render, true once the browser has painted it (a frame,
+ * then a task after it).
+ *
+ * The scan walks the whole project, and the inspector it answers for opens on
+ * a click: walked in the first render, it was most of the long task the click
+ * cost at 10,000 posts (`scenarios/measure/results.md`, "The Studio, built").
+ * After the paint, the inspector is on screen first and the walk is its own
+ * task, as the slices of a scan that waits for a load already are.
+ */
+function usePaintedOnce(): boolean {
+  const [painted, setPainted] = useState(false);
+  useEffect(() => {
+    if (painted) return;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timeout = setTimeout(() => setPainted(true), 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timeout !== undefined) clearTimeout(timeout);
+    };
+  }, [painted]);
+  return painted;
 }

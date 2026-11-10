@@ -212,8 +212,8 @@ export type ValCanvasPageMessage =
     }
   | ({
       /**
-       * Where the page is: its path and scroll, as it moves. The design tab
-       * opens a new build there (`scrollTo`), so a new version replaces the
+       * Where the page is: its path and scroll, as it moves. A new build
+       * is opened there (`scrollTo`), so a new version replaces the
        * page in place rather than starting over at the top of the front page.
        */
       val: typeof VAL_CANVAS_MESSAGE;
@@ -281,20 +281,12 @@ export type ValCanvasStudioMessage =
       type: "sourceUpdate";
       moduleFilePath: ModuleFilePath;
       /**
-       * The whole module source. `unknown` because the page's own types are the
-       * ones that give it meaning; nothing in between should be interpreting it.
-       *
-       * @deprecated A page of this release reads `read`; this is for a page
-       * of the release before. Goes in the release after the one that ships
-       * `read`, with the bridges' fallback that reads it: see
-       * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
+       * The module as a read (`ModuleRead`: its source and version), which
+       * the page keeps as it is. `unknown` because the page's own types are
+       * the ones that give it meaning; nothing in between should be
+       * interpreting it.
        */
-      source: unknown;
-      /**
-       * The same module as a read (`ModuleRead`), which the page keeps as it
-       * is. Optional: a Studio from the release before sends `source` alone.
-       */
-      read?: unknown;
+      read: unknown;
     }
   | {
       /**
@@ -369,7 +361,7 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
-       * Picking ANY element, as the design tab does (`elementPicker.ts`),
+       * Picking ANY element (`elementPicker.ts`),
        * rather than the fields Val tagged, as `setPicking` does.
        *
        * While `enabled`, holding `modifier` outlines what is under the

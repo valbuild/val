@@ -14,6 +14,7 @@ import { assistantMarkdownComponents } from "./assistantMarkdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
+import { SketchpadMessageCard } from "./sketchpad/SketchpadMessageCard";
 import {
   Send,
   Square,
@@ -215,8 +216,8 @@ type QueuedMessage = {
 };
 
 /**
- * What a message carries besides its text, taken when it is written: the
- * design tab's picked element. `pointedAt: null` sends none, even if
+ * What a message carries besides its text, taken when it is written: an
+ * element picked on the page. `pointedAt: null` sends none, even if
  * something is picked by the time it goes.
  */
 export type SendContext = { pointedAt: PickedElement | null };
@@ -334,8 +335,8 @@ export type AIChatProps = {
     context?: SendContext,
   ) => boolean;
   /**
-   * Take what goes with a message that is QUEUED rather than sent -- the
-   * design tab's picked element -- so it goes with that message when it is
+   * Take what goes with a message that is QUEUED rather than sent -- an
+   * element picked on the page -- so it goes with that message when it is
    * sent, not with whichever message is sent next.
    */
   onCaptureSendContext?: () => SendContext;
@@ -455,7 +456,7 @@ function getTextContent(content: AIMessageContent): string {
 // this gate omits makes the whole message fall through and render its markup
 // as literal text.
 const USER_HTML_TAG_RE =
-  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field)\b/i;
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field|sketchpad)\b/i;
 
 function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
   return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
@@ -540,6 +541,20 @@ function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
         <span key={key} className="italic text-fg-secondary">
           [{alt ? `image: ${alt}` : "image"}]
         </span>
+      );
+    }
+    case "sketchpad": {
+      // "Build" from a Sketchpad: the sketchpad as a card to open it by.
+      const routes = (el.getAttribute("routes") ?? "")
+        .split(" ")
+        .filter((route) => route !== "");
+      return (
+        <SketchpadMessageCard
+          key={key}
+          id={el.getAttribute("id") ?? ""}
+          title={el.getAttribute("title") ?? "Sketchpad"}
+          routes={routes}
+        />
       );
     }
     case "field": {

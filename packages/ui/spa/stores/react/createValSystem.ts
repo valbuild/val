@@ -2,6 +2,7 @@ import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import { statSnapshotOf } from "./statSnapshotOf";
+import { manifestAnswerOf } from "../manifestSource";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import type { ActivitySink } from "../activity";
@@ -140,17 +141,7 @@ export function createValSystem(
               : `GET /manifest failed with status ${res.status ?? "network"}`,
         };
       }
-      if (res.json.superseded === true) return { kind: "superseded" };
-      return {
-        kind: "manifest",
-        project: res.json.project,
-        modules: res.json.modules,
-        ...(res.json.tag !== undefined ? { tag: res.json.tag } : {}),
-        ...(res.json.since !== undefined ? { since: res.json.since } : {}),
-        ...(res.json.registry !== undefined
-          ? { registry: res.json.registry }
-          : {}),
-      };
+      return manifestAnswerOf(res.json);
     },
     /**
      * A new build's registry, from the entry its manifest names: on the
