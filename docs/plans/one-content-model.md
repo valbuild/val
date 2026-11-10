@@ -421,9 +421,13 @@ coverage" (valbuild/val#1006), at the end of phase 8.
     in fs and memory in phase 7's first part, on the server rather than in
     the Studio; see that entry); S27
     (the browser running the previous build's client code) happens at
-    hydration, before any overlay exists, and is home's loader's pinned
-    `app.js` fallback -- decided: fixed after phase 9, as its own change in
-    home; S16 (the schema dialog after a
+    hydration, before any overlay exists, and was home's loader's pinned
+    `app.js` fallback: KV at a location that had cached a miss for the new
+    build's code answered with the head's bundle, which there could be the
+    build before. Fixed in home after the release (2026-11-10): each build's
+    client entry is also in R2, and a pinned read takes it before it takes
+    another build (`readPinnedClientBundle`); `overlayAfterBuild`'s S27 test
+    runs; S16 (the schema dialog after a
     deploy) is phase 9's.
   - **Public API:** one addition, Next's optional `draft` prop. The overlay's
     `val-event`s (`confirmed`, and `holds` on `draftMode`) and the canvas
@@ -1058,15 +1062,19 @@ patches }`. `Cache-Control: immutable` when `v` was asked. A version not
     this release against a server of the release before sees no registry
     and reloads instead of showing the dialog. Nothing in valbuild/home
     changed. **Public API:** unchanged.
-  - **Not built:** the C11 gaps -- a module new in the proposal that the
-    build serving the address does not have, and a module whose own file is
-    not staged but whose schema a staged import moved (the overlay names
-    only staged module files) -- both need the server to evaluate staged
-    code, or the content service to name the modules a staging moved
-    (which only an evaluation knows); neither is in reach without running
-    code where the Studio cannot. Edits that do not fit after a reload are
-    held, as since phase 9's first part; "have the assistant move them" is
-    not built. A build's registry imported in a real browser is not driven
+  - **The C11 gaps, built after the release (2026-11-09),** without
+    evaluating anything on the server. A module new in the proposal is read
+    from its staged text like any other staged module and saved with
+    `schema: null` beside `staged` (C11d), or held when made by code (C11e).
+    A module whose own file is not staged but whose schema a staged import
+    moved is found through the build's import graph: tanstack-build records
+    each module's dependencies while bundling the registry and hands them to
+    Val as `moduleDependencies` (a new optional option of `initValServer` /
+    `initValContent`, asked and agreed), and `stagedAfterBuild` marks every
+    module depending on a staged file whose text differs from the build's
+    (C11f). Edits that do not fit after a reload are held, as since phase
+    9's first part, and the banner offers to have the assistant move each
+    one (`heldEditPrompt`). A build's registry imported in a real browser is not driven
     by an e2e test (the example apps are not platform builds): the import
     is `import()` of a URL, as staged code's is, and the rest is pinned by
     `buildCode.test.ts` and the scenarios. The reload in place of the
@@ -1147,58 +1155,51 @@ first fixes, and 8.)
 
 ## Release-delayed deletions
 
-What every phase could delete, it deleted in its own PR. These stay ONE
+What every phase could delete, it deleted in its own PR. These stayed ONE
 release longer, because a Studio, a page or a server of the release before
 can be talking to one of this release while a deploy rolls out (the rule in
 [Each phase deletes what it replaced](#each-phase-deletes-what-it-replaced)).
-Each is marked `@deprecated` (or carries a comment saying so) where it is
-declared. "N" is the release that ships valbuild/val#1006; **"N+1" is the
-release after it**.
+"N" is the release that shipped valbuild/val#1006 (0.151.0); "N+1" is the
+release after it; "N+2" the one after that.
 
-1. **`PUT /sources/~`**, the whole route: its `exclude_patches`
-   (`BaseAlignment`'s fetch), `apply_patches`, the accepted-and-ignored
-   `validate_sources` and `validate_binary_files`, and the answer's
-   `preview`, `validationErrors` and `baseSource`.
-   - _Read in N by:_ a Studio of the release before (`BaseAlignment`).
-     Nothing in N's product: the Studio reads `GET /manifest` and
-     `GET /modules`, and the draft readers and MCP read the head in-process
-     (`ValHead.tree()` stays, for MCP).
-   - _Goes in:_ **N+1.** First move the tests that read server state through
-     it onto `GET /modules` or the manifest (`e2e/tanstack/serverState.ts`,
-     `e2e/http/draftAfterPublish.spec.ts`, `e2e/http/manifest.spec.ts`,
-     `e2e/renameMedia.spec.ts`, `e2e/tanstack/draftRender.spec.ts`, and the
-     `overlayAfterBuild`, `budgets` and `addedField` scenarios), drop
-     `measure/draftRead.ts`'s `draft`, `draft-novalidate` and `base`
-     operations, and check that valbuild/home asks it nowhere.
-2. **`/stat`'s `sourcesSha` and `schemaSha`**, in the request (the Studio's
-   echo) and in both answers (the long poll's and `use-websocket`); with them
-   `ValOps.chainBaseSha`, `StatSnapshot.sourcesSha` and `ValProvider`'s
-   `statSourcesSha`.
-   - _Read in N by:_ a Studio of the release before (`BaseAlignment`,
-     `SchemaFreshnessWatch`). N's Studio reads neither, but its answer schema
-     REQUIRES both (`StatData` in `useStatus.ts` and the `/stat` response in
-     `ApiRoutes.ts`: `z.string()`), it echoes them, and the fs and memory
-     long poll compares the echo to see another build (`ValOpsFS.getStat`,
-     `ValOpsMemory`).
-   - _Goes in:_ **two steps.** N+1: the Studio parses them as optional and
-     echoes them only when it got them, and the long poll tells a new build
-     from the answer's `version` (`build`, `seq`) instead of the echo; the
-     server still sends them. **N+2:** the server stops sending them, and the
-     request fields go once no Studio sends them.
-3. **The relay's `source`**: `source-update.source` on the overlay's
-   `val-event` and `sourceUpdate.source` on the canvas, and the page's
-   fallback that reads a bare `source` (`applyValEvent` in
-   `@valbuild/react/stega`).
-   - _Read in N by:_ a page of the release before reads `source` (N's Studio
-     sends it beside `read`); a Studio of the release before sends `source`
-     alone (N's page reads it through the fallback).
-   - _Goes in:_ **N+1**, both halves: a Studio of N already sends `read`,
-     which a page of N+1 reads, and a page of N reads `read`, which a Studio
-     of N+1 sends.
-4. **`ValDraft.base`** (the type only; not sent and not read since phase 7).
-   - _Read in N by:_ nothing; kept so a draft of the release before
-     type-checks.
-   - _Goes in:_ **N+1.**
+**Done in N+1** (valbuild/val#1016, 2026-11-08):
+
+1. **`PUT /sources/~`**, the whole route: its `exclude_patches`,
+   `apply_patches`, the ignored `validate_sources` and
+   `validate_binary_files`, and the answer's `preview`, `validationErrors`
+   and `baseSource`. The e2e specs that read server state through it read
+   `GET /modules/~<path>` instead (`e2e/serverModule.ts`, as the Studio's
+   `originTier` does); `manifestRoute.test.ts` asks the module endpoint where
+   it asked the tree; the scenarios only asserted it was not asked;
+   `measure/draftRead.ts` lost `draft`, `draft-novalidate` and `base`.
+   valbuild/home asks it nowhere (its one mention is a path in
+   `isEditorRequest`'s test). `ValHead.tree()` stays, for MCP.
+2. **The relay's bare `source`**: `source-update.source` on the overlay's
+   `val-event`, `sourceUpdate.source` on the canvas (now `read` alone,
+   required), and the page's fallback that read it (`applyValEvent`), with
+   its `fromPreviousStudio` and the refresh loop's
+   `changedByPreviousStudio`. A bare `source` is now an invalid event
+   (`ValTanStackProvider.draftMode.test.tsx`).
+3. **`ValDraft.base`**, the type.
+4. **`/stat`'s `sourcesSha` and `schemaSha`, step one.** The Studio parses
+   both as optional and echoes them only when it got them, and echoes the
+   answer's `version` (`statRequestBody`). The fs and memory long poll tell
+   a new build by the echoed `version.build` against `ValOps.chainBuild` --
+   the build the chain is relative to, the newest build's in fs and memory,
+   which `/stat` now answers as `version.build` on every instance alike, as
+   the manifest already did -- and by the shas only for a Studio that echoes
+   no version (`ValOpsMemory.stat.test.ts`, `ValOpsFS.stat.test.ts`,
+   `manifestRoute.test.ts`). The server still sends both.
+
+**For N+2:**
+
+- **`/stat`'s `sourcesSha` and `schemaSha` from the server's answers** (the
+  long poll's and `use-websocket`), and the sha branch of both long polls.
+  Read in N+1 by: a Studio of N, which requires and echoes them.
+- **The request fields `sourcesSha` and `schemaSha`**, once no Studio sends
+  them: a Studio of N+1 still echoes what a server of N+1 sends.
+- With them `ValOps.chainBaseSha`, `StatSnapshot.sourcesSha` and
+  `ValProvider`'s `statSourcesSha`.
 
 Not on the list, deliberately:
 
@@ -1217,58 +1218,99 @@ Not on the list, deliberately:
 
 Genuinely not built, each with what it would take:
 
-- **The C11 gaps** (phase 9). A module new in a proposal that the build
-  serving its address does not have at all, and a module whose own file is
-  not staged but whose schema a staged import moved (the overlay names only
-  staged module files). Both need the server to evaluate staged code, or the
-  content service to name the modules a staging moved, which only an
-  evaluation knows.
 - **Staged code where the page cannot run the builder.** The Studio is
   usually not cross-origin isolated (`canBuildHere`), and there nothing is
   evaluated and the schema arrives with a build. A builder tab or the server
   bundling it, with the Studio evaluating the code it is handed, would also
   let a held module (C11c) be saved before a build. The cost of an
   evaluation is not measured ([Cost](#cost)).
-- **"Have the assistant move it"** for a held edit (S14). Held edits can be
-  discarded or made again by hand; the assistant is not offered them.
-- **"Used by" and the long tasks at 10,000 entries** (phase 10): 5.3 s in the
-  browser with 29 long tasks of up to 263 ms, the shell re-rendering per
-  applied batch, so "no long task over 50 ms" is not met there; the rest of
-  phase 10's map (cold start, scrolling the record list, the keystroke's root
-  copy at 100,000, the re-read after a publish at size) is reported, and
-  which to fix and which to document as limits is still to be decided
-  (`scenarios/measure/results.md`, "Phase 10").
-- **The probe through home's loader** (decision 5). The deployed probe ran on
-  a plain Worker; a site's isolate is started by home's loader
-  (`worker_loaders`), and if the two limits differ only the loader's counts.
-  `scenarios/measure/results.md`, "What to re-run deployed", item 3.
-- **S27, after phase 9**: the browser runs the previous build's client code
-  at hydration, before any overlay exists. It is home's loader's pinned
-  `app.js` fallback, decided to be fixed as its own change in valbuild/home
-  (`overlayAfterBuild.scenario.test.ts` keeps a skipped test and the pin of
-  why).
+- **"Used by" and the long tasks at 10,000 entries** (phase 10). On a built
+  Studio it was 3.5 s with 21 long tasks of up to 179 ms; after the
+  release (2026-11-08) it is 1.7 s with 3-6 of 76-90 ms: the surfaced
+  validation errors are worked out once per event and per module
+  (`ValidationStore.surfacedOf`, `surfacedErrors`), a stale module is asked
+  for again only when it shows an error, `entriesStatus` is stable by key,
+  and the gallery inspector scans after it has painted. What is left is the
+  posts module's preview computed again over every loaded post at each
+  batch (the "Used in" rows title the posts), the scan in tenths, and
+  applying each batch: "no long task over 50 ms" needs a preview per entry,
+  or the rows titled after the load. The record list's scroll stopped at
+  4,500-6,000 px because the list was remounted by every batch (fixed); now
+  that it scrolls through 10,000 posts it had a long task per step of up to
+  106-144 ms. Two of the walks per batch are gone (the "Add" button's keys,
+  the rows' load states), which leaves 29-33 of up to 87-111 ms and "used by"
+  one task of 63-69 ms; what is left is the module's whole-module validation,
+  preview, marker count and key mapping per batch -- validating entries as
+  they arrive is the one that is a design question. The rest of phase 10's map (cold start, the
+  keystroke's root copy at 100,000, the re-read after a publish at size) is
+  reported, and which to fix and which to document as limits is still to
+  be decided (`scenarios/measure/results.md`, "Phase 10" and "After: 'used
+  by' filtered once").
 - **The templates, after the release.** `valbuild/templates` pins
   `@valbuild/*`; once N is on npm, bump every template (and its
   `minimumReleaseAgeExclude`), and run each against the new version: open
   `/val`, make and save an edit (`.agent/rules.md`, "Releasing").
-- **Smaller leftovers**, each a known cost rather than a bug:
-  - another editor's keystroke costs three requests (`/stat`,
-    `GET /manifest`, `GET /modules`) and its record for the review, where it
-    cost one: a manifest that carried the patches it moved by would make it
-    one;
-  - the patch store still fetches every record of the chain, for the review
-    and the publish, so the Studio holds records it no longer replays;
-  - the manifest names a module's version at its whole chain, where
-    `GET /modules` answers the version where its chain stopped (a patch that
-    does not apply): they differ until the Studio's discard of that patch
-    lands;
-  - `entriesStatus` is stable by recompute-and-compare, not by key (it is not
-    `peek`, and is cheap);
-  - the page's hooks apply no schema rule: a relayed module is compared by
-    version only to see whether it moved, so a Studio ahead of the page's
-    build (HMR first, staged code it evaluated) relays content made with its
-    own schema once it changes (a code change that moves no content relays
-    nothing: phase 5's `engineSchemaKey`).
+- **Smaller leftovers**, each a known cost rather than a bug. Each has a
+  design (2026-11-10, Phase E after the release) and none is built:
+  - **Another editor's keystroke costs three requests** (`/stat`,
+    `GET /manifest`, `GET /modules`), and then its record for the review,
+    where it cost one.
+    - _Design:_ `/stat`'s `did-change` carries the delta: the patch ids it
+      moved by, and for each module that moved, its new version.
+    - The Studio fetches the new records in one `GET /patches?ids=`, which
+      the review needs anyway, applies them, and compares the version it
+      computes with the one named.
+    - Equal is the common case: two requests and no manifest or module read.
+      Unequal falls back to `GET /manifest` and `GET /modules` as today.
+    - Wire: one optional field on the answer. A Studio that does not read it
+      behaves as now.
+    - Pinned by B-budgets on the "another editor types" scenario, one request
+      fewer each.
+  - **The patch store fetches every record of the chain**, for the review
+    and the publish, so the Studio holds records it no longer replays.
+    - _Design:_ the store keeps ids, and the metadata that
+      `GET /patches?exclude_patch_ops=true` already answers without the ops
+      (module, author, time). It fetches records only for the patches after
+      the base it replays from, and the rest when the review opens.
+    - Publish is the server's (`/save`) and needs none.
+    - Cost: the review's first paint waits for one request. Win: a long chain
+      costs a Studio nothing until someone looks at it.
+  - **The manifest and `GET /modules` disagree while a patch does not apply.**
+    The manifest names a module's version at its whole chain; `GET /modules`
+    answers the version where the chain stopped. They differ until the
+    Studio's discard of that patch lands.
+    - _Design:_ the head records, per module, where its chain stopped when it
+      applies it (it already holds the applied state). The manifest names
+      that version when the head knows it, and the whole chain only for a
+      module nobody has read.
+    - The window this closes is one discard long, and the Studio already
+      waits it out. Worth building only with the first item, which reads the
+      versions without `GET /modules`.
+  - ~~`entriesStatus` is stable by recompute-and-compare, not by key~~:
+    keyed on the views it read and the failures recorded since 2026-11-08,
+    because it was not cheap after all -- it walked every marker on every
+    render of a reference scan's status.
+  - **The page's hooks apply no schema rule.** A relayed module is compared
+    by version only, to see whether it moved. So a Studio ahead of the page's
+    build (HMR first, or staged code it evaluated) relays content made with
+    its own schema once it changes. A code change that moves no content
+    relays nothing: phase 5's `engineSchemaKey`.
+    - _Design:_ the relay's `read` already carries `{ schema, base, chain }`.
+      The provider computes each module's schema version from its own bundle,
+      once per module, the way the server readers' `schemaVersionOf` does.
+      A read whose schema differs is not rendered: the page keeps the
+      bundle's content, and the overlay says the code changed, with **Reload**.
+    - That is the server readers' rule, at the hooks.
+    - Cost: hashing each relayed module's serialized schema once.
+  - **The timers that are not refreshes are kept, decided.** These are the
+    relay's 200 ms debounce of a burst of edits (one emission per burst,
+    since each hands the page a whole module), its 5 s fallback for a server
+    that never lets the store get in step, and the page's 10 s `waitForLoad`.
+    - Each is a bound on a server that does not answer, or a rate limit, and
+      none is how anything converges. Each says so where it is defined
+      (`sourceRelay.ts`, `overlayStore.ts`).
+    - The "Cannot log after tests are done" that `waitForLoad`'s timer
+      printed in jest does not reproduce in the full suite on 2026-11-10.
 
 ## The goal
 
@@ -2555,7 +2597,7 @@ takes the chat, the unsaved edits and the navigation with it.
 ### What exists today
 
 _Built since this was written (phase 9, 2026-11-03): everything under "What
-it should be" below except the C11 gaps, with two changes -- a build's entry
+it should be" below (the C11 gaps too, since 2026-11-09), with two changes -- a build's entry
 is `/_app/val-modules-<build>.js` (the loader's client chunks), named on the
 manifest as `registry` rather than `project.modulesEntry`; and a deploy with
 no entry (Next.js, a self-hosted TanStack Start) reloads the Studio by

@@ -901,23 +901,24 @@ export const Api = {
         body: z
           .object({
             /**
-             * @deprecated Echoed by the Studio, and compared by the fs and
-             * memory long poll to see that another build answers. This
-             * release's Studio reads each module's version from
-             * `GET /manifest`; goes once the long poll compares the echoed
-             * version instead (see "Release-delayed deletions" in
+             * @deprecated Echoed by a Studio of the release that shipped the
+             * one content model, whose fs and memory long poll compared it to
+             * see another build; a Studio of the release after echoes
+             * {@link version} instead, and this only when it was sent. The
+             * request field goes once no Studio sends it (see
+             * "Release-delayed deletions" in
              * `docs/plans/one-content-model.md`).
              */
-            sourcesSha: z.string(),
+            sourcesSha: z.string().optional(),
+            /** @deprecated As `sourcesSha`. */
+            schemaSha: z.string().optional(),
             /**
-             * @deprecated Echoed by the Studio, and compared by the fs and
-             * memory long poll to see that another build answers. This
-             * release's Studio reads each module's version from
-             * `GET /manifest`; goes once the long poll compares the echoed
-             * version instead (see "Release-delayed deletions" in
-             * `docs/plans/one-content-model.md`).
+             * The `version` the last answer carried: what the fs and memory
+             * long poll compare to see another build (the build the chain is
+             * relative to, `ValOps.chainBuild`). Optional: a Studio of the
+             * release before echoes the shas.
              */
-            schemaSha: z.string(),
+            version: ProjectVersionSchema.optional(),
             baseSha: z.string(),
             patches: z.array(z.string()).optional(),
             /**
@@ -957,21 +958,16 @@ export const Api = {
               ]),
               baseSha: z.string(),
               /**
-               * @deprecated Read by a Studio of the release before
-               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
-               * only echoes it, and reads each module's version from
-               * `GET /manifest`. Goes in two steps (see "Release-delayed
-               * deletions" in `docs/plans/one-content-model.md`).
+               * @deprecated Still sent, for a Studio of the release that
+               * shipped the one content model, which echoes it; a Studio of
+               * the release after reads it as optional and echoes `version`.
+               * The server stops sending it in the release after that (see
+               * "Release-delayed deletions" in
+               * `docs/plans/one-content-model.md`).
                */
-              schemaSha: z.string(),
-              /**
-               * @deprecated Read by a Studio of the release before
-               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
-               * only echoes it, and reads each module's version from
-               * `GET /manifest`. Goes in two steps (see "Release-delayed
-               * deletions" in `docs/plans/one-content-model.md`).
-               */
-              sourcesSha: z.string(),
+              schemaSha: z.string().optional(),
+              /** @deprecated As `schemaSha`. */
+              sourcesSha: z.string().optional(),
               patches: z.array(PatchId),
               /**
                * Of `patches`, the ones that have already SHIPPED.
@@ -1084,21 +1080,16 @@ export const Api = {
               nonce: z.string(),
               baseSha: z.string(),
               /**
-               * @deprecated Read by a Studio of the release before
-               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
-               * only echoes it, and reads each module's version from
-               * `GET /manifest`. Goes in two steps (see "Release-delayed
-               * deletions" in `docs/plans/one-content-model.md`).
+               * @deprecated Still sent, for a Studio of the release that
+               * shipped the one content model, which echoes it; a Studio of
+               * the release after reads it as optional and echoes `version`.
+               * The server stops sending it in the release after that (see
+               * "Release-delayed deletions" in
+               * `docs/plans/one-content-model.md`).
                */
-              schemaSha: z.string(),
-              /**
-               * @deprecated Read by a Studio of the release before
-               * (`BaseAlignment`, `SchemaFreshnessWatch`); this release's
-               * only echoes it, and reads each module's version from
-               * `GET /manifest`. Goes in two steps (see "Release-delayed
-               * deletions" in `docs/plans/one-content-model.md`).
-               */
-              sourcesSha: z.string(),
+              schemaSha: z.string().optional(),
+              /** @deprecated As `schemaSha`. */
+              sourcesSha: z.string().optional(),
               /**
                * The commit this deployment was built from.
                *
@@ -1787,92 +1778,6 @@ export const Api = {
           json: z.object({
             schemaSha: z.string(),
             schemas: z.record(ModuleFilePath, SerializedSchema),
-          }),
-        }),
-      ]),
-    },
-  },
-  /**
-   * @deprecated The whole tree. Nothing of this release asks it: the Studio
-   * reads modules by version (`GET /manifest`, `GET /modules/~`), the draft
-   * readers and MCP read the head in-process. Kept, with `exclude_patches`
-   * (`BaseAlignment`'s fetch) and the ignored `validate_sources` and
-   * `validate_binary_files`, for a Studio of the release before; goes in the
-   * release after the one that ships this (see "Release-delayed deletions"
-   * in `docs/plans/one-content-model.md`).
-   */
-  "/sources/~": {
-    PUT: {
-      req: {
-        path: z.string().optional(),
-        query: {
-          validate_sources: onlyOneBooleanQueryParam.optional(),
-          validate_binary_files: onlyOneBooleanQueryParam.optional(),
-          exclude_patches: onlyOneBooleanQueryParam.optional(),
-          apply_patches: onlyOneBooleanQueryParam.optional(),
-        },
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(401),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(500),
-          json: z.object({
-            message: z.string(),
-            details: z.union([z.array(ModulesError), GenericError]),
-          }),
-        }),
-        z.object({
-          status: z.literal(409),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-            details: z.array(ModulesError),
-          }),
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            schemaSha: z.string(),
-            sourcesSha: z.string(),
-            modules: z.record(
-              ModuleFilePath,
-              z.object({
-                preview: z.any().optional(), // TODO: improve this type
-                source: z.any().optional(), //.optional(), // TODO: Json zod type
-                baseSource: z.any().optional(), // pre-patch source for compare view; only set when the server applies patches (apply_patches=true) and the module has pending patches
-                patches: z
-                  .object({
-                    applied: z.array(PatchId),
-                    skipped: z.array(PatchId).optional(),
-                    errors: z.record(PatchId, GenericError).optional(),
-                  })
-                  .optional(),
-                validationErrors: z
-                  .record(z.string(), z.array(ValidationError))
-                  .optional(),
-                /**
-                 * The version of `source` as answered: with the chain the
-                 * server applied, or the empty chain when it applied none
-                 * (`apply_patches=false`). Optional: an older server sends
-                 * none.
-                 */
-                version: ModuleVersionSchema.optional(),
-              }),
-            ),
-            /** The project version this tree was read at. See `/stat`. */
-            project: ProjectVersionSchema.optional(),
           }),
         }),
       ]),

@@ -2,7 +2,7 @@
 // FIRST, and it must stay first: the field pulls in the shared bundle, which
 // builds a `TextEncoder` at module scope.
 import "../../stores/react/testPolyfills";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { initVal, Schema, SelectorSource, SourcePath } from "@valbuild/core";
 
 /**
@@ -18,10 +18,12 @@ import { initVal, Schema, SelectorSource, SourcePath } from "@valbuild/core";
  */
 const mockSchema = jest.fn();
 const mockSource = jest.fn();
+const mockPreview = jest.fn((): unknown => undefined);
+const mockListMounts = { count: 0 };
 
 jest.mock("../ValFieldProvider", () => ({
   __esModule: true,
-  usePreviewAtPath: () => undefined,
+  usePreviewAtPath: () => mockPreview(),
   useSchemaAtPath: () => mockSchema(),
   useShallowSourceAtPath: () => mockSource(),
   useSourceAtPath: () => ({ status: "success", data: {} }),
@@ -29,7 +31,13 @@ jest.mock("../ValFieldProvider", () => ({
 
 jest.mock("./VirtualizedRecordList", () => ({
   __esModule: true,
-  VirtualizedRecordList: () => <div data-testid="record-list" />,
+  VirtualizedRecordList: function MockVirtualizedRecordList() {
+    // Counts mounts: a new list is a new scroll viewport, back at the top.
+    jest.requireActual("react").useEffect(() => {
+      mockListMounts.count++;
+    }, []);
+    return <div data-testid="record-list" />;
+  },
   RecordRowSkeleton: () => null,
   RecordRowError: () => null,
 }));
@@ -148,5 +156,53 @@ describe("RecordFields picks its layout from the RECORD's render", () => {
     render(<RecordFields path={PATH} />);
     expect(screen.queryByTestId("record-list")).not.toBeNull();
     expect(screen.queryAllByTestId("any-field")).toHaveLength(0);
+  });
+});
+
+/**
+ * The list stays the same list while the record's preview is recomputed.
+ *
+ * Which list a record draws (preview rows or cards) used to be read off the
+ * preview's DATA, and a preview being recomputed has none: every batch of
+ * `.jsonValues()` entries landing invalidates the record's preview, so the
+ * record drew cards for a moment and then preview rows again -- a different
+ * component, so a new scroll viewport, back at the top. Scrolling a record of
+ * 1,000 posts was thrown back to the top seven times in forty steps, which is
+ * why the scale spec's scroll ended at 4,500-6,000 px
+ * (`scenarios/measure/results.md`, "The Studio, built").
+ */
+describe("RecordFields while its preview is recomputed", () => {
+  const previewed = {
+    status: "success",
+    data: { rows: { parent: "record", items: {} } },
+  };
+  beforeEach(() => {
+    mockListMounts.count = 0;
+    mockPreview.mockReset();
+  });
+
+  test("keeps the list it drew, rather than drawing another", () => {
+    mount(s.record(s.object({ name: s.string() })));
+    mockPreview.mockReturnValue(previewed);
+    const { rerender } = render(<RecordFields path={PATH} />);
+    expect(mockListMounts.count).toBe(1);
+
+    // A batch of entries landed: the preview is owed again.
+    mockPreview.mockReturnValue({ status: "loading" });
+    act(() => rerender(<RecordFields path={PATH} />));
+    mockPreview.mockReturnValue(previewed);
+    act(() => rerender(<RecordFields path={PATH} />));
+
+    expect(mockListMounts.count).toBe(1);
+  });
+
+  test("still moves to the other list when the record's preview changes kind", () => {
+    mount(s.record(s.object({ name: s.string() })));
+    mockPreview.mockReturnValue(previewed);
+    const { rerender } = render(<RecordFields path={PATH} />);
+    // The schema no longer previews its rows (a code change).
+    mockPreview.mockReturnValue(undefined);
+    act(() => rerender(<RecordFields path={PATH} />));
+    expect(mockListMounts.count).toBe(2);
   });
 });

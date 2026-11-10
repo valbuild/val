@@ -1,5 +1,9 @@
 import type { ModuleFilePath, PatchId, ValModules } from "@valbuild/core";
-import type { Patch, ParentRef } from "@valbuild/shared/internal";
+import type {
+  Patch,
+  ParentRef,
+  ProjectVersion,
+} from "@valbuild/shared/internal";
 import { Internal } from "@valbuild/core";
 import { uploadRemoteFile } from "./uploadRemoteFile";
 import { getFileExt } from "./getFileExt";
@@ -482,7 +486,8 @@ export class ValOpsMemory extends ValOps {
   override async getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
+      schemaSha?: SchemaSha;
+      version?: ProjectVersion;
       patches?: PatchId[];
     } | null,
   ): Promise<{
@@ -521,6 +526,13 @@ export class ValOpsMemory extends ValOps {
     // observed, either by `differs` below or by the recheck in parkUntilChange.
     const seenAt = this.changeCount;
     const before = await this.currentStat();
+    /*
+     * Another build is told by the version the Studio echoes: the build the
+     * chain is relative to (`chainBuild`), which every instance on this store
+     * answers with. A Studio that echoes no version (the release that
+     * shipped the one content model) is told by `schemaSha`, as before.
+     */
+    const build = await this.chainBuild();
     const differs = (now: {
       baseSha: BaseSha;
       schemaSha: SchemaSha;
@@ -528,7 +540,9 @@ export class ValOpsMemory extends ValOps {
     }) =>
       params === null ||
       params.baseSha !== now.baseSha ||
-      params.schemaSha !== now.schemaSha ||
+      (params.version !== undefined
+        ? params.version.build !== build
+        : params.schemaSha !== now.schemaSha) ||
       (params.patches ?? []).join(",") !== now.patches.join(",");
 
     // Already behind: answer now. This is the case that matters for latency --

@@ -295,14 +295,6 @@ export type ValEventOutcome =
   | {
       type: "updated";
       changed: boolean;
-      /**
-       * Sent by a Studio of the release before: a bare `source`, from a
-       * Studio that never says `confirmed` -- so the page refreshes on the
-       * change itself (`RefreshLoop.changedByPreviousStudio`), as that
-       * release's page did. Goes with the relay's `source` (see
-       * "Release-delayed deletions" in `docs/plans/one-content-model.md`).
-       */
-      fromPreviousStudio?: true;
     }
   | { type: "invalid"; detail: unknown };
 
@@ -311,9 +303,7 @@ export type ValEventOutcome =
  * `sources-synced` says the editor has sent everything it holds;
  * `confirmed` how far the server holds the editor's changes; a
  * `source-update` hands over one module's read, which the store keeps as it
- * is (`read`). A Studio from the release before sent the bare `source`
- * instead, and a page newer than the Studio it is open in -- a deploy rolling
- * out -- still takes that.
+ * is (`read`).
  *
  * Moved here from `@valbuild/tanstack`'s draft store; `@valbuild/next`'s
  * provider had the same rule written inline.
@@ -348,17 +338,8 @@ export function applyValEvent(
         changed: store.receive(moduleFilePath, read),
       };
     }
-    // A Studio of the release before sent the bare `source`. This fallback
-    // goes with the relay's `source` field: see "Release-delayed deletions"
-    // in `docs/plans/one-content-model.md`.
-    const source = "source" in detail ? detail.source : undefined;
-    if (isJson(source)) {
-      return {
-        type: "updated",
-        changed: store.update(moduleFilePath, source),
-        fromPreviousStudio: true,
-      };
-    }
+    // A bare `source` without `read` was a Studio of the release before
+    // the one content model; the release after it stopped reading it.
   }
   return { type: "invalid", detail };
 }

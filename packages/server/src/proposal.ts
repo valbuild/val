@@ -1,4 +1,4 @@
-import type { Json, ModuleFilePath } from "@valbuild/core";
+import { Internal, type Json, type ModuleFilePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
 import { STAGED_SCHEMA_PREFIX } from "@valbuild/shared/internal";
@@ -99,7 +99,9 @@ export { STAGED_SCHEMA_PREFIX };
  * is unchanged" never says its code is in the build.
  */
 export function stagedAfterBuild(
-  proposal: Pick<ValProposal, "staged" | "buildInputs">,
+  proposal: Pick<ValProposal, "staged" | "buildInputs"> &
+    Partial<Pick<ValProposal, "files">>,
+  build?: ServingBuild,
 ): Record<ModuleFilePath, string> {
   const inBuild =
     proposal.buildInputs === null || proposal.buildInputs === undefined
@@ -110,7 +112,87 @@ export function stagedAfterBuild(
     if (version === inBuild) continue;
     after[path as ModuleFilePath] = version;
   }
+  if (build === undefined || proposal.files === undefined) return after;
+  /*
+   * Through what a module imports. The overlay names only staged MODULE
+   * files, and a module's schema moves with any file it imports, so a module
+   * whose own file is not staged can still be of code the build was not made
+   * of. What changed since the build is read from text: a file the proposal
+   * holds that is code (not a module file, not an entry's `*.val.json` --
+   * saves write those, stagings write code) and whose text is not what the
+   * build was made of; and every module file staged after the build. A
+   * module that depends on one of those, as the build resolved its imports,
+   * is staged after the build as well.
+   */
+  const changed = new Set<string>(
+    Object.keys(after).map((path) => path.replace(/^\/+/, "")),
+  );
+  const changedCode: [string, string][] = [];
+  for (const [path, text] of Object.entries(proposal.files)) {
+    if (isModuleOrEntryFile(path)) continue;
+    if (build.source[path] === text) continue;
+    changed.add(path);
+    changedCode.push([path, text]);
+  }
+  if (changed.size === 0) return after;
+  /*
+   * Named after the staging where the overlay names it (every staged
+   * module's version is the same `staged:<inputs>`); where it names none --
+   * only code that is not a module was staged -- after the code that
+   * changed, which is as distinct per staging and is never a build's.
+   */
+  const named =
+    Object.values(proposal.staged ?? {})[0] ??
+    `${STAGED_SCHEMA_PREFIX}${hashOfFiles(changedCode)}`;
+  for (const [modulePath, dependencies] of Object.entries(
+    build.moduleDependencies,
+  )) {
+    const moduleFilePath =
+      `/${modulePath.replace(/^\/+/, "")}` as ModuleFilePath;
+    if (after[moduleFilePath] !== undefined) continue;
+    if (dependencies.some((dependency) => changed.has(dependency))) {
+      after[moduleFilePath] = named;
+    }
+  }
   return after;
+}
+
+/**
+ * What the build serving the address was made of, as the platform builds it
+ * and embeds it: its own source (`platform:project-source`) and, for each
+ * module file, every project file it depends on as the build resolved its
+ * imports (`moduleDependencies`, by path with no leading slash, transitive).
+ * For {@link stagedAfterBuild}.
+ */
+export type ServingBuild = {
+  source: Record<string, string>;
+  moduleDependencies: Record<string, readonly string[]>;
+};
+
+/** The {@link ServingBuild} a host handed over, or `undefined` when not both. */
+export function servingBuildOf(http: {
+  projectSource?: Record<string, string>;
+  moduleDependencies?: Record<string, readonly string[]>;
+}): ServingBuild | undefined {
+  return http.projectSource !== undefined &&
+    http.moduleDependencies !== undefined
+    ? {
+        source: http.projectSource,
+        moduleDependencies: http.moduleDependencies,
+      }
+    : undefined;
+}
+
+function isModuleOrEntryFile(path: string): boolean {
+  return /\.val\.(ts|js|json)$/.test(path);
+}
+
+/** A 64-hex name for code that changed: its paths and text, in order. */
+function hashOfFiles(files: [string, string][]): string {
+  const sorted = [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return Internal.getSHA256Hash(
+    new TextEncoder().encode(JSON.stringify(sorted)),
+  );
 }
 
 /**
@@ -430,9 +512,10 @@ export function layeredSnapshot(
  * `layered`'s, for the one source that carries no version.
  */
 export function proposalAsBuilt<
-  P extends Pick<ValProposal, "modules" | "staged" | "buildInputs">,
->(proposal: P): P {
-  const after = stagedAfterBuild(proposal);
+  P extends Pick<ValProposal, "modules" | "staged" | "buildInputs"> &
+    Partial<Pick<ValProposal, "files">>,
+>(proposal: P, build?: ServingBuild): P {
+  const after = stagedAfterBuild(proposal, build);
   if (Object.keys(after).length === 0) return proposal;
   const modules: Record<string, unknown> = {};
   for (const [path, source] of Object.entries(proposal.modules)) {

@@ -6,12 +6,13 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
-import { Check, Copy, Trash2 } from "lucide-react";
+import { Check, Copy, Sparkles, Trash2 } from "lucide-react";
 import { useValSystem } from "../stores/react/SystemContext";
 import type { HeldEdit } from "../stores/StatusStore";
 import type { PatchRecord } from "../stores/types";
 import { copyText } from "../utils/copyText";
 import { Button } from "./designSystem/button";
+import { useAIChatActions } from "./AIChatActionsContext";
 
 /**
  * Edits that stopped fitting when their module's code changed, and what the
@@ -23,10 +24,16 @@ import { Button } from "./designSystem/button";
  * what was WRITTEN -- the field it went to and the value -- because "make the
  * change again where the field is now" asks for work it would otherwise not
  * show: the value can be copied, and each edit discarded on its own once it
- * has been made again (or is not wanted).
+ * has been made again (or is not wanted). Where the assistant can be asked,
+ * each edit also offers to have it make the change where the field is now
+ * (`heldEditPrompt`): the editor still discards the held edit, once the
+ * assistant's change is the one they want.
  */
 export function HeldEditsBanner() {
   const val = useValSystem();
+  // `canMentionField`, not `isAIChatEnabled`: an assistant that is still
+  // connecting, or a layout with no live chat, would open nothing.
+  const { canMentionField, askAssistant } = useAIChatActions();
   const subscribe = useCallback(
     (onChange: () => void) => {
       if (val === null) return () => {};
@@ -48,6 +55,7 @@ export function HeldEditsBanner() {
     <HeldEditsList
       edits={edits}
       onDiscard={(patchIds) => val.system.discard(patchIds)}
+      {...(canMentionField ? { askAssistant } : {})}
     />
   );
 }
@@ -70,6 +78,47 @@ export type HeldEditView = {
   /** Why it does not apply, as the engine said it: for Details. */
   why: string;
 };
+
+/**
+ * What the assistant is asked, to move a held edit: the module, each change as
+ * the editor would read it, and that it is to be made where the field is NOW.
+ * It is not asked to discard the held edit -- that stays the editor's, once
+ * they have seen the change it made.
+ */
+export function heldEditPrompt(edit: HeldEditView): string {
+  const changes = edit.changes.map((change) => {
+    const where =
+      change.path === "" ? "the module's root" : `\`${change.path}\``;
+    switch (change.value.kind) {
+      case "text": {
+        // A fence longer than any run of backticks in the value, so a value
+        // that holds one cannot close it early.
+        const fence = "`".repeat(
+          Math.max(
+            3,
+            ...[...change.value.text.matchAll(/`+/g)].map(
+              (m) => m[0].length + 1,
+            ),
+          ),
+        );
+        return `- ${where} was set to:\n\n${fence}\n${change.value.text}\n${fence}`;
+      }
+      case "removed":
+        return `- ${where} was removed.`;
+      case "moved":
+        return `- ${where} was moved there from \`${change.value.from}\`.`;
+    }
+  });
+  return [
+    `An edit to ${edit.moduleFilePath} no longer fits its schema: the code changed under it, so it is held and applies nowhere. This is what it did:`,
+    "",
+    ...(changes.length > 0 ? changes : ["- (no change an editor typed)"]),
+    "",
+    `Find where each of those fields is in the module now, and make the same change there. Change nothing else. The engine's reason it does not apply: ${sentence(edit.why)}`,
+    "",
+    "Tell me when it is done, and I will discard the held edit.",
+  ].join("\n");
+}
 
 /** What each held edit wrote, from its record. Bytes of a file are not. */
 export function heldEditsOf(
@@ -148,10 +197,13 @@ export function HeldEditsList({
   edits,
   onDiscard,
   copy = copyText,
+  askAssistant,
 }: {
   edits: readonly HeldEditView[];
   onDiscard: (patchIds: PatchId[]) => Promise<DiscardResult>;
   copy?: (text: string) => void;
+  /** Absent where the assistant cannot be asked: the button is not shown. */
+  askAssistant?: (prompt: string) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -214,7 +266,9 @@ export function HeldEditsList({
         The code changed under {one ? "it, so it is" : "them, so they are"} kept
         but not shown, and publishing waits until {one ? "it is" : "they are"}{" "}
         settled. Copy what was written and make the change again where the field
-        is now. Then discard {one ? "the edit" : "each edit"}, or discard{" "}
+        is now
+        {askAssistant !== undefined ? ", or have the assistant do it" : ""}.
+        Then discard {one ? "the edit" : "each edit"}, or discard{" "}
         {one ? "it" : "them"} right away if {one ? "it is" : "they are"} not
         wanted.
       </div>
@@ -291,6 +345,15 @@ export function HeldEditsList({
                   <Trash2 size={14} />{" "}
                   {error !== undefined ? "Try again" : "Discard this edit"}
                 </Button>
+                {askAssistant !== undefined && edit.changes.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    onClick={() => askAssistant(heldEditPrompt(edit))}
+                  >
+                    <Sparkles size={14} /> Have the assistant move it
+                  </Button>
+                )}
                 <details className="text-xs text-fg-secondary">
                   <summary className="cursor-pointer">Details</summary>
                   {edit.why}

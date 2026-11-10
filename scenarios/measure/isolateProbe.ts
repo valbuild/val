@@ -391,7 +391,7 @@ async function main() {
   if (mode === "summarize") return summarize(args);
   if (mode === "bundle") return bundle(args);
   throw new Error(
-    "usage: isolateProbe.ts run --url <url> [--out runs.jsonl] [--inputs synth:1,synth:5,web] [--ops draft,base] [--repeats N] [--ballast MB] [--warm] [--label L]\n" +
+    "usage: isolateProbe.ts run --url <url> [--out runs.jsonl] [--inputs synth:1,synth:5,web] [--ops load,reader] [--repeats N] [--ballast MB] [--warm] [--label L]\n" +
       "       isolateProbe.ts summarize --runs runs.jsonl [--tail tail.json]\n" +
       "       isolateProbe.ts bundle --metafile bundle-meta.json",
   );

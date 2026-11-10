@@ -11,6 +11,7 @@ import {
 } from "@valbuild/core";
 import {
   declaredLocales,
+  filterBlockingValidationErrors,
   getKeyOfRecordAt,
   keyOfRecordPath,
   type SchemaSourceSnapshot,
@@ -232,6 +233,19 @@ export class ValidationStore {
   private resolvedAgainst = new Map<ModuleFilePath, CrossModuleInputs>();
   /** Concurrent readers of one module share a single validation. */
   private inFlight = new Map<ModuleFilePath, Promise<ValidationResult>>();
+  /**
+   * A result's errors as a person is shown them, by the result object: see
+   * {@link surfacedOf}.
+   */
+  private surfacedByResult = new WeakMap<
+    ValidationResult,
+    Record<SourcePath, ValidationError[]>
+  >();
+  /** The last {@link surfacedErrors} answer, and the parts it was made of. */
+  private surfacedAll: {
+    parts: [ModuleFilePath, Record<SourcePath, ValidationError[]>][];
+    value: Record<SourcePath, ValidationError[]>;
+  } | null = null;
 
   constructor(
     private readonly schemaStore: SchemaStore,
@@ -310,16 +324,17 @@ export class ValidationStore {
         dependents.push(dependent);
       }
     }
+    // A module whose schema is gone was removed from the project: nothing is
+    // left to validate, so its last errors must not stand in for new ones --
+    // and they must be gone BEFORE the invalidation is announced, because a
+    // reader of `surfacedErrors` reads it inside the event.
+    const gone = modules.filter(
+      (moduleFilePath) => this.schemaStore.get(moduleFilePath) === undefined,
+    );
     this.invalidate(
       dependents.length === 0 ? modules : [...modules, ...dependents],
+      gone,
     );
-    // A module whose schema is gone was removed from the project: nothing is
-    // left to validate, so its last errors must not stand in for new ones.
-    for (const moduleFilePath of modules) {
-      if (this.schemaStore.get(moduleFilePath) !== undefined) continue;
-      this.previous.delete(moduleFilePath);
-      this.stale.delete(moduleFilePath);
-    }
   }
 
   /**
@@ -516,7 +531,14 @@ export class ValidationStore {
    */
   private generation = 0;
 
-  invalidate(modules: ModuleFilePath[]): void {
+  /**
+   * @param gone modules removed from the project: their last answer is
+   *   forgotten rather than kept for {@link peekLastKnown}.
+   */
+  invalidate(
+    modules: ModuleFilePath[],
+    gone: readonly ModuleFilePath[] = [],
+  ): void {
     this.generation++;
     if (modules.length === 0) return;
     // Marking stale is unconditional; ANNOUNCING it is not. "Your errors are
@@ -524,17 +546,26 @@ export class ValidationStore {
     // otherwise intake alone emits an invalidate per module per store, and the
     // signal that matters drowns in it. Same rule as the render and search
     // stores.
-    const hadResult = modules.filter((moduleFilePath) =>
-      this.results.has(moduleFilePath),
+    const goneSet = new Set(gone);
+    const hadResult = modules.filter(
+      (moduleFilePath) =>
+        this.results.has(moduleFilePath) ||
+        (goneSet.has(moduleFilePath) && this.previous.has(moduleFilePath)),
     );
     for (const moduleFilePath of modules) {
+      this.resolvedAgainst.delete(moduleFilePath);
+      if (goneSet.has(moduleFilePath)) {
+        this.results.delete(moduleFilePath);
+        this.previous.delete(moduleFilePath);
+        this.stale.delete(moduleFilePath);
+        continue;
+      }
       this.stale.add(moduleFilePath);
       const result = this.results.get(moduleFilePath);
       if (result !== undefined) {
         this.previous.set(moduleFilePath, result);
       }
       this.results.delete(moduleFilePath);
-      this.resolvedAgainst.delete(moduleFilePath);
     }
     if (hadResult.length > 0) {
       this.events.emit({ type: "validation:invalidate", modules: hadResult });
@@ -768,6 +799,136 @@ export class ValidationStore {
   isStale(moduleFilePath: ModuleFilePath): boolean {
     return this.stale.has(moduleFilePath) || !this.results.has(moduleFilePath);
   }
+
+  /**
+   * A result's errors as a person is shown them: its cross-module markers
+   * resolved and the server's own fixes dropped (`filterBlockingValidationErrors`),
+   * or null for a result with nothing to show.
+   *
+   * Worked out once per RESULT OBJECT and kept beside it, for every reader: a
+   * field under it, the whole-project {@link surfacedErrors}, and anything
+   * else that shows a module's errors. That is correct because what the
+   * resolution reads from other modules -- the record a `keyOf` or a gallery
+   * marker names, the routers, the settings' locales -- is
+   * {@link resolvedAgainst}, and a change to any of it invalidates this module
+   * and makes a new result. While the module is stale its last answer is
+   * shown as it was resolved, one pass behind, as every other surface of a
+   * stale module is.
+   *
+   * It used to be worked out per reader: `useAllValidationErrors` filtered
+   * every validated module in each component that called it, on every
+   * validation event in the project. Eight call it on the gallery page, and
+   * loading a `.jsonValues()` record's entries revalidates the record once per
+   * batch, so at 10,000 posts that each pick an image it was a second of
+   * long tasks (`scenarios/measure/results.md`, "The Studio, built").
+   */
+  surfacedOf(
+    result: ValidationResult,
+  ): Record<SourcePath, ValidationError[]> | null {
+    if (result.status !== "validated" || result.errors === false) {
+      return null;
+    }
+    const cached = this.surfacedByResult.get(result);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const surfaced = filterBlockingValidationErrors(
+      result.errors,
+      this.schemaStore.all(),
+      this.sourceStore.allSources(),
+    );
+    this.surfacedByResult.set(result, surfaced);
+    return surfaced;
+  }
+
+  /**
+   * Every surfaced validation error the Studio knows of, by source path: the
+   * last answer of each loaded module (current or not, as
+   * {@link peekLastKnown}), through {@link surfacedOf}.
+   *
+   * Reference-stable, so it can be a `useSyncExternalStore` snapshot read by
+   * every whole-project reader at once: the same object while no module's
+   * answer moved, and while a module's answer moved to the same messages (a
+   * revalidation that found what the last one did, which is most of them).
+   * Reading it costs a look at each loaded module's result; filtering is paid
+   * only for a module whose result is new.
+   *
+   * Reports, never asks: a module that has not been validated contributes
+   * nothing. The publish gate validates for itself.
+   */
+  surfacedErrors(): Record<SourcePath, ValidationError[]> {
+    const parts: [ModuleFilePath, Record<SourcePath, ValidationError[]>][] = [];
+    for (const moduleFilePath of this.sourceStore.loadedModules()) {
+      const surfaced = this.surfacedOf(this.peekLastKnown(moduleFilePath));
+      if (surfaced !== null && Object.keys(surfaced).length > 0) {
+        parts.push([moduleFilePath, surfaced]);
+      }
+    }
+    const held = this.surfacedAll;
+    if (held !== null && sameParts(held.parts, parts)) {
+      return held.value;
+    }
+    let value: Record<SourcePath, ValidationError[]> = {};
+    for (const [, surfaced] of parts) {
+      Object.assign(value, surfaced);
+    }
+    if (held !== null && sameErrors(held.value, value)) {
+      value = held.value;
+    }
+    this.surfacedAll = { parts, value };
+    return value;
+  }
+}
+
+function sameParts(
+  a: readonly [ModuleFilePath, Record<SourcePath, ValidationError[]>][],
+  b: readonly [ModuleFilePath, Record<SourcePath, ValidationError[]>][],
+): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index++) {
+    if (a[index][0] !== b[index][0] || a[index][1] !== b[index][1]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Do two error maps say the same thing?
+ *
+ * Compared by MESSAGE rather than by object identity, because the resolving pass
+ * rebuilds error objects: `resolveSchemaSourceFixes` turns a `router:check-route`
+ * marker into a different error, so identity would report every recompute as a
+ * change and the comparison would never hold.
+ *
+ * Messages are what the UI shows and what the error badges count, so two maps
+ * with the same paths and the same messages are the same answer as far as every
+ * reader of {@link ValidationStore.surfacedErrors} is concerned.
+ */
+function sameErrors(
+  a: Record<SourcePath, ValidationError[]>,
+  b: Record<SourcePath, ValidationError[]>,
+): boolean {
+  const aPaths = Object.keys(a);
+  const bPaths = Object.keys(b);
+  if (aPaths.length !== bPaths.length) {
+    return false;
+  }
+  for (const path of aPaths) {
+    const left = a[path as SourcePath];
+    const right = b[path as SourcePath];
+    if (right === undefined || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index++) {
+      if (left[index].message !== right[index].message) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /**

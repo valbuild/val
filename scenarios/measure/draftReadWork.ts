@@ -23,22 +23,19 @@ import {
 } from "@valbuild/server/internal/browser";
 import { POSTS, postKey, scaleConfig, scaleProject } from "./scaleProject";
 
-export type Operation = "load" | "draft" | "draft-novalidate" | "base";
-export const OPERATIONS: Operation[] = [
-  "load",
-  "draft",
-  "draft-novalidate",
-  "base",
-];
+/**
+ * The operations sent over HTTP. `draft`, `draft-novalidate` and `base`
+ * measured `PUT /sources/~` (the whole tree: what a draft-mode `fetchVal` asked
+ * until phase 6, and a Studio of the release before's `BaseAlignment`), which
+ * went in the release after the one content model shipped; their numbers stay
+ * in `results.md` as the before. What a draft page reads now is `reader`.
+ */
+export type Operation = "load";
+export const OPERATIONS: Operation[] = ["load"];
 
 /** What each operation is, in the product's terms. */
 export const DESCRIBE: Record<Operation, string> = {
   load: "modules loaded and the server answering /stat (the baseline)",
-  draft:
-    "PUT /sources/~ asking for validation: until phase 6, what a draft-mode fetchVal asked once per request; since, the whole tree from the head, and the flag is ignored",
-  "draft-novalidate":
-    "the same without validation (until phase 6, previews still computed)",
-  base: "PUT /sources/~ unpatched and unvalidated: BaseAlignment's fetch",
 };
 
 export const MB = 1024 * 1024;
@@ -264,30 +261,12 @@ export async function runOperation(
   client: ValClient,
   op: Operation,
 ): Promise<void> {
-  if (op === "load") {
-    const stat = await client("/stat", "POST", { body: null });
-    if (stat.status !== 200) throw new Error(`/stat answered ${stat.status}`);
-    return;
-  }
-  const res = await client("/sources/~", "PUT", {
-    path: undefined,
-    query:
-      op === "base"
-        ? {
-            apply_patches: false,
-            exclude_patches: true,
-            validate_sources: false,
-            validate_binary_files: false,
-          }
-        : {
-            apply_patches: undefined,
-            exclude_patches: undefined,
-            validate_sources: op === "draft",
-            validate_binary_files: false,
-          },
-  });
-  if (res.status !== 200) {
-    throw new Error(`/sources/~ answered ${res.status}`);
+  switch (op) {
+    case "load": {
+      const stat = await client("/stat", "POST", { body: null });
+      if (stat.status !== 200) throw new Error(`/stat answered ${stat.status}`);
+      return;
+    }
   }
 }
 

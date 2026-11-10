@@ -646,6 +646,15 @@ export type WorldOptions = {
    * Studio reloads its page to take the new code.
    */
   deployedBy?: "the platform" | "elsewhere";
+  /**
+   * http, at a proposal's address: for each module file, every project file
+   * it depends on (by path with no leading slash), as the platform's build
+   * records it when it resolves the modules' imports
+   * (`platform:val-module-dependencies`). The bundler is the world's edge, so
+   * the scenario says what it would have found. Handed to the server and the
+   * readers as `moduleDependencies`, beside the build's `projectSource`.
+   */
+  moduleDependencies?: Record<string, string[]>;
 };
 
 export type ServerMode = "memory" | "fs" | "http";
@@ -677,6 +686,7 @@ type HttpOptions = {
   contentVersion?: ValContentVersion;
   proposal?: ValProposal;
   projectSource?: Record<string, string>;
+  moduleDependencies?: Record<string, string[]>;
   /** The build this server runs in, as the platform names it: see `nameBuild`. */
   publishBuild?: string;
 };
@@ -735,6 +745,10 @@ async function hostFor(
                 ]),
               ),
             }
+          : {}),
+        ...(options.proposal !== undefined &&
+        options.moduleDependencies !== undefined
+          ? { moduleDependencies: options.moduleDependencies }
           : {}),
       },
     };
@@ -1578,6 +1592,8 @@ export async function createWorld(options: WorldOptions): Promise<World> {
   const proposalAt = (): ProposalAt | null => {
     if (host.mode !== "http" || host.http.proposal === undefined) return null;
     const { name, branch } = host.http.proposal;
+    /** What the site's build was made of: what a build of the proposal starts from. */
+    const siteProjectSource = host.http.projectSource;
     const send = asFetch(
       withSession(host, network.fetchFor("studio:proposals")),
     );
@@ -1744,9 +1760,20 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           { method: "POST", body: JSON.stringify({}) },
         );
         if (!built.ok) throw new Error(`Not built: ${built.status}`);
+        const served = await proposalEnvAt(host.contentHost.url, name);
         host.http = {
           ...host.http,
-          proposal: await proposalEnvAt(host.contentHost.url, name),
+          proposal: served,
+          // A build of the proposal is made of the site's source with the
+          // proposal's files over it, and embeds that (`projectSource`).
+          ...(siteProjectSource !== undefined
+            ? {
+                projectSource: {
+                  ...siteProjectSource,
+                  ...(served?.files ?? {}),
+                },
+              }
+            : {}),
         };
         deployCode(serverModules);
       },

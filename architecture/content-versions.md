@@ -267,7 +267,7 @@ One module at a version, answered by `ValHead.answer`:
 ### Other answers that carry versions
 
 `/stat` and `GET /patches` answer `version` (a `ProjectVersion`); `GET /json`
-and `PUT /sources/~` carry the `ModuleVersion` of what they answer. `GET /json`
+carries the `ModuleVersion` of what it answers. `GET /json`
 reads many entries in one request (`?path=<module>&keys=<k1>&keys=<k2>…`, up
 to `JSON_ENTRIES_BATCH_MAX`, 100; `apply_patches=false` for the Studio, which
 applies its own chain) and answers with the record's version. An entry's own
@@ -329,8 +329,8 @@ What it answers: `module(path)`; `entries(path, keys)` (`GET /json`, the
 single-entry readers); `draft(path)` (what a draft reader gets: `bundle` when
 the newest version is the build's own, otherwise the source with the entries
 the draft changes filled in); `changed()` (the modules a draft changes:
-`fetchValDraft`); `tree()` (every module: `PUT /sources/~`, MCP's
-`loadState`); `answer(path, { v, have })` (`GET /modules`).
+`fetchValDraft`); `tree()` (every module: MCP's `loadState`);
+`answer(path, { v, have })` (`GET /modules`).
 
 All of it is counted (`headWork()`: `head:seq`, `head:chain`,
 `head:materialize`, `head:record-scan`, `head:entry-resolve`).
@@ -344,9 +344,14 @@ told apart differently by mode:
   NEWEST build evaluated. So `GET /manifest` and `GET /modules` are answered
   by the head of the newest data layer made in the process for that root or
   patch store (`ValOps.newestOps`), whichever instance the request reached,
-  and `/stat` names that build's base (`ValOps.chainBaseSha`). "Newest" is by
-  when the instance was made, not when it first answered; and `seq` does not
-  order builds, because the old instance reads the same counter.
+  and `/stat` names that build: its base (`ValOps.chainBaseSha`) and, as
+  its version's `build`, the build itself (`ValOps.chainBuild`). The long
+  poll compares the `version` a Studio echoes with that build to see a new
+  one, so every instance on one store answers it alike and a Studio parked
+  on the old instance is told of the new build once, not on every poll.
+  "Newest" is by when the instance was made, not when it first answered;
+  and `seq` does not order builds, because the old instance reads the same
+  counter.
 - **http**: the content service answers each build with the patches that
   build does not contain, so a build's own base is right for its chain. Only
   the service knows a newer build is live: every `applicable/patches` call
@@ -456,8 +461,6 @@ is off:
   relays with what it was rendered with by version.
 - `snapshot` (TanStack): a proposal's saved Source, sent whether or not draft
   mode is on.
-- `base`: deprecated, not sent and not read (see the plan's "Release-delayed
-  deletions").
 
 `createDraftStore(draft)` seeds the page's overlay store with it on the server
 and in the browser, so the server render and hydration read the same
@@ -509,8 +512,7 @@ the scenario world alike.
   bundle. Then `sources-synced`: after it, a module the page was not sent has
   no draft.
 - **`source-update`** carries `read`, a `ModuleRead` with the Studio's
-  version, which the page keeps as it is. (It also carries `source`, the same
-  Source, for a page of the release before.) Changes are collected for 200 ms
+  version, which the page keeps as it is. Changes are collected for 200 ms
   before they are sent (`DEBOUNCE_MS`). `ValExternalStore.receive` compares
   with what it holds by version when both have one, and by content when one
   has none, and answers whether the value moved.
@@ -736,6 +738,28 @@ staging the serving build was made of (`ValProposal.staged`,
 - one whose Source cannot be read from its text (made by code, or a
   `.jsonValues()` record) is **held**: a save that touches it is refused with
   the reason ("build the proposal, then save"), and the edit stays pending.
+  The banner that shows held edits offers to have the assistant make the
+  change where the field is now (`heldEditPrompt`); the editor discards the
+  held edit after.
+
+Two kinds of module are staged after the build without their own file being
+one the build lacks a version for, and each was a gap once (C11):
+
+- **A module new in the proposal.** The build has no schema for it at all.
+  Its Source is read from its staged text like any other (`stagedNewSources`,
+  so `getSources` has it), and a save sends it with `schema: null` beside
+  `staged` -- content records the staging's version and refuses a `null`
+  schema that names none. Made by code, it is held, as above.
+- **A module whose schema a staged import moved.** Its own file is the
+  build's, but `src/schemas/title.ts` it imports is staged. The overlay names
+  only staged MODULE files, so the server needs the build's import graph:
+  `@valbuild/tanstack-build` records what each module depends on while it
+  bundles the registry, the server build bakes it in
+  (`__VAL_MODULE_DEPENDENCIES__`), and the generated `val.server.ts` hands it
+  to Val as `moduleDependencies`, beside `projectSource`. `stagedAfterBuild`
+  marks every module that depends on a staged file whose text differs from
+  the build's (`ServingBuild`, `servingBuildOf`). A build older than this
+  hands no map, and is read as before.
 
 ## Code mode on proposals
 
@@ -786,8 +810,9 @@ numbers are in [`scenarios/measure/results.md`](../scenarios/measure/results.md)
   head charges the paths a patch copied, not the module.
 - **So the ceiling is the content the bundle holds**, as it is for starting
   the server at all, and the head's budget is not the number that decides
-  it. The whole-tree `PUT /sources/~` is still killed where it was, less
-  validation; nothing on a page's path asks it any more.
+  it. The whole-tree `PUT /sources/~` was killed where it was, less
+  validation; nothing on a page's path asked it any more, and it was removed
+  in the release after the one content model.
 - **Not measured yet:** the same through valbuild/home's loader
   (`worker_loaders`), which is how a site's isolate is actually started.
 

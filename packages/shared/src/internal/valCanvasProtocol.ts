@@ -281,20 +281,12 @@ export type ValCanvasStudioMessage =
       type: "sourceUpdate";
       moduleFilePath: ModuleFilePath;
       /**
-       * The whole module source. `unknown` because the page's own types are the
-       * ones that give it meaning; nothing in between should be interpreting it.
-       *
-       * @deprecated A page of this release reads `read`; this is for a page
-       * of the release before. Goes in the release after the one that ships
-       * `read`, with the bridges' fallback that reads it: see
-       * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
+       * The module as a read (`ModuleRead`: its source and version), which
+       * the page keeps as it is. `unknown` because the page's own types are
+       * the ones that give it meaning; nothing in between should be
+       * interpreting it.
        */
-      source: unknown;
-      /**
-       * The same module as a read (`ModuleRead`), which the page keeps as it
-       * is. Optional: a Studio from the release before sends `source` alone.
-       */
-      read?: unknown;
+      read: unknown;
     }
   | {
       /**

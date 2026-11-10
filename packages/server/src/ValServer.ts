@@ -261,6 +261,8 @@ export type ValServerConfig = ValServerOptions &
         root?: string;
         /** See `projectSource` on {@link ValApiOptions}. */
         projectSource?: Record<string, string>;
+        /** See `moduleDependencies` on {@link ValApiOptions}. */
+        moduleDependencies?: Record<string, string[]>;
         /** See `publishJob` on {@link ValApiOptions}. */
         publishJob?: string;
         /** See `publishBuild` on {@link ValApiOptions}. */
@@ -2083,8 +2085,9 @@ export const ValServer = (
           profileId,
         } as {
           baseSha: BaseSha;
-          sourcesSha: SourcesSha;
-          schemaSha: SchemaSha;
+          sourcesSha?: SourcesSha;
+          schemaSha?: SchemaSha;
+          version?: ProjectVersion;
           patches: PatchId[];
           profileId?: AuthorId;
           // FS mode only; http never sends or returns it.
@@ -2164,7 +2167,10 @@ export const ValServer = (
             ? currentStat
             : { ...currentStat, seq: undefined };
         const version: ProjectVersion = {
-          build: versionBefore.build,
+          // The build the chain is relative to: the newest build's in fs and
+          // memory, so every instance on one store answers the same one and a
+          // long poll can compare a Studio's echo with it (`chainBuild`).
+          build: await serverOps.chainBuild(),
           seq:
             statSeq ??
             ("headVersion" in currentStat
@@ -3012,179 +3018,6 @@ export const ValServer = (
             ...(res.version !== undefined ? { version: res.version } : {}),
           },
         };
-      },
-    },
-
-    // #region sources
-    "/sources/~": {
-      PUT: async (req) => {
-        const query = req.query;
-        // Only the modules under this path, when one is given.
-        const only = req.path ? moduleFilePathOfRoute(req.path) : null;
-        const auth = getAuth(req.cookies);
-        if (auth.error) {
-          return { status: 401, json: { message: auth.error } };
-        }
-        if (isHttpOps(serverOps) && !("id" in auth)) {
-          return { status: 401, json: { message: "Unauthorized" } };
-        }
-        const sourcesSha = await serverOps.getSourcesSha();
-        const moduleErrors = await serverOps.getModuleErrors();
-        if (moduleErrors?.length > 0) {
-          Internal.log.error("Module errors", moduleErrors);
-          return {
-            status: 500,
-            json: {
-              message: "Val is not correctly setup. Check the val.modules file",
-              details: moduleErrors,
-            },
-          };
-        }
-        const schemaSha = await serverOps.getSchemaSha();
-        /*
-         * No previews and no validation here any more (phase 6 of
-         * `docs/plans/one-content-model.md`): they cost every request the
-         * whole site, and nothing that reads this used them -- the Studio
-         * computes previews from its own schema instances and validates in
-         * its own worker and through `/validate`, one module at a time; the
-         * draft readers read the head. `validate_sources` and
-         * `validate_binary_files` are still accepted, and ignored.
-         */
-        // Default to true to keep the legacy contract for older clients.
-        // The studio client always passes false: it owns patch application,
-        // and treats /sources/~ as a pure un-patched read.
-        const applyPatches = query.apply_patches !== false;
-        if (query.exclude_patches === true) {
-          // The base alone: what a Studio of the release before fetched
-          // (`BaseAlignment`). Nothing of this release asks it; it goes with
-          // `PUT /sources/~` (see "Release-delayed deletions" in
-          // `docs/plans/one-content-model.md`).
-          const sources = await serverOps.getBaseSources();
-          const versions = await serverOps.moduleVersions([], false);
-          const modules: Record<
-            ModuleFilePath,
-            { source: Json; version?: ModuleVersion }
-          > = {};
-          for (const [path, source] of Object.entries(sources)) {
-            const moduleFilePath = path as ModuleFilePath;
-            if (only !== null && !moduleFilePath.startsWith(only)) continue;
-            modules[moduleFilePath] = {
-              source,
-              ...(versions[moduleFilePath] !== undefined
-                ? { version: versions[moduleFilePath] }
-                : {}),
-            };
-          }
-          return {
-            status: 200,
-            json: {
-              schemaSha,
-              sourcesSha,
-              modules,
-              project: await serverOps.projectVersion(),
-            },
-          };
-        }
-        /*
-         * Through the head: the chain re-read only when it moved, and each
-         * patched module made once per version and kept -- not the whole
-         * chain fetched and applied on every request.
-         */
-        const tree = await serverOps.head.tree();
-        if ("error" in tree) {
-          if (tree.error.unauthorized) {
-            return { status: 401, json: { message: "Unauthorized" } };
-          }
-          return {
-            status: 500,
-            json: {
-              message: tree.error.message,
-              details: { message: tree.error.message },
-            },
-          };
-        }
-        const { chain } = tree.ok;
-        const baseSources = applyPatches
-          ? await serverOps.getBaseSources()
-          : null;
-        const sources = applyPatches
-          ? tree.ok.sources
-          : await serverOps.getBaseSources();
-        const versions = applyPatches
-          ? tree.ok.versions
-          : await serverOps.moduleVersions(chain.overlay, false);
-        const modules: Record<
-          ModuleFilePath,
-          {
-            source: Json;
-            baseSource?: Json;
-            version?: ModuleVersion;
-            patches?: {
-              applied: PatchId[];
-              skipped?: PatchId[];
-              errors?: Record<PatchId, { message: string }>;
-            };
-          }
-        > = {};
-        for (const [moduleFilePathS, module] of Object.entries(sources)) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (only !== null && !moduleFilePath.startsWith(only)) continue;
-          const skippedPatches: PatchId[] = [];
-          const patchErrors: Record<PatchId, { message: string }> = {};
-          const appliedPatches: PatchId[] =
-            chain.analysis.patchesByModule[moduleFilePath]?.map(
-              (p) => p.patchId,
-            ) || [];
-          if (applyPatches) {
-            for (const { patchId, skipped, error } of tree.ok.errors[
-              moduleFilePath
-            ] || []) {
-              if (skipped) {
-                skippedPatches.push(patchId);
-              } else {
-                patchErrors[patchId] = { message: error.message };
-              }
-            }
-          }
-          const hasPatches =
-            (chain.analysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
-          modules[moduleFilePath] = {
-            source: module,
-            // baseSource is only meaningful when the server applied patches:
-            // with apply_patches=false, `source` is already un-patched.
-            ...(baseSources !== null && hasPatches
-              ? { baseSource: baseSources[moduleFilePath] }
-              : {}),
-            ...(appliedPatches.length > 0 ||
-            skippedPatches.length > 0 ||
-            Object.keys(patchErrors).length > 0
-              ? {
-                  patches: {
-                    applied: appliedPatches,
-                    ...(skippedPatches.length > 0
-                      ? { skipped: skippedPatches }
-                      : {}),
-                    ...(Object.keys(patchErrors).length > 0
-                      ? { errors: patchErrors }
-                      : {}),
-                  },
-                }
-              : {}),
-            ...(versions[moduleFilePath] !== undefined
-              ? { version: versions[moduleFilePath] }
-              : {}),
-          };
-        }
-        const res: z.infer<Api["/sources/~"]["PUT"]["res"]> = {
-          status: 200,
-          json: {
-            schemaSha,
-            sourcesSha,
-            modules,
-            project: chain.project,
-          },
-        };
-        return res;
       },
     },
 

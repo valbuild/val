@@ -368,7 +368,7 @@ finished build gets overwritten by the pending one it replaced.
 The model is [content-versions.md](./content-versions.md). Until phase 6 of
 [`docs/plans/one-content-model.md`](../docs/plans/one-content-model.md) a
 draft-mode `fetchVal` asked a private Val server for the whole module tree
-(`PUT /sources/~`), which applied every pending patch and previewed and
+(`PUT /sources/~`, since removed), which applied every pending patch and previewed and
 validated every module on every request, then asked `/patches` and `/json`
 again for the `.jsonValues()` entries it showed. Now every reader in the
 process -- both frameworks' readers, the API routes and MCP -- reads ONE head
@@ -1579,6 +1579,21 @@ single-module case, (3), runs on both apps -- it was `test.fixme` until both
 layouts passed `draft` (and fails on Next without it).
 
 ## TanStack Start
+
+**`AbortError: This operation was aborted … status: 500, unhandled: true` on
+the dev server's console is a browser leaving, not a failure, and it is not
+Val's.** TanStack Start's handler (`createStartHandler` in
+`@tanstack/start-server-core`, through `waitForRequest` in
+`@tanstack/router-core`) races every request against its `request.signal`,
+and when the client goes away mid-request it rejects with `signal.reason`;
+srvx's dev server then logs that as an unhandled 500 with the stack through
+`srvx/dist/adapters/node.mjs`. Any slow request does it. The Studio's `/stat`
+long poll is simply the one that is always in flight when a tab closes or a
+Playwright page is torn down, which is why the e2e logs (`[WebServer]`) are
+full of it. The handler Val gives TanStack never sees the rejection, so there
+is nothing in Val to quiet. 0.150.23 was released with the same `start-server-core` (1.169.39) and `router-core` (1.171.26) in its lockfile and the same long poll, so it would have printed it too (inferred from the lockfile, not run). Reproduce: `pnpm run dev` in
+`examples/tanstack`, `POST /api/val/stat` with the answer of a first `/stat`
+echoed back (it parks), and cut it with `curl -m 3`.
 
 **Under `vite dev`, Val's edit tags reach only the components whose modules
 ran after `@valbuild/tanstack/autotag`.** `autoTagJSX` works by replacing
