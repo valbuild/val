@@ -10,6 +10,8 @@ import {
 import { cn } from "../../designSystem/cn";
 import { CanvasDevice } from "./types";
 
+const DEVICES: readonly CanvasDevice[] = ["desktop", "tablet", "mobile"];
+
 const DEVICE_ICON: Record<CanvasDevice, typeof Monitor> = {
   desktop: Monitor,
   tablet: Tablet,
@@ -40,7 +42,11 @@ export function CanvasToolbar({
   className,
 }: {
   device: CanvasDevice;
-  onDeviceChange: (device: CanvasDevice) => void;
+  /**
+   * Absent where the width is chosen elsewhere -- Review's comparison, whose
+   * one switch sets both sides -- and the toolbar shows no widths of its own.
+   */
+  onDeviceChange?: (device: CanvasDevice) => void;
   scale: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -83,27 +89,28 @@ export function CanvasToolbar({
         className,
       )}
     >
-      {(Object.keys(DEVICE_ICON) as CanvasDevice[]).map((option) => {
-        const Icon = DEVICE_ICON[option];
-        return (
-          <button
-            key={option}
-            type="button"
-            aria-label={`${option} width`}
-            aria-pressed={device === option}
-            onClick={() => onDeviceChange(option)}
-            className={cn(
-              "grid h-7 w-7 place-items-center rounded-md",
-              device === option
-                ? "bg-bg-float-raised text-fg-primary"
-                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-            )}
-          >
-            <Icon size={14} />
-          </button>
-        );
-      })}
-      <Divider />
+      {onDeviceChange !== undefined &&
+        DEVICES.map((option) => {
+          const Icon = DEVICE_ICON[option];
+          return (
+            <button
+              key={option}
+              type="button"
+              aria-label={`${option} width`}
+              aria-pressed={device === option}
+              onClick={() => onDeviceChange(option)}
+              className={cn(
+                "grid h-7 w-7 place-items-center rounded-md",
+                device === option
+                  ? "bg-bg-float-raised text-fg-primary"
+                  : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+              )}
+            >
+              <Icon size={14} />
+            </button>
+          );
+        })}
+      {onDeviceChange !== undefined && <Divider />}
       <button
         type="button"
         aria-label="Zoom out"

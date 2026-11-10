@@ -105,6 +105,11 @@ export type SitePreviewProps = {
   /** The width the page starts at. The switch is the person's after that. */
   initialDevice?: CanvasDevice;
   /**
+   * The width, chosen elsewhere: Review's comparison, where one switch sets
+   * both sides. Given, the toolbar has no widths of its own.
+   */
+  device?: CanvasDevice;
+  /**
    * Where the preview was left looking, from a link.
    *
    * Applied instead of fitting the page: a link that says where to look
@@ -168,6 +173,7 @@ export function SitePreview({
   routes,
   headerEnd,
   initialDevice = "desktop",
+  device: chosenDevice,
   initialTransform,
   onTransformChange,
   isPicking = false,
@@ -184,7 +190,8 @@ export function SitePreview({
    * including the perfectly reasonable "check the desktop layout from my
    * phone".
    */
-  const [device, setDevice] = useState<CanvasDevice>(initialDevice);
+  const [ownDevice, setOwnDevice] = useState<CanvasDevice>(initialDevice);
+  const device = chosenDevice ?? ownDevice;
   /**
    * How far the page is zoomed.
    *
@@ -402,7 +409,7 @@ export function SitePreview({
         <CanvasToolbar
           className="max-w-full"
           device={device}
-          onDeviceChange={setDevice}
+          onDeviceChange={chosenDevice === undefined ? setOwnDevice : undefined}
           scale={scale}
           onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
           onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
