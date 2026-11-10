@@ -14,7 +14,7 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { AIChatPanel } from "./AIChatPanel";
 import { SelectButton } from "./SelectButton";
-import { MousePointerSquareDashed } from "lucide-react";
+import { History as HistoryIcon, MousePointerSquareDashed } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
@@ -487,6 +487,17 @@ export type ShellProps = {
     editor: ReactNode,
     breakpoint: "mobile" | "tablet" | "desktop",
   ) => ReactNode;
+  /**
+   * The past, in parts, for above a phone: the editor stays in Content as
+   * "now", and the module at the commit takes the PREVIEW's place while
+   * History is open -- the preview comes back when it closes. On a phone
+   * `renderHistory` is used, which makes them one pane and a toggle.
+   */
+  history?: {
+    label: string;
+    now: (editor: ReactNode) => ReactNode;
+    past: ReactNode;
+  };
   onPublish?: () => void;
   /**
    * The real publish control, when there is one. See `TopBarProps` — the app
@@ -707,6 +718,7 @@ export function Shell({
   initialDismissedNotices,
   renderPlanStatus,
   renderHistory,
+  history,
   onPublish,
   publishSlot,
   onPreview,
@@ -1577,11 +1589,12 @@ export function Shell({
   const openPanes = useMemo(
     () => ({
       content: true,
-      preview: isCanvasOpen && canCanvas,
+      // History takes the preview's place: the column is there either way.
+      preview: (isCanvasOpen && canCanvas) || history !== undefined,
       sketch: sketchOpen,
       chat: aiEnabled && chatOpen,
     }),
-    [isCanvasOpen, canCanvas, sketchOpen, aiEnabled, chatOpen],
+    [isCanvasOpen, canCanvas, history, sketchOpen, aiEnabled, chatOpen],
   );
   const placed = useMemo(() => {
     if (breakpoint === "mobile") return null;
@@ -1700,6 +1713,13 @@ export function Shell({
               isDevMode={isDevMode}
               onAttachToChat={aiEnabled ? attachToChat : undefined}
               skipTransition={skipTransition}
+              replacePreview={
+                breakpoint !== "mobile" && history !== undefined ? (
+                  <HistoryInPreviewsPlace label={history.label}>
+                    {history.past}
+                  </HistoryInPreviewsPlace>
+                ) : undefined
+              }
               contentPlacement={placed?.content}
               onUseContent={() => usePane("content")}
               // Closing Content's sheet hands its room back to the pane
@@ -1718,9 +1738,11 @@ export function Shell({
                * the alternative - the same tree written twice, in two branches -
                * is the shape where the two quietly stop matching.
                */}
-              {renderHistory
-                ? renderHistory(editorColumn, breakpoint)
-                : editorColumn}
+              {breakpoint !== "mobile" && history !== undefined
+                ? history.now(editorColumn)
+                : renderHistory
+                  ? renderHistory(editorColumn, breakpoint)
+                  : editorColumn}
             </PageWorkspace>
           )}
         </div>
@@ -2419,6 +2441,30 @@ function PointingPill({
         >
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The module at a commit, where the preview is while History is open: the
+ * editor beside it is "now", so the two read left to right as now and then.
+ */
+function HistoryInPreviewsPlace({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2" data-val-pane="history">
+      <div className="flex h-8 shrink-0 items-center gap-2 px-1 text-xs font-medium text-fg-secondary">
+        <HistoryIcon size={14} aria-hidden />
+        {label}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-float bg-bg-float p-4">
+        {children}
       </div>
     </div>
   );

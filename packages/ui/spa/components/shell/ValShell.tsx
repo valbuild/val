@@ -1671,53 +1671,64 @@ function ValShellBody({
     restoreDestination,
   );
 
-  const renderHistory = history.commitSha
+  /**
+   * The past, in its two parts: "now" is the editor, in the mode a restore
+   * gives it, and the past is the module at the commit. Above a phone the
+   * past takes the preview's place (`ShellProps.history`); on a phone the two
+   * are one pane and a toggle (`HistorySplit`).
+   */
+  const historyParts = history.commitSha
+    ? {
+        label: `At ${history.commitSha.slice(0, 7)}`,
+        now: (editor: React.ReactNode) => (
+          <RestoreModeProvider mode={restore.nowMode}>
+            {editor}
+          </RestoreModeProvider>
+        ),
+        past: (
+          <HistoryPane
+            wrapModule={(module) => (
+              <RestoreModeProvider mode={restore.commitMode}>
+                {module}
+              </RestoreModeProvider>
+            )}
+            restoreSlot={
+              <RestoreControls
+                patchSet={
+                  commitState?.status === "success"
+                    ? commitState.patchSet
+                    : undefined
+                }
+                path={navigation.currentSourcePath as SourcePath | null}
+                restore={restore}
+              />
+            }
+            patchSet={
+              commitState?.status === "success"
+                ? commitState.patchSet
+                : undefined
+            }
+            path={
+              history.locked
+                ? (navigation.currentSourcePath as SourcePath | null)
+                : history.rightPath
+            }
+            loading={commitState?.status === "loading"}
+            error={commitState?.status === "error" ? commitState.message : null}
+          />
+        ),
+      }
+    : undefined;
+  const renderHistory = historyParts
     ? (
         editor: React.ReactNode,
         breakpoint: "mobile" | "tablet" | "desktop",
       ) => (
         <HistorySplit
-          editor={
-            <RestoreModeProvider mode={restore.nowMode}>
-              {editor}
-            </RestoreModeProvider>
-          }
+          editor={historyParts.now(editor)}
           breakpoint={breakpoint}
-          commitLabel={`At ${history.commitSha?.slice(0, 7)}`}
-          history={
-            <HistoryPane
-              wrapModule={(module) => (
-                <RestoreModeProvider mode={restore.commitMode}>
-                  {module}
-                </RestoreModeProvider>
-              )}
-              restoreSlot={
-                <RestoreControls
-                  patchSet={
-                    commitState?.status === "success"
-                      ? commitState.patchSet
-                      : undefined
-                  }
-                  path={navigation.currentSourcePath as SourcePath | null}
-                  restore={restore}
-                />
-              }
-              patchSet={
-                commitState?.status === "success"
-                  ? commitState.patchSet
-                  : undefined
-              }
-              path={
-                history.locked
-                  ? (navigation.currentSourcePath as SourcePath | null)
-                  : history.rightPath
-              }
-              loading={commitState?.status === "loading"}
-              error={
-                commitState?.status === "error" ? commitState.message : null
-              }
-            />
-          }
+          commitLabel={historyParts.label}
+          history={historyParts.past}
         />
       )
     : undefined;
@@ -1762,6 +1773,7 @@ function ValShellBody({
                 : undefined
             }
             renderHistory={renderHistory}
+            history={historyParts}
             data={data}
             theme={resolvedTheme}
             themeStyle={themeStyle}

@@ -151,6 +151,12 @@ export type PageWorkspaceProps = {
    * rule: the column keeps its own width.
    */
   contentPlacement?: ContentPlacement;
+  /**
+   * Something in the preview's place: History's past, while it is open.
+   * The column is there whether or not the preview is, and the preview is
+   * not mounted meanwhile.
+   */
+  replacePreview?: ReactNode;
   /** Content was used: a click in it. Decides what keeps a column. */
   onUseContent?: () => void;
   /** Close Content's sheet, handing the room back to the pane beside it. */
@@ -252,6 +258,7 @@ export function PageWorkspace({
   isAssistantPicking = false,
   onStopAssistantPicking,
   contentPlacement,
+  replacePreview,
   onUseContent,
   onFoldContent,
 }: PageWorkspaceProps) {
@@ -573,7 +580,9 @@ export function PageWorkspace({
    * over any `pl-*` utility regardless of class order.
    */
   const railPadding =
-    breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
+    breakpoint === "desktop" && (open || replacePreview !== undefined)
+      ? { paddingLeft: "5.5rem" }
+      : undefined;
 
   /**
    * The switch that decides what the column holds.
@@ -1050,6 +1059,8 @@ export function PageWorkspace({
     );
   }
 
+  /** Whether the preview's column is there: the preview, or History. */
+  const split = open || replacePreview !== undefined;
   const contentFolded = contentPlacement?.kind === "strip";
   const contentSheet = contentPlacement?.kind === "sheet";
   /** What is left of the column: the rail on a desktop, the gutter below. */
@@ -1064,7 +1075,7 @@ export function PageWorkspace({
       ref={splitRef}
       className="absolute inset-0 flex overflow-hidden bg-bg-canvas"
     >
-      {open && contentFolded && (
+      {split && contentFolded && (
         <div className="relative h-full shrink-0" style={{ width: stripRoom }}>
           <PaneStrip
             panes={["content"]}
@@ -1076,7 +1087,7 @@ export function PageWorkspace({
       <div
         onPointerDownCapture={onUseContent}
         style={{
-          width: !open
+          width: !split
             ? "100%"
             : contentSheet
               ? `${contentPlacement.width + contentInset}px`
@@ -1093,16 +1104,16 @@ export function PageWorkspace({
         className={cn(
           "relative h-full min-w-0 shrink-0",
           // Folded, it stays mounted, so coming back is where it was left.
-          open && contentFolded && "hidden",
+          split && contentFolded && "hidden",
           // A sheet over the preview: the same column, placed over it.
-          open &&
+          split &&
             contentSheet &&
             "absolute inset-y-0 left-0 z-window bg-bg-canvas shadow-2xl",
         )}
       >
         {column}
       </div>
-      {open && !contentFolded && !contentSheet && (
+      {split && !contentFolded && !contentSheet && (
         <SplitDivider
           isDragging={isDragging}
           onPointerDown={onDividerPointerDown}
@@ -1133,12 +1144,12 @@ export function PageWorkspace({
            * right, which reads as the divider being nudged towards the page.
            */
           "min-w-0 flex-1 pt-20 pb-14 pl-1.5 pr-3",
-          open
+          split
             ? "scale-100 opacity-100"
             : "invisible pointer-events-none scale-95 opacity-0",
         )}
       >
-        {canvasPane}
+        {replacePreview ?? canvasPane}
       </div>
     </div>
   );
