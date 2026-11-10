@@ -1,28 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QUICK_PREVIEW_PARAM } from "@valbuild/shared/internal";
 import { useCurrentProposal } from "../ValProvider";
 import { createProposalsClient } from "../../proposals/proposalsClient";
 import { useProposalBuild } from "../../proposals/useProposalBuild";
 import { setQuickPreviewRunner } from "../../proposals/quickPreviewControl";
+import { useSettledProjectSeq } from "../shell/canvas/useServedBuild";
 import type { QuickPreviewStorer } from "../shell/canvas/CanvasFrame";
 import type { CodeModeBuild } from "./CodeModeStatus";
 import { useQuickPreview, type QuickPreviewState } from "./useQuickPreview";
 
 /** How long after the staged files stop changing they are shown as a quick preview. */
 export const AUTO_QUICK_PREVIEW_DELAY_MS = 1_000;
-
-/** The page, opened as the quick preview `id` (`quickPreview.ts`). */
-export function withQuickPreview(url: string, id: string | null): string {
-  if (id === null) return url;
-  const [path, hash] = splitHash(url);
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}${QUICK_PREVIEW_PARAM}=${encodeURIComponent(id)}${hash}`;
-}
-
-function splitHash(url: string): [string, string] {
-  const at = url.indexOf("#");
-  return at === -1 ? [url, ""] : [url.slice(0, at), url.slice(at)];
-}
 
 /**
  * The quick preview in the Studio's own canvas, in a proposal: the
@@ -40,7 +27,7 @@ function splitHash(url: string): [string, string] {
  *   quick preview shows and what it cannot, so the canvas goes back to it.
  *
  * The shell owns it because the canvas is the shell's: it opens the page as
- * `quickId` (`withQuickPreview`), hands the frame's storer in, and says when
+ * `quickId` (`CanvasFrame`'s `quickPreviewId`), hands the frame's storer in, and says when
  * the page is live, which is when a quick preview is in front.
  */
 export function useCodeModeQuickPreview({
@@ -55,8 +42,11 @@ export function useCodeModeQuickPreview({
   /** The quick preview the canvas should open, or `null` for the served build. */
   quickId: string | null;
   setStorer: (store: QuickPreviewStorer | null) => void;
-  /** The canvas's page is live: if it is a quick preview, it is in front. */
-  onLive: () => void;
+  /**
+   * A page in the canvas said it is there, and which quick preview it is
+   * (`CanvasFrame`'s `onDocument`): that one is in front.
+   */
+  onDocument: (document: { quick: string | null }) => void;
   state: QuickPreviewState;
   /** The canvas shows a quick preview rather than the served build. */
   shown: boolean;
@@ -70,10 +60,14 @@ export function useCodeModeQuickPreview({
   const quick = useQuickPreview(name ?? "", proposals);
 
   /*
-   * What is staged, read again whenever the code moves (a staging, a build):
-   * a quick preview is for staged files the served build does not have.
+   * What is staged, read again whenever the code moves: a staging or a build
+   * from this Studio (`changed`), or from anyone's -- another person's
+   * assistant staging files moves the proposal's `seq`, which every Studio
+   * open on it hears of. A quick preview is for staged files the served
+   * build does not have.
    */
   const changed = useProposalBuild(proposals).state.changed;
+  const seq = useSettledProjectSeq();
   const [staged, setStaged] = useState<{
     inputs: string;
     buildRequired: boolean;
@@ -103,7 +97,7 @@ export function useCodeModeQuickPreview({
     return () => {
       cancelled = true;
     };
-  }, [name, proposals, changed]);
+  }, [name, proposals, changed, seq]);
 
   const run = quick.run;
   const stagedInputs = staged?.inputs ?? null;
@@ -140,23 +134,25 @@ export function useCodeModeQuickPreview({
   }, [buildEpoch, shownId, dismiss]);
   const quickId = name !== null && shownId !== dropped ? shownId : null;
 
-  const quickIdRef = useRef(quickId);
-  quickIdRef.current = quickId;
+  /*
+   * What the page in the canvas IS, as it says when it loads: a document
+   * swapped in can wait while someone uses the page (`CanvasFrame`), so
+   * what was asked for is not yet what is shown.
+   */
   const [shown, setShown] = useState(false);
   const front = quick.onFront;
-  const onLive = useCallback(() => {
-    const id = quickIdRef.current;
-    setShown(id !== null);
-    front({ quick: id });
-  }, [front]);
-  useEffect(() => {
-    if (quickId === null) setShown(false);
-  }, [quickId]);
+  const onDocument = useCallback(
+    (document: { quick: string | null }) => {
+      setShown(document.quick !== null);
+      front(document);
+    },
+    [front],
+  );
 
   return {
     quickId,
     setStorer: quick.setStorer,
-    onLive,
+    onDocument,
     state: quick.state,
     shown,
   };

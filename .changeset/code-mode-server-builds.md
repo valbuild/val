@@ -18,3 +18,10 @@ built.**
 - **The assistant** shows a change now with `quick_preview`, and builds
   only when a quick preview cannot show the change (server code, routes, a
   schema, a dependency) or when the change is complete.
+- **Everyone in the proposal sees it.** When someone's assistant stages code,
+  every Studio open on the proposal shows the change as a quick preview too,
+  and code mode's status follows, with no reload. A Studio hears of it the
+  way it hears of a save.
+- **Never under your hands.** A new build or quick preview waits while you
+  are using the page in the preview (typing in it, say), and comes in when
+  you leave it, at the same page and scroll.

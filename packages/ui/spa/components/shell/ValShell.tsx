@@ -153,7 +153,6 @@ import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
 import { useBuildEpoch } from "./canvas/useServedBuild";
 import {
   useCodeModeQuickPreview,
-  withQuickPreview,
   withQuickPreviewState,
 } from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
@@ -1176,7 +1175,7 @@ function ValShellBody({
   });
   const quickId = quickPreview.quickId;
   const setQuickStorer = quickPreview.setStorer;
-  const onQuickLive = quickPreview.onLive;
+  const onQuickDocument = quickPreview.onDocument;
   /** Code mode's status asked for the page again. */
   const [codeReloads, setCodeReloads] = useState(0);
   const documentKey = `${buildEpoch}:${codeReloads}`;
@@ -1237,8 +1236,10 @@ function ValShellBody({
       onStatusChange,
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
-        url={withQuickPreview(canvasUrl, quickId)}
+        url={canvasUrl}
+        quickPreviewId={quickId}
         onQuickPreviewStorer={setQuickStorer}
+        onDocument={onQuickDocument}
         width={width}
         height={height}
         reloadKey={reloadKey}
@@ -1293,7 +1294,6 @@ function ValShellBody({
         onStatusChange={(status) => {
           onStatusChange(status);
           setCanvasLive(status === "live");
-          if (status === "live") onQuickLive();
         }}
         onRefreshingChange={onRefreshingChange}
       />
@@ -1306,7 +1306,7 @@ function ValShellBody({
     tourPagePath,
     quickId,
     setQuickStorer,
-    onQuickLive,
+    onQuickDocument,
   ]);
 
   /**

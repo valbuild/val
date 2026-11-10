@@ -4,7 +4,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   useCodeModeQuickPreview,
-  withQuickPreview,
   withQuickPreviewState,
 } from "./useCodeModeQuickPreview";
 import { quickPreviewRunner } from "../../proposals/quickPreviewControl";
@@ -38,6 +37,33 @@ jest.mock("../../proposals/proposalsClient", () => ({
 }));
 
 jest.setTimeout(15_000);
+
+/*
+ * The manifest as far as this hook reads it: the project's `seq`, which
+ * moves when anyone stages files in the proposal (valbuild/home
+ * `patches.countStaging`), heard over the Studio's own `/stat`.
+ */
+let mockSeq: number | null = 1;
+const mockSeqListeners = new Set<() => void>();
+jest.mock("../../stores/react/SystemContext", () => ({
+  useValSystem: () => ({
+    system: {
+      manifest: {
+        seq: () => mockSeq,
+        onSeq: (listener: () => void) => {
+          mockSeqListeners.add(listener);
+          return () => mockSeqListeners.delete(listener);
+        },
+        servedBuild: () => null,
+        onServedBuild: () => () => {},
+      },
+    },
+  }),
+}));
+function seqMoves() {
+  mockSeq = (mockSeq ?? 0) + 1;
+  for (const listener of [...mockSeqListeners]) listener();
+}
 
 const FILES = { "/_app/app.js": { type: "text/javascript", text: "app" } };
 
@@ -82,7 +108,7 @@ describe("the quick preview in code mode", () => {
     await waitFor(() => expect(result.current.quickId).not.toBeNull());
     expect(result.current.shown).toBe(false);
     // ...and once it is live, it is in front.
-    act(() => result.current.onLive());
+    act(() => result.current.onDocument({ quick: result.current.quickId }));
     expect(result.current.shown).toBe(true);
     await waitFor(() => expect(result.current.state.status).toBe("idle"));
   });
@@ -102,6 +128,22 @@ describe("the quick preview in code mode", () => {
     expect(mockQuickPreview).not.toHaveBeenCalled();
   });
 
+  test("files someone else staged are shown here too, once the proposal's version moves", async () => {
+    mockStaged = { inputs: "inputs-1", buildRequired: false };
+    const { store } = renderQuickPreview({ pageLive: true, buildEpoch: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(store).not.toHaveBeenCalled();
+
+    // Another person's assistant stages files: nothing happens in this
+    // Studio's own build store, only the version moves
+    mockStaged = { inputs: "inputs-theirs", buildRequired: true };
+    act(() => seqMoves());
+    await waitFor(() => expect(store).toHaveBeenCalledTimes(1), {
+      timeout: 3000,
+    });
+    expect(mockQuickPreview).toHaveBeenCalledWith("p1", "inputs-theirs");
+  });
+
   test("the assistant's quick_preview shows it, and says when the page has it", async () => {
     mockStaged = { inputs: "inputs-2", buildRequired: false };
     const { result } = renderQuickPreview({ pageLive: true, buildEpoch: 0 });
@@ -109,7 +151,7 @@ describe("the quick preview in code mode", () => {
     expect(runner).not.toBeNull();
     const answer = runQuickPreviewTool(runner);
     await waitFor(() => expect(result.current.quickId).not.toBeNull());
-    act(() => result.current.onLive());
+    act(() => result.current.onDocument({ quick: result.current.quickId }));
     const { result: toolResult, isError } = await answer;
     expect(isError).toBe(false);
     expect(toolResult).toMatchObject({ success: true });
@@ -122,12 +164,16 @@ describe("the quick preview in code mode", () => {
     });
     await waitFor(() => expect(store).toHaveBeenCalled(), { timeout: 3000 });
     await waitFor(() => expect(result.current.quickId).not.toBeNull());
-    act(() => result.current.onLive());
+    act(() => result.current.onDocument({ quick: result.current.quickId }));
     expect(result.current.shown).toBe(true);
 
     mockStaged = { inputs: "inputs-1", buildRequired: false };
     rerender({ pageLive: true, buildEpoch: 1 });
     expect(result.current.quickId).toBeNull();
+    // Still shown until the page in the canvas is the served build: the
+    // canvas can hold it while someone uses the page (`CanvasFrame`)
+    expect(result.current.shown).toBe(true);
+    act(() => result.current.onDocument({ quick: null }));
     expect(result.current.shown).toBe(false);
   });
 
@@ -138,16 +184,6 @@ describe("the quick preview in code mode", () => {
     const { isError, result } = await runQuickPreviewTool(null);
     expect(isError).toBe(true);
     expect(result).toMatchObject({ success: false });
-  });
-});
-
-describe("withQuickPreview", () => {
-  test("opens the page as the quick preview, keeping its query and hash", () => {
-    expect(withQuickPreview("/blog", "abc")).toBe("/blog?val_quick=abc");
-    expect(withQuickPreview("/blog?x=1#top", "abc")).toBe(
-      "/blog?x=1&val_quick=abc#top",
-    );
-    expect(withQuickPreview("/blog", null)).toBe("/blog");
   });
 });
 

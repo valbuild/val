@@ -63,3 +63,45 @@ export function useBuildEpoch(): number {
   }, [servedBuild]);
   return state.epoch;
 }
+
+/**
+ * The project's `seq` as the Studio last adopted it (`ManifestSource.seq`),
+ * or `null` where there is none: what something that has to follow the
+ * server re-reads on, without asking it on a timer of its own. In a
+ * proposal it moves with each staging, so every Studio open on it hears of
+ * a change someone else's assistant made.
+ */
+export function useProjectSeq(): number | null {
+  const manifest = useValSystem()?.system.manifest;
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      manifest?.onSeq(listener) ?? NOTHING_TO_UNSUBSCRIBE,
+    [manifest],
+  );
+  return useSyncExternalStore(
+    subscribe,
+    () => manifest?.seq() ?? null,
+    () => null,
+  );
+}
+
+/** How long `seq` has to stay put before {@link useSettledProjectSeq} moves. */
+export const SEQ_SETTLE_MS = 500;
+
+/**
+ * {@link useProjectSeq}, once it has stopped moving for `settleMs`: `seq`
+ * moves with every save, so someone typing moves it every few seconds, and
+ * what re-reads on it reads once for a burst rather than once per save.
+ */
+export function useSettledProjectSeq(
+  settleMs: number = SEQ_SETTLE_MS,
+): number | null {
+  const seq = useProjectSeq();
+  const [settled, setSettled] = useState(seq);
+  useEffect(() => {
+    if (seq === settled) return;
+    const timer = setTimeout(() => setSettled(seq), settleMs);
+    return () => clearTimeout(timer);
+  }, [seq, settled, settleMs]);
+  return settled;
+}
