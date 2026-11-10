@@ -159,6 +159,17 @@ In order, each step shippable on its own:
    `workspaceLayout()`: columns, tabs, strips, sheets. The editor column
    becomes the Content pane; the Sketchpad and the chat become panes.
    Keep the drag handle between columns (today's resizable split).
+   **Done:** `Shell` lays the panes out with `workspaceLayout()` above a
+   phone, and `placePanes()` (tested) says where each goes. Content and the
+   preview stay in `PageWorkspace`, with the drag handle; Content's column
+   takes the rule's width, folds to a strip (still mounted) or is a sheet.
+   Sketch (`sketchPane`, the sketchpad without a preview of its own: the
+   page it is about is shown in the one preview) and the Assistant (a pane
+   of its own, `chatOpen`, no longer one of the panels) are columns, tabs,
+   strips or a sheet; both stay mounted where they are and are placed, so a
+   conversation and a sketch keep their state. History takes the preview's
+   place; code mode's code changes are in Review, and its `</>` menu opens
+   them there. The phone is as it was, until step 5.
 4. **The top bar's switches**, replacing the Preview button.
 5. **Phone and tablet**, once the open questions are answered; then the
    tour's steps (`tourSteps.ts`), which point at controls that move.

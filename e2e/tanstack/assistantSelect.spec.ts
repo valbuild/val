@@ -11,6 +11,12 @@ import { openStudio, test } from "../studio";
  * page answers with what was picked (`elementPicked`) -- so only a real page
  * in a real frame says they work.
  */
+/*
+ * A laptop where Content, the preview and the Assistant are side by side
+ * (`workspaceLayout`): narrower, using the Assistant folds Content to a strip.
+ */
+test.use({ viewport: { width: 1512, height: 900 } });
+
 test.describe("pointing at the page", () => {
   test("the assistant's Select picks a field for the next message, once", async ({
     page,
@@ -43,11 +49,12 @@ test.describe("pointing at the page", () => {
     await expect(
       page.getByRole("button", { name: "Stop pointing the assistant" }),
     ).toHaveAttribute("aria-pressed", "true");
-    // A click on the page has one owner.
+    // A click on the page has one owner: Content's Select is not pressed,
+    // whether Content is a column or folded to a strip.
     await expect(
-      page.getByRole("button", { name: "Select on the page" }),
+      page.getByRole("button", { name: "Stop selecting on the page" }),
       "Content's Select stayed on while the assistant's picked",
-    ).toHaveAttribute("aria-pressed", "false");
+    ).toHaveCount(0);
 
     const field = page
       .frameLocator('iframe[title^="Preview of"]')
