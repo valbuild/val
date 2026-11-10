@@ -13,6 +13,8 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { AI_PANEL_WIDTH, AIChatPanel } from "./AIChatPanel";
 import { SelectButton } from "./SelectButton";
+import { MousePointerSquareDashed } from "lucide-react";
+import { cn } from "../designSystem/cn";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
 import { toRows } from "./externalPageGroups";
@@ -1965,6 +1967,17 @@ export function Shell({
          * cannot, because closing it would drop a turn in flight — see `hidden`
          * on `FloatingPanel`.
          */}
+        {/*
+         * On a phone the Assistant's Select is in a sheet that is out of the
+         * way while it picks, so its pressed state is said here, over the
+         * page it is picking on, with the way out.
+         */}
+        {breakpoint === "mobile" && assistantPicking && (
+          <PointingPill
+            codeMode={assistantSelect?.codeMode === true}
+            onCancel={() => stopAssistantPicking?.(false)}
+          />
+        )}
         {aiEnabled && (
           <AIChatPanel
             breakpoint={breakpoint}
@@ -2183,4 +2196,52 @@ export function findShellSelection(
   const module = data.data.find((entry) => entry.id === id);
   if (module) return toDataSelection(module);
   return null;
+}
+
+/**
+ * "Pointing the assistant", over the page on a phone while the Assistant's
+ * Select is picking: the pressed button it stands in for is in the
+ * assistant's sheet, which is out of the way. Cancel goes back to the
+ * assistant, as a pick does.
+ *
+ * Where the preview's own notice is, at the top of the page, and dashed as
+ * the outlines it draws are -- in the proposal's colour in code mode.
+ */
+function PointingPill({
+  codeMode,
+  onCancel,
+}: {
+  codeMode: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="pointer-events-none absolute inset-x-3 z-window flex justify-center"
+      style={{ top: "10.75rem" }}
+    >
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-2 rounded-full border border-dashed py-1 pl-3 pr-1 text-xs shadow-lg",
+          codeMode
+            ? "border-border-proposal bg-bg-proposal-soft text-fg-proposal"
+            : "border-border-brand-secondary bg-bg-float text-fg-primary",
+        )}
+      >
+        <MousePointerSquareDashed size={14} aria-hidden />
+        <span>
+          {codeMode
+            ? "Tap anything to ask the assistant about it"
+            : "Tap a field to ask the assistant about it"}
+        </span>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full border border-border-float bg-bg-float-raised px-2.5 py-1 font-medium text-fg-secondary hover:text-fg-primary"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
