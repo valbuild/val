@@ -335,9 +335,9 @@ export type QuickPreviewResult =
 
 /**
  * `quick_preview`: the proposal's client code built (by Val Build, or in the
- * tab) and shown in the preview in seconds, with the server's half still the
- * last build's (`quickPreview.ts` in `@valbuild/shared`). Not offered to the
- * assistant until code mode's preview takes quick previews.
+ * tab) and shown in the Studio's preview in seconds, with the server's half
+ * still the last build's (`quickPreview.ts` in `@valbuild/shared`). Run
+ * through `quickPreviewControl`, where the shell registers it.
  */
 export const QUICK_PREVIEW_TOOL: AITool = {
   name: "quick_preview",
@@ -358,7 +358,8 @@ export async function runQuickPreviewTool(
     return {
       result: {
         success: false,
-        error: "Only an open proposal can be previewed.",
+        error:
+          "There is no preview of a proposal open to show it in. Call build_proposal to see the change.",
       },
       isError: true,
     };
@@ -425,7 +426,8 @@ Besides content, you can read the project's code (list_files, read_file, search_
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are, then lint. Once ALL your edits for a change are done, call typecheck and fix what it reports -- it runs by itself in the background after each change, so do not call it after every edit; typecheck_status says where it is. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- The preview: a second after files are staged, the preview shows them as a quick preview by itself -- components, layout, styles and text, in seconds, without a build. Call quick_preview only to see a change now, or when none ran. A quick preview cannot show what runs on the server (loaders, server functions, API routes, a route's first render and head), routes added, removed or renamed, a .val.ts schema, or a new dependency: those need build_proposal. Build once the change is complete, never after each edit; Publish takes the build.
 - A tool's answer can carry \`typecheck_errors\`: the background typecheck found type errors in what is staged. Fix them before you build.
 - A build that is still going when build_proposal answers goes on: wait for it with wait, never by calling build_proposal again and again. If it makes no progress, build_status says at which step, and cancel_build stops it so you can build again.
 - Code mode: in a proposal, the tools that change code (write_files, format_files, lint with fix) work only while code mode is on. It is the proposal's, for everyone in it, and turning it on saves every pending content change first; each code write saves the content changes made since, so the .val.ts you read is the current content. When a code tool refuses because code mode is off, or before you start a change that needs code, call request_code_mode with the reason, and wait for the person. Never ask them to find a switch.
@@ -678,7 +680,7 @@ export async function runCodeTool(
           buildRequired: staged.staged.buildRequired,
           next: !staged.staged.buildRequired
             ? "The preview already shows these files."
-            : "Call build_proposal when the change is complete, so the preview shows it.",
+            : "The preview shows them as a quick preview by itself in a moment. Call build_proposal once the change is complete.",
           ...(evaluated === undefined
             ? {}
             : {

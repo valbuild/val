@@ -56,18 +56,16 @@ export function openBuilder(): void {
   if (openBuilderTab()) set({ inTab: { blocked: false, step: null } });
 }
 
-/** The build of the proposal this Studio is open in. */
-export function useProposalBuild(
-  client?: ProposalsClient,
-  options: {
-    /**
-     * Ask Val Build to build it first (`serverFirst`), falling back to this
-     * page or a builder tab for a project it does not build yet
-     * (valbuild/home `docs/plans/server-builds.md`).
-     */
-    onServer?: boolean;
-  } = {},
-): {
+/**
+ * The build of the proposal this Studio is open in.
+ *
+ * Val Build builds it (`buildProposalOnServer`): no bundler in this page, no
+ * builder tab, and the same on an iPhone. Every project on Val's hosting is
+ * built there (valbuild/home `docs/plans/server-builds.md`); this page or a
+ * builder tab builds it only when content says Val Build does not build the
+ * project (`serverFirst`), which today means one switched off by hand.
+ */
+export function useProposalBuild(client?: ProposalsClient): {
   state: ProposalBuildState;
   /** `null` off a proposal: nothing to build. */
   build: (() => Promise<ProposalBuildOutcome>) | null;
@@ -87,7 +85,6 @@ export function useProposalBuild(
     () => client ?? createProposalsClient({ api: "/api/val" }),
     [client],
   );
-  const onServer = options.onServer ?? false;
   const name = here?.name ?? null;
   const build = useCallback(
     () =>
@@ -127,7 +124,7 @@ export function useProposalBuild(
                 },
                 signal,
               });
-        if (name === null || !onServer) return inThisPage();
+        if (name === null) return inThisPage();
         return serverFirst(
           () =>
             buildProposalOnServer({
@@ -142,7 +139,7 @@ export function useProposalBuild(
           inThisPage,
         );
       }),
-    [deploy, name, proposals, onServer],
+    [deploy, name, proposals],
   );
   const progress: ProposalBuildProgress | null = !state.building
     ? null

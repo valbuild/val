@@ -151,6 +151,11 @@ import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { CodeChangesConnected } from "../proposals/CodeChangesConnected";
 import { useBuildEpoch } from "./canvas/useServedBuild";
+import {
+  useCodeModeQuickPreview,
+  withQuickPreview,
+  withQuickPreviewState,
+} from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -1159,6 +1164,19 @@ function ValShellBody({
    * here: the frame relays every edit as it is made.
    */
   const buildEpoch = useBuildEpoch();
+  /**
+   * In a proposal, the proposal's client code shown on the page in seconds
+   * after each change, before a build: see `useCodeModeQuickPreview`. The
+   * canvas opens the page as the quick preview while one is shown.
+   */
+  const [canvasLive, setCanvasLive] = useState(false);
+  const quickPreview = useCodeModeQuickPreview({
+    pageLive: canvasLive,
+    buildEpoch,
+  });
+  const quickId = quickPreview.quickId;
+  const setQuickStorer = quickPreview.setStorer;
+  const onQuickLive = quickPreview.onLive;
   /** Code mode's status asked for the page again. */
   const [codeReloads, setCodeReloads] = useState(0);
   const documentKey = `${buildEpoch}:${codeReloads}`;
@@ -1219,7 +1237,8 @@ function ValShellBody({
       onStatusChange,
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
-        url={canvasUrl}
+        url={withQuickPreview(canvasUrl, quickId)}
+        onQuickPreviewStorer={setQuickStorer}
         width={width}
         height={height}
         reloadKey={reloadKey}
@@ -1271,11 +1290,24 @@ function ValShellBody({
          * the frame is. See `CanvasPreviewNotice`.
          */
         enableKey={enableKey}
-        onStatusChange={onStatusChange}
+        onStatusChange={(status) => {
+          onStatusChange(status);
+          setCanvasLive(status === "live");
+          if (status === "live") onQuickLive();
+        }}
         onRefreshingChange={onRefreshingChange}
       />
     );
-  }, [canvasUrl, documentKey, focusedPath, openPickedPath, tourPagePath]);
+  }, [
+    canvasUrl,
+    documentKey,
+    focusedPath,
+    openPickedPath,
+    tourPagePath,
+    quickId,
+    setQuickStorer,
+    onQuickLive,
+  ]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -1671,7 +1703,7 @@ function ValShellBody({
             (codeWorkspace !== null ? (
               <CodeChangesConnected
                 name={codeWorkspace.name}
-                build={codeWorkspace.build}
+                build={withQuickPreviewState(codeWorkspace.build, quickPreview)}
                 onReload={() => setCodeReloads((count) => count + 1)}
                 onEditContent={() => setCodeView?.("content")}
               />

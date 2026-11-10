@@ -136,9 +136,12 @@ import {
   codeToolsPromptSection,
   pickedElementPrompt,
   isCodeTool,
+  QUICK_PREVIEW_TOOL,
   REQUEST_CODE_MODE_TOOL,
   runCodeTool,
+  runQuickPreviewTool,
 } from "../proposals/proposalCode";
+import { quickPreviewRunner } from "../proposals/quickPreviewControl";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
@@ -2214,6 +2217,21 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (message.name === "quick_preview") {
+          // Shown in the shell's canvas, which registered it.
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runQuickPreviewTool(quickPreviewRunner()).then(
+            ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              chatRef.current?.completeToolCall(messageId, toolCallId);
+            },
+          );
         } else if (isCodeTool(message.name)) {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
@@ -3228,6 +3246,10 @@ Do not describe what you will do unless you do it for clarification — just do 
               // Hosted only: see `hostedRef`.
               ...(hostedRef.current
                 ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                : []),
+              // A quick preview is shown in a proposal's preview.
+              ...(hostedRef.current && currentProposalRef.current !== null
+                ? [QUICK_PREVIEW_TOOL]
                 : []),
             ],
           },
