@@ -1,6 +1,6 @@
 /**
- * What a proposal changes of the site's files, for the design tab
- * (valbuild/home `docs/design-tab.md`): every file its saves and stagings
+ * What a proposal changes of the site's files, for code mode's Code
+ * changes (`CodeChanges`): every file its saves and stagings
  * wrote (`GET /proposals/:name/files`) that differs from the site's source.
  *
  * A file written with the site's own text again is no change, and is left

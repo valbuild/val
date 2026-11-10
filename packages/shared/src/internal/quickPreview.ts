@@ -1,11 +1,10 @@
 /**
  * A quick preview: a proposal's page, running the proposal's CLIENT code
- * built in the design tab, without a build being uploaded or served
- * (valbuild/home `docs/design-tab.md`).
+ * built in the Studio, without a build being uploaded or served.
  *
  * A full build of a proposal bundles the app for the server and the browser,
  * uploads it, and has the platform render every page before it is served --
- * minutes. Most of what the design tab changes is components and styles,
+ * minutes. Most of what the assistant changes is components and styles,
  * which the browser half alone shows. So the tab bundles the app in its
  * builder worker, and a service worker on the proposal's address hands the
  * page that bundle instead of the served one:
@@ -23,7 +22,7 @@
  * 4. It takes it over by RENDERING it, not by hydrating it. Hydration keeps
  *    the markup the server sent wherever only an attribute differs -- React
  *    mends text, never a `className` -- so a change to classes and props,
- *    which is most of what the design tab changes, hydrated into the old
+ *    which is most of what the assistant changes, hydrated into the old
  *    page and showed nothing. The worker adds a script to the end of that
  *    document's `<body>` ({@link QUICK_PREVIEW_RENDER_SCRIPT}) that takes the
  *    server's markup out before the app's scripts run, so hydration finds
@@ -307,60 +306,4 @@ export function withQuickPreviewParam(url: string, id: string): string {
   const parsed = new URL(url);
   parsed.searchParams.set(QUICK_PREVIEW_PARAM, id);
   return parsed.toString();
-}
-
-/**
- * The one origin allowed to send this page a quick preview: the site's, where
- * the design tab is, as this page's own Val server says it (the proposals
- * list's `siteUrl`). `null` when it does not say.
- *
- * A quick preview is code that runs on this address, so the bridge takes one
- * only from its parent, and only when that parent is the site: a page that
- * framed this one could otherwise post a script into the worker and open
- * the frame on it.
- */
-export async function quickPreviewSiteOrigin(
-  api: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string | null> {
-  const res = await fetchImpl(`${api.replace(/\/+$/, "")}/proposals-api`, {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) return null;
-  const body: unknown = await res.json();
-  if (typeof body !== "object" || body === null || !("siteUrl" in body)) {
-    return null;
-  }
-  const siteUrl = body.siteUrl;
-  if (typeof siteUrl !== "string") return null;
-  try {
-    return new URL(siteUrl).origin;
-  } catch {
-    return null;
-  }
-}
-
-/** The site's origin, as this page's server named it: asked once per page. */
-let siteOriginOnce: Promise<string | null> | null = null;
-
-/**
- * Whether `origin` may ask this page for what only the design tab should
- * have -- what is on it (`readPage`), or code to run (`quickPreview`): this
- * page's own origin (the Studio's canvas), or the site's, where the design
- * tab is ({@link quickPreviewSiteOrigin}). Asked of the server once, and
- * again only while it has not said.
- */
-export async function isDesignTabOrigin(
-  origin: string,
-  options: { api: string; own: string; fetchImpl?: typeof fetch },
-): Promise<boolean> {
-  if (origin === options.own) return true;
-  siteOriginOnce ??= quickPreviewSiteOrigin(
-    options.api,
-    options.fetchImpl,
-  ).catch(() => null);
-  const site = await siteOriginOnce;
-  if (site === null) siteOriginOnce = null;
-  return site !== null && site === origin;
 }
