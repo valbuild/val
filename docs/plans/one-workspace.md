@@ -88,6 +88,11 @@ assistant a sheet over the preview when in use; 390 → one pane.
     not Sketch's. With the Assistant closed, no Select.
   - **Build** replaces the Sketchpad's "Ask the assistant" (#1015's Build:
     the `<sketchpad>` card and the request to build it).
+- **The phone's bottom bar is the four panes** (Content, Preview, Sketch,
+  Assistant), and nothing else, as in the prototype. Save/Publish moves to
+  the top bar beside the account, and the bell into the account menu.
+  Replaces today's `MobileBottomBar` (assistant, bell, Preview, one primary
+  action).
 - **Code mode is said subtly**: the `</>` pressed in the top bar, the
   preview's frame in the proposal's colour, the `</>` on the Assistant's
   Select, the dashed outline.
@@ -98,9 +103,8 @@ assistant a sheet over the preview when in use; 390 → one pane.
    (option a, the default) or float **Content over the preview** (b)?
 2. **History** today splits the editor column ("now | at commit"): does it
    take Content's column, or the preview's?
-3. **Phone**: today's bottom bar holds the assistant, the bell, Preview and
-   one primary action (`MobileBottomBar`, four controls at most). Merge the
-   pane switcher into it, and where do Save/Publish and the bell go?
+3. ~~**Phone**: where do Save/Publish and the bell go?~~ Decided, see
+   below.
 4. **Tablet**: the assistant as a sheet covers most of the preview. Accept,
    or dock it and let the preview go below 560 px?
 5. Is **560 px** the right preview minimum? It decides every breakpoint.
