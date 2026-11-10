@@ -15,7 +15,12 @@ export {
   serverDraftSource,
 } from "../draftReads";
 export type { DraftModuleRead } from "../draftReads";
-export { proposalAsBuilt, stagedAfterBuild } from "../proposal";
+export {
+  proposalAsBuilt,
+  servingBuildOf,
+  stagedAfterBuild,
+  type ServingBuild,
+} from "../proposal";
 export { valRuntime, type ValRuntime } from "../valRuntime";
 export {
   ValHead,

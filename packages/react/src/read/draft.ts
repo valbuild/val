@@ -46,13 +46,6 @@ export type ValDraft = {
    */
   snapshot?: Record<ModuleFilePath, Json>;
   /**
-   * @deprecated Not sent any more, and not read: the Studio's overlay reads
-   * the base the server is on by version (the manifest names it), so a page
-   * no longer hands it over. Kept on the type for a release, so a draft of
-   * the release before still type-checks; it goes after that.
-   */
-  base?: Record<ModuleFilePath, Json>;
-  /**
    * `false` when no draft was read -- draft mode is off -- and this carries
    * only the {@link snapshot}. Absent: a draft, as it always was.
    */

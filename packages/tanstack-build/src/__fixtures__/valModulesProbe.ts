@@ -57,6 +57,13 @@ async function main() {
       workerOnly: [],
     },
   };
+  if (process.argv[3] === "dependencies") {
+    // What the build records per module: the project files it depends on.
+    const warnings: string[] = [];
+    const entry = await valModulesEntry({ files, target }, "h1", warnings);
+    console.log(JSON.stringify({ dependencies: entry.dependencies, warnings }));
+    return;
+  }
   if (process.argv[3] === "entry") {
     // What a build emits: named after the build, its vendor imports
     // root-relative, and a warning rather than a failed build.
@@ -64,8 +71,8 @@ async function main() {
     const entry = await valModulesEntry({ files, target }, "h1", warnings);
     console.log(
       JSON.stringify({
-        names: Object.keys(entry),
-        rootRelative: Object.values(entry).every((code) =>
+        names: Object.keys(entry.files),
+        rootRelative: Object.values(entry.files).every((code) =>
           code.includes(`"/_pvendor/r1/valbuild__core.js"`),
         ),
         warnings,

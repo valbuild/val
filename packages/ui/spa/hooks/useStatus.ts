@@ -4,6 +4,7 @@ import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
   ProjectVersionSchema,
+  StatManifest,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -194,6 +195,11 @@ export const StatData = z.object({
    */
   jsonEntriesSha: z.string().optional(),
   /**
+   * The manifest the answer carried, because the request said which one it
+   * was relative to (`StatManifest`); echoed by {@link statRequestBody}.
+   */
+  manifest: StatManifest.optional(),
+  /**
    * FS mode only: unpublished changes the store threw away because it could not
    * read them. Said once — the server drains it when it hands it over — so this
    * is absent on every stat but the one that reports it.
@@ -201,8 +207,15 @@ export const StatData = z.object({
   removed: z
     .array(z.object({ patchId: PatchId, reason: z.string() }))
     .optional(),
-  sourcesSha: z.string(),
-  schemaSha: z.string(),
+  /**
+   * @deprecated Echoed when sent, and read by nothing: what told the fs and
+   * memory long poll that another build answers is `version` now. The
+   * server stops sending them a release after this ("Release-delayed
+   * deletions" in `docs/plans/one-content-model.md`).
+   */
+  sourcesSha: z.string().optional(),
+  /** @deprecated As `sourcesSha`. */
+  schemaSha: z.string().optional(),
   baseSha: z.string(),
   patches: z.array(PatchId),
   /**
@@ -300,7 +313,14 @@ export type StatState =
       waitStart: number;
       wait: number;
     };
-export function useStatus(client: ValClient) {
+/**
+ * @param statAsked Called as each `/stat` that asks for the manifest is sent:
+ *   `StatStore.asked`, so the manifest that answer carries can be taken.
+ */
+export function useStatus(client: ValClient, statAsked?: () => void) {
+  const statAskedRef = useRef(statAsked);
+  statAskedRef.current = statAsked;
+  const asked = useCallback(() => statAskedRef.current?.(), []);
   // this is where we handle the base state of the application:
   // if the schema or the commit changes, we must reload the schema (and the sources)
   // if base changes, we must fetch sources (with patches applied, and errors)
@@ -419,6 +439,7 @@ export function useStatus(client: ValClient) {
           setIsAuthenticated,
           setServiceUnavailable,
           onPublishJob,
+          asked,
         );
       } else {
         Internal.log.debug(
@@ -443,12 +464,13 @@ export function useStatus(client: ValClient) {
             setIsAuthenticated,
             setServiceUnavailable,
             onPublishJob,
+            asked,
           );
         }, wait);
         return () => clearTimeout(timeout);
       }
     }
-  }, [client, stat]);
+  }, [client, stat, asked]);
 
   useEffect(() => {
     if (stat.status === "not-asked") {
@@ -469,9 +491,10 @@ export function useStatus(client: ValClient) {
         setIsAuthenticated,
         setServiceUnavailable,
         onPublishJob,
+        asked,
       );
     }
-  }, [client, stat.status]);
+  }, [client, stat.status, asked]);
 
   return [
     stat,
@@ -670,8 +693,11 @@ export function awaitingDeploymentInterval(
 
 /**
  * What a `/stat` request says the Studio already knows: the last answer's
- * shas and patches, so the server can answer "no change" (or, in fs mode,
- * long-poll until there is one). `null` on the first request.
+ * base, patches and `version`, so the server can answer "no change" (or, in
+ * fs and memory mode, long-poll until there is one). `null` on the first
+ * request. `sourcesSha` and `schemaSha` are echoed only when the server sent
+ * them (a server that still compares them, the release that shipped the one
+ * content model).
  *
  * Its own function so the scenario harness (`scenarios/`) asks exactly what
  * the Studio asks.
@@ -681,14 +707,46 @@ export function statRequestBody(data: StatData | undefined) {
     return null;
   }
   return {
-    schemaSha: data.schemaSha,
-    sourcesSha: data.sourcesSha,
+    ...(data.schemaSha !== undefined ? { schemaSha: data.schemaSha } : {}),
+    ...(data.sourcesSha !== undefined ? { sourcesSha: data.sourcesSha } : {}),
+    ...(data.version !== undefined ? { version: data.version } : {}),
     baseSha: data.baseSha,
     patches: data.patches,
     // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
     // no other sha here can see that (a jsonValues module's source is markers).
     jsonEntriesSha: data.jsonEntriesSha,
+    manifest: manifestEcho(data.manifest),
   };
+}
+
+/**
+ * The manifest a socket message leaves in the stat: the same echo, as
+ * `unchanged`, which the stores never take. The manifest the last answer
+ * carried is not the answer to this message, and a stat built from it must
+ * not hand it on again.
+ */
+function echoOnly(data: StatData): StatData["manifest"] {
+  const echo = manifestEcho(data.manifest);
+  return echo !== null ? { unchanged: true, ...echo } : undefined;
+}
+
+/**
+ * Which manifest the next `/stat` says the Studio holds: the one the last
+ * answer carried, so the server answers with what moved since (a delta, or
+ * `unchanged`). `null` asks for it whole -- the first request, and after an
+ * answer that carried none. Asked on EVERY request, so another editor's
+ * keystroke costs the Studio no `GET /manifest`.
+ */
+function manifestEcho(
+  manifest: StatData["manifest"],
+): { tag: string; seq: number } | null {
+  if (manifest === undefined) return null;
+  if ("unchanged" in manifest) {
+    return { tag: manifest.tag, seq: manifest.seq };
+  }
+  return manifest.tag !== undefined
+    ? { tag: manifest.tag, seq: manifest.project.seq }
+    : null;
 }
 
 /**
@@ -697,10 +755,16 @@ export function statRequestBody(data: StatData | undefined) {
  * One function for what the poll in {@link useStatus} sends and what the
  * scenario harness (`scenarios/`) sends, so the two cannot ask differently.
  */
-export function requestStat(client: ValClient, stat: StatState) {
-  return client("/stat", "POST", {
-    body: statRequestBody("data" in stat ? stat.data : undefined),
-  });
+export function requestStat(
+  client: ValClient,
+  stat: StatState,
+  asked?: () => void,
+) {
+  const body = statRequestBody("data" in stat ? stat.data : undefined);
+  // Said as it is sent: what the manifest it carries back is decided at
+  // (`StatStore.asked`).
+  if (body !== null) asked?.();
+  return client("/stat", "POST", { body });
 }
 
 /** An answer to {@link requestStat}. */
@@ -834,6 +898,7 @@ export function statStateAfterSocketMessage(
   now: number,
 ): StatState | null {
   if (!("data" in prev) || !prev.data) return null;
+  const data: StatData = { ...prev.data, manifest: echoOnly(prev.data) };
   const timing = {
     waitStart: "waitStart" in prev ? prev.waitStart : now,
     wait:
@@ -844,16 +909,16 @@ export function statStateAfterSocketMessage(
   if (message.type === "patches") {
     return {
       status: "ws-message-received",
-      data: { ...prev.data, ...chainOfMessage(prev.data, message) },
+      data: { ...data, ...chainOfMessage(data, message) },
       ...timing,
     };
   }
   if (message.type === "commit") {
-    const commits = (prev.data.commits || []).concat(message.commit);
+    const commits = (data.commits || []).concat(message.commit);
     return {
       status: "ws-message-received",
       data: {
-        ...prev.data,
+        ...data,
         commits,
         /*
          * The publish head moves HERE too, not only on a poll.
@@ -866,7 +931,7 @@ export function statStateAfterSocketMessage(
          * the message is the newest: commits arrive in whatever order the
          * socket delivers them.
          */
-        headCommitSha: newestCommitSha(commits) ?? prev.data.headCommitSha,
+        headCommitSha: newestCommitSha(commits) ?? data.headCommitSha,
       },
       ...timing,
     };
@@ -875,8 +940,8 @@ export function statStateAfterSocketMessage(
     return {
       status: "ws-message-received",
       data: {
-        ...prev.data,
-        deployments: (prev.data.deployments || []).concat({
+        ...data,
+        deployments: (data.deployments || []).concat({
           commitSha: message.deployment.commitSha,
           deploymentId: message.deployment.deploymentId,
           deploymentState: message.deployment.deploymentState,
@@ -912,13 +977,14 @@ async function execStat(
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
   setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
   onPublishJob: (job: PublishJobNudge) => void,
+  asked: () => void,
 ) {
   const id = ++statIdRef.current;
   const socketPatchesAtRequest = socketPatchesRef.current;
   const requestedAt = Date.now();
 
   setAuthenticationLoadingIfNotAuthenticated();
-  return requestStat(client, stat)
+  return requestStat(client, stat, asked)
     .then((res) => {
       if (res.status === 401) {
         setIsAuthenticated("login-required");

@@ -8,6 +8,7 @@ import type {
 } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import type { SyncState } from "./PatchSync";
+import type { CarriedManifest } from "./manifestSource";
 import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 
 /**
@@ -239,6 +240,11 @@ export type SystemEvent =
       path: SourcePath;
       moduleFilePath: ModuleFilePath;
     }
+  /**
+   * A `/stat` that asks for the manifest is being sent (`StatStore.asked`):
+   * what the manifest it carries back is decided at.
+   */
+  | { type: "stat:ask" }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
   | {
       type: "stat:receive";
@@ -259,6 +265,11 @@ export type SystemEvent =
        * reported.
        */
       seq?: number;
+      /**
+       * The manifest the stat carried (`CarriedManifest`), so the manifest
+       * source need not ask `GET /manifest`. Absent when it carried none.
+       */
+      manifest?: CarriedManifest;
     }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }

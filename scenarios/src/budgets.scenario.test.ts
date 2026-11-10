@@ -135,7 +135,12 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
    * Given two editors on one module,
    * when one types once,
    * then the other applies that one patch once, fetches it once (GET
-   * /patches), and never fetches the whole module (PUT /sources/~).
+   * /patches), and never fetches the whole module (PUT /sources/~) -- nor
+   * the module's patches again (GET /modules): the version the manifest
+   * names is the held one with the record the patch store fetched on top.
+   * Where `/stat` told it (fs, memory), the manifest came on that answer, so
+   * the only other request is the next `/stat`; where a socket message did
+   * (http), the manifest is asked for.
    */
   test("B02 another editor's keystroke costs one patch, not the module", async () => {
     world = await createWorld({ config, modules: [homeVal], server });
@@ -160,6 +165,11 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       .map((e) => `${e.method} ${e.path}`);
     expect(bos.filter((r) => r === "GET /api/val/patches")).toHaveLength(1);
     expect(bos).not.toContain("PUT /api/val/sources/~");
+    expect([...bos].sort()).toEqual(
+      server === "http"
+        ? ["GET /api/val/manifest", "GET /api/val/patches"]
+        : ["GET /api/val/patches", "POST /api/val/stat"],
+    );
   });
 
   /**
@@ -548,7 +558,12 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
       last = await editor.edit(homeVal, ["title"], `Typed ${i}`);
     }
     await world.settle();
-    editor.expectWork(since, { "source:apply-patch": { exactly: 40 } });
+    editor.expectWork(since, {
+      "source:apply-patch": { exactly: 40 },
+      // A manifest a stat carried decides at the moment that stat was asked:
+      // a save confirmed after it is not gone for being missing from it.
+      "patch:drop": { exactly: 0 },
+    });
     expect(editor.system.sourceStore.retainedVersions(HOME)).toBe(2);
     const before = editor.system.sourceStore.versionOf(HOME);
 

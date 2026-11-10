@@ -160,7 +160,7 @@ export function createProbe(options: ProbeOptions): {
     let stage: ProbeFailure["stage"] = "parse";
     try {
       const input = url.searchParams.get("input") ?? "synth:1";
-      const opParam = url.searchParams.get("op") ?? "draft";
+      const opParam = url.searchParams.get("op") ?? "reader";
       const op = PROBE_OPERATIONS.find((o) => o === opParam);
       if (op === undefined) throw new Error(`unknown op: ${opParam}`);
       const repeats = Math.max(1, Number(url.searchParams.get("repeats") ?? 1));
@@ -262,7 +262,7 @@ export function createProbe(options: ProbeOptions): {
         return Response.json({
           probe: "val-isolate-probe",
           usage:
-            "GET /run?input=synth:5&op=draft&repeats=1&ballast=0&fresh=0&id=<any>",
+            "GET /run?input=synth:5&op=reader&repeats=1&ballast=0&fresh=0&id=<any>",
           inputs,
           ops: PROBE_DESCRIBE,
           isolate: isolateInfo(),

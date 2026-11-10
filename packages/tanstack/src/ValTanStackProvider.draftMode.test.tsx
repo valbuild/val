@@ -84,14 +84,12 @@ describe("draft mode switching", () => {
 });
 
 /**
- * A Studio of the release before, open on this page while a deploy rolls
- * out: it relays a bare `source` and never says `confirmed`. Its edits re-run
- * the loaders as they arrive, as that release's page did -- waiting for a
- * `confirmed` would wait for ever -- and a Studio of this release, which
- * sends `read` and confirms, is still refreshed by its `confirmed` alone.
- * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
+ * What re-runs the loaders: a Studio's `confirmed`, never the edit it relays
+ * (the server may not have it yet). A bare `source`, the shape a Studio from
+ * before the one content model relayed with no `confirmed` after it, is no
+ * longer read: the page's fallback for it went in the release after.
  */
-describe("a Studio of the release before", () => {
+describe("which Studio's messages refresh the page", () => {
   let root: Root | null = null;
   let container: HTMLElement;
   const fetchBefore = globalThis.fetch;
@@ -138,14 +136,20 @@ describe("a Studio of the release before", () => {
       window.dispatchEvent(new CustomEvent("val-event", { detail }));
     });
 
-  test("its edit, a bare source, re-runs the loaders", async () => {
+  /**
+   * The release after the one content model stopped reading a bare
+   * `source` (a Studio from before it): that Studio never says `confirmed`,
+   * and the page's fallback for it re-ran the loaders on every change it
+   * relayed. Two releases on, nothing sends it.
+   */
+  test("an edit as a bare source, from a Studio two releases old, is not read", async () => {
     await mounted();
     await send({
       type: "source-update",
       moduleFilePath: MODULE,
-      source: { title: "edited by the previous Studio" },
+      source: { title: "edited by an old Studio" },
     });
-    expect(mockInvalidate).toHaveBeenCalledTimes(1);
+    expect(mockInvalidate).toHaveBeenCalledTimes(0);
   });
 
   test("this release's Studio is refreshed by its confirmed, not by the edit", async () => {

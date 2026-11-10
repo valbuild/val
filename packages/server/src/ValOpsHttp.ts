@@ -2,6 +2,7 @@ import {
   proposalJsonEntries,
   layeredSnapshot,
   proposalSnapshot,
+  servingBuildOf,
   stagedAfterBuild,
   type ValContentVersion,
   type ValProposal,
@@ -65,6 +66,7 @@ import {
   PatchId as PatchIdSchema,
   SerializedSchema as SerializedSchemaSchema,
   PlanRefusalError,
+  type ProjectVersion,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -640,6 +642,8 @@ export class ValOpsHttp extends ValOps {
       root?: string;
       /** See `projectSource` on {@link ValApiOptions}. */
       projectSource?: Record<string, string>;
+      /** See `moduleDependencies` on {@link ValApiOptions}. */
+      moduleDependencies?: Record<string, string[]>;
       /** See `publishJob` on {@link ValApiOptions}. */
       publishJob?: string;
       /** See `publishBuild` on {@link ValApiOptions}. */
@@ -665,7 +669,10 @@ export class ValOpsHttp extends ValOps {
      * their staged text, versioned as their staging. See `stagedAfterBuild`.
      */
     const proposal = options?.proposal;
-    const staged = proposal !== undefined ? stagedAfterBuild(proposal) : {};
+    const staged =
+      proposal !== undefined
+        ? stagedAfterBuild(proposal, servingBuildOf(options ?? {}))
+        : {};
     const stagedPaths = Object.keys(staged);
     super(
       valModules,
@@ -684,7 +691,15 @@ export class ValOpsHttp extends ValOps {
                         Object.fromEntries(
                           stagedPaths.map((path) => {
                             const file = path.replace(/^\/+/, "");
-                            return [file, proposal.files[file] ?? null];
+                            // A module staged after the build through a file
+                            // it imports has its own text unstaged: the
+                            // build's, unless a save rewrote it.
+                            return [
+                              file,
+                              proposal.files[file] ??
+                                options.projectSource?.[file] ??
+                                null,
+                            ];
                           }),
                         ),
                       ),
@@ -2008,7 +2023,8 @@ export class ValOpsHttp extends ValOps {
   async getStat(
     params: {
       baseSha: BaseSha;
-      schemaSha: SchemaSha;
+      schemaSha?: SchemaSha;
+      version?: ProjectVersion;
       patches?: PatchId[];
       profileId?: AuthorId;
     } | null,

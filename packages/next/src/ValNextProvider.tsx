@@ -549,12 +549,7 @@ export const ValNextProvider = (props: {
            * the page already shows does not count.
            */
           if (outcome.changed) {
-            if (outcome.fromPreviousStudio === true) {
-              // A Studio of the release before: it never confirms.
-              refreshLoopRef.current?.changedByPreviousStudio();
-            } else {
-              refreshLoopRef.current?.changed();
-            }
+            refreshLoopRef.current?.changed();
           }
         };
         window.addEventListener(

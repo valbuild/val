@@ -766,7 +766,6 @@ export function CanvasFrame({
         val: VAL_CANVAS_MESSAGE,
         type: "sourceUpdate",
         moduleFilePath,
-        source,
         read,
       });
     },

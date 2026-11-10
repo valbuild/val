@@ -4,9 +4,8 @@
  * Phase 0 of `docs/plans/one-content-model.md`: the numbers the head's design
  * and its 128 MB budget are argued from. It measures the PRODUCT's request, not
  * a model of it: TanStack's real `initValServer` route handler in memory mode,
- * asked what a draft-mode `fetchVal` asked until phase 6 (`PUT /sources/~`:
- * the whole tree, patches applied, validated, previewed), and -- `reader` --
- * what a draft-mode `fetchVal` reads since: the runtime's head, through
+ * and -- `reader` -- what a draft-mode `fetchVal` reads since phase 6: the
+ * runtime's head, through
  * `serverDraftSource`, for every module of the project (a page that reads
  * them all), the first read after the chain moved and the ones after it.
  *
@@ -14,7 +13,7 @@
  *
  *   pnpm exec tsx measure/draftRead.ts all              # everything, about an hour
  *   pnpm exec tsx measure/draftRead.ts all --time-only  # times only, minutes
- *   pnpm exec tsx measure/draftRead.ts run synth:5 draft
+ *   pnpm exec tsx measure/draftRead.ts run synth:5 reader
  *
  * Heap: each (input, operation) is run in a child Node process with
  * `--max-old-space-size` set, and the smallest limit it completes in is found
@@ -217,7 +216,6 @@ async function main() {
   const rows = [];
   for (const input of INPUTS) {
     for (const op of NODE_OPERATIONS) {
-      if (op === "base" && input.includes("+")) continue;
       const timed = spawnSync(
         process.execPath,
         ["--expose-gc", "--import", "tsx", __filename, "run", input, op, "5"],

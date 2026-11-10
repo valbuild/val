@@ -12,6 +12,7 @@ import {
   openStudio,
   patchThroughStore,
 } from "./studio";
+import { serverSource } from "./serverModule";
 
 /**
  * Renaming a media file from the Studio.
@@ -36,34 +37,6 @@ const IMAGE = "e2e/fixtures/blue-8x8.png";
 test.beforeEach(async ({ request }) => {
   await clearPatchChain(request);
 });
-
-/**
- * One module's source as the SERVER has it, every pending patch applied.
- *
- * Asked of the server rather than the Studio's store: a rename that only
- * changed the client's view would pass a store read and publish nothing.
- */
-async function serverSource(
-  request: APIRequestContext,
-  moduleFilePath: string,
-): Promise<unknown> {
-  const res = await request.put("/api/val/sources/~");
-  expect(res.status(), await res.text()).toBe(200);
-  const body: unknown = await res.json();
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("modules" in body) ||
-    typeof body.modules !== "object" ||
-    body.modules === null
-  ) {
-    throw new Error(`not a sources response: ${JSON.stringify(body)}`);
-  }
-  const entry: unknown = Reflect.get(body.modules, moduleFilePath);
-  return typeof entry === "object" && entry !== null && "source" in entry
-    ? entry.source
-    : undefined;
-}
 
 async function serverKeys(
   request: APIRequestContext,

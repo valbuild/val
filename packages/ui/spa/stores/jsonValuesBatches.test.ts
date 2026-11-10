@@ -167,6 +167,55 @@ describe("reading `.jsonValues()` entries", () => {
   });
 });
 
+describe("whether a record's entries are all here", () => {
+  /**
+   * Asked on every render of whatever waits for a full load (a reference
+   * scan's status, a rename guard), so it is answered once per view of the
+   * modules asked about, not once per read: at 10,000 posts, walking the
+   * markers per render was a tenth of the busy time of "used by"
+   * (`scenarios/measure/results.md`, "The Studio, built").
+   */
+  test("is worked out once per view, and the same object until it moves", async () => {
+    const { sourceStore, activity } = world(100);
+    const before = activity.position();
+    const first = sourceStore.entriesStatus([POSTS]);
+    expect(sourceStore.entriesStatus([POSTS])).toBe(first);
+    expect(sourceStore.entriesStatus([POSTS])).toBe(first);
+    expect(activity.count("source:entries-status", { since: before })).toBe(1);
+
+    await sourceStore.loadAllEntries(POSTS);
+    const complete = sourceStore.entriesStatus([POSTS]);
+    expect(complete.status).toBe("complete");
+    expect(sourceStore.entriesStatus([POSTS])).toBe(complete);
+    expect(activity.count("source:entries-status", { since: before })).toBe(2);
+  });
+});
+
+describe("a record list's rows that have no content yet", () => {
+  /**
+   * Asked on every render of a `.jsonValues()` record's list. It used to be
+   * derived in the list by asking `entryError` for every key of the record,
+   * per render: at 10,000 posts a walk per scroll step.
+   */
+  test("are one answer per view, and follow a load and a failure", async () => {
+    const { sourceStore, fail } = world(3);
+    const before = sourceStore.rowStates(POSTS);
+    expect(sourceStore.rowStates(POSTS)).toBe(before);
+    expect([...before.unloadedKeys].sort()).toEqual(keysOf(3).sort());
+    expect(before.errorByKey.size).toBe(0);
+    const entryError = jest.spyOn(sourceStore, "entryError");
+
+    fail("/posts/1", "gone on the server");
+    await sourceStore.loadEntries(POSTS, ["/posts/0", "/posts/1"]);
+    const after = sourceStore.rowStates(POSTS);
+    expect(after).not.toBe(before);
+    expect([...after.unloadedKeys]).toEqual(["/posts/2"]);
+    expect([...after.errorByKey]).toEqual([["/posts/1", "gone on the server"]]);
+    expect(sourceStore.rowStates(POSTS)).toBe(after);
+    expect(entryError).not.toHaveBeenCalled();
+  });
+});
+
 describe("loading every entry of a record", () => {
   test("requests carry many keys, and the view is rebuilt per batch, not per entry", async () => {
     const n = 1_000;

@@ -6,13 +6,14 @@ import {
   sessionCookie,
   writePatch,
 } from "./httpMode";
+import { serverModule } from "../serverModule";
 
 /**
  * A server-rendered draft, read by a build that is BEHIND what was published.
  *
- * `fetchVal` and `useVal` in draft mode ask the server (`PUT /sources/~`), and
- * the server answers with its own build's source plus the patches content
- * gives it for that build's commit. Content answers with exactly the patches
+ * `fetchVal` and `useVal` in draft mode read the server's head (here, through
+ * `GET /modules`, as the Studio does), which is the server's own build's
+ * source plus the patches content gives it for that build's commit. Content answers with exactly the patches
  * that build does NOT contain -- the pending ones, and the ones committed
  * after its commit -- so every one of them has to be applied.
  *
@@ -47,29 +48,16 @@ const LISTS = "/content/lists.val.ts";
 /** `lists.val.ts` as committed in the fixture. */
 const KEYWORDS = ["content", "editing", "preview", "publish", "validation"];
 
-/** One module's entry in a server-rendered draft read: source and patches. */
+/**
+ * One module as the server holds it for a draft: its source, and the patches
+ * its version is made of -- which is how the server's draft readers tell a
+ * module the draft changes from one they leave to the bundle.
+ */
 async function draftEntry(
   page: Page,
   moduleFilePath: string,
-): Promise<{ source?: unknown; patches?: unknown }> {
-  const res = await page.request.put("/api/val/sources/~");
-  expect(res.status(), await res.text()).toBe(200);
-  const body: unknown = await res.json();
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("modules" in body) ||
-    typeof body.modules !== "object" ||
-    body.modules === null
-  ) {
-    throw new Error(`not a sources response: ${JSON.stringify(body)}`);
-  }
-  const entry: unknown = Reflect.get(body.modules, moduleFilePath);
-  if (typeof entry !== "object" || entry === null) return {};
-  return {
-    source: Reflect.get(entry, "source"),
-    patches: Reflect.get(entry, "patches"),
-  };
+): Promise<{ source: unknown; patches: string[] }> {
+  return serverModule(page.request, moduleFilePath);
 }
 
 /** One module's source, as a server-rendered draft reads it. */
@@ -107,7 +95,7 @@ test("and the draft read says the module has changes", async ({ page }) => {
 
   const entry = await draftEntry(page, AUTHORS);
   expect(entry.source).toMatchObject({ teddy: { name: "Published, listed" } });
-  expect(entry.patches).toMatchObject({ applied: [expect.any(String)] });
+  expect(entry.patches).toEqual([expect.any(String)]);
 });
 
 test("a published move is applied once, with a pending edit on top", async ({
