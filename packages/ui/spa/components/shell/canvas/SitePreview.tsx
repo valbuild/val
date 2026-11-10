@@ -114,13 +114,13 @@ export type SitePreviewProps = {
   /** Reported as the preview is panned and zoomed, so a link can carry it. */
   onTransformChange?: (transform: CanvasTransform) => void;
   /**
-   * Whether a click on the page picks what it hits, and the switch for it.
+   * Whether a click on the page picks the field it hits.
    *
-   * Without `onPickingChange` the toolbar offers no Select: where a pick
-   * would open nothing, a button for it is a button that does nothing.
+   * Only told, never switched here: the switch is the Select of the pane the
+   * pick is for, in that pane's header (`SelectButton`), so the button that
+   * is pressed is the one saying what a click on the page will do.
    */
   isPicking?: boolean;
-  onPickingChange?: (isPicking: boolean) => void;
   /**
    * Whether the page can be loaded again. Not the demo page, which renders
    * from data that is already live and has nothing to fetch.
@@ -135,7 +135,7 @@ export type SitePreviewProps = {
 
 /**
  * The site, as the Studio previews it: an address bar, the page, and the
- * page's controls -- device widths, zoom, fit, Select and reload -- in that
+ * page's controls -- device widths, zoom, fit and reload -- in that
  * order, each on its own row.
  *
  * One component for every place the site is shown beside the work: the
@@ -166,7 +166,6 @@ export function SitePreview({
   initialTransform,
   onTransformChange,
   isPicking = false,
-  onPickingChange,
   reloadable = true,
   onReload,
   onPageClick,
@@ -394,8 +393,6 @@ export function SitePreview({
           onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
           onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
           onFit={fitPage}
-          isPicking={isPicking}
-          onPickingChange={onPickingChange}
           isRefreshing={isRefreshing}
           onReload={reloadable ? reload : undefined}
         />

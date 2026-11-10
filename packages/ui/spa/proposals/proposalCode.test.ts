@@ -12,6 +12,7 @@ import {
   type ProposalBuildControl,
   type ProposalBuildOutcome,
 } from "./proposalCode";
+import { NO_PREVIEW } from "../hooks/pageTools";
 import {
   ProposalsApiError,
   type ProposalBuildTarget,
@@ -1474,6 +1475,18 @@ describe("read_page", () => {
   test("says there is nothing to read before a page is showing", async () => {
     const answer = await runReadPage({}, { readPage: null, pointedAt: null });
     expect(answer.isError).toBe(true);
+  });
+
+  test("in the Studio, says the preview is closed, and how to open it", async () => {
+    const answer = await runReadPage(
+      {},
+      { readPage: null, pointedAt: null, noPage: NO_PREVIEW },
+    );
+    expect(answer).toEqual({
+      result: { success: false, error: NO_PREVIEW },
+      isError: true,
+    });
+    expect(NO_PREVIEW).toContain("Preview button");
   });
 
   test("reads the picked element by its selector", async () => {

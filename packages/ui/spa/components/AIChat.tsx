@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   Paperclip,
   X,
+  MousePointerSquareDashed,
   AlertTriangle,
   ArrowUp,
   Clock,
@@ -339,6 +340,13 @@ export type AIChatProps = {
    * sent, not with whichever message is sent next.
    */
   onCaptureSendContext?: () => SendContext;
+  /**
+   * What the next message is about: picked on the page with the Assistant's
+   * Select. Shown above the composer, and goes with the next message.
+   */
+  pointedAt?: PickedElement | null;
+  /** Take the pick off the next message. */
+  onClearPointedAt?: () => void;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
@@ -717,6 +725,48 @@ function getImageUrls(content: AIMessageContent): string[] {
     .map((block) => block.url);
 }
 
+/**
+ * What the next message is about, above the composer: the element picked on
+ * the page with the Assistant's Select. Named as the page shows it -- its
+ * words, or its tag where it has none -- with the field it shows when it shows
+ * one, and removable, since a pick nobody meant should not go with the
+ * message.
+ */
+function PointedAtChip({
+  pointedAt,
+  onRemove,
+}: {
+  pointedAt: PickedElement;
+  onRemove?: () => void;
+}) {
+  const name = pointedAt.text !== "" ? pointedAt.text : `<${pointedAt.tag}>`;
+  return (
+    <div className="mb-2 flex">
+      <div
+        data-val-pointed-at=""
+        title={pointedAt.valPath ?? pointedAt.selector}
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-dashed border-border-brand-secondary bg-bg-secondary px-2 py-1 text-xs touch:text-sm text-fg-primary"
+      >
+        <MousePointerSquareDashed className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
+        <span className="shrink-0 font-mono text-[10px] text-fg-tertiary">
+          &lt;{pointedAt.tag}&gt;
+        </span>
+        <span className="min-w-0 truncate">{name}</span>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="ml-0.5 shrink-0 text-fg-secondary hover:text-fg-primary"
+            aria-label="Do not send what you pointed at"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -730,6 +780,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     modelLocked,
     onSendMessage,
     onCaptureSendContext,
+    pointedAt,
+    onClearPointedAt,
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
@@ -1825,6 +1877,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 onMoveUp={moveQueuedUp}
                 onSendNext={busy ? null : sendNext}
                 onClear={clearQueue}
+              />
+            )}
+            {pointedAt && (
+              <PointedAtChip
+                pointedAt={pointedAt}
+                onRemove={onClearPointedAt}
               />
             )}
             {/* Attached file previews */}

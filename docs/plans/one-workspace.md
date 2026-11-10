@@ -135,6 +135,20 @@ In order, each step shippable on its own:
    plumbing (`SendContext`, `pickedElementPrompt`) is there. Then give the
    Studio's assistant the page tools the design tab had (`read_page`,
    `screenshot_page`; their runners are still in `proposals/proposalCode.ts`).
+   **Done:** `SelectButton` is both. Content's is in the editor column's
+   header (desktop) and on the phone's strip, and Esc stops it -- from the
+   page too (`pickingStopped`). The Assistant's is in the chat panel's
+   header while the preview is open: `elementPicking` on the frame, with
+   `fieldsOnly` outside code mode and the proposal's colour in it (both new,
+   optional fields of `pickElements`); the pick is a chip above the composer
+   and goes with the next message (`AssistantPage`, `takePointedAt`). The
+   Studio's assistant has `read_page` and `screenshot_page` while the preview
+   is open (`hooks/pageTools.ts`), without `device`: the width is the
+   person's switch. To make pointing work before step 3, the assistant is
+   docked beside the preview on a desktop whenever the preview is open.
+   Still to decide: on a phone, nothing says the Assistant's Select is
+   picking while its sheet is out of the way; and Content's tabs are still
+   called Structure | On page.
 3. **The layout.** Replace `PageWorkspace`'s editor | canvas split, and
    `Shell`'s `workspaceOverride` (the Sketchpad) and docking rules, with
    `workspaceLayout()`: columns, tabs, strips, sheets. The editor column

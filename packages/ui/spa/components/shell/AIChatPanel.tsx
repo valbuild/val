@@ -15,6 +15,10 @@ export type AIChatPanelProps = {
   /** Beside the work area rather than over it. See `FloatingPanel`. */
   docked?: boolean;
   onClose: () => void;
+  /** Before the title: the Assistant's Select, toward the preview. */
+  headerStart?: ReactNode;
+  /** `false`: no scrim, so a click outside does not close it. */
+  modal?: boolean;
   /**
    * The assistant itself.
    *
@@ -44,6 +48,8 @@ export function AIChatPanel({
   hidden,
   docked,
   onClose,
+  headerStart,
+  modal,
   children,
 }: AIChatPanelProps) {
   return (
@@ -59,6 +65,8 @@ export function AIChatPanel({
       hidden={hidden}
       docked={docked}
       onClose={onClose}
+      headerStart={headerStart}
+      modal={modal}
     >
       {/* `h-full` and no scrolling of its own: the chat is a column with its
           own scroll area for the transcript and a composer pinned under it, so

@@ -210,6 +210,14 @@ export type ValCanvasPageMessage =
       val: typeof VAL_CANVAS_MESSAGE;
       type: "elementPickingStopped";
     }
+  | {
+      /**
+       * Esc on the page while picking FIELDS (`setPicking`): Content's Select
+       * turns off. Its twin for any element is `elementPickingStopped`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pickingStopped";
+    }
   | ({
       /**
        * Where the page is: its path and scroll, as it moves. The design tab
@@ -385,6 +393,17 @@ export type ValCanvasStudioMessage =
       modifier: PickModifier;
       /** Whether the studio still holds the last pick: false takes its outline down. */
       keepPicked: boolean;
+      /**
+       * Only Val's fields can be picked (`fieldsOnly` in `elementPicker.ts`):
+       * the Studio's assistant outside code mode. Absent is any element, so
+       * a studio that predates it is answered as before.
+       */
+      fieldsOnly?: boolean;
+      /**
+       * What to outline in, instead of the `theme`'s selection colour: code
+       * mode's proposal colour. A bridge that predates it uses the theme's.
+       */
+      color?: string;
     }
   | {
       /** Scroll to where the page before this one was (`location`). */
@@ -445,6 +464,7 @@ export function isValCanvasPageMessage(
     message.type === "zoom" ||
     message.type === "refreshing" ||
     message.type === "elementPickingStopped" ||
+    message.type === "pickingStopped" ||
     (message.type === "elementPicked" &&
       isPickedElement((data as { element?: unknown }).element)) ||
     (message.type === "location" && isPageLocation(data)) ||
@@ -522,7 +542,7 @@ const PICK_MODIFIERS: readonly unknown[] = ["alt", "meta", "shift", "ctrl"];
 const CANVAS_SELECTION_COLOR =
   /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
 
-function isCanvasSelectionColor(value: unknown): value is string {
+export function isCanvasSelectionColor(value: unknown): value is string {
   return typeof value === "string" && CANVAS_SELECTION_COLOR.test(value);
 }
 
@@ -552,7 +572,9 @@ export function isValCanvasStudioMessage(
       typeof pick.enabled === "boolean" &&
       typeof pick.active === "boolean" &&
       typeof pick.keepPicked === "boolean" &&
-      PICK_MODIFIERS.includes(pick.modifier)
+      PICK_MODIFIERS.includes(pick.modifier) &&
+      (pick.fieldsOnly === undefined || typeof pick.fieldsOnly === "boolean") &&
+      (pick.color === undefined || isCanvasSelectionColor(pick.color))
     );
   }
   if (message.type === "scrollTo") {

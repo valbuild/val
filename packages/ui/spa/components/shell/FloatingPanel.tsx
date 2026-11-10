@@ -19,6 +19,13 @@ export type FloatingPanelProps = {
   onClose: () => void;
   /** Rendered to the right of the title, e.g. a "New" button. */
   headerAction?: ReactNode;
+  /** Rendered before the title: the assistant's Select. */
+  headerStart?: ReactNode;
+  /**
+   * `false` drops the scrim, so a click outside does not dismiss the panel:
+   * the assistant while its Select is picking on the page under it.
+   */
+  modal?: boolean;
   /**
    * The header's content, in place of the one-line `title`.
    *
@@ -99,6 +106,8 @@ export function FloatingPanel({
   breakpoint,
   onClose,
   headerAction,
+  headerStart,
+  modal = true,
   heading,
   tone,
   subheader,
@@ -131,7 +140,7 @@ export function FloatingPanel({
       {/* Scrim: dark and dismissive on mobile where the sheet dominates the
           screen, invisible but still click-to-close on larger screens where
           the editor stays visible behind the panel. */}
-      {!hidden && !(docked && !isMobile) && (
+      {!hidden && modal && !(docked && !isMobile) && (
         <div
           onClick={onClose}
           aria-hidden
@@ -207,6 +216,7 @@ export function FloatingPanel({
             tone === "proposal" && "rounded-t-[inherit] bg-bg-proposal-soft",
           )}
         >
+          {headerStart}
           {heading === undefined ? (
             <span className="text-[0.8125rem] font-semibold tracking-tight truncate">
               {title}

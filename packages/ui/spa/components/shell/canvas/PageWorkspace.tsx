@@ -22,6 +22,7 @@ import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
+import { SelectButton } from "../SelectButton";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { EditorDensityProvider } from "../../EditorDensity";
 import { SourcePath } from "@valbuild/core";
@@ -68,6 +69,8 @@ export type PageWorkspaceProps = {
        * source path behind it — the demo page's fields are not Val's.
        */
       onPicked: (path: SourcePath | null) => void;
+      /** Esc on the page while picking fields: Content's Select turns off. */
+      onPickingStopped: () => void;
     },
   ) => ReactNode;
   /**
@@ -129,6 +132,15 @@ export type PageWorkspaceProps = {
   onAttachToChat?: (sourcePath: string) => void;
   /** Skips the entrance transition — for screenshots and for tests. */
   skipTransition?: boolean;
+  /**
+   * Whether the assistant's Select is picking on the page.
+   *
+   * A click on the page has one owner, so Content's Select is off while the
+   * assistant's is on, and pressing Content's stops the assistant's
+   * (`onStopAssistantPicking`).
+   */
+  isAssistantPicking?: boolean;
+  onStopAssistantPicking?: () => void;
 };
 
 /** Stable, so a page that has reported nothing does not re-merge every render. */
@@ -223,6 +235,8 @@ export function PageWorkspace({
   isDevMode,
   onAttachToChat,
   skipTransition,
+  isAssistantPicking = false,
+  onStopAssistantPicking,
 }: PageWorkspaceProps) {
   const isPhone = breakpoint === "mobile";
   const reducedMotion = usePrefersReducedMotion();
@@ -425,8 +439,70 @@ export function PageWorkspace({
     [page, onAttachToChat],
   );
 
-  /** See {@link usePickingDefault} — the view sets the default, the button disagrees. */
-  const [isPicking, setIsPicking] = usePickingDefault(view);
+  /**
+   * Content's Select. See {@link usePickingDefault} — the view sets the
+   * default, the button disagrees.
+   */
+  const [contentSelect, setContentSelect] = usePickingDefault(view);
+  /** Content's Select, unless the assistant's has the page. */
+  const isPicking = contentSelect && !isAssistantPicking;
+  useEffect(() => {
+    if (isAssistantPicking) setContentSelect(false);
+  }, [isAssistantPicking, setContentSelect]);
+  const setIsPicking = useCallback(
+    (next: boolean) => {
+      setContentSelect(next);
+      if (!next) return;
+      onStopAssistantPicking?.();
+      // On a phone the page is the other pane: go to it to pick. A pick
+      // brings you back (`onPicked`).
+      if (isPhone) onPaneChange("canvas");
+    },
+    [setContentSelect, onStopAssistantPicking, isPhone, onPaneChange],
+  );
+  const stopPicking = useCallback(
+    () => setContentSelect(false),
+    [setContentSelect],
+  );
+  /*
+   * Esc stops it, from anywhere in the Studio. From the page it comes as a
+   * message, since the page has the keyboard once it has been clicked
+   * (`onPickingStopped`).
+   */
+  useEffect(() => {
+    if (!open || !isPicking) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContentSelect(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, isPicking, setContentSelect]);
+  /*
+   * Content's Select, in Content's header: on the right of the column, the
+   * side the preview is on. Only while there is a preview to pick on.
+   */
+  /**
+   * Whether "Select" can be written beside the icon, in the header beside
+   * the preview: the view switch takes about 260px of it, the padding 48px
+   * and, on a desktop, the rail another 88px. Below that the word goes and
+   * the icon stays, rather than the switch's count being cut off.
+   */
+  const columnWidth =
+    columnPx ?? Math.min(520, Math.max(340, splitWidth * 0.34));
+  const selectHasRoom = columnWidth >= (breakpoint === "desktop" ? 470 : 390);
+  const contentSelectButton = (compact: boolean) => (
+    <SelectButton
+      selectFor="content"
+      pressed={isPicking}
+      onPressedChange={setIsPicking}
+      label={!compact}
+      className={
+        compact && isPhone
+          ? "h-[2.125rem] w-[2.125rem] justify-center px-0"
+          : undefined
+      }
+    />
+  );
 
   /**
    * Selecting something on the page takes you to it.
@@ -700,8 +776,13 @@ export function PageWorkspace({
   const column = (
     <div className="flex h-full min-h-0 flex-col">
       {columnHasHeaderRow && (
-        <div style={railPadding} className="shrink-0 px-4 md:px-6 pt-20 pb-2.5">
+        <div
+          style={railPadding}
+          className="flex shrink-0 items-center gap-2 px-4 md:px-6 pt-20 pb-2.5"
+        >
           {viewToggle}
+          <div className="flex-1" />
+          {contentSelectButton(!selectHasRoom)}
         </div>
       )}
       <div className="min-h-0 flex-1">
@@ -759,16 +840,17 @@ export function PageWorkspace({
       initialTransform={linkTransform}
       onTransformChange={onTransformChange}
       isPicking={isPicking}
-      // Only where there is something to select. The demo page reports no
-      // paths, so a click on it has nothing to open.
-      onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
       // Only where reloading means something. The demo page renders from
       // data that is already live, so it has nothing to fetch again.
       reloadable={renderCanvas !== undefined}
       onReload={onPreviewReload}
       onPageClick={() => setSelectedFieldId(null)}
       renderPage={(viewport) =>
-        renderCanvas?.({ ...viewport, onPicked }) ??
+        renderCanvas?.({
+          ...viewport,
+          onPicked,
+          onPickingStopped: stopPicking,
+        }) ??
         (page && (
           <CanvasPage
             page={page}
@@ -901,6 +983,8 @@ export function PageWorkspace({
               fieldCount={fieldCount > 0 ? fieldCount : undefined}
               animate={!reducedMotion}
             />
+            <div className="ml-auto" />
+            {contentSelectButton(true)}
             {/*
              * The way out, from any of the three modes.
              *
@@ -919,7 +1003,7 @@ export function PageWorkspace({
                 width: PHONE_STRIP_CONTROL_HEIGHT,
               }}
               className={cn(
-                "ml-auto grid shrink-0 place-items-center rounded-md",
+                "grid shrink-0 place-items-center rounded-md",
                 "border border-border-float bg-bg-float text-fg-secondary",
               )}
             >

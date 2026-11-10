@@ -12,6 +12,7 @@ import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { AI_PANEL_WIDTH, AIChatPanel } from "./AIChatPanel";
+import { SelectButton } from "./SelectButton";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
 import { toRows } from "./externalPageGroups";
@@ -432,6 +433,16 @@ export type ShellProps = {
    * page it changes are worked on together, so neither may cover the other.
    */
   dockAssistant?: boolean;
+  /**
+   * The Assistant's Select: picks on the preview what the next message is
+   * about (`SelectButton`). Shown in the assistant's header while the
+   * preview is open, since there is nothing to pick otherwise.
+   */
+  assistantSelect?: {
+    pressed: boolean;
+    onPressedChange: (pressed: boolean) => void;
+    codeMode: boolean;
+  };
   /** The top bar's Sketchpad button, once there is a Sketchpad. */
   sketchpad?: TopBarSketchpad;
   /** "Sketch changes" in a page's menu in the Pages panel. */
@@ -684,6 +695,7 @@ export function Shell({
   workspaceOverride,
   canvasPinned = false,
   dockAssistant = false,
+  assistantSelect,
   sketchpad,
   onSketchPage,
   notice,
@@ -1106,6 +1118,57 @@ export function Shell({
    * those degrade on their own, to `/` and to an empty fields view.
    */
   const canCanvas = renderCanvas !== undefined || canvasPage !== undefined;
+  /** Whether there is a preview for the Assistant's Select to pick on. */
+  const canPointAssistant =
+    assistantSelect !== undefined &&
+    isCanvasOpen &&
+    canCanvas &&
+    workspaceOverride === undefined;
+  const assistantPicking =
+    canPointAssistant && assistantSelect?.pressed === true;
+  // With the preview gone there is nothing to pick on.
+  const stopAssistantPicking = assistantSelect?.onPressedChange;
+  useEffect(() => {
+    if (!canPointAssistant && assistantSelect?.pressed === true) {
+      stopAssistantPicking?.(false);
+    }
+  }, [canPointAssistant, assistantSelect?.pressed, stopAssistantPicking]);
+  /**
+   * On a phone the preview and the assistant are not on screen together:
+   * pressing the Select goes to the page to pick, and the assistant comes
+   * back once it has, or once the Select is stopped.
+   */
+  const backToAssistant = useRef(false);
+  const pressAssistantSelect = useCallback(
+    (pressed: boolean) => {
+      stopAssistantPicking?.(pressed);
+      if (pressed && breakpoint === "mobile") {
+        backToAssistant.current = true;
+        setWorkspacePane("canvas");
+        setOpenPanel(null);
+      }
+    },
+    [stopAssistantPicking, breakpoint],
+  );
+  useEffect(() => {
+    if (assistantPicking || !backToAssistant.current) return;
+    backToAssistant.current = false;
+    setOpenPanel("ai");
+  }, [assistantPicking]);
+  /*
+   * Esc stops the Select rather than closing the assistant: the window's
+   * capture phase is first to hear it, before the panel's own Esc.
+   */
+  useEffect(() => {
+    if (!assistantPicking) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      stopAssistantPicking?.(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [assistantPicking, stopAssistantPicking]);
   /**
    * What the Preview button does.
    *
@@ -1436,7 +1499,12 @@ export function Shell({
     aiEnabled &&
     openPanel === "ai" &&
     breakpoint === "desktop" &&
-    (workspaceOverride !== undefined || dockAssistant);
+    (workspaceOverride !== undefined ||
+      dockAssistant ||
+      // Beside the preview, not over it: the assistant can be pointed at
+      // the page (its Select), and a panel over the page would cover what it
+      // is pointed at -- and close on the click that points.
+      (isCanvasOpen && canCanvas));
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
@@ -1523,6 +1591,12 @@ export function Shell({
               isDevMode={isDevMode}
               onAttachToChat={aiEnabled ? attachToChat : undefined}
               skipTransition={skipTransition}
+              isAssistantPicking={assistantPicking}
+              onStopAssistantPicking={
+                assistantPicking
+                  ? () => stopAssistantPicking?.(false)
+                  : undefined
+              }
             >
               {/*
                * The editor column, built once and then either rendered on its own
@@ -1894,7 +1968,20 @@ export function Shell({
             breakpoint={breakpoint}
             hidden={openPanel !== "ai"}
             docked={chatDocked}
+            // While pointing, a click on the page is a pick, not a click
+            // outside the panel that closes it.
+            modal={!assistantPicking}
             onClose={closePanel}
+            headerStart={
+              canPointAssistant && assistantSelect !== undefined ? (
+                <SelectButton
+                  selectFor="assistant"
+                  pressed={assistantPicking}
+                  onPressedChange={pressAssistantSelect}
+                  codeMode={assistantSelect.codeMode}
+                />
+              ) : undefined
+            }
           >
             {aiSlot ?? <NoAssistantConfigured />}
           </AIChatPanel>

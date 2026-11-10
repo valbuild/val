@@ -485,6 +485,8 @@ export type ReadPageDeps = {
   pointedAt: PickedElement | null;
   /** Switch the preview's width, and wait for the page to take it. */
   setDevice?: (device: DesignDevice) => Promise<void>;
+  /** What to answer while there is no page: where the preview is differs. */
+  noPage?: string;
 };
 
 export async function runReadPage(
@@ -498,7 +500,8 @@ export async function runReadPage(
   const input = isRecord(args) ? args : {};
   if (deps.readPage === null) {
     return fail(
-      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and read it again.",
+      deps.noPage ??
+        "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and read it again.",
     );
   }
   let selector =
@@ -576,6 +579,8 @@ export type ScreenshotPageDeps = {
   setDevice?: (device: DesignDevice) => Promise<void>;
   /** Upload the picture as an image of the chat: its key. */
   uploadImage: (file: File) => Promise<{ key: string }>;
+  /** What to answer while there is no page: where the preview is differs. */
+  noPage?: string;
 };
 
 /** A tool's answer with images for the model: their keys, as uploaded. */
@@ -592,7 +597,8 @@ export async function runScreenshotPage(
   const input = isRecord(args) ? args : {};
   if (deps.screenshotPage === null) {
     return fail(
-      "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and try again.",
+      deps.noPage ??
+        "No page is showing in the preview yet. Build the proposal, or wait for its page to load, and try again.",
     );
   }
   if (input["device"] !== undefined) {
@@ -755,9 +761,9 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 }
 
 /**
- * The element picked in the design tab's preview, as the assistant is told
- * it: one line after the person's message, which the design prompt explains
- * ("What the person points at"). Attribute values are escaped, so text on the
+ * The element picked in the preview, as the assistant is told it: one line
+ * after the person's message, which the prompt explains (`PAGE_PROMPT_SECTION`
+ * in `hooks/pageTools.ts`). Attribute values are escaped, so text on the
  * customer's page cannot close the tag and pass for the person's words.
  */
 export function pickedElementPrompt(picked: PickedElement): string {
