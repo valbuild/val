@@ -421,9 +421,13 @@ coverage" (valbuild/val#1006), at the end of phase 8.
     in fs and memory in phase 7's first part, on the server rather than in
     the Studio; see that entry); S27
     (the browser running the previous build's client code) happens at
-    hydration, before any overlay exists, and is home's loader's pinned
-    `app.js` fallback -- decided: fixed after phase 9, as its own change in
-    home; S16 (the schema dialog after a
+    hydration, before any overlay exists, and was home's loader's pinned
+    `app.js` fallback: KV at a location that had cached a miss for the new
+    build's code answered with the head's bundle, which there could be the
+    build before. Fixed in home after the release (2026-11-10): each build's
+    client entry is also in R2, and a pinned read takes it before it takes
+    another build (`readPinnedClientBundle`); `overlayAfterBuild`'s S27 test
+    runs; S16 (the schema dialog after a
     deploy) is phase 9's.
   - **Public API:** one addition, Next's optional `draft` prop. The overlay's
     `val-event`s (`confirmed`, and `holds` on `draftMode`) and the canvas
@@ -1246,11 +1250,6 @@ Genuinely not built, each with what it would take:
   a plain Worker; a site's isolate is started by home's loader
   (`worker_loaders`), and if the two limits differ only the loader's counts.
   `scenarios/measure/results.md`, "What to re-run deployed", item 3.
-- **S27, after phase 9**: the browser runs the previous build's client code
-  at hydration, before any overlay exists. It is home's loader's pinned
-  `app.js` fallback, decided to be fixed as its own change in valbuild/home
-  (`overlayAfterBuild.scenario.test.ts` keeps a skipped test and the pin of
-  why).
 - **The templates, after the release.** `valbuild/templates` pins
   `@valbuild/*`; once N is on npm, bump every template (and its
   `minimumReleaseAgeExclude`), and run each against the new version: open
