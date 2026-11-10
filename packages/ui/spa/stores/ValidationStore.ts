@@ -663,7 +663,8 @@ export class ValidationStore {
    * - **The record's own**: its keys, its router's keys, the keys it declares,
    *   its locale scope. None reads an entry's content, so they are validated
    *   on a SHELL -- the same keys, every entry an un-loaded marker -- which
-   *   `executeValidate` already walks past without looking inside.
+   *   `executeValidate` already walks past without looking inside, and only
+   *   when the keys moved: a batch moves none.
    * - **Each entry's**: what the item schema says about it, at its own path.
    *   Kept per key, by the entry object it was computed for, so an entry that
    *   did not change is not validated again: an entry's object is new exactly
@@ -690,14 +691,18 @@ export class ValidationStore {
     }
     let held = this.entryErrors.get(moduleFilePath);
     if (held === undefined || held.schemaVersion !== schemaVersion) {
-      held = { schemaVersion, byKey: new Map() };
+      held = { schemaVersion, byKey: new Map(), record: null };
       this.entryErrors.set(moduleFilePath, held);
     }
     const shell: Record<string, Json> = {};
     const changed: Record<string, Json> = {};
     const entryPaths = new Map<SourcePath, string>();
     const kept = new Map<string, EntryErrors>();
+    // What the record's own checks read: its keys, in order, and which
+    // entries are null (a declared key nobody has filled in yet).
+    const keys: string[] = [];
     for (const [key, entry] of Object.entries(source)) {
+      keys.push(entry === null ? `${key}\u0000null` : key);
       if (entry === null || Internal.isJson(entry)) {
         shell[key] = entry;
         continue;
@@ -711,12 +716,21 @@ export class ValidationStore {
       changed[key] = entry;
       entryPaths.set(entryPathOf(moduleFilePath, key), key);
     }
-    const recordErrors = await this.schemaValidation.validate(
-      moduleFilePath,
-      shell,
-      serializedSchema,
-      schemaVersion,
-    );
+    // Not sent again while the keys stand: entries arriving, or an edit in
+    // one, move no key, and the shell of 10,000 keys was the cost (its
+    // structured clone, its walk, and its errors cloned back carrying it).
+    let recordErrors: ValidationErrors;
+    if (held.record !== null && sameKeys(held.record.keys, keys)) {
+      recordErrors = held.record.errors;
+    } else {
+      recordErrors = await this.schemaValidation.validate(
+        moduleFilePath,
+        shell,
+        serializedSchema,
+        schemaVersion,
+      );
+      held.record = { keys, errors: recordErrors };
+    }
     if (entryPaths.size > 0) {
       this.activity.work(
         "validation:validate-entries",
@@ -799,7 +813,12 @@ export class ValidationStore {
    */
   private entryErrors = new Map<
     ModuleFilePath,
-    { schemaVersion: string; byKey: Map<string, EntryErrors> }
+    {
+      schemaVersion: string;
+      byKey: Map<string, EntryErrors>;
+      /** The record's own errors, and the keys they were computed for. */
+      record: { keys: string[]; errors: ValidationErrors } | null;
+    }
   >();
 
   private async runOnce(
@@ -1137,6 +1156,12 @@ function entryPathOf(moduleFilePath: ModuleFilePath, key: string): SourcePath {
     moduleFilePath,
     Internal.patchPathToModulePath([key]),
   );
+}
+
+function sameKeys(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /** Which entry `path` is at or under, of the ones in `entryPaths`. */

@@ -169,19 +169,13 @@ describe("a .jsonValues() record validated as its entries arrive", () => {
     expect(
       activity.total("validation:validate-entries", { since: before }),
     ).toBe(5);
-    // Nothing sent holds an entry of the first batch: the shell has its key
-    // and a marker, and the batch is the five that came.
-    const firstBatch = new Set(keys.slice(0, 20));
-    for (const source of sent.slice(sentBefore)) {
-      for (const [key, entry] of Object.entries(
-        source !== null && typeof source === "object" && !Array.isArray(source)
-          ? source
-          : {},
-      )) {
-        if (!firstBatch.has(key)) continue;
-        expect(entry).toEqual({ _type: "json" });
-      }
-    }
+    // One thing crossed the seam: the five that came. The record's keys did
+    // not move, so its own checks were not sent again.
+    const crossed = sent.slice(sentBefore);
+    expect(crossed).toHaveLength(1);
+    expect(Object.keys(crossed[0] ?? {}).sort()).toEqual(
+      keys.slice(20, 25).sort(),
+    );
   });
 
   test("an edit to one entry validates that entry, and its error goes with it", async () => {
