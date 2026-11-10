@@ -27,8 +27,9 @@ export const AUTO_QUICK_PREVIEW_DELAY_MS = 1_000;
  *   quick preview shows and what it cannot, so the canvas goes back to it.
  *
  * The shell owns it because the canvas is the shell's: it opens the page as
- * `quickId` (`CanvasFrame`'s `quickPreviewId`), hands the frame's storer in, and says when
- * the page is live, which is when a quick preview is in front.
+ * `quickId` (`CanvasFrame`'s `quickPreviewId`), hands the frame's storer in,
+ * and passes on which document the page says it is (`onDocument`), which is
+ * when a quick preview is in front.
  */
 export function useCodeModeQuickPreview({
   pageLive,

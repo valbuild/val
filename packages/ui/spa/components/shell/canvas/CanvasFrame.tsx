@@ -319,8 +319,15 @@ export function CanvasFrame({
   const [held, setHeld] = useState<CanvasDocument>(wanted);
   /** Where the page last said it was (`location`). */
   const lastLocation = useRef<PageLocation | null>(null);
-  /** Where a document swapped in is opened: where the last one was. */
-  const [swapAt, setSwapAt] = useState<PageLocation | null>(null);
+  /**
+   * Where a document swapped in is opened: where the last one was. Only for
+   * the page it was swapped on (`url`): a page the Studio asks for since --
+   * picked in Pages, typed in the address bar -- opens where it says.
+   */
+  const [swapAt, setSwapAt] = useState<{
+    at: PageLocation;
+    url: string;
+  } | null>(null);
   /** Where a document swapped in is scrolled to, once it is there. */
   const swapScroll = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
@@ -330,7 +337,7 @@ export function CanvasFrame({
       const at = lastLocation.current;
       swapScroll.current =
         at === null ? null : { x: at.scrollX, y: at.scrollY };
-      setSwapAt(at);
+      setSwapAt(at === null ? null : { at, url });
       setHeld(wanted);
       return true;
     };
@@ -345,20 +352,16 @@ export function CanvasFrame({
       root?.removeEventListener("focusin", retry);
       clearInterval(timer);
     };
-  }, [held, wanted]);
-  // A page asked for by the Studio -- picked in Pages, typed in the address
-  // bar -- is opened where it says, not where the last document was.
-  useEffect(() => {
-    setSwapAt(null);
-  }, [url]);
+  }, [held, wanted, url]);
+  const openAt = swapAt !== null && swapAt.url === url ? swapAt.at.path : url;
   const heldQuick = useRef(held.quick);
   heldQuick.current = held.quick;
 
   // The URL the frame is actually given: the page, marked as a canvas load so
   // it renders itself without its own overlay.
   const frameSrc = useMemo(
-    () => withValCanvasParam(withQuickPreview(swapAt?.path ?? url, held.quick)),
-    [url, swapAt, held.quick],
+    () => withValCanvasParam(withQuickPreview(openAt, held.quick)),
+    [openAt, held.quick],
   );
   // The page is the Studio's own origin: the canvas frames the site it is on.
   const origin = typeof window === "undefined" ? "" : window.origin;

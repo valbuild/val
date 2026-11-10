@@ -159,3 +159,67 @@ describe("withQuickPreview", () => {
     expect(withQuickPreview("/blog", null)).toBe("/blog");
   });
 });
+
+describe("a page the Studio asks for after a swap", () => {
+  test("opens where it says, in one navigation", () => {
+    const ready: ValCanvasPageMessage = {
+      val: VAL_CANVAS_MESSAGE,
+      type: "ready",
+      draftMode: true,
+      url: "/",
+    };
+    const say = (frame: HTMLIFrameElement, message: ValCanvasPageMessage) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: message,
+          }),
+        );
+      });
+    const canvas = (url: string, documentKey: number) => (
+      <CanvasFrame
+        url={url}
+        width={800}
+        height={600}
+        reloadKey={0}
+        isPicking={false}
+        highlightedPath={null}
+        documentKey={documentKey}
+      />
+    );
+    const rendered = render(canvas("/", 0));
+    const first = rendered.container.querySelector("iframe")!;
+    say(first, ready);
+    say(first, {
+      val: VAL_CANVAS_MESSAGE,
+      type: "location",
+      path: "/blog",
+      scrollX: 0,
+      scrollY: 100,
+    });
+    // A new build, swapped in where the page was
+    rendered.rerender(canvas("/", 1));
+    expect(
+      rendered.container.querySelector("iframe")!.getAttribute("src"),
+    ).toBe("/blog?val_canvas=1");
+    // The Studio opens another page: that page, never the swapped-in one
+    const sources: (string | null)[] = [];
+    const observer = new MutationObserver(() =>
+      sources.push(
+        rendered.container.querySelector("iframe")?.getAttribute("src") ?? null,
+      ),
+    );
+    observer.observe(rendered.container, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+    });
+    rendered.rerender(canvas("/about", 1));
+    observer.disconnect();
+    expect(
+      rendered.container.querySelector("iframe")!.getAttribute("src"),
+    ).toBe("/about?val_canvas=1");
+    expect(sources.every((src) => src === "/about?val_canvas=1")).toBe(true);
+  });
+});
