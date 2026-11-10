@@ -315,6 +315,96 @@ export const REQUEST_CODE_MODE_TOOL: AITool = {
   timeoutMs: null,
 };
 
+/** One step of a quick preview, and how long it took. */
+export type QuickPreviewTiming = { step: string; ms: number };
+
+/** What a quick preview came to: see `useQuickPreview`. */
+export type QuickPreviewResult =
+  | { status: "shown"; ms: number; timings: QuickPreviewTiming[] }
+  /**
+   * Started by itself after a change, with nothing to do: Val Build does
+   * not make quick previews here (`off`), or what is staged is shown already
+   * (`shown`). See `useQuickPreview`.
+   */
+  | {
+      status: "skipped";
+      reason: "off" | "shown";
+      timings: QuickPreviewTiming[];
+    }
+  | { status: "failed"; message: string; timings: QuickPreviewTiming[] };
+
+/**
+ * `quick_preview`: the proposal's client code built (by Val Build, or in the
+ * tab) and shown in the preview in seconds, with the server's half still the
+ * last build's (`quickPreview.ts` in `@valbuild/shared`). Not offered to the
+ * assistant until code mode's preview takes quick previews.
+ */
+export const QUICK_PREVIEW_TOOL: AITool = {
+  name: "quick_preview",
+  description:
+    "Show the proposal's change in the preview in seconds, without a build: its code for the browser is bundled and the page in the preview runs it. " +
+    "Where Val Build makes quick previews, one runs by itself after each change, so call this only to see the change now, or when none ran. " +
+    "For components, layout and styles. What runs on the server -- loaders, server functions, API routes, the page's first render and head, " +
+    "and any new dependency -- stays the last build's, so a change to those needs build_proposal. Nothing is published. " +
+    "Answers once the page shows it, with what each step took.",
+  parameters: { type: "object", properties: {}, required: [] },
+  timeoutMs: 3 * 60_000,
+};
+
+export async function runQuickPreviewTool(
+  quickPreview: (() => Promise<QuickPreviewResult>) | null,
+): Promise<CodeToolAnswer> {
+  if (quickPreview === null) {
+    return {
+      result: {
+        success: false,
+        error: "Only an open proposal can be previewed.",
+      },
+      isError: true,
+    };
+  }
+  const result = await quickPreview();
+  const steps = result.timings.map((t) => ({
+    step: t.step,
+    seconds: Math.round(t.ms / 100) / 10,
+  }));
+  if (result.status === "failed") {
+    return {
+      result: { success: false, error: result.message, steps },
+      isError: true,
+    };
+  }
+  if (result.status === "skipped" && result.reason === "off") {
+    return {
+      result: {
+        success: false,
+        error:
+          "Val Build does not make quick previews for this project, and none was made here. Call build_proposal to see the change.",
+      },
+      isError: true,
+    };
+  }
+  if (result.status === "skipped") {
+    return {
+      result: {
+        success: true,
+        note: "The preview already shows what is staged.",
+        next: "No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
+      },
+      isError: false,
+    };
+  }
+  return {
+    result: {
+      success: true,
+      seconds: Math.round(result.ms / 100) / 10,
+      steps,
+      next: "The preview shows it. No build is needed to see it; build only for what a quick preview cannot show, once, when the request is finished.",
+    },
+    isError: false,
+  };
+}
+
 /** Where the assistant's code tools act: see {@link codeToolsPromptSection}. */
 export type CodeToolsWhere = { kind: "site" } | { kind: "proposal" };
 
