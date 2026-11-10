@@ -3,9 +3,8 @@
  * `screenshot_page`, so it can see a change it made rather than only read it
  * (`read_page` gives the words and the boxes).
  *
- * Taken HERE because nothing else can: the design tab is another origin than
- * the proposal's page in its frame, and a browser lets no page photograph a
- * frame of another origin. So the bridge renders its own document --
+ * Taken HERE, in the page: a browser lets no page photograph a frame, so
+ * the bridge renders its own document --
  * `modern-screenshot` draws the DOM, with its computed styles, fonts and
  * same-origin images, into a canvas -- and hands back a JPEG.
  *

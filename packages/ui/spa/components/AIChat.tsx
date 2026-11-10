@@ -215,8 +215,8 @@ type QueuedMessage = {
 };
 
 /**
- * What a message carries besides its text, taken when it is written: the
- * design tab's picked element. `pointedAt: null` sends none, even if
+ * What a message carries besides its text, taken when it is written: an
+ * element picked on the page. `pointedAt: null` sends none, even if
  * something is picked by the time it goes.
  */
 export type SendContext = { pointedAt: PickedElement | null };
@@ -334,8 +334,8 @@ export type AIChatProps = {
     context?: SendContext,
   ) => boolean;
   /**
-   * Take what goes with a message that is QUEUED rather than sent -- the
-   * design tab's picked element -- so it goes with that message when it is
+   * Take what goes with a message that is QUEUED rather than sent -- an
+   * element picked on the page -- so it goes with that message when it is
    * sent, not with whichever message is sent next.
    */
   onCaptureSendContext?: () => SendContext;

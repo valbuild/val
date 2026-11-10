@@ -81,7 +81,6 @@ import {
 import type { FloatingNoticeItem } from "../shell/FloatingNotices";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
-import { designTabUrl, siteDesignTabUrl } from "../../design/designTabUrl";
 import { MergedProposalDialog } from "./MergedProposalDialog";
 import {
   asksForCodeMode,
@@ -1587,17 +1586,6 @@ export function useProposalsBar({
     };
   }
 
-  // Where the design tab is: the site's address, never this one.
-  const designUrl =
-    location.kind !== "proposal"
-      ? null
-      : ready?.siteUrl
-        ? designTabUrl(
-            window.location.href,
-            location.proposal.name,
-            ready.siteUrl,
-          )
-        : siteDesignTabUrl(window.location.href, location.proposal.name);
   const proposals: TopBarProposals = {
     location,
     // Where this Studio is, or which proposal it is, still being read.
@@ -1688,9 +1676,6 @@ export function useProposalsBar({
       toast.success("Link copied");
     },
     onClose: () => openDialog("close"),
-    ...(designUrl !== null
-      ? { onOpenDesign: () => window.open(designUrl, "_blank") }
-      : {}),
   };
 
   const currentSummary =

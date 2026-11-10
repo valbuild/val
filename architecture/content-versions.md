@@ -763,8 +763,7 @@ code changes. Val's half:
   Commit's parent. The preview is rebuilt, and Publish waits for it.
 
 The other half -- the push job, the commits, the take-push contract and the
-merge -- is valbuild/home's: see its `docs/proposals.md` and
-`docs/design-tab.md`.
+merge -- is valbuild/home's: see its `docs/proposals.md`.
 
 ## What the 128 MB measurements found
 

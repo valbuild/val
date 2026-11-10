@@ -1,6 +1,6 @@
 /**
- * A file against the site's copy of it, line by line, for the design tab's
- * Changes view (valbuild/home `docs/design-tab.md`).
+ * A file against the site's copy of it, line by line, for code mode's Code
+ * changes (`CodeChanges`).
  *
  * The longest common subsequence of the lines, after the lines the two share
  * at the start and the end are set aside -- which is most of a file an

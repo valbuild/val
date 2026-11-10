@@ -9,7 +9,7 @@ import {
 import { ValCanvasBridge } from "./ValCanvasBridge";
 
 /**
- * Picking ANY element for the design tab: the studio asks with
+ * Picking ANY element: the studio asks with
  * `pickElements`, the page picks with its own elements (which only it can
  * reach), and what crosses back is the element described.
  */

@@ -56,18 +56,13 @@ export function openBuilder(): void {
   if (openBuilderTab()) set({ inTab: { blocked: false, step: null } });
 }
 
-/**
- * `proposalName`: the proposal to build, when it is not the one this Studio is
- * open in -- the design tab, which is served by the site's build and builds a
- * proposal it names (valbuild/home `docs/design-tab.md`).
- */
+/** The build of the proposal this Studio is open in. */
 export function useProposalBuild(
   client?: ProposalsClient,
-  proposalName?: string,
   options: {
     /**
-     * Ask Val Build to build it first (`serverFirst`). The design tab's, and
-     * the assistant's in it, while server builds roll out there first
+     * Ask Val Build to build it first (`serverFirst`), falling back to this
+     * page or a builder tab for a project it does not build yet
      * (valbuild/home `docs/plans/server-builds.md`).
      */
     onServer?: boolean;
@@ -93,7 +88,7 @@ export function useProposalBuild(
     [client],
   );
   const onServer = options.onServer ?? false;
-  const name = proposalName ?? here?.name ?? null;
+  const name = here?.name ?? null;
   const build = useCallback(
     () =>
       runProposalBuild(({ signal, progress }) => {

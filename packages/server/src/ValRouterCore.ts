@@ -67,7 +67,7 @@ export function createValRequestHandler<Res>(
     const path = url.pathname.slice(route.length);
     if (path === QUICK_PREVIEW_SERVICE_WORKER_PATH) {
       /*
-       * The design tab's quick preview worker (`quickPreview.ts` in
+       * The quick preview worker (`quickPreview.ts` in
        * `@valbuild/shared`). `Service-Worker-Allowed: /` lets a script at
        * this path control the whole origin, which it needs: it serves the
        * page's `/_app/` files. It serves them only to a page opened as a

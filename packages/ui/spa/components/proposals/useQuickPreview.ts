@@ -25,10 +25,11 @@ import type {
 } from "../../proposals/proposalCode";
 
 /**
- * The design tab's quick preview (`quickPreview.ts` in `@valbuild/shared`):
- * the proposal's client code bundled, handed to the page in the preview, and
- * shown there in seconds -- with the server's half still the last build's,
- * which the tab says.
+ * A proposal's quick preview (`quickPreview.ts` in `@valbuild/shared`): its
+ * client code bundled, handed to the page in the preview, and shown there in
+ * seconds -- with the server's half still the last build's, which the Studio
+ * says. Kept for code mode's preview, which is to take it next; the design
+ * tab that used it is gone.
  *
  * Bundled by Val Build where it builds the project (`quickPreviewOnServer`),
  * so the page needs no cross-origin isolation and no builder tab; here, or in
@@ -79,7 +80,7 @@ export function useQuickPreview(
   const shownInputs = useRef<string | null>(null);
 
   /**
-   * `auto`: one the tab starts itself after a change (`DesignTab`), and only
+   * `auto`: one started by itself after a change, and only
    * where Val Build makes it -- never a bundle here or a builder tab nobody
    * asked for. It says nothing when there is nothing to do (Val Build off,
    * what is staged shown already) and nothing when it fails: the person did
