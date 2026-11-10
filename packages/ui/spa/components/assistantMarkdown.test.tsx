@@ -46,6 +46,25 @@ describe("the assistant's markdown", () => {
     expect(container.textContent).toBe("https://val.build/docs");
   });
 
+  test("text that only contains the host does not hide it", () => {
+    render(<AssistantLink href="https://a.co/x">banana.co</AssistantLink>);
+    expect(screen.getByText("(a.co)")).toBeTruthy();
+  });
+
+  test("text that is the host, or the address without its scheme, does", () => {
+    for (const text of [
+      "val.build",
+      "val.build/docs",
+      "https://val.build/docs/",
+    ]) {
+      const { container, unmount } = render(
+        <AssistantLink href="https://val.build/docs">{text}</AssistantLink>,
+      );
+      expect(container.textContent).toBe(text);
+      unmount();
+    }
+  });
+
   test("a relative link is the Studio's own and shows no host", () => {
     const { container } = render(
       <AssistantLink href="/val/content">here</AssistantLink>,

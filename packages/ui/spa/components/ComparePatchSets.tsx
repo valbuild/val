@@ -1962,16 +1962,14 @@ function ChangeRowBody({
 function NewLinksNotice({ sourcePath }: { sourcePath: SourcePath }) {
   const before = useServerSourceAtPath(sourcePath);
   const after = useSourceAtPath(sourcePath);
-  const added = useMemo(
-    () =>
-      after.status === "success"
-        ? newLinks(
-            before.status === "success" ? before.data : undefined,
-            after.data,
-          )
-        : [],
-    [before, after],
-  );
+  const added = useMemo(() => {
+    // Only once both sides are known: a "before" still loading would make
+    // every link in the value look new for a moment.
+    if (after.status !== "success") return [];
+    if (before.status === "success") return newLinks(before.data, after.data);
+    if (before.status === "not-found") return newLinks(undefined, after.data);
+    return [];
+  }, [before, after]);
   if (added.length === 0) return null;
   return (
     <div

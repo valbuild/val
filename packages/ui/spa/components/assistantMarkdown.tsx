@@ -15,8 +15,8 @@ import type { Components } from "react-markdown";
  *   above a reply) are not markdown, and are not affected.
  * - **A link names where it goes.** `[the docs](https://evil.example/?d=…)` is
  *   only a click away from leaking, and the text can say anything, so the
- *   host is shown beside it, unless the text already is the URL. It opens in
- *   a new tab without a referrer or an opener.
+ *   host is shown beside it, unless the text already is the URL or the host.
+ *   It opens in a new tab without a referrer or an opener.
  */
 export function AssistantImage({ alt }: { alt?: string }) {
   return (
@@ -44,9 +44,11 @@ export function AssistantLink({
       >
         {children}
       </a>
-      {host !== null && !textShowsHost(children, host) && (
-        <span className="ml-1 text-xs text-fg-secondary">({host})</span>
-      )}
+      {host !== null &&
+        href !== undefined &&
+        !textShowsHost(children, href, host) && (
+          <span className="ml-1 text-xs text-fg-secondary">({host})</span>
+        )}
     </>
   );
 }
@@ -75,6 +77,23 @@ export function externalHost(href: string | undefined): string | null {
   }
 }
 
-function textShowsHost(children: React.ReactNode, host: string): boolean {
-  return typeof children === "string" && children.includes(host);
+/**
+ * Whether the link's text already says where it goes: it is the address, or
+ * the host. Anything looser can be spoofed: "banana.co" contains "a.co".
+ */
+function textShowsHost(
+  children: React.ReactNode,
+  href: string,
+  host: string,
+): boolean {
+  if (typeof children !== "string") {
+    return false;
+  }
+  const text = children.trim().replace(/\/$/, "");
+  return (
+    text === href.replace(/\/$/, "") ||
+    text === host ||
+    text.replace(/^https?:\/\//, "") ===
+      href.replace(/^https?:\/\//, "").replace(/\/$/, "")
+  );
 }
