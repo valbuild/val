@@ -5,10 +5,8 @@ import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
-  isDesignTabOrigin,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
-  quickPreviewSiteOrigin,
   readPageSnapshot,
   screenshotPage,
   restoreScroll,
@@ -106,8 +104,8 @@ export function ValCanvasBridge({
   const pickingRef = React.useRef(false);
   pickingRef.current = picking;
   /**
-   * Picking ANY element (the design tab's `pickElements`), as the studio last
-   * said. `null` until it says, which is every studio but the design tab.
+   * Picking ANY element (`pickElements`), as the studio last said. `null`
+   * until it says.
    */
   const [elementPicking, setElementPicking] = React.useState<{
     enabled: boolean;
@@ -360,58 +358,48 @@ export function ValCanvasBridge({
         return;
       }
       if (message.type === "scrollTo") {
-        // Where the build before this one was: the design tab swaps a new
-        // build in at the same place.
+        // Where the build before this one was: a new build swapped in at the
+        // same place.
         stopRestoring.current?.();
         stopRestoring.current = restoreScroll(window, message.x, message.y);
         return;
       }
       if (message.type === "readPage") {
-        // The assistant's `read_page`: what is on the page, read here because
-        // the tab is another origin and cannot. The page's words, unpublished
-        // ones included, so only for the frame's parent, and only when that
-        // is the site's design tab or the Studio here -- and answered to it
-        // alone, not to `*`.
+        // The assistant's `read_page`: what is on the page, read here, where
+        // the page's elements are. The page's words, unpublished ones
+        // included, so only for the frame's parent, and only when that is the
+        // Studio here, at this page's own origin -- and answered to it alone,
+        // not to `*`.
         if (event.source !== window.parent) return;
         const asker = event.origin;
-        void isDesignTabOrigin(asker, {
-          api: "/api/val",
-          own: window.location.origin,
-        }).then((trusted) => {
-          if (trusted) window.parent.postMessage(readPageReply(message), asker);
-        });
+        if (asker !== window.location.origin) return;
+        window.parent.postMessage(readPageReply(message), asker);
         return;
       }
       if (message.type === "screenshotPage") {
         // The assistant's `screenshot_page`: a picture of the page, drawn
-        // here because the tab is another origin and cannot. As `readPage`:
-        // only for the frame's parent, when that is the design tab or the
+        // here. As `readPage`: only for the frame's parent, when that is the
         // Studio here, and answered to it alone.
         if (event.source !== window.parent) return;
         const asker = event.origin;
-        void isDesignTabOrigin(asker, {
-          api: "/api/val",
-          own: window.location.origin,
-        }).then(async (trusted) => {
-          if (!trusted) return;
-          window.parent.postMessage(await screenshotReply(message), asker);
-        });
+        if (asker !== window.location.origin) return;
+        void screenshotReply(message).then((reply) =>
+          window.parent.postMessage(reply, asker),
+        );
         return;
       }
       if (message.type === "quickPreview") {
         // Code that will run on this address: only from the frame's parent,
-        // and only when that is the site's design tab. See `quickPreview.ts`.
+        // and only when that is the Studio here. See `quickPreview.ts`.
         if (event.source !== window.parent) return;
         const { id, files } = message;
         const origin = event.origin;
         void (async () => {
           try {
-            // The site's design tab alone: not even the Studio here, which
-            // never sends one.
-            const site = await quickPreviewSiteOrigin("/api/val");
-            if (site === null || site !== origin) {
+            // The Studio here alone: this page's own origin.
+            if (origin !== window.location.origin) {
               throw new Error(
-                "Only the site's design tab can show a quick preview of this proposal.",
+                "Only this proposal's own Studio can show a quick preview of it.",
               );
             }
             await storeQuickPreview(id, files, {
@@ -490,7 +478,7 @@ export function ValCanvasBridge({
     return () => window.removeEventListener("message", listener);
   }, [scan, post]);
 
-  // Where the page is, as it moves: the design tab opens a new build there.
+  // Where the page is, as it moves: a new build is opened there.
   React.useEffect(
     () =>
       watchPageLocation(window, (location) =>
@@ -541,7 +529,7 @@ export function ValCanvasBridge({
   }, [post]);
 
   /**
-   * Picking any element, for the design tab: the page's own elements, which
+   * Picking any element: the page's own elements, which
    * only this side of the frame can reach. The listeners and the outlines are
    * `startElementPicking`'s (`@valbuild/shared`), so both bindings run the
    * same picker; what crosses back is the element described.

@@ -5,14 +5,11 @@ import {
   isCodeTool,
   proposalProject,
   runCodeTool,
-  runReadPage,
-  runScreenshotPage,
   type BuildReport,
   type CodeToolDeps,
   type ProposalBuildControl,
   type ProposalBuildOutcome,
 } from "./proposalCode";
-import { NO_PREVIEW } from "../hooks/pageTools";
 import {
   ProposalsApiError,
   type ProposalBuildTarget,
@@ -353,13 +350,11 @@ describe("the code tools", () => {
     over: Partial<CodeToolDeps> = {},
   ): CodeToolDeps & {
     staged: unknown[];
-    patched: unknown[];
     formatted: unknown[];
     offered: number;
   } => {
     const record = {
       staged: [] as unknown[],
-      patched: [] as unknown[],
       formatted: [] as unknown[],
       offered: 0,
     };
@@ -376,18 +371,6 @@ describe("the code tools", () => {
           return {
             commit: "c1",
             staged: staged({ files: Object.keys(files).sort() }),
-          };
-        },
-        patchFile: async (
-          name: string,
-          moduleFilePath: string,
-          patch: unknown[],
-          message?: string,
-        ) => {
-          record.patched.push([name, moduleFilePath, patch, message]);
-          return {
-            commit: "c2",
-            staged: staged({ files: [moduleFilePath.slice(1)] }),
           };
         },
       },
@@ -429,8 +412,7 @@ describe("the code tools", () => {
       "wait",
     ]);
     expect(isCodeTool("write_files")).toBe(true);
-    // The Studio's create_patch is a content tool; the design tab's is
-    // dispatched as code by the tab, not by name.
+    // create_patch is a content tool.
     expect(isCodeTool("create_patch")).toBe(false);
   });
 
@@ -487,25 +469,6 @@ describe("the code tools", () => {
     ).toBe(true);
   });
 
-  test("create_patch writes content into the module's file in the proposal, staged with its code", async () => {
-    const d = deps();
-    const patch = [{ op: "replace", path: ["title"], value: "Worn for years" }];
-    const answer = await runCodeTool(
-      "create_patch",
-      { module_file_path: "/content/home.val.ts", patch, message: "Title" },
-      d,
-    );
-    expect(d.patched).toEqual([[NAME, "/content/home.val.ts", patch, "Title"]]);
-    expect(answer).toMatchObject({
-      result: { success: true, staged: ["content/home.val.ts"] },
-      isError: false,
-    });
-    expect(
-      (await runCodeTool("create_patch", { module_file_path: "/a.val.ts" }, d))
-        .isError,
-    ).toBe(true);
-  });
-
   test("format_files formats what the proposal stages as the project does, and stages what changed", async () => {
     const d = deps({
       client: {
@@ -520,7 +483,6 @@ describe("the code tools", () => {
           d.staged.push([name, files, message]);
           return { commit: "c3", staged: staged() };
         },
-        patchFile: async () => ({ commit: "c4", staged: staged() }),
       },
     });
     const answer = await runCodeTool("format_files", {}, d);
@@ -557,7 +519,6 @@ describe("the code tools", () => {
             d.staged.push([name, written, message]);
             return { commit: "c5", staged: staged() };
           },
-          patchFile: async () => ({ commit: "c6", staged: staged() }),
         },
       });
       return d;
@@ -918,45 +879,6 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
       result: { success: false, error: "Could not build: x" },
       isError: true,
     });
-  });
-
-  test("in the design tab, build_proposal builds only for a reason a quick preview cannot cover", async () => {
-    const started: number[] = [];
-    const d = deps({
-      design: true,
-      build: control(async () => {
-        started.push(1);
-        return { status: "built", hash: "b1", proposal: proposal("b1") };
-      }),
-    });
-    const refused = await runCodeTool("build_proposal", {}, d);
-    expect(refused.isError).toBe(true);
-    expect(JSON.stringify(refused.result)).toMatch(/quick preview/);
-    const made_up = await runCodeTool(
-      "build_proposal",
-      { reason: "a button moved" },
-      d,
-    );
-    expect(made_up.isError).toBe(true);
-    expect(started).toEqual([]);
-
-    const built = await runCodeTool(
-      "build_proposal",
-      { reason: "finished" },
-      d,
-    );
-    expect(built.isError).toBe(false);
-    expect(started).toEqual([1]);
-  });
-
-  test("the design tab's quick preview and content answers do not ask for a build", async () => {
-    const d = deps({ design: true });
-    const written = await runCodeTool(
-      "write_files",
-      { files: { "src/a.ts": "a" } },
-      d,
-    );
-    expect(JSON.stringify(written.result)).not.toMatch(/Call build_proposal/);
   });
 
   test("build_proposal answers with each step's time once the build ends", async () => {
@@ -1461,180 +1383,5 @@ describe("buildProposalOnServer: Val Build builds it", () => {
       signal: controller.signal,
     });
     expect(outcome).toMatchObject({ status: "failed", cancelled: true });
-  });
-});
-
-describe("read_page", () => {
-  const snapshot = {
-    url: "https://p1--site.valstart.dev/",
-    title: "Home",
-    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
-    outline: [],
-  };
-
-  test("says there is nothing to read before a page is showing", async () => {
-    const answer = await runReadPage({}, { readPage: null, pointedAt: null });
-    expect(answer.isError).toBe(true);
-  });
-
-  test("in the Studio, says the preview is closed, and how to open it", async () => {
-    const answer = await runReadPage(
-      {},
-      { readPage: null, pointedAt: null, noPage: NO_PREVIEW },
-    );
-    expect(answer).toEqual({
-      result: { success: false, error: NO_PREVIEW },
-      isError: true,
-    });
-    expect(NO_PREVIEW).toContain("Preview button");
-  });
-
-  test("reads the picked element by its selector", async () => {
-    const asked: unknown[] = [];
-    const answer = await runReadPage(
-      { picked: true },
-      {
-        readPage: async (options) => {
-          asked.push(options);
-          return snapshot;
-        },
-        pointedAt: {
-          tag: "h2",
-          text: "Contact",
-          classes: [],
-          selector: "section#contact > h2",
-        },
-      },
-    );
-    expect(asked).toEqual([{ selector: "section#contact > h2" }]);
-    expect(answer).toEqual({
-      result: { success: true, ...snapshot },
-      isError: false,
-    });
-  });
-
-  test("switches the width first when asked, and refuses one it does not know", async () => {
-    const order: string[] = [];
-    const deps = {
-      readPage: async () => {
-        order.push("read");
-        return snapshot;
-      },
-      pointedAt: null,
-      setDevice: async (device: string) => {
-        order.push(device);
-      },
-    };
-    await runReadPage({ device: "mobile" }, deps);
-    expect(order).toEqual(["mobile", "read"]);
-    expect((await runReadPage({ device: "watch" }, deps)).isError).toBe(true);
-  });
-
-  test("a page that does not answer is an error the model can read", async () => {
-    const answer = await runReadPage(
-      {},
-      {
-        readPage: async () => {
-          throw new Error("The page did not answer.");
-        },
-        pointedAt: null,
-      },
-    );
-    expect(answer).toEqual({
-      result: { success: false, error: "The page did not answer." },
-      isError: true,
-    });
-  });
-});
-
-describe("screenshot_page", () => {
-  // A JPEG's first bytes, as the page's canvas would encode them.
-  const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
-  const shot = {
-    dataUrl: JPEG,
-    width: 1280,
-    height: 800,
-    fullPage: false,
-    clipped: true,
-  };
-
-  test("uploads the page's picture and hands its key over with the answer", async () => {
-    const uploaded: File[] = [];
-    const devices: string[] = [];
-    const asked: unknown[] = [];
-    const answer = await runScreenshotPage(
-      { full_page: true, device: "mobile" },
-      {
-        screenshotPage: async (options) => {
-          asked.push(options);
-          return { ...shot, fullPage: true };
-        },
-        setDevice: async (device) => {
-          devices.push(device);
-        },
-        uploadImage: async (file) => {
-          uploaded.push(file);
-          return { key: "p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg" };
-        },
-      },
-    );
-    expect(devices).toEqual(["mobile"]);
-    expect(asked).toEqual([{ fullPage: true }]);
-    expect(answer).toEqual({
-      result: {
-        success: true,
-        width: 1280,
-        height: 800,
-        full_page: true,
-        note: "The page goes on below the picture.",
-        image: "attached",
-      },
-      isError: false,
-      images: ["p1/0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b.jpg"],
-    });
-    expect(uploaded).toHaveLength(1);
-    expect(uploaded[0].type).toBe("image/jpeg");
-    // The bytes of the data URL, decoded: a JPEG starts FF D8 FF.
-    const bytes = new Uint8Array(await uploaded[0].arrayBuffer());
-    expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
-  });
-
-  test("says there is nothing to picture before a page is showing", async () => {
-    const answer = await runScreenshotPage(
-      {},
-      {
-        screenshotPage: null,
-        uploadImage: async () => ({ key: "k" }),
-      },
-    );
-    expect(answer.isError).toBe(true);
-    expect(answer).not.toHaveProperty("images");
-  });
-
-  test("says why when the page could not be pictured, and attaches nothing", async () => {
-    const answer = await runScreenshotPage(
-      {},
-      {
-        screenshotPage: async () => {
-          throw new Error("The page did not answer.");
-        },
-        uploadImage: async () => ({ key: "k" }),
-      },
-    );
-    expect(answer).toEqual({
-      result: { success: false, error: "The page did not answer." },
-      isError: true,
-    });
-  });
-
-  test("refuses a width it does not know", async () => {
-    const answer = await runScreenshotPage(
-      { device: "watch" },
-      {
-        screenshotPage: async () => shot,
-        uploadImage: async () => ({ key: "k" }),
-      },
-    );
-    expect(answer.isError).toBe(true);
   });
 });

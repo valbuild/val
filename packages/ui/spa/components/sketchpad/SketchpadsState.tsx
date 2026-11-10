@@ -251,7 +251,7 @@ export function SketchpadsProvider({
 }
 
 /**
- * Null outside the Studio's shell -- the overlay, the design tab -- where the
+ * Null outside the Studio's shell -- the overlay -- where the
  * assistant's sketchpad tools still work, with nothing on screen to open.
  */
 export function useSketchpadsState(): SketchpadsState | null {

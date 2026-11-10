@@ -15,10 +15,10 @@ import { createProposalsClient } from "../../proposals/proposalsClient";
 import { Spinner } from "../designSystem/spinner";
 
 /**
- * The builder tab a design tab that cannot build opened for a quick preview
+ * The builder tab a Studio that cannot build opened for a quick preview
  * (`quick-preview` in `HandoffIntent`): Safari, an iPhone. It bundles the
- * proposal's client code (`buildQuickPreview`), as the design tab does where
- * it can, and hands the files back; the design tab shows them. Nothing is
+ * proposal's client code (`buildQuickPreview`), as the Studio does where it
+ * can, and hands the files back; the Studio shows them. Nothing is
  * uploaded.
  *
  * Opened again it starts nothing: a quick preview is for the moment it was
@@ -50,7 +50,7 @@ export function HandoffQuickPreviewTab({
           outcome: {
             status: "failed",
             message:
-              "This quick preview was asked for a while ago. Press Quick preview in the design tab again.",
+              "This quick preview was asked for a while ago. Ask for it again in the Studio.",
           },
         }
       : {
@@ -154,7 +154,7 @@ export function HandoffQuickPreviewTab({
             ? `${run.step}…`
             : run.outcome.status === "failed"
               ? run.outcome.message
-              : "The design tab shows it now. This tab closes by itself."}
+              : "The Studio shows it now. This tab closes by itself."}
         </p>
         {run.kind === "ended" && run.outcome.status === "failed" && (
           <button

@@ -1,9 +1,9 @@
 /**
  * Pointing at anything on a page, as Lovable's picker does: hover outlines
  * the element under the pointer, a click picks it, and the assistant is told
- * which (valbuild/home `docs/design-tab.md`).
+ * which.
  *
- * ANY element, not only what Val marks. The design tab changes code, and the
+ * ANY element, not only what Val marks. The assistant changes code, and the
  * thing a person wants changed is as often a wrapper, a gap or a button as a
  * field -- so a field's path is extra information when there is one
  * (`valPath`), never the condition for picking.
@@ -14,9 +14,8 @@
  *
  * Plain DOM, nothing of React's or the Studio's, and in `shared` because
  * both halves need it: the canvas bridge (`@valbuild/next`,
- * `@valbuild/tanstack`) runs it inside the proposal's page, which is another
- * origin than the design tab and the only place the page's elements can be
- * reached; the Studio's stories run it on a page of their own. Only the
+ * `@valbuild/tanstack`) runs it inside the page, the only place the page's
+ * elements can be reached; the Studio's stories run it on a page of their own. Only the
  * `PickedElement` crosses the frame (`valCanvasProtocol.ts`).
  */
 

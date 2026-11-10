@@ -17,6 +17,16 @@ export type CodeModeBuild =
   | { state: "up-to-date" }
   /** The code changed since the preview was made: Save updates it. */
   | { state: "behind" }
+  /**
+   * The change is being shown without a build (a quick preview): its
+   * components and styles, in seconds.
+   */
+  | { state: "previewing" }
+  /**
+   * The preview shows the change without a build: what runs in the browser
+   * is new, what runs on the server is the last build's. Save builds it.
+   */
+  | { state: "quick" }
   /** `progress` from 0 to 1, or `null` when it cannot be told. */
   | { state: "updating"; progress: number | null }
   /** What happened, and what can be done: see `PreviewProblem`. */
@@ -29,6 +39,10 @@ export function codeModeStatusText(build: CodeModeBuild): string {
       return "The preview is up to date.";
     case "behind":
       return "The code changed since the preview was made. Save to update it.";
+    case "previewing":
+      return "Showing the change in the preview…";
+    case "quick":
+      return "The preview shows the change without a build: what runs on the server is still the last build's. Save to build it.";
     case "updating":
       return build.progress === null
         ? "Updating the preview…"
@@ -44,6 +58,10 @@ function shortText(build: CodeModeBuild): string {
       return "Up to date";
     case "behind":
       return "Save to update";
+    case "previewing":
+      return "Previewing…";
+    case "quick":
+      return "Quick preview";
     case "updating":
       return build.progress === null
         ? "Updating…"
@@ -91,7 +109,8 @@ export function CodeModeStatus({
   }, [build.state]);
 
   const failed = build.state === "failed" ? build : null;
-  const updating = build.state === "updating" ? build : null;
+  const updating =
+    build.state === "updating" || build.state === "previewing" ? build : null;
   const text = codeModeStatusText(build);
 
   return (

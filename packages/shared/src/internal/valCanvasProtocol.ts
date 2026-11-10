@@ -220,8 +220,8 @@ export type ValCanvasPageMessage =
     }
   | ({
       /**
-       * Where the page is: its path and scroll, as it moves. The design tab
-       * opens a new build there (`scrollTo`), so a new version replaces the
+       * Where the page is: its path and scroll, as it moves. A new build
+       * is opened there (`scrollTo`), so a new version replaces the
        * page in place rather than starting over at the top of the front page.
        */
       val: typeof VAL_CANVAS_MESSAGE;
@@ -377,7 +377,7 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
-       * Picking ANY element, as the design tab does (`elementPicker.ts`),
+       * Picking ANY element (`elementPicker.ts`),
        * rather than the fields Val tagged, as `setPicking` does.
        *
        * While `enabled`, holding `modifier` outlines what is under the

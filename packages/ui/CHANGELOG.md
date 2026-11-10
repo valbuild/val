@@ -1,5 +1,79 @@
 # @valbuild/ui
 
+## 0.152.2
+
+### Patch Changes
+
+- [#1022](https://github.com/valbuild/val/pull/1022) [`077ab3e`](https://github.com/valbuild/val/commit/077ab3eeccc2ab75b1b6fd4a5cf14b71c9ee8344) Thanks [@freekh](https://github.com/freekh)! - **Code mode builds on Val Build, and shows a change in seconds before it is
+  built.**
+
+  - **Builds:** a proposal is now built by Val Build, whether Save, the
+    preview's Try again or the assistant starts it. No bundler is loaded in the
+    Studio and no builder tab is opened, on an iPhone as everywhere else. The
+    Studio builds in the tab only for a project Val Build does not build.
+  - **Quick preview:** a second after code is staged in a proposal, the
+    Studio's preview shows the change as a quick preview: its components,
+    layout, styles and text, in seconds, without a build. What runs on the
+    server stays the last build's until the proposal is built. Code mode's
+    status says "Quick preview" while it is shown, and the preview goes back to
+    the served build when a new one is ready.
+  - **The assistant** shows a change now with `quick_preview`, and builds
+    only when a quick preview cannot show the change (server code, routes, a
+    schema, a dependency) or when the change is complete.
+  - **Everyone in the proposal sees it.** When someone's assistant stages code,
+    every Studio open on the proposal shows the change as a quick preview too,
+    and code mode's status follows, with no reload. A Studio hears of it the
+    way it hears of a save.
+  - **Never under your hands.** A new build or quick preview waits while you
+    are using the page in the preview (typing in it, say), and comes in when
+    you leave it, at the same page and scroll.
+
+## 0.152.1
+
+### Patch Changes
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **The canvas turns preview mode on by itself.** When the page in the canvas
+  says preview mode is off, or does not answer, the Studio now turns preview
+  mode on for you, every five seconds for up to thirty seconds, instead of
+  asking you to press a button.
+
+  - For the first ten seconds you only see a small spinner above the page.
+  - After that, the pill says what is happening: "Loading the preview…" or
+    "Turning on preview mode…".
+  - If the page still is not in preview mode after thirty seconds, you get the
+    message you had before, with **Turn on preview mode** and **Details**.
+    Pressing the button, or reloading, starts the thirty seconds over.
+
+  The canvas never reloads the page while it is still loading, or while you are
+  using it (for example signing in to your site inside the canvas).
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **Code mode uses the Studio's own preview.** Code mode used to replace the
+  editor and the preview with a separate view of the proposal's site, where
+  nothing could be selected and content edits did not show. Now the preview is
+  the same in every mode:
+
+  - In code mode the column beside the preview shows the code changes, with
+    **Edit content** to go back to the content editor. Selecting a field on the
+    page does the same.
+  - The preview has the same device sizes, zoom, reload and selection as
+    everywhere else, and shows content edits as you type.
+  - The assistant sits beside the preview in code mode instead of over it.
+  - The preview loads the page again whenever the proposal serves a new build,
+    whoever built it.
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **What the design tab needed is removed with it.** The page's canvas bridge
+  now answers `read_page`, `screenshot_page` and a quick preview only to the
+  Studio at the page's own origin, and no longer asks the server whether another
+  origin is the site's design tab. The site's server no longer writes a
+  proposal's files or offers the `patch-file` route: code and content are
+  changed in the proposal's own Studio. The assistant's `build_proposal` no
+  longer takes a `reason`.
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **The design tab is gone.** Code is changed in a proposal's own Studio, in
+  code mode, where the preview is the same canvas as everywhere else: content
+  edits show on it as you type, and it loads the page again when a new build is
+  served. "Open design tab" is no longer in the proposal's menu.
+
 ## 0.152.0
 
 ### Minor Changes

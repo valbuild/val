@@ -1,7 +1,7 @@
 import type { ChatMessage } from "../../AIChat";
 import { changedFiles } from "../../../proposals/changedFiles";
 
-/** What the design tab's stories show: one proposal, its files and its chat. */
+/** What code mode's stories show: one proposal, its files and its chat. */
 
 export const SITE: Record<string, string> = {
   "src/routes/_site.index.tsx": [

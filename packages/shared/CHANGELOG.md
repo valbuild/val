@@ -1,5 +1,17 @@
 # @valbuild/shared
 
+## 0.152.1
+
+### Patch Changes
+
+- [#1019](https://github.com/valbuild/val/pull/1019) [`b9089c8`](https://github.com/valbuild/val/commit/b9089c8787da8075722cc4ef3672beb61b288af4) Thanks [@freekh](https://github.com/freekh)! - **What the design tab needed is removed with it.** The page's canvas bridge
+  now answers `read_page`, `screenshot_page` and a quick preview only to the
+  Studio at the page's own origin, and no longer asks the server whether another
+  origin is the site's design tab. The site's server no longer writes a
+  proposal's files or offers the `patch-file` route: code and content are
+  changed in the proposal's own Studio. The assistant's `build_proposal` no
+  longer takes a `reason`.
+
 ## 0.152.0
 
 ### Minor Changes

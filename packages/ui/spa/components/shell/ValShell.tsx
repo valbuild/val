@@ -157,6 +157,10 @@ import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useBuildEpoch } from "./canvas/useServedBuild";
+import {
+  useCodeModeQuickPreview,
+  withQuickPreviewState,
+} from "../proposals/useCodeModeQuickPreview";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
@@ -1173,6 +1177,19 @@ function ValShellBody({
    * here: the frame relays every edit as it is made.
    */
   const buildEpoch = useBuildEpoch();
+  /**
+   * In a proposal, the proposal's client code shown on the page in seconds
+   * after each change, before a build: see `useCodeModeQuickPreview`. The
+   * canvas opens the page as the quick preview while one is shown.
+   */
+  const [canvasLive, setCanvasLive] = useState(false);
+  const quickPreview = useCodeModeQuickPreview({
+    pageLive: canvasLive,
+    buildEpoch,
+  });
+  const quickId = quickPreview.quickId;
+  const setQuickStorer = quickPreview.setStorer;
+  const onQuickDocument = quickPreview.onDocument;
   /** Code mode's status asked for the page again. */
   const [codeReloads, setCodeReloads] = useState(0);
 
@@ -1259,6 +1276,9 @@ function ValShellBody({
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
         url={canvasUrl}
+        quickPreviewId={quickId}
+        onQuickPreviewStorer={setQuickStorer}
+        onDocument={onQuickDocument}
         width={width}
         height={height}
         reloadKey={reloadKey}
@@ -1339,7 +1359,10 @@ function ValShellBody({
          * the frame is. See `CanvasPreviewNotice`.
          */
         enableKey={enableKey}
-        onStatusChange={onStatusChange}
+        onStatusChange={(status) => {
+          onStatusChange(status);
+          setCanvasLive(status === "live");
+        }}
         onRefreshingChange={onRefreshingChange}
       />
     );
@@ -1351,6 +1374,9 @@ function ValShellBody({
     tourPagePath,
     assistantSelecting,
     assistantPick,
+    quickId,
+    setQuickStorer,
+    onQuickDocument,
   ]);
 
   /**
@@ -1985,7 +2011,10 @@ function ValShellBody({
               codeChanges !== null
                 ? {
                     name: codeChanges.name,
-                    build: codeChanges.build,
+                    build: withQuickPreviewState(
+                      codeChanges.build,
+                      quickPreview,
+                    ),
                     onReload: () => setCodeReloads((count) => count + 1),
                   }
                 : undefined

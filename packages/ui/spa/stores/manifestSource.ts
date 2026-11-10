@@ -138,6 +138,7 @@ export class ManifestSource {
   private inStep = false;
   private inStepListeners = new Set<() => void>();
   private servedBuildListeners = new Set<() => void>();
+  private seqListeners = new Set<() => void>();
 
   /**
    * Modules whose schema this Studio moved to by new code (HMR, staged code
@@ -221,6 +222,23 @@ export class ManifestSource {
    */
   servedBuild(): string | null {
     return this.manifest?.registry?.entry ?? null;
+  }
+
+  /**
+   * The project's `seq` in the last manifest adopted: moves with every
+   * write, delete and publish, each new build, and -- in a proposal -- each
+   * staging (valbuild/home `patches.countStaging`). `null` before the first.
+   */
+  seq(): number | null {
+    return this.manifest?.project.seq ?? null;
+  }
+
+  /** Call `listener` whenever {@link seq} changes. */
+  onSeq(listener: () => void): () => void {
+    this.seqListeners.add(listener);
+    return () => {
+      this.seqListeners.delete(listener);
+    };
   }
 
   /** Call `listener` whenever {@link servedBuild} changes. */
@@ -343,6 +361,7 @@ export class ManifestSource {
       return;
     }
     const servedBefore = this.servedBuild();
+    const seqBefore = this.seq();
     this.manifest = loaded.manifest;
     this.incomplete = loaded.incomplete;
     this.decidedAt = epoch;
@@ -353,6 +372,9 @@ export class ManifestSource {
     this.markInStep();
     if (this.servedBuild() !== servedBefore) {
       for (const listener of [...this.servedBuildListeners]) listener();
+    }
+    if (this.seq() !== seqBefore) {
+      for (const listener of [...this.seqListeners]) listener();
     }
   }
 

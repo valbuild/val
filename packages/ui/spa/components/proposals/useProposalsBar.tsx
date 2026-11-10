@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { SourcePath } from "@valbuild/core";
 import type { TopBarProposals } from "../shell/TopBar";
+import { useSettledProjectSeq } from "../shell/canvas/useServedBuild";
 import {
   useCurrentAuthorId,
   useCurrentProposal,
@@ -575,6 +576,20 @@ export function useProposalsBar({
     }, CODE_MODE_POLL_MS);
     return () => clearInterval(timer);
   }, [inAProposal, refresh]);
+  /*
+   * And at once when the proposal's version moves: someone else staged
+   * code (valbuild/home `patches.countStaging`) or a build was served, so
+   * code mode's status says what the preview shows ("Save to update",
+   * "Quick preview") for everyone in it, not only for whoever made the
+   * change. Once per burst of saves (`useSettledProjectSeq`).
+   */
+  const seq = useSettledProjectSeq();
+  const seqSeen = useRef(seq);
+  useEffect(() => {
+    if (seq === seqSeen.current) return;
+    seqSeen.current = seq;
+    if (inAProposal) void refresh();
+  }, [seq, inAProposal, refresh]);
   useEffect(() => {
     reportCodeMode(
       here === null || currentJson === null

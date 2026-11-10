@@ -169,8 +169,7 @@ let scheduled: { name: string; timer: ReturnType<typeof setTimeout> } | null =
 
 /**
  * Typecheck proposal `name` in the background, once its staged files have
- * stopped changing for `delayMs` (the design tab: after each edit, and on
- * Build). One already running is let finish, and the files are checked
+ * stopped changing for `delayMs` (after each edit, and on Build). One already running is let finish, and the files are checked
  * again after it, since they changed while it ran.
  */
 export function scheduleTypecheck(
@@ -209,7 +208,7 @@ function checkedAlready(name: string, inputs: string | null): boolean {
   );
 }
 
-/** Forget a background typecheck not started yet: the design tab was left. */
+/** Forget a background typecheck not started yet: its proposal was left. */
 export function cancelScheduledTypecheck(name: string): void {
   if (scheduled === null || scheduled.name !== name) return;
   clearTimeout(scheduled.timer);
