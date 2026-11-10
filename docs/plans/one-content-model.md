@@ -1246,10 +1246,6 @@ Genuinely not built, each with what it would take:
   reported, and which to fix and which to document as limits is still to
   be decided (`scenarios/measure/results.md`, "Phase 10" and "After: 'used
   by' filtered once").
-- **The probe through home's loader** (decision 5). The deployed probe ran on
-  a plain Worker; a site's isolate is started by home's loader
-  (`worker_loaders`), and if the two limits differ only the loader's counts.
-  `scenarios/measure/results.md`, "What to re-run deployed", item 3.
 - **The templates, after the release.** `valbuild/templates` pins
   `@valbuild/*`; once N is on npm, bump every template (and its
   `minimumReleaseAgeExclude`), and run each against the new version: open

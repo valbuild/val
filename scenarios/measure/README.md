@@ -121,8 +121,12 @@ nothing else, so the 128 MB limit can be found where Cloudflare enforces it.
 It ran deployed before and after phase 6 of
 `docs/plans/one-content-model.md` (`results.md`, "The deployed isolate"):
 a draft page's read fits wherever the content loads at all, and the head's
-16 MB budget (`HEAD_BUDGET_BYTES`) was never approached. What is left is the
-same probe started through valbuild/home's loader (`worker_loaders`).
+16 MB budget (`HEAD_BUDGET_BYTES`) was never approached. The same probe
+started through valbuild/home's loader (`worker_loaders`) ran on 2026-11-10,
+as a TanStack Start site on a throwaway copy of the loader, with the same
+result (`results.md`, "Through home's loader"). That loader's tail does not
+show the isolates it starts, so there a kill is read from the probe's own
+isolate id.
 
 **What it runs.** Each `GET /run?input=…&op=…` builds the input, starts Val's
 server in memory mode the way `@valbuild/server/browser` does

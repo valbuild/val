@@ -508,8 +508,8 @@ the limit.
 ### What to re-run deployed
 
 Items 1 and 2 ran on 2026-11-03, and the 650-patch and 10,000-entry checks of
-item 3 on a plain Worker: "Deployed, after phase 6", above. What is left is
-item 3's loader. As it was written:
+item 3 on a plain Worker: "Deployed, after phase 6", above. Item 3's loader
+ran on 2026-11-10: "Through home's loader", below. As they were written:
 
 The deployed probe ("The deployed isolate", above) measured the server before
 phase 6. To measure the head where Cloudflare enforces 128 MB:
@@ -531,6 +531,75 @@ phase 6. To measure the head where Cloudflare enforces 128 MB:
    (phase 10's `scaleWork.ts` shapes), and confirm the head's 16 MB budget
    (`HEAD_BUDGET_BYTES`) is where the isolate keeps outliving a read beside
    the app's own heap.
+
+### Through home's loader (item 3), 2026-11-10
+
+The probe in an isolate that valbuild/home's loader starts (`worker_loaders`),
+as a site's is, rather than as a Worker of its own.
+
+**How it was set up:**
+
+- **The probe as a site.** `isolate/probe.ts`, `draftReadWork.ts` and
+  `scaleProject.ts` were put in a TanStack Start app, with `createProbe` at
+  `GET /run` as a server route, on the released `@valbuild/core`, `shared`
+  and `server` 0.151.0: what sites run. It was published with home's publish
+  CLI (vendor layer: the three packages, 1,417 kB).
+- **The loader.** A throwaway copy of home's loader, deployed from valbuild/home
+  `7024ec6` as `val-probe-loader`. It had its own KV namespace, R2 bucket and
+  Durable Objects, on workers.dev, so the production loader was not touched.
+  It was deleted afterwards, with its namespace and bucket. Same Workers Paid
+  account as the plain Worker runs above, wrangler 4.133.0.
+- **The runs.** Driven from a Claude Code cloud container with
+  `isolateProbe.ts run` (`fresh=1`, one request per row), with `wrangler tail`
+  on the loader throughout. 82 requests.
+
+**Every request answered 200**, at every size and every ballast:
+
+| Ballast | `load`          | `reader`        |
+| ------- | --------------- | --------------- |
+| none    | 86.2 MB / never | 86.2 MB / never |
+| 32 MB   | 86.2 MB / never | 86.2 MB / never |
+| 64 MB   | 86.2 MB / never | 86.2 MB / never |
+
+This is the ladder of 1, 2, 5, 10, 15, 20, 30, 40, 60 and 80 MB of synthetic
+content, then 1 MB with 650 patches. It is the plain Worker's result for the
+same two operations ("Deployed, after phase 6": 86.2 MB / never at every
+ballast). The operations that died there at 59–75 MB, `draft` and its
+variants, read `PUT /sources/~`, which this release removed.
+
+**The head's budget.** `reader` was also run, without ballast, over 650-patch
+chains on 10, 20, 40, 60 and 80 MB of content, and over phase 10's project at
+1,000 and 10,000 entries, the latter also with 650 patches on the posts. Every
+request answered 200.
+
+- The largest head was **56 KB**: 80 MB of content with 650 patches on one
+  module. The 10,000-entry record with 650 patches held 26 KB.
+- So the head's 16 MB budget (`HEAD_BUDGET_BYTES`) is never approached: the
+  head holds the edited module's chain, not the content. Nothing was evicted.
+
+**What the loader's tail can and cannot say.**
+
+- It records the LOADER's own request. The isolate it starts does not appear
+  as an event of its own, so `exceededMemory` for a site's isolate is not in
+  this tail. Four of the loader's events read `canceled` while the client had
+  its 200.
+- What the run shows instead is the probe's own isolate id:
+  - **Without ballast,** a new isolate appeared at 60 MB and at 80 MB.
+  - **With 32 or 64 MB of ballast,** a new one appeared from 30–40 MB on,
+    often after every request.
+- So past roughly 30–60 MB of retained heap, an isolate does not outlive the
+  request that took it there. The request itself still succeeds, and the next
+  one is answered by a fresh isolate.
+- A site whose isolate holds that much pays a cold start per request rather
+  than an error. That is the thing to watch with `exceededMemory` from the
+  account's analytics (Workers Logpush or the GraphQL API), which see the
+  isolates the loader starts. That was not available here.
+
+**What this settles for decision 5:** a draft page's read fits in a
+loader-started isolate wherever the content loads at all, and the head stays
+far under its budget. **What it does not settle:** the exact memory at which
+a loader-started isolate is replaced. The tail cannot see it, and the probe
+has no heap statistics.
 
 ## Phase 10: the Studio at size (baseline)
 
