@@ -21,6 +21,12 @@ import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
 import { CanvasPoint } from "./types";
 import {
+  frameHasFocus,
+  sameDocument,
+  withQuickPreview,
+  type CanvasDocument,
+} from "./canvasSwap";
+import {
   useValCatchUp,
   useValSourceUpdates,
 } from "../../../stores/react/ValOverlayEmitter";
@@ -60,6 +66,9 @@ type FrameState =
  */
 export const ANSWER_TIMEOUT_MS = 8000;
 
+/** How often a new document held for a focused page looks again. */
+export const FOCUS_RECHECK_MS = 500;
+
 const NO_HOLDS: readonly ModuleFilePath[] = [];
 /** A page that said no versions: everything it holds is sent. */
 const NO_HELD_VERSIONS: HeldVersions = {};
@@ -86,6 +95,21 @@ export type CanvasFrameProps = {
    * exactly as a new `reloadKey` is.
    */
   documentKey?: string | number;
+  /**
+   * A quick preview to show (`quickPreview.ts`): the page is opened as it
+   * (`?val_quick=<id>`) instead of the served build. Its files must already
+   * be stored, through `onQuickPreviewStorer`. `null` for the served build.
+   *
+   * Like a new `documentKey`, a new one waits while the page has the focus
+   * -- someone typing in it, or using it -- and comes in once they leave it,
+   * where they were: the same path, scrolled the same.
+   */
+  quickPreviewId?: string | null;
+  /**
+   * A document said it is there: which quick preview it is, or `null` for
+   * the served build. Called once per document.
+   */
+  onDocument?: (document: { quick: string | null }) => void;
   /** Whether a click on the page picks the element under it. */
   isPicking: boolean;
   /**
@@ -219,6 +243,8 @@ export function CanvasFrame({
   relaySources = true,
   reloadKey,
   documentKey = 0,
+  quickPreviewId = null,
+  onDocument,
   isPicking,
   selectionColors,
   highlightedPath,
@@ -280,9 +306,63 @@ export function CanvasFrame({
    */
   const pickedHere = useRef<SourcePath | null>(null);
 
+  /*
+   * The document the frame holds, which follows the one asked for
+   * (`documentKey`, `quickPreviewId`) -- except while the page has the
+   * focus. Then a new build or quick preview waits, and comes in once the
+   * person leaves the page, at the path and scroll they were at.
+   */
+  const wanted = useMemo<CanvasDocument>(
+    () => ({ documentKey, quick: quickPreviewId }),
+    [documentKey, quickPreviewId],
+  );
+  const [held, setHeld] = useState<CanvasDocument>(wanted);
+  /** Where the page last said it was (`location`). */
+  const lastLocation = useRef<PageLocation | null>(null);
+  /**
+   * Where a document swapped in is opened: where the last one was. Only for
+   * the page it was swapped on (`url`): a page the Studio asks for since --
+   * picked in Pages, typed in the address bar -- opens where it says.
+   */
+  const [swapAt, setSwapAt] = useState<{
+    at: PageLocation;
+    url: string;
+  } | null>(null);
+  /** Where a document swapped in is scrolled to, once it is there. */
+  const swapScroll = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (sameDocument(held, wanted)) return;
+    const swap = (): boolean => {
+      if (frameHasFocus(frameRef.current)) return false;
+      const at = lastLocation.current;
+      swapScroll.current =
+        at === null ? null : { x: at.scrollX, y: at.scrollY };
+      setSwapAt(at === null ? null : { at, url });
+      setHeld(wanted);
+      return true;
+    };
+    if (swap()) return;
+    const root = frameRef.current?.getRootNode() ?? null;
+    const retry = () => void swap();
+    // Focus moving into the Studio says it at once; a page left for another
+    // window says nothing, so it is looked at now and then too.
+    root?.addEventListener("focusin", retry);
+    const timer = setInterval(retry, FOCUS_RECHECK_MS);
+    return () => {
+      root?.removeEventListener("focusin", retry);
+      clearInterval(timer);
+    };
+  }, [held, wanted, url]);
+  const openAt = swapAt !== null && swapAt.url === url ? swapAt.at.path : url;
+  const heldQuick = useRef(held.quick);
+  heldQuick.current = held.quick;
+
   // The URL the frame is actually given: the page, marked as a canvas load so
   // it renders itself without its own overlay.
-  const frameSrc = useMemo(() => withValCanvasParam(url), [url]);
+  const frameSrc = useMemo(
+    () => withValCanvasParam(withQuickPreview(openAt, held.quick)),
+    [openAt, held.quick],
+  );
   // The page is the Studio's own origin: the canvas frames the site it is on.
   const origin = typeof window === "undefined" ? "" : window.origin;
 
@@ -299,7 +379,7 @@ export function CanvasFrame({
   useEffect(() => {
     setState({ status: "waiting" });
     onRefreshingChange?.(false);
-  }, [frameSrc, reloadKey, documentKey, onRefreshingChange]);
+  }, [frameSrc, reloadKey, held.documentKey, onRefreshingChange]);
 
   useEffect(() => {
     if (state.status !== "waiting") return;
@@ -308,7 +388,7 @@ export function CanvasFrame({
       ANSWER_TIMEOUT_MS,
     );
     return () => clearTimeout(timer);
-  }, [state.status, frameSrc, reloadKey, documentKey]);
+  }, [state.status, frameSrc, reloadKey, held.documentKey]);
 
   // What the page says.
   useEffect(() => {
@@ -331,6 +411,7 @@ export function CanvasFrame({
         // before the editor picks one, not after (`BuildCode`)
         valSystem?.system.checkCodeNow();
         setDocumentEpoch((epoch) => epoch + 1);
+        onDocument?.({ quick: heldQuick.current });
         setIsEnabling(false);
       } else if (message.type === "elements") {
         onElements?.(message.elements);
@@ -349,6 +430,11 @@ export function CanvasFrame({
       } else if (message.type === "elementPickingStopped") {
         onElementPickingStopped?.();
       } else if (message.type === "location") {
+        lastLocation.current = {
+          path: message.path,
+          scrollX: message.scrollX,
+          scrollY: message.scrollY,
+        };
         onLocation?.({
           path: message.path,
           scrollX: message.scrollX,
@@ -386,6 +472,7 @@ export function CanvasFrame({
     onZoom,
     onRefreshingChange,
     onLocation,
+    onDocument,
   ]);
 
   /** `readPage` requests the page has not answered yet, by id. */
@@ -505,6 +592,14 @@ export function CanvasFrame({
     onQuickPreviewStorer(storeQuickPreview);
     return () => onQuickPreviewStorer(null);
   }, [onQuickPreviewStorer, storeQuickPreview]);
+
+  // A document swapped in, scrolled to where the one before it was.
+  useEffect(() => {
+    const at = swapScroll.current;
+    if (at === null || documentEpoch === 0) return;
+    swapScroll.current = null;
+    send({ val: VAL_CANVAS_MESSAGE, type: "scrollTo", x: at.x, y: at.y });
+  }, [send, documentEpoch]);
 
   /*
    * The frame's first document, scrolled to where it is told to be -- once:
@@ -768,7 +863,7 @@ export function CanvasFrame({
         // Remounting is the reload: assigning the same `src` to a live frame is
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
-        key={`${frameSrc}-${reloadKey}-${documentKey}`}
+        key={`${frameSrc}-${reloadKey}-${held.documentKey}`}
         src={frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}

@@ -3553,9 +3553,22 @@ async function proposalTakePush(
  * `POST /proposals/:name/build` with `{ publishId, inputs }`: a build of its
  * staged files, uploaded, served at its address. The mock builds and serves
  * nothing: it records that a build of these inputs is served, which is what
- * a taken-in push waits for. Any other body (Val Build's own build) is not
- * modeled.
+ * a taken-in push waits for.
+ *
+ * Any other body is Val Build's own build, which the mock does not make: it
+ * answers as content does for a project Val Build does not build
+ * (`server-builds-off`), and the Studio builds in the tab, as these tests
+ * expect.
  */
+/** What content answers for a project Val Build does not build. */
+function serverBuildsOff(res: ServerResponse): void {
+  json(res, 409, {
+    statusCode: 409,
+    message: "Val Build does not build this project.",
+    details: { code: "server-builds-off" },
+  });
+}
+
 async function proposalServeBuild(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3565,10 +3578,7 @@ async function proposalServeBuild(
     req,
   );
   if (typeof body?.publishId !== "string" || typeof body.inputs !== "string") {
-    json(res, 404, {
-      message:
-        "Not modeled by this mock: POST /proposals/:name/build without a publishId",
-    });
+    serverBuildsOff(res);
     return;
   }
   const inputs = stagedJson(proposal).inputs;
@@ -4130,6 +4140,10 @@ async function proposalsRoute(
       return;
     case "POST /build":
       await proposalServeBuild(req, res, proposal);
+      return;
+    // Val Build's quick preview, which the mock does not make either.
+    case "POST /quick-preview":
+      serverBuildsOff(res);
       return;
     case "POST /close":
     case "POST /reopen":
