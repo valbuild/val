@@ -1,5 +1,23 @@
 # @valbuild/react
 
+## 0.153.0
+
+### Minor Changes
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Removed what 0.151.0 kept only so that a Studio, a page and a server from the release before could still talk to each other during a deploy:
+
+  - **`PUT /api/val/sources/~`** is gone. Nothing in 0.151.0 asked it: the Studio reads modules through `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and `fetchVal`, `useVal` and the MCP tools read the server's content in-process. If a script or test of yours read content through it, read one module with `GET /api/val/modules/~<path>` instead. Its answer has the module's `source` and `version`, and an `entries` map holding the `.jsonValues()` entries pending changes touched.
+  - **`ValDraft.base`** is gone from the type. It has not been sent or read since 0.151.0, so a `draft` you pass to `ValProvider` is not affected.
+  - **A page no longer accepts edits relayed by a Studio from before 0.151.0.** Such a Studio sent each module as a bare `source`. After the upgrade, the Studio and your pages come from the same deploy, so this only matters while an older Studio is still open in a tab during a rollout. Reloading that tab fixes it.
+  - **`/api/val/stat`** no longer needs `sourcesSha` and `schemaSha`. The Studio now tells your local server which version it last saw, and the server still sends both fields for a Studio of 0.151.0. They stop being sent in the next release.
+
+### Patch Changes
+
+- Updated dependencies [[`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`27e51ba`](https://github.com/valbuild/val/commit/27e51baadce61b2cbee2d5ef227aae045ccb2e21), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9), [`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c), [`56ab7d5`](https://github.com/valbuild/val/commit/56ab7d5818772a9e310a561ebdb798b27ee704c9)]:
+  - @valbuild/ui@0.153.0
+  - @valbuild/core@0.153.0
+  - @valbuild/shared@0.153.0
+
 ## 0.152.2
 
 ### Patch Changes
