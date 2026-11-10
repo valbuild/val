@@ -1250,26 +1250,67 @@ Genuinely not built, each with what it would take:
   `@valbuild/*`; once N is on npm, bump every template (and its
   `minimumReleaseAgeExclude`), and run each against the new version: open
   `/val`, make and save an edit (`.agent/rules.md`, "Releasing").
-- **Smaller leftovers**, each a known cost rather than a bug:
-  - another editor's keystroke costs three requests (`/stat`,
-    `GET /manifest`, `GET /modules`) and its record for the review, where it
-    cost one: a manifest that carried the patches it moved by would make it
-    one;
-  - the patch store still fetches every record of the chain, for the review
-    and the publish, so the Studio holds records it no longer replays;
-  - the manifest names a module's version at its whole chain, where
-    `GET /modules` answers the version where its chain stopped (a patch that
-    does not apply): they differ until the Studio's discard of that patch
-    lands;
+- **Smaller leftovers**, each a known cost rather than a bug. Each has a
+  design (2026-11-10, Phase E after the release) and none is built:
+  - **Another editor's keystroke costs three requests** (`/stat`,
+    `GET /manifest`, `GET /modules`), and then its record for the review,
+    where it cost one.
+    - _Design:_ `/stat`'s `did-change` carries the delta: the patch ids it
+      moved by, and for each module that moved, its new version.
+    - The Studio fetches the new records in one `GET /patches?ids=`, which
+      the review needs anyway, applies them, and compares the version it
+      computes with the one named.
+    - Equal is the common case: two requests and no manifest or module read.
+      Unequal falls back to `GET /manifest` and `GET /modules` as today.
+    - Wire: one optional field on the answer. A Studio that does not read it
+      behaves as now.
+    - Pinned by B-budgets on the "another editor types" scenario, one request
+      fewer each.
+  - **The patch store fetches every record of the chain**, for the review
+    and the publish, so the Studio holds records it no longer replays.
+    - _Design:_ the store keeps ids, and the metadata that
+      `GET /patches?exclude_patch_ops=true` already answers without the ops
+      (module, author, time). It fetches records only for the patches after
+      the base it replays from, and the rest when the review opens.
+    - Publish is the server's (`/save`) and needs none.
+    - Cost: the review's first paint waits for one request. Win: a long chain
+      costs a Studio nothing until someone looks at it.
+  - **The manifest and `GET /modules` disagree while a patch does not apply.**
+    The manifest names a module's version at its whole chain; `GET /modules`
+    answers the version where the chain stopped. They differ until the
+    Studio's discard of that patch lands.
+    - _Design:_ the head records, per module, where its chain stopped when it
+      applies it (it already holds the applied state). The manifest names
+      that version when the head knows it, and the whole chain only for a
+      module nobody has read.
+    - The window this closes is one discard long, and the Studio already
+      waits it out. Worth building only with the first item, which reads the
+      versions without `GET /modules`.
   - ~~`entriesStatus` is stable by recompute-and-compare, not by key~~:
     keyed on the views it read and the failures recorded since 2026-11-08,
     because it was not cheap after all -- it walked every marker on every
-    render of a reference scan's status;
-  - the page's hooks apply no schema rule: a relayed module is compared by
-    version only to see whether it moved, so a Studio ahead of the page's
-    build (HMR first, staged code it evaluated) relays content made with its
-    own schema once it changes (a code change that moves no content relays
-    nothing: phase 5's `engineSchemaKey`).
+    render of a reference scan's status.
+  - **The page's hooks apply no schema rule.** A relayed module is compared
+    by version only, to see whether it moved. So a Studio ahead of the page's
+    build (HMR first, or staged code it evaluated) relays content made with
+    its own schema once it changes. A code change that moves no content
+    relays nothing: phase 5's `engineSchemaKey`.
+    - _Design:_ the relay's `read` already carries `{ schema, base, chain }`.
+      The provider computes each module's schema version from its own bundle,
+      once per module, the way the server readers' `schemaVersionOf` does.
+      A read whose schema differs is not rendered: the page keeps the
+      bundle's content, and the overlay says the code changed, with **Reload**.
+    - That is the server readers' rule, at the hooks.
+    - Cost: hashing each relayed module's serialized schema once.
+  - **The timers that are not refreshes are kept, decided.** These are the
+    relay's 200 ms debounce of a burst of edits (one emission per burst,
+    since each hands the page a whole module), its 5 s fallback for a server
+    that never lets the store get in step, and the page's 10 s `waitForLoad`.
+    - Each is a bound on a server that does not answer, or a rate limit, and
+      none is how anything converges. Each says so where it is defined
+      (`sourceRelay.ts`, `overlayStore.ts`).
+    - The "Cannot log after tests are done" that `waitForLoad`'s timer
+      printed in jest does not reproduce in the full suite on 2026-11-10.
 
 ## The goal
 
