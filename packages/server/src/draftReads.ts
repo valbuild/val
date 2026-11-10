@@ -1,13 +1,6 @@
-import {
-  Internal,
-  type Json,
-  type ModuleFilePath,
-  type SelectorSource,
-  type ValModule,
-} from "@valbuild/core";
+import { Internal, type Json, type ModuleFilePath } from "@valbuild/core";
 import {
   VAL_SESSION_COOKIE,
-  schemaVersionOf,
   type ContentSource,
   type EntryRead,
   type ModuleRead,
@@ -367,24 +360,4 @@ function getHost(headers: Headers): string | null {
     proto = "http";
   }
   return host ? `${proto}://${host}` : null;
-}
-
-const schemaVersions = new WeakMap<object, string | null>();
-
-/**
- * The version of the schema a reader's own code has for a module: what the
- * readers hold a draft's version against (`layered`'s schema rule), so
- * content is never read with a schema it was not made for. Hashed once per
- * module object, which a build makes once: a load cost, not a read cost.
- */
-export function readerSchemaVersion(
-  module: ValModule<SelectorSource>,
-): string | null {
-  const cached = schemaVersions.get(module);
-  if (cached !== undefined) return cached;
-  const schema = Internal.getSchema(module);
-  const version =
-    schema === undefined ? null : schemaVersionOf(schema["executeSerialize"]());
-  schemaVersions.set(module, version);
-  return version;
 }

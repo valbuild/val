@@ -24,7 +24,10 @@ import {
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
-import { type ContentSource } from "@valbuild/shared/internal";
+import {
+  readerSchemaVersion,
+  type ContentSource,
+} from "@valbuild/shared/internal";
 import {
   layeredSnapshot,
   proposalSnapshotForReaders,
@@ -36,7 +39,6 @@ import {
   proposalAsBuilt,
   servingBuildOf,
   readDraftChanges,
-  readerSchemaVersion,
   type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";

@@ -1,5 +1,5 @@
 "use client";
-import { ValExternalStore } from "@valbuild/react/internal";
+import { ValExternalStore, type SchemaRule } from "@valbuild/react/internal";
 import React from "react";
 
 /*
@@ -44,6 +44,12 @@ export const ValOverlayContext = React.createContext<{
    * renders on the server and while it hydrates -- see `useEncodesEditTags`.
    */
   readonly serverDraft?: boolean;
+  /**
+   * Told whether each module the Studio relayed was made with this page's
+   * schema (`codeChangedReporter`, in `@valbuild/react`): the page keeps its
+   * bundle's content for one that was not, and says the code changed.
+   */
+  readonly schemaChecked?: SchemaRule["schemaChecked"];
 }>({
   store: undefined,
   draftMode: false,
@@ -54,6 +60,7 @@ export const ValOverlayContext = React.createContext<{
 
 export function ValOverlayProvider({
   store,
+  schemaChecked,
   draftMode,
   suspend,
   draftModeReady,
@@ -62,6 +69,7 @@ export function ValOverlayProvider({
   children,
 }: {
   store?: ValExternalStore;
+  schemaChecked?: SchemaRule["schemaChecked"];
   draftMode: boolean | null;
   suspend: boolean;
   draftModeReady?: Promise<void>;
@@ -73,6 +81,7 @@ export function ValOverlayProvider({
     <ValOverlayContext.Provider
       value={{
         store,
+        schemaChecked,
         draftMode,
         suspend,
         draftModeReady,

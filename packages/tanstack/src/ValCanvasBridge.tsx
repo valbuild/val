@@ -12,6 +12,7 @@ import {
   storeQuickPreview,
   watchPageLocation,
   VAL_CANVAS_MESSAGE,
+  isCodeChangedDetail,
   type ElementPicking,
   type PickModifier,
   ValCanvasElement,
@@ -62,8 +63,16 @@ export function ValCanvasBridge({
   isRefreshing,
   holds,
   holdsVersions,
+  codeChanged,
 }: {
   draftMode: boolean;
+  /**
+   * The modules the hooks could not read the Studio's content of, because it
+   * was made with another schema than this page's build has
+   * (`CodeChangedReporter.modules`): passed on as `codeChanged`, when the
+   * bridge mounts and each time the page announces a change.
+   */
+  codeChanged?: () => ModuleFilePath[];
   /**
    * The modules this page holds a draft of (`<ValProvider draft>`), reported
    * with `ready`: the studio sends each of them in its catch-up. See `ready`
@@ -467,6 +476,27 @@ export function ValCanvasBridge({
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
   }, [scan, post]);
+
+  // What the hooks could not read for its schema: the Studio says the code
+  // changed, with a reload. What was refused before the bridge mounted, then
+  // each change the page announces (`val-overlay-spa`, `codeChanged`).
+  React.useEffect(() => {
+    const already = codeChanged?.() ?? [];
+    if (already.length > 0) {
+      post({ val: VAL_CANVAS_MESSAGE, type: "codeChanged", modules: already });
+    }
+    const listener = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      if (!isCodeChangedDetail(event.detail)) return;
+      post({
+        val: VAL_CANVAS_MESSAGE,
+        type: "codeChanged",
+        modules: event.detail.modules,
+      });
+    };
+    window.addEventListener("val-overlay-spa", listener);
+    return () => window.removeEventListener("val-overlay-spa", listener);
+  }, [codeChanged, post]);
 
   // Where the page is, as it moves: a new build is opened there.
   React.useEffect(

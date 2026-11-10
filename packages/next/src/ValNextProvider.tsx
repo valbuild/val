@@ -17,7 +17,9 @@ import {
   draftHolds,
   draftHoldsVersions,
   isDraft,
+  dispatchCodeChanged,
   startRefreshLoop,
+  windowCodeChangedReporter,
   type RefreshLoop,
   type ValDraft,
 } from "@valbuild/react/internal";
@@ -161,6 +163,15 @@ export const ValNextProvider = (props: {
   const initialDraft = React.useRef(props.draft ?? null).current;
   const hasDraft = isDraft(initialDraft);
   // TODO: move below into react package
+  /*
+   * Told by the hooks whether each relayed module was made with this page's
+   * schema, and says so to the overlay (`codeChangedReporter`). One for the
+   * life of the provider, so the hooks' env is not made again every render.
+   * None on the server: nothing there is relayed.
+   */
+  const [codeChanged] = React.useState(() =>
+    typeof window === "undefined" ? undefined : windowCodeChangedReporter(),
+  );
   const valStore = React.useMemo(
     () => createDraftStore(initialDraft),
     [initialDraft],
@@ -515,6 +526,14 @@ export const ValNextProvider = (props: {
     );
   }, [mountOverlay, draftMode, spaReady, holds, holdsVersions]);
 
+  // What the hooks could not read for its schema, said again once the
+  // overlay listens: an announcement made before it loaded reached no one.
+  React.useEffect(() => {
+    if (!mountOverlay || !spaReady || codeChanged === undefined) return;
+    const modules = codeChanged.modules();
+    if (modules.length > 0) dispatchCodeChanged(modules);
+  }, [mountOverlay, spaReady, codeChanged]);
+
   React.useEffect(() => {
     if (!mountOverlay) {
       SET_AUTO_TAG_JSX_ENABLED(false);
@@ -640,6 +659,7 @@ export const ValNextProvider = (props: {
 
   return (
     <ValOverlayProvider
+      schemaChecked={codeChanged?.schemaChecked}
       draftMode={draftMode}
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
@@ -736,6 +756,7 @@ ${prefixStyles(commonStyles)}
           isRefreshing={isRefreshing}
           holds={holds}
           holdsVersions={holdsVersions}
+          codeChanged={codeChanged?.modules}
         />
       )}
       {/**

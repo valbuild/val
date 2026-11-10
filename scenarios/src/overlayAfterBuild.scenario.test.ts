@@ -178,11 +178,27 @@ describe.each<ServerMode>(["memory", "fs", "http"])("on %s", (server) => {
         clientModules: [before],
       });
       await world.settle();
-      expect(titles(world)).toEqual([
-        "New title", // the server render (new build)
-        "Old title", // hydration with the previous build's client code
-        "New title", // the overlay, aligned to the server's base
-      ]);
+      if (server === "http") {
+        // The overlay's Studio is on the new build's schema here: what it
+        // relays is content for code this page does not run, so the page
+        // keeps its own and says the code changed, with a reload -- the
+        // server readers' schema rule, at the hooks.
+        expect(titles(world)).toEqual([
+          "New title", // the server render (new build)
+          "Old title", // hydration with the previous build's client code
+          "Old title", // the overlay's content, not read with this code
+        ]);
+        expect(page.codeChanged.at(-1)).toEqual([PATH]);
+      } else {
+        expect(titles(world)).toEqual([
+          "New title", // the server render (new build)
+          "Old title", // hydration with the previous build's client code
+          "New title", // the overlay, aligned to the server's base
+        ]);
+        // Relayed with the page's own schema (the overlay's Studio started
+        // from the page's client modules): nothing to say.
+        expect(page.codeChanged).toEqual([]);
+      }
       expect(page.events.map((event) => event.type)).toContain("source-update");
     } finally {
       await world.dispose();

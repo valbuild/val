@@ -24,12 +24,14 @@ import {
   SourceObject,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { type ContentSource } from "@valbuild/shared/internal";
+import {
+  readerSchemaVersion,
+  type ContentSource,
+} from "@valbuild/shared/internal";
 import {
   createValRuntime,
   draftForRequest,
   readDraftChanges,
-  readerSchemaVersion,
   type ValRuntime,
 } from "@valbuild/server/internal";
 import { VERSION } from "../version";

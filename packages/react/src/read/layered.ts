@@ -18,6 +18,18 @@ import type {
 export type SchemaRule = {
   schemaOf(path: ModuleFilePath): string | null;
   codeChanged?(path: ModuleFilePath, schema: string): Promise<void>;
+  /**
+   * Told what the rule decided about each answer that carries a version:
+   * `other` when it was passed over for its schema (there is no
+   * `codeChanged` to wait on) -- the content is made for code this reader
+   * does not run -- and `null` when its schema is this code's. A page says
+   * the first to the editor, with a reload, and takes it back on the second
+   * (`codeChangedReporter`).
+   */
+  schemaChecked?(
+    path: ModuleFilePath,
+    other: { schema: string; from: string } | null,
+  ): void;
 };
 
 /** A module read, with the place in the list of the source that answered it. */
@@ -68,8 +80,13 @@ export function layered(
   ): Promise<void> | "next" | null => {
     if (version === null || version === undefined || !rule) return null;
     const own = rule.schemaOf(path);
-    if (own === null || own === version.schema) return null;
+    if (own === null) return null;
+    if (own === version.schema) {
+      rule.schemaChecked?.(path, null);
+      return null;
+    }
     if (rule.codeChanged) return rule.codeChanged(path, version.schema);
+    rule.schemaChecked?.(path, { schema: version.schema, from });
     Internal.log.debug(
       `${path} from ${from} was made with another schema than this code has; reading the next source`,
     );

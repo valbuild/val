@@ -168,6 +168,13 @@ export type CanvasFrameProps = {
    * auto-fit is not a status bar. See `CanvasPreviewNotice`.
    */
   onStatusChange?: (status: CanvasPreviewStatus) => void;
+  /**
+   * The modules the page could not show the Studio's content of, because it
+   * was made with another schema than the page's build has (`codeChanged`):
+   * the page shows its own for them. Empty when a new document loads, and
+   * when the page's code catches up. See `CanvasCodeChangedNotice`.
+   */
+  onCodeChanged?: (modules: ModuleFilePath[]) => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
   onRefreshingChange?: (isRefreshing: boolean) => void;
   /** Where the page is, as it moves: its path and scroll (`location`). */
@@ -258,6 +265,7 @@ export function CanvasFrame({
   onRefreshingChange,
   enableKey = 0,
   onStatusChange,
+  onCodeChanged,
   onLocation,
   scrollTo = null,
   onPageReader,
@@ -413,6 +421,8 @@ export function CanvasFrame({
         setDocumentEpoch((epoch) => epoch + 1);
         onDocument?.({ quick: heldQuick.current });
         setIsEnabling(false);
+        // A new document says again what it could not read, if anything.
+        onCodeChanged?.([]);
       } else if (message.type === "elements") {
         onElements?.(message.elements);
       } else if (message.type === "refreshing") {
@@ -450,6 +460,8 @@ export function CanvasFrame({
         if (reading === undefined) return;
         readings.current.delete(message.requestId);
         reading(message);
+      } else if (message.type === "codeChanged") {
+        onCodeChanged?.(message.modules);
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -473,6 +485,7 @@ export function CanvasFrame({
     onRefreshingChange,
     onLocation,
     onDocument,
+    onCodeChanged,
   ]);
 
   /** `readPage` requests the page has not answered yet, by id. */

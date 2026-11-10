@@ -33,9 +33,10 @@ import {
   CanvasPreviewNotice,
   CanvasPreviewStatus,
 } from "./CanvasPreviewNotice";
+import { CanvasCodeChangedNotice } from "./CanvasCodeChangedNotice";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { EditorDensityProvider } from "../../EditorDensity";
-import { SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
 import {
   CANVAS_DEVICE_HEIGHTS,
@@ -142,6 +143,12 @@ export type PageWorkspaceProps = {
      * half size. See `CanvasPreviewNotice`.
      */
     onStatusChange: (status: CanvasPreviewStatus) => void;
+    /**
+     * Modules the page could not show the Studio's content of, for their
+     * schema: said beside the preview notice, with a reload. See
+     * `CanvasCodeChangedNotice`.
+     */
+    onCodeChanged: (modules: ModuleFilePath[]) => void;
   }) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
@@ -671,6 +678,7 @@ export function PageWorkspace({
    * `live` to begin with, so the demo page — which reports nothing, because
    * Storybook has no frame to report — shows no notice at all.
    */
+  const [codeChanged, setCodeChanged] = useState<ModuleFilePath[]>([]);
   const [previewStatus, setPreviewStatus] =
     useState<CanvasPreviewStatus>("live");
   const [enableKey, setEnableKey] = useState(0);
@@ -1002,6 +1010,9 @@ export function PageWorkspace({
           onEnable={() => setEnableKey((key) => key + 1)}
           onReload={reload}
         />
+        {previewStatus === "live" && (
+          <CanvasCodeChangedNotice modules={codeChanged} onReload={reload} />
+        )}
         <CanvasWindow
           ref={canvasWindowRef}
           pageWidth={pageWidth}
@@ -1029,6 +1040,7 @@ export function PageWorkspace({
               onPicked,
               enableKey,
               onStatusChange: setPreviewStatus,
+              onCodeChanged: setCodeChanged,
             }) ??
               (page && (
                 <CanvasPage

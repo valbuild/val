@@ -1,4 +1,10 @@
-import { Internal, type ModuleFilePath, type PatchId } from "@valbuild/core";
+import {
+  Internal,
+  type ModuleFilePath,
+  type PatchId,
+  type SelectorSource,
+  type ValModule,
+} from "@valbuild/core";
 import { z } from "zod";
 
 /**
@@ -108,6 +114,28 @@ export function chainOf(ids: readonly PatchId[]): string {
  */
 export function schemaVersionOf(serializedSchema: unknown): string {
   return sha256Hex(`${ENGINE}\n${JSON.stringify(serializedSchema)}`);
+}
+
+const readerSchemaVersions = new WeakMap<object, string | null>();
+
+/**
+ * The version of the schema a reader's own code has for a module: what the
+ * readers hold relayed or drafted content's version against (`layered`'s
+ * schema rule), so content is never read with a schema it was not made for.
+ * The server readers (`fetchVal`) and the page's hooks (`useVal`) alike.
+ * Hashed once per module object, which a build makes once: a load cost, not
+ * a read cost.
+ */
+export function readerSchemaVersion(
+  module: ValModule<SelectorSource>,
+): string | null {
+  const cached = readerSchemaVersions.get(module);
+  if (cached !== undefined) return cached;
+  const schema = Internal.getSchema(module);
+  const version =
+    schema === undefined ? null : schemaVersionOf(schema["executeSerialize"]());
+  readerSchemaVersions.set(module, version);
+  return version;
 }
 
 /**

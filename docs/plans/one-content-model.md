@@ -1290,7 +1290,13 @@ Genuinely not built, each with what it would take:
     keyed on the views it read and the failures recorded since 2026-11-08,
     because it was not cheap after all -- it walked every marker on every
     render of a reference scan's status.
-  - **The page's hooks apply no schema rule.** A relayed module is compared
+  - ~~**The page's hooks apply no schema rule.**~~ **Built** (2026-11-10):
+    both frameworks' `pageReadEnv` set `schemaVersionOf`, the page keeps its
+    bundle's content for a relayed module made with another schema, and the
+    overlay (`CodeChangedCard`) or the canvas (`CanvasCodeChangedNotice`)
+    says the code changed, with **Reload** -- until the page's code catches
+    up, when it goes by itself. See `architecture/content-versions.md`. What
+    it was: a relayed module was compared
     by version only, to see whether it moved. So a Studio ahead of the page's
     build (HMR first, or staged code it evaluated) relays content made with
     its own schema once it changes. A code change that moves no content

@@ -236,7 +236,7 @@ function handoffBody(state: HandoffState): string {
   }
 }
 
-function CardButton({
+export function CardButton({
   children,
   onClick,
   icon,

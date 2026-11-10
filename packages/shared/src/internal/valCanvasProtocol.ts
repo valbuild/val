@@ -247,6 +247,17 @@ export type ValCanvasPageMessage =
       type: "quickPreviewStored";
       id: string;
       error?: string;
+    }
+  | {
+      /**
+       * Modules the Studio sent made with another schema than this page's
+       * build has: the page shows its bundle's content for them instead, and
+       * the Studio says the code changed, with a reload. An empty list: the
+       * page's code caught up (`CodeChangedDetail`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "codeChanged";
+      modules: ModuleFilePath[];
     };
 
 /** What the studio tells the page. */
@@ -445,7 +456,10 @@ export function isValCanvasPageMessage(
     (message.type === "pageScreenshot" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
-      typeof (data as { id?: unknown }).id === "string")
+      typeof (data as { id?: unknown }).id === "string") ||
+    (message.type === "codeChanged" &&
+      Array.isArray((data as { modules?: unknown }).modules) &&
+      isModulePathList((data as { modules?: unknown }).modules))
   );
 }
 

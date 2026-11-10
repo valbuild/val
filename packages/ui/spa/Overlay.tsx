@@ -3,6 +3,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import {
   createValClient,
   ModuleVersionSchema,
+  isCodeChangedDetail,
   VAL_CONFIG_SESSION_STORAGE_KEY,
   VAL_THEME_SESSION_STORAGE_KEY,
   type ModuleVersion,
@@ -56,6 +57,7 @@ function Overlay() {
 
   const [draftMode, setDraftMode] = useState(false);
   const [draftModeLoading, setDraftModeLoading] = useState(false);
+  const [codeChanged, setCodeChanged] = useState<ModuleFilePath[]>([]);
   const [pageHolds, setPageHolds] = useState<ModuleFilePath[]>([]);
   const [pageHoldsVersions, setPageHoldsVersions] = useState<
     Partial<Record<ModuleFilePath, ModuleVersion>>
@@ -80,6 +82,10 @@ function Overlay() {
           typeof event.detail.value === "boolean"
         ) {
           setDraftModeLoading(event.detail.value);
+        } else if (isCodeChangedDetail(event.detail)) {
+          // What the page could not read for its schema: said, with a
+          // reload. An empty list is the page's code having caught up.
+          setCodeChanged(event.detail.modules);
         } else {
           Internal.log.error(
             "invalid event detail (val-overlay-spa)",
@@ -132,6 +138,7 @@ function Overlay() {
                 <ValOverlay
                   draftMode={draftMode}
                   draftModeLoading={draftModeLoading}
+                  codeChanged={codeChanged}
                   setDraftMode={(value: boolean) => {
                     const event = new CustomEvent("val-overlay-provider", {
                       detail: {
