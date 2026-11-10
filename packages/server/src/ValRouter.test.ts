@@ -77,6 +77,57 @@ describe("ValRouter", () => {
     });
   });
 
+  /*
+   * `redirect_to` as a path on this site: made absolute against the request's
+   * origin before any route sees it (`resolveRedirectTo`). A path went through
+   * as it was, and Next's `NextResponse.redirect` -- and `/authorize`, which
+   * reads the origin off it -- needs an absolute URL, so
+   * `/api/val/enable?redirect_to=/` answered 500 in a Next app.
+   */
+  describe("redirect_to", () => {
+    const enable = (redirectTo: string) =>
+      onRoute(
+        fakeRequest({
+          method: "GET",
+          url: new URL(
+            `http://localhost:3000/api/val/enable?redirect_to=${encodeURIComponent(redirectTo)}`,
+          ),
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+
+    test("a path on this site is redirected to on this site's origin", async () => {
+      const res = await enable("/blog/post?x=1");
+      expect(res.status).toBe(302);
+      expect("redirectTo" in res && res.redirectTo).toBe(
+        "http://localhost:3000/blog/post?x=1",
+      );
+    });
+
+    test("an absolute URL is redirected to as it is", async () => {
+      const res = await enable("https://example.com/page");
+      expect(res.status).toBe(302);
+      expect("redirectTo" in res && res.redirectTo).toBe(
+        "https://example.com/page",
+      );
+    });
+
+    test("anything else is refused, saying what is accepted", async () => {
+      // `//host/path` is another host's URL without a scheme, not a path here.
+      for (const value of ["page", "//evil.example/page"]) {
+        const res = await enable(value);
+        expect(res.status).toBe(400);
+        expect("json" in res && res.json).toEqual({
+          message: expect.stringContaining(
+            "a path on this site starting with /",
+          ),
+        });
+      }
+    });
+  });
+
   test("smoke test valid route: /schema", async () => {
     const serverRes = await onRoute(
       fakeRequest({
