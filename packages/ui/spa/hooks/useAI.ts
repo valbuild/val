@@ -48,6 +48,19 @@ import {
   webSearchConfirmationQuestions,
   withWebSearchWaits,
 } from "./webSearchGate";
+import {
+  patchChangesWebSearchSetting,
+  readWebSearchSetting,
+  REQUEST_WEB_SEARCH_TOOL_NAME,
+  webSearchRequestOutcome,
+  webSearchRequestPromptSection,
+  webSearchRequestQuestions,
+  webSearchSettingOps,
+  withWebSearchRequest,
+  hasAssistantSection,
+  type WebSearchRequestOutcome,
+  type WebSearchSetting,
+} from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -872,6 +885,21 @@ export function useAI(
           system?.sourceStore.moduleSource(moduleFilePath),
         );
       },
+      /**
+       * `assistant.webSearch` as the project has it: on, off, or not decided.
+       * See `webSearchSetting.ts`.
+       */
+      getWebSearchSetting(): WebSearchSetting {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (moduleFilePath === null) {
+          return null;
+        }
+        return readWebSearchSetting(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
+      },
       getSourceSnapshot(
         moduleFilePath: ModuleFilePath,
       ): { status: "success"; data: Json } | { status: "not-found" } {
@@ -1021,6 +1049,12 @@ export function useAI(
        * PNG.
        */
       filesAlreadyUploaded?: boolean,
+      /**
+       * This write is `request_web_search` writing the person's answer. Every
+       * other assistant write is refused if it moves `assistant.webSearch`:
+       * see `changesWebSearchSetting`.
+       */
+      writesPersonsWebSearchAnswer?: boolean,
     ): Promise<
       | { status: "patch-synced"; patchId: PatchId }
       | { status: "patch-error"; message: string }
@@ -1029,6 +1063,20 @@ export function useAI(
         return {
           status: "patch-error",
           message: "Cannot write: no store system is mounted.",
+        };
+      }
+      if (
+        writesPersonsWebSearchAnswer !== true &&
+        moduleFilePath ===
+          settingsModuleFilePath(valSystem.system.schemaStore.all()) &&
+        patchChangesWebSearchSetting(
+          valSystem.system.sourceStore.moduleSource(moduleFilePath),
+          patch,
+        )
+      ) {
+        return {
+          status: "patch-error",
+          message: `Only the person can turn web search on or off. Call ${REQUEST_WEB_SEARCH_TOOL_NAME} if it is not decided yet; otherwise leave it.`,
         };
       }
       const res = await valSystem.system.patchStore.createPatch(
@@ -1239,6 +1287,9 @@ export function useAI(
   // the ones they allowed, which run without asking again.
   const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
   const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // `request_web_search` cards waiting on the person, by tool call: the id of
+  // the assistant message that opened each.
+  const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
   // The message handler, so an allowed call can be run by the same code that
   // runs every other.
   const handleServerMessageRef = useRef<
@@ -1353,6 +1404,54 @@ export function useAI(
         const rowId = `web_search:${randomUUID()}`;
         chatRef.current.addToolCall(message.id, rowId, "web_search");
         chatRef.current.completeToolCall(message.id, rowId);
+      } else if (
+        message.type === "ai_tool_call" &&
+        message.name === REQUEST_WEB_SEARCH_TOOL_NAME
+      ) {
+        // Someone may have decided since the prompt was sent: answer from what
+        // the project says now, and ask only if it is still undecided.
+        const setting = valReads.getWebSearchSetting();
+        if (setting !== null || !chatRef.current) {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result:
+              setting === true
+                ? {
+                    success: true,
+                    note: "Web search is already on for this project. It works from the person's next message.",
+                  }
+                : {
+                    success: false,
+                    error:
+                      setting === false
+                        ? "Web search is off for this project, by the person's choice. Answer without it, and do not ask."
+                        : "The chat is not available to ask. Answer without web search.",
+                  },
+            ...(setting === true ? {} : { isError: true }),
+          });
+          return;
+        }
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        const reason = z
+          .object({ reason: z.string() })
+          .safeParse(message.arguments);
+        // Val's question on the tool's row, answered through
+        // `answerToolQuestions`, which writes the setting.
+        chatRef.current.addToolCall(
+          message.id,
+          message.toolCallId,
+          message.name,
+          webSearchRequestQuestions(
+            reason.success ? reason.data.reason.trim() || null : null,
+          ),
+        );
+        webSearchRequestsRef.current.set(message.toolCallId, message.id);
+        pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (
         message.type === "ai_tool_call" &&
         !webAllowedCallsRef.current.has(message.toolCallId) &&
@@ -3385,7 +3484,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
+            )}${webSearchRequestPromptSection(valReads.getWebSearchSetting())}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
               hostedRef.current
                 ? codeToolsPromptSection(
                     currentProposalRef.current !== null
@@ -3394,24 +3493,27 @@ Do not describe what you will do unless you do it for clarification — just do 
                   )
                 : ""
             }`,
-            tools: withWebSearchWaits(
-              [
-                ...ALL_TOOLS,
-                ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-                // In the Studio: the page in its preview.
-                ...(pageRef.current !== null
-                  ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL]
-                  : []),
-                // Hosted only: see `hostedRef`.
-                ...(hostedRef.current
-                  ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
-                  : []),
-                // A quick preview is shown in a proposal's preview.
-                ...(hostedRef.current && currentProposalRef.current !== null
-                  ? [QUICK_PREVIEW_TOOL]
-                  : []),
-              ],
-              valReads.getAssistantSettings().webSearch === true,
+            tools: withWebSearchRequest(
+              withWebSearchWaits(
+                [
+                  ...ALL_TOOLS,
+                  ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                  // In the Studio: the page in its preview.
+                  ...(pageRef.current !== null
+                    ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL]
+                    : []),
+                  // Hosted only: see `hostedRef`.
+                  ...(hostedRef.current
+                    ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                    : []),
+                  // A quick preview is shown in a proposal's preview.
+                  ...(hostedRef.current && currentProposalRef.current !== null
+                    ? [QUICK_PREVIEW_TOOL]
+                    : []),
+                ],
+                valReads.getAssistantSettings().webSearch === true,
+              ),
+              valReads.getWebSearchSetting(),
             ),
           },
         ],
@@ -3525,8 +3627,80 @@ Do not describe what you will do unless you do it for clarification — just do 
     [sendWsMessage, failUndeliveredQuestion, chatRef],
   );
 
+  /**
+   * The person answered `request_web_search`'s card (or closed it, `null`):
+   * write what they decided, as the Settings panel would, and tell the model.
+   */
+  const answerWebSearchRequest = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
+      const messageId = webSearchRequestsRef.current.get(toolCallId);
+      if (messageId === undefined) return false;
+      webSearchRequestsRef.current.delete(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const outcome = webSearchRequestOutcome(answers);
+      const send = (
+        toolResult: WebSearchRequestOutcome["result"],
+        saveFailed = false,
+      ) => {
+        const sent = sendWsMessage({
+          type: "ai_tool_result",
+          toolCallId,
+          result: toolResult,
+          ...(toolResult.success ? {} : { isError: true }),
+        });
+        // "Don't turn on" is an answer, not a failure: the row is only red
+        // when the person's choice could not be kept.
+        if (saveFailed) {
+          chatRef.current?.errorToolCall(messageId, toolCallId);
+        } else {
+          chatRef.current?.completeToolCall(messageId, toolCallId);
+        }
+        if (!sent) failUndeliveredQuestion(messageId);
+      };
+      if (outcome.write === null) {
+        send(outcome.result);
+        return true;
+      }
+      const system = valSystem?.system;
+      const moduleFilePath =
+        system === undefined
+          ? null
+          : settingsModuleFilePath(system.schemaStore.all());
+      if (system === undefined || moduleFilePath === null) {
+        send({
+          success: false,
+          error:
+            "This project has no settings module to keep the choice in. Answer without web search.",
+        });
+        return true;
+      }
+      const source = system.sourceStore.moduleSource(moduleFilePath);
+      void writeAIPatch(
+        moduleFilePath,
+        webSearchSettingOps(outcome.write, hasAssistantSection(source)),
+        sessionIdRef.current,
+        undefined,
+        undefined,
+        true,
+      ).then((res) =>
+        send(
+          res.status === "patch-synced"
+            ? outcome.result
+            : {
+                success: false,
+                error: `The setting could not be saved: ${res.message}. Answer without web search.`,
+              },
+          res.status !== "patch-synced",
+        ),
+      );
+      return true;
+    },
+    [sendWsMessage, failUndeliveredQuestion, chatRef, valSystem, writeAIPatch],
+  );
+
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
+      if (answerWebSearchRequest(toolCallId, answers)) return;
       if (answerWebSearchConfirmation(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
@@ -3539,11 +3713,17 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
+    [
+      sendWsMessage,
+      failUndeliveredQuestion,
+      answerWebSearchConfirmation,
+      answerWebSearchRequest,
+    ],
   );
 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
+      if (answerWebSearchRequest(toolCallId, null)) return;
       if (answerWebSearchConfirmation(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
@@ -3557,7 +3737,12 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
+    [
+      sendWsMessage,
+      failUndeliveredQuestion,
+      answerWebSearchConfirmation,
+      answerWebSearchRequest,
+    ],
   );
 
   /** Answer a `request_code_mode` card, and move it on. */
@@ -3666,6 +3851,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
       webGatedCallsRef.current.clear();
+      webSearchRequestsRef.current.clear();
     },
     [sendWsMessage],
   );

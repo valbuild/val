@@ -292,6 +292,11 @@ const TOOL_DISPLAY_BY_NAME: Partial<Record<string, ToolDisplay>> = {
     label: "Searched the web",
     icon: <Globe className="h-3 w-3" />,
   },
+  // Val's card asking to turn web search on: see `webSearchSetting.ts`.
+  request_web_search: {
+    label: "Asking to search the web",
+    icon: <Globe className="h-3 w-3" />,
+  },
   ...CODE_TOOL_DISPLAY,
   ...TOOL_DISPLAY,
 };

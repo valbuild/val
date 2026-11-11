@@ -271,11 +271,13 @@ export type AssistantSettingsSource = {
   /**
    * Whether the assistant may search the web.
    *
-   * Off unless someone turns it on: a search puts text a stranger wrote in
-   * front of a model that can change this project, and each search is billed
-   * to the project's own AI key. When it is on, a turn that has searched asks
-   * the editor before it changes any code (see `webSearchGate.ts` in the
-   * Studio, and `docs/plans/assistant-web-search.md` in valbuild/home).
+   * Three states, like `enabled`. `true`: it searches, and each search is
+   * billed to the project's own AI key; after a search it asks the editor
+   * before it changes any code. `false`: it does not search, and does not ask.
+   * Unset: it does not search, but when an answer needs the web it asks the
+   * editor to turn this on, in a card the Studio words, and the answer is
+   * written here. The assistant cannot change this field any other way. See
+   * `webSearchSetting.ts` and `webSearchGate.ts` in the Studio.
    */
   webSearch?: boolean | null;
 };
