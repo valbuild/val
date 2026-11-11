@@ -15,7 +15,11 @@ import { baseKeymap, setBlockType } from "prosemirror-commands";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { history, redo, undo } from "prosemirror-history";
-import { InputRule, inputRules } from "prosemirror-inputrules";
+import {
+  InputRule,
+  inputRules,
+  textblockTypeInputRule,
+} from "prosemirror-inputrules";
 import { keymap } from "prosemirror-keymap";
 import type { Node as PMNode, NodeType } from "prosemirror-model";
 import {
@@ -31,7 +35,6 @@ import { cn } from "../designSystem/cn";
 import { BoxView, type SketchBlockType } from "./boxNodeView";
 import { dragHandles } from "./dragBlocks";
 import { highlights, highlightsKey, type SketchHighlight } from "./highlights";
-import { fieldLinks, fieldLinksKey, type FieldLinkInfo } from "./fieldLinks";
 import { RouteView, type RouteMenuRequest } from "./routeNodeView";
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
@@ -79,11 +82,6 @@ export type SketchpadEditorProps = {
   /** Blocks the assistant points at; see `SketchHighlight`. */
   highlights?: SketchHighlight[];
   /**
-   * What a linked block's field is now (`fieldLinks.ts`). Without it, links
-   * are kept in the text and not shown.
-   */
-  fieldInfo?: (field: string) => FieldLinkInfo;
-  /**
    * More ProseMirror plugins. This is where working together plugs in: a
    * proposal's Sketchpad is shared the way its chats are (Flow H), so the
    * relay's `prosemirror-collab` plugin and, later, presence decorations go
@@ -130,7 +128,6 @@ export function SketchpadEditor({
   onOpenRoute,
   onRouteMenu,
   highlights: highlightList = NO_HIGHLIGHTS,
-  fieldInfo,
   plugins = [],
   toolbar = "top",
   touch = false,
@@ -155,7 +152,6 @@ export function SketchpadEditor({
     activeRoute,
     onOpenRoute,
     onRouteMenu,
-    fieldInfo,
     readOnly,
   });
   latest.current = {
@@ -170,7 +166,6 @@ export function SketchpadEditor({
     activeRoute,
     onOpenRoute,
     onRouteMenu,
-    fieldInfo,
     readOnly,
   };
   const [, setRevision] = useState(0);
@@ -195,7 +190,6 @@ export function SketchpadEditor({
           placeholders(),
           dragHandles(),
           highlights(),
-          fieldLinks(() => latest.current.fieldInfo),
           ...plugins,
         ],
       }),
@@ -315,18 +309,6 @@ export function SketchpadEditor({
     }
   }, [highlightList]);
 
-  // The content moved: the links say how it is now.
-  const fieldInfoRevision = useRef(0);
-  useEffect(() => {
-    const view = viewRef.current;
-    if (view) {
-      fieldInfoRevision.current += 1;
-      view.dispatch(
-        view.state.tr.setMeta(fieldLinksKey, fieldInfoRevision.current),
-      );
-    }
-  }, [fieldInfo]);
-
   const view = viewRef.current;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -350,6 +332,10 @@ export function SketchpadEditor({
             "mx-auto max-w-3xl rounded-md border border-border-primary bg-bg-primary shadow-sm",
             // Text the phone does not zoom into on focus: under 16px it does.
             touch ? "p-4 text-base" : "p-4 sm:p-6",
+            // Wherever the pointer is a finger -- a phone, a tablet -- a
+            // wider left margin, for the finger-sized grips beside each
+            // block (`dragBlocks`).
+            "[@media(pointer:coarse)]:pl-11",
           )}
         />
       </div>
@@ -396,63 +382,11 @@ function replaceChanged(
   }
 }
 
-/**
- * `setBlockType`, keeping the link to a field: a paragraph made a heading is
- * still the same text, written to the same field.
- */
-export function setTextType(
-  type: NodeType,
-  attrs: Record<string, unknown> = {},
-): Command {
-  return (state, dispatch) =>
-    setBlockType(type, { ...attrs, field: null })(
-      state,
-      dispatch &&
-        ((tr) => {
-          // Each block keeps its own link: `setBlockType` gives every block
-          // in the selection the same attributes.
-          const { from, to } = state.selection;
-          state.doc.nodesBetween(from, to, (node, pos) => {
-            const field: unknown = node.attrs.field;
-            if (!node.isTextblock || typeof field !== "string") {
-              return;
-            }
-            const at = tr.mapping.map(pos);
-            const now = tr.doc.nodeAt(at);
-            if (now?.isTextblock) {
-              tr.setNodeMarkup(at, undefined, { ...now.attrs, field });
-            }
-          });
-          dispatch(tr);
-        }),
-    );
-}
-
 function buildInputRules(): InputRule[] {
   return [
-    // `# ` makes a heading, keeping the paragraph's link to a field.
-    new InputRule(/^(#{1,3})\s$/, (state, match, start, end) => {
-      const $start = state.doc.resolve(start);
-      if (
-        !$start.parent.isTextblock ||
-        !$start
-          .node(-1)
-          .canReplaceWith(
-            $start.index(-1),
-            $start.indexAfter(-1),
-            nodes.heading,
-          )
-      ) {
-        return null;
-      }
-      const field: unknown = $start.parent.attrs.field;
-      return state.tr
-        .delete(start, end)
-        .setBlockType(start, start, nodes.heading, {
-          level: match[1].length,
-          field: typeof field === "string" ? field : null,
-        });
-    }),
+    textblockTypeInputRule(/^(#{1,3})\s$/, nodes.heading, (match) => ({
+      level: match[1].length,
+    })),
     // `[kind: label]` typed into an empty paragraph becomes that box.
     new InputRule(/^\[([^\]:]+)(?::\s*([^\]]*))?\]$/, (state, match, start) => {
       const $start = state.doc.resolve(start);
@@ -496,10 +430,10 @@ function buildKeymap(): Record<string, Command> {
       }
       return true;
     },
-    "Mod-Alt-0": setTextType(nodes.paragraph),
-    "Mod-Alt-1": setTextType(nodes.heading, { level: 1 }),
-    "Mod-Alt-2": setTextType(nodes.heading, { level: 2 }),
-    "Mod-Alt-3": setTextType(nodes.heading, { level: 3 }),
+    "Mod-Alt-0": setBlockType(nodes.paragraph),
+    "Mod-Alt-1": setBlockType(nodes.heading, { level: 1 }),
+    "Mod-Alt-2": setBlockType(nodes.heading, { level: 2 }),
+    "Mod-Alt-3": setBlockType(nodes.heading, { level: 3 }),
   };
 }
 
@@ -698,25 +632,25 @@ function Toolbar({
       {
         label: "Text",
         icon: Pilcrow,
-        command: setTextType(nodes.paragraph),
+        command: setBlockType(nodes.paragraph),
         active: isBlock(nodes.paragraph),
       },
       {
         label: "Heading 1",
         icon: Heading1,
-        command: setTextType(nodes.heading, { level: 1 }),
+        command: setBlockType(nodes.heading, { level: 1 }),
         active: isBlock(nodes.heading, 1),
       },
       {
         label: "Heading 2",
         icon: Heading2,
-        command: setTextType(nodes.heading, { level: 2 }),
+        command: setBlockType(nodes.heading, { level: 2 }),
         active: isBlock(nodes.heading, 2),
       },
       {
         label: "Heading 3",
         icon: Heading3,
-        command: setTextType(nodes.heading, { level: 3 }),
+        command: setBlockType(nodes.heading, { level: 3 }),
         active: isBlock(nodes.heading, 3),
       },
     ],

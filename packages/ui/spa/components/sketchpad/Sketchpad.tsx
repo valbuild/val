@@ -11,7 +11,6 @@ import type { SketchBlockType } from "./boxNodeView";
 import { RouteMenu } from "./RouteMenu";
 import type { RouteMenuRequest } from "./routeNodeView";
 import { HIGHLIGHT_COLORS, type SketchHighlight } from "./highlights";
-import type { FieldLinkInfo } from "./fieldLinks";
 import {
   SketchpadMediaPicker,
   type SketchMediaLibrary,
@@ -69,11 +68,6 @@ export type SketchpadProps = {
   blockTypes?: SketchBlockType[];
   /** Blocks the assistant points at (`SketchHighlight`). */
   highlights?: SketchHighlight[];
-  /**
-   * What a block linked to a content field links to now. Given, the links
-   * are shown, and can be broken. See `fieldLinks.ts`.
-   */
-  fieldInfo?: (field: string) => FieldLinkInfo;
   /** Clears one highlight, or all of them with null. */
   onClearHighlight?: (id: string | null) => void;
   /** Shown under the title, e.g. who is editing. */
@@ -163,7 +157,6 @@ export function Sketchpad({
   mediaLibrary,
   blockTypes,
   highlights,
-  fieldInfo,
   onClearHighlight,
   assistantStatus,
   onArchive,
@@ -389,7 +382,6 @@ export function Sketchpad({
           onOpenRoute={onOpenRoute}
           onRouteMenu={setRouteMenu}
           highlights={highlights}
-          fieldInfo={fieldInfo}
           plugins={plugins}
           toolbar={touch ? "bottom" : "top"}
           touch={touch}

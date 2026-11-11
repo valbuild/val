@@ -19,8 +19,7 @@ import {
  * A route is a page the site has, or a new one. A new page starts from a
  * page type the site has (`/journal/[slug]`): pick the type, fill in its
  * parts, and the page fits what the site can render. Any other route can be
- * typed too, and is marked as what it is: a new kind of page, which takes
- * code.
+ * typed too.
  */
 export function RouteMenu({
   menu,
@@ -279,7 +278,7 @@ function ChangePage({
               className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-bg-secondary"
             >
               <Plus className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0 flex-1 break-all">
                 New page <span className="font-semibold">{typed}</span>
                 {typeOfTyped && (
                   <span className="block text-[11px] text-fg-tertiary">
@@ -287,14 +286,6 @@ function ChangePage({
                   </span>
                 )}
               </span>
-              {!typeOfTyped && (
-                <span
-                  title="The site has no page of this kind, so building it means writing code for it."
-                  className="shrink-0 rounded-full border border-border-warning-secondary bg-bg-warning-secondary px-1.5 text-[10px] font-medium text-fg-warning-secondary"
-                >
-                  New kind of page: needs code
-                </span>
-              )}
             </button>
           </li>
         )}

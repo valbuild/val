@@ -366,6 +366,42 @@ told apart differently by mode:
   relative to the live build (`relative_to=live`), and a previous build's
   manifest says `superseded`.
 
+### What a publish patches
+
+A publish renders the pending patches into `.val.ts` text, and **the text it
+renders them into is the latest PUBLISHED text, not the build's**. The two
+differ whenever a publish lands before the site is rebuilt from it -- which is
+every second publish on a site whose CI takes a minute, and which Val
+supports: it does not hold Publish back while a deployment is pending.
+
+What makes this the trap it is: the chain keeps what was published since the
+build, marked APPLIED (`appliedAt`), and a publish commits only what is still
+pending. So a publish that patched the build's text with its pending patches
+alone wrote a commit that silently reverted everything published since. In
+git it looks like a normal commit.
+
+So `prepare` does what the readers do: **the build's text, then the chain**.
+`analyzePatches` lists the applied patches of each module in
+`publishedByModule`, and `prepare` replays them over the base text before the
+pending ones. They are replayed, not committed again -- never in
+`appliedPatches` -- and one that no longer applies stops the publish with an
+error naming it rather than being reverted. It is the same rule the platform's
+publish job already followed (`buildSourcesOf`: "the commits since this build,
+as though pending, are the branch's head").
+
+Replay rather than reading the text at the newest commit, because it needs
+nothing a mode may not have: it works with a repository, without one (a
+build's `projectSource`), and over a served content version's `files` alike,
+since the chain is always relative to what the base text holds. `fs` and
+memory mode never mark a patch applied -- publishing rewrites the base there --
+so it is a no-op for them.
+
+`e2e/http/publish.spec.ts`, "a second change publishes on top of the first
+commit", is the end-to-end test, and it only means something because the mock
+content host reads a file AT the commit asked for, as home does. It used to
+answer with the latest text whatever was asked, which hid this.
+`preparePublishedSinceBuild.test.ts` is the same at `prepare`.
+
 ## The readers
 
 ### Sources and `layered`
