@@ -682,7 +682,7 @@ export function PageWorkspace({
    * of emptiness above the first field, with the switches sitting in the middle
    * of it.
    */
-  const columnClearsTopBar = !columnHasHeaderRow && !(open && isPhone);
+  const columnClearsTopBar = !columnHasHeaderRow && !isPhone;
   /**
    * What a pane adds above its own content, where something else already
    * cleared what is covering it.
@@ -693,7 +693,7 @@ export function PageWorkspace({
    * below the strip of switches, and a pane that added its own would be
    * measuring the same gap twice.
    */
-  const paneTopPadding = open && isPhone ? "pt-0" : "pt-1";
+  const paneTopPadding = isPhone ? "pt-0" : "pt-1";
 
   const moduleColumn = (
     // `val-content-area` is what ValRouter scrolls when it is asked to bring a
@@ -733,11 +733,15 @@ export function PageWorkspace({
           ...railPadding,
         }}
         className={cn(
-          "w-full mx-auto px-4 md:px-6 pb-24",
+          "w-full mx-auto px-4 md:px-6",
+          // On a phone, inside its card: the pane bar is below the card, not
+          // over the column.
+          isPhone ? "pb-6 pt-4" : "pb-24",
           // See `columnClearsTopBar`: whatever is above the column supplies the
           // gap where there is one, and only where there is nothing does the
           // column pay for it.
-          columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding,
+          !isPhone &&
+            (columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding),
         )}
       >
         {/*
@@ -853,9 +857,27 @@ export function PageWorkspace({
           {replacePreview === undefined && contentSelectButton(!selectHasRoom)}
         </div>
       )}
-      <div className="min-h-0 flex-1">
-        {view === "fields" && open ? fieldsColumn : moduleColumn}
-      </div>
+      {view === "fields" && open ? (
+        <div className="min-h-0 flex-1">{fieldsColumn}</div>
+      ) : isPhone ? (
+        /*
+         * On a phone, a card like every other pane's -- On this page, the
+         * preview, the Assistant, the Sketch: inset from the edges, above the
+         * pane bar, and below the top bar where nothing else clears it.
+         */
+        <div
+          className={cn(
+            "min-h-0 flex-1 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]",
+            !open && "pt-[4.5rem]",
+          )}
+        >
+          <div className="h-full overflow-hidden rounded-xl border border-border-float bg-bg-float">
+            {moduleColumn}
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">{moduleColumn}</div>
+      )}
     </div>
   );
 
@@ -865,6 +887,9 @@ export function PageWorkspace({
    */
   const canvasPane = open && (
     <SitePreview
+      // On a phone the controls are the card's bottom edge, as the
+      // Sketchpad's tools are its page's.
+      docked={isPhone}
       route={canvasRoute}
       onRouteChange={onCanvasRouteChange}
       routes={canvasRoutes}

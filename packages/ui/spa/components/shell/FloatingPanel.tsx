@@ -212,6 +212,10 @@ export function FloatingPanel({
         }
         className={cn(
           "absolute flex flex-col",
+          // A full-height panel's contents reach its bottom edge -- the
+          // assistant's composer -- and would square off its rounded corners
+          // and cover its border there without this.
+          fill && "overflow-hidden",
           // A phone's pane is part of the workspace, like the panes beside
           // it: under the scrim and the sheets a phone opens over it (the
           // account, the menu), not over them.

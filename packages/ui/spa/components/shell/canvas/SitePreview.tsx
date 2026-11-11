@@ -148,6 +148,11 @@ export type SitePreviewProps = {
    * ways the Studio says what the assistant can change.
    */
   tone?: "proposal";
+  /**
+   * On a phone: the controls docked to the bottom of the page's card, as
+   * the Sketchpad's tools are to its page (`CanvasToolbar`'s `docked`).
+   */
+  docked?: boolean;
   className?: string;
 };
 
@@ -189,6 +194,7 @@ export function SitePreview({
   onReload,
   onPageClick,
   tone,
+  docked = false,
   className,
 }: SitePreviewProps) {
   /**
@@ -343,6 +349,21 @@ export function SitePreview({
     />
   );
 
+  const toolbar = (
+    <CanvasToolbar
+      className={docked ? undefined : "max-w-full"}
+      docked={docked}
+      device={device}
+      onDeviceChange={chosenDevice === undefined ? setOwnDevice : undefined}
+      scale={scale}
+      onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
+      onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
+      onFit={fitPage}
+      isRefreshing={isRefreshing}
+      onReload={reloadable ? reload : undefined}
+    />
+  );
+
   return (
     <div
       data-val-site-preview=""
@@ -358,6 +379,7 @@ export function SitePreview({
         data-val-preview-tone={tone}
         className={cn(
           "relative min-h-0 flex-1 overflow-hidden rounded-xl border bg-bg-float-raised",
+          docked && "flex flex-col",
           tone === "proposal"
             ? "border-border-proposal"
             : "border-border-float",
@@ -398,7 +420,7 @@ export function SitePreview({
             initialTransform && { x: initialTransform.x, y: initialTransform.y }
           }
           onScrollChange={onScrollChange}
-          className="h-full"
+          className={docked ? "min-h-0 flex-1" : "h-full"}
         >
           <div className="shadow-2xl" onClick={onPageClick}>
             {renderPage({
@@ -417,21 +439,10 @@ export function SitePreview({
             })}
           </div>
         </CanvasWindow>
+        {docked && toolbar}
       </div>
 
-      <div className="flex shrink-0 justify-center">
-        <CanvasToolbar
-          className="max-w-full"
-          device={device}
-          onDeviceChange={chosenDevice === undefined ? setOwnDevice : undefined}
-          scale={scale}
-          onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
-          onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
-          onFit={fitPage}
-          isRefreshing={isRefreshing}
-          onReload={reloadable ? reload : undefined}
-        />
-      </div>
+      {!docked && <div className="flex shrink-0 justify-center">{toolbar}</div>}
     </div>
   );
 }
