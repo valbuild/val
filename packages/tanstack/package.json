@@ -30,6 +30,10 @@
       "module": "./demo/dist/valbuild-tanstack-demo.esm.js",
       "default": "./demo/dist/valbuild-tanstack-demo.cjs.js"
     },
+    "./vite": {
+      "module": "./vite/dist/valbuild-tanstack-vite.esm.js",
+      "default": "./vite/dist/valbuild-tanstack-vite.cjs.js"
+    },
     "./client": {
       "module": "./client/dist/valbuild-tanstack-client.esm.js",
       "default": "./client/dist/valbuild-tanstack-client.cjs.js"
@@ -51,7 +55,8 @@
       "./server/index.ts",
       "./client/index.ts",
       "./demo/index.ts",
-      "./autotag/index.ts"
+      "./autotag/index.ts",
+      "./vite/index.ts"
     ],
     "exports": true
   },
@@ -91,6 +96,7 @@
     "client",
     "server",
     "demo",
-    "autotag"
+    "autotag",
+    "vite"
   ]
 }

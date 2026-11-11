@@ -133,6 +133,7 @@ const initValApiHandler = (
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
   http?: ValHttpMode,
   valContentUrl?: string,
+  projectSource?: Record<string, string>,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -192,6 +193,8 @@ const initValApiHandler = (
          */
         ...(http !== undefined ? http : {}),
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),
+        // In any mode: only a publish against a content service reads it.
+        ...(projectSource !== undefined ? { projectSource } : {}),
       },
       config,
       {
@@ -376,6 +379,17 @@ export function initValServer(
      * four.
      */
     http?: ValHttpMode;
+    /**
+     * The project's own Val source, as this build was made from it:
+     * `FILES` from `virtual:val/project-source`, which `valProjectSource()`
+     * from `@valbuild/tanstack/vite` embeds.
+     *
+     * What a publish patches when the site has no repository behind it -- a
+     * self-hosted installation keeps the content and mirrors it to git
+     * through its app -- so it can render `.val.ts` at all. Read only against
+     * a content service (`http` mode); harmless otherwise.
+     */
+    projectSource?: Record<string, string>;
     sourceFiles?: Record<string, string>;
     /**
      * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
@@ -433,6 +447,7 @@ export function initValServer(
       opts?.publishOverride,
       opts?.http,
       opts?.valContentUrl,
+      opts?.projectSource,
     ),
     draftMode,
   };
