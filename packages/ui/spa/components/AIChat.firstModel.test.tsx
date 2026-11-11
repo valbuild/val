@@ -108,6 +108,22 @@ describe("a first message sent from outside the composer", () => {
     expect(screen.queryByRole("region", { name: "Ready to send" })).toBeNull();
   });
 
+  test("started meanwhile, it is offered to that chat, without a model to choose", () => {
+    const { build, sent, chatRef } = setup([SONNET, OPUS]);
+    build();
+    // Another conversation opened while it waited: its model is settled.
+    act(() =>
+      chatRef.current?.loadMessages([
+        { id: "earlier", role: "user", content: "Hello", status: "complete" },
+      ]),
+    );
+    const ready = screen.getByRole("region", { name: "Ready to send" });
+    expect(ready.textContent).toContain("Send this to the chat?");
+    expect(within(ready).queryByRole("button", { name: /Claude/ })).toBeNull();
+    fireEvent.click(within(ready).getByRole("button", { name: "Send" }));
+    expect(sent).toEqual([BUILD]);
+  });
+
   test("goes straight away once the chat has started", () => {
     const { build, sent, chatRef } = setup([SONNET, OPUS]);
     act(() =>

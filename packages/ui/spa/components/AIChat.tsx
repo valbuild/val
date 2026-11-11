@@ -1884,8 +1884,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             {staged !== null && (
               <StagedFirstMessage
                 text={staged}
+                // Started meanwhile -- something typed, another chat opened:
+                // its model is settled, and the message goes into it.
+                choosesModel={chooseModelFirstRef.current}
                 picker={
-                  models && onSelectModel ? (
+                  models && onSelectModel && chooseModelFirstRef.current ? (
                     <AIChatModelPicker
                       models={models}
                       selectedModel={selectedModel}
@@ -2118,23 +2121,21 @@ function OthersTurnStrip({
 }
 
 /**
- * What was written while a turn ran, waiting to be sent one per turn. Each
- * can be taken back to edit, moved up or dropped; a paused queue says why and
- * offers to go on.
- */
-/**
  * A chat's first message, sent from outside the composer (the Sketchpad's
  * Build), waiting for its model: the message as it will be sent, the model
  * picker, and Send. See `AIChatHandle.sendUserMessage`.
  */
 function StagedFirstMessage({
   text,
+  choosesModel,
   picker,
   canSend,
   onSend,
   onCancel,
 }: {
   text: string;
+  /** Still the chat's first message: its model is chosen here. */
+  choosesModel: boolean;
   picker: React.ReactNode;
   canSend: boolean;
   onSend: () => void;
@@ -2146,8 +2147,9 @@ function StagedFirstMessage({
       className="mb-2 flex flex-col gap-2 rounded-md border border-border-brand-primary bg-bg-secondary p-2 text-xs touch:text-sm"
     >
       <p className="text-fg-primary">
-        Choose the model for this chat, then send. A chat keeps the model it
-        starts with.
+        {choosesModel
+          ? "Choose the model for this chat, then send. A chat keeps the model it starts with."
+          : "Send this to the chat?"}
       </p>
       <div className="rounded-md bg-bg-primary px-2 py-1.5 text-fg-primary">
         {renderUserMessageText(text)}
@@ -2177,6 +2179,11 @@ function StagedFirstMessage({
   );
 }
 
+/**
+ * What was written while a turn ran, waiting to be sent one per turn. Each
+ * can be taken back to edit, moved up or dropped; a paused queue says why and
+ * offers to go on.
+ */
 function QueuedMessages({
   queue,
   paused,
