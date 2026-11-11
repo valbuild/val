@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { Shell } from "./Shell";
 import { mockSelectionIds, mockShellData } from "./mockShellData";
@@ -23,6 +23,8 @@ jest.mock("react-markdown", () => ({
 }));
 
 /**
+ * The phone's panes.
+ *
  * The Sketchpad's Build, on a phone, puts the conversation it starts in
  * front.
  *
@@ -85,7 +87,9 @@ function shell(restoreViewState?: ShellProps["restoreViewState"]) {
   );
 }
 
-function paneShown(name: "Sketch" | "Preview" | "Assistant"): string | null {
+function paneShown(
+  name: "Content" | "Sketch" | "Preview" | "Assistant",
+): string | null {
   return within(screen.getByRole("navigation", { name: "Workspace panes" }))
     .getByRole("button", { name })
     .getAttribute("aria-current");
@@ -102,4 +106,54 @@ test("Build on the Sketch pane puts the Assistant in front", () => {
   );
   expect(paneShown("Assistant")).toBe("page");
   expect(paneShown("Preview")).toBeNull();
+});
+
+/**
+ * The phone's panes sit side by side in the pane bar's order, and moving
+ * between them slides that strip (`phoneTrack`): the Assistant and the
+ * Sketch as Content and the Preview always have. Off to one side, a pane
+ * is out of reach.
+ */
+test("the panes are Content, Preview, Assistant, Sketch, side by side", () => {
+  render(shell());
+  const bar = screen.getByRole("navigation", { name: "Workspace panes" });
+  expect(
+    within(bar)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual(["Content", "Preview", "Assistant", "Sketch"]);
+
+  // The sketch is in front; the assistant one pane to its left, out of reach.
+  const assistant = document.querySelector(
+    '[role="dialog"][aria-label="AI assistant"]',
+  );
+  if (!(assistant instanceof HTMLElement)) {
+    throw new Error("No assistant pane");
+  }
+  expect(assistant.style.transform).toContain("-1");
+  expect(assistant.hasAttribute("inert")).toBe(true);
+
+  fireEvent.click(within(bar).getByRole("button", { name: "Assistant" }));
+  expect(assistant.style.transform).toBe("translateX(0)");
+  expect(assistant.hasAttribute("inert")).toBe(false);
+  const sketch = document.querySelector('[data-val-pane="sketch"]');
+  if (!(sketch instanceof HTMLElement)) throw new Error("No sketch pane");
+  expect(sketch.style.transform).toContain("1 *");
+  expect(sketch.hasAttribute("inert")).toBe(true);
+});
+
+/**
+ * On a phone the assistant is a pane like the others: the pane bar moves
+ * away from it, and nothing closes it -- no X, and Escape leaves it be.
+ */
+test("the Assistant pane has no close button, and Escape leaves it open", () => {
+  render(shell());
+  const bar = screen.getByRole("navigation", { name: "Workspace panes" });
+  fireEvent.click(within(bar).getByRole("button", { name: "Assistant" }));
+  expect(
+    screen.queryByRole("button", { name: "Close AI assistant" }),
+  ).toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(paneShown("Assistant")).toBe("page");
+  expect(screen.getByText("The conversation")).toBeTruthy();
 });

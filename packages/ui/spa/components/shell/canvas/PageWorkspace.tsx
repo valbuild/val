@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
+import { SLIDE_EASE, SLIDE_MS } from "../workspace/phoneTrack";
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
@@ -223,11 +224,14 @@ const PHONE_STRIP_GAP = "0.75rem";
  * so this is the whole of it and all three modes start in the same place.
  */
 const PHONE_STRIP_CLEARANCE = `calc(${PHONE_STRIP_TOP} + ${PHONE_STRIP_CONTROL_HEIGHT} + ${PHONE_STRIP_GAP})`;
-/** Long enough to follow the column across, short enough not to wait. */
-const OPEN_MS = 320;
+/**
+ * Long enough to follow the column across, short enough not to wait. The
+ * phone's other panes slide the same way (`phoneTrack`).
+ */
+const OPEN_MS = SLIDE_MS;
 /** The switch thumb moves faster: it is a short distance and a direct answer. */
 const SWITCH_MS = 200;
-const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
+const OPEN_EASE = SLIDE_EASE;
 
 /**
  * The editor, with a canvas that can join it.

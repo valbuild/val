@@ -1,6 +1,6 @@
 import type { Node as PMNode } from "prosemirror-model";
 import type { EditorView, NodeView } from "prosemirror-view";
-import { gripElement, startBlockDrag } from "./dragBlocks";
+import { COARSE_GRIP, gripElement } from "./dragBlocks";
 
 /** What the menu a route divider opens can do, and where to draw it. */
 export type RouteMenuRequest = {
@@ -56,11 +56,8 @@ export class RouteView implements NodeView {
 
     const grip = gripElement(
       "Drag to move this page's part of the sketch",
-      (event) => {
-        const pos = this.getPos();
-        if (pos !== undefined) startBlockDrag(this.view, pos, event, this.dom);
-      },
-      "absolute -left-5 flex h-5 w-5 cursor-grab items-center justify-center rounded text-fg-tertiary opacity-0 transition-opacity hover:bg-bg-secondary group-hover:opacity-100 [@media(hover:none)]:opacity-60",
+      { view: this.view, getPos: () => this.getPos(), image: this.dom },
+      `absolute -left-5 flex h-5 w-5 cursor-grab items-center justify-center rounded text-fg-tertiary opacity-0 transition-opacity hover:bg-bg-secondary group-hover:opacity-100 [@media(hover:none)]:opacity-60 ${COARSE_GRIP} [@media(pointer:coarse)]:-left-8`,
     );
     const rule = () => {
       const hr = document.createElement("span");
