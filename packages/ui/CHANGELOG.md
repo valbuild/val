@@ -1,5 +1,15 @@
 # @valbuild/ui
 
+## 0.153.2
+
+### Patch Changes
+
+- [#1034](https://github.com/valbuild/val/pull/1034) [`75877d7`](https://github.com/valbuild/val/commit/75877d704582abdc1bfb14902b311a857066261a) Thanks [@freekh](https://github.com/freekh)! - On a phone:
+
+  - The panes are in the order **Content, Preview, Assistant, Sketch**, and moving between any of them slides, as moving between Content and the Preview already did.
+  - The assistant is a pane like the others: it has no close button, and Escape doesn't close it.
+  - The Sketchpad's drag handles are finger-sized and sit inside the page's margin. Dragging a block by its handle now works with a finger: a line shows where it will land.
+
 ## 0.153.1
 
 ### Patch Changes
