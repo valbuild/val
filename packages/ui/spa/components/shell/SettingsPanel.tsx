@@ -338,6 +338,8 @@ export type AssistantSettingsValue = {
   enabled: boolean | null;
   context: string | null;
   tone: string | null;
+  /** Only `true` is on: unset is off, unlike `enabled`. */
+  webSearch?: boolean | null;
 };
 
 export type AssistantSettingsFieldsProps = {
@@ -415,6 +417,25 @@ export function AssistantSettingsFields({
           checked={isOn}
           disabled={readonly}
           onCheckedChange={(next) => onChange("enabled", next)}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <label
+          htmlFor="val-assistant-web-search"
+          className="text-xs font-medium"
+        >
+          Search the web
+          <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
+            {value.webSearch === true
+              ? "The assistant may look things up online. After it has, it asks before changing code. Each search is billed to your AI key."
+              : "Off. The assistant only reads this project."}
+          </span>
+        </label>
+        <Switch
+          id="val-assistant-web-search"
+          checked={value.webSearch === true}
+          disabled={readonly || value.enabled === false}
+          onCheckedChange={(next) => onChange("webSearch", next)}
         />
       </div>
       {/*

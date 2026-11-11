@@ -121,9 +121,13 @@ export function ValCanvasBridge({
     active: boolean;
     modifier: PickModifier;
     keepPicked: boolean;
+    fieldsOnly: boolean;
+    color: string | null;
   } | null>(null);
   const elementPickingActive = React.useRef(false);
   elementPickingActive.current = elementPicking?.active === true;
+  const elementPickingFieldsOnly = React.useRef(false);
+  elementPickingFieldsOnly.current = elementPicking?.fieldsOnly === true;
   const elementPicker = React.useRef<ElementPicking | null>(null);
   /** A scroll back to where the last build was, still trying. */
   const stopRestoring = React.useRef<(() => void) | null>(null);
@@ -357,6 +361,8 @@ export function ValCanvasBridge({
           active: message.active,
           modifier: message.modifier,
           keepPicked: message.keepPicked,
+          fieldsOnly: message.fieldsOnly === true,
+          color: message.color ?? null,
         });
         return;
       }
@@ -538,14 +544,27 @@ export function ValCanvasBridge({
       document.removeEventListener("click", onClick, { capture: true });
   }, [post]);
 
+  // Esc while picking fields: the key goes to the page, which has the focus
+  // once it has been clicked, so the studio hears of it only from here.
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && pickingRef.current) {
+        post({ val: VAL_CANVAS_MESSAGE, type: "pickingStopped" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [post]);
+
   /**
    * Picking any element: the page's own elements, which
    * only this side of the frame can reach. The listeners and the outlines are
    * `startElementPicking`'s (`@valbuild/shared`), so both bindings run the
    * same picker; what crosses back is the element described.
    */
-  const selectionColorRef = React.useRef(selectionColors.selection);
-  selectionColorRef.current = selectionColors.selection;
+  const pickColor = elementPicking?.color ?? selectionColors.selection;
+  const selectionColorRef = React.useRef(pickColor);
+  selectionColorRef.current = pickColor;
   const pickingEnabled = elementPicking?.enabled === true;
   const pickModifier = elementPicking?.modifier ?? "alt";
   React.useEffect(() => {
@@ -553,6 +572,7 @@ export function ValCanvasBridge({
     const picker = startElementPicking(document.body, {
       modifier: pickModifier,
       active: () => elementPickingActive.current,
+      fieldsOnly: () => elementPickingFieldsOnly.current,
       color: selectionColorRef.current,
       onPick: (element) =>
         post({ val: VAL_CANVAS_MESSAGE, type: "elementPicked", element }),
@@ -570,8 +590,8 @@ export function ValCanvasBridge({
     if (!keepPicked) elementPicker.current?.clearPicked();
   }, [keepPicked]);
   React.useEffect(() => {
-    elementPicker.current?.setColor(selectionColors.selection);
-  }, [selectionColors.selection]);
+    elementPicker.current?.setColor(pickColor);
+  }, [pickColor]);
 
   /**
    * Two-finger gestures, handed to the studio.

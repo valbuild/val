@@ -135,10 +135,16 @@ export type CanvasFrameProps = {
     active: boolean;
     modifier: PickModifier;
     keepPicked: boolean;
+    /** Only Val's fields: the Studio's assistant outside code mode. */
+    fieldsOnly?: boolean;
+    /** The outline's colour, instead of the selection colour: code mode's. */
+    color?: string;
   } | null;
   onPickElement?: (element: PickedElement) => void;
   /** Esc on the page while `elementPicking.active`. */
   onElementPickingStopped?: () => void;
+  /** Esc on the page while `isPicking`. */
+  onPickingStopped?: () => void;
   /**
    * A two-finger gesture on the page.
    *
@@ -260,6 +266,7 @@ export function CanvasFrame({
   elementPicking,
   onPickElement,
   onElementPickingStopped,
+  onPickingStopped,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -439,6 +446,8 @@ export function CanvasFrame({
         onPickElement?.(message.element);
       } else if (message.type === "elementPickingStopped") {
         onElementPickingStopped?.();
+      } else if (message.type === "pickingStopped") {
+        onPickingStopped?.();
       } else if (message.type === "location") {
         lastLocation.current = {
           path: message.path,
@@ -480,6 +489,7 @@ export function CanvasFrame({
     onPick,
     onPickElement,
     onElementPickingStopped,
+    onPickingStopped,
     onPinch,
     onZoom,
     onRefreshingChange,
@@ -640,6 +650,8 @@ export function CanvasFrame({
   const pickActive = elementPicking?.active === true;
   const pickModifier = elementPicking?.modifier ?? "alt";
   const keepPicked = elementPicking?.keepPicked !== false;
+  const pickFieldsOnly = elementPicking?.fieldsOnly === true;
+  const pickColor = elementPicking?.color;
   const pickEnabled =
     elementPicking === undefined ? undefined : elementPicking !== null;
   useEffect(() => {
@@ -651,6 +663,9 @@ export function CanvasFrame({
       active: pickActive,
       modifier: pickModifier,
       keepPicked,
+      // Only when asked for, so a page is sent what it was sent before.
+      ...(pickFieldsOnly ? { fieldsOnly: true } : {}),
+      ...(pickColor !== undefined ? { color: pickColor } : {}),
     });
   }, [
     send,
@@ -658,6 +673,8 @@ export function CanvasFrame({
     pickActive,
     pickModifier,
     keepPicked,
+    pickFieldsOnly,
+    pickColor,
     state.status,
     documentEpoch,
   ]);

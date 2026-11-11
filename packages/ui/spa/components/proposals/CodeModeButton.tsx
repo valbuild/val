@@ -1,4 +1,4 @@
-import { Check, CodeXml, PencilLine, Plus, Power } from "lucide-react";
+import { CodeXml, Plus, Power } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -53,15 +53,10 @@ export type TopBarCodeMode = {
    */
   turnedOn?: CodeModeTurnedOn | null;
   /**
-   * What this person sees beside the preview while code mode is on: the
-   * code changes, or the content editor. The preview is the same either
-   * way. Each person's own: an editor
-   * fixing text can stay in the content editor while someone else's
-   * assistant changes the code. Default `"code"`; the app starts everyone
-   * but the person who turned it on in the content editor.
+   * Show the proposal's code changes: in Review, beside the content
+   * changes.
    */
-  view?: CodeModeView;
-  onViewChange?: (view: CodeModeView) => void;
+  onShowCode?: () => void;
   /** On the site: go to this proposal, with code mode on. */
   onOpenProposalInCodeMode: (name: string) => void;
   /** On the site: make a new proposal, and open it with code mode on. */
@@ -76,9 +71,6 @@ export type TopBarCodeMode = {
   /** For stories: the site's menu, open. */
   defaultMenuOpen?: boolean;
 };
-
-/** What a person sees while code mode is on. See `TopBarCodeMode.view`. */
-export type CodeModeView = "code" | "content";
 
 /** Who turned code mode on, and how long ago, in words. */
 export type CodeModeTurnedOn = {
@@ -182,11 +174,6 @@ export function CodeModeButton({
         </button>
       );
     }
-    const view = codeMode.view ?? "code";
-    const chooseView = (next: CodeModeView) => () => {
-      setIsOpen(false);
-      codeMode.onViewChange?.(next);
-    };
     return (
       <div ref={containerRef} className="relative h-8 shrink-0">
         <button
@@ -223,21 +210,16 @@ export function CodeModeButton({
               </p>
             </div>
             <div className="my-1 border-t border-border-float" />
-            {codeMode.onViewChange !== undefined && (
+            {codeMode.onShowCode !== undefined && (
               <>
-                <ViewItem
-                  selected={view === "code"}
+                <MenuItem
                   icon={<CodeXml size={14} />}
                   label="Code changes"
-                  detail="The proposal as its code is now"
-                  onClick={chooseView("code")}
-                />
-                <ViewItem
-                  selected={view === "content"}
-                  icon={<PencilLine size={14} />}
-                  label="Content editor"
-                  detail="Edit content while the code changes"
-                  onClick={chooseView("content")}
+                  detail="In Review, beside the content changes"
+                  onClick={() => {
+                    setIsOpen(false);
+                    codeMode.onShowCode?.();
+                  }}
                 />
                 <div className="my-1 border-t border-border-float" />
               </>
@@ -370,14 +352,12 @@ export function CodeModeButton({
   );
 }
 
-function ViewItem({
-  selected,
+function MenuItem({
   icon,
   label,
   detail,
   onClick,
 }: {
-  selected: boolean;
   icon: ReactNode;
   label: string;
   detail: string;
@@ -386,8 +366,7 @@ function ViewItem({
   return (
     <button
       type="button"
-      role="menuitemradio"
-      aria-checked={selected}
+      role="menuitem"
       onClick={onClick}
       className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-bg-float-raised"
     >
@@ -401,9 +380,6 @@ function ViewItem({
         <span className="block text-[0.6875rem] leading-snug text-fg-secondary-alt">
           {detail}
         </span>
-      </span>
-      <span className="grid w-4 shrink-0 place-items-center pt-0.5 text-fg-proposal">
-        {selected && <Check size={14} />}
       </span>
     </button>
   );

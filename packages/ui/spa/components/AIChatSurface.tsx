@@ -14,6 +14,7 @@ import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
 import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { AiSetup } from "./shell/AiSetup";
 import { ShareChatLink } from "./proposals/ShareChatLink";
+import { useAssistantPage } from "./shell/canvas/AssistantPage";
 
 /**
  * The assistant, wired.
@@ -74,6 +75,8 @@ function ConnectedChat({ className }: { className?: string }) {
   const aiModels = useAIModelSelection();
   const availableModel = useAvailableAIModel();
   const { sessionParam, setSessionParam } = useSessionParam();
+  /** The page in the Studio's preview, when there is one. */
+  const page = useAssistantPage();
   // Read once, on the first render. Later URL changes — a navigation rewriting
   // the query, a `popstate` — must not reach in and swap the conversation the
   // user is in the middle of.
@@ -100,6 +103,7 @@ function ConnectedChat({ className }: { className?: string }) {
     sessionModel,
   } = useAI(chatRef, {
     initialSessionId: initialSessionIdRef.current,
+    page,
     onSessionBorn: (id) => {
       setSessionParam(id, { replace: true });
       try {
@@ -161,6 +165,8 @@ function ConnectedChat({ className }: { className?: string }) {
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
       onCaptureSendContext={captureSendContext}
+      pointedAt={page?.pointedAt ?? null}
+      onClearPointedAt={page ? () => page.setPointedAt(null) : undefined}
       onCancel={cancel}
       models={aiModels.models}
       selectedModel={sessionModel ?? aiModels.selected}

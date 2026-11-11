@@ -109,9 +109,9 @@ describe("CodeModeButton in a proposal", () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  test("on, it is pressed, says who turned it on, and offers the view and Turn off", () => {
+  test("on, it is pressed, says who turned it on, and offers the code changes and Turn off", () => {
     const onToggle = jest.fn();
-    const onViewChange = jest.fn();
+    const onShowCode = jest.fn();
     render(
       <CodeModeButton
         location={inProposal}
@@ -120,8 +120,7 @@ describe("CodeModeButton in a proposal", () => {
           ...codeMode(0),
           on: true,
           onToggle,
-          onViewChange,
-          view: "code",
+          onShowCode,
           turnedOn: { by: "Kari Nordmann", ago: "10 minutes ago" },
         }}
       />,
@@ -132,11 +131,9 @@ describe("CodeModeButton in a proposal", () => {
     expect(screen.getByRole("menu").textContent).toMatch(
       /Code mode on: turned on by Kari Nordmann, 10 minutes ago/,
     );
-    fireEvent.click(
-      screen.getByRole("menuitemradio", { name: /Content editor/ }),
-    );
-    expect(onViewChange).toHaveBeenCalledWith("content");
-    // Turning it on and off is everyone's; the view stays one's own.
+    fireEvent.click(screen.getByRole("menuitem", { name: /Code changes/ }));
+    expect(onShowCode).toHaveBeenCalledTimes(1);
+    // Looking at the code is one's own; turning it off is everyone's.
     expect(onToggle).not.toHaveBeenCalled();
     fireEvent.click(button);
     fireEvent.click(

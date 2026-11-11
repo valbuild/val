@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, PencilRuler } from "lucide-react";
+import { Archive, ChevronDown } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import {
@@ -186,34 +186,5 @@ export function SketchpadListPopover({
         />
       </PopoverContent>
     </Popover>
-  );
-}
-
-/**
- * Where the Sketchpad was, once it is archived: a strip beside the preview
- * and the chat with the way back, so archiving puts it away without making
- * it unfindable.
- */
-export function SketchpadStrip(props: SketchpadListProps) {
-  const archived = props.sketchpads.filter((s) => s.archived).length;
-  return (
-    <SketchpadListPopover
-      {...props}
-      archivedOpen
-      side="left"
-      trigger={
-        <button
-          type="button"
-          aria-label={`Sketchpads${archived > 0 ? `, ${archived} archived` : ""}`}
-          title="Sketchpads"
-          className="flex h-full w-full cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-border-primary bg-bg-primary py-3 text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-        >
-          <PencilRuler className="h-4 w-4" />
-          <span className="text-xs font-medium [writing-mode:vertical-rl]">
-            Sketchpads{archived > 0 ? ` · ${archived} archived` : ""}
-          </span>
-        </button>
-      }
-    />
   );
 }

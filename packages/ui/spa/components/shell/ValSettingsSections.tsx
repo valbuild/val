@@ -78,6 +78,9 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const enabledValue = useSettingsBooleanField(
     sourcePathOfItem(assistantPath, "enabled"),
   );
+  const webSearchValue = useSettingsBooleanField(
+    sourcePathOfItem(assistantPath, "webSearch"),
+  );
   const contextValue = useAssistantField(contextPath);
   const toneValue = useAssistantField(tonePath);
   const contextErrors = useValidationErrors(contextPath);
@@ -180,6 +183,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                   enabled: enabledValue,
                   context: contextValue,
                   tone: toneValue,
+                  webSearch: webSearchValue,
                 }}
                 onChange={writeAssistantSetting}
                 maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}

@@ -1,5 +1,43 @@
 # @valbuild/shared
 
+## 0.153.0
+
+### Minor Changes
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Editing content in a proposal whose code changed, before the proposal is built again:
+
+  - **A module the proposal adds** can be edited and saved right away. Its content is read from the new file and saved. Before, those edits were dropped. If the module's content is made by code (not written out in the file), the save waits and says to build the proposal first.
+  - **A module whose schema moved because a file it imports changed** (for example a shared `src/schemas/*.ts`) is no longer read with the old schema. Pages keep showing the content as built until the proposal is built again.
+  - **Edits that no longer fit the schema** can be handed to the assistant. The banner that lists them has a **Have the assistant move it** button for each one. You still discard the held edit yourself afterwards.
+
+  For this, `@valbuild/tanstack-build` records which files each Val module imports, and the `val.server.ts` it generates passes that to Val as the new optional `moduleDependencies` option of `initValServer` and `initValContent`. You do not need to set it yourself. A site built before this has no `moduleDependencies` and works as before.
+
+- [#1016](https://github.com/valbuild/val/pull/1016) [`2e70d13`](https://github.com/valbuild/val/commit/2e70d13cf7ca25874900c9ea25227df2876727b9) Thanks [@freekh](https://github.com/freekh)! - Removed what 0.151.0 kept only so that a Studio, a page and a server from the release before could still talk to each other during a deploy:
+
+  - **`PUT /api/val/sources/~`** is gone. Nothing in 0.151.0 asked it: the Studio reads modules through `GET /api/val/manifest` and `GET /api/val/modules/~<path>`, and `fetchVal`, `useVal` and the MCP tools read the server's content in-process. If a script or test of yours read content through it, read one module with `GET /api/val/modules/~<path>` instead. Its answer has the module's `source` and `version`, and an `entries` map holding the `.jsonValues()` entries pending changes touched.
+  - **`ValDraft.base`** is gone from the type. It has not been sent or read since 0.151.0, so a `draft` you pass to `ValProvider` is not affected.
+  - **A page no longer accepts edits relayed by a Studio from before 0.151.0.** Such a Studio sent each module as a bare `source`. After the upgrade, the Studio and your pages come from the same deploy, so this only matters while an older Studio is still open in a tab during a rollout. Reloading that tab fixes it.
+  - **`/api/val/stat`** no longer needs `sourcesSha` and `schemaSha`. The Studio now tells your local server which version it last saw, and the server still sends both fields for a Studio of 0.151.0. They stop being sent in the next release.
+
+### Patch Changes
+
+- [#1028](https://github.com/valbuild/val/pull/1028) [`27e51ba`](https://github.com/valbuild/val/commit/27e51baadce61b2cbee2d5ef227aae045ccb2e21) Thanks [@freekh](https://github.com/freekh)! - Another editor's keystroke costs the Studio less. Locally (`pnpm dev`, and
+  anywhere `/stat` long-polls), the Studio no longer asks for the manifest or
+  the changed module after someone else types: `/stat` now carries what
+  `GET /manifest` would have answered, and the module's new version is computed
+  from the patch the Studio already fetched. Where neither can be used (an
+  older server, a version that does not match), the Studio asks for them as
+  before.
+
+- [#1030](https://github.com/valbuild/val/pull/1030) [`efa1f7d`](https://github.com/valbuild/val/commit/efa1f7d810f3c4e4e21502c9cc81ce86da93650c) Thanks [@freekh](https://github.com/freekh)! - **Point the assistant at something on the page.** With the preview open, the assistant has a **Select** in its header: press it, click a field on the page, and what you picked shows above the message box and goes with your next message, so "make this shorter" means that field. In code mode it can pick any element, outlined in the proposal's colour. Press the × on it to take it off.
+
+  - Selecting a field to edit has moved from the preview's toolbar to the top of the editor column, beside **Structure | On page**. Esc turns it off, from the Studio or from the page.
+  - On a desktop the assistant now sits beside the preview instead of over it, so it never covers what you point it at.
+  - The assistant can read the page in the preview, and take a picture of it, to see what you see.
+
+- Updated dependencies [[`67145fd`](https://github.com/valbuild/val/commit/67145fd16e35f2e3e0988ca5690fe5a4f84c1a41)]:
+  - @valbuild/core@0.153.0
+
 ## 0.152.1
 
 ### Patch Changes

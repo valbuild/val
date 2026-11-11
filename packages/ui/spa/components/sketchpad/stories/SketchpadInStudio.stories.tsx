@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useRef, useState } from "react";
 import { AIChat, type AIChatHandle, type ChatMessage } from "../../AIChat";
 import { Shell } from "../../shell/Shell";
+import { mockCanvasPage } from "../../shell/canvas/mockCanvasPage";
 import { mockSelectionIds, mockShellData } from "../../shell/mockShellData";
 import {
   Sketchpad,
@@ -10,7 +11,7 @@ import {
 } from "../Sketchpad";
 import type { SketchpadListItem } from "../SketchpadList";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
-import { PreviewMock, SKETCH } from "./sketchpadFixtures";
+import { SKETCH } from "./sketchpadFixtures";
 
 /**
  * Sketchpad in the Studio: the Preview and the Sketchpad, with the chat
@@ -227,8 +228,14 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
   };
   const archivedPad = pads.find((pad) => pad.id === archivedId);
 
+  // The top bar's Sketch switch, as the Studio's (`useStudioSketchpads`).
+  const [sketchOpen, setSketchOpen] = useState(true);
+
   return (
     <Shell
+      // The Studio's preview: the Sketch pane beside it shows its page.
+      canvasPage={mockCanvasPage}
+      initialCanvasOpen
       key={theme}
       data={mockShellData}
       theme={currentTheme}
@@ -248,51 +255,57 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
       }
       pendingChanges={3}
       onCompare={() => console.log("open the review view")}
-      workspaceOverride={
-        <SketchpadWorkspace
-          preview={<PreviewMock />}
-          sketchpads={list}
-          notice={
-            archivedPad && (
-              <div
-                role="status"
-                className="flex shrink-0 items-center gap-3 rounded-lg border border-border-primary bg-bg-primary px-3 py-1.5 text-xs text-fg-secondary"
-              >
-                <span>
-                  Archived “{archivedPad.title ?? archivedPad.page}”. Reopen it
-                  from the list of sketchpads.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => reopen(archivedPad.id)}
-                  className="cursor-pointer font-medium text-fg-primary underline"
+      sketchpad={{
+        open: sketchOpen,
+        changed: false,
+        onToggle: () => setSketchOpen((open) => !open),
+      }}
+      sketchPane={
+        sketchOpen ? (
+          <SketchpadWorkspace
+            sketchpads={list}
+            notice={
+              archivedPad && (
+                <div
+                  role="status"
+                  className="flex shrink-0 items-center gap-3 rounded-lg border border-border-primary bg-bg-primary px-3 py-1.5 text-xs text-fg-secondary"
                 >
-                  Undo
-                </button>
-              </div>
-            )
-          }
-          sketchpad={
-            current ? (
-              <Sketchpad
-                key={current.id}
-                value={current.value}
-                onChange={(value) => update(current.id, { value })}
-                readOnly={reading}
-                title={current.title ?? undefined}
-                page={current.page}
-                onPageChange={(page) => update(current.id, { page })}
-                pageOptions={["/", "/stores", "/journal", "/about"]}
-                people={inProposal ? PEOPLE : undefined}
-                status={inProposal ? "In ⎇ Autumn campaign" : current.detail}
-                onAskAssistant={() => askAssistant(current.id)}
-                assistantStatus={status}
-                onArchive={() => archive(current.id)}
-                sketchpads={list}
-              />
-            ) : null
-          }
-        />
+                  <span>
+                    Archived “{archivedPad.title ?? archivedPad.page}”. Reopen
+                    it from the list of sketchpads.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => reopen(archivedPad.id)}
+                    className="cursor-pointer font-medium text-fg-primary underline"
+                  >
+                    Undo
+                  </button>
+                </div>
+              )
+            }
+            sketchpad={
+              current ? (
+                <Sketchpad
+                  key={current.id}
+                  value={current.value}
+                  onChange={(value) => update(current.id, { value })}
+                  readOnly={reading}
+                  title={current.title ?? undefined}
+                  page={current.page}
+                  onPageChange={(page) => update(current.id, { page })}
+                  pageOptions={["/", "/stores", "/journal", "/about"]}
+                  people={inProposal ? PEOPLE : undefined}
+                  status={inProposal ? "In ⎇ Autumn campaign" : current.detail}
+                  onAskAssistant={() => askAssistant(current.id)}
+                  assistantStatus={status}
+                  onArchive={() => archive(current.id)}
+                  sketchpads={list}
+                />
+              ) : null
+            }
+          />
+        ) : undefined
       }
     />
   );

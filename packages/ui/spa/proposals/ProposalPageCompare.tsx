@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import {
   isValCanvasPageMessage,
@@ -6,8 +6,8 @@ import {
   withValCanvasParam,
 } from "@valbuild/shared/internal";
 import { CanvasFrame } from "../components/shell/canvas/CanvasFrame";
-import type { CanvasPreviewStatus } from "../components/shell/canvas/CanvasPreviewNotice";
-import { CANVAS_DEVICE_WIDTHS } from "../components/shell/canvas/types";
+import { SitePreview } from "../components/shell/canvas/SitePreview";
+import type { CanvasDevice } from "../components/shell/canvas/types";
 import type { ComparePageView } from "../compare/types";
 import { siteOrigin, sitePageUrl } from "./sitePageUrl";
 
@@ -31,22 +31,21 @@ export function ProposalPage({
   siteUrl: string;
   page: ComparePageView;
 }) {
-  const width = CANVAS_DEVICE_WIDTHS[page.device];
   return page.side === "left" ? (
-    <SitePage siteUrl={siteUrl} url={page.url} width={width} />
+    <SitePage siteUrl={siteUrl} url={page.url} device={page.device} />
   ) : (
-    <ProposalSidePage url={page.url} width={width} />
+    <ProposalSidePage url={page.url} device={page.device} />
   );
 }
 
 function SitePage({
   siteUrl,
   url,
-  width,
+  device,
 }: {
   siteUrl: string;
   url: string;
-  width: number;
+  device: CanvasDevice;
 }) {
   const href = sitePageUrl(siteUrl, url);
   const origin = siteOrigin(siteUrl);
@@ -85,69 +84,76 @@ function SitePage({
     return () => window.removeEventListener("message", listener);
   }, [href, origin]);
   return (
-    <>
-      <PageAddress href={href} />
-      {isDraft && (
-        <p role="status" className="pb-1 text-xs text-fg-warning-primary">
-          Preview is on for the site in this browser, so this shows the site
-          with its own unpublished changes.
-        </p>
+    <SitePreview
+      device={device}
+      headerEnd={
+        <div className="min-w-0 flex-1">
+          <PageAddress href={href} />
+          {isDraft && (
+            <p role="status" className="text-xs text-fg-warning-primary">
+              Preview is on for the site in this browser, so this shows the site
+              with its own unpublished changes.
+            </p>
+          )}
+        </div>
+      }
+      renderPage={({ width, height, reloadKey }) => (
+        <iframe
+          // A reload is a new frame: the site is not Val's to navigate.
+          key={reloadKey}
+          ref={frameRef}
+          // The canvas marker, so a site in draft mode draws no overlay of
+          // its own in here.
+          src={withValCanvasParam(href)}
+          title={`The site's ${url}`}
+          style={{ width, height, border: "none", display: "block" }}
+          className="bg-white"
+          // No way out of the frame: a link aimed at the top window would
+          // navigate the Studio away from a review in progress.
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+          // A proposal's address is not the site's business.
+          referrerPolicy="no-referrer"
+        />
       )}
-      <ScaledViewport width={width}>
-        {(height) => (
-          <iframe
-            ref={frameRef}
-            // The canvas marker, so a site in draft mode draws no overlay of
-            // its own in here.
-            src={withValCanvasParam(href)}
-            title={`The site's ${url}`}
-            style={{ width, height, border: "none", display: "block" }}
-            className="bg-white"
-            // No way out of the frame: a link aimed at the top window would
-            // navigate the Studio away from a review in progress.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-            // A proposal's address is not the site's business.
-            referrerPolicy="no-referrer"
-          />
-        )}
-      </ScaledViewport>
-    </>
+    />
   );
 }
 
-function ProposalSidePage({ url, width }: { url: string; width: number }) {
-  const [status, setStatus] = useState<CanvasPreviewStatus>("connecting");
-  const [enableKey, setEnableKey] = useState(0);
+/**
+ * The proposal's side: the Studio's own preview, as on the canvas -- preview
+ * mode turned on by itself, the notice when it is not, reload and zoom.
+ */
+function ProposalSidePage({
+  url,
+  device,
+}: {
+  url: string;
+  device: CanvasDevice;
+}) {
   return (
-    <>
-      <PageAddress href={url} />
-      {status === "preview-off" && (
-        <p role="status" className="pb-1 text-xs text-fg-tertiary">
-          Unsaved changes are not shown, because preview is off.{" "}
-          <button
-            type="button"
-            onClick={() => setEnableKey((key) => key + 1)}
-            className="font-medium text-fg-primary underline underline-offset-2"
-          >
-            Show them
-          </button>
-        </p>
+    <SitePreview
+      device={device}
+      headerEnd={
+        <div className="min-w-0 flex-1">
+          <PageAddress href={url} />
+        </div>
+      }
+      renderPage={(viewport) => (
+        <CanvasFrame
+          url={url}
+          width={viewport.width}
+          height={viewport.height}
+          reloadKey={viewport.reloadKey}
+          isPicking={false}
+          highlightedPath={null}
+          enableKey={viewport.enableKey}
+          onStatusChange={viewport.onStatusChange}
+          onRefreshingChange={viewport.onRefreshingChange}
+          onPinch={viewport.onPinch}
+          onZoom={viewport.onZoom}
+        />
       )}
-      <ScaledViewport width={width}>
-        {(height) => (
-          <CanvasFrame
-            url={url}
-            width={width}
-            height={height}
-            reloadKey={0}
-            isPicking={false}
-            highlightedPath={null}
-            enableKey={enableKey}
-            onStatusChange={setStatus}
-          />
-        )}
-      </ScaledViewport>
-    </>
+    />
   );
 }
 
@@ -168,64 +174,6 @@ function PageAddress({ href }: { href: string }) {
         Open
         <ExternalLink size={12} aria-hidden />
       </a>
-    </div>
-  );
-}
-
-/**
- * A page drawn at a device's width, scaled down to fit the column.
- *
- * Never scaled up: a phone-width page in a wide column is drawn at its size and
- * centred. The page scrolls inside its own frame, which is as tall as the
- * column once scaled.
- */
-function ScaledViewport({
-  width,
-  children,
-}: {
-  width: number;
-  children: (height: number) => ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState<{ width: number; height: number } | null>(
-    null,
-  );
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () =>
-      setBox((current) =>
-        current?.width === el.clientWidth && current.height === el.clientHeight
-          ? current
-          : { width: el.clientWidth, height: el.clientHeight },
-      );
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    measure();
-    return () => observer.disconnect();
-  }, []);
-  const scale =
-    box === null || box.width === 0 ? 1 : Math.min(1, box.width / width);
-  return (
-    <div
-      ref={ref}
-      className="relative min-h-0 flex-1 overflow-hidden rounded border border-border-primary bg-bg-secondary"
-    >
-      {box !== null && box.width > 0 && box.height > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: Math.max(0, (box.width - width * scale) / 2),
-            width,
-            height: box.height / scale,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-          }}
-        >
-          {children(box.height / scale)}
-        </div>
-      )}
     </div>
   );
 }
