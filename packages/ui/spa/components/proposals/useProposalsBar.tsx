@@ -88,7 +88,6 @@ import {
   registerCodeModeTurnOn,
   reportCodeMode,
   setCodeModeBusy,
-  setCodeModeView,
   useCodeModeState,
   withCodeModeParam,
   withoutCodeModeParam,
@@ -234,7 +233,11 @@ export function useProposalsBar({
    * Code mode's workspace, for the person whose view it is: what replaces
    * the editor and the canvas. `null` when they see the content editor.
    */
-  codeWorkspace: { name: string; build: CodeModeBuild } | null;
+  /**
+   * The proposal's code changes, while code mode is on: what Review shows
+   * beside the content changes.
+   */
+  codeChanges: { name: string; build: CodeModeBuild } | null;
 } {
   const mode = useValMode();
   const config = useValConfig();
@@ -631,8 +634,6 @@ export function useProposalsBar({
       setCodeModeBusy(true);
       try {
         await client.setCodeMode(here.name, on);
-        // Whoever turns it on sees it; turning it off sends nobody anywhere.
-        if (on) setCodeModeView("code");
         return null;
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
@@ -687,7 +688,6 @@ export function useProposalsBar({
       "",
       withoutCodeModeParam(window.location.href),
     );
-    setCodeModeView("code");
     if (!codeOn) void toggleCodeMode(true);
   }, [ownRead, codeOn, toggleCodeMode]);
 
@@ -1597,7 +1597,7 @@ export function useProposalsBar({
       upgrade: null,
       upgradeSettings: null,
       siteUrl: null,
-      codeWorkspace: null,
+      codeChanges: null,
     };
   }
 
@@ -1675,8 +1675,6 @@ export function useProposalsBar({
               ago: formatRelativeTime(codeModeJson.changedAt, Date.now()),
             }
           : null,
-      view: codeModeStore.view,
-      onViewChange: setCodeModeView,
       onOpenProposalInCodeMode: (name) => void openProposal(name, true),
       onNewProposalInCodeMode: () => {
         newInCodeMode.current = true;
@@ -1937,10 +1935,8 @@ export function useProposalsBar({
     upgrade: upgrade.button,
     upgradeSettings: upgrade.settings,
     siteUrl,
-    codeWorkspace:
-      here !== null && codeOn && codeModeStore.view === "code"
-        ? { name: here.name, build: codeBuild }
-        : null,
+    codeChanges:
+      here !== null && codeOn ? { name: here.name, build: codeBuild } : null,
   };
 }
 

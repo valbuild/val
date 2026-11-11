@@ -11,7 +11,9 @@ import {
   sameModuleVersion,
   type BuildRegistry,
   type ModuleVersion,
+  type ManifestJsonT,
   type ProjectVersion,
+  type StatManifestT,
 } from "@valbuild/shared/internal";
 import type { HostStore } from "./HostStore";
 import type { PatchStore } from "./PatchStore";
@@ -61,19 +63,22 @@ import { noopActivity } from "./activity";
  *   gone (`PatchStore.decidedGone`).
  */
 
+/** A manifest as the server answered it, whole or a delta. */
+export type ManifestAnswer = {
+  kind: "manifest";
+  project: ProjectVersion;
+  modules: Record<ModuleFilePath, ModuleVersion>;
+  /** This answer's ETag, to ask "since" with. */
+  tag?: string;
+  /** A delta: only the modules that moved since the manifest held. */
+  since?: number;
+  /** Where the answering build's code is (`BuildCode`). */
+  registry?: BuildRegistry;
+};
+
 /** What `GET /manifest` answered. */
 export type ManifestFetchAnswer =
-  | {
-      kind: "manifest";
-      project: ProjectVersion;
-      modules: Record<ModuleFilePath, ModuleVersion>;
-      /** This answer's ETag, to ask "since" with. */
-      tag?: string;
-      /** A delta: only the modules that moved since the manifest held. */
-      since?: number;
-      /** Where the answering build's code is (`BuildCode`). */
-      registry?: BuildRegistry;
-    }
+  | ManifestAnswer
   /** 304: nothing moved since the manifest held. */
   | { kind: "unchanged" }
   /**
@@ -83,6 +88,51 @@ export type ManifestFetchAnswer =
    */
   | { kind: "superseded" }
   | { kind: "error"; message: string };
+
+/**
+ * The 200 body of `GET /manifest` as the source takes it: the one mapping,
+ * for that request and for the manifest a `/stat` answer carries.
+ */
+export function manifestAnswerOf(json: ManifestJsonT): ManifestFetchAnswer {
+  if (json.superseded === true) return { kind: "superseded" };
+  return {
+    kind: "manifest",
+    project: json.project,
+    modules: json.modules,
+    ...(json.tag !== undefined ? { tag: json.tag } : {}),
+    ...(json.since !== undefined ? { since: json.since } : {}),
+    ...(json.registry !== undefined ? { registry: json.registry } : {}),
+  };
+}
+
+/**
+ * The manifest a `/stat` answer carried (`StatManifest`), because the request
+ * said which one this Studio holds: what `GET /manifest` would have answered
+ * for it, so another editor's keystroke costs no manifest request.
+ *
+ * A delta is relative to the ETag the REQUEST named (`sinceTag`), and the
+ * source takes it only while it holds exactly that one; a whole manifest it
+ * always takes. `unchanged` is never taken: it only keeps the echo.
+ */
+export type CarriedManifest =
+  | { kind: "manifest"; answer: ManifestAnswer; sinceTag?: string }
+  | { kind: "unchanged"; tag: string };
+
+/** {@link CarriedManifest} from the wire, or nothing a source can take. */
+export function carriedManifestOf(
+  json: StatManifestT | undefined,
+): CarriedManifest | undefined {
+  if (json === undefined) return undefined;
+  if ("unchanged" in json) return { kind: "unchanged", tag: json.tag };
+  const answer = manifestAnswerOf(json);
+  // A previous build answered: `GET /manifest` says so, and is asked.
+  if (answer.kind !== "manifest") return undefined;
+  return {
+    kind: "manifest",
+    answer,
+    ...(json.sinceTag !== undefined ? { sinceTag: json.sinceTag } : {}),
+  };
+}
 
 /**
  * `GET /manifest`, "since" the manifest held when there is one. The network,
@@ -122,6 +172,11 @@ type Loaded = {
   decided: ModuleFilePath[];
   /** Some module could not be read: the next stat reads the manifest again. */
   incomplete: boolean;
+  /**
+   * The epoch the manifest was decided at, when it was not asked for just
+   * now: one a `/stat` carried, decided when that stat was asked.
+   */
+  decidedAt?: number;
 };
 
 export class ManifestSource {
@@ -165,6 +220,20 @@ export class ManifestSource {
   private again = false;
   /** A stat was adopted: there is something to read once intake is in. */
   private statSeen = false;
+  /**
+   * The manifest the last stat carried, until a read takes it: only the
+   * LAST stat's, so a read never takes one older than the stat it follows.
+   */
+  private carried: {
+    manifest: CarriedManifest;
+    seq?: number;
+    /** The epoch its stat was asked at: what the manifest decides at. */
+    decidedAt: number;
+  } | null = null;
+  /** The epoch the `/stat` in flight was asked at (`stat:ask`). */
+  private askedAt: number | null = null;
+  /** The patch list the last stat named, for {@link onlyAppended}. */
+  private lastPatches: readonly PatchId[] | null = null;
 
   constructor(
     private readonly host: HostStore,
@@ -266,8 +335,30 @@ export class ManifestSource {
   }
 
   listenTo(stat: StatStore): () => void {
+    const offAsk = stat.events.on("stat:ask", () => {
+      this.askedAt = this.patchStore.nextManifestEpoch();
+    });
     const offStat = stat.events.on("stat:receive", (event) => {
       this.statSeen = true;
+      const askedAt = this.askedAt;
+      this.askedAt = null;
+      const appended = onlyAppended(this.lastPatches, event.patches);
+      this.lastPatches = event.patches;
+      // Only from a stat whose asking was said: without that moment there is
+      // nothing to decide at, and the manifest is asked for instead. And only
+      // for a chain that grew: a stat that stopped naming patches can be a
+      // publish answered by the build before it (fs: the long poll wakes as
+      // the published patches are deleted, before the build that has them in
+      // its base is up), whose manifest names its old base without them --
+      // the page would show the content from before the publish, then after.
+      this.carried =
+        event.manifest !== undefined && askedAt !== null && appended
+          ? {
+              manifest: event.manifest,
+              ...(event.seq !== undefined ? { seq: event.seq } : {}),
+              decidedAt: askedAt,
+            }
+          : null;
       this.follow(event.seq);
     });
     const offHost = this.host.events.on("host:base-received", () => {
@@ -281,6 +372,7 @@ export class ManifestSource {
       this.restoreBases();
     });
     return () => {
+      offAsk();
       offStat();
       offHost();
     };
@@ -333,6 +425,9 @@ export class ManifestSource {
    */
   refresh(): void {
     if (!this.statSeen) return;
+    // Asked BECAUSE the server may have moved past the last stat: what that
+    // stat carried is not the answer to this.
+    this.carried = null;
     this.follow(undefined);
   }
 
@@ -364,8 +459,9 @@ export class ManifestSource {
     const seqBefore = this.seq();
     this.manifest = loaded.manifest;
     this.incomplete = loaded.incomplete;
-    this.decidedAt = epoch;
-    this.sourceStore.adoptServer(loaded.resolved, loaded.decided, epoch);
+    const decidedAt = loaded.decidedAt ?? epoch;
+    this.decidedAt = decidedAt;
+    this.sourceStore.adoptServer(loaded.resolved, loaded.decided, decidedAt);
     // What the last stat stopped naming is decided now: settled by this
     // manifest, which was asked for after it.
     this.patchStore.manifestAdopted();
@@ -407,17 +503,58 @@ export class ManifestSource {
     }
   }
 
+  /**
+   * The manifest the last stat carried, as `GET /manifest` would have
+   * answered `holds`, when it is relative to exactly what this source holds;
+   * otherwise `null`, and the manifest is asked for. Taken once.
+   */
+  private takeCarried(
+    holds: { tag: string; seq: number } | null,
+  ): { answer: ManifestAnswer; decidedAt: number } | null {
+    const taken = this.carried;
+    this.carried = null;
+    if (taken === null) return null;
+    const carried = taken.manifest;
+    if (carried.kind === "unchanged") {
+      // Decided by `seq` alone, which a read is not made for: it only keeps
+      // the next stat naming the manifest. Asked, so a 304 decides it.
+      return null;
+    }
+    if (taken.seq !== undefined && carried.answer.project.seq < taken.seq) {
+      // Older than the stat it came with: carried over from an earlier
+      // answer (a socket message moves the stat without one). Asked.
+      return null;
+    }
+    if (carried.sinceTag === undefined && carried.answer.since === undefined) {
+      // Whole: true whatever this source holds -- unless it holds a newer
+      // one, read by a `GET /manifest` since that stat was answered.
+      const at = this.manifest?.project.seq;
+      return at === undefined || carried.answer.project.seq >= at
+        ? { answer: carried.answer, decidedAt: taken.decidedAt }
+        : null;
+    }
+    return holds !== null && holds.tag === carried.sinceTag
+      ? { answer: carried.answer, decidedAt: taken.decidedAt }
+      : null;
+  }
+
   /** The epoch the adopted manifest was asked for at. */
   private decidedAt = -1;
 
   private async load(fetchManifest: FetchManifest): Promise<Loaded | null> {
     const held = this.manifest;
-    this.activity.work("manifest:fetch");
-    const answer = await fetchManifest(
+    const holds =
       held !== null && held.tag !== undefined && !this.incomplete
         ? { tag: held.tag, seq: held.project.seq }
-        : null,
-    );
+        : null;
+    const carried = this.takeCarried(holds);
+    let answer: ManifestFetchAnswer;
+    if (carried !== null) {
+      answer = carried.answer;
+    } else {
+      this.activity.work("manifest:fetch");
+      answer = await fetchManifest(holds);
+    }
     if (answer.kind === "error") {
       Internal.log.debug("could not read the manifest", answer.message);
       return null;
@@ -467,7 +604,13 @@ export class ManifestSource {
         if (read !== "held") resolved.set(moduleFilePath, read);
       }),
     );
-    return { manifest, resolved, decided, incomplete };
+    return {
+      manifest,
+      resolved,
+      decided,
+      incomplete,
+      ...(carried !== null ? { decidedAt: carried.decidedAt } : {}),
+    };
   }
 
   /**
@@ -559,19 +702,39 @@ export class ManifestSource {
       below !== null
         ? below
         : { version: { ...version, chain: EMPTY_CHAIN }, at: atBase() };
-    const read = await this.readModule(moduleFilePath, version, {
-      version: have.version,
-      extend: (patches) => {
-        const at = this.sourceStore.extendServer(
-          moduleFilePath,
-          have.at,
-          patches,
-          baseSource,
-        );
-        if (at === null || at.version.chain !== version.chain) return null;
-        return { version, content: at.content, patches: at.applied };
-      },
-    });
+    const extend = (
+      patches: { patchId: PatchId; patch: Patch }[],
+    ): OriginModule | null => {
+      const at = this.sourceStore.extendServer(
+        moduleFilePath,
+        have.at,
+        patches,
+        baseSource,
+      );
+      if (at === null || at.version.chain !== version.chain) return null;
+      return { version, content: at.content, patches: at.applied };
+    };
+    /*
+     * The patch store's records: another editor's keystroke is a patch the
+     * stat named and the patch store fetched, so the version the manifest
+     * names is usually the held one with those on top -- and the same
+     * function the origin's delta goes through says whether it is. Only
+     * when it is not is the origin asked.
+     */
+    const applied = new Set(have.at.applied);
+    const beyond = (
+      await this.patchStore.serverRecordsOf(moduleFilePath)
+    ).filter((record) => !applied.has(record.patchId));
+    const local = beyond.length > 0 ? extend(beyond) : null;
+    if (local !== null) {
+      this.activity.work("manifest:records-hit", moduleFilePath);
+    }
+    const read =
+      local ??
+      (await this.readModule(moduleFilePath, version, {
+        version: have.version,
+        extend,
+      }));
     if (read === null) return "failed";
     return {
       version: read.version,
@@ -614,4 +777,17 @@ export class ManifestSource {
     });
     return null;
   }
+}
+
+/**
+ * Whether `next` is `previous` with patches added at the end, and nothing
+ * taken away: what another editor's keystroke does to the chain, and what a
+ * publish or a discard does not. `false` before there is a previous list.
+ */
+function onlyAppended(
+  previous: readonly PatchId[] | null,
+  next: readonly PatchId[],
+): boolean {
+  if (previous === null || next.length < previous.length) return false;
+  return previous.every((patchId, i) => next[i] === patchId);
 }

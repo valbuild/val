@@ -157,13 +157,17 @@ describe("ValProvider's draft prop on Next", () => {
       send({
         type: "source-update",
         moduleFilePath: path,
-        source: draft.sources[path],
+        read: { status: "ready", source: draft.sources[path], version: null },
       });
       send({ type: "sources-synced" });
       send({ type: "confirmed", seq: 3 });
       expect(mockRefresh).not.toHaveBeenCalled();
       // An edit arrives: the hooks show it, the server does not have it yet.
-      send({ type: "source-update", moduleFilePath: path, source: edited });
+      send({
+        type: "source-update",
+        moduleFilePath: path,
+        read: { status: "ready", source: edited, version: null },
+      });
       expect(raw(shown(container) ?? "")).toBe("edited");
       expect(mockRefresh).not.toHaveBeenCalled();
       // The server confirms it: one refresh, and only one.
@@ -174,41 +178,6 @@ describe("ValProvider's draft prop on Next", () => {
       await act(async () => {
         jest.advanceTimersByTime(60_000);
       });
-      expect(mockRefresh).toHaveBeenCalledTimes(1);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  /**
-   * A Studio of the release before, open on this page while a deploy rolls
-   * out: it relays a bare `source` and never says `confirmed`. The hooks
-   * show its edit (the relay's fallback), and the server components refresh
-   * on the edit, as that release's page did -- waiting for a `confirmed`
-   * would wait for ever. "Release-delayed deletions" in
-   * `docs/plans/one-content-model.md`.
-   */
-  test("a Studio of the release before, which never confirms: its edit shows, and refreshes", async () => {
-    jest.useFakeTimers();
-    try {
-      document.cookie = `${Internal.VAL_ENABLE_COOKIE_NAME}=true`;
-      await act(async () => {
-        root = createRoot(container);
-        root.render(tree({ draft }));
-      });
-      const send = (detail: unknown) =>
-        act(() => {
-          window.dispatchEvent(new CustomEvent("val-event", { detail }));
-        });
-      send({
-        type: "source-update",
-        moduleFilePath: path,
-        source: {
-          "/notes/committed": { title: "committed page" },
-          "/notes/uncommitted": { title: "edited by the previous Studio" },
-        },
-      });
-      expect(raw(shown(container) ?? "")).toBe("edited by the previous Studio");
       expect(mockRefresh).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();

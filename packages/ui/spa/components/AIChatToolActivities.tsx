@@ -15,6 +15,7 @@ import {
   FilePlus,
   FileText,
   GitCompareArrows,
+  Globe,
   Hash,
   HelpCircle,
   List,
@@ -285,6 +286,12 @@ const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
  * keeps both: the exhaustive check above, and an honest `| undefined` here.
  */
 const TOOL_DISPLAY_BY_NAME: Partial<Record<string, ToolDisplay>> = {
+  // Run by the provider, not the Studio: the row `useAI` adds for
+  // `ai_web_search`.
+  web_search: {
+    label: "Searched the web",
+    icon: <Globe className="h-3 w-3" />,
+  },
   ...CODE_TOOL_DISPLAY,
   ...TOOL_DISPLAY,
 };

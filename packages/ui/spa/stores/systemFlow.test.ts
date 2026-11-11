@@ -205,7 +205,13 @@ describe("system flow", () => {
         { op: "add", path: ["tags", "0"], value: "zeroth" },
       ]),
     ]);
-    await ledger.has({ type: "source:patch-apply", success: ["ext-3"] });
+    // Applied with the version that names it, or after it: the manifest's
+    // version is the held one with this record on top, so it can be one event
+    // with the Studio's own patches put back on it.
+    await ledger.has({
+      type: "source:patch-apply",
+      success: expect.arrayContaining(["ext-3"]),
+    });
 
     expect(
       await sourceStore.get('/blogs.val.ts?p="tags".1', null),

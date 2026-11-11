@@ -45,6 +45,8 @@ import {
   AIToolCallSummaries,
   type ModuleVersion,
   type ProjectVersion,
+  type ManifestJsonT,
+  type StatManifestT,
 } from "@valbuild/shared/internal";
 import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
@@ -261,6 +263,8 @@ export type ValServerConfig = ValServerOptions &
         root?: string;
         /** See `projectSource` on {@link ValApiOptions}. */
         projectSource?: Record<string, string>;
+        /** See `moduleDependencies` on {@link ValApiOptions}. */
+        moduleDependencies?: Record<string, string[]>;
         /** See `publishJob` on {@link ValApiOptions}. */
         publishJob?: string;
         /** See `publishBuild` on {@link ValApiOptions}. */
@@ -1378,6 +1382,116 @@ export const ValServer = (
   };
 
   /**
+   * What `GET /manifest` answers, and what `/stat` carries when the Studio
+   * says which manifest it holds: ONE function, so the two cannot disagree
+   * about a delta. `held` is the ETag the client holds and `since` the `seq`
+   * it was answered at; a delta is relative to exactly that one.
+   */
+  const manifestAnswer = async (
+    held: string | undefined,
+    since: number | undefined,
+  ): Promise<
+    | { type: "error"; unauthorized: boolean; message: string }
+    | { type: "unchanged"; tag: string; seq: number }
+    | { type: "manifest"; tag: string; json: ManifestJsonT }
+  > => {
+    // Through the head: "has the chain moved?" is its cheap `seq`
+    // (`ValOps.chainSeq`), and the chain is read only when it moved --
+    // in http mode one small read of the content service, not the
+    // whole chain on every poll of every Studio. The NEWEST build's
+    // head where the store keeps one chain for every build (fs,
+    // memory): a previous build still answering would name its own,
+    // older bases (S26, `ValOps.newestOps`).
+    const ops = serverOps.newestOps();
+    const synced = await ops.head.sync();
+    if ("error" in synced) {
+      return {
+        type: "error",
+        unauthorized: synced.error.unauthorized === true,
+        message: synced.error.message,
+      };
+    }
+    const { project, versions: modules } = synced.ok;
+    /*
+     * A previous build still answering in http mode (S26): its versions
+     * are right for its own bases, and the site serves another build's.
+     * Said, so a Studio does not move to them; it asks again, and is
+     * answered by the live build soon.
+     */
+    const superseded = synced.ok.fetched.superseded === true;
+    /*
+     * Where this build's code is, for a Studio opened on another build
+     * (phase 9): it imports it and reloads in place. The answering
+     * build's, not the newest's: in http mode a previous build says it
+     * is superseded and its manifest is not adopted at all, and in fs
+     * and memory mode there is no entry -- HMR brings the code.
+     */
+    const registry = serverOps.buildRegistry();
+    const tag = await ops.manifestTag(project);
+    if (held === tag) {
+      return { type: "unchanged", tag, seq: project.seq };
+    }
+    ops.rememberManifest(tag, project, modules);
+    const extra = {
+      ...(superseded ? { superseded } : {}),
+      ...(registry !== null ? { registry } : {}),
+    };
+    /*
+     * "Since seq N": the modules that moved since the manifest the
+     * client holds -- the one its ETag names, answered at N -- when this
+     * instance answered it. Otherwise whole, which is always correct.
+     */
+    if (
+      held !== undefined &&
+      since !== undefined &&
+      Number.isSafeInteger(since)
+    ) {
+      const moved = ops.manifestSince(held, since, project, modules);
+      if (moved !== null) {
+        return {
+          type: "manifest",
+          tag,
+          json: { project, modules: moved, tag, since, ...extra },
+        };
+      }
+    }
+    return {
+      type: "manifest",
+      tag,
+      json: { project, modules, tag, ...extra },
+    };
+  };
+
+  /**
+   * {@link manifestAnswer} as `/stat` carries it (`StatManifest`), for a stat
+   * answered at `seq`.
+   *
+   * Not read at all while `seq` is the one the held manifest was answered at:
+   * a Studio reads a manifest only for a stat whose `seq` moved, and reading
+   * it is a request to the content service in http mode -- on every poll of
+   * every Studio, for an answer nobody reads. `unchanged` then hands the held
+   * one back, so the next request names it again.
+   */
+  const statManifestOf = async (
+    held: { tag: string; seq: number } | null,
+    seq: number,
+  ): Promise<StatManifestT | undefined> => {
+    if (held !== null && held.seq === seq) {
+      return { unchanged: true, tag: held.tag, seq: held.seq };
+    }
+    const answer = await manifestAnswer(held?.tag, held?.seq);
+    if (answer.type === "error") {
+      return undefined;
+    }
+    if (answer.type === "unchanged") {
+      return { unchanged: true, tag: answer.tag, seq: answer.seq };
+    }
+    return held !== null && answer.json.since !== undefined
+      ? { ...answer.json, sinceTag: held.tag }
+      : answer.json;
+  };
+
+  /**
    * What the Studio's full check reads: base plus the patches the caller is
    * showing, as `/sources/~` resolves an explicit `patch_id` list -- including
    * `draftOverlay`, so a module changed by a publish after this build is
@@ -1977,79 +2091,23 @@ export const ValServer = (
         if (isHttpOps(serverOps) && !("id" in auth)) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        // Through the head: "has the chain moved?" is its cheap `seq`
-        // (`ValOps.chainSeq`), and the chain is read only when it moved --
-        // in http mode one small read of the content service, not the
-        // whole chain on every poll of every Studio. The NEWEST build's
-        // head where the store keeps one chain for every build (fs,
-        // memory): a previous build still answering would name its own,
-        // older bases (S26, `ValOps.newestOps`).
-        const ops = serverOps.newestOps();
-        const synced = await ops.head.sync();
-        if ("error" in synced) {
-          if (synced.error.unauthorized) {
-            return { status: 401, json: { message: synced.error.message } };
+        const since =
+          req.query.since !== undefined ? Number(req.query.since) : undefined;
+        const answer = await manifestAnswer(
+          req.headers["if-none-match"],
+          since,
+        );
+        if (answer.type === "error") {
+          if (answer.unauthorized) {
+            return { status: 401, json: { message: answer.message } };
           }
-          return { status: 500, json: { message: synced.error.message } };
+          return { status: 500, json: { message: answer.message } };
         }
-        const { project, versions: modules } = synced.ok;
-        /*
-         * A previous build still answering in http mode (S26): its versions
-         * are right for its own bases, and the site serves another build's.
-         * Said, so a Studio does not move to them; it asks again, and is
-         * answered by the live build soon.
-         */
-        const superseded = synced.ok.fetched.superseded === true;
-        /*
-         * Where this build's code is, for a Studio opened on another build
-         * (phase 9): it imports it and reloads in place. The answering
-         * build's, not the newest's: in http mode a previous build says it
-         * is superseded and its manifest is not adopted at all, and in fs
-         * and memory mode there is no entry -- HMR brings the code.
-         */
-        const registry = serverOps.buildRegistry();
-        const etag = await ops.manifestTag(project);
-        const headers = { ETag: etag, "Cache-Control": "no-cache" };
-        const held = req.headers["if-none-match"];
-        if (held === etag) {
+        const headers = { ETag: answer.tag, "Cache-Control": "no-cache" };
+        if (answer.type === "unchanged") {
           return { status: 304, headers };
         }
-        ops.rememberManifest(etag, project, modules);
-        /*
-         * "Since seq N": the modules that moved since the manifest the
-         * client holds -- the one its ETag names, answered at N -- when this
-         * instance answered it. Otherwise whole, which is always correct.
-         */
-        const since =
-          req.query.since !== undefined ? Number(req.query.since) : NaN;
-        if (held !== undefined && Number.isSafeInteger(since)) {
-          const moved = ops.manifestSince(held, since, project, modules);
-          if (moved !== null) {
-            return {
-              status: 200,
-              headers,
-              json: {
-                project,
-                modules: moved,
-                tag: etag,
-                since,
-                ...(superseded ? { superseded } : {}),
-                ...(registry !== null ? { registry } : {}),
-              },
-            };
-          }
-        }
-        return {
-          status: 200,
-          headers,
-          json: {
-            project,
-            modules,
-            tag: etag,
-            ...(superseded ? { superseded } : {}),
-            ...(registry !== null ? { registry } : {}),
-          },
-        };
+        return { status: 200, headers, json: answer.json };
       },
     },
 
@@ -2078,13 +2136,21 @@ export const ValServer = (
         // Before the stat: a new build counts itself here, once, so the
         // `seq` the stat reads is already past it.
         const versionBefore = await serverOps.projectVersion();
+        /*
+         * The manifest the Studio holds, or null for "none yet": asked, so
+         * the answer carries the manifest too and another editor's keystroke
+         * costs no `GET /manifest`. Not the stat's to read.
+         */
+        const { manifest: heldManifest, ...statBody } = req.body ?? {};
+        const askedManifest = req.body !== null && "manifest" in req.body;
         const currentStat = await serverOps.getStat({
-          ...req.body,
+          ...statBody,
           profileId,
         } as {
           baseSha: BaseSha;
-          sourcesSha: SourcesSha;
-          schemaSha: SchemaSha;
+          sourcesSha?: SourcesSha;
+          schemaSha?: SchemaSha;
+          version?: ProjectVersion;
           patches: PatchId[];
           profileId?: AuthorId;
           // FS mode only; http never sends or returns it.
@@ -2164,7 +2230,10 @@ export const ValServer = (
             ? currentStat
             : { ...currentStat, seq: undefined };
         const version: ProjectVersion = {
-          build: versionBefore.build,
+          // The build the chain is relative to: the newest build's in fs and
+          // memory, so every instance on one store answers the same one and a
+          // long poll can compare a Studio's echo with it (`chainBuild`).
+          build: await serverOps.chainBuild(),
           seq:
             statSeq ??
             ("headVersion" in currentStat
@@ -2172,11 +2241,20 @@ export const ValServer = (
               : undefined) ??
             versionBefore.seq,
         };
+        /*
+         * Read after the stat, so it is at least as new as `version`. An
+         * error is left out rather than failing the stat: the Studio then
+         * reads `GET /manifest`, which reports it.
+         */
+        const manifest = askedManifest
+          ? await statManifestOf(heldManifest ?? null, version.seq)
+          : undefined;
         return {
           status: 200,
           json: {
             ...stat,
             version,
+            ...(manifest ? { manifest } : {}),
             profileId: profileId ?? null,
             mode,
             ...(publishRefusal ? { publishRefusal } : {}),
@@ -3012,179 +3090,6 @@ export const ValServer = (
             ...(res.version !== undefined ? { version: res.version } : {}),
           },
         };
-      },
-    },
-
-    // #region sources
-    "/sources/~": {
-      PUT: async (req) => {
-        const query = req.query;
-        // Only the modules under this path, when one is given.
-        const only = req.path ? moduleFilePathOfRoute(req.path) : null;
-        const auth = getAuth(req.cookies);
-        if (auth.error) {
-          return { status: 401, json: { message: auth.error } };
-        }
-        if (isHttpOps(serverOps) && !("id" in auth)) {
-          return { status: 401, json: { message: "Unauthorized" } };
-        }
-        const sourcesSha = await serverOps.getSourcesSha();
-        const moduleErrors = await serverOps.getModuleErrors();
-        if (moduleErrors?.length > 0) {
-          Internal.log.error("Module errors", moduleErrors);
-          return {
-            status: 500,
-            json: {
-              message: "Val is not correctly setup. Check the val.modules file",
-              details: moduleErrors,
-            },
-          };
-        }
-        const schemaSha = await serverOps.getSchemaSha();
-        /*
-         * No previews and no validation here any more (phase 6 of
-         * `docs/plans/one-content-model.md`): they cost every request the
-         * whole site, and nothing that reads this used them -- the Studio
-         * computes previews from its own schema instances and validates in
-         * its own worker and through `/validate`, one module at a time; the
-         * draft readers read the head. `validate_sources` and
-         * `validate_binary_files` are still accepted, and ignored.
-         */
-        // Default to true to keep the legacy contract for older clients.
-        // The studio client always passes false: it owns patch application,
-        // and treats /sources/~ as a pure un-patched read.
-        const applyPatches = query.apply_patches !== false;
-        if (query.exclude_patches === true) {
-          // The base alone: what a Studio of the release before fetched
-          // (`BaseAlignment`). Nothing of this release asks it; it goes with
-          // `PUT /sources/~` (see "Release-delayed deletions" in
-          // `docs/plans/one-content-model.md`).
-          const sources = await serverOps.getBaseSources();
-          const versions = await serverOps.moduleVersions([], false);
-          const modules: Record<
-            ModuleFilePath,
-            { source: Json; version?: ModuleVersion }
-          > = {};
-          for (const [path, source] of Object.entries(sources)) {
-            const moduleFilePath = path as ModuleFilePath;
-            if (only !== null && !moduleFilePath.startsWith(only)) continue;
-            modules[moduleFilePath] = {
-              source,
-              ...(versions[moduleFilePath] !== undefined
-                ? { version: versions[moduleFilePath] }
-                : {}),
-            };
-          }
-          return {
-            status: 200,
-            json: {
-              schemaSha,
-              sourcesSha,
-              modules,
-              project: await serverOps.projectVersion(),
-            },
-          };
-        }
-        /*
-         * Through the head: the chain re-read only when it moved, and each
-         * patched module made once per version and kept -- not the whole
-         * chain fetched and applied on every request.
-         */
-        const tree = await serverOps.head.tree();
-        if ("error" in tree) {
-          if (tree.error.unauthorized) {
-            return { status: 401, json: { message: "Unauthorized" } };
-          }
-          return {
-            status: 500,
-            json: {
-              message: tree.error.message,
-              details: { message: tree.error.message },
-            },
-          };
-        }
-        const { chain } = tree.ok;
-        const baseSources = applyPatches
-          ? await serverOps.getBaseSources()
-          : null;
-        const sources = applyPatches
-          ? tree.ok.sources
-          : await serverOps.getBaseSources();
-        const versions = applyPatches
-          ? tree.ok.versions
-          : await serverOps.moduleVersions(chain.overlay, false);
-        const modules: Record<
-          ModuleFilePath,
-          {
-            source: Json;
-            baseSource?: Json;
-            version?: ModuleVersion;
-            patches?: {
-              applied: PatchId[];
-              skipped?: PatchId[];
-              errors?: Record<PatchId, { message: string }>;
-            };
-          }
-        > = {};
-        for (const [moduleFilePathS, module] of Object.entries(sources)) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (only !== null && !moduleFilePath.startsWith(only)) continue;
-          const skippedPatches: PatchId[] = [];
-          const patchErrors: Record<PatchId, { message: string }> = {};
-          const appliedPatches: PatchId[] =
-            chain.analysis.patchesByModule[moduleFilePath]?.map(
-              (p) => p.patchId,
-            ) || [];
-          if (applyPatches) {
-            for (const { patchId, skipped, error } of tree.ok.errors[
-              moduleFilePath
-            ] || []) {
-              if (skipped) {
-                skippedPatches.push(patchId);
-              } else {
-                patchErrors[patchId] = { message: error.message };
-              }
-            }
-          }
-          const hasPatches =
-            (chain.analysis.patchesByModule[moduleFilePath]?.length ?? 0) > 0;
-          modules[moduleFilePath] = {
-            source: module,
-            // baseSource is only meaningful when the server applied patches:
-            // with apply_patches=false, `source` is already un-patched.
-            ...(baseSources !== null && hasPatches
-              ? { baseSource: baseSources[moduleFilePath] }
-              : {}),
-            ...(appliedPatches.length > 0 ||
-            skippedPatches.length > 0 ||
-            Object.keys(patchErrors).length > 0
-              ? {
-                  patches: {
-                    applied: appliedPatches,
-                    ...(skippedPatches.length > 0
-                      ? { skipped: skippedPatches }
-                      : {}),
-                    ...(Object.keys(patchErrors).length > 0
-                      ? { errors: patchErrors }
-                      : {}),
-                  },
-                }
-              : {}),
-            ...(versions[moduleFilePath] !== undefined
-              ? { version: versions[moduleFilePath] }
-              : {}),
-          };
-        }
-        const res: z.infer<Api["/sources/~"]["PUT"]["res"]> = {
-          status: 200,
-          json: {
-            schemaSha,
-            sourcesSha,
-            modules,
-            project: chain.project,
-          },
-        };
-        return res;
       },
     },
 

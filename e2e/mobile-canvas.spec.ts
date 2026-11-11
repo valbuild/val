@@ -2,15 +2,15 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import { openStudio, test } from "./studio";
 
 /**
- * The phone's preview layout.
+ * The phone's workspace.
  *
- * A phone cannot show the editor and the page at once, so it shows one of three
- * things: the module's own content (Structure), the fields the page reported
- * having on it (On page), or the page (Preview). The switch that moves between
- * them is one control with three options, and the way out is the X beside it.
+ * A phone shows one pane at a time, and the bar along the bottom moves between
+ * them: Content, Preview, Sketch, Assistant (`PhonePaneBar`). In Content, with
+ * the page open, a strip under the top bar switches between the module's own
+ * content and the fields the page reported having on it (On this page).
  *
  * What is worth testing here is the part a screenshot review passes: that the
- * modes are the same three states every time, that moving between them does not
+ * panes are the same states every time, that moving between them does not
  * throw the page away and load it again, and that leaving really does stop it.
  * The layout measurements are here for the same reason — "how much space"
  * questions look fine in a picture and are wrong by 80px in the DOM.
@@ -27,13 +27,22 @@ const TEXT_FIELD = '/src/routes/_site.index.val.ts?p="/"."hero"."lead"';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-/** The three-option switch above the panes. */
+/** The two-option switch above Content, while the page is open. */
 function modeSwitch(page: Page): Locator {
   return page.getByRole("tablist", { name: "Workspace view" });
 }
 
-function mode(page: Page, name: "Structure" | "On page" | "Preview"): Locator {
+function mode(page: Page, name: "Content" | "On this page"): Locator {
   return modeSwitch(page).getByRole("tab", { name, exact: false });
+}
+
+/** The bar along the bottom: one button per pane. */
+function paneBar(page: Page): Locator {
+  return page.getByRole("navigation", { name: "Workspace panes" });
+}
+
+function paneButton(page: Page, name: "Content" | "Preview"): Locator {
+  return paneBar(page).getByRole("button", { name, exact: true });
 }
 
 /** The running site, by the title `CanvasFrame` gives its frame. */
@@ -45,45 +54,66 @@ function canvasFrame(page: Page): Locator {
  * Open the studio on the home page with the canvas already up.
  *
  * `canvas=1` rather than pressing Preview, because what these tests are about
- * is what happens once you are in this mode — and the button that gets you
- * there is the mobile bottom bar's, which has its own reasons to be slow.
+ * is what happens once the page is open. A link that says the preview is open
+ * opens on the Preview pane.
  */
 async function openPreview(page: Page): Promise<void> {
   await openStudio(page, `${HOME}&canvas=1`);
-  await expect(modeSwitch(page)).toBeVisible();
+  await expect(paneButton(page, "Preview")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(canvasFrame(page)).toBeVisible();
 }
 
-test.describe("the preview modes on a phone", () => {
-  test("leaves the same air under the switches in every mode", async ({
+/** Where a phone can be with the page open: two views of Content, or Preview. */
+type Stop = "Content" | "On this page" | "Preview";
+
+async function goTo(page: Page, stop: Stop): Promise<void> {
+  if (stop === "Preview") {
+    await paneButton(page, "Preview").click();
+    await expect(paneButton(page, "Preview")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    return;
+  }
+  if (!(await modeSwitch(page).isVisible())) {
+    await paneButton(page, "Content").click();
+  }
+  await mode(page, stop).click();
+  await expect(mode(page, stop)).toHaveAttribute("aria-selected", "true");
+}
+
+test.describe("the panes on a phone", () => {
+  test("leaves the same air under the top bar in every pane", async ({
     page,
   }) => {
     await openPreview(page);
+    await goTo(page, "Content");
 
     const stripBox = await modeSwitch(page).boundingBox();
     if (stripBox === null) {
       throw new Error("expected the strip to be laid out");
     }
     const stripBottom = stripBox.y + stripBox.height;
-    const gapUnder = async (locator: Locator): Promise<number> => {
+    const top = async (locator: Locator): Promise<number> => {
       const box = await locator.boundingBox();
       if (box === null) {
         throw new Error("expected the pane to be laid out");
       }
-      return box.y - stripBottom;
+      return box.y;
     };
 
     /**
-     * One gap, the same in all three modes.
+     * One gap under the strip, the same in both views of Content.
      *
      * Every end of this has shipped. Too much and the switches sit in the
      * middle of an empty band — 80px of duplicated clearance, which is what the
      * pane used to add on top of the strip's own. Too little and they are stuck
      * to the top of the content, which is what replacing that duplication with
-     * nothing produced: a 2px gap. And DIFFERENT per mode is the one a
-     * screenshot of any single mode passes: the track cleared the strip, then
-     * the canvas pane padded itself by another 12px and the editor by 4px, so
-     * the address bar sat 38px under the switches and the module editor 26px,
-     * and nothing in view at once disagreed.
+     * nothing produced: a 2px gap. And DIFFERENT per view is the one a
+     * screenshot of any single view passes.
      *
      * The measurements are the scrollers and the panes, not the first thing
      * inside them: what is checked here is the space the LAYOUT adds, and how
@@ -94,9 +124,8 @@ test.describe("the preview modes on a phone", () => {
       expect(gap).toBeLessThan(24);
     };
 
-    await mode(page, "Structure").click();
     const column = page.locator("#val-content-area");
-    const normalGap = await gapUnder(column);
+    const normalGap = (await top(column)) - stripBottom;
     expected(normalGap);
 
     // And the padding inside it is not a second clearance.
@@ -107,62 +136,45 @@ test.describe("the preview modes on a phone", () => {
     );
     expect(paddingTop).toBeLessThan(8);
 
-    await mode(page, "On page").click();
-    const fieldsGap = await gapUnder(page.locator('[data-val-pane="fields"]'));
+    await goTo(page, "On this page");
+    const fieldsGap =
+      (await top(page.locator('[data-val-pane="fields"]'))) - stripBottom;
     expected(fieldsGap);
-
-    await mode(page, "Preview").click();
-    const previewGap = await gapUnder(page.locator('[data-val-pane="canvas"]'));
-    expected(previewGap);
-
-    // The same gap, not merely three gaps in the same range.
     expect(Math.abs(fieldsGap - normalGap)).toBeLessThan(2);
-    expect(Math.abs(previewGap - normalGap)).toBeLessThan(2);
+
+    /**
+     * The preview has no strip, so its address bar takes the strip's line:
+     * the same distance under the top bar, not the strip's clearance on top
+     * of a strip that is not there.
+     */
+    await goTo(page, "Preview");
+    const previewTop = await top(page.locator('[data-val-pane="canvas"]'));
+    expect(Math.abs(previewTop - stripBox.y)).toBeLessThan(2);
   });
 
-  test("puts the way out at the far right of the strip", async ({ page }) => {
+  test("puts the way out at the far right of the preview", async ({ page }) => {
     await openPreview(page);
+    await goTo(page, "Preview");
 
     const exit = page.getByRole("button", { name: "Exit Preview" });
     await expect(exit).toBeVisible();
     const exitBox = await exit.boundingBox();
-    const switchBox = await modeSwitch(page).boundingBox();
     const viewport = page.viewportSize();
-    if (exitBox === null || switchBox === null || viewport === null) {
-      throw new Error("expected the strip to be laid out");
+    if (exitBox === null || viewport === null) {
+      throw new Error("expected the preview's header to be laid out");
     }
 
     /**
-     * Where you can GO on the left, how to LEAVE on the right.
-     *
-     * The right of this row used to hold a second two-state switch, whose
-     * "Editor" half meant "not the page" and whose other half meant the page —
-     * so the row had two controls that each changed what the other one meant.
-     * The X is the only thing on the right now, and it does one thing.
+     * Where you can GO is the bar along the bottom, how to LEAVE is the X at
+     * the end of the preview's own header -- on the screen, not pushed off
+     * the end of a row that has outgrown it.
      */
-    expect(exitBox.x).toBeGreaterThan(switchBox.x + switchBox.width);
-    expect(exitBox.x + exitBox.width).toBeGreaterThan(viewport.width - 24);
-
-    /**
-     * And the whole row still fits on the screen.
-     *
-     * The options are words, and words get renamed: "Normal" and "Fields"
-     * became "Structure" and "On page", which is four more characters on a row
-     * that does not wrap. The X is pushed right by `ml-auto`, so a row that has
-     * outgrown the screen does not look cramped — it takes the X off the end of
-     * it, and on a narrower phone Preview, the only visible way to the page,
-     * goes with it.
-     */
-    expect(switchBox.x).toBeGreaterThan(0);
+    expect(exitBox.x + exitBox.width).toBeGreaterThan(viewport.width - 32);
     expect(exitBox.x + exitBox.width).toBeLessThanOrEqual(viewport.width);
-
-    // Same height as the switch beside it: four controls on one row, one of
-    // which is a couple of pixels shorter, reads as a mistake.
-    expect(Math.abs(exitBox.height - switchBox.height)).toBeLessThan(2);
   });
 
   /**
-   * The whole point of the modes.
+   * The whole point of the panes.
    *
    * Edit, look, edit again — and every hop between them has to be free. The
    * canvas is the running site in a frame, so a remount is a full page load:
@@ -170,68 +182,77 @@ test.describe("the preview modes on a phone", () => {
    * inside it all go. The frame is therefore tagged and the tag is looked for
    * again, because "the canvas is still on screen" is true of a reloaded one.
    */
-  test("moves between the modes without reloading the page", async ({
+  test("moves between the panes without reloading the page", async ({
     page,
   }) => {
     await openPreview(page);
     const frame = canvasFrame(page);
-    await expect(frame).toBeVisible();
+    await expect(frame).toHaveCount(1);
     await frame.evaluate((node) => {
       node.setAttribute("data-e2e-probe", "same-frame");
     });
 
-    // Every hop the three modes offer, including the two that swap what the
-    // left pane holds while the page sits off screen.
-    const hops: ReadonlyArray<"Structure" | "On page" | "Preview"> = [
-      "Structure",
-      "On page",
+    // Every hop there is, including the two that swap what Content holds
+    // while the page sits off screen.
+    const hops: ReadonlyArray<Stop> = [
+      "Content",
+      "On this page",
       "Preview",
-      "Structure",
+      "Content",
+      "Preview",
+      "On this page",
     ];
-    for (const name of hops) {
-      // Clicked without asking whether it is there. Skipping a missing mode
-      // would let this pass on the very regression it is here to catch: the
-      // three states are always all three, so an absent one is a failure and
-      // not a case to step over.
-      const tab = mode(page, name);
-      await tab.click();
-      await expect(tab).toHaveAttribute("aria-selected", "true");
+    for (const stop of hops) {
+      // Gone to without asking whether it is there. Skipping a missing view
+      // would let this pass on the very regression it is here to catch.
+      await goTo(page, stop);
       await expect(
         frame,
-        `the canvas was thrown away and rebuilt on the way to ${name}`,
+        `the canvas was thrown away and rebuilt on the way to ${stop}`,
       ).toHaveAttribute("data-e2e-probe", "same-frame");
     }
   });
 
   /**
-   * Preview, on a phone, is "take me there" and then "take me back".
+   * Preview, on a phone, is "take me there", and Content "take me back".
    *
    * Not a toggle that closes: edit, look, edit again is the loop this screen is
    * for, and a button that tore the page down every other press made the middle
    * step cost a page load. Leaving is the X, and only the X.
    */
-  test("goes to the page and back on the Preview button", async ({ page }) => {
+  test("goes to the page and back on the pane bar", async ({ page }) => {
     await openStudio(page, HOME);
+    await expect(canvasFrame(page)).toHaveCount(0);
 
-    const preview = page.getByRole("tab", { name: "Preview" });
-    await page.getByRole("button", { name: "Open the canvas" }).click();
-    await expect(preview).toHaveAttribute("aria-selected", "true");
+    await paneButton(page, "Preview").click();
+    await expect(paneButton(page, "Preview")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(canvasFrame(page)).toBeVisible();
 
-    await page.getByRole("button", { name: "Back to the editor" }).click();
-    await expect(preview).toHaveAttribute("aria-selected", "false");
+    await paneButton(page, "Content").click();
+    await expect(paneButton(page, "Content")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     // The page is still there, off screen, rather than gone: that is the
     // difference between coming back and closing.
     await expect(canvasFrame(page)).toHaveCount(1);
+    await expect(modeSwitch(page)).toBeVisible();
 
-    await page.getByRole("button", { name: "Back to the preview" }).click();
-    await expect(preview).toHaveAttribute("aria-selected", "true");
+    await paneButton(page, "Preview").click();
+    await expect(paneButton(page, "Preview")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   /**
    * Picking on the page is a request to edit the thing picked.
    *
-   * So it has to end at the field, every time: the fields mode, on the left
-   * pane, scrolled to the field that was picked. On a phone the field is on the
+   * So it has to end at the field, every time: On this page, in Content,
+   * scrolled to the field that was picked. On a phone the field is on the
    * pane the page is NOT on, so a pick that only changed the view left you
    * looking at the page you had just selected on.
    */
@@ -241,13 +262,14 @@ test.describe("the preview modes on a phone", () => {
     // A fresh browser has no preview cookie, so the page mounts none of Val's
     // client code and reports nothing to pick -- until the canvas turns
     // preview mode on by itself (`CanvasPreviewNotice`).
-    const fields = mode(page, "On page");
+    await paneButton(page, "Content").click();
+    const fields = mode(page, "On this page");
     await expect(fields).toBeVisible({ timeout: 60_000 });
 
-    // On page arms picking; Preview then puts the page in front of you with it
-    // still armed, which is the state a pick happens in.
-    await fields.click();
-    await mode(page, "Preview").click();
+    // On this page arms picking; Preview then puts the page in front of you
+    // with it still armed, which is the state a pick happens in.
+    await goTo(page, "On this page");
+    await goTo(page, "Preview");
     await expect(
       page.getByRole("button", { name: "Stop selecting on the page" }),
     ).toBeVisible();
@@ -265,13 +287,13 @@ test.describe("the preview modes on a phone", () => {
       })
       .toContain('."hero"."lead"');
     // ...and the phone is looking at the fields, not still at the page.
-    await expect(mode(page, "On page")).toHaveAttribute(
+    await expect(paneButton(page, "Content")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(mode(page, "On this page")).toHaveAttribute(
       "aria-selected",
       "true",
-    );
-    await expect(mode(page, "Preview")).toHaveAttribute(
-      "aria-selected",
-      "false",
     );
     // Scrolled to it, rather than listing it somewhere below the fold.
     const row = page.locator(`[data-canvas-field='${TEXT_FIELD}']`);
@@ -280,7 +302,6 @@ test.describe("the preview modes on a phone", () => {
 
   test("stops the page when you exit", async ({ page }) => {
     await openPreview(page);
-    await expect(canvasFrame(page)).toBeVisible();
 
     await page.getByRole("button", { name: "Exit Preview" }).click();
 
@@ -290,6 +311,10 @@ test.describe("the preview modes on a phone", () => {
     await expect(modeSwitch(page)).toHaveCount(0);
     // And the editor is back, at the page it was on.
     await expect(page.locator("#val-content-area")).toBeVisible();
+    await expect(paneButton(page, "Content")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
   /**
    * The state the phone kept getting stuck in, forced rather than raced.
@@ -325,9 +350,10 @@ test.describe("the preview modes on a phone", () => {
     page,
   }) => {
     await openPreview(page);
+    await paneButton(page, "Content").click();
     // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
-    await expect(mode(page, "On page")).toBeVisible({ timeout: 60_000 });
-    await mode(page, "On page").click();
+    await expect(mode(page, "On this page")).toBeVisible({ timeout: 60_000 });
+    await mode(page, "On this page").click();
 
     const fields = page.getByRole("heading", { name: "On this page" });
     await expect(fields).toBeVisible();
@@ -424,7 +450,7 @@ test.describe("dragging a list row on a phone", () => {
 
   test("keeps the dragged row under the finger", async ({ page }) => {
     await openPreview(page);
-    await mode(page, "Structure").click();
+    await goTo(page, "Content");
 
     const grip = page
       .locator("#val-shadow-root")

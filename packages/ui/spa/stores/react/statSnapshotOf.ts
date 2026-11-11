@@ -1,7 +1,8 @@
-import type { Api } from "@valbuild/shared/internal";
+import type { Api, StatManifestT } from "@valbuild/shared/internal";
 import type { z } from "zod";
 import type { PatchId } from "@valbuild/core";
 import type { StatSnapshot } from "../StatStore";
+import { carriedManifestOf, type CarriedManifest } from "../manifestSource";
 
 /**
  * What the stores take from a `/stat` answer: the one mapping from what the
@@ -28,7 +29,16 @@ export function statSnapshotOf(stat: StatSnapshotSource): StatSnapshot {
     // Drained by the server as it answers (`fs` mode), so dropped here they
     // are lost: nobody is told their unpublished work was removed.
     ...(stat.removed !== undefined ? { removed: stat.removed } : {}),
+    // The manifest the answer carried, when the request asked for it.
+    ...carried(stat.manifest),
   };
+}
+
+function carried(json: StatManifestT | undefined): {
+  manifest?: CarriedManifest;
+} {
+  const manifest = carriedManifestOf(json);
+  return manifest !== undefined ? { manifest } : {};
 }
 
 /**
@@ -47,6 +57,8 @@ export type StatSnapshotSource = {
   /** The answer's project version: only its `seq` is taken. */
   version?: { seq: number };
   removed?: { patchId: PatchId; reason: string }[];
+  /** The manifest the answer carried (`StatManifest`). */
+  manifest?: StatManifestT;
 };
 
 /** The 200 body of `/stat`. */

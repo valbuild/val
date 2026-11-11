@@ -10,6 +10,7 @@ import React, {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import { assistantMarkdownComponents } from "./assistantMarkdown";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
@@ -28,6 +29,7 @@ import {
   ChevronLeft,
   Paperclip,
   X,
+  MousePointerSquareDashed,
   AlertTriangle,
   ArrowUp,
   Clock,
@@ -298,6 +300,12 @@ export type AIChatHandle = {
    * does: shown in the chat, then sent. Ignored while a turn is running.
    * What the Sketchpad's "Send to AI" goes through, so the message it sends
    * is on screen like anything typed.
+   *
+   * As a chat's FIRST message, with more than one model to choose from, it is
+   * held instead: a chat keeps the model it starts with, and a message the
+   * person did not type -- the Sketchpad's Build -- would otherwise start it
+   * on whichever model was picked last, without ever showing the choice. It
+   * waits above the composer with the model picker until they send it.
    */
   sendUserMessage: (text: string) => void;
   /**
@@ -339,6 +347,13 @@ export type AIChatProps = {
    * sent, not with whichever message is sent next.
    */
   onCaptureSendContext?: () => SendContext;
+  /**
+   * What the next message is about: picked on the page with the Assistant's
+   * Select. Shown above the composer, and goes with the next message.
+   */
+  pointedAt?: PickedElement | null;
+  /** Take the pick off the next message. */
+  onClearPointedAt?: () => void;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
   /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
@@ -717,6 +732,48 @@ function getImageUrls(content: AIMessageContent): string[] {
     .map((block) => block.url);
 }
 
+/**
+ * What the next message is about, above the composer: the element picked on
+ * the page with the Assistant's Select. Named as the page shows it -- its
+ * words, or its tag where it has none -- with the field it shows when it shows
+ * one, and removable, since a pick nobody meant should not go with the
+ * message.
+ */
+function PointedAtChip({
+  pointedAt,
+  onRemove,
+}: {
+  pointedAt: PickedElement;
+  onRemove?: () => void;
+}) {
+  const name = pointedAt.text !== "" ? pointedAt.text : `<${pointedAt.tag}>`;
+  return (
+    <div className="mb-2 flex">
+      <div
+        data-val-pointed-at=""
+        title={pointedAt.valPath ?? pointedAt.selector}
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-dashed border-border-brand-secondary bg-bg-secondary px-2 py-1 text-xs touch:text-sm text-fg-primary"
+      >
+        <MousePointerSquareDashed className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
+        <span className="shrink-0 font-mono text-[10px] text-fg-tertiary">
+          &lt;{pointedAt.tag}&gt;
+        </span>
+        <span className="min-w-0 truncate">{name}</span>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="ml-0.5 shrink-0 text-fg-secondary hover:text-fg-primary"
+            aria-label="Do not send what you pointed at"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -730,6 +787,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     modelLocked,
     onSendMessage,
     onCaptureSendContext,
+    pointedAt,
+    onClearPointedAt,
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
@@ -975,8 +1034,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   // `handleSend` is declared below the handle, which reaches it through this.
   const handleSendRef = useRef<((suggestion?: string) => void) | null>(null);
+  /** A first message waiting for the model to be chosen: see `sendUserMessage`. */
+  const [staged, setStaged] = useState<string | null>(null);
+  /** Whether the next message sent from outside waits for a model. */
+  const chooseModelFirstRef = useRef(false);
   useImperativeHandle(ref, () => ({
     sendUserMessage(text: string) {
+      if (chooseModelFirstRef.current) {
+        setStaged(text);
+        return;
+      }
       handleSendRef.current?.(text);
     },
     startAssistantMessage(id: string) {
@@ -1175,6 +1242,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  chooseModelFirstRef.current =
+    isEmpty &&
+    !modelLocked &&
+    onSelectModel !== undefined &&
+    (models?.length ?? 0) > 1;
   const viewerId = together?.viewerId ?? null;
   const viewer = together?.people.find((p) => p.id === viewerId) ?? null;
   const turnBy = together?.turnBy ?? null;
@@ -1809,6 +1881,30 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             {othersTurn && turnBy && (
               <OthersTurnStrip turnBy={turnBy} queued={queue.length} />
             )}
+            {staged !== null && (
+              <StagedFirstMessage
+                text={staged}
+                // Started meanwhile -- something typed, another chat opened:
+                // its model is settled, and the message goes into it.
+                choosesModel={chooseModelFirstRef.current}
+                picker={
+                  models && onSelectModel && chooseModelFirstRef.current ? (
+                    <AIChatModelPicker
+                      models={models}
+                      selectedModel={selectedModel}
+                      onSelectModel={onSelectModel}
+                      portalContainer={portalContainer}
+                    />
+                  ) : null
+                }
+                canSend={isConnected && !authError && selectedModel != null}
+                onSend={() => {
+                  setStaged(null);
+                  handleSend(staged);
+                }}
+                onCancel={() => setStaged(null)}
+              />
+            )}
             {queue.length > 0 && (
               <QueuedMessages
                 queue={queue}
@@ -1825,6 +1921,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 onMoveUp={moveQueuedUp}
                 onSendNext={busy ? null : sendNext}
                 onClear={clearQueue}
+              />
+            )}
+            {pointedAt && (
+              <PointedAtChip
+                pointedAt={pointedAt}
+                onRemove={onClearPointedAt}
               />
             )}
             {/* Attached file previews */}
@@ -2015,6 +2117,65 @@ function OthersTurnStrip({
             : `Then yours, ${queued} of them, in order.`}
       </span>
     </div>
+  );
+}
+
+/**
+ * A chat's first message, sent from outside the composer (the Sketchpad's
+ * Build), waiting for its model: the message as it will be sent, the model
+ * picker, and Send. See `AIChatHandle.sendUserMessage`.
+ */
+function StagedFirstMessage({
+  text,
+  choosesModel,
+  picker,
+  canSend,
+  onSend,
+  onCancel,
+}: {
+  text: string;
+  /** Still the chat's first message: its model is chosen here. */
+  choosesModel: boolean;
+  picker: React.ReactNode;
+  canSend: boolean;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section
+      aria-label="Ready to send"
+      className="mb-2 flex flex-col gap-2 rounded-md border border-border-brand-primary bg-bg-secondary p-2 text-xs touch:text-sm"
+    >
+      <p className="text-fg-primary">
+        {choosesModel
+          ? "Choose the model for this chat, then send. A chat keeps the model it starts with."
+          : "Send this to the chat?"}
+      </p>
+      <div className="rounded-md bg-bg-primary px-2 py-1.5 text-fg-primary">
+        {renderUserMessageText(text)}
+      </div>
+      <div className="flex items-center gap-1">
+        {picker}
+        <span className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            className="h-7 px-2 text-xs touch:text-sm"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={onSend}
+            disabled={!canSend}
+            className="h-7 px-3 text-xs touch:text-sm"
+          >
+            Send
+          </Button>
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -2446,7 +2607,9 @@ function MessageBubble({
                 </div>
               )}
               {textContent ? (
-                <ReactMarkdown>{textContent}</ReactMarkdown>
+                <ReactMarkdown components={assistantMarkdownComponents}>
+                  {textContent}
+                </ReactMarkdown>
               ) : isStreamingMsg ||
                 isError ||
                 fileUrls.length > 0 ||

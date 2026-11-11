@@ -333,6 +333,27 @@ const contentVersion = (() => {
   return { id, job, commit, modules, files };
 })();
 `;
+/**
+ * What each Val module depends on, as the build resolved its imports
+ * (`valModulesEntry` in this package): the build defines it as a global
+ * (`MODULE_DEPENDENCIES_GLOBAL`), and this hands it to Val's server as
+ * `moduleDependencies`. After {@link CONTENT_BLOCK}, where a rebake puts it
+ * in a file wired before it.
+ */
+const DEPENDENCIES_BLOCK = `/*
+ * WHAT EACH VAL MODULE DEPENDS ON, as this build resolved its imports.
+ *
+ * At a proposal's address it is how Val knows that a module whose own file
+ * is not staged is still of code this build was not made of, through a file
+ * it imports. Defined by the build; \`undefined\` from a builder that
+ * predates it, and then only staged module files count.
+ */
+const MODULE_DEPENDENCIES = globalThis.__VAL_MODULE_DEPENDENCIES__;
+
+`;
+/** And the option that hands it to Val, after the content version's. */
+const DEPENDENCIES_OPTION =
+  "        ...(MODULE_DEPENDENCIES !== undefined\n          ? { moduleDependencies: MODULE_DEPENDENCIES }\n          : {}),\n";
 /** Where {@link PROPOSAL_BLOCK} goes: right after this line. */
 const SERVED_BUILD_LINE = 'const servedBuild = secret("VAL_BUILD");\n';
 /** And the option that hands it to Val, after the build's. */
@@ -472,7 +493,7 @@ const valProject = secret("VAL_PROJECT");
  * Ignored by a @valbuild/tanstack that predates it.
  */
 const servedBuild = secret("VAL_BUILD");
-${PROPOSAL_BLOCK}${CONTENT_BLOCK}const valConfig = {
+${PROPOSAL_BLOCK}${CONTENT_BLOCK}${DEPENDENCIES_BLOCK}const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
 };
@@ -539,7 +560,7 @@ const http =
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
         ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
-${PROPOSAL_OPTION}${CONTENT_OPTION}      }
+${PROPOSAL_OPTION}${CONTENT_OPTION}${DEPENDENCIES_OPTION}      }
     : undefined;
 
 const { valApiHandler, draftMode } = initValServer(
@@ -739,6 +760,13 @@ declare var __PLATFORM_PROJECT_ID: string | undefined
  */
 // eslint-disable-next-line no-var
 declare var __PLATFORM_SECRETS: Record<string, string> | undefined
+/**
+ * What each Val module of this build depends on, by path, as the build
+ * resolved its imports. Defined by the platform's build; absent from a
+ * builder that predates it.
+ */
+// eslint-disable-next-line no-var
+declare var __VAL_MODULE_DEPENDENCIES__: Record<string, string[]> | undefined
 `;
 
 /**
@@ -863,6 +891,40 @@ function rebakeContent(source: string): string {
       );
 }
 
+/**
+ * `source` handing Val each module's dependencies: {@link DEPENDENCIES_BLOCK}
+ * and its option added after the content version's, to a file wired before
+ * they existed. Idempotent, and only where both places are exactly as
+ * generated -- a file somebody edited is left as it is, and Val counts only
+ * staged module files at a proposal's address, as before.
+ */
+function rebakeDependencies(source: string): string {
+  const once = (needle: string) => {
+    const at = source.indexOf(needle);
+    return at !== -1 && source.indexOf(needle, at + 1) === -1;
+  };
+  if (!once(CONTENT_BLOCK) || !once(CONTENT_OPTION)) return source;
+  const hasBlock = source.includes(DEPENDENCIES_BLOCK);
+  const hasOption = source.includes(DEPENDENCIES_OPTION);
+  if (hasBlock && hasOption) return source;
+  // Each piece once, whatever left the other there: an option without its
+  // block names a constant that does not exist.
+  let next = source;
+  if (!hasBlock) {
+    next = next.replace(
+      CONTENT_BLOCK,
+      () => CONTENT_BLOCK + DEPENDENCIES_BLOCK,
+    );
+  }
+  if (!hasOption) {
+    next = next.replace(
+      CONTENT_OPTION,
+      () => CONTENT_OPTION + DEPENDENCIES_OPTION,
+    );
+  }
+  return next;
+}
+
 /** `source` with its job set, or `source` itself when it cannot carry one. */
 function rebakeJob(source: string, job: string | null): string {
   const line = `const BUILT_FOR_JOB = ${job === null ? "null" : JSON.stringify(job)};`;
@@ -956,7 +1018,7 @@ export function rebakeGit(
   const withJob = job === undefined ? withGit : rebakeJob(withGit, job);
   return {
     ...files,
-    [VAL_SERVER]: rebakeContent(rebakeProposal(withJob)),
+    [VAL_SERVER]: rebakeDependencies(rebakeContent(rebakeProposal(withJob))),
   };
 }
 

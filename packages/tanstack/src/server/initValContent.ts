@@ -34,6 +34,7 @@ import {
   createValRuntime,
   draftForRequest,
   proposalAsBuilt,
+  servingBuildOf,
   readDraftChanges,
   readerSchemaVersion,
   type ValRuntime,
@@ -141,13 +142,19 @@ type Snapshot = Record<ModuleFilePath, Json>;
  */
 export function snapshotForReaders(
   http:
-    | Pick<ValHttpMode, "proposal" | "contentVersion" | "projectSource">
+    | Pick<
+        ValHttpMode,
+        "proposal" | "contentVersion" | "projectSource" | "moduleDependencies"
+      >
     | undefined,
 ): Snapshot | undefined {
   const source = layeredSnapshot(
-    // Not a module staged after the build serving the address: its Source
-    // fits code these readers have not got. See `proposalAsBuilt`.
-    http?.proposal !== undefined ? proposalAsBuilt(http.proposal) : undefined,
+    // Not a module staged after the build serving the address -- its own
+    // file, or a file it imports: its Source fits code these readers have
+    // not got. See `proposalAsBuilt`.
+    http?.proposal !== undefined
+      ? proposalAsBuilt(http.proposal, servingBuildOf(http))
+      : undefined,
     http?.contentVersion,
   );
   return source !== undefined

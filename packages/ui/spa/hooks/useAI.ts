@@ -42,6 +42,12 @@ import {
   storedToolActivities,
 } from "./sharedChat";
 import { AskUserQuestionArgs } from "./askUserQuestion";
+import {
+  needsWebSearchConfirmation,
+  webSearchConfirmationOf,
+  webSearchConfirmationQuestions,
+  withWebSearchWaits,
+} from "./webSearchGate";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -79,6 +85,7 @@ import type {
   AIModel,
   AISession,
   AIServerMessage,
+  AIToolCallMessage,
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
@@ -142,6 +149,19 @@ import {
   runQuickPreviewTool,
 } from "../proposals/proposalCode";
 import { quickPreviewRunner } from "../proposals/quickPreviewControl";
+import {
+  NO_PREVIEW,
+  PAGE_PROMPT_SECTION,
+  READ_PAGE_TOOL,
+  runReadPage,
+  runScreenshotPage,
+  SCREENSHOT_PAGE_TOOL,
+} from "./pageTools";
+import {
+  takePointedAt,
+  type AssistantPage,
+} from "../components/shell/canvas/AssistantPage";
+import type { PickedElement } from "@valbuild/shared/internal";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
@@ -681,6 +701,12 @@ export type UseAIOptions = {
   onSessionBorn?: (id: string) => void;
   /** Called when the session returns to the unborn state (newSession, or loadSession failure). */
   onSessionCleared?: () => void;
+  /**
+   * The page in the Studio's preview: what the Assistant's Select pointed at,
+   * which goes with the next message, and the page `read_page` and
+   * `screenshot_page` read. Absent outside the Studio.
+   */
+  page?: AssistantPage | null;
 };
 
 /**
@@ -775,9 +801,19 @@ export function useAI(
   >(null);
   /** The files this tab put in the chat, by key: `convert_session_image`. */
   const sessionFilesRef = useRef(new Map<string, File>());
+  const pageRef = useRef(opts?.page ?? null);
+  pageRef.current = opts?.page ?? null;
+  /**
+   * The element the last message carried. The pick is cleared once it is
+   * sent, and the turn that message starts is when `read_page`'s `picked` is
+   * asked for: it means this one.
+   */
+  const lastPointedAtRef = useRef<PickedElement | null>(null);
   /** The picked element, taken for a message that waits in the queue. */
   const captureSendContext = useCallback(
-    (): SendContext => ({ pointedAt: null }),
+    (): SendContext => ({
+      pointedAt: takePointedAt(undefined, pageRef.current),
+    }),
     [],
   );
   proposalBuildRef.current = proposalBuild;
@@ -1197,6 +1233,17 @@ export function useAI(
   const pendingQuestionsRef = useRef<Map<string, string>>(new Map());
   // The `request_code_mode` cards shown, by tool call: what each asked.
   const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
+  // Prompts whose turn has searched the web: see `webSearchGate.ts`.
+  const webSearchedPromptsRef = useRef<Set<string>>(new Set());
+  // Tool calls waiting on the person after a web search, by tool call, and
+  // the ones they allowed, which run without asking again.
+  const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
+  const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // The message handler, so an allowed call can be run by the same code that
+  // runs every other.
+  const handleServerMessageRef = useRef<
+    ((message: AIServerMessage) => void) | null
+  >(null);
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
@@ -1292,6 +1339,56 @@ export function useAI(
           message.outputTokens,
           !message.estimated,
         );
+      } else if (message.type === "ai_web_search") {
+        // The rest of this turn is tainted: see `webSearchGate.ts`.
+        webSearchedPromptsRef.current.add(message.id);
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        // The provider ran it, so it has no tool call id of its own and is
+        // already done: a row that says so, so the person can see it happened.
+        const rowId = `web_search:${randomUUID()}`;
+        chatRef.current.addToolCall(message.id, rowId, "web_search");
+        chatRef.current.completeToolCall(message.id, rowId);
+      } else if (
+        message.type === "ai_tool_call" &&
+        !webAllowedCallsRef.current.has(message.toolCallId) &&
+        needsWebSearchConfirmation(
+          message.name,
+          webSearchedPromptsRef.current.has(message.id),
+        )
+      ) {
+        if (!chatRef.current) {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: false,
+              error:
+                "This needs the person's permission after a web search, and the chat is not available to ask. Do not change code in this answer.",
+            },
+            isError: true,
+          });
+          return;
+        }
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        // The Studio's own question, on the tool's row. Answered through
+        // `answerToolQuestions`, which runs the call if it is allowed.
+        chatRef.current.addToolCall(
+          message.id,
+          message.toolCallId,
+          message.name,
+          webSearchConfirmationQuestions(message.name),
+        );
+        webGatedCallsRef.current.set(message.toolCallId, message);
+        pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -1327,8 +1424,12 @@ export function useAI(
             return;
           }
         }
-        // Ensure assistant message is active so tool indicators can be shown
-        if (chatRef.current) {
+        // Ensure assistant message is active so tool indicators can be shown.
+        // A call the person allowed after a web search has its row already.
+        if (
+          chatRef.current &&
+          !webAllowedCallsRef.current.has(message.toolCallId)
+        ) {
           if (activeIdRef.current !== message.id) {
             activeIdRef.current = message.id;
             chatRef.current.startAssistantMessage(message.id);
@@ -2217,6 +2318,51 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (message.name === "read_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const page = pageRef.current;
+          void runReadPage(message.arguments, {
+            readPage: page?.readPage() ?? null,
+            // What the message this turn answers was about first: a pick
+            // made since is for the NEXT message. Only a turn whose message
+            // carried none reads the one waiting by the composer.
+            pointedAt: lastPointedAtRef.current ?? page?.pointedAt ?? null,
+            noPage: NO_PREVIEW,
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (message.name === "screenshot_page") {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          void runScreenshotPage(message.arguments, {
+            screenshotPage: pageRef.current?.screenshotPage() ?? null,
+            noPage: NO_PREVIEW,
+            uploadImage: (file) => {
+              const upload = uploadAiImageRef.current;
+              if (upload === null) {
+                return Promise.reject(
+                  new Error("The chat cannot take images yet."),
+                );
+              }
+              return upload(file);
+            },
+          }).then(({ result, isError, images }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+              ...(images !== undefined ? { images } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (message.name === "quick_preview") {
           // Shown in the shell's canvas, which registered it.
           const toolCallId = message.toolCallId;
@@ -2940,6 +3086,7 @@ export function useAI(
       }
     };
 
+    handleServerMessageRef.current = handler;
     return subscribeToWsMessages(handler);
   }, [
     subscribeToWsMessages,
@@ -3112,7 +3259,8 @@ export function useAI(
           lines.join("\n") +
           "]";
       }
-      const pointedAt = context?.pointedAt ?? null;
+      const pointedAt = takePointedAt(context, pageRef.current);
+      lastPointedAtRef.current = pointedAt;
       if (pointedAt !== null) {
         augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
       }
@@ -3147,6 +3295,12 @@ export function useAI(
             // refused. Null means AI is off, which is checked before we get
             // here.
             model,
+            // The project's setting; the server adds the provider's search
+            // tool. Sent only when on, so a server that does not know it is
+            // never asked.
+            ...(valReads.getAssistantSettings().webSearch
+              ? { webSearch: true }
+              : {}),
             systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
@@ -3231,7 +3385,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}${
+            )}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
               hostedRef.current
                 ? codeToolsPromptSection(
                     currentProposalRef.current !== null
@@ -3240,18 +3394,25 @@ Do not describe what you will do unless you do it for clarification — just do 
                   )
                 : ""
             }`,
-            tools: [
-              ...ALL_TOOLS,
-              ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-              // Hosted only: see `hostedRef`.
-              ...(hostedRef.current
-                ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
-                : []),
-              // A quick preview is shown in a proposal's preview.
-              ...(hostedRef.current && currentProposalRef.current !== null
-                ? [QUICK_PREVIEW_TOOL]
-                : []),
-            ],
+            tools: withWebSearchWaits(
+              [
+                ...ALL_TOOLS,
+                ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                // In the Studio: the page in its preview.
+                ...(pageRef.current !== null
+                  ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL]
+                  : []),
+                // Hosted only: see `hostedRef`.
+                ...(hostedRef.current
+                  ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                  : []),
+                // A quick preview is shown in a proposal's preview.
+                ...(hostedRef.current && currentProposalRef.current !== null
+                  ? [QUICK_PREVIEW_TOOL]
+                  : []),
+              ],
+              valReads.getAssistantSettings().webSearch === true,
+            ),
           },
         ],
       };
@@ -3330,8 +3491,43 @@ Do not describe what you will do unless you do it for clarification — just do 
     return true;
   }, [sendWsMessage, chatRef]);
 
+  /**
+   * The person answered the Studio's question about a call after a web search
+   * (or closed it, `null`): run the call, or tell the model they said no.
+   */
+  const answerWebSearchConfirmation = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
+      const call = webGatedCallsRef.current.get(toolCallId);
+      if (call === undefined) return false;
+      webGatedCallsRef.current.delete(toolCallId);
+      const messageId = pendingQuestionsRef.current.get(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const confirmation = webSearchConfirmationOf(answers);
+      if (confirmation.allow) {
+        webAllowedCallsRef.current.add(toolCallId);
+        handleServerMessageRef.current?.(call);
+        return true;
+      }
+      if (messageId !== undefined) {
+        chatRef.current?.errorToolCall(messageId, toolCallId);
+      }
+      const sent = sendWsMessage({
+        type: "ai_tool_result",
+        toolCallId,
+        result: confirmation.result,
+        isError: true,
+      });
+      if (!sent) {
+        failUndeliveredQuestion(messageId);
+      }
+      return true;
+    },
+    [sendWsMessage, failUndeliveredQuestion, chatRef],
+  );
+
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
+      if (answerWebSearchConfirmation(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3343,11 +3539,12 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion],
+    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
   );
 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
+      if (answerWebSearchConfirmation(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3360,7 +3557,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion],
+    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
   );
 
   /** Answer a `request_code_mode` card, and move it on. */
@@ -3468,6 +3665,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
+      webGatedCallsRef.current.clear();
     },
     [sendWsMessage],
   );

@@ -469,15 +469,6 @@ export type OverlayEvent =
       type: "source-update";
       moduleFilePath: ModuleFilePath;
       read: ModuleRead;
-      /**
-       * The same source as `read`, for a page from the release before,
-       * which reads this (a deploy rolling out).
-       *
-       * @deprecated Goes in the release after the one that ships `read`,
-       * with the page's fallback that reads it (`applyValEvent`): see
-       * "Release-delayed deletions" in `docs/plans/one-content-model.md`.
-       */
-      source: unknown;
     }
   | { type: "sources-synced" }
   /** The server holds the editor's changes up to `seq`: {@link CatchUp}. */
@@ -508,7 +499,7 @@ export function startOverlayRelay(
   const update: SourceUpdate = (moduleFilePath, source, version) => {
     const read = relayedRead(source, version);
     if (read !== null) {
-      send({ type: "source-update", moduleFilePath, read, source });
+      send({ type: "source-update", moduleFilePath, read });
     }
   };
   const offUpdates = subscribeSourceUpdates(

@@ -99,8 +99,15 @@ function setup() {
     if (typeof detail !== "object" || detail === null) return;
     if (!("type" in detail)) return;
     if (detail.type === "sources-synced") sent.push({ type: "sources-synced" });
-    if (detail.type === "source-update" && "source" in detail) {
-      sent.push({ type: "source-update", source: detail.source });
+    // What the page keeps: the read's source.
+    if (
+      detail.type === "source-update" &&
+      "read" in detail &&
+      typeof detail.read === "object" &&
+      detail.read !== null &&
+      "source" in detail.read
+    ) {
+      sent.push({ type: "source-update", source: detail.read.source });
     }
   };
   window.addEventListener("val-event", listener);

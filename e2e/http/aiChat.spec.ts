@@ -805,13 +805,15 @@ test.describe("ai chat tools", () => {
   });
 
   /**
-   * A turn survives a click in the editor.
+   * A turn survives the assistant being closed.
    *
-   * The panel's scrim covers the whole viewport and closes on any click outside
-   * it, so "dismissing" the assistant is one stray click away — and the obvious
-   * thing to do while the model is working is to carry on editing. Unmounting
-   * the chat on close meant the `ai_tool_call` reached no handler, no result was
-   * ever sent, the edit never landed, and nothing anywhere said so.
+   * Closing it while the model is working is the obvious thing to do once
+   * the question is asked -- to have the room back for the editor or the
+   * page. It used to be one stray click away, when the panel had a scrim
+   * that closed it; it is a pane of the workspace now, closed by its X or
+   * the top bar's switch. Either way, unmounting the chat on close meant the
+   * `ai_tool_call` reached no handler, no result was ever sent, the edit
+   * never landed, and nothing anywhere said so.
    *
    * Driven with a tool the turn BLOCKS on, so the click lands mid-turn: the mock
    * will not move on until the Studio answers.
@@ -839,13 +841,13 @@ test.describe("ai chat tools", () => {
     });
 
     await send(page, "Rename the guides tag");
-    // A click in the editor column, by coordinate: the panel's scrim covers the
-    // whole viewport, so whatever is underneath, the scrim is what receives this
-    // and closes the panel. Well left of the 420px panel on the right.
-    await page.mouse.click(200, 500);
+    await page
+      .locator("#val-shadow-root")
+      .getByRole("button", { name: "Close AI assistant" })
+      .click();
     await expect(
       page.locator("#val-shadow-root").locator(".val-chat-editor-content"),
-      "the click did not dismiss the assistant, so this proves nothing",
+      "the assistant did not close, so this proves nothing",
     ).toBeHidden();
 
     const [call] = await toolCalls(1);

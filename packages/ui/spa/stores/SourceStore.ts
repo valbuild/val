@@ -210,6 +210,16 @@ function isApplied(record: PatchRecord): boolean {
 }
 
 /** A module's view, and what it was made from. */
+/** See {@link SourceStore.rowStates}. */
+export type EntryRowStates = {
+  unloadedKeys: ReadonlySet<string>;
+  errorByKey: ReadonlyMap<string, string>;
+};
+const NO_ROW_STATES: EntryRowStates = {
+  unloadedKeys: new Set(),
+  errorByKey: new Map(),
+};
+
 type Viewed = {
   view: ModuleView;
   /** The base entries it read, by their epoch. */
@@ -1747,6 +1757,27 @@ export class SourceStore {
     status: "complete" | "incomplete" | "error";
     errors: { moduleFilePath: ModuleFilePath; key: string; message: string }[];
   } {
+    /**
+     * Reference-stable BY KEY: the views of the modules asked about and the
+     * failures recorded, which is everything the answer is made of. It is
+     * read on every render of whatever waits for a full load, so walking the
+     * markers per read was a cost per render (a tenth of the busy time of
+     * "used by" at 10,000 posts); a view moves once per batch.
+     */
+    const cacheKey = moduleFilePaths.join("\n");
+    const views = moduleFilePaths.map(
+      (moduleFilePath) => this.views.get(moduleFilePath)?.view,
+    );
+    const held = this.entriesStatusCache.get(cacheKey);
+    if (
+      held !== undefined &&
+      held.failureWrites === this.entryFailures.writes &&
+      held.views.length === views.length &&
+      held.views.every((view, index) => view === views[index])
+    ) {
+      return held.status;
+    }
+    this.activity.work("source:entries-status", cacheKey);
     const errors: {
       moduleFilePath: ModuleFilePath;
       key: string;
@@ -1772,22 +1803,30 @@ export class SourceStore {
       errors.length > 0
         ? { status: "error", errors }
         : { status: incomplete ? "incomplete" : "complete", errors };
-    /**
-     * Reference-stable, by recompute-and-compare: this is read on a render
-     * path, and a hook that returns a fresh object every render is a render
-     * loop as soon as anything downstream puts it in an effect's dependencies.
-     * Keyed on the requested modules.
-     */
-    const cacheKey = moduleFilePaths.join("\n");
-    const previous = this.entriesStatusCache.get(cacheKey);
-    if (previous !== undefined && sameEntriesStatus(previous, next)) {
-      return previous;
-    }
-    this.entriesStatusCache.set(cacheKey, next);
-    return next;
+    // And kept when a moved view gives the same answer, which it usually
+    // does (another batch landed, the load is still incomplete): this is read
+    // on a render path, and a fresh object there is a render loop as soon as
+    // anything downstream puts it in an effect's dependencies.
+    const status =
+      held !== undefined && sameEntriesStatus(held.status, next)
+        ? held.status
+        : next;
+    this.entriesStatusCache.set(cacheKey, {
+      views,
+      failureWrites: this.entryFailures.writes,
+      status,
+    });
+    return status;
   }
 
-  private entriesStatusCache = new Map<string, EntriesStatus>();
+  private entriesStatusCache = new Map<
+    string,
+    {
+      views: (ModuleView | undefined)[];
+      failureWrites: number;
+      status: EntriesStatus;
+    }
+  >();
 
   /**
    * Why this entry's last fetch failed, if it did. For a record row, which
@@ -1801,6 +1840,43 @@ export class SourceStore {
       this.entryFailures.get(entryKey(moduleFilePath, fetchKey))
     );
   }
+
+  /**
+   * A record list's rows that have no content yet: the keys still markers,
+   * and among them those whose fetch failed, with why.
+   *
+   * One answer per view of the module (with the failures recorded), the same
+   * object while that holds: a record list asks on every render, and deriving
+   * it per render asked `entryError` for every key of the record -- at 10,000
+   * keys a walk per render of the list while it scrolled.
+   */
+  rowStates(moduleFilePath: ModuleFilePath): EntryRowStates {
+    const markers = this.markersOf(moduleFilePath);
+    if (markers === null || markers.length === 0) {
+      return NO_ROW_STATES;
+    }
+    const held = this.rowStatesByMarkers.get(markers);
+    if (held !== undefined) {
+      return held;
+    }
+    const unloadedKeys = new Set<string>();
+    const errorByKey = new Map<string, string>();
+    for (const { key, failure } of markers) {
+      if (failure !== undefined) {
+        errorByKey.set(key, failure);
+      } else {
+        unloadedKeys.add(key);
+      }
+    }
+    const states: EntryRowStates = { unloadedKeys, errorByKey };
+    this.rowStatesByMarkers.set(markers, states);
+    return states;
+  }
+
+  private rowStatesByMarkers = new WeakMap<
+    { key: string; failure: string | undefined }[],
+    EntryRowStates
+  >();
 
   /**
    * Does this module hold `.jsonValues()` markers with no content loaded?

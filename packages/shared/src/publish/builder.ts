@@ -33,6 +33,13 @@ export type StudioBuilder = {
   publishArtifacts: Builder["publishArtifacts"];
   /** A build's name, before building it: see `buildInputId`. */
   buildInputId: Builder["buildInputId"];
-  /** A tree's Val modules, as one module to evaluate: see `bundleValModules`. */
-  bundleValModules: Builder["bundleValModules"];
+  /**
+   * A tree's Val modules, as one module to evaluate: see `bundleValModules`.
+   * The Studio evaluates the code and nothing else; what each module depends
+   * on is for the server build (`moduleDependencies`), so it is not asked of
+   * the builder here.
+   */
+  bundleValModules: (
+    ...args: Parameters<Builder["bundleValModules"]>
+  ) => Promise<Pick<Awaited<ReturnType<Builder["bundleValModules"]>>, "code">>;
 };

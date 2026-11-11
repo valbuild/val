@@ -780,6 +780,34 @@ export const PageUpdated: Story = {
   ),
 };
 
+/**
+ * A change that adds a link: the review lists it with its site, whoever made
+ * it. See `NewLinksNotice`.
+ */
+export const AddsALink: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      patches={[
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/home", "sections", "0", "items", "0", "content"],
+              value:
+                "Check out our latest features at https://evil.example/collect?d=draft-pricing.",
+            },
+          ],
+          createdAt: "2025-04-03T08:00:00Z",
+          author: "alice",
+        },
+      ]}
+    />
+  ),
+};
+
 export const PageUpdatedEditable: Story = {
   render: () => (
     <StorySetup

@@ -15,6 +15,14 @@ export type AIChatPanelProps = {
   /** Beside the work area rather than over it. See `FloatingPanel`. */
   docked?: boolean;
   onClose: () => void;
+  /** Before the title: the Assistant's Select, toward the preview. */
+  headerStart?: ReactNode;
+  /** `false`: no scrim, so a click outside does not close it. */
+  modal?: boolean;
+  /** After the title: the tabs, when it shares its column with Sketch. */
+  headerEnd?: ReactNode;
+  /** It was used: a click or a key in it. Decides what keeps a column. */
+  onUse?: () => void;
   /**
    * The assistant itself.
    *
@@ -44,6 +52,10 @@ export function AIChatPanel({
   hidden,
   docked,
   onClose,
+  headerStart,
+  modal,
+  headerEnd,
+  onUse,
   children,
 }: AIChatPanelProps) {
   return (
@@ -51,7 +63,8 @@ export function AIChatPanel({
       side="right"
       width={AI_PANEL_WIDTH}
       title="AI assistant"
-      mobileVariant="bottom-sheet"
+      // On a phone, one of the workspace's panes (`PhonePaneBar`).
+      mobileVariant="pane"
       // The chat is a transcript above a pinned composer, so the sheet has to
       // have a height for that column to fill. See `FloatingPanel`'s `fill`.
       fill
@@ -59,11 +72,20 @@ export function AIChatPanel({
       hidden={hidden}
       docked={docked}
       onClose={onClose}
+      headerStart={headerStart}
+      modal={modal}
+      headerAction={headerEnd}
     >
       {/* `h-full` and no scrolling of its own: the chat is a column with its
           own scroll area for the transcript and a composer pinned under it, so
           a second scroller here would move the composer off screen. */}
-      <div className="h-full overflow-hidden">{children}</div>
+      <div
+        className="h-full overflow-hidden"
+        onPointerDownCapture={onUse}
+        onFocusCapture={onUse}
+      >
+        {children}
+      </div>
     </FloatingPanel>
   );
 }

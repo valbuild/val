@@ -8,8 +8,8 @@ import { CodeModeStatus, type CodeModeBuild } from "./CodeModeStatus";
 export type { CodeModeBuild } from "./CodeModeStatus";
 
 /**
- * What the proposal changes of the site's code: the editor column in code
- * mode, for the person whose view is code mode's (`CodeModeView`).
+ * What the proposal changes of the site's code, in Review beside the
+ * content changes.
  *
  * Beside the Studio's own preview, not with one of its own. Code mode used to
  * replace the editor AND the canvas with a workspace that had its own frame

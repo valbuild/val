@@ -4,7 +4,7 @@ import {
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { hasLocaleRouteParam, isLocaleSchema } from "@valbuild/shared/internal";
 import {
   usePreviewAtPath,
@@ -18,6 +18,7 @@ import {
   VirtualizedRecordList,
 } from "./VirtualizedRecordList";
 import { useValSystem } from "../../stores/react/SystemContext";
+import type { EntryRowStates } from "../../stores/SourceStore";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
@@ -62,6 +63,25 @@ export function RecordFields({
   const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
+  /**
+   * Which list this record draws: preview rows or cards, and the one it drew
+   * last while its preview is being recomputed.
+   *
+   * Read off the preview, which has no data while it is owed again -- and
+   * every batch of `.jsonValues()` entries that lands makes it owed. Drawing
+   * cards for that moment and preview rows after it is two different lists,
+   * so a new scroll viewport each time, back at the top: scrolling a record
+   * of 1,000 posts went back to the top every few screens. Held in state, not
+   * a ref (`architecture/quirks.md`, "A ref mutated during render").
+   */
+  const listKind = recordListKind(previewAtPath);
+  const [heldListKind, setHeldListKind] = useState<RecordListKind>(
+    listKind ?? "cards",
+  );
+  if (listKind !== null && listKind !== heldListKind) {
+    setHeldListKind(listKind);
+  }
+  const shownListKind = listKind ?? heldListKind;
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -214,19 +234,12 @@ export function RecordFields({
     );
   }
 
-  const previewAtPathData =
-    previewAtPath &&
-    "data" in previewAtPath &&
-    previewAtPath.data &&
-    previewAtPath.data.rows?.parent === "record"
-      ? previewAtPath.data
-      : undefined;
   return (
     <div id={path}>
       {previewAtPath?.status === "error" && (
         <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {previewAtPathData && (
+      {shownListKind === "preview" && (
         <RecordPreviewList
           path={path}
           // The KEYS come from the source, not from the preview's `items`: for a
@@ -239,7 +252,7 @@ export function RecordFields({
           keyDecidesLocale={keyDecidesLocale}
         />
       )}
-      {!previewAtPathData && (
+      {shownListKind === "cards" && (
         <RecordCardList
           path={path}
           keys={visibleKeys(Object.keys(source))}
@@ -250,6 +263,26 @@ export function RecordFields({
       )}
     </div>
   );
+}
+
+type RecordListKind = "preview" | "cards";
+
+/**
+ * Preview rows when the record's preview names its rows, cards when it has
+ * none -- or null while it is being computed, which says neither.
+ */
+function recordListKind(
+  preview: ReturnType<typeof usePreviewAtPath>,
+): RecordListKind | null {
+  if (preview?.status === "loading") {
+    return null;
+  }
+  return preview !== undefined &&
+    "data" in preview &&
+    preview.data &&
+    preview.data.rows?.parent === "record"
+    ? "preview"
+    : "cards";
 }
 
 /**
@@ -425,37 +458,18 @@ function RecordCardList({
 function useJsonEntryRowStates(
   moduleFilePath: ModuleFilePath,
   jsonValues: boolean,
-): {
-  unloadedKeys: ReadonlySet<string>;
-  errorByKey: ReadonlyMap<string, string>;
-} {
+): EntryRowStates {
   const val = useValSystem();
+  // What wakes this: the module's source moving. The answer itself is the
+  // store's, worked out once per view (`SourceStore.rowStates`): deriving it
+  // here asked `entryError` for every key of the record on every render.
   const moduleSource = useSourceAtPath(moduleFilePath);
   const data = "data" in moduleSource ? moduleSource.data : undefined;
   return useMemo(() => {
-    const unloadedKeys = new Set<string>();
-    const errorByKey = new Map<string, string>();
-    if (
-      !jsonValues ||
-      data === undefined ||
-      data === null ||
-      typeof data !== "object" ||
-      Array.isArray(data)
-    ) {
-      return { unloadedKeys, errorByKey };
+    if (!jsonValues || val === null) {
+      return NO_ROW_STATES;
     }
-    for (const [key, value] of Object.entries(data)) {
-      if (!Internal.isJson(value)) {
-        continue;
-      }
-      const error = val?.system.sourceStore.entryError(moduleFilePath, key);
-      if (error !== undefined) {
-        errorByKey.set(key, error);
-      } else {
-        unloadedKeys.add(key);
-      }
-    }
-    return { unloadedKeys, errorByKey };
+    return val.system.sourceStore.rowStates(moduleFilePath);
     // `SourceStore.loadEntry` records the failure before it settles, and a
     // failure leaves the marker in place — so the module source this memo
     // depends on has not changed, and the memo would not re-run on its own.
@@ -463,6 +477,11 @@ function useJsonEntryRowStates(
     // entry, which is what wakes the row, and this map is read on that render.
   }, [jsonValues, data, val, moduleFilePath]);
 }
+
+const NO_ROW_STATES: EntryRowStates = {
+  unloadedKeys: new Set(),
+  errorByKey: new Map(),
+};
 
 function RecordPreviewList({
   path,

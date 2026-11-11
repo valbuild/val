@@ -247,7 +247,7 @@ export function defineCanvasSuite(): void {
        * round trip worked, the page came back in draft mode, Val tagged its
        * content, and the frame's message reached the studio.
        */
-      const fieldsTab = studio.getByRole("tab", { name: /On page/ });
+      const fieldsTab = studio.getByRole("tab", { name: /On this page/ });
       await expect(
         fieldsTab,
         "the page never reported any content, so preview mode did not take",
@@ -323,7 +323,7 @@ export function defineCanvasSuite(): void {
       await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
       // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
-      const fieldsTab = studio.getByRole("tab", { name: /On page/ });
+      const fieldsTab = studio.getByRole("tab", { name: /On this page/ });
       await expect(fieldsTab).toBeVisible({ timeout: 60000 });
       await fieldsTab.click();
 
@@ -636,7 +636,7 @@ export function defineCanvasSuite(): void {
       await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
       // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
-      const fieldsTab = studio.getByRole("tab", { name: /On page/ });
+      const fieldsTab = studio.getByRole("tab", { name: /On this page/ });
       await expect(fieldsTab).toBeVisible({ timeout: 60000 });
       await fieldsTab.click();
 
@@ -667,7 +667,7 @@ export function defineCanvasSuite(): void {
       expect(params.get("field")).toContain('"link"."label"');
 
       // Back in the module editor: the whole page, with the field still marked.
-      await studio.getByRole("tab", { name: /Structure/ }).click();
+      await studio.getByRole("tab", { name: /^Content$/ }).click();
       await expect(
         studio.locator("[data-val-studio-path*='\"content\"']").first(),
         "the editor showed the picked field alone, without the rest of its page",
@@ -731,7 +731,9 @@ export function defineCanvasSuite(): void {
       await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
       // The canvas turns preview mode on by itself (`CanvasPreviewNotice`).
-      await expect(studio.getByRole("tab", { name: /On page/ })).toBeVisible({
+      await expect(
+        studio.getByRole("tab", { name: /On this page/ }),
+      ).toBeVisible({
         timeout: 60000,
       });
 
@@ -747,11 +749,11 @@ export function defineCanvasSuite(): void {
       ).toBeVisible();
       // Still the normal view — that is the whole point of the button.
       await expect(
-        studio.getByRole("tab", { name: /Structure/ }),
+        studio.getByRole("tab", { name: /^Content$/ }),
       ).toHaveAttribute("aria-selected", "true");
 
       // Switching to the fields view still turns it on by itself.
-      await studio.getByRole("tab", { name: /On page/ }).click();
+      await studio.getByRole("tab", { name: /On this page/ }).click();
       await expect(
         studio.getByRole("button", { name: "Stop selecting on the page" }),
       ).toBeVisible();

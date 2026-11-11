@@ -40,7 +40,8 @@ export type TourText = { title: string; body: string };
  * Everything else has to be true in BOTH modes, and on a phone — which is why
  * no step says "live", "publish" or "along the top" outside the pair above. In
  * `fs` mode nothing is live and the baseline Review compares against is the
- * working tree; on a phone Preview and Publish are in the bottom bar.
+ * working tree; on a phone Preview is in the bottom bar and Publish beside
+ * the account.
  */
 export type TourStepId =
   | "welcome"

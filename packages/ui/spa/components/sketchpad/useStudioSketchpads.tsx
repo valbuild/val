@@ -43,18 +43,22 @@ export function useStudioSketchpads(options: {
   pageTypes?: string[];
   currentProfileId: string | null;
   /**
-   * Where the Studio is. Going somewhere else -- a page, the Explorer, a
-   * search hit, the assistant's navigate_to -- closes the sketchpad, which
-   * otherwise covers where it went.
+   * Show a page in the Studio's preview: the one the open sketch is about.
+   * The Sketch pane has no preview of its own. See `ValSketchpad`.
    */
-  location: string;
+  onShowRoute: (route: string, how: { pressed: boolean }) => void;
 }): {
   wrap: (children: ReactNode) => ReactNode;
   sketchpad: TopBarSketchpad | undefined;
   onSketchPage: ((page: ShellPage) => void) | undefined;
-  workspaceOverride: ReactNode | undefined;
+  /**
+   * The Sketch pane, while a sketchpad is open: one of the workspace's
+   * panes, beside Content and the preview, not in place of them -- so going
+   * somewhere else in the Studio leaves it open.
+   */
+  sketchPane: ReactNode | undefined;
 } {
-  const { openAssistant, pages, pageTypes, currentProfileId, location } =
+  const { openAssistant, pages, pageTypes, currentProfileId, onShowRoute } =
     options;
   const valClient = useClient();
   const client = useMemo(() => createSketchpadClient(valClient), [valClient]);
@@ -92,14 +96,6 @@ export function useStudioSketchpads(options: {
     }
   }, [snapshot.openId]);
 
-  const lastLocation = useRef(location);
-  useEffect(() => {
-    if (lastLocation.current !== location) {
-      lastLocation.current = location;
-      state.close();
-    }
-  }, [location, state]);
-
   // The list's rows, with anything this tab knows newer than the list.
   const items: SketchpadListItem[] = useMemo(
     () =>
@@ -118,9 +114,14 @@ export function useStudioSketchpads(options: {
     [summaries, snapshot.byId],
   );
 
+  /*
+   * The Sketch pane, and only that. The assistant is a pane of its own: it
+   * opens when something is sent to it (Build, a page to start from), not
+   * because a sketch did -- opening both put the assistant in front of the
+   * sketch that was asked for, wherever the two share a place.
+   */
   const open = (id: string) => {
     state.open(id);
-    openAssistant?.();
   };
   // Stable, so the chat's messages do not re-render with every change here.
   const openRef = useRef(open);
@@ -224,7 +225,7 @@ export function useStudioSketchpads(options: {
           }
         : undefined,
     onSketchPage: available ? (page) => void onSketchPage(page) : undefined,
-    workspaceOverride:
+    sketchPane:
       snapshot.openId !== null ? (
         <ValSketchpad
           state={state}
@@ -232,9 +233,9 @@ export function useStudioSketchpads(options: {
           sketchpads={{ items, refresh: () => void refresh() }}
           onSendToAssistant={openAssistant ? sendToAssistant : undefined}
           onStartFromRoute={openAssistant ? startFromRoute : undefined}
-          onOpenAssistant={openAssistant ?? undefined}
           pageOptions={pageOptions}
           currentProfileId={currentProfileId}
+          onShowRoute={onShowRoute}
         />
       ) : undefined,
   };

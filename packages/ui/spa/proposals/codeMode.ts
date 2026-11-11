@@ -15,9 +15,6 @@ import type { ProposalJson, ProposalsClient } from "./proposalsClient";
  * discards nothing: it stops those saves, and the code tools refuse.
  */
 
-/** What a person sees while code mode is on. */
-export type CodeModeView = "code" | "content";
-
 /**
  * Whether code may be changed in a proposal now, as the code tools are told:
  * when not, who turned code mode off and when, in words.
@@ -118,8 +115,6 @@ export type CodeModeState = {
   proposal: { name: string; displayName: string; on: boolean } | null;
   /** Turning it on or off now. */
   busy: boolean;
-  /** What this person sees while it is on: the content editor by default. */
-  view: CodeModeView;
   /**
    * On the site: the `</>` menu asked for from the chat ("Choose a
    * proposal…"). A count, so asking twice opens it twice.
@@ -127,29 +122,9 @@ export type CodeModeState = {
   menuRequests: number;
 };
 
-/**
- * The view, kept for this tab across a reload: a convenience, so a failed
- * read falls back to the content editor.
- */
-const VIEW_KEY = "val:code-mode-view";
-function storedView(): CodeModeView {
-  try {
-    return globalThis.sessionStorage?.getItem(VIEW_KEY) === "code"
-      ? "code"
-      : "content";
-  } catch {
-    return "content";
-  }
-}
-
-/*
- * The content editor until this person turns code mode on, or arrives from
- * the `</>` menu: someone ELSE turning it on moves nobody.
- */
 let state: CodeModeState = {
   proposal: null,
   busy: false,
-  view: storedView(),
   menuRequests: 0,
 };
 const listeners = new Set<() => void>();
@@ -196,15 +171,6 @@ export function setCodeModeBusy(busy: boolean): void {
   if (state.busy !== busy) set({ busy });
 }
 
-export function setCodeModeView(view: CodeModeView): void {
-  try {
-    globalThis.sessionStorage?.setItem(VIEW_KEY, view);
-  } catch {
-    // Not kept across a reload, then; the view still changes.
-  }
-  if (state.view !== view) set({ view });
-}
-
 /** Open the `</>` menu on the site: the assistant's "Choose a proposal…". */
 export function requestCodeModeMenu(): void {
   set({ menuRequests: state.menuRequests + 1 });
@@ -236,5 +202,5 @@ export function turnOnCodeMode(): Promise<string | null> {
 /** For tests and stories: back to nothing known. */
 export function resetCodeMode(): void {
   turnOn = null;
-  set({ proposal: null, busy: false, view: "content", menuRequests: 0 });
+  set({ proposal: null, busy: false, menuRequests: 0 });
 }

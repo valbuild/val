@@ -58,9 +58,12 @@ const several: HeldEditView[] = [
 function Demo({
   edits,
   discard,
+  assistant = false,
 }: {
   edits: HeldEditView[];
   discard: "works" | "fails";
+  /** Whether the assistant can be asked, which adds "Have the assistant move it". */
+  assistant?: boolean;
 }) {
   const [theme, setTheme] = useState<Themes | null>("dark");
   const [shown, setShown] = useState(edits);
@@ -70,6 +73,7 @@ function Demo({
         <HeldEditsList
           edits={shown}
           copy={action("copy")}
+          {...(assistant ? { askAssistant: action("askAssistant") } : {})}
           onDiscard={async (patchIds) => {
             action("discard")(patchIds);
             await new Promise((resolve) => setTimeout(resolve, 400));
@@ -113,6 +117,11 @@ type Story = StoryObj<typeof Demo>;
 /** One edit: its value, Copy, and Discard this edit. */
 export const OneEdit: Story = {
   args: { edits: [heading], discard: "works" },
+};
+
+/** With the assistant connected: each edit can be handed to it to move. */
+export const WithAssistant: Story = {
+  args: { edits: several, discard: "works", assistant: true },
 };
 
 /** Several, in two modules: each discarded on its own, or all together. */
