@@ -63,6 +63,7 @@ import {
   HoverCardTrigger,
 } from "./designSystem/hover-card";
 import { PublishButton } from "./PublishButton";
+import { CodeChangedCard } from "./shell/CodeChangedCard";
 import { PublishHandoffCard } from "./shell/PublishHandoff";
 import {
   Select,
@@ -92,6 +93,12 @@ import { useAIChatActions } from "./AIChatActionsContext";
 export type ValOverlayProps = {
   draftMode: boolean;
   draftModeLoading: boolean;
+  /**
+   * Modules the page could not show the Studio's content of, because it was
+   * made with another schema than the page's build has: the page shows its
+   * own for them, and the overlay says so with a reload (`CodeChangedCard`).
+   */
+  codeChanged?: readonly ModuleFilePath[];
   setDraftMode: (draftMode: boolean) => void;
   disableOverlay: () => void;
 };
@@ -1366,6 +1373,7 @@ function ValMenu({
   setAllBoundingBoxesVisible,
   isChatOpen,
   setIsChatOpen,
+  codeChanged = [],
 }: {
   dropZone: DropZones;
   ghost?: boolean;
@@ -1489,6 +1497,14 @@ function ValMenu({
               <LogIn size={16} />
             </a>
           </div>
+        </div>
+      )}
+      {!ghost && codeChanged.length > 0 && (
+        <div className={handoffCardPositionClassName(dropZone)}>
+          <CodeChangedCard
+            modules={codeChanged}
+            onReload={() => window.location.reload()}
+          />
         </div>
       )}
       {handoff.state !== null && (

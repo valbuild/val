@@ -38,6 +38,7 @@ export type ReadEnv = {
     module: ValModule<SelectorSource>,
   ) => string | null;
   readonly codeChanged?: SchemaRule["codeChanged"];
+  readonly schemaChecked?: SchemaRule["schemaChecked"];
 };
 
 /** Which source a module was read from, and the version of what it read. */
@@ -148,6 +149,7 @@ function viewOf(
             return module === undefined ? null : schemaVersionOf(module);
           },
           ...(env.codeChanged ? { codeChanged: env.codeChanged } : {}),
+          ...(env.schemaChecked ? { schemaChecked: env.schemaChecked } : {}),
         }
       : undefined,
     settled,

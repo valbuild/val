@@ -67,6 +67,7 @@ import {
   type Resolution,
   // The page's half of the relay, both frameworks': the draft store a
   // provider starts from, what it reports, and when it refreshes.
+  codeChangedReporter,
   createDraftStore,
   draftHolds,
   draftHoldsVersions,
@@ -581,6 +582,12 @@ export type LoadedPage = {
    * `synced`, `relayed`, `hot reload`.
    */
   readonly suspensions: readonly PageSuspension[];
+  /**
+   * Every time the page said which modules it could not read the overlay's
+   * content of, for its schema (`codeChangedReporter`): the on-site overlay
+   * says the code changed, with a reload, until an empty list.
+   */
+  readonly codeChanged: readonly (readonly ModuleFilePath[])[];
 };
 
 export type PageReaders = {
@@ -1853,10 +1860,22 @@ export async function createWorld(options: WorldOptions): Promise<World> {
        */
       let state: PageReadState;
       let store: ValExternalStore;
+      /**
+       * What the provider tells the overlay the page could not read for its
+       * schema: the product's reporter, with the window it dispatches on as
+       * the edge -- each announcement is kept, in order.
+       */
+      const codeChangedAnnounced: ModuleFilePath[][] = [];
+      const codeChanged = codeChangedReporter((modules) => {
+        codeChangedAnnounced.push(modules);
+      });
       let modulesNow: AnyModule[];
       let step = "server render";
       const record = () => {
-        const env = pageReadEnv({ ...state, store }, false);
+        const env = pageReadEnv(
+          { ...state, store, schemaChecked: codeChanged.schemaChecked },
+          false,
+        );
         for (const show of pageOptions.shows) {
           const module = moduleLike(modulesNow, show.module);
           const read = readShow(module, show, env);
@@ -2062,6 +2081,7 @@ export async function createWorld(options: WorldOptions): Promise<World> {
           return loop.refreshes;
         },
         refreshTimes,
+        codeChanged: codeChangedAnnounced,
       };
     },
     page(route, pageOptions) {

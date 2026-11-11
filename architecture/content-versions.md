@@ -435,10 +435,22 @@ They differ only in their list of sources and in how they wait.
   `import()`s, started when an entry is first read and kept by MODULE OBJECT,
   so a new build or a hot reload is a new key, never an old answer.
 
-The schema rule is applied by the server readers (`schemaVersionOf:
-readerSchemaVersion`, hashed once per module object). The page's hooks set
-none: their code is their build, and what the Studio relays is compared by
-version only to see whether it moved.
+The schema rule is applied by every reader: the server readers and the
+page's hooks alike set `schemaVersionOf: readerSchemaVersion`
+(`@valbuild/shared/internal`, hashed once per module object). For the hooks
+it matters when the Studio is ahead of the page's build -- it took a code
+change first (a hot reload, staged code it evaluated), or the browser runs
+the previous build's client code -- and relays content made with a schema the
+page does not run. The page reads its bundle for that module instead, and
+says so: the rule reports each check (`SchemaRule.schemaChecked`), the
+provider's `codeChangedReporter` keeps the modules it could not read and
+announces the set as a `val-overlay-spa` `codeChanged` event once a render
+is over, and the on-site overlay shows "The code changed" with **Reload**
+(`CodeChangedCard`); in the Studio's canvas the bridge passes it on as the
+`codeChanged` message and the canvas shows it above the page
+(`CanvasCodeChangedNotice`). A module read with the page's own schema again
+leaves the set, so a page that hot-reloads a moment after the Studio takes
+the notice back without anyone reloading.
 
 ### Laziness
 

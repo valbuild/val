@@ -26,6 +26,12 @@ export {
   type OverlayState,
 } from "./sources";
 export {
+  codeChangedReporter,
+  dispatchCodeChanged,
+  windowCodeChangedReporter,
+  type CodeChangedReporter,
+} from "./codeChanged";
+export {
   layered,
   type LocatedRead,
   type SchemaRule,

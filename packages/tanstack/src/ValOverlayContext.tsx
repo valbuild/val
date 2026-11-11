@@ -1,5 +1,5 @@
 import { Json, ModuleFilePath } from "@valbuild/core";
-import { ValExternalStore } from "@valbuild/react/internal";
+import { ValExternalStore, type SchemaRule } from "@valbuild/react/internal";
 import React from "react";
 
 /*
@@ -56,6 +56,12 @@ export const ValOverlayContext = React.createContext<{
    * hook would read the bundle -- see `ValDraft.snapshot`. Absent on the site.
    */
   readonly snapshot?: Record<ModuleFilePath, Json>;
+  /**
+   * Told whether each module the Studio relayed was made with this page's
+   * schema (`codeChangedReporter`, in `@valbuild/react`): the page keeps its
+   * bundle's content for one that was not, and says the code changed.
+   */
+  readonly schemaChecked?: SchemaRule["schemaChecked"];
 }>({
   store: undefined,
   draftMode: false,
@@ -66,6 +72,7 @@ export const ValOverlayContext = React.createContext<{
 
 export function ValOverlayProvider({
   store,
+  schemaChecked,
   draftMode,
   suspend,
   draftModeReady,
@@ -76,6 +83,7 @@ export function ValOverlayProvider({
   children,
 }: {
   store?: ValExternalStore;
+  schemaChecked?: SchemaRule["schemaChecked"];
   draftMode: boolean | null;
   suspend: boolean;
   draftModeReady?: Promise<void>;
@@ -89,6 +97,7 @@ export function ValOverlayProvider({
     <ValOverlayContext.Provider
       value={{
         store,
+        schemaChecked,
         draftMode,
         suspend,
         draftModeReady,

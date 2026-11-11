@@ -11,7 +11,6 @@ export { createValRuntime } from "../ValRouter";
 export {
   draftForRequest,
   readDraftChanges,
-  readerSchemaVersion,
   serverDraftSource,
 } from "../draftReads";
 export type { DraftModuleRead } from "../draftReads";

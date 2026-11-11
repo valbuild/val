@@ -1275,6 +1275,7 @@ function ValShellBody({
       onPicked,
       enableKey,
       onStatusChange,
+      onCodeChanged,
       onPickingStopped,
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
@@ -1367,6 +1368,7 @@ function ValShellBody({
           setCanvasLive(status === "live");
         }}
         onRefreshingChange={onRefreshingChange}
+        onCodeChanged={onCodeChanged}
       />
     );
   }, [

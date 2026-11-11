@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import type { ModuleFilePath } from "@valbuild/core";
 import { cn } from "../../designSystem/cn";
 import { CanvasToolbar } from "./CanvasToolbar";
 import {
@@ -8,6 +9,7 @@ import {
   ZOOM_STEP,
 } from "./CanvasWindow";
 import { CanvasRouteBar } from "./CanvasRouteBar";
+import { CanvasCodeChangedNotice } from "./CanvasCodeChangedNotice";
 import {
   CanvasPreviewNotice,
   CanvasPreviewStatus,
@@ -82,6 +84,12 @@ export type SitePreviewViewport = {
    * half size. See `CanvasPreviewNotice`.
    */
   onStatusChange: (status: CanvasPreviewStatus) => void;
+  /**
+   * Modules the page could not show the Studio's content of, for their
+   * schema: said beside the preview notice, with a reload. See
+   * `CanvasCodeChangedNotice`.
+   */
+  onCodeChanged: (modules: ModuleFilePath[]) => void;
 };
 
 export type SitePreviewProps = {
@@ -320,6 +328,8 @@ export function SitePreview({
    */
   const [previewStatus, setPreviewStatus] =
     useState<CanvasPreviewStatus>("live");
+  /** What the page could not read for its schema (`codeChanged`). */
+  const [codeChanged, setCodeChanged] = useState<ModuleFilePath[]>([]);
   const [enableKey, setEnableKey] = useState(0);
 
   const routeBar = route !== undefined && onRouteChange && (
@@ -374,6 +384,9 @@ export function SitePreview({
           onEnable={() => setEnableKey((key) => key + 1)}
           onReload={reload}
         />
+        {previewStatus === "live" && (
+          <CanvasCodeChangedNotice modules={codeChanged} onReload={reload} />
+        )}
         <CanvasWindow
           ref={canvasWindowRef}
           pageWidth={pageWidth}
@@ -400,6 +413,7 @@ export function SitePreview({
               onZoom,
               enableKey,
               onStatusChange: setPreviewStatus,
+              onCodeChanged: setCodeChanged,
             })}
           </div>
         </CanvasWindow>

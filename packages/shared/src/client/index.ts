@@ -16,6 +16,7 @@
  */
 export * from "../internal/sessionStorage";
 export * from "../internal/valCanvasProtocol";
+export * from "../internal/codeChangedEvent";
 export * from "../internal/elementPicker";
 export * from "../internal/pageInspection";
 export * from "../internal/pageScreenshot";

@@ -15,6 +15,7 @@ import {
 } from "@valbuild/react/stega";
 import {
   type ReadEnv,
+  type SchemaRule,
   type Resolution,
   type ValExternalStore,
   isJsonValuesRecordSchema,
@@ -27,6 +28,7 @@ import {
   useResolvedEntry,
   useResolvedVal,
 } from "@valbuild/react/internal";
+import { readerSchemaVersion } from "@valbuild/shared/internal";
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
@@ -76,6 +78,11 @@ export type PageReadState = {
   suspend: boolean;
   draftModeReady?: Promise<void>;
   draftSourcesSynced?: boolean;
+  /**
+   * Told whether each module the Studio relayed was made with this page's
+   * schema, so the provider can say when it was not (`codeChangedReporter`).
+   */
+  schemaChecked?: SchemaRule["schemaChecked"];
   snapshot?: Record<ModuleFilePath, Json>;
 };
 
@@ -98,6 +105,15 @@ export function pageReadEnv(state: PageReadState, encode: boolean): ReadEnv {
       snapshotSource(state.snapshot),
     ],
     encode,
+    // The rule the server readers apply: a module the Studio relays made with
+    // another schema than this page's code has is not read with it. A Studio
+    // ahead of this build (hot reload first, or staged code it evaluated)
+    // sends content for code this page does not run; the page keeps its
+    // bundle's, and says the code changed (`schemaChecked`).
+    schemaVersionOf: readerSchemaVersion,
+    ...(state.schemaChecked !== undefined
+      ? { schemaChecked: state.schemaChecked }
+      : {}),
   };
 }
 
@@ -108,8 +124,14 @@ export function pageReadEnv(state: PageReadState, encode: boolean): ReadEnv {
 function useReadEnv(): ReadEnv {
   const context = useValOverlayContext();
   const encode = useEncodesEditTags(context);
-  const { store, draftMode, suspend, draftModeReady, draftSourcesSynced } =
-    context;
+  const {
+    store,
+    draftMode,
+    suspend,
+    draftModeReady,
+    draftSourcesSynced,
+    schemaChecked,
+  } = context;
   const snapshot = context.snapshot;
   return React.useMemo(
     () =>
@@ -120,6 +142,7 @@ function useReadEnv(): ReadEnv {
           suspend,
           draftModeReady,
           draftSourcesSynced,
+          schemaChecked,
           snapshot,
         },
         encode,
@@ -130,6 +153,7 @@ function useReadEnv(): ReadEnv {
       suspend,
       draftModeReady,
       draftSourcesSynced,
+      schemaChecked,
       snapshot,
       encode,
     ],
