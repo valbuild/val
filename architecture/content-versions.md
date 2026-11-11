@@ -369,35 +369,38 @@ told apart differently by mode:
 ### What a publish patches
 
 A publish renders the pending patches into `.val.ts` text, and **the text it
-starts from is the latest PUBLISHED text, not the build's**. The two differ
-whenever a publish lands before the site is rebuilt from it -- which is every
-second publish on a site whose CI takes a minute, and which Val supports: it
-does not hold Publish back while a deployment is pending.
+renders them into is the latest PUBLISHED text, not the build's**. The two
+differ whenever a publish lands before the site is rebuilt from it -- which is
+every second publish on a site whose CI takes a minute, and which Val
+supports: it does not hold Publish back while a deployment is pending.
 
-What makes this the trap it is: the chain marks what was published since the
-build as APPLIED (`appliedAt`), and `analyzePatches` does not replay applied
-patches. So a publish patching the build's text keeps only what is still
-pending, and the commit silently reverts everything published since. In git
-it looks like a normal commit.
+What makes this the trap it is: the chain keeps what was published since the
+build, marked APPLIED (`appliedAt`), and a publish commits only what is still
+pending. So a publish that patched the build's text with its pending patches
+alone wrote a commit that silently reverted everything published since. In
+git it looks like a normal commit.
 
-Where the text comes from, by mode:
+So `prepare` does what the readers do: **the build's text, then the chain**.
+`analyzePatches` lists the applied patches of each module in
+`publishedByModule`, and `prepare` replays them over the base text before the
+pending ones. They are replayed, not committed again -- never in
+`appliedPatches` -- and one that no longer applies stops the publish with an
+error naming it rather than being reverted. It is the same rule the platform's
+publish job already followed (`buildSourcesOf`: "the commits since this build,
+as though pending, are the branch's head").
 
-- **http, with a repository**: `prepare` passes the newest commit in the
-  chain -- the commits listed are exactly the ones the build has not got --
-  to `getSourceFile`, and `ValOpsHttp` reads the file at it. That is content's
-  own commit id; content reads GitHub at the git sha it pushed it as
-  (`putFiles` in valbuild/home). No commit listed means the build has every
-  publish, and the file is read at the build's own commit.
-- **http, with no repository**: from `projectSource`, the build's own text --
-  which is only right until the first publish after the build. The platform
-  lays the served content version's `files` over it; a site the platform does
-  not build has nothing to lay over it yet (valbuild/home#370).
-- **fs and memory**: the store holds the latest text already.
+Replay rather than reading the text at the newest commit, because it needs
+nothing a mode may not have: it works with a repository, without one (a
+build's `projectSource`), and over a served content version's `files` alike,
+since the chain is always relative to what the base text holds. `fs` and
+memory mode never mark a patch applied -- publishing rewrites the base there --
+so it is a no-op for them.
 
 `e2e/http/publish.spec.ts`, "a second change publishes on top of the first
-commit", is the test, and it only means something because the mock content
-host reads a file AT the commit asked for, as home does. It used to answer
-with the latest text whatever was asked, which hid this.
+commit", is the end-to-end test, and it only means something because the mock
+content host reads a file AT the commit asked for, as home does. It used to
+answer with the latest text whatever was asked, which hid this.
+`preparePublishedSinceBuild.test.ts` is the same at `prepare`.
 
 ## The readers
 
