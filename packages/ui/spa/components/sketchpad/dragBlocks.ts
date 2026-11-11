@@ -88,12 +88,18 @@ export function moveBlock(
  * the finger nears an edge, and letting go moves it (`moveBlock`), selected
  * where it lands.
  */
+/** Editors with a finger dragging in them: one drag at a time in each. */
+const touchDragging = new WeakSet<EditorView>();
+
 function startTouchBlockDrag(
   view: EditorView,
-  from: number,
+  getPos: () => number | undefined,
   event: PointerEvent,
   image: HTMLElement | undefined,
 ) {
+  const start = getPos();
+  if (start === undefined || touchDragging.has(view)) return;
+  touchDragging.add(view);
   event.preventDefault();
   event.stopPropagation();
   // Nothing is dispatched until it is let go: a new state redraws the grips,
@@ -114,7 +120,7 @@ function startTouchBlockDrag(
   const outline = document.createElement("div");
   outline.className =
     "pointer-events-none absolute z-[1] rounded border-2 border-dashed border-border-brand-primary bg-bg-brand-primary/10";
-  const blockDom = image ?? view.nodeDOM(from);
+  const blockDom = image ?? view.nodeDOM(start);
   if (blockDom instanceof HTMLElement) {
     const box = blockDom.getBoundingClientRect();
     const host = page.getBoundingClientRect();
@@ -166,7 +172,14 @@ function startTouchBlockDrag(
       top: move.clientY,
     });
     at = found === null ? null : found.pos;
-    show(at === null ? null : blockDropTarget(view.state, from, at));
+    // Where the block is NOW: the sketch can change under the finger -- the
+    // assistant writing, a save from elsewhere -- and the position with it.
+    const from = getPos();
+    show(
+      at === null || from === undefined
+        ? null
+        : blockDropTarget(view.state, from, at),
+    );
   };
   const finish = (drop: boolean) => {
     window.removeEventListener("pointermove", onMove, true);
@@ -175,7 +188,9 @@ function startTouchBlockDrag(
     line.remove();
     outline.remove();
     page.style.position = position;
-    if (!drop || at === null) return;
+    touchDragging.delete(view);
+    const from = getPos();
+    if (!drop || at === null || from === undefined) return;
     const tr = moveBlock(view.state, from, at);
     if (tr !== null) view.dispatch(tr);
   };
@@ -226,9 +241,8 @@ export function gripElement(
   });
   grip.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "mouse") return;
-    const pos = drag.getPos();
-    if (pos === undefined || !drag.view.editable) return;
-    startTouchBlockDrag(drag.view, pos, event, drag.image);
+    if (!drag.view.editable) return;
+    startTouchBlockDrag(drag.view, drag.getPos, event, drag.image);
   });
   // A press on the grip is not a click into the text beside it.
   grip.addEventListener("mousedown", (event) => event.stopPropagation());
@@ -271,14 +285,22 @@ export function dragHandles(): Plugin {
             decorations.push(
               Decoration.widget(
                 pos + 1,
-                (view) =>
+                (view, widgetPos) =>
                   gripElement(
                     node.type === nodes.row
                       ? "Drag to move this row"
                       : node.type === nodes.col
                         ? "Drag to move this column, within its row or to another"
                         : "Drag to move",
-                    { view, getPos: () => pos },
+                    {
+                      view,
+                      // The block starts just before its grip, wherever
+                      // the sketch has moved it since this was drawn.
+                      getPos: () => {
+                        const at = widgetPos();
+                        return at === undefined ? undefined : at - 1;
+                      },
+                    },
                     node.type === nodes.col ? COL_GRIP : TEXT_GRIP,
                   ),
                 { side: -1, ignoreSelection: true, key: `grip-${pos}` },

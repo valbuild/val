@@ -105,9 +105,11 @@ import {
 import { PhonePaneBar, type PhonePaneButton } from "./workspace/PhonePaneBar";
 import { PaneTabsProvider } from "./workspace/PaneTabs";
 import {
+  PHONE_ORDER,
   PHONE_PANE_GAP,
   phoneOffset,
   phoneSlideStyle,
+  phoneStrip,
 } from "./workspace/phoneTrack";
 import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
 import { placePanes } from "./workspace/placePanes";
@@ -802,8 +804,33 @@ export function Shell({
    * reason a press of Preview goes there: an opened preview you are not
    * looking at is an odd thing to be given.
    */
-  const [phonePane, setPhonePane] = useState<PhonePane>(
-    initialCanvasOpen ? "preview" : "content",
+  const [phone, setPhone] = useState<{
+    pane: PhonePane;
+    /**
+     * Which of Content and the Preview the phone last showed: while the
+     * Assistant or the Sketch is in front, the page waits off to the left as
+     * it was left, so coming back slides that one back. Kept with the pane,
+     * in the same update, so a batch that passes through the Preview on its
+     * way to the Assistant (Build) still leaves it the Preview.
+     */
+    page: "content" | "preview";
+  }>(() => {
+    const pane = initialCanvasOpen ? "preview" : "content";
+    return { pane, page: pane };
+  });
+  const phonePane = phone.pane;
+  const pagePane = phone.page;
+  const setPhonePane = useCallback(
+    (next: SetStateAction<PhonePane>) =>
+      setPhone((current) => {
+        const pane = typeof next === "function" ? next(current.pane) : next;
+        if (pane === current.pane) return current;
+        return {
+          pane,
+          page: pane === "content" || pane === "preview" ? pane : current.page,
+        };
+      }),
+    [],
   );
   /**
    * `setOpenPanel`, with the assistant routed to its pane, so every place
@@ -902,37 +929,10 @@ export function Shell({
   }, [canvasPinned]);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
   /**
-   * Which pane a phone is looking at. Meaningless at any other breakpoint,
-   * where the editor and the canvas are both on screen at once.
-   *
-   * Here rather than inside the workspace because the Preview button is here,
-   * and on a phone that button is the main way between the two: opening the
-   * canvas takes you to the page, and pressing it again brings you back — see
-   * `togglePreview`. Owned by the workspace, the button would have had to reach
-   * into it, or the two would have kept separate ideas of where you were.
-   *
-   * Starts on the canvas when a link says the canvas is open, for the same
-   * reason a click on Preview goes there: an opened canvas you are not looking
-   * at is an odd thing to be given.
-   */
-  /**
    * The phone's two panes as `PageWorkspace` knows them: the editor and the
-   * page. The other two -- Sketch and the Assistant -- are `Shell`'s own.
+   * page. The other two -- Sketch and the Assistant -- are `Shell`'s own;
+   * while one of them is in front, the page is as it was left.
    */
-  /**
-   * Which of the two the phone last showed. While the Assistant or the
-   * Sketch is in front the page slides off to the left as it was left, so
-   * coming back from the Assistant to the Preview slides the Preview back,
-   * not Content.
-   */
-  const [pagePane, setPagePane] = useState<"content" | "preview">(
-    initialCanvasOpen ? "preview" : "content",
-  );
-  useEffect(() => {
-    if (phonePane === "content" || phonePane === "preview") {
-      setPagePane(phonePane);
-    }
-  }, [phonePane]);
   const workspacePane: WorkspacePane =
     phonePane === "preview"
       ? "canvas"
@@ -941,15 +941,19 @@ export function Shell({
         : pagePane === "preview"
           ? "canvas"
           : "editor";
-  /** The phone's strip: how far each pane is from the one in front. */
-  // Content and the Preview move inside `PageWorkspace`'s own track; the
-  // whole of it moves only for the two beyond it.
-  const pageOffset =
-    phonePane === "content" || phonePane === "preview"
-      ? 0
-      : phoneOffset(pagePane, phonePane);
-  const chatOffset = phoneOffset("chat", phonePane);
-  const sketchOffset = phoneOffset("sketch", phonePane);
+  /**
+   * The phone's strip: how far each pane is from the one in front, counting
+   * only the panes there are. Content and the Preview are one place on it --
+   * they move inside `PageWorkspace`'s own track -- so going from either to
+   * the Assistant is one step, with no empty place to slide through.
+   */
+  const strip = phoneStrip({
+    chat: aiEnabled,
+    sketch: sketchPane !== undefined,
+  });
+  const pageOffset = phoneOffset(strip, "content", phonePane);
+  const chatOffset = phoneOffset(strip, "chat", phonePane);
+  const sketchOffset = phoneOffset(strip, "sketch", phonePane);
   const reducedMotion = usePrefersReducedMotion();
   /** Slides, unless the person asked for less motion or a test for none. */
   const slide = !reducedMotion && !skipTransition;
@@ -1004,7 +1008,9 @@ export function Shell({
     onViewStateChange?.({
       // The link carries one panel: the assistant's pane when nothing else
       // is open, so a link to a conversation opens it.
-      panel: openPanel ?? (chatOpen ? "ai" : null),
+      // On a phone only while it is the pane in front: nothing on a phone
+      // closes it, so "open" would otherwise stick to every link and reload.
+      panel: openPanel ?? (assistantOpen ? "ai" : null),
       canvasOpen: isCanvasOpen,
       canvasView,
       canvasTransform,
@@ -1012,7 +1018,7 @@ export function Shell({
   }, [
     onViewStateChange,
     openPanel,
-    chatOpen,
+    assistantOpen,
     isCanvasOpen,
     canvasView,
     canvasTransform,
@@ -1827,6 +1833,10 @@ export function Shell({
       },
     });
   }
+  // In the strip's order, whatever order they were added in.
+  phonePanes.sort(
+    (a, b) => PHONE_ORDER.indexOf(a.pane) - PHONE_ORDER.indexOf(b.pane),
+  );
   /** What waits in the activity: unread notifications and errors. */
   const activityCount =
     (data.notifications === undefined ? 0 : unreadNotifications) +
@@ -1851,11 +1861,11 @@ export function Shell({
     if (canCanvas) setIsCanvasOpen(true);
     if (breakpointRef.current === "mobile") setPhonePane("sketch");
   }, [sketchOpen, usePane, canCanvas]);
-  /** Whether the assistant is on screen: in its place, or its phone sheet. */
-  const assistantVisible =
-    breakpoint === "mobile"
-      ? assistantOpen
-      : chatOpen && placed !== null && placed.chat !== null;
+  /**
+   * Whether the assistant has a place on screen above a phone. On a phone it
+   * is always laid out, on the strip of panes (`phoneTrack`).
+   */
+  const assistantPlaced = chatOpen && placed !== null && placed.chat !== null;
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
@@ -1894,7 +1904,7 @@ export function Shell({
     <ShellPanelProvider openPanel={openPanelFromLink}>
       <div
         data-mode={theme}
-        className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
+        className="relative w-full overflow-clip bg-bg-canvas text-fg-primary font-sans"
         // The theme travels with `data-mode`: everything below draws its brand
         // tokens out of these custom properties. See `ValThemeProvider`.
         style={{ height: "100svh", ...themeStyle }}
@@ -2413,8 +2423,9 @@ export function Shell({
             breakpoint={breakpoint}
             // On a phone always there, on the phone's strip beside the
             // others, so it slides in and out like them (`phoneTrack`).
-            hidden={breakpoint === "mobile" ? false : !assistantVisible}
+            hidden={breakpoint === "mobile" ? false : !assistantPlaced}
             phoneOffset={chatOffset}
+            phoneAnimate={slide}
             docked={placed?.chat != null && !placed.chat.sheet}
             // While pointing, a click on the page is a pick, not a click
             // outside the panel that closes it.

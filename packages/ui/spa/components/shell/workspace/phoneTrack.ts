@@ -17,12 +17,39 @@ export const PHONE_ORDER: readonly WorkspacePane[] = [
   "sketch",
 ];
 
+/** One place on the phone's strip: Content and the Preview share one. */
+type StripPlace = "page" | "chat" | "sketch";
+
+function placeOf(pane: WorkspacePane): StripPlace {
+  return pane === "content" || pane === "preview" ? "page" : pane;
+}
+
 /**
- * How many panes `pane` is from the one in front: 0 is on screen, -1 one
+ * The places on the strip there are, in order. Content and the Preview are
+ * one: they move inside `PageWorkspace`'s own track, so between either of
+ * them and the Assistant is one step, and a pane that is not there leaves
+ * no empty place to slide through.
+ */
+export function phoneStrip(has: {
+  chat: boolean;
+  sketch: boolean;
+}): StripPlace[] {
+  const strip: StripPlace[] = ["page"];
+  if (has.chat) strip.push("chat");
+  if (has.sketch) strip.push("sketch");
+  return strip;
+}
+
+/**
+ * How many places `pane` is from the one in front: 0 is on screen, -1 one
  * screen to the left, 1 one screen to the right.
  */
-export function phoneOffset(pane: WorkspacePane, shown: WorkspacePane): number {
-  return PHONE_ORDER.indexOf(pane) - PHONE_ORDER.indexOf(shown);
+export function phoneOffset(
+  strip: readonly StripPlace[],
+  pane: WorkspacePane,
+  shown: WorkspacePane,
+): number {
+  return strip.indexOf(placeOf(pane)) - strip.indexOf(placeOf(shown));
 }
 
 /**
@@ -31,13 +58,14 @@ export function phoneOffset(pane: WorkspacePane, shown: WorkspacePane): number {
  */
 export const PHONE_PANE_GAP = 24;
 
-/** As `PageWorkspace`'s track, so every pane moves the same way. */
-export const PHONE_SLIDE = "transform 320ms cubic-bezier(0.4, 0, 0.2, 1)";
+/** How long a pane takes to slide, and how: `PageWorkspace`'s track too. */
+export const SLIDE_MS = 320;
+export const SLIDE_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 /**
- * Where a pane `offset` panes away sits. `gap` is what a pane inset from the
- * screen's edges needs added to its own width to land exactly one screen
- * over: a pane that fills the screen needs none.
+ * Where a pane `offset` places away sits. `gap` is what a pane inset from
+ * the screen's edges needs added to its own width to land exactly one
+ * screen over: a pane that fills the screen needs none.
  */
 export function phoneSlideStyle(
   offset: number,
@@ -48,6 +76,8 @@ export function phoneSlideStyle(
       offset === 0
         ? "translateX(0)"
         : `translateX(calc(${offset} * (100% + ${options.gap}px)))`,
-    transition: options.animate ? PHONE_SLIDE : undefined,
+    transition: options.animate
+      ? `transform ${SLIDE_MS}ms ${SLIDE_EASE}`
+      : undefined,
   };
 }
