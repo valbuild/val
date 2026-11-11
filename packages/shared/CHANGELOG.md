@@ -1,5 +1,17 @@
 # @valbuild/shared
 
+## 0.153.1
+
+### Patch Changes
+
+- [#1031](https://github.com/valbuild/val/pull/1031) [`6ec1a5d`](https://github.com/valbuild/val/commit/6ec1a5d244f0d6e064eca4135f167dfa79744f9a) Thanks [@freekh](https://github.com/freekh)! - A page no longer shows content made for code it does not have yet. When the Studio is ahead of the page (it picked up a code change first, or the browser is still running the previous build), the page keeps showing its own content for the modules whose schema changed, and says "The code changed" with a **Reload** button — in the overlay on your site, and above the page in the Studio. In local development the page usually catches up a moment later by itself, and the notice goes away without a reload.
+
+- [#1027](https://github.com/valbuild/val/pull/1027) [`b14870b`](https://github.com/valbuild/val/commit/b14870bebdc128234bb16e4ea06a0151d18c4771) Thanks [@freekh](https://github.com/freekh)! - The Sketchpad's linked text is gone, and so are its "needs code" badges.
+
+  - **Linked text is removed.** A heading or paragraph can no longer be linked to a content field (`{field: …}`), and typing in a sketchpad never changes the site's content: the sketch is a plan, and **Build** is what changes the pages. A sketch that still has a `{field: …}` from 0.152.0 shows it as plain text, and can be deleted.
+  - **No "needs code" badges.** A box of a kind the site does not have, and a new route the site has no page type for, are no longer marked. A box's kind still suggests the site's own kinds.
+  - **Narrow columns keep their shape.** In a row of several columns, a box's header stays on one line (a long kind is cut short, and shown in full on hover), and a box naming an image the project does not have says so in a few lines, with the file's name on one, instead of breaking the path over many.
+
 ## 0.153.0
 
 ### Minor Changes
