@@ -9,7 +9,6 @@ import type { SketchMediaLibrary } from "./SketchpadMediaPicker";
 import { useSketchRoute } from "./useSketchRoute";
 import { blockTypesOfSchemas } from "./sketchBlockTypes";
 import { useSketchMediaLibrary } from "./sketchMediaLibrary";
-import { useLinkedFields } from "./useLinkedFields";
 import type { SketchpadClient } from "./sketchpadClient";
 import type { SketchpadListItem } from "./SketchpadList";
 import { useSketchpadsSnapshot, type SketchpadsState } from "./SketchpadsState";
@@ -453,10 +452,7 @@ function OpenSketchpad({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [saver, status.unsaved]);
 
-  // A block linked to a content field writes the field as it is typed in.
-  const linkedFields = useLinkedFields();
   const onChange = (next: string) => {
-    linkedFields.write(text, next);
     setText(next);
     saver.edit(next);
   };
@@ -540,7 +536,6 @@ function OpenSketchpad({
         mediaLibrary={mediaLibrary}
         blockTypes={blockTypes}
         highlights={highlights}
-        fieldInfo={linkedFields.fieldInfo}
         onClearHighlight={onClearHighlight}
         status={
           status.saving

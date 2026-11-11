@@ -48,7 +48,7 @@ export function startFromRouteMessage(
     value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   return [
     `<sketchpad id="${attr(sketchpad.id)}" title="${attr(title)}" routes="${attr(route)}"></sketchpad>`,
-    `Start this sketchpad from the page at ${route}. Find its content (get_source_path_from_route, then get_source) and write it into the sketchpad with write_sketchpad, under a "--- ${route}" divider: its headings and text, each section as a box named after its kind, and its images by their path exactly as the content has it. Link each heading and paragraph that comes from a plain text field (s.string(), not rich text) to that field by ending its line with {field: <its source path>}, so typing in the sketch changes the page. Write only the sketch: change no content.`,
+    `Start this sketchpad from the page at ${route}. Find its content (get_source_path_from_route, then get_source) and write it into the sketchpad with write_sketchpad, under a "--- ${route}" divider: its headings and text, each section as a box named after its kind, and its images by their path exactly as the content has it. Write only the sketch: change no content.`,
   ].join("\n");
 }
 

@@ -5,8 +5,6 @@
  * --- /about                   a route: what follows is the page at /about
  * # Our people                 text (a heading: #, ## or ###)
  * We are 40 people in Oslo.    text (a paragraph)
- * ## Hi {field: /x.val.ts?p="t"}  text linked to a content field: typing
- *                              in it writes the field
  * [image: Team photo]          placeholder: [kind] or [kind: label]
  * [hero: Roof](image: /a.jpg)  a placeholder with an image (or video) in it
  * icon hero M3 5h18v14H3z      how every [hero] box is drawn: SVG path data
@@ -72,13 +70,6 @@ export type SketchText = {
   /** 0 is a paragraph; 1-3 are headings. */
   level: 0 | 1 | 2 | 3;
   text: string;
-  /**
-   * The content field this text is linked to, as a source path
-   * (`/content/home.val.ts?p="hero"."title"`): typing in the block writes
-   * the field. Written `{field: <source path>}` at the end of the line. One
-   * block per field: a second link to the same field is not one.
-   */
-  field?: string;
 };
 
 export type SketchPlaceholder = {
@@ -238,31 +229,7 @@ export function parseSketch(source: string): ParsedSketch {
   return { blocks, icons, errors };
 }
 
-/** The link to a content field at the end of a text line. */
-const FIELD = / \{field: (\/[^{}]*)\}$/;
-
 function parseContent(
-  whole: string,
-  line: number,
-  errors: SketchError[],
-): SketchNode {
-  const link = FIELD.exec(whole);
-  if (link) {
-    const node = parseLine(whole.slice(0, link.index), line, errors);
-    if (node.type !== "text") {
-      errors.push({
-        line,
-        message:
-          "Only a heading or a paragraph is linked to a field: put {field: ...} at the end of one.",
-      });
-      return node;
-    }
-    return { ...node, field: link[1].trim() };
-  }
-  return parseLine(whole, line, errors);
-}
-
-function parseLine(
   content: string,
   line: number,
   errors: SketchError[],
@@ -345,26 +312,19 @@ function parseLine(
 export function formatSketchText(
   level: SketchText["level"],
   text: string,
-  field?: string,
 ): string {
   const flat = text.replace(/\s+/g, " ").trim();
-  const path = field?.replace(/\s+/g, " ").trim();
-  // A source path, and one the line can be read back with: no braces.
-  const link = path && /^\/[^{}]*$/.test(path) ? ` {field: ${path}}` : "";
   if (level > 0) {
-    return "#".repeat(level) + " " + flat + link;
+    return "#".repeat(level) + " " + flat;
   }
-  // Read as the whole line will be, link and all: `icon x M` is text, and
-  // `icon x M {field: ...}` would be an icon.
-  const whole = flat + link;
   const ambiguous =
     flat.startsWith("\\") ||
     flat.startsWith("[") ||
-    CONTAINER.test(whole) ||
-    ROUTE.test(whole) ||
-    HEADING.test(whole) ||
-    ICON.test(whole);
-  return (ambiguous ? "\\" + flat : flat) + link;
+    CONTAINER.test(flat) ||
+    ROUTE.test(flat) ||
+    HEADING.test(flat) ||
+    ICON.test(flat);
+  return ambiguous ? "\\" + flat : flat;
 }
 
 /** The line a placeholder is written as. */
@@ -395,19 +355,12 @@ export function formatSketch(
   icons: Record<string, string>,
 ): string {
   const lines: string[] = [];
-  // One block per field: the first keeps the link.
-  const linked = new Set<string>();
   const walk = (node: SketchNode, depth: number, inRow: boolean) => {
     const indent = "  ".repeat(depth);
     switch (node.type) {
       case "text":
         if (node.text) {
-          const field =
-            node.field && !linked.has(node.field) ? node.field : undefined;
-          if (field) {
-            linked.add(field);
-          }
-          lines.push(indent + formatSketchText(node.level, node.text, field));
+          lines.push(indent + formatSketchText(node.level, node.text));
         }
         return;
       case "placeholder":
@@ -439,26 +392,6 @@ export function formatSketch(
   );
   const all = [...lines, ...(iconLines.length > 0 ? ["", ...iconLines] : [])];
   return all.length > 0 ? all.join("\n") + "\n" : "";
-}
-
-/**
- * The text of every block linked to a field, by field: what the Studio
- * writes to the content when a linked block changes. The first block wins,
- * as `formatSketch` keeps only its link.
- */
-export function sketchFieldTexts(blocks: SketchNode[]): Map<string, string> {
-  const texts = new Map<string, string>();
-  const walk = (node: SketchNode) => {
-    if (node.type === "text") {
-      if (node.field && node.text && !texts.has(node.field)) {
-        texts.set(node.field, node.text.replace(/\s+/g, " ").trim());
-      }
-    } else if (node.type === "row" || node.type === "col") {
-      node.children.forEach(walk);
-    }
-  };
-  blocks.forEach(walk);
-  return texts;
 }
 
 /** The pages a sketch is about, in the order it gives them. */

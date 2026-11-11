@@ -7,7 +7,6 @@ import { SitePreview } from "../../shell/canvas/SitePreview";
 import { Sketchpad } from "../Sketchpad";
 import type { SketchBlockType } from "../boxNodeView";
 import type { SketchHighlight } from "../highlights";
-import { fieldLabel, linkedFieldChanges } from "../fieldLinks";
 import type {
   SketchMediaLibrary,
   SketchMediaOption,
@@ -29,8 +28,7 @@ import { isRoutePattern } from "../routePatterns";
  * - **Start from a route.** An empty sketch starts from a page as it is: the
  *   assistant reads it and writes it here, real images and all.
  * - **Block types.** A box's kind is a combobox of the kinds the site's code
- *   renders (read from the schema). Any other word is allowed, and marked:
- *   a new kind of block takes code.
+ *   renders (read from the schema). Any other word is allowed too.
  * - **Images that exist.** A box picks from the galleries, the images on the
  *   site, and this chat's uploads. Upload goes to the chat first. A box
  *   naming any other file says so, rather than showing a broken image.
@@ -40,8 +38,6 @@ import { isRoutePattern } from "../routePatterns";
  * - **Build.** What the button sends: the sketchpad as a card in the chat,
  *   and a request to change the pages to match it.
  * - Columns share their row equally: the width controls are gone.
- * - **Linked text.** A heading or paragraph linked to a text field writes
- *   it as it is typed in, and can be unlinked.
  */
 const meta: Meta = {
   title: "Components/Sketchpad/Routes, images and Build",
@@ -338,17 +334,21 @@ ${ICONS}
 };
 
 /**
- * Block types. "pricing-table" is not a kind this site has, so it is marked
- * "needs code". Press a box's kind to change it: the field suggests the
- * site's kinds, and says when a word is a new one.
+ * Block types. Press a box's kind to change it: the field suggests the
+ * site's kinds, and takes any other word too.
  */
 export const BlockTypes: Story = {
   render: () => <Workspace initial={SKETCH} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(
-      await canvas.findByText("New type: needs code"),
-    ).toBeInTheDocument();
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "pricing-table" }),
+    );
+    const input = await canvas.findByRole("combobox", { name: "Kind of box" });
+    const list = canvasElement.querySelector(
+      `datalist#${input.getAttribute("list")}`,
+    );
+    await expect(list?.querySelector('option[value="hero"]')).toBeTruthy();
   },
 };
 
@@ -478,8 +478,7 @@ export const RouteMenuOpen: Story = {
 /**
  * A new page of a type the site has: "New /journal/[slug] page" asks for the
  * slug alone, with the route's fixed parts already there, so the page is one
- * the site can render. (Typed instead, a route that fits no type is offered
- * too, marked as a new kind of page that needs code.)
+ * the site can render. (Typed instead, any other route is offered too.)
  */
 export const NewPageOfAType: Story = {
   render: () => <Workspace initial={SKETCH} />,
@@ -505,119 +504,54 @@ export const NewPageOfAType: Story = {
   },
 };
 
-const HOME_TITLE = '/app/page.val.ts?p="hero"."title"';
-const HOME_LEAD = '/app/page.val.ts?p="hero"."lead"';
-const HOME_CTA = '/app/page.val.ts?p="cta"."text"';
-
-/** The page's content, as a site would render it: what the links write. */
-function LinkedContentPage({ content }: { content: Record<string, string> }) {
-  return (
-    <SitePreview
-      reloadable={false}
-      renderPage={({ width, height }) => (
-        <div
-          style={{ width, minHeight: height }}
-          className="flex flex-col gap-3 bg-white p-8 text-neutral-900"
-        >
-          <span className="text-[11px] uppercase tracking-wide text-neutral-500">
-            nordic-retail.example
-          </span>
-          <h1 className="text-3xl font-semibold">{content[HOME_TITLE]}</h1>
-          <p className="text-neutral-600">{content[HOME_LEAD]}</p>
-          <span className="self-start rounded-full bg-neutral-900 px-4 py-2 text-sm text-white">
-            {content[HOME_CTA]}
-          </span>
-        </div>
-      )}
-    />
-  );
-}
-
-function LinkedFieldsDemo() {
-  const [content, setContent] = useState<Record<string, string>>({
-    [HOME_TITLE]: "Coats that last",
-    [HOME_LEAD]: "Made by hand in Bergen since 1987.",
-    // Changed in the Studio after the sketch was written.
-    [HOME_CTA]: "Shop the autumn coats",
-  });
-  const [value, setValue] = useState(`--- /
-# Coats that last {field: ${HOME_TITLE}}
-Made by hand in Bergen since 1987. {field: ${HOME_LEAD}}
-[hero: Autumn](image: /public/val/gallery/accent-amber_37f8b.png)
-[button: Shop now]
-Shop the new coats {field: ${HOME_CTA}}
-[team: The workshop]
+const NARROW = `--- /
+# Four columns
+row
+  col
+    ### Opening hours
+    Monday to Friday, ten to six.
+    [opening-hours-table: Hours]
+  col
+    ### Find us
+    [store-locator-map: Map of the stores]
+    [hero: Autumn](image: /public/val/gallery/accent-amber_37f8b.png)
+    [hero: Gone](image: /public/val/not-in-the-project.png)
+  col
+    ### Repairs
+    Bring any coat back, any year.
+    [testimonial: A customer]
+  col
+    ### Newsletter
+    [newsletter: Sign up]
+    [loyalty-programme-signup: Join]
 
 ${ICONS}
-`);
-  return (
-    <BesideThePreview preview={<LinkedContentPage content={content} />}>
-      <SketchpadWorkspace
-        sketchpads={{
-          sketchpads: [],
-          onOpen: () => undefined,
-          onReopen: () => undefined,
-        }}
-        sketchpad={
+`;
+
+/**
+ * Four columns side by side, as narrow as a sketch's columns get: every
+ * block in them has to keep its shape, the box headers included.
+ */
+export const NarrowColumns: Story = {
+  render: function Render() {
+    const [value, setValue] = useState(NARROW);
+    return (
+      <div className="h-screen bg-bg-secondary p-3">
+        <div className="mx-auto h-full max-w-[760px]">
           <Sketchpad
             value={value}
-            onChange={(next) => {
-              const changes = linkedFieldChanges(value, next);
-              if (changes.length > 0) {
-                setContent((all) => ({
-                  ...all,
-                  ...Object.fromEntries(
-                    changes.map(({ field, text }) => [field, text]),
-                  ),
-                }));
-              }
-              setValue(next);
-            }}
-            title="Home"
+            onChange={setValue}
+            title="Four columns"
             status="Saved just now"
             pageOptions={ROUTES}
             activeRoute="/"
             mediaLibrary={LIBRARY}
             blockTypes={BLOCK_TYPES}
-            fieldInfo={(field) =>
-              field in content
-                ? {
-                    status: "ok",
-                    label: fieldLabel(field),
-                    value: content[field],
-                  }
-                : { status: "missing", label: fieldLabel(field) }
-            }
             onAskAssistant={() => undefined}
             assistantStatus="changed"
           />
-        }
-      />
-    </BesideThePreview>
-  );
-}
-
-/**
- * Text linked to the page's fields. The heading and the lead are linked
- * (the chips say to what): type in them and the page beside the sketch
- * changes, as typing in the field would. The last line's field was changed
- * elsewhere since, so it says so, and "Use the content's" takes that text.
- * "Unlink" breaks a link: the text stays, and is only the sketch's again.
- */
-export const LinkedToFields: Story = {
-  render: () => <LinkedFieldsDemo />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(
-      await canvas.findByText("cta › text: changed elsewhere"),
-    ).toBeInTheDocument();
-    const page = within(await canvas.findByLabelText("Sketchpad page"));
-    await userEvent.click(
-      await page.findByRole("heading", { level: 1, name: /Coats that last/ }),
+        </div>
+      </div>
     );
-    await userEvent.keyboard("!");
-    // The page beside the sketch has it too: the field was written.
-    const preview = canvasElement.querySelector("h1.text-3xl");
-    await expect(preview?.textContent).toContain("!");
   },
 };

@@ -6,8 +6,7 @@ import type { SketchBlockType } from "./boxNodeView";
  * The kinds of section the site's pages can have: the variants of every
  * list of sections in a page's schema -- an array of a discriminated union,
  * `s.array(s.discriminatedUnion("type", hero, pricing, ...))` -- named by
- * their tag. A box of one of these kinds can be built from content; any
- * other kind needs code first.
+ * their tag: what a box's kind suggests. Any other word is allowed too.
  *
  * Only a LIST of variants counts. A union on its own (a link that is
  * internal or external) is a choice inside a section, not a section, and
