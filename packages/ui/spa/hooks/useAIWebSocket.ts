@@ -6,6 +6,7 @@ import {
   resolvePreferredModel,
   writePreferredModel,
 } from "./aiModelPreference";
+import { pickDefaultModel } from "./defaultAIModel";
 
 // --- Shared types (must match server-side definitions) ---
 
@@ -35,16 +36,17 @@ export type AIModelInfo = {
 };
 
 /**
- * The models the Studio offers, best first within each provider.
+ * The models the Studio offers when the content server cannot say which ones
+ * the project's keys reach.
  *
- * This is the catalog, and it lives here rather than on the content server so
- * that offering a newly released model is a change to the editor and nothing
- * else. The server only checks that it implements the provider and that the
- * caller has a key for it.
+ * Only a fallback: normally the providers report their own list and the
+ * default is chosen from it by `pickDefaultModel`, so a newly released model
+ * is picked up without a change here. This list is what is offered when that
+ * listing failed or the server predates it.
  *
- * Order is the fallback order: with bring-your-own-key an org may have a key
- * for one provider and not another, so the first entry whose provider is
- * reachable is the one used.
+ * The first entry is also what an older content server -- one with a shared
+ * OpenAI key and a single model, which does not report providers -- is asked
+ * for, so it stays the model that server was built for.
  */
 export const VAL_AI_MODELS: AIModelInfo[] = [
   {
@@ -52,16 +54,16 @@ export const VAL_AI_MODELS: AIModelInfo[] = [
     label: "GPT-5.1",
   },
   {
-    ref: { provider: "anthropic", model: "claude-sonnet-5" },
-    label: "Claude Sonnet 5",
+    ref: { provider: "anthropic", model: "claude-sonnet-5-5" },
+    label: "Claude Sonnet 5.5",
   },
   {
-    ref: { provider: "anthropic", model: "claude-opus-5" },
-    label: "Claude Opus 5",
+    ref: { provider: "anthropic", model: "claude-opus-5-5" },
+    label: "Claude Opus 5.5",
   },
   {
-    ref: { provider: "anthropic", model: "claude-haiku-4-5" },
-    label: "Claude Haiku 4.5",
+    ref: { provider: "anthropic", model: "claude-haiku-5-5" },
+    label: "Claude Haiku 5.5",
   },
 ];
 
@@ -634,7 +636,6 @@ export function useAIWebSocket(
       models?: { provider: string; model: string; label: string }[];
     }) => {
       const fallback = pickAvailableModel(json.providers);
-      setAvailableModel(fallback);
       // What the providers actually offer, when the server could ask them. The
       // built-in catalog is the fallback, filtered to reachable providers, so
       // an older content server or a provider that would not answer still
@@ -644,13 +645,13 @@ export function useAIWebSocket(
         reported.length > 0
           ? reported
           : fallbackModels(json.providers, fallback);
+      const refs = offered.map((info) => info.ref);
+      // The newest Sonnet, or OpenAI's equivalent, among what is offered; the
+      // catalog's pick only when the list has nothing we recognise.
+      const defaultModel = pickDefaultModel(refs) ?? fallback;
+      setAvailableModel(defaultModel);
       setAvailableModels(offered);
-      setSelectedModel(
-        resolvePreferredModel(
-          offered.map((info) => info.ref),
-          fallback,
-        ),
-      );
+      setSelectedModel(resolvePreferredModel(refs, defaultModel));
     },
     [],
   );
