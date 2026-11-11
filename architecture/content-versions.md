@@ -366,6 +366,39 @@ told apart differently by mode:
   relative to the live build (`relative_to=live`), and a previous build's
   manifest says `superseded`.
 
+### What a publish patches
+
+A publish renders the pending patches into `.val.ts` text, and **the text it
+starts from is the latest PUBLISHED text, not the build's**. The two differ
+whenever a publish lands before the site is rebuilt from it -- which is every
+second publish on a site whose CI takes a minute, and which Val supports: it
+does not hold Publish back while a deployment is pending.
+
+What makes this the trap it is: the chain marks what was published since the
+build as APPLIED (`appliedAt`), and `analyzePatches` does not replay applied
+patches. So a publish patching the build's text keeps only what is still
+pending, and the commit silently reverts everything published since. In git
+it looks like a normal commit.
+
+Where the text comes from, by mode:
+
+- **http, with a repository**: `prepare` passes the newest commit in the
+  chain -- the commits listed are exactly the ones the build has not got --
+  to `getSourceFile`, and `ValOpsHttp` reads the file at it. That is content's
+  own commit id; content reads GitHub at the git sha it pushed it as
+  (`putFiles` in valbuild/home). No commit listed means the build has every
+  publish, and the file is read at the build's own commit.
+- **http, with no repository**: from `projectSource`, the build's own text --
+  which is only right until the first publish after the build. The platform
+  lays the served content version's `files` over it; a site the platform does
+  not build has nothing to lay over it yet (valbuild/home#370).
+- **fs and memory**: the store holds the latest text already.
+
+`e2e/http/publish.spec.ts`, "a second change publishes on top of the first
+commit", is the test, and it only means something because the mock content
+host reads a file AT the commit asked for, as home does. It used to answer
+with the latest text whatever was asked, which hid this.
+
 ## The readers
 
 ### Sources and `layered`

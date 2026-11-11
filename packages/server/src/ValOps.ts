@@ -85,6 +85,7 @@ import {
   schemaVersionOf,
   type ModuleVersion,
   type ProjectVersion,
+  newestCommitSha,
 } from "@valbuild/shared/internal";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 import { draftOverlay } from "./draftOverlay";
@@ -2209,6 +2210,12 @@ export abstract class ValOps {
       removeValJsonEntry,
     } = await loadTypeScript;
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
+    /*
+     * What this build has not got: the commits listed are the ones that bring
+     * it up to the branch's head, so the newest of them holds the text to
+     * patch. None listed is a build that holds every publish already.
+     */
+    const publishedSince = newestCommitSha(patchAnalysis.commits);
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
     const partiallyPatchedSourceFiles: Record<ModuleFilePath, string> = {};
@@ -2265,7 +2272,7 @@ export abstract class ValOps {
           skippedPatches: patches.map((p) => p.patchId),
         };
       }
-      const sourceFileRes = await this.getSourceFile(path);
+      const sourceFileRes = await this.getSourceFile(path, publishedSince);
 
       if (sourceFileRes.error) {
         errors.push({
@@ -2381,7 +2388,10 @@ export abstract class ValOps {
           }
           return result.ok(current);
         }
-        const res = await this.getSourceFile(jsonPath as ModuleFilePath);
+        const res = await this.getSourceFile(
+          jsonPath as ModuleFilePath,
+          publishedSince,
+        );
         if (res.error) {
           return result.err({ message: res.error.message, filePath: jsonPath });
         }
@@ -2441,6 +2451,7 @@ export abstract class ValOps {
           }
           const res = await this.getSourceFile(
             jsonPathRes.value as ModuleFilePath,
+            publishedSince,
           );
           if (res.error) {
             return undefined;
@@ -3402,8 +3413,20 @@ export abstract class ValOps {
     authorId: AuthorId | null,
     sessionId: string | null,
   ): Promise<SaveSourceFilePatchResult>;
+  /**
+   * The text of a source file, as a publish patches it.
+   *
+   * `publishedSince` is the newest commit published AFTER this build was
+   * made, when there is one: the text to patch is that commit's, not the
+   * build's. Patches it published are applied ones, which a publish does not
+   * replay, so patching the build's text instead silently reverts every
+   * change published since (`e2e/http/publish.spec.ts`, "a second change
+   * publishes on top of the first commit"). A store with no history of its
+   * own -- a directory, memory -- holds the latest text already and ignores it.
+   */
   protected abstract getSourceFile(
     path: string,
+    publishedSince?: string | null,
   ): Promise<WithGenericError<{ data: string }>>;
   /**
    * Save a patch's binary file from a `data:...;base64,...` URL.

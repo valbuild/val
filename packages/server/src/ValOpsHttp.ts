@@ -3052,6 +3052,7 @@ export class ValOpsHttp extends ValOps {
 
   protected override async getSourceFile(
     path: string,
+    publishedSince?: string | null,
   ): Promise<WithGenericError<{ data: string }>> {
     if (this.projectSource !== null) {
       const text = this.projectSource[path.replace(/^\/+/, "")];
@@ -3084,12 +3085,18 @@ export class ValOpsHttp extends ValOps {
         },
       };
     }
+    /*
+     * At the newest commit published since this build, when there is one:
+     * the build's own commit does not have what was published after it, and
+     * a publish replays only what is still pending. The content service
+     * resolves its own commit id to the git commit it pushed.
+     */
     const filesRes = await this.getHttpFiles([
       {
         filePath: path,
         location: "repo",
         root: this.root,
-        commitSha: this.git.commit as CommitSha,
+        commitSha: (publishedSince ?? this.git.commit) as CommitSha,
       },
     ]);
     if (filesRes.error) {
