@@ -300,6 +300,12 @@ export type AIChatHandle = {
    * does: shown in the chat, then sent. Ignored while a turn is running.
    * What the Sketchpad's "Send to AI" goes through, so the message it sends
    * is on screen like anything typed.
+   *
+   * As a chat's FIRST message, with more than one model to choose from, it is
+   * held instead: a chat keeps the model it starts with, and a message the
+   * person did not type -- the Sketchpad's Build -- would otherwise start it
+   * on whichever model was picked last, without ever showing the choice. It
+   * waits above the composer with the model picker until they send it.
    */
   sendUserMessage: (text: string) => void;
   /**
@@ -1028,8 +1034,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   // `handleSend` is declared below the handle, which reaches it through this.
   const handleSendRef = useRef<((suggestion?: string) => void) | null>(null);
+  /** A first message waiting for the model to be chosen: see `sendUserMessage`. */
+  const [staged, setStaged] = useState<string | null>(null);
+  /** Whether the next message sent from outside waits for a model. */
+  const chooseModelFirstRef = useRef(false);
   useImperativeHandle(ref, () => ({
     sendUserMessage(text: string) {
+      if (chooseModelFirstRef.current) {
+        setStaged(text);
+        return;
+      }
       handleSendRef.current?.(text);
     },
     startAssistantMessage(id: string) {
@@ -1228,6 +1242,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  chooseModelFirstRef.current =
+    isEmpty &&
+    !modelLocked &&
+    onSelectModel !== undefined &&
+    (models?.length ?? 0) > 1;
   const viewerId = together?.viewerId ?? null;
   const viewer = together?.people.find((p) => p.id === viewerId) ?? null;
   const turnBy = together?.turnBy ?? null;
@@ -1862,6 +1881,27 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             {othersTurn && turnBy && (
               <OthersTurnStrip turnBy={turnBy} queued={queue.length} />
             )}
+            {staged !== null && (
+              <StagedFirstMessage
+                text={staged}
+                picker={
+                  models && onSelectModel ? (
+                    <AIChatModelPicker
+                      models={models}
+                      selectedModel={selectedModel}
+                      onSelectModel={onSelectModel}
+                      portalContainer={portalContainer}
+                    />
+                  ) : null
+                }
+                canSend={isConnected && !authError && selectedModel != null}
+                onSend={() => {
+                  setStaged(null);
+                  handleSend(staged);
+                }}
+                onCancel={() => setStaged(null)}
+              />
+            )}
             {queue.length > 0 && (
               <QueuedMessages
                 queue={queue}
@@ -2082,6 +2122,61 @@ function OthersTurnStrip({
  * can be taken back to edit, moved up or dropped; a paused queue says why and
  * offers to go on.
  */
+/**
+ * A chat's first message, sent from outside the composer (the Sketchpad's
+ * Build), waiting for its model: the message as it will be sent, the model
+ * picker, and Send. See `AIChatHandle.sendUserMessage`.
+ */
+function StagedFirstMessage({
+  text,
+  picker,
+  canSend,
+  onSend,
+  onCancel,
+}: {
+  text: string;
+  picker: React.ReactNode;
+  canSend: boolean;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section
+      aria-label="Ready to send"
+      className="mb-2 flex flex-col gap-2 rounded-md border border-border-brand-primary bg-bg-secondary p-2 text-xs touch:text-sm"
+    >
+      <p className="text-fg-primary">
+        Choose the model for this chat, then send. A chat keeps the model it
+        starts with.
+      </p>
+      <div className="rounded-md bg-bg-primary px-2 py-1.5 text-fg-primary">
+        {renderUserMessageText(text)}
+      </div>
+      <div className="flex items-center gap-1">
+        {picker}
+        <span className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            className="h-7 px-2 text-xs touch:text-sm"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={onSend}
+            disabled={!canSend}
+            className="h-7 px-3 text-xs touch:text-sm"
+          >
+            Send
+          </Button>
+        </span>
+      </div>
+    </section>
+  );
+}
+
 function QueuedMessages({
   queue,
   paused,

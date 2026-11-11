@@ -944,13 +944,23 @@ export function Shell({
   useEffect(() => {
     const restore = restoreRef.current;
     if (restore === undefined) return;
-    setOpenPanel(restore.panel);
     setIsCanvasOpen(restore.canvasOpen);
     setCanvasView(restore.canvasView);
     // The pane is not in the URL — it is which of two things a phone happens to
     // be showing, not where you are — so it follows the canvas the same way a
     // fresh load does.
     setWorkspacePane(restore.canvasOpen ? "canvas" : "editor");
+    /*
+     * After the pane, and on a phone it wins: the assistant asked for is the
+     * pane in front. Before, the canvas came second and put the Preview in
+     * front -- and a Sketchpad holds the canvas open, so its Build, which
+     * opens the assistant this way, left the phone on the page instead of
+     * the conversation it had just started.
+     */
+    setOpenPanel(restore.panel);
+    if (restore.panel === "ai" && breakpointRef.current === "mobile") {
+      setPhonePane("chat");
+    }
   }, [restoreEpoch]);
   useEffect(() => {
     onViewStateChange?.({
