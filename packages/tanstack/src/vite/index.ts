@@ -14,21 +14,30 @@
  * export default defineConfig({ plugins: [valProjectSource(), tanstackStart()] });
  *
  * // src/val/server.ts
- * import { FILES } from "virtual:val/project-source";
- * initValServer(valModules, config, { http: { projectSource: FILES } });
+ * import projectSource from "virtual:val/project-source";
+ * initValServer(valModules, config, { projectSource });
  * ```
  *
  * The same contract as the build platform's `platform:project-source`, made by
  * a different builder: there the files come from the record the platform
- * builds from, here from the project's directory. *
- * NOT ENOUGH ON ITS OWN YET: this is the text the BUILD was made from, so a
- * second publish before the site is rebuilt patches that text rather than
- * what the first publish wrote, and loses the first publish's change to the
- * same file. The platform covers that with the content version it hands the
- * site; a self-hosted site needs the content service to hand back the latest
- * published text (valbuild/home#370). Until then nothing in this repository
- * wires it up, and `e2e/http/publish.spec.ts` ("a second change publishes on
- * top of the first commit") is what fails when it is.
+ * builds from, here from the project's directory.
+ *
+ * A second publish before the site is rebuilt is safe: the text is the
+ * build's, and a publish replays over it what was published since the build
+ * before its own changes (`publishedByModule` in `@valbuild/server`, and
+ * "What a publish patches" in `architecture/content-versions.md`).
+ * `scenarios/src/publishBeforeRedeploy.scenario.test.ts` publishes twice
+ * from embedded source with no redeploy in between.
+ *
+ * NOT YET for a site whose content service publishes as JOBS (val.build
+ * does): a deployment that embeds its source is taken to be one the Studio
+ * can build in a tab (`buildable` in `ValServer`'s `/publish-job-prepare`),
+ * which is the platform's model and not a self-hosted site's, built by its
+ * own CI. A self-hosted engine with no serving plane publishes by commit, so
+ * it never asks; one that runs jobs needs embedding and building in the tab
+ * told apart. That is also why `examples/tanstack` does not use this: its
+ * proxy-mode e2e stands in for val.build, and its job specs would try to
+ * build in the tab.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";

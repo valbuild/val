@@ -662,6 +662,13 @@ export type WorldOptions = {
    * readers as `moduleDependencies`, beside the build's `projectSource`.
    */
   moduleDependencies?: Record<string, string[]>;
+  /**
+   * http, at the site: the build embeds the project's Val source
+   * (`projectSource`), as a site built with `valProjectSource()` from
+   * `@valbuild/tanstack/vite` does -- a self-hosted one, whose publishes are
+   * rendered into that text rather than into files read from a repository.
+   */
+  embedsSource?: true;
 };
 
 export type ServerMode = "memory" | "fs" | "http";
@@ -741,9 +748,10 @@ async function hostFor(
         /*
          * The platform builds a proposal's address itself and embeds the
          * project's source in the build, which is where a save there reads
-         * the `.val.ts` text it patches (under the proposal's own files).
+         * the `.val.ts` text it patches (under the proposal's own files). A
+         * site built with `valProjectSource()` embeds it too.
          */
-        ...(options.proposal !== undefined
+        ...(options.proposal !== undefined || options.embedsSource
           ? {
               projectSource: Object.fromEntries(
                 Object.entries(sourceText).map(([path, text]) => [
