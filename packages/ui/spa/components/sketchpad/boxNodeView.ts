@@ -2,7 +2,7 @@ import type { Node as PMNode } from "prosemirror-model";
 import type { EditorView, NodeView } from "prosemirror-view";
 import { mediaOf } from "./sketchpadDoc";
 import type { SketchMedia } from "@valbuild/shared/internal";
-import { gripElement, startBlockDrag } from "./dragBlocks";
+import { COARSE_GRIP, gripElement } from "./dragBlocks";
 
 /**
  * A kind of block the site's code renders: the variants of its sections,
@@ -110,11 +110,8 @@ export class BoxView implements NodeView {
     this.kind.addEventListener("click", () => this.editKind());
     this.grip = gripElement(
       "Drag to move this box",
-      (event) => {
-        const pos = this.getPos();
-        if (pos !== undefined) startBlockDrag(this.view, pos, event, this.dom);
-      },
-      "-ml-1 flex h-4 w-4 shrink-0 cursor-grab items-center justify-center rounded text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary",
+      { view: this.view, getPos: () => this.getPos(), image: this.dom },
+      `-ml-1 flex h-4 w-4 shrink-0 cursor-grab items-center justify-center rounded text-fg-tertiary hover:bg-bg-primary hover:text-fg-primary ${COARSE_GRIP} [@media(pointer:coarse)]:-ml-2`,
     );
     this.header.append(this.grip, this.icon, this.kind);
 

@@ -3,6 +3,8 @@ import { X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint } from "./types";
 import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
+import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
+import { PHONE_PANE_GAP, phoneSlideStyle } from "./workspace/phoneTrack";
 
 export type FloatingPanelProps = {
   /** Which edge the panel floats against on desktop/tablet. */
@@ -15,6 +17,13 @@ export type FloatingPanelProps = {
    * `bottom-sheet` rises from the bottom (utilities, AI, notifications).
    */
   mobileVariant: "sheet" | "bottom-sheet" | "pane";
+  /**
+   * A `pane`'s place on the phone's strip of panes, from the one in front
+   * (`phoneTrack`): 0 on screen, otherwise slid off to one side. A pane is
+   * not dismissed: the pane bar moves between them, so it has no close
+   * button and Escape does not close it.
+   */
+  phoneOffset?: number;
   breakpoint: ShellBreakpoint;
   onClose: () => void;
   /** Rendered to the right of the title, e.g. a "New" button. */
@@ -103,6 +112,7 @@ export function FloatingPanel({
   width,
   title,
   mobileVariant,
+  phoneOffset = 0,
   breakpoint,
   onClose,
   headerAction,
@@ -119,22 +129,26 @@ export function FloatingPanel({
   children,
 }: FloatingPanelProps) {
   const isMobile = breakpoint === "mobile" && !hidden;
+  /** One of the phone's panes: switched by the pane bar, never dismissed. */
+  const isPhonePane = isMobile && mobileVariant === "pane";
+  const onScreen = !isPhonePane || phoneOffset === 0;
+  const reducedMotion = usePrefersReducedMotion();
   const panelRef = useRef<HTMLDivElement>(null);
   // A mobile sheet is measured against the part of the screen the user can
   // actually see. With the keyboard up that is not the layout viewport, and
   // a panel with a text field in its footer — the assistant's input, a
   // filter — would otherwise put it underneath the keyboard. See
   // `useVisualViewport`.
-  const viewport = useVisualViewport(isMobile);
-  useLockBodyScroll(isMobile);
+  const viewport = useVisualViewport(isMobile && onScreen);
+  useLockBodyScroll(isMobile && onScreen);
   useEffect(() => {
-    if (hidden) return;
+    if (hidden || isPhonePane) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, hidden]);
+  }, [onClose, hidden, isPhonePane]);
   return (
     <>
       {/* Scrim: dark and dismissive on mobile where the sheet dominates the
@@ -157,6 +171,9 @@ export function FloatingPanel({
         ref={panelRef}
         role="dialog"
         aria-label={title}
+        // Off to one side of the phone's strip: out of reach until it is
+        // slid back.
+        {...(onScreen ? {} : { inert: true, "aria-hidden": true })}
         // The region the guided tour's card has to keep off. A step that opens
         // a panel is a step ABOUT that panel, so a card covering it is covering
         // the answer. See `measureAvoid` in `StudioTour`.
@@ -164,11 +181,17 @@ export function FloatingPanel({
         style={
           isMobile
             ? mobileVariant === "pane"
-              ? // Above the keyboard while it is up; otherwise the class's
-                // place above the pane bar.
-                viewport.keyboardInset > 0
-                ? { bottom: viewport.keyboardInset + 8 }
-                : undefined
+              ? {
+                  // Above the keyboard while it is up; otherwise the class's
+                  // place above the pane bar.
+                  ...(viewport.keyboardInset > 0
+                    ? { bottom: viewport.keyboardInset + 8 }
+                    : {}),
+                  ...phoneSlideStyle(phoneOffset, {
+                    gap: PHONE_PANE_GAP,
+                    animate: !reducedMotion,
+                  }),
+                }
               : mobileVariant === "sheet"
                 ? // Full height of the visible area, not of the layout viewport.
                   { top: viewport.offsetTop, height: viewport.height }
@@ -243,14 +266,17 @@ export function FloatingPanel({
           )}
           <div className="ml-auto flex items-center gap-1">
             {headerAction}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={`Close ${title}`}
-              className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              <X size={15} />
-            </button>
+            {/* A phone's pane is not closed: the pane bar moves away from it. */}
+            {!isPhonePane && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={`Close ${title}`}
+                className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+              >
+                <X size={15} />
+              </button>
+            )}
           </div>
         </div>
         {subheader !== undefined && (

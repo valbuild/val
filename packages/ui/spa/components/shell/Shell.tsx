@@ -104,6 +104,12 @@ import {
 } from "./workspace/workspaceLayout";
 import { PhonePaneBar, type PhonePaneButton } from "./workspace/PhonePaneBar";
 import { PaneTabsProvider } from "./workspace/PaneTabs";
+import {
+  PHONE_PANE_GAP,
+  phoneOffset,
+  phoneSlideStyle,
+} from "./workspace/phoneTrack";
+import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
 import { placePanes } from "./workspace/placePanes";
 import { PaneStrip, SideTabs } from "./workspace/WorkspaceChrome";
 import { PaneSwitches, type PaneSwitch } from "./workspace/PaneSwitches";
@@ -913,8 +919,40 @@ export function Shell({
    * The phone's two panes as `PageWorkspace` knows them: the editor and the
    * page. The other two -- Sketch and the Assistant -- are `Shell`'s own.
    */
+  /**
+   * Which of the two the phone last showed. While the Assistant or the
+   * Sketch is in front the page slides off to the left as it was left, so
+   * coming back from the Assistant to the Preview slides the Preview back,
+   * not Content.
+   */
+  const [pagePane, setPagePane] = useState<"content" | "preview">(
+    initialCanvasOpen ? "preview" : "content",
+  );
+  useEffect(() => {
+    if (phonePane === "content" || phonePane === "preview") {
+      setPagePane(phonePane);
+    }
+  }, [phonePane]);
   const workspacePane: WorkspacePane =
-    phonePane === "preview" ? "canvas" : "editor";
+    phonePane === "preview"
+      ? "canvas"
+      : phonePane === "content"
+        ? "editor"
+        : pagePane === "preview"
+          ? "canvas"
+          : "editor";
+  /** The phone's strip: how far each pane is from the one in front. */
+  // Content and the Preview move inside `PageWorkspace`'s own track; the
+  // whole of it moves only for the two beyond it.
+  const pageOffset =
+    phonePane === "content" || phonePane === "preview"
+      ? 0
+      : phoneOffset(pagePane, phonePane);
+  const chatOffset = phoneOffset("chat", phonePane);
+  const sketchOffset = phoneOffset("sketch", phonePane);
+  const reducedMotion = usePrefersReducedMotion();
+  /** Slides, unless the person asked for less motion or a test for none. */
+  const slide = !reducedMotion && !skipTransition;
   const setWorkspacePane = useCallback(
     (next: SetStateAction<WorkspacePane>) =>
       setPhonePane((current) => {
@@ -1768,6 +1806,15 @@ export function Shell({
       },
     });
   }
+  if (aiEnabled) {
+    phonePanes.push({
+      pane: "chat",
+      onShow: () => {
+        setChatOpen(true);
+        setPhonePane("chat");
+      },
+    });
+  }
   // While a Sketchpad is open it is a pane whether or not there is a way to
   // open one from here.
   if (sketchpad !== undefined || sketchOpen) {
@@ -1777,15 +1824,6 @@ export function Shell({
       onShow: () => {
         if (sketchpad !== undefined && !sketchpad.open) sketchpad.onToggle();
         setPhonePane("sketch");
-      },
-    });
-  }
-  if (aiEnabled) {
-    phonePanes.push({
-      pane: "chat",
-      onShow: () => {
-        setChatOpen(true);
-        setPhonePane("chat");
       },
     });
   }
@@ -1867,18 +1905,18 @@ export function Shell({
          * or the Sketchpad's panes.
          */}
         <div
-          className={cn(
-            "absolute inset-0",
-            // On a phone, while Sketch or the Assistant is in front: still
-            // mounted, so the page and the editor are as they were left.
-            breakpoint === "mobile" &&
-              (phonePane === "sketch" || phonePane === "chat") &&
-              "hidden",
-          )}
+          className="absolute inset-0"
+          // On a phone, while the Assistant or the Sketch is in front: slid
+          // off to the left, as it was left (`phoneTrack`).
+          {...(breakpoint === "mobile" && pageOffset !== 0
+            ? { inert: true, "aria-hidden": true }
+            : {})}
           style={
-            placed !== null && placed.rightWidth > 0
-              ? { right: placed.rightWidth }
-              : undefined
+            breakpoint === "mobile"
+              ? phoneSlideStyle(pageOffset, { gap: 0, animate: slide })
+              : placed !== null && placed.rightWidth > 0
+                ? { right: placed.rightWidth }
+                : undefined
           }
         >
           <PageWorkspace
@@ -1957,14 +1995,15 @@ export function Shell({
           <div
             data-val-pane="sketch"
             onPointerDownCapture={() => usePane("sketch")}
+            {...(breakpoint === "mobile" && sketchOffset !== 0
+              ? { inert: true, "aria-hidden": true }
+              : {})}
             className={cn(
               "absolute flex flex-col gap-2",
               breakpoint === "mobile"
-                ? // A phone's pane: below the top bar, above the pane bar.
-                  cn(
-                    "inset-x-3 top-[4.5rem] bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]",
-                    phonePane !== "sketch" && "hidden",
-                  )
+                ? // A phone's pane: below the top bar, above the pane bar,
+                  // beside the others on the phone's strip (`phoneTrack`).
+                  "inset-x-3 top-[4.5rem] bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
                 : cn(
                     "top-20 bottom-14",
                     placed?.sketch == null && "hidden",
@@ -1972,12 +2011,17 @@ export function Shell({
                   ),
             )}
             style={
-              breakpoint !== "mobile" && placed?.sketch != null
-                ? {
-                    right: GUTTER + placed.sketch.right,
-                    width: placed.sketch.width,
-                  }
-                : undefined
+              breakpoint === "mobile"
+                ? phoneSlideStyle(sketchOffset, {
+                    gap: PHONE_PANE_GAP,
+                    animate: slide,
+                  })
+                : placed?.sketch != null
+                  ? {
+                      right: GUTTER + placed.sketch.right,
+                      width: placed.sketch.width,
+                    }
+                  : undefined
             }
           >
             <div
@@ -2367,7 +2411,10 @@ export function Shell({
         {aiEnabled && (
           <AIChatPanel
             breakpoint={breakpoint}
-            hidden={!assistantVisible}
+            // On a phone always there, on the phone's strip beside the
+            // others, so it slides in and out like them (`phoneTrack`).
+            hidden={breakpoint === "mobile" ? false : !assistantVisible}
+            phoneOffset={chatOffset}
             docked={placed?.chat != null && !placed.chat.sheet}
             // While pointing, a click on the page is a pick, not a click
             // outside the panel that closes it.

@@ -14,6 +14,8 @@ export type AIChatPanelProps = {
   hidden: boolean;
   /** Beside the work area rather than over it. See `FloatingPanel`. */
   docked?: boolean;
+  /** On a phone, its place on the strip of panes. See `FloatingPanel`. */
+  phoneOffset?: number;
   onClose: () => void;
   /** Before the title: the Assistant's Select, toward the preview. */
   headerStart?: ReactNode;
@@ -51,6 +53,7 @@ export function AIChatPanel({
   breakpoint,
   hidden,
   docked,
+  phoneOffset,
   onClose,
   headerStart,
   modal,
@@ -70,6 +73,7 @@ export function AIChatPanel({
       fill
       breakpoint={breakpoint}
       hidden={hidden}
+      phoneOffset={phoneOffset}
       docked={docked}
       onClose={onClose}
       headerStart={headerStart}

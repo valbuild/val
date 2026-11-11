@@ -332,6 +332,10 @@ export function SketchpadEditor({
             "mx-auto max-w-3xl rounded-md border border-border-primary bg-bg-primary shadow-sm",
             // Text the phone does not zoom into on focus: under 16px it does.
             touch ? "p-4 text-base" : "p-4 sm:p-6",
+            // Wherever the pointer is a finger -- a phone, a tablet -- a
+            // wider left margin, for the finger-sized grips beside each
+            // block (`dragBlocks`).
+            "[@media(pointer:coarse)]:pl-11",
           )}
         />
       </div>
