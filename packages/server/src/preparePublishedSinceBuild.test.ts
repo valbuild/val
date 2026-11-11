@@ -7,9 +7,11 @@ import os from "node:os";
 import { result } from "@valbuild/core/fp";
 import synchronizedPrettier from "@prettier/sync";
 import { ValOpsFS } from "./ValOpsFS";
-import { OrderedPatches, PatchAnalysis } from "./ValOps";
+import { CommitSha, OrderedPatches, PatchAnalysis } from "./ValOps";
 
 const MODULE_PATH = "/test/authors.val.js" as ModuleFilePath;
+/** The Val commit that published the first change, as content names it. */
+const PUBLISHED = { commitSha: "valcommit1" as CommitSha };
 
 const { s, c, config } = initVal();
 
@@ -109,7 +111,7 @@ describe("prepare over changes published since the build", () => {
         ...fetched,
         patches: fetched.patches.map((patch) =>
           published.has(patch.patchId)
-            ? { ...patch, appliedAt: { commitSha: "valcommit1" } }
+            ? { ...patch, appliedAt: PUBLISHED }
             : patch,
         ),
       };
