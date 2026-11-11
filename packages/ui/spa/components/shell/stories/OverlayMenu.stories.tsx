@@ -1,11 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowUp,
   Ellipsis,
   Eye,
   EyeOff,
-  GitCompareArrows,
   Globe,
   MessageSquare,
   Moon,
@@ -23,9 +22,9 @@ import {
   OverlaySelectionBox,
   OverlayTooltip,
   OverlayWindow,
-  dockOrientation,
-  overlayDockClassName,
 } from "../OverlayMenu";
+import { OverlayMenuDock } from "../OverlayMenuDock";
+import { placementOfDock, placementOrientation } from "../overlayPlacement";
 import { cn } from "../../designSystem/cn";
 import { ValLogo } from "../ValLogo";
 import { useShellBreakpoint } from "../useShellBreakpoint";
@@ -120,7 +119,10 @@ function OverlayMenuHarness({
 }: HarnessProps) {
   const breakpoint = useShellBreakpoint();
   const compact = breakpoint === "mobile";
-  const orientation = dockOrientation(dock);
+  // Dragging in the story moves the menu exactly as it does on a page.
+  const [placement, setPlacement] = useState(() => placementOfDock(dock));
+  useEffect(() => setPlacement(placementOfDock(dock)), [dock]);
+  const orientation = placementOrientation(placement);
   const [selectMode, setSelectMode] = useState(open === "select");
   const [chatOpen, setChatOpen] = useState(open === "chat");
   // Select mode marks every editable region, so the boxes are also shown
@@ -188,101 +190,94 @@ function OverlayMenuHarness({
       {/* A full-screen sheet covers the bar: the bar would otherwise sit on
           top of the sheet's own footer, which is where Save and the chat
           input live. */}
-      <div
-        data-mode={theme}
+      <OverlayMenuDock
+        placement={placement}
+        onPlacementChange={setPlacement}
         className={cn(
-          overlayDockClassName(dock),
           "z-50",
           compact && (open === "edit" || chatOpen) && "hidden",
         )}
       >
-        <OverlayMenuLauncher
-          key={String(collapsed)}
-          orientation={orientation}
-          dock={dock}
-          compact={compact}
-          defaultExpanded={!collapsed}
-          status={validationErrors > 0 ? "errors" : "changes"}
-          mark={<ValLogo className="h-6" />}
-        >
-          {previewMode ? (
-            <>
-              <OverlayMenuButton
-                label="Select content to edit"
-                compact={compact}
-                active={selectMode}
-                onClick={() => setSelectMode((v) => !v)}
-                icon={<SquareDashedMousePointer size={16} />}
-              />
-              <OverlayMenuButton
-                label="Exit preview mode"
-                compact={compact}
-                icon={<EyeOff size={16} />}
-              />
-              <OverlayMenuDivider orientation={orientation} />
-              <div className="relative inline-flex">
-                <OverlayMenuButton
-                  label="Review changes in Studio"
-                  compact={compact}
-                  icon={<GitCompareArrows size={16} />}
-                />
-                <OverlayMenuBadge
-                  count={
-                    validationErrors > 0 ? validationErrors : pendingChanges
-                  }
-                  tone={validationErrors > 0 ? "error" : "neutral"}
-                />
-              </div>
-              <PublishPill compact={compact} count={pendingChanges} />
-              <OverlayMenuButton
-                label="Open Val Studio"
-                compact={compact}
-                icon={<Globe size={16} />}
-              />
-              <OverlayMenuButton
-                label="Open AI chat"
-                compact={compact}
-                active={chatOpen}
-                onClick={() => setChatOpen((v) => !v)}
-                icon={<MessageSquare size={16} />}
-              />
-              <OverlayMenuDivider orientation={orientation} />
-              <OverlayMenuButton
-                label="Menu position and theme"
-                compact={compact}
-                icon={<Ellipsis size={16} />}
-              />
-            </>
-          ) : (
-            <>
-              <OverlayMenuButton
-                label="Enable preview mode"
-                compact={compact}
-                icon={<Eye size={16} />}
-              />
-              <OverlayMenuButton
-                label="Open Val Studio"
-                compact={compact}
-                icon={<Globe size={16} />}
-              />
-              <OverlayMenuDivider orientation={orientation} />
-              <OverlayMenuButton
-                label="Disable Val"
-                compact={compact}
-                icon={<X size={16} />}
-              />
-            </>
-          )}
-        </OverlayMenuLauncher>
-        {open === "settings" && (
-          <SettingsPopover className="absolute bottom-full right-0 mb-2" />
+        {({ dragging }) => (
+          <div data-mode={theme}>
+            <OverlayMenuLauncher
+              key={String(collapsed)}
+              placement={placement}
+              dragging={dragging}
+              compact={compact}
+              defaultExpanded={!collapsed}
+              status={validationErrors > 0 ? "errors" : "changes"}
+              mark={<ValLogo className="h-6" />}
+            >
+              {previewMode ? (
+                <>
+                  <OverlayMenuButton
+                    label="Select content to edit"
+                    compact={compact}
+                    active={selectMode}
+                    onClick={() => setSelectMode((v) => !v)}
+                    icon={<SquareDashedMousePointer size={16} />}
+                  />
+                  <PublishPill compact={compact} count={pendingChanges} />
+                  <div className="relative inline-flex">
+                    <OverlayMenuButton
+                      label="Open in Studio"
+                      compact={compact}
+                      icon={<Globe size={16} />}
+                    />
+                    <OverlayMenuBadge
+                      count={
+                        validationErrors > 0 ? validationErrors : pendingChanges
+                      }
+                      tone={validationErrors > 0 ? "error" : "neutral"}
+                    />
+                  </div>
+                  <OverlayMenuButton
+                    label="Assistant"
+                    compact={compact}
+                    active={chatOpen}
+                    onClick={() => setChatOpen((v) => !v)}
+                    icon={<MessageSquare size={16} />}
+                  />
+                  <OverlayMenuDivider orientation={orientation} />
+                  <OverlayMenuButton
+                    label="More"
+                    compact={compact}
+                    icon={<Ellipsis size={16} />}
+                  />
+                </>
+              ) : (
+                <>
+                  <OverlayMenuButton
+                    label="Enable preview mode"
+                    compact={compact}
+                    icon={<Eye size={16} />}
+                  />
+                  <OverlayMenuButton
+                    label="Open in Studio"
+                    compact={compact}
+                    icon={<Globe size={16} />}
+                  />
+                  <OverlayMenuDivider orientation={orientation} />
+                  <OverlayMenuButton
+                    label="More"
+                    compact={compact}
+                    icon={<Ellipsis size={16} />}
+                  />
+                </>
+              )}
+            </OverlayMenuLauncher>
+            {open === "settings" && (
+              <SettingsPopover className="absolute bottom-full right-0 mb-2" />
+            )}
+            {open === "tooltip" && (
+              <OverlayTooltip className="absolute bottom-full left-0 mb-2">
+                Click on content in the page to select and edit it
+              </OverlayTooltip>
+            )}
+          </div>
         )}
-        {open === "tooltip" && (
-          <OverlayTooltip className="absolute bottom-full left-0 mb-2">
-            Click on content in the page to select and edit it
-          </OverlayTooltip>
-        )}
-      </div>
+      </OverlayMenuDock>
     </div>
   );
 }
@@ -473,6 +468,17 @@ function SettingsPopover({ className }: { className?: string }) {
         <span className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md border border-border-float">
           <Moon size={12} />
           Dark
+        </span>
+      </div>
+      <div className="my-2 h-px bg-border-float" />
+      <div className="flex flex-col gap-1 text-xs">
+        <span className="inline-flex items-center gap-2 h-7 px-1">
+          <EyeOff size={14} />
+          Exit preview mode
+        </span>
+        <span className="inline-flex items-center gap-2 h-7 px-1">
+          <X size={14} />
+          Hide Val
         </span>
       </div>
     </OverlayCard>

@@ -4,15 +4,10 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  GitCompareArrows,
   Globe,
   GripHorizontal,
   LogIn,
   MessageSquare,
-  PanelBottom,
-  PanelLeft,
-  PanelRight,
-  PanelTop,
   PanelsTopLeft,
   SquareDashedMousePointer,
   X,
@@ -28,7 +23,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { AnimateHeight } from "./AnimateHeight";
 import {
   Internal,
   ModuleFilePath,
@@ -65,21 +59,23 @@ import {
 import { PublishButton } from "./PublishButton";
 import { CodeChangedCard } from "./shell/CodeChangedCard";
 import { PublishHandoffCard } from "./shell/PublishHandoff";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./designSystem/select";
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
 import { HoverCardArrow } from "@radix-ui/react-hover-card";
+import { OverlayMenuDivider, OverlayMenuLauncher } from "./shell/OverlayMenu";
+import { OverlayMenuDock } from "./shell/OverlayMenuDock";
 import {
+  DEFAULT_OVERLAY_PLACEMENT,
+  LEGACY_STORAGE_KEY,
   OverlayDock,
-  OverlayMenuDivider,
-  OverlayMenuLauncher,
-} from "./shell/OverlayMenu";
+  OverlayPlacement,
+  PLACEMENT_STORAGE_KEY,
+  isDockPlacement,
+  legacyDropZoneOf,
+  parseStoredPlacement,
+  placementOfDock,
+  placementOrientation,
+} from "./shell/overlayPlacement";
 import { ValLogo } from "./shell/ValLogo";
 import {
   useLockBodyScroll,
@@ -124,8 +120,8 @@ type ValMenuProps = ValOverlayProps & {
   setMode: Dispatch<SetStateAction<OverlayModes>>;
   mode: OverlayModes;
   loading: boolean;
-  setDropZone: (dropZone: DropZones | null) => void;
-  dropZone: DropZones | null;
+  placement: OverlayPlacement;
+  setPlacement: (placement: OverlayPlacement) => void;
   findAllValPathElements: () => Array<{
     top: number;
     left: number;
@@ -149,16 +145,6 @@ type ValMenuProps = ValOverlayProps & {
   isChatOpen: boolean;
   setIsChatOpen: Dispatch<SetStateAction<boolean>>;
 };
-type DropZones =
-  | "val-menu-left-top"
-  | "val-menu-left-center"
-  | "val-menu-left-bottom"
-  | "val-menu-center-top"
-  | "val-menu-center-bottom"
-  | "val-menu-right-top"
-  | "val-menu-right-center"
-  | "val-menu-right-bottom";
-
 type OverlayModes = "select" | null;
 type EditMode = {
   joinedPaths: string;
@@ -330,54 +316,50 @@ export function ValOverlay(props: ValOverlayProps) {
    * state for. `resolvedTheme` is never null, because it is what gets stamped.
    */
   const { theme, resolvedTheme, themeStyle } = useTheme();
-  const [dropZone, setDropZoneRaw] = useState<DropZones | null>(null);
+  const [placement, setPlacementRaw] = useState<OverlayPlacement | null>(null);
   const config = useValConfig();
-  const defaultDropZone = "val-menu-right-center"; // TODO: get from config
+  const projectKey =
+    PLACEMENT_STORAGE_KEY + "-" + (config?.project || "unknown");
   useEffect(() => {
     try {
-      const storedDropZone =
+      /*
+       * The project's own first, then whatever was used last anywhere. Each
+       * is read in its current form, then as the dock name it was stored as
+       * before the menu could be dragged freely, so nobody's menu moves on
+       * upgrade.
+       */
+      const stored =
+        (config && parseStoredPlacement(localStorage.getItem(projectKey))) ||
+        parseStoredPlacement(localStorage.getItem(PLACEMENT_STORAGE_KEY)) ||
         (config &&
-          localStorage.getItem(
-            "val-menu-drop-zone-" + (config?.project || "unknown"),
+          parseStoredPlacement(
+            localStorage.getItem(
+              "val-menu-drop-zone-" + (config?.project || "unknown"),
+            ),
           )) ||
-        localStorage.getItem("val-menu-drop-zone-default");
-      if (storedDropZone) {
-        if (
-          storedDropZone === "val-menu-left-top" ||
-          storedDropZone === "val-menu-left-center" ||
-          storedDropZone === "val-menu-left-bottom" ||
-          storedDropZone === "val-menu-center-top" ||
-          storedDropZone === "val-menu-center-bottom" ||
-          storedDropZone === "val-menu-right-top" ||
-          storedDropZone === "val-menu-right-center" ||
-          storedDropZone === "val-menu-right-bottom"
-        ) {
-          setDropZoneRaw(storedDropZone);
-        } else {
-          throw new Error("Invalid drop zone: " + storedDropZone);
-        }
-      } else {
-        setDropZoneRaw(defaultDropZone);
-      }
+        parseStoredPlacement(localStorage.getItem(LEGACY_STORAGE_KEY));
+      setPlacementRaw(stored ?? DEFAULT_OVERLAY_PLACEMENT);
     } catch (e) {
-      Internal.log.debug("Error getting drop zone from local storage", e);
-      setDropZoneRaw(defaultDropZone);
+      Internal.log.debug("Error getting menu placement from local storage", e);
+      setPlacementRaw(DEFAULT_OVERLAY_PLACEMENT);
     }
-  }, [config]);
-  const setDropZone = (dropZone: DropZones | null) => {
-    setDropZoneRaw(dropZone);
-    try {
-      if (dropZone) {
-        localStorage.setItem(
-          "val-menu-drop-zone-" + (config?.project || "unknown"),
-          dropZone,
-        );
-        localStorage.setItem("val-menu-drop-zone-default", dropZone);
+  }, [config, projectKey]);
+  const setPlacement = useCallback(
+    (next: OverlayPlacement) => {
+      setPlacementRaw(next);
+      try {
+        const json = JSON.stringify(next);
+        localStorage.setItem(projectKey, json);
+        localStorage.setItem(PLACEMENT_STORAGE_KEY, json);
+        // The framework packages draw a loading circle before the Studio has
+        // loaded, and know only the eight docks.
+        localStorage.setItem(LEGACY_STORAGE_KEY, legacyDropZoneOf(next));
+      } catch (e) {
+        Internal.log.debug("Error setting menu placement to local storage", e);
       }
-    } catch (e) {
-      Internal.log.debug("Error setting drop zone to local storage", e);
-    }
-  };
+    },
+    [projectKey],
+  );
 
   const findAllValPathElements = () => {
     const elements = document.querySelectorAll("[data-val-path]");
@@ -512,14 +494,14 @@ export function ValOverlay(props: ValOverlayProps) {
           onClose={() => setIsChatOpen(false)}
           onOpen={() => setIsChatOpen(true)}
         />
-        {editMode === null && (
-          <DraggableValMenu
+        {editMode === null && placement !== null && (
+          <ValMenu
             {...props}
             mode={mode}
             setMode={setMode}
             loading={theme === null}
-            dropZone={dropZone}
-            setDropZone={setDropZone}
+            placement={placement}
+            setPlacement={setPlacement}
             findAllValPathElements={findAllValPathElements}
             setAllBoundingBoxes={setAllBoundingBoxes}
             setShowAllBoundingBoxes={setShowAllBoundingBoxes}
@@ -1293,72 +1275,215 @@ function WindowField({
   );
 }
 
-function DropZoneLabel({ dropZone }: { dropZone: DropZones }) {
-  if (dropZone === "val-menu-left-top") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelTop className="w-4 h-4" />
-        <span>Left Top</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-left-center") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelLeft className="w-4 h-4" />
-        <span>Left Center</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-left-bottom") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelBottom className="w-4 h-4" />
-        <span>Left Bottom</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-center-top") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelTop className="w-4 h-4" />
-        <span>Center Top</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-center-bottom") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelBottom className="w-4 h-4" />
-        <span>Center Bottom</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-right-top") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelTop className="w-4 h-4" />
-        <span>Right Top</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-right-center") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelRight className="w-4 h-4" />
-        <span>Right Center</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-right-bottom") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelBottom className="w-4 h-4" />
-        <span>Right Bottom</span>
-      </div>
-    );
-  } else {
-    Internal.log.warn("Unknown drop zone:", dropZone);
-    return null;
+/** The side of a menu button that faces into the page, for its popovers. */
+function sideFacingPage(
+  placement: OverlayPlacement,
+): "top" | "right" | "bottom" | "left" {
+  switch (placement.edge) {
+    case "left":
+      return "right";
+    case "right":
+      return "left";
+    case "top":
+      return "bottom";
+    case "bottom":
+      return "top";
   }
 }
 
+const DOCK_LABELS: Record<OverlayDock, string> = {
+  "left-top": "Top left",
+  "center-top": "Top centre",
+  "right-top": "Top right",
+  "left-center": "Middle left",
+  "right-center": "Middle right",
+  "left-bottom": "Bottom left",
+  "center-bottom": "Bottom centre",
+  "right-bottom": "Bottom right",
+};
+
+/**
+ * Pick one of the eight presets from a picture of the screen, for anyone who
+ * would rather choose than drag. Dragging is not limited to these: a menu
+ * dropped anywhere else simply has none of them selected.
+ */
+function PlacementPicker({
+  placement,
+  onPlacementChange,
+}: {
+  placement: OverlayPlacement;
+  onPlacementChange: (placement: OverlayPlacement) => void;
+}) {
+  const cells: Array<OverlayDock | null> = [
+    "left-top",
+    "center-top",
+    "right-top",
+    "left-center",
+    null,
+    "right-center",
+    "left-bottom",
+    "center-bottom",
+    "right-bottom",
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Menu position"
+      className="grid grid-cols-3 gap-1 p-1 w-[4.5rem] h-12 rounded-md border border-border-primary bg-bg-secondary"
+    >
+      {cells.map((dock, index) =>
+        dock === null ? (
+          <span key={index} aria-hidden />
+        ) : (
+          <button
+            key={dock}
+            type="button"
+            role="radio"
+            aria-checked={isDockPlacement(placement, dock)}
+            aria-label={DOCK_LABELS[dock]}
+            title={DOCK_LABELS[dock]}
+            onClick={() => onPlacementChange(placementOfDock(dock))}
+            className={cn(
+              "rounded-sm transition-colors",
+              isDockPlacement(placement, dock)
+                ? "bg-fg-primary"
+                : "bg-border-primary hover:bg-fg-secondary",
+            )}
+          />
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * The "⋯" menu: where the menu sits, light or dark, and the two ways out —
+ * leaving preview mode, and turning Val off on this site altogether.
+ */
+function OverlaySettings({
+  placement,
+  onPlacementChange,
+  draftMode,
+  draftModeLoading,
+  setDraftMode,
+  disableOverlay,
+  side,
+  open,
+  onOpenChange,
+}: {
+  placement: OverlayPlacement;
+  onPlacementChange: (placement: OverlayPlacement) => void;
+  draftMode: boolean;
+  draftModeLoading: boolean;
+  setDraftMode: (draftMode: boolean) => void;
+  disableOverlay: () => void;
+  side: "top" | "right" | "bottom" | "left";
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const portalContainer = useValPortal();
+  /*
+   * `resolvedTheme`, so the switch shows the mode that is on screen. `theme`
+   * can still be null here — nobody has chosen — while the project's own
+   * default from `s.settings()` is what is being drawn.
+   */
+  const { resolvedTheme, setTheme } = useTheme();
+  const rowClassName =
+    "flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-sm text-left text-fg-primary hover:bg-bg-secondary-hover disabled:text-fg-disabled disabled:pointer-events-none";
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        aria-label="More"
+        title="More"
+        className={classNames(buttonClassName, buttonInactiveClassName, {
+          "bg-bg-float-raised text-fg-primary": open,
+        })}
+      >
+        <Ellipsis size={16} />
+      </PopoverTrigger>
+      <PopoverContent
+        side={side}
+        sideOffset={10}
+        container={portalContainer}
+        className="z-[9003] w-60 p-1.5"
+      >
+        <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+          <span className="text-sm">Position</span>
+          <PlacementPicker
+            placement={placement}
+            onPlacementChange={onPlacementChange}
+          />
+        </div>
+        <label className="flex items-center justify-between gap-3 px-2 h-9 text-sm">
+          <span>Dark mode</span>
+          <Switch
+            checked={resolvedTheme === "dark"}
+            onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+          />
+        </label>
+        <div className="my-1 h-px bg-border-primary" />
+        {draftMode && (
+          <button
+            type="button"
+            className={rowClassName}
+            disabled={draftModeLoading}
+            onClick={() => {
+              onOpenChange(false);
+              setDraftMode(false);
+            }}
+          >
+            {draftModeLoading ? (
+              <AnimatedClock size={16} />
+            ) : (
+              <EyeOff size={16} />
+            )}
+            <span className="flex flex-col leading-tight gap-0.5">
+              <span>Exit preview mode</span>
+              <span className="text-xs text-fg-tertiary">
+                See the published site
+              </span>
+            </span>
+          </button>
+        )}
+        <button
+          type="button"
+          className={rowClassName}
+          onClick={() => {
+            onOpenChange(false);
+            disableOverlay();
+          }}
+        >
+          <X size={16} />
+          <span className="flex flex-col leading-tight gap-0.5">
+            <span>Hide Val</span>
+            <span className="text-xs text-fg-tertiary">
+              Open a page from the Studio to bring it back
+            </span>
+          </span>
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * The menu over the user's page.
+ *
+ * Kept to what is worth a button on someone else's design: select something
+ * to edit it, publish, go to the Studio, and the assistant where there is
+ * one. Everything else is in "⋯" — where it sits, light or dark, leaving
+ * preview mode, and hiding Val — because those are things done once, not
+ * while editing. Out of preview mode it is the way back in, the Studio and
+ * the same "⋯".
+ *
+ * ONE launcher for both modes. It used to be two, each in an `AnimateHeight`,
+ * cross-fading their heights when preview mode changed — under a menu that
+ * was itself animating its length — which is a large part of why it moved
+ * oddly.
+ */
 function ValMenu({
-  dropZone,
-  ghost,
+  placement,
+  setPlacement,
   draftMode,
   draftModeLoading,
   setDraftMode,
@@ -1366,7 +1491,6 @@ function ValMenu({
   setMode,
   disableOverlay,
   loading,
-  setDropZone,
   findAllValPathElements,
   setAllBoundingBoxes,
   setShowAllBoundingBoxes,
@@ -1374,20 +1498,15 @@ function ValMenu({
   isChatOpen,
   setIsChatOpen,
   codeChanged = [],
-}: {
-  dropZone: DropZones;
-  ghost?: boolean;
-} & ValMenuProps) {
+}: ValMenuProps) {
   const { bornSessionId } = useContext(OverlaySessionContext);
-  const dir =
-    dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
-      ? "vertical"
-      : "horizontal";
   const authenticationState = useAuthenticationState();
   const portalContainer = useValPortal();
   // The publish popover, or a publish in flight, holds the menu open: see
-  // `PublishButton`'s `onHoldOpenChange`.
+  // `PublishButton`'s `onHoldOpenChange`. So does the "⋯" menu, which is
+  // portalled out of the bar just the same.
   const [publishHoldsMenuOpen, setPublishHoldsMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const showAllBoundingBoxesWithFadeIn = () => {
     const boxes = findAllValPathElements();
@@ -1409,12 +1528,6 @@ function ValMenu({
       setShowAllBoundingBoxes(false);
     }, 200);
   };
-  /*
-   * `resolvedTheme`, so the switch shows the mode that is on screen. `theme`
-   * can still be null here — nobody has chosen — while the project's own
-   * default from `s.settings()` is what is being drawn.
-   */
-  const { resolvedTheme, setTheme } = useTheme();
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
@@ -1438,27 +1551,7 @@ function ValMenu({
     handoff.state === null
       ? ownPublishCard(publishJobsState, dismissedPublishes)
       : null;
-  const publishPopoverSide =
-    dropZone === "val-menu-center-bottom"
-      ? "top"
-      : dropZone === "val-menu-center-top"
-        ? "bottom"
-        : dropZone === "val-menu-right-center"
-          ? "left"
-          : dropZone === "val-menu-left-center"
-            ? "right"
-            : dropZone === "val-menu-left-bottom"
-              ? "top"
-              : dropZone === "val-menu-right-bottom"
-                ? "top"
-                : dropZone === "val-menu-right-top"
-                  ? "bottom"
-                  : dropZone === "val-menu-left-top"
-                    ? "bottom"
-                    : "top";
-  // The launcher grows from the edge it is docked to, and it needs the dock
-  // without the drop-zone prefix.
-  const launcherDock = dropZone.replace("val-menu-", "") as OverlayDock;
+  const popoverSide = sideFacingPage(placement);
   // Collapsed, the circle still has to say whether there is work outstanding.
   const launcherStatus: "none" | "changes" | "errors" =
     validationErrorCount > 0
@@ -1466,41 +1559,37 @@ function ValMenu({
       : patchIds.length > 0
         ? "changes"
         : "none";
-  const allDropZones: DropZones[] = [
-    "val-menu-left-top",
-    "val-menu-left-center",
-    "val-menu-left-bottom",
-    "val-menu-center-top",
-    "val-menu-center-bottom",
-    "val-menu-right-top",
-    "val-menu-right-center",
-    "val-menu-right-bottom",
-  ];
+  const inPreview = draftMode && !draftModeLoading;
+  const pageInStudio =
+    sourcePathResult.status === "success" && sourcePathResult.data
+      ? sourcePathResult.data
+      : "";
+  const studioHref = appendSessionParam(
+    window.origin + "/val/~" + pageInStudio,
+    bornSessionId,
+  );
+  const studioIcon = pageInStudio ? (
+    <Globe size={16} />
+  ) : (
+    <PanelsTopLeft size={16} />
+  );
+  const settings = (
+    <OverlaySettings
+      placement={placement}
+      onPlacementChange={setPlacement}
+      draftMode={draftMode}
+      draftModeLoading={draftModeLoading}
+      setDraftMode={setDraftMode}
+      disableOverlay={disableOverlay}
+      side={popoverSide}
+      open={settingsOpen}
+      onOpenChange={setSettingsOpen}
+    />
+  );
   return (
-    <div className="p-4 right-16">
-      {/* See ValNextProvider: this same snippet is used there  */}
-      {loading && (
-        <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
-            <AnimatedClock size={16} />
-          </div>
-        </div>
-      )}
-      {authenticationState === "login-required" && (
-        <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
-            <a
-              href={urlOf("/api/val/authorize", {
-                redirect_to: window.location.href,
-              })}
-            >
-              <LogIn size={16} />
-            </a>
-          </div>
-        </div>
-      )}
-      {!ghost && codeChanged.length > 0 && (
-        <div className={handoffCardPositionClassName(dropZone)}>
+    <>
+      {codeChanged.length > 0 && (
+        <div className={handoffCardPositionClassName(placement)}>
           <CodeChangedCard
             modules={codeChanged}
             onReload={() => window.location.reload()}
@@ -1513,7 +1602,7 @@ function ValMenu({
          * Beside the dock rather than in a window: it is news about something
          * happening elsewhere, and editing carries on under it.
          */
-        <div className={handoffCardPositionClassName(dropZone)}>
+        <div className={handoffCardPositionClassName(placement)}>
           <PublishHandoffCard
             state={handoff.state}
             onReload={() => window.location.reload()}
@@ -1528,7 +1617,7 @@ function ValMenu({
         </div>
       )}
       {own !== null && (
-        <div className={handoffCardPositionClassName(dropZone)}>
+        <div className={handoffCardPositionClassName(placement)}>
           <PublishHandoffCard
             state={own.card}
             onReload={() => window.location.reload()}
@@ -1551,280 +1640,168 @@ function ValMenu({
           />
         </div>
       )}
-      <AnimateHeight
-        isOpen={
-          draftMode &&
-          !draftModeLoading &&
-          !loading &&
-          authenticationState !== "login-required"
-        }
+      <OverlayMenuDock
+        placement={placement}
+        onPlacementChange={setPlacement}
+        className="z-[8999]"
       >
-        <OverlayMenuLauncher
-          orientation={dir}
-          dock={launcherDock}
-          ghost={ghost}
-          status={launcherStatus}
-          mark={<ValMark />}
-          holdOpen={publishHoldsMenuOpen}
-        >
-          <HoverCard>
-            <HoverCardTrigger className="inline-flex">
-              <MenuButton
-                active={mode === "select"}
-                onClick={() => {
-                  const newMode = mode === "select" ? null : "select";
-                  setMode(newMode);
+        {({ dragging }) =>
+          // See ValNextProvider: the same circle is drawn there while the
+          // Studio loads, so the menu does not appear from nowhere.
+          loading ? (
+            <div className="grid place-items-center w-[42px] h-[42px] rounded-full bg-bg-float border border-border-float text-fg-primary shadow-lg">
+              <AnimatedClock size={16} />
+            </div>
+          ) : authenticationState === "login-required" ? (
+            <a
+              href={urlOf("/api/val/authorize", {
+                redirect_to: window.location.href,
+              })}
+              aria-label="Sign in to Val"
+              title="Sign in to Val"
+              className="grid place-items-center w-[42px] h-[42px] rounded-full bg-bg-float border border-border-float text-fg-primary shadow-lg hover:bg-bg-float-raised"
+            >
+              <LogIn size={16} />
+            </a>
+          ) : (
+            <OverlayMenuLauncher
+              placement={placement}
+              dragging={dragging}
+              status={launcherStatus}
+              mark={<ValMark />}
+              holdOpen={publishHoldsMenuOpen || settingsOpen}
+            >
+              {inPreview ? (
+                <>
+                  <HoverCard>
+                    <HoverCardTrigger className="inline-flex">
+                      <MenuButton
+                        label="Select content to edit"
+                        active={mode === "select"}
+                        onClick={() => {
+                          const newMode = mode === "select" ? null : "select";
+                          setMode(newMode);
 
-                  // Clean up if exiting select mode
-                  if (newMode !== "select") {
-                    setShowAllBoundingBoxes(false);
-                    setAllBoundingBoxesVisible(false);
-                  } else {
-                    showAllBoundingBoxesWithFadeIn();
-                  }
-                }}
-                onMouseEnter={() => {
-                  if (mode === "select") {
-                    showAllBoundingBoxesWithFadeIn();
-                  }
-                }}
-                onMouseLeave={() => {
-                  if (mode === "select") {
-                    hideAllBoundingBoxesWithFadeOut();
-                  }
-                }}
-                icon={<SquareDashedMousePointer size={16} />}
-              />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              Click on content in the page to select and edit it
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          <HoverCard>
-            <HoverCardTrigger className="inline-flex">
-              <MenuButton
-                disabled={draftModeLoading}
-                icon={
-                  draftModeLoading ? (
-                    <AnimatedClock size={16} />
-                  ) : (
-                    <EyeOff size={16} />
-                  )
-                }
-                onClick={() => setDraftMode(false)}
-              />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              Exit preview mode to see the currently published version of your
-              content
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          <OverlayMenuDivider orientation={dir} />
-          <HoverCard>
-            <HoverCardTrigger asChild>
-              <MenuButton
-                href={appendSessionParam(
-                  window.origin + "/val/compare",
-                  bornSessionId,
-                )}
-                icon={
-                  // flex, so the icon does not sit on a text baseline and make
-                  // this button taller than the others
-                  <div className="flex relative">
-                    <PendingChangesBadge
-                      patchCount={patchIds.length}
-                      validationErrorCount={validationErrorCount}
-                    />
-                    <GitCompareArrows size={16} />
-                  </div>
-                }
-              />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              {validationErrorCount > 0 && (
-                <div className="text-fg-error-primary">
-                  {validationErrorCount} validation error
-                  {validationErrorCount > 1 && "s"}
-                </div>
-              )}
-              {patchIds.length > 0 && validationErrorCount === 0 && (
-                <div>
-                  {patchIds.length} pending change
-                  {patchIds.length > 1 && "s"}
-                </div>
-              )}
-              Review changes in Studio
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          <PublishButton
-            compact
-            onHoldOpenChange={setPublishHoldsMenuOpen}
-            popoverSide={publishPopoverSide}
-          />
-          <HoverCard>
-            <HoverCardTrigger asChild>
-              <MenuButton
-                icon={
-                  sourcePathResult.status === "success" &&
-                  sourcePathResult.data ? (
-                    <Globe size={16} />
-                  ) : (
-                    <PanelsTopLeft size={16} />
-                  )
-                }
-                href={appendSessionParam(
-                  window.origin +
-                    "/val/~" +
-                    (sourcePathResult.status === "success" &&
-                    sourcePathResult.data
-                      ? sourcePathResult.data
-                      : ""),
-                  bornSessionId,
-                )}
-              />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              Open Val Studio to edit and manage your content
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          {(valMode === "http" || valMode === "fs") && isChatEnabled && (
-            <HoverCard>
-              <HoverCardTrigger className="inline-flex">
-                <MenuButton
-                  active={isChatOpen}
-                  onClick={() => setIsChatOpen((prev) => !prev)}
-                  icon={<MessageSquare size={16} />}
-                />
-              </HoverCardTrigger>
-              <HoverCardContent
-                side={publishPopoverSide}
-                className="z-50"
-                container={portalContainer}
-              >
-                Open AI Chat to ask questions and edit content with AI
-                <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-              </HoverCardContent>
-            </HoverCard>
-          )}
-          <Popover>
-            <PopoverTrigger
-              className={classNames(buttonClassName, buttonInactiveClassName)}
-            >
-              <Ellipsis size={16} />
-            </PopoverTrigger>
-            <PopoverContent container={portalContainer} className="z-[9003]">
-              <div className="grid grid-cols-[1fr,auto] gap-2 items-center">
-                <span>Position</span>
-                <Select
-                  value={dropZone}
-                  onValueChange={(value) => {
-                    setDropZone(value as DropZones);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue>
-                      <DropZoneLabel dropZone={dropZone} />
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent
-                    container={portalContainer}
-                    className="z-[9004]"
-                  >
-                    {allDropZones.map((zone) => (
-                      <SelectItem key={zone} value={zone}>
-                        <DropZoneLabel dropZone={zone} />
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span>
-                  {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
-                </span>
-                <Switch
-                  checked={resolvedTheme === "dark"}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      setTheme("dark");
-                    } else {
-                      setTheme("light");
-                    }
-                  }}
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
-        </OverlayMenuLauncher>
-      </AnimateHeight>
-      <AnimateHeight
-        isOpen={
-          !(draftMode && !draftModeLoading) &&
-          !loading &&
-          authenticationState !== "login-required"
-        }
-      >
-        <OverlayMenuLauncher
-          orientation={dir}
-          dock={launcherDock}
-          ghost={ghost}
-          status={launcherStatus}
-          mark={<ValMark />}
-        >
-          <MenuButton
-            label="Enable preview mode"
-            disabled={draftModeLoading}
-            icon={
-              draftModeLoading ? <AnimatedClock size={16} /> : <Eye size={16} />
-            }
-            onClick={() => {
-              setDraftMode(true);
-            }}
-          />
-          <MenuButton
-            label="Studio"
-            icon={
-              sourcePathResult.status === "success" && sourcePathResult.data ? (
-                <Globe size={16} />
+                          // Clean up if exiting select mode
+                          if (newMode !== "select") {
+                            setShowAllBoundingBoxes(false);
+                            setAllBoundingBoxesVisible(false);
+                          } else {
+                            showAllBoundingBoxesWithFadeIn();
+                          }
+                        }}
+                        onMouseEnter={() => {
+                          if (mode === "select") {
+                            showAllBoundingBoxesWithFadeIn();
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (mode === "select") {
+                            hideAllBoundingBoxesWithFadeOut();
+                          }
+                        }}
+                        icon={<SquareDashedMousePointer size={16} />}
+                      />
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      side={popoverSide}
+                      className="z-50"
+                      container={portalContainer}
+                    >
+                      Click on content in the page to select and edit it
+                      <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
+                    </HoverCardContent>
+                  </HoverCard>
+                  <PublishButton
+                    compact
+                    onHoldOpenChange={setPublishHoldsMenuOpen}
+                    popoverSide={popoverSide}
+                  />
+                  <HoverCard>
+                    <HoverCardTrigger asChild>
+                      <MenuButton
+                        label="Open in Studio"
+                        href={studioHref}
+                        icon={
+                          // flex, so the icon does not sit on a text baseline
+                          // and make this button taller than the others
+                          <div className="flex relative">
+                            <PendingChangesBadge
+                              patchCount={patchIds.length}
+                              validationErrorCount={validationErrorCount}
+                            />
+                            {studioIcon}
+                          </div>
+                        }
+                      />
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      side={popoverSide}
+                      className="z-50"
+                      container={portalContainer}
+                    >
+                      {validationErrorCount > 0 && (
+                        <div className="text-fg-error-primary">
+                          {validationErrorCount} validation error
+                          {validationErrorCount > 1 && "s"}
+                        </div>
+                      )}
+                      {patchIds.length > 0 && validationErrorCount === 0 && (
+                        <div>
+                          {patchIds.length} pending change
+                          {patchIds.length > 1 && "s"}
+                        </div>
+                      )}
+                      Open Val Studio to edit and manage your content
+                      <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
+                    </HoverCardContent>
+                  </HoverCard>
+                  {(valMode === "http" || valMode === "fs") &&
+                    isChatEnabled && (
+                      <MenuButton
+                        label="Assistant"
+                        active={isChatOpen}
+                        onClick={() => setIsChatOpen((prev) => !prev)}
+                        icon={<MessageSquare size={16} />}
+                      />
+                    )}
+                  <OverlayMenuDivider
+                    orientation={placementOrientation(placement)}
+                  />
+                  {settings}
+                </>
               ) : (
-                <PanelsTopLeft size={16} />
-              )
-            }
-            href={appendSessionParam(
-              window.origin +
-                "/val/~" +
-                (sourcePathResult.status === "success" && sourcePathResult.data
-                  ? sourcePathResult.data
-                  : ""),
-              bornSessionId,
-            )}
-          />
-          <MenuButton
-            label="Disable Val"
-            icon={<X size={16} />}
-            onClick={() => disableOverlay()}
-          />
-        </OverlayMenuLauncher>
-      </AnimateHeight>
-    </div>
+                <>
+                  <MenuButton
+                    label="Enable preview mode"
+                    disabled={draftModeLoading}
+                    icon={
+                      draftModeLoading ? (
+                        <AnimatedClock size={16} />
+                      ) : (
+                        <Eye size={16} />
+                      )
+                    }
+                    onClick={() => {
+                      setDraftMode(true);
+                    }}
+                  />
+                  <MenuButton
+                    label="Open in Studio"
+                    icon={studioIcon}
+                    href={studioHref}
+                  />
+                  <OverlayMenuDivider
+                    orientation={placementOrientation(placement)}
+                  />
+                  {settings}
+                </>
+              )}
+            </OverlayMenuLauncher>
+          )
+        }
+      </OverlayMenuDock>
+    </>
   );
 }
 
@@ -2012,182 +1989,44 @@ const MenuButton = React.forwardRef<
 );
 MenuButton.displayName = "MenuButton";
 
-function DraggableValMenu(props: ValMenuProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const { dropZone, setDropZone } = props;
-  const [dragOverDropZone, setDragOverDropZone] = useState<DropZones | null>(
-    null,
-  );
-  const onDrop = (id: DropZones) => (event: React.DragEvent) => {
-    event.preventDefault();
-    setDropZone(id);
-  };
-  const onDragOver = (id: DropZones) => (event: React.DragEvent) => {
-    event.preventDefault();
-    setDragOverDropZone(id);
-  };
-  return (
-    <>
-      {dropZone && (
-        <div
-          className={classNames(
-            "z-[8999] cursor-grab",
-            getPositionClassName(dropZone),
-          )}
-          draggable
-          onDragStart={() => {
-            setIsDragging(true);
-          }}
-          onDragEnd={() => {
-            setIsDragging(false);
-          }}
-        >
-          <ValMenu {...props} dropZone={dropZone} />
-        </div>
-      )}
-      {isDragging && dropZone && (
-        <>
-          {dragOverDropZone && dragOverDropZone !== dropZone && (
-            <div
-              className={classNames(
-                "z-[3]",
-                getPositionClassName(dragOverDropZone),
-              )}
-              onDrop={onDrop(dragOverDropZone)}
-              onDragOver={onDragOver(dragOverDropZone)}
-            >
-              <ValMenu ghost {...props} dropZone={dragOverDropZone} />
-            </div>
-          )}
-          <div className="fixed top-0 left-0 grid w-screen h-screen grid-cols-3 grid-rows-3 z-[2]">
-            <DropZone
-              id="val-menu-left-top"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-center-top"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-right-top"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-left-center"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <div></div>
-            <DropZone
-              id="val-menu-right-center"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-left-bottom"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-center-bottom"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-right-bottom"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-          </div>
-        </>
-      )}
-    </>
-  );
-}
-
-// NOTE: This is also used in ValNextProvider to display a loading spinner
 /**
- * Where the handoff card sits: off the dock's edge, toward the page, far
- * enough out to clear the bar in any of its eight positions.
+ * Where the cards beside the menu sit: one step in from the edge the menu is
+ * on, so they clear it wherever along that edge it is, and toward the same
+ * end of the edge as the menu.
  */
-function handoffCardPositionClassName(dropZone: string | null): string {
-  const base = "fixed transform z-[8999]";
-  switch (dropZone) {
-    case "val-menu-left-top":
-      return `${base} left-4 top-20`;
-    case "val-menu-left-center":
-      return `${base} left-20 top-1/2 -translate-y-1/2`;
-    case "val-menu-left-bottom":
-      return `${base} left-4 bottom-20`;
-    case "val-menu-center-top":
-      return `${base} left-1/2 -translate-x-1/2 top-20`;
-    case "val-menu-center-bottom":
-      return `${base} left-1/2 -translate-x-1/2 bottom-20`;
-    case "val-menu-right-top":
-      return `${base} right-4 top-20`;
-    case "val-menu-right-center":
-      return `${base} right-20 top-1/2 -translate-y-1/2`;
-    default:
-      return `${base} right-4 bottom-20`;
+function handoffCardPositionClassName(placement: OverlayPlacement): string {
+  const base = "fixed z-[8999]";
+  const third =
+    placement.offset < 1 / 3
+      ? "start"
+      : placement.offset > 2 / 3
+        ? "end"
+        : "middle";
+  switch (placement.edge) {
+    case "left":
+    case "right": {
+      const across = placement.edge === "left" ? "left-20" : "right-20";
+      const along =
+        third === "start"
+          ? "top-4"
+          : third === "end"
+            ? "bottom-4"
+            : "top-1/2 -translate-y-1/2";
+      return `${base} ${across} ${along}`;
+    }
+    case "top":
+    case "bottom": {
+      const across = placement.edge === "top" ? "top-20" : "bottom-20";
+      const along =
+        third === "start"
+          ? "left-4"
+          : third === "end"
+            ? "right-4"
+            : "left-1/2 -translate-x-1/2";
+      return `${base} ${across} ${along}`;
+    }
   }
 }
-
-function getPositionClassName(dropZone: string | null) {
-  let className = "fixed transform";
-  if (dropZone === "val-menu-left-top") {
-    className += " left-0 top-0";
-  } else if (dropZone === "val-menu-left-center") {
-    className += " left-0 top-1/2 -translate-y-1/2";
-  } else if (dropZone === "val-menu-left-bottom") {
-    className += " left-0 bottom-0";
-  } else if (dropZone === "val-menu-center-top") {
-    className += " left-1/2 -translate-x-1/2 top-0";
-  } else if (dropZone === "val-menu-center-bottom") {
-    className += " left-1/2 -translate-x-1/2 bottom-0";
-  } else if (dropZone === "val-menu-right-top") {
-    className += " right-0 top-0";
-  } else if (dropZone === "val-menu-right-center") {
-    className += " right-0 top-1/2 -translate-y-1/2";
-  } else if (dropZone === "val-menu-right-bottom") {
-    className += " right-0 bottom-0";
-  } else {
-    className += " right-0 bottom-0";
-  }
-  return className;
-}
-
-const DropZone = ({
-  id,
-  onDrop,
-  onDragOver,
-}: {
-  id: DropZones;
-  onDrop: (id: DropZones) => (event: React.DragEvent) => void;
-  onDragOver: (id: DropZones) => (event: React.DragEvent) => void;
-  dropZone: DropZones;
-  dragOverDropZone: DropZones | null;
-}) => {
-  return <div onDrop={onDrop(id)} onDragOver={onDragOver(id)}></div>;
-};
 
 function maxRect(
   rect: { top: number; left: number; width: number; height: number },

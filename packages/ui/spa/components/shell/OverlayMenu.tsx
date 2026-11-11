@@ -3,6 +3,7 @@ import {
   ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -10,6 +11,12 @@ import { GripHorizontal, X } from "lucide-react";
 import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
+import {
+  OverlayMenuOrientation,
+  OverlayPlacement,
+  placementGrowth,
+  placementOrientation,
+} from "./overlayPlacement";
 
 /**
  * Chrome for the floating menu that sits over the user's own site.
@@ -24,24 +31,7 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
  * popovers, and composes these pieces.
  */
 
-export type OverlayMenuOrientation = "horizontal" | "vertical";
-
-/** The eight positions the menu can be docked to. */
-export type OverlayDock =
-  | "left-top"
-  | "left-center"
-  | "left-bottom"
-  | "center-top"
-  | "center-bottom"
-  | "right-top"
-  | "right-center"
-  | "right-bottom";
-
-export function dockOrientation(dock: OverlayDock): OverlayMenuOrientation {
-  return dock === "left-center" || dock === "right-center"
-    ? "vertical"
-    : "horizontal";
-}
+export type { OverlayDock, OverlayMenuOrientation } from "./overlayPlacement";
 
 export type OverlayMenuBarProps = {
   orientation: OverlayMenuOrientation;
@@ -70,16 +60,12 @@ export function OverlayMenuBar({
       aria-label="Val"
       aria-orientation={orientation}
       className={cn(
-        "flex relative items-center rounded-lg",
+        // A pill in both orientations and in both states, so expanding it
+        // only ever changes its length: no radius or padding to animate.
+        "flex relative items-center rounded-full p-1",
         "bg-bg-float border border-border-float text-fg-primary shadow-lg",
         orientation === "vertical" ? "flex-col" : "flex-row",
-        compact
-          ? orientation === "vertical"
-            ? "flex-col gap-0.5 px-1 py-1.5"
-            : "flex-row gap-0.5 px-1.5 py-1"
-          : orientation === "vertical"
-            ? "flex-col gap-1 px-1.5 py-2"
-            : "flex-row gap-1 px-2 py-1.5",
+        compact ? "gap-0.5" : "gap-1",
         ghost && "opacity-70",
         className,
       )}
@@ -216,28 +202,6 @@ export function OverlayMenuBadge({
       {count > 9 ? "9+" : count}
     </span>
   );
-}
-
-/** The docked position, as fixed-position classes. */
-export function overlayDockClassName(dock: OverlayDock): string {
-  switch (dock) {
-    case "left-top":
-      return "fixed left-3 top-3";
-    case "left-center":
-      return "fixed left-3 top-1/2 -translate-y-1/2";
-    case "left-bottom":
-      return "fixed left-3 bottom-3";
-    case "center-top":
-      return "fixed left-1/2 -translate-x-1/2 top-3";
-    case "center-bottom":
-      return "fixed left-1/2 -translate-x-1/2 bottom-3";
-    case "right-top":
-      return "fixed right-3 top-3";
-    case "right-center":
-      return "fixed right-3 top-1/2 -translate-y-1/2";
-    case "right-bottom":
-      return "fixed right-3 bottom-3";
-  }
 }
 
 /**
@@ -405,13 +369,17 @@ export function OverlayTooltip({
 }
 
 export type OverlayMenuLauncherProps = {
-  orientation: OverlayMenuOrientation;
-  /** Which edge it grows from, so it expands into the page, not off it. */
-  dock: OverlayDock;
+  /** Where it is docked: decides its orientation and which way it grows. */
+  placement: OverlayPlacement;
   compact?: boolean;
-  /** Drag preview: reduced opacity, and always expanded so you see what
-      you are dragging. */
+  /** Reduced opacity, and always expanded so you see the whole bar. */
   ghost?: boolean;
+  /**
+   * Being dragged: collapsed, whatever hover or a click had said, and deaf
+   * to hover until it is let go. A bar that reshapes under the pointer while
+   * it is carried is the wonkiest thing it could do.
+   */
+  dragging?: boolean;
   /** Shown on the collapsed circle: unpublished changes, or errors. */
   status?: "none" | "changes" | "errors";
   /** The Val mark, or whatever identifies the collapsed control. */
@@ -437,6 +405,33 @@ export type OverlayMenuLauncherProps = {
   holdOpen?: boolean;
 };
 
+/*
+ * One curve for the whole menu: fast out of the gate, long settle. The
+ * length animates with it; the buttons fade in a beat behind the length, so
+ * they appear into room that is already there instead of being uncovered
+ * edge first, and fade out ahead of it on the way back.
+ */
+const EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
+const EXPAND_MS = 260;
+const COLLAPSE_MS = 200;
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(query.matches);
+    query.addEventListener?.("change", onChange);
+    return () => query.removeEventListener?.("change", onChange);
+  }, []);
+  return reduced;
+}
+
 /**
  * The overlay menu at rest: a circle, expanding to the full pill.
  *
@@ -449,19 +444,25 @@ export type OverlayMenuLauncherProps = {
  * over the user's site indefinitely — and hover does not exist on touch,
  * which is why the click is what makes it stick.
  *
- * It grows from the edge it is docked to, so it opens into the page rather
- * than off the side of it. Dismissal is the circle itself, a tap outside, or
- * Escape.
+ * It grows away from the nearer end of the edge it is docked to (or both
+ * ways, from the middle of one), so it opens into the page rather than off
+ * it. Dismissal is the circle itself, a tap outside, or Escape.
  *
  * Collapsed it still has one thing to say — whether there is unpublished work
  * or a validation error — so that shows as a dot on the circle rather than
  * making people expand it to find out.
+ *
+ * The length is animated to a MEASURED size, not to a `max-width` cap. A cap
+ * has to be larger than any bar could be, so a collapse spent most of its
+ * time shrinking the cap through sizes the bar never had, and the bar sat
+ * still and then snapped shut; and the two axes reached their ends at
+ * different moments. That was most of what made the menu feel wonky.
  */
 export function OverlayMenuLauncher({
-  orientation,
-  dock,
+  placement,
   compact,
   ghost,
+  dragging = false,
   status = "none",
   mark,
   children,
@@ -476,18 +477,31 @@ export function OverlayMenuLauncher({
   const [hovered, setHovered] = useState(false);
   const uncontrolled = pinned || hovered;
   const expanded =
-    ghost === true || holdOpen || (controlledExpanded ?? uncontrolled);
+    ghost === true ||
+    (!dragging && (holdOpen || (controlledExpanded ?? uncontrolled)));
   // Controlled only when a callback comes with the value: a controlled prop
   // with no setter is a menu that cannot be opened, which is worse than either.
   const isControlled = controlledExpanded !== undefined && !!onExpandedChange;
-  const setExpanded = (next: boolean) => {
-    if (isControlled) {
-      onExpandedChange?.(next);
-      return;
-    }
-    setPinned(next);
-    if (!next) setHovered(false);
-  };
+  const setExpanded = useCallback(
+    (next: boolean) => {
+      if (isControlled) {
+        onExpandedChange?.(next);
+        return;
+      }
+      setPinned(next);
+      if (!next) setHovered(false);
+    },
+    [isControlled, onExpandedChange],
+  );
+  // A drag forgets why it was open: it is let go of somewhere else, and
+  // should arrive there as the circle it was carried as.
+  useEffect(() => {
+    if (!dragging) return;
+    setPinned(false);
+    setHovered(false);
+    if (isControlled) onExpandedChange?.(false);
+    // Only on the start of a drag: the setters are not reasons to rerun it.
+  }, [dragging]);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const collapse = useCallback(() => setExpanded(false), [setExpanded]);
@@ -501,19 +515,57 @@ export function OverlayMenuLauncher({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expanded, holdOpen, setExpanded]);
 
-  const growsFromEnd =
-    dock === "right-top" || dock === "right-center" || dock === "right-bottom";
+  const orientation = placementOrientation(placement);
   const isVertical = orientation === "vertical";
+  const growsBackward = placementGrowth(placement) === "backward";
+
+  // The natural length of the buttons, which is what the clip animates to.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [contentLength, setContentLength] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const measure = () =>
+      setContentLength(isVertical ? el.offsetHeight : el.offsetWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVertical]);
+
+  const reducedMotion = usePrefersReducedMotion();
+  const axis = isVertical ? "height" : "width";
+  const length: number | "auto" = expanded ? (contentLength ?? "auto") : 0;
+  const clipStyle: React.CSSProperties = {
+    [axis]: length,
+    opacity: expanded ? 1 : 0,
+    // Not just hidden: `visibility` also takes the buttons out of the tab
+    // order and the accessibility tree while collapsed, and it flips only at
+    // the end of the collapse, so they still fade.
+    visibility: expanded ? "visible" : "hidden",
+    transition: reducedMotion
+      ? "none"
+      : expanded
+        ? `${axis} ${EXPAND_MS}ms ${EASE}, opacity 180ms ease-out 70ms, visibility 0s`
+        : `${axis} ${COLLAPSE_MS}ms ${EASE}, opacity 110ms ease-in, visibility 0s linear ${COLLAPSE_MS}ms`,
+  };
 
   return (
     <div
       ref={rootRef}
       // Hover is an enhancement, not the mechanism: touch has none, so the
       // circle is a real button that pins.
-      onMouseEnter={() => (isControlled ? setExpanded(true) : setHovered(true))}
-      onMouseLeave={() =>
-        isControlled ? setExpanded(false) : setHovered(false)
-      }
+      onMouseEnter={() => {
+        if (dragging) return;
+        if (isControlled) setExpanded(true);
+        else setHovered(true);
+      }}
+      onMouseLeave={() => {
+        if (dragging) return;
+        if (isControlled) setExpanded(false);
+        else setHovered(false);
+      }}
       className={cn("inline-flex", isVertical ? "flex-col" : "flex-row")}
     >
       <OverlayMenuBar
@@ -521,37 +573,36 @@ export function OverlayMenuLauncher({
         compact={compact}
         ghost={ghost}
         className={cn(
-          "transition-[border-radius,padding] duration-200",
-          // The bar's padding differs per orientation, which makes a
-          // collapsed vertical menu an oval rather than a circle. Uniform
-          // padding while collapsed keeps it round in both.
-          !expanded && ["rounded-full", "p-1.5"],
+          // The circle and the buttons are laid out by the inner row.
+          "gap-0",
+          dragging ? "shadow-xl cursor-grabbing" : undefined,
         )}
       >
-        {/* Order flips so the circle stays against the edge it is docked to
-            and the pill unrolls inwards. */}
+        {/* Order flips so the circle stays at the end of the edge it is
+            nearest and the pill unrolls inwards. */}
         <div
           className={cn(
             "flex items-center",
-            isVertical ? "flex-col" : "flex-row",
-            growsFromEnd
-              ? isVertical
+            isVertical
+              ? growsBackward
                 ? "flex-col-reverse"
-                : "flex-row-reverse"
-              : undefined,
+                : "flex-col"
+              : growsBackward
+                ? "flex-row-reverse"
+                : "flex-row",
           )}
         >
           <button
             type="button"
             aria-expanded={expanded}
             aria-label={expanded ? "Close Val menu" : "Open Val menu"}
+            data-overlay-launcher-circle=""
             onClick={() => setExpanded(isControlled ? !expanded : !pinned)}
             className={cn(
               "relative grid place-items-center shrink-0 rounded-full transition-colors",
               // Collapsed, this is the only thing to tap, so it keeps the full
-              // size on a phone too — the compact sizing is for a bar of eight
-              // buttons, not for a lone 44px target.
-              compact && expanded ? "w-7 h-7" : "w-8 h-8",
+              // size on a phone too.
+              "w-8 h-8",
               "text-fg-primary hover:bg-bg-float-raised",
             )}
           >
@@ -560,11 +611,9 @@ export function OverlayMenuLauncher({
               <span
                 aria-hidden
                 className={cn(
-                  // Top right, clear of the mark's own dot at its foot — two
-                  // dots on one 46px circle need to be told apart. Grey for
-                  // pending work, like every other draft marker; green is
-                  // reserved for controls that commit something, and the mark
-                  // already spends it.
+                  // Top right, clear of the mark's own dot at its foot. Grey
+                  // for pending work, like every other draft marker; green is
+                  // reserved for controls that commit something.
                   "absolute -right-0.5 -top-0.5 w-2 h-2 rounded-full ring-2 ring-bg-float",
                   status === "errors"
                     ? "bg-bg-error-primary"
@@ -573,44 +622,32 @@ export function OverlayMenuLauncher({
               />
             )}
           </button>
-          {/* Animating the max size rather than the size itself: a width
-              transition cannot animate to `auto`, and the 0fr→1fr grid trick
-              needs `min-width: 0` on the content, which lets the bar size
-              itself smaller than the buttons it contains — they then spill
-              out of its background. A max-width cap keeps the content at its
-              natural size and only clips it, so the bar always fits.
-
-              The padding with a matching negative margin widens the clip box
-              across the short axis, so a button's badge is not cut off, while
-              leaving the layout where it was. */}
+          {/* The clip. Padded across the short axis, with a matching negative
+              margin, so a button's badge is not cut off while the layout
+              stays where it was: only the long axis is ever collapsed, so
+              the padding can stay on in both states. */}
           <div
+            style={clipStyle}
             className={cn(
               "overflow-hidden",
-              "transition-[max-width,max-height,opacity,visibility] duration-200 ease-out",
-              // Both axes collapse, or a vertical menu keeps the width of its
-              // widest button and the circle comes out an oval. The padding
-              // that keeps a badge from being clipped is only applied while
-              // expanded, since a negative margin would otherwise eat into
-              // the collapsed circle.
-              expanded
-                ? isVertical
-                  ? "max-h-[32rem] max-w-[32rem] px-2 -mx-2"
-                  : "max-w-[32rem] max-h-[32rem] py-2 -my-2"
-                : "max-w-0 max-h-0",
-              expanded ? "opacity-100" : "opacity-0",
-              // Not just hidden: `visibility` also takes the buttons out of
-              // the tab order and the accessibility tree while collapsed, and
-              // it flips only at the end of the collapse, so they still fade.
-              expanded ? "visible" : "invisible",
+              isVertical ? "px-2 -mx-2" : "py-2 -my-2",
             )}
           >
             <div
+              ref={contentRef}
               className={cn(
                 "flex items-center",
-                isVertical ? "flex-col" : "flex-row",
+                isVertical ? "flex-col h-max" : "flex-row w-max",
                 compact ? "gap-0.5" : "gap-1",
-                // Keeps the circle from touching the first button.
-                isVertical ? "pt-1" : "pl-1",
+                // Keeps the circle from touching the first button, on
+                // whichever side the circle is.
+                isVertical
+                  ? growsBackward
+                    ? "pb-1"
+                    : "pt-1"
+                  : growsBackward
+                    ? "pr-1"
+                    : "pl-1",
               )}
             >
               {children}
