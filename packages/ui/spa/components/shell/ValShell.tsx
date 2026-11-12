@@ -10,7 +10,12 @@ import {
 import { isListedUnder } from "../../utils/isAtLocation";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
-import { CanvasFrame, PageCamera, PageReader } from "./canvas/CanvasFrame";
+import {
+  CanvasFrame,
+  PageCamera,
+  PageLogReader,
+  PageReader,
+} from "./canvas/CanvasFrame";
 import { AssistantPage, AssistantPageContext } from "./canvas/AssistantPage";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
@@ -1213,6 +1218,7 @@ function ValShellBody({
   /** The page in the frame, for the assistant's `read_page`. */
   const pageReader = useRef<PageReader | null>(null);
   const pageCamera = useRef<PageCamera | null>(null);
+  const pageLogReader = useRef<PageLogReader | null>(null);
   const assistantPage = useMemo(
     (): AssistantPage => ({
       codeMode: assistantPick.codeMode,
@@ -1222,6 +1228,7 @@ function ValShellBody({
       setPointedAt,
       readPage: () => pageReader.current,
       screenshotPage: () => pageCamera.current,
+      readPageLog: () => pageLogReader.current,
     }),
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
@@ -1353,6 +1360,9 @@ function ValShellBody({
         }}
         onPageCamera={(camera) => {
           pageCamera.current = camera;
+        }}
+        onPageLogReader={(reader) => {
+          pageLogReader.current = reader;
         }}
         onPinch={onPinch}
         onZoom={onZoom}

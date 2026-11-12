@@ -29,8 +29,20 @@ import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
-import { isValCanvasFrame } from "@valbuild/shared/client";
+import {
+  installPageLogInCanvasFrame,
+  isValCanvasFrame,
+} from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
+
+/*
+ * What goes wrong on the page, kept from now on when this document is in the
+ * Studio's canvas: the assistant's `read_page_log` (`pageLog.ts`). Here, when
+ * the module is evaluated, rather than when the bridge mounts, because that
+ * is after hydration -- and a hydration error is one of the things it is for.
+ * Anywhere else (a visitor's page, the server) this does nothing.
+ */
+installPageLogInCanvasFrame();
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.

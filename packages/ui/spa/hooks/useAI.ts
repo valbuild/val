@@ -152,8 +152,10 @@ import { quickPreviewRunner } from "../proposals/quickPreviewControl";
 import {
   NO_PREVIEW,
   PAGE_PROMPT_SECTION,
+  READ_PAGE_LOG_TOOL,
   READ_PAGE_TOOL,
   runReadPage,
+  runReadPageLog,
   runScreenshotPage,
   SCREENSHOT_PAGE_TOOL,
 } from "./pageTools";
@@ -2338,6 +2340,20 @@ export function useAI(
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
           });
+        } else if (message.name === READ_PAGE_LOG_TOOL.name) {
+          const { toolCallId, id: messageId } = message;
+          void runReadPageLog(message.arguments, {
+            readPageLog: pageRef.current?.readPageLog() ?? null,
+            noPage: NO_PREVIEW,
+          }).then(({ result, isError }) => {
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (message.name === "screenshot_page") {
           const toolCallId = message.toolCallId;
           const messageId = message.id;
@@ -3400,7 +3416,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                 ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
                 // In the Studio: the page in its preview.
                 ...(pageRef.current !== null
-                  ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL]
+                  ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL, READ_PAGE_LOG_TOOL]
                   : []),
                 // Hosted only: see `hostedRef`.
                 ...(hostedRef.current

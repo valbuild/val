@@ -1,8 +1,10 @@
 import React from "react";
 import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
+  BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  installPageLog,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
@@ -19,6 +21,7 @@ import {
   ValCanvasPageMessage,
   type ValCanvasStudioMessage,
 } from "@valbuild/shared/client";
+import { VERSION } from "./version";
 
 /**
  * The colours Val outlines its content in, until the studio says otherwise.
@@ -241,6 +244,10 @@ export function ValCanvasBridge({
       ...(holdsVersions !== undefined && Object.keys(holdsVersions).length > 0
         ? { holdsVersions }
         : {}),
+      // What this bridge answers, so the Studio never waits on a request
+      // it would not: see `capabilities` in the protocol.
+      capabilities: [...BRIDGE_CAPABILITIES],
+      bridge: { package: "@valbuild/tanstack", version: VERSION },
     });
   }, [post, draftMode, holds, holdsVersions]);
 
@@ -383,6 +390,16 @@ export function ValCanvasBridge({
         window.parent.postMessage(readPageReply(message), asker);
         return;
       }
+      if (message.type === "readPageLog") {
+        // The assistant's `read_page_log`: what the page logged as going
+        // wrong. As `readPage`: only for the frame's parent, when that is
+        // the Studio here, and answered to it alone.
+        if (event.source !== window.parent) return;
+        const asker = event.origin;
+        if (asker !== window.location.origin) return;
+        window.parent.postMessage(readPageLogReply(message), asker);
+        return;
+      }
       if (message.type === "screenshotPage") {
         // The assistant's `screenshot_page`: a picture of the page, drawn
         // here. As `readPage`: only for the frame's parent, when that is the
@@ -504,12 +521,19 @@ export function ValCanvasBridge({
     return () => window.removeEventListener("val-overlay-spa", listener);
   }, [codeChanged, post]);
 
-  // Where the page is, as it moves: a new build is opened there.
+  // The page's log, if the provider's module did not start it already.
+  React.useEffect(() => {
+    pageLog();
+  }, []);
+
+  // Where the page is, as it moves: a new build is opened there. The log
+  // hears of it too, so a client-side navigation starts a new page in it.
   React.useEffect(
     () =>
-      watchPageLocation(window, (location) =>
-        post({ val: VAL_CANVAS_MESSAGE, type: "location", ...location }),
-      ),
+      watchPageLocation(window, (location) => {
+        pageLog().noteLocation();
+        post({ val: VAL_CANVAS_MESSAGE, type: "location", ...location });
+      }),
     [post],
   );
 
@@ -899,6 +923,43 @@ async function screenshotReply(
   }
 }
 
+/**
+ * The page's log (`pageLog.ts`). Started when the provider's module was
+ * evaluated in the canvas, before hydration; started here, as late as the
+ * bridge mounts, only if that did not happen -- a document that was not the
+ * canvas when the provider loaded (see `isValCanvasFrame`).
+ */
+function pageLog() {
+  return installPageLog(window);
+}
+
+/** What `readPageLog` answers: the page's log, or why it could not be read. */
+function readPageLogReply(
+  message: Extract<ValCanvasStudioMessage, { type: "readPageLog" }>,
+): ValCanvasPageMessage {
+  try {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageLogRead",
+      requestId: message.requestId,
+      log: pageLog().read({
+        ...(message.sinceNavigation !== undefined
+          ? { sinceNavigation: message.sinceNavigation }
+          : {}),
+        ...(message.levels !== undefined ? { levels: message.levels } : {}),
+      }),
+    };
+  } catch (error) {
+    return {
+      val: VAL_CANVAS_MESSAGE,
+      type: "pageLogRead",
+      requestId: message.requestId,
+      log: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 /** What `readPage` answers: the page read, or why it could not be. */
 function readPageReply(
   message: Extract<ValCanvasStudioMessage, { type: "readPage" }>,
@@ -908,14 +969,18 @@ function readPageReply(
       val: VAL_CANVAS_MESSAGE,
       type: "pageRead",
       requestId: message.requestId,
-      snapshot: readPageSnapshot(document, {
-        ...(message.selector !== undefined
-          ? { selector: message.selector }
-          : {}),
-        ...(message.maxItems !== undefined
-          ? { maxItems: message.maxItems }
-          : {}),
-      }),
+      snapshot: {
+        ...readPageSnapshot(document, {
+          ...(message.selector !== undefined
+            ? { selector: message.selector }
+            : {}),
+          ...(message.maxItems !== undefined
+            ? { maxItems: message.maxItems }
+            : {}),
+        }),
+        // So the assistant notices the page threw without asking.
+        log: pageLog().counts(),
+      },
     };
   } catch (error) {
     return {

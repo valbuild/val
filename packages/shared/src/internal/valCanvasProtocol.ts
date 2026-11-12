@@ -24,6 +24,7 @@ import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
 import type { PageLocation, PageSnapshot } from "./pageInspection";
 import type { PageScreenshot } from "./pageScreenshot";
+import type { PageLogLevel, PageLogSnapshot } from "./pageLog";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
@@ -80,6 +81,64 @@ export type ValCanvasElement = {
 export const DEFAULT_CANVAS_SELECTION = "#079455";
 export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
 
+/**
+ * The requests a page can be asked, each answered with a message of its own
+ * (`readPage` with `pageRead`, and so on), and the names a bridge lists in
+ * `ready`'s `capabilities`. A capability is named after its request, so the
+ * list needs no second vocabulary: a request added later -- opening a URL in
+ * the page, clicking, typing -- is a new name here and in
+ * {@link BRIDGE_CAPABILITIES}, and nothing else about the handshake changes.
+ */
+export type CanvasRequest =
+  | "readPage"
+  | "screenshotPage"
+  | "readPageLog"
+  | "quickPreview";
+
+/**
+ * Every request a bridge of THIS release answers: what both bindings send in
+ * `ready`. A request is added here in the same change that answers it in
+ * both bridges -- `canvasBridgePageInspection.test.tsx` in each binding holds
+ * it.
+ */
+export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
+  "readPage",
+  "screenshotPage",
+  "readPageLog",
+  "quickPreview",
+];
+
+/**
+ * What a bridge answered before bridges said what they answer. A `ready`
+ * without `capabilities` is from such a bridge: it is asked these as before
+ * -- and waited for, since it may still be loading -- and never asked
+ * anything else, which it would never answer.
+ */
+export const ANSWERED_BEFORE_CAPABILITIES: readonly CanvasRequest[] = [
+  "readPage",
+  "screenshotPage",
+  "quickPreview",
+];
+
+/**
+ * Whether a page that said `ready` with these `capabilities` answers
+ * `request`. `undefined` is a bridge from before the list existed.
+ */
+export function bridgeAnswers(
+  capabilities: readonly string[] | undefined,
+  request: CanvasRequest,
+): boolean {
+  return (capabilities ?? ANSWERED_BEFORE_CAPABILITIES).includes(request);
+}
+
+/** Which binding the page's bridge is, and its version: see `ready`. */
+export type CanvasBridgeInfo = {
+  /** The package the site installed: `@valbuild/next`, `@valbuild/tanstack`. */
+  package: string;
+  /** Its version, where it knows it. */
+  version: string | null;
+};
+
 /** What the page tells the studio. */
 export type ValCanvasPageMessage =
   | {
@@ -113,6 +172,17 @@ export type ValCanvasPageMessage =
       holdsVersions?: Partial<
         Record<ModuleFilePath, { schema: string; base: string; chain: string }>
       >;
+      /**
+       * Every request this bridge answers ({@link CanvasRequest}). The Studio
+       * asks nothing that is not on it, and says at once what to update
+       * instead of waiting for an answer that will not come. Absent from a
+       * bridge of a release before it: see
+       * {@link ANSWERED_BEFORE_CAPABILITIES}. Unknown names -- a bridge
+       * newer than the Studio -- are ignored.
+       */
+      capabilities?: string[];
+      /** Which package the bridge is, so the Studio can say what to update. */
+      bridge?: CanvasBridgeInfo;
     }
   | {
       val: typeof VAL_CANVAS_MESSAGE;
@@ -244,6 +314,17 @@ export type ValCanvasPageMessage =
       type: "pageScreenshot";
       requestId: string;
       screenshot: PageScreenshot | null;
+      error?: string;
+    }
+  | {
+      /**
+       * What `readPageLog` asked for: what the page logged as going wrong
+       * (`pageLog.ts`), or why it could not be read.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "pageLogRead";
+      requestId: string;
+      log: PageLogSnapshot | null;
       error?: string;
     }
   | {
@@ -440,6 +521,21 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
+       * Read what the page logged as going wrong (`pageLog.ts`): the
+       * assistant's `read_page_log`. Answered with `pageLogRead` and the
+       * same `requestId`. Asked only of a bridge whose `ready` lists
+       * `readPageLog`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "readPageLog";
+      requestId: string;
+      /** Only what happened since the page last navigated. Default true. */
+      sinceNavigation?: boolean;
+      /** Only these levels. Absent or empty is every level. */
+      levels?: PageLogLevel[];
+    }
+  | {
+      /**
        * Store a quick preview's files in this origin's worker
        * (`storeQuickPreview`): the tab cannot, being another origin.
        * Answered with `quickPreviewStored`.
@@ -460,7 +556,9 @@ export function isValCanvasPageMessage(
   return (
     (message.type === "ready" &&
       isModulePathList((data as { holds?: unknown }).holds) &&
-      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions)) ||
+      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions) &&
+      isStringList((data as { capabilities?: unknown }).capabilities) &&
+      isBridgeInfo((data as { bridge?: unknown }).bridge)) ||
     message.type === "elements" ||
     message.type === "clicked" ||
     message.type === "pinch" ||
@@ -474,6 +572,8 @@ export function isValCanvasPageMessage(
     (message.type === "pageRead" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "pageScreenshot" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "pageLogRead" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string") ||
@@ -494,6 +594,25 @@ function isHeldVersions(value: unknown): boolean {
       typeof (version as { schema?: unknown }).schema === "string" &&
       typeof (version as { base?: unknown }).base === "string" &&
       typeof (version as { chain?: unknown }).chain === "string",
+  );
+}
+
+/** `capabilities` on `ready`: absent, or a list of names. */
+function isStringList(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((item) => typeof item === "string"))
+  );
+}
+
+/** `bridge` on `ready`: absent, or which package at which version. */
+function isBridgeInfo(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null) return false;
+  const info = value as Record<string, unknown>;
+  return (
+    typeof info.package === "string" &&
+    (info.version === null || typeof info.version === "string")
   );
 }
 
@@ -605,6 +724,17 @@ export function isValCanvasStudioMessage(
     return (
       typeof asked.requestId === "string" &&
       (asked.fullPage === undefined || typeof asked.fullPage === "boolean")
+    );
+  }
+  if (message.type === "readPageLog") {
+    const read = data as Record<string, unknown>;
+    return (
+      typeof read.requestId === "string" &&
+      (read.sinceNavigation === undefined ||
+        typeof read.sinceNavigation === "boolean") &&
+      (read.levels === undefined ||
+        (Array.isArray(read.levels) &&
+          read.levels.every((level) => level === "error" || level === "warn")))
     );
   }
   if (message.type === "readPage") {

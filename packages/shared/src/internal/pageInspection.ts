@@ -11,7 +11,9 @@
  * (`valCanvasProtocol.ts`).
  */
 
+import type { ModuleFilePath } from "@valbuild/core";
 import { VAL_CANVAS_PARAM } from "./valCanvasProtocol";
+import type { PageLogCounts } from "./pageLog";
 import { QUICK_PREVIEW_PARAM } from "./quickPreview";
 
 /** Where the page is: what a new build is opened at. */
@@ -78,6 +80,18 @@ export type PageSnapshot = {
   element?: PageElementDetail;
   /** The `selector` matched nothing. */
   notFound?: string;
+  /**
+   * What the page logged as going wrong since it last navigated
+   * (`pageLog.ts`): added by the bridge, so the assistant notices without
+   * asking. Absent from a bridge of a release before it.
+   */
+  log?: PageLogCounts;
+  /**
+   * The Val modules the page read: what its server read for this request
+   * (`ready`'s `holds`), added by the Studio. A module the page read only in
+   * the browser, after it loaded, is not in it.
+   */
+  modules?: ModuleFilePath[];
 };
 
 const TEXT_LENGTH = 160;
