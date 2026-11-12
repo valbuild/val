@@ -24,13 +24,14 @@ import type { AITool } from "./useAIWebSocket";
  */
 export const WEB_GATED_TOOLS: ReadonlySet<string> = new Set([
   "write_files",
+  "edit_file",
   "build_proposal",
 ]);
 
 /**
  * The tools as sent, when the agent may search: a gated tool can wait on the
  * person, so it waits as long as a question does (`timeoutMs: null`). Without
- * this the server gives up on `write_files` after its default 30 seconds,
+ * this the server gives up on `write_files` (or `edit_file`) after its default 30 seconds,
  * while the card is still on screen.
  */
 export function withWebSearchWaits(

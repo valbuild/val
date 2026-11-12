@@ -143,7 +143,9 @@ import {
   codeToolsPromptSection,
   pickedElementPrompt,
   isCodeTool,
+  projectInstructionsPromptSection,
   QUICK_PREVIEW_TOOL,
+  readProjectInstructions,
   REQUEST_CODE_MODE_TOOL,
   runCodeTool,
   runQuickPreviewTool,
@@ -178,20 +180,32 @@ import {
 import { createProposalsClient } from "../proposals/proposalsClient";
 import {
   codeModeState,
+  useCodeModeState,
   readCodeMode,
   requestCodeModeMenu,
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
 import { createProjectSourceReader } from "@valbuild/shared/internal";
+import { assistantPersona, isInCodeMode } from "./assistantPersona";
+import { capToolResult, cappedToolResult } from "./capToolResult";
+import { valueAtPath } from "./sourceAtPath";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
   description:
-    "Get all val schemas — returns the complete schema definitions for all val modules",
+    "Get all val schemas — returns the complete schema definitions for all val modules. " +
+    "In a very large project the answer can be cut, naming the modules left out: ask for those with module_file_paths.",
   parameters: {
     type: "object",
-    properties: {},
+    properties: {
+      module_file_paths: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only these modules' schemas, e.g. ['/content/homepage.val.ts']. Without it, every module's.",
+      },
+    },
     required: [],
   },
 };
@@ -207,6 +221,12 @@ const GET_SOURCE_TOOL: AITool = {
         type: "string",
         description:
           "The Val module file path, e.g. '/content/homepage.val.ts'. Can be obtained from the keys of get_all_schema.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only the value at this path in the module, as create_patch's path, e.g. ['posts', '3']. Use it to read part of a module too big to read whole.",
       },
     },
     required: ["module_file_path"],
@@ -1069,6 +1089,48 @@ export function useAI(
   const valMode = useValMode();
   const hostedRef = useRef(valMode === "http");
   hostedRef.current = valMode === "http";
+  /**
+   * The project's own instructions (`AGENTS.md`, `CLAUDE.md`), for the
+   * prompt in code mode: read as `read_file` reads the proposal's files, so
+   * a message is never held for them. Read when code mode comes on, and
+   * again after each message, so a change to them reaches the next one.
+   */
+  const projectInstructionsRef = useRef<{
+    proposal: string;
+    text: string | null;
+  } | null>(null);
+  const refreshProjectInstructions = useCallback(
+    (proposal: string) => {
+      readProjectInstructions({
+        proposal: { name: proposal },
+        client: codeClients.proposals,
+        siteSource: codeClients.siteSource,
+      })
+        .then((text) => {
+          projectInstructionsRef.current = { proposal, text };
+        })
+        .catch((error) => {
+          // Without them the assistant works as it would in a project that
+          // has none; read_file can still read them.
+          Internal.log.debug(
+            "Could not read the project's instructions for the assistant:",
+            error,
+          );
+        });
+    },
+    [codeClients],
+  );
+  const codeModeNowHere = useCodeModeState().proposal;
+  const inCodeModeNow = isInCodeMode(
+    valMode === "http",
+    currentProposal?.name ?? null,
+    codeModeNowHere,
+  );
+  useEffect(() => {
+    if (inCodeModeNow && currentProposal !== null) {
+      refreshProjectInstructions(currentProposal.name);
+    }
+  }, [inCodeModeNow, currentProposal?.name, refreshProjectInstructions]);
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   // Read by the image tools when they run, through a ref so a bucket being
   // picked does not re-subscribe the tool handler.
@@ -1494,22 +1556,72 @@ export function useAI(
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
         } else if (message.name === "get_all_schema") {
-          const schemas = valReads.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot() ?? {};
+          const schemaArgs: unknown = message.arguments;
+          const asked =
+            typeof schemaArgs === "object" &&
+            schemaArgs !== null &&
+            "module_file_paths" in schemaArgs
+              ? schemaArgs.module_file_paths
+              : undefined;
+          const only =
+            Array.isArray(asked) && asked.length > 0
+              ? new Set(asked.filter((p): p is string => typeof p === "string"))
+              : null;
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: schemas ?? {},
+            result: cappedToolResult(
+              only === null
+                ? schemas
+                : Object.fromEntries(
+                    Object.entries(schemas).filter(([path]) => only.has(path)),
+                  ),
+              {
+                // A module's schema is whole or not there: half of one reads
+                // as a module without the fields that were cut.
+                wholeDepth: 1,
+                narrow:
+                  "Ask for the modules left out with module_file_paths, a few at a time.",
+              },
+            ),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_source") {
-          const args = message.arguments as { module_file_path: string };
+          const args = message.arguments as {
+            module_file_path: string;
+            path?: unknown;
+          };
           const moduleFilePath = args.module_file_path as ModuleFilePath;
           const snapshot = valReads.getSourceSnapshot(moduleFilePath);
-          if (snapshot.status === "success") {
+          const at =
+            snapshot.status === "success"
+              ? valueAtPath(snapshot.data, args.path)
+              : null;
+          if (at !== null && at.status === "invalid") {
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
-              result: { success: true, source: snapshot.data },
+              result: { success: false, error: at.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          } else if (at !== null) {
+            const capped = capToolResult(at.value, {
+              narrow:
+                "Read what was left out with get_source and path: the path you asked with (if any) followed by an omitted path, e.g. path: ['posts', '12'].",
+            });
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: true,
+                ...(Array.isArray(args.path) ? { path: args.path } : {}),
+                source: capped.value,
+                ...(capped.truncated !== undefined
+                  ? { truncated: capped.truncated, omitted: capped.omitted }
+                  : {}),
+              },
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else {
@@ -1542,7 +1654,13 @@ export function useAI(
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
-                result: searchResult ?? { results: [], total: 0 },
+                result: cappedToolResult(
+                  searchResult ?? { results: [], total: 0 },
+                  {
+                    narrow:
+                      "Ask for fewer with limit and page with offset, or search for something more specific.",
+                  },
+                ),
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
@@ -1560,7 +1678,10 @@ export function useAI(
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: errors,
+            result: cappedToolResult(errors, {
+              narrow:
+                "Fix the errors that are here and validate again; get_source with a path reads the content an error is about.",
+            }),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "create_patch") {
@@ -2276,10 +2397,13 @@ export function useAI(
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: {
-              patches: patches.slice(offset, offset + limit),
-              total: patches.length,
-            },
+            result: cappedToolResult(
+              {
+                patches: patches.slice(offset, offset + limit),
+                total: patches.length,
+              },
+              { narrow: "Ask for fewer with limit and page with offset." },
+            ),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "set_session_name") {
@@ -2484,6 +2608,7 @@ export function useAI(
           }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
+                toolName === "edit_file" ||
                 toolName === "create_patch" ||
                 toolName === "format_files" ||
                 toolName === "lint") &&
@@ -3276,6 +3401,24 @@ export function useAI(
       // would offer something that fails, or that nobody can open.
       const sketchpadsOn =
         sketchpadsStateRef.current?.getSnapshot().available === true;
+      // Code mode: the person changes the site's code with its content, and
+      // the prompt says so (`assistantPersona`), with the project's own
+      // instructions. Read again after this message is sent, so an edit to
+      // them reaches the next one.
+      const inCodeMode = isInCodeMode(
+        hostedRef.current,
+        currentProposalRef.current?.name ?? null,
+        codeModeState().proposal,
+      );
+      const readInstructions = projectInstructionsRef.current;
+      const projectInstructions =
+        readInstructions !== null &&
+        readInstructions.proposal === currentProposalRef.current?.name
+          ? readInstructions.text
+          : null;
+      if (inCodeMode && currentProposalRef.current !== null) {
+        refreshProjectInstructions(currentProposalRef.current.name);
+      }
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
@@ -3301,10 +3444,7 @@ export function useAI(
             ...(valReads.getAssistantSettings().webSearch
               ? { webSearch: true }
               : {}),
-            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
-
-## Who you are talking to
-Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+            systemPrompt: `${assistantPersona(inCodeMode)}
 
 ## User message format (HTML-esque rich text)
 The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
@@ -3393,6 +3533,10 @@ Do not describe what you will do unless you do it for clarification — just do 
                       : { kind: "site" },
                   )
                 : ""
+            }${
+              inCodeMode
+                ? projectInstructionsPromptSection(projectInstructions)
+                : ""
             }`,
             tools: withWebSearchWaits(
               [
@@ -3428,7 +3572,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [chatModel, chatRef, sendWsMessage, lockModel],
+    [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a

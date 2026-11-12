@@ -2,8 +2,13 @@ import {
   buildProposal,
   buildProposalOnServer,
   CODE_TOOLS,
+  editText,
   isCodeTool,
+  MAX_PROJECT_INSTRUCTIONS_CHARS,
+  projectInstructionsPromptSection,
   proposalProject,
+  readLines,
+  readProjectInstructions,
   runCodeTool,
   type BuildReport,
   type CodeToolDeps,
@@ -396,11 +401,12 @@ describe("the code tools", () => {
     });
   };
 
-  test("are twelve, and known by name", () => {
+  test("are thirteen, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
+      "edit_file",
       "write_files",
       "format_files",
       "lint",
@@ -846,6 +852,385 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
     expect(built.isError).toBe(true);
     expect(d.staged).toEqual([]);
     expect(d.offered).toBe(2);
+  });
+
+  describe("edit_file", () => {
+    const HERO = [
+      "export function Hero() {",
+      "  return <h1>Hi</h1>;",
+      "}",
+      "export function Footer() {",
+      "  return <p>Hi</p>;",
+      "}",
+      "",
+    ].join("\n");
+    const withHero = (over: Partial<CodeToolDeps> = {}) =>
+      deps({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async () => ({ commit: "c1", staged: staged() }),
+        },
+        ...over,
+      });
+
+    test("replaces the one match, and stages the file's whole new text as write_files does", async () => {
+      const stagedFiles: unknown[] = [];
+      const evaluated: string[] = [];
+      const d = withHero({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async (name, files, message) => {
+            stagedFiles.push([name, files, message]);
+            return { commit: "c1", staged: staged() };
+          },
+        },
+        // write_files' staging evaluates val.modules after it: so does this.
+        evaluateStaged: async () => {
+          evaluated.push("evaluated");
+          return { status: "not-here" };
+        },
+      });
+      const edited = await runCodeTool(
+        "edit_file",
+        {
+          path: "/src/components/Hero.tsx",
+          old_string: "<h1>Hi</h1>",
+          new_string: "<h1>Hello</h1>",
+          message: "Greet",
+        },
+        d,
+      );
+      expect(edited.isError).toBe(false);
+      expect(stagedFiles).toEqual([
+        [
+          NAME,
+          {
+            "src/components/Hero.tsx": HERO.replace(
+              "<h1>Hi</h1>",
+              "<h1>Hello</h1>",
+            ),
+          },
+          "Greet",
+        ],
+      ]);
+      expect(evaluated).toEqual(["evaluated"]);
+      expect(edited.result).toMatchObject({
+        success: true,
+        buildRequired: true,
+        replaced: 1,
+        line: 2,
+      });
+    });
+
+    test("a match that is not there says to copy it from read_file, and where its first line is", async () => {
+      const d = withHero();
+      const edited = await runCodeTool(
+        "edit_file",
+        {
+          path: "src/components/Hero.tsx",
+          old_string: "export function Footer() {\n    return <p>Hi</p>;",
+          new_string: "x",
+        },
+        d,
+      );
+      expect(edited.isError).toBe(true);
+      expect(JSON.stringify(edited.result)).toMatch(/read_file/);
+      expect(JSON.stringify(edited.result)).toMatch(/on line 4/);
+    });
+
+    test("several matches name their lines and the two ways on, and change nothing", async () => {
+      const staging: unknown[] = [];
+      const d = withHero({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async (_name, files) => {
+            staging.push(files);
+            return { commit: "c1", staged: staged() };
+          },
+        },
+      });
+      const twice = await runCodeTool(
+        "edit_file",
+        { path: "src/components/Hero.tsx", old_string: "Hi", new_string: "Yo" },
+        d,
+      );
+      expect(twice.isError).toBe(true);
+      expect(JSON.stringify(twice.result)).toMatch(
+        /matches 2 times \(lines 2, 5\).*replace_all/,
+      );
+      expect(staging).toEqual([]);
+      const all = await runCodeTool(
+        "edit_file",
+        {
+          path: "src/components/Hero.tsx",
+          old_string: "Hi",
+          new_string: "Yo",
+          replace_all: true,
+        },
+        d,
+      );
+      expect(all.result).toMatchObject({ success: true, replaced: 2 });
+      expect(staging).toEqual([
+        { "src/components/Hero.tsx": HERO.replace(/Hi/g, "Yo") },
+      ]);
+    });
+
+    test("a staging content refuses is answered in content's words, as write_files' is", async () => {
+      const refusing = (over: Partial<CodeToolDeps> = {}) =>
+        withHero({
+          client: {
+            files: async () => ({
+              files: { ...OWN, "src/components/Hero.tsx": HERO },
+              staged: staged(),
+            }),
+            stageFiles: async () => {
+              throw new Error("Build the proposal, then save.");
+            },
+          },
+          ...over,
+        });
+      for (const [tool, input] of [
+        [
+          "edit_file",
+          {
+            path: "src/components/Hero.tsx",
+            old_string: "<h1>Hi</h1>",
+            new_string: "<h1>Yo</h1>",
+          },
+        ],
+        ["write_files", { files: { "src/a.ts": "a" } }],
+      ] as const) {
+        expect(await runCodeTool(tool, input, refusing())).toEqual({
+          isError: true,
+          result: { success: false, error: "Build the proposal, then save." },
+        });
+      }
+    });
+
+    test("a file that does not exist is written with write_files", async () => {
+      const edited = await runCodeTool(
+        "edit_file",
+        { path: "src/new.ts", old_string: "a", new_string: "b" },
+        withHero(),
+      );
+      expect(edited.isError).toBe(true);
+      expect(JSON.stringify(edited.result)).toMatch(/write_files/);
+    });
+
+    test("ON THE SITE, NOTHING IS WRITTEN, and the person is offered a proposal", async () => {
+      const d = deps({ proposal: null });
+      const edited = await runCodeTool(
+        "edit_file",
+        { path: "src/old.ts", old_string: "old", new_string: "new" },
+        d,
+      );
+      expect(edited.isError).toBe(true);
+      expect(d.staged).toEqual([]);
+      expect(d.offered).toBe(1);
+    });
+
+    test("with code mode off, it refuses as write_files does", async () => {
+      const d = deps({
+        codeMode: async () => ({ on: false, by: null, ago: null }),
+      });
+      const edited = await runCodeTool(
+        "edit_file",
+        {
+          path: "src/components/Hero.tsx",
+          old_string: "new",
+          new_string: "newer",
+        },
+        d,
+      );
+      expect(edited.isError).toBe(true);
+      expect(JSON.stringify(edited.result)).toMatch(/request_code_mode/);
+      expect(d.staged).toEqual([]);
+    });
+
+    test("input that is not text is refused before anything is read", async () => {
+      const d = deps();
+      for (const input of [
+        { path: "src/a.ts", old_string: 1, new_string: "b" },
+        { path: 2, old_string: "a", new_string: "b" },
+        {
+          path: "src/a.ts",
+          old_string: "a",
+          new_string: "b",
+          replace_all: "yes",
+        },
+      ]) {
+        expect((await runCodeTool("edit_file", input, d)).isError).toBe(true);
+      }
+      expect(d.staged).toEqual([]);
+    });
+  });
+
+  describe("editText", () => {
+    test("an empty or unchanged old_string is refused", () => {
+      expect(editText("abc", "", "x", false).status).toBe("refused");
+      expect(editText("abc", "b", "b", false).status).toBe("refused");
+    });
+
+    test("$ in the replacement is text, not a pattern", () => {
+      expect(editText("a b", "b", "$&$1", false)).toEqual({
+        status: "edited",
+        text: "a $&$1",
+        replaced: 1,
+        line: 1,
+      });
+    });
+
+    test("a file with Windows line breaks is matched by text written with \\n, and keeps them", () => {
+      const text = "one\r\ntwo\r\nthree\r\n";
+      expect(editText(text, "one\ntwo", "1\n2", false)).toMatchObject({
+        status: "edited",
+        text: "1\r\n2\r\nthree\r\n",
+      });
+    });
+  });
+
+  describe("read_file with a range", () => {
+    const FILE = "one\ntwo\nthree\nfour\n";
+    const withFile = (text: string) =>
+      deps({
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/f.ts": text },
+            staged: staged(),
+          }),
+          stageFiles: async () => ({ commit: "c1", staged: staged() }),
+        },
+      });
+
+    test("answers those lines exactly as in the file, with where they are", async () => {
+      const read = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts", offset: 2, limit: 2 },
+        withFile(FILE),
+      );
+      expect(read.result).toEqual({
+        path: "src/f.ts",
+        text: "two\nthree\n",
+        startLine: 2,
+        endLine: 3,
+        totalLines: 4,
+        staged: false,
+      });
+    });
+
+    test("offset alone reads to the end; the last line keeps having no line break", async () => {
+      const read = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts", offset: 3 },
+        withFile("one\ntwo\nthree"),
+      );
+      expect(read.result).toMatchObject({
+        text: "three",
+        startLine: 3,
+        endLine: 3,
+        totalLines: 3,
+      });
+    });
+
+    test("a range past the end, or not a line number, is refused", async () => {
+      const d = withFile(FILE);
+      const past = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts", offset: 9 },
+        d,
+      );
+      expect(past.isError).toBe(true);
+      expect(JSON.stringify(past.result)).toMatch(/has 4 lines/);
+      for (const range of [{ offset: 0 }, { limit: 1.5 }, { offset: "2" }]) {
+        expect(
+          (await runCodeTool("read_file", { path: "src/f.ts", ...range }, d))
+            .isError,
+        ).toBe(true);
+      }
+    });
+
+    test("a file too long for one answer is cut at a line's end, and says where to read on", async () => {
+      const line = "x".repeat(999) + "\n";
+      const long = line.repeat(300);
+      const read = await runCodeTool(
+        "read_file",
+        { path: "src/f.ts" },
+        withFile(long),
+      );
+      const result = read.result;
+      expect(result).toMatchObject({
+        path: "src/f.ts",
+        text: line.repeat(200),
+        truncated: expect.stringMatching(/Lines 1-200 of 300.*offset: 201/),
+      });
+    });
+  });
+
+  test("readLines: every part of a file, put back together, is the file", () => {
+    const text = "a\n\nb\r\nc";
+    const parts = [1, 2, 3, 4].map((n) => readLines(text, n, 1));
+    expect(
+      parts.map((part) => (part.status === "read" ? part.text : "")).join(""),
+    ).toBe(text);
+    expect(readLines("", 1, null)).toMatchObject({
+      status: "read",
+      text: "",
+      totalLines: 0,
+    });
+  });
+
+  describe("the project's own instructions", () => {
+    const withFiles = (files: Record<string, string | null>) => ({
+      proposal: { name: NAME },
+      client: {
+        files: async () => ({ files: { ...OWN, ...files }, staged: staged() }),
+      },
+      siteSource: async () => SITE,
+    });
+
+    test("are AGENTS.md, then CLAUDE.md, at the root, as the proposal has them", async () => {
+      const text = await readProjectInstructions(
+        withFiles({
+          ".claude/CLAUDE.md": "Use pnpm.",
+          "AGENTS.md": "Run the tests.",
+          "src/AGENTS.md": "Not the root's.",
+        }),
+      );
+      expect(text).toBe(
+        "### AGENTS.md\nRun the tests.\n\n### .claude/CLAUDE.md\nUse pnpm.",
+      );
+      expect(projectInstructionsPromptSection(text)).toMatch(
+        /## The project's own instructions\n.*not Val's/,
+      );
+    });
+
+    test("none is normal, and says nothing", async () => {
+      expect(await readProjectInstructions(withFiles({}))).toBeNull();
+      expect(projectInstructionsPromptSection(null)).toBe("");
+    });
+
+    test("are cut to one bound, saying where the rest is", async () => {
+      const text = await readProjectInstructions(
+        withFiles({
+          "AGENTS.md": "a".repeat(MAX_PROJECT_INSTRUCTIONS_CHARS + 10),
+          "CLAUDE.md": "More.",
+        }),
+      );
+      expect(text?.length).toBeLessThan(MAX_PROJECT_INSTRUCTIONS_CHARS + 300);
+      expect(text).toMatch(/read_file AGENTS\.md for it/);
+      expect(text).toMatch(
+        /### CLAUDE\.md\n\(Not included: read_file CLAUDE\.md/,
+      );
+    });
   });
 
   test("a write that is not text is refused before anything is staged", async () => {

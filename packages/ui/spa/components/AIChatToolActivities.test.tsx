@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ToolActivities, type ToolActivity } from "./AIChatToolActivities";
+import { CODE_TOOLS } from "../proposals/proposalCode";
 
 /**
  * The tool row is progress, not content, and two things about it are load
@@ -126,5 +127,19 @@ describe("ToolActivities", () => {
     renderRow([tool("some_new_server_tool", "pending")]);
 
     expect(screen.queryByText("some_new_server_tool…")).not.toBeNull();
+  });
+
+  it("names a code edit for what the person sees, as a whole-file write is", () => {
+    renderRow([tool("edit_file", "pending")]);
+
+    expect(screen.queryByText("Changing the code…")).not.toBeNull();
+  });
+
+  it("has a label for every code tool, so none shows its raw name", () => {
+    for (const { name } of CODE_TOOLS) {
+      const { unmount } = renderRow([tool(name, "pending")]);
+      expect(screen.queryByText(`${name}…`)).toBeNull();
+      unmount();
+    }
   });
 });
