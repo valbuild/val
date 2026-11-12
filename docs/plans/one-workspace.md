@@ -173,6 +173,13 @@ In order, each step shippable on its own:
    conversation and a sketch keep their state. History takes the preview's
    place; code mode's code changes are in Review, and its `</>` menu opens
    them there.
+   **Resizing:** every column has a handle on its edge (`ColumnDivider`):
+   Content's beside the preview, Sketch's and the Assistant's on their
+   left. The width dragged to goes into `workspaceLayout()` (`widths`), so
+   the same rules still decide what fits, and `placePanes()`'s `slack`
+   stops a drag where the preview reaches its minimum, so nothing folds
+   under the pointer. The preview has no handle of its own: it takes what
+   is left. Widths are per browser (`useColumnWidths`).
 4. **The top bar's switches**, replacing the Preview button.
    **Done:** `PaneSwitches`, from a tablet up: Content | Preview | Sketch |
    Assistant, the last open pane cannot be switched off, and the Preview

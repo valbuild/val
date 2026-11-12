@@ -1,6 +1,8 @@
 import { placePanes } from "./placePanes";
 import {
   GAP,
+  RESIZE_MAX,
+  RESIZE_MIN,
   SIDE_WIDTH,
   STRIP_WIDTH,
   workspaceLayout,
@@ -103,5 +105,47 @@ describe("placePanes", () => {
     expect(panes.sketch?.right).toBe(SIDE_WIDTH + GAP);
     // The middle takes the rest of the width.
     expect(panes.sketch?.width).toBeGreaterThan(SIDE_WIDTH);
+  });
+});
+
+/**
+ * Columns dragged to a width (`ColumnDivider`): the layout uses the width
+ * chosen, the preview takes what is left, and `slack` says how much further
+ * any one column can go before the preview is at its minimum.
+ */
+describe("chosen widths", () => {
+  test("Content and the Assistant at the widths they were dragged to", () => {
+    const panes = placed({
+      width: 2560,
+      widths: { content: 600, chat: 520 },
+    });
+    expect(panes.content).toEqual({ kind: "column", width: 600 });
+    expect(panes.chat?.width).toBe(520);
+    expect(panes.sketch?.width).toBe(SIDE_WIDTH);
+  });
+
+  test("a width past what a column can be is held at the limit", () => {
+    const panes = placed({ width: 2560, widths: { chat: 10, sketch: 5000 } });
+    expect(panes.chat?.width).toBe(RESIZE_MIN.chat);
+    expect(panes.sketch?.width).toBe(RESIZE_MAX);
+  });
+
+  test("a column shared as tabs is as wide as the pane in front", () => {
+    const panes = placed({ width: 1600, widths: { chat: 500, sketch: 360 } });
+    expect(panes.chat?.tabs).toEqual(["sketch", "chat"]);
+    expect(panes.chat?.width).toBe(500);
+  });
+
+  test("dragging a column by its slack leaves the preview at its minimum, and the arrangement as it was", () => {
+    const before = placed({ width: 1600 });
+    const content =
+      before.content.kind === "column" ? before.content.width : NaN;
+    const after = placed({
+      width: 1600,
+      widths: { content: content + before.slack },
+    });
+    expect(after.content.kind).toBe("column");
+    expect(after.chat?.tabs).toEqual(["sketch", "chat"]);
+    expect(after.slack).toBe(0);
   });
 });

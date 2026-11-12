@@ -55,7 +55,18 @@ export type WorkspaceLayoutInput = {
   narrow: NarrowStrategy;
   /** On a phone, the one pane on screen. */
   phonePane: WorkspacePane;
+  /**
+   * The widths someone dragged the columns to (`ColumnDivider`), where they
+   * did. Without one a column has its designed width. A chosen width is
+   * still only a width: the same rules decide what fits beside the anchor,
+   * and a drag is held where the anchor reaches its minimum, so it never
+   * folds a column away under the pointer.
+   */
+  widths?: ColumnWidths;
 };
+
+/** The widths someone chose, per pane. The preview takes what is left. */
+export type ColumnWidths = Partial<Record<SidePane, number>>;
 
 /** One column of the workspace, left to right. */
 export type WorkspaceColumn =
@@ -115,13 +126,38 @@ export const CONTENT_MAX = 480;
 export const ANCHOR_MIN = 420;
 /** `AI_PANEL_WIDTH`, and room for two columns of sketch boxes. */
 export const SIDE_WIDTH = 420;
+/**
+ * How far a column can be dragged in or out. The narrowest a column still
+ * works at -- a field with its label, a message beside the composer's
+ * buttons -- and as wide as anyone could want one beside a page.
+ */
+export const RESIZE_MIN: Record<SidePane, number> = {
+  content: CONTENT_MIN,
+  sketch: 320,
+  chat: 320,
+};
+export const RESIZE_MAX = 960;
+
+/** `width`, held within what a column can be dragged to. */
+export function clampColumn(pane: SidePane, width: number): number {
+  return Math.round(Math.min(RESIZE_MAX, Math.max(RESIZE_MIN[pane], width)));
+}
 
 const SIDE_PANES: readonly ("sketch" | "chat")[] = ["sketch", "chat"];
 
-function contentWidth(available: number): number {
+function contentWidth(available: number, chosen: number | undefined): number {
+  if (chosen !== undefined) return clampColumn("content", chosen);
   return Math.round(
     Math.min(CONTENT_MAX, Math.max(CONTENT_MIN, available * 0.28)),
   );
+}
+
+function sideWidth(
+  pane: "sketch" | "chat",
+  widths: ColumnWidths | undefined,
+): number {
+  const chosen = widths?.[pane];
+  return chosen === undefined ? SIDE_WIDTH : clampColumn(pane, chosen);
 }
 
 /** The column at the anchor, with what the other columns leave. */
@@ -158,7 +194,7 @@ export function anchorOf(open: Record<WorkspacePane, boolean>): WorkspacePane {
 }
 
 export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
-  const { width, open, recent, front, narrow } = input;
+  const { width, open, recent, front, narrow, widths } = input;
 
   if (width < PHONE_BELOW) {
     const tabs: WorkspacePane[] = [];
@@ -183,7 +219,13 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
 
   const contentOpen = open.content && anchor !== "content";
   const content: WorkspaceColumn[] = contentOpen
-    ? [{ type: "pane", pane: "content", width: contentWidth(available) }]
+    ? [
+        {
+          type: "pane",
+          pane: "content",
+          width: contentWidth(available, widths?.content),
+        },
+      ]
     : [];
   const sides = SIDE_PANES.filter((pane) => open[pane] && pane !== anchor);
   const sideFront = sides.includes(front) ? front : sides[0];
@@ -209,7 +251,11 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
   // 1. Every open pane its own column.
   const all = place(
     content,
-    sides.map((pane) => ({ type: "pane", pane, width: SIDE_WIDTH })),
+    sides.map((pane) => ({
+      type: "pane",
+      pane,
+      width: sideWidth(pane, widths),
+    })),
   );
   if (fits(all)) {
     return layout(all, null, "all");
@@ -220,8 +266,17 @@ export function workspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayout {
     sides.length === 0 || sideFront === undefined
       ? []
       : sides.length === 1
-        ? [{ type: "pane", pane: sides[0], width: SIDE_WIDTH }]
-        : [{ type: "tabs", panes: sides, front: sideFront, width: SIDE_WIDTH }];
+        ? [{ type: "pane", pane: sides[0], width: sideWidth(sides[0], widths) }]
+        : [
+            {
+              type: "tabs",
+              panes: sides,
+              front: sideFront,
+              // One column for both, so one width: the one in front's,
+              // which a drag of the column sets for both (`Shell`).
+              width: sideWidth(sideFront, widths),
+            },
+          ];
   if (sides.length === 2) {
     const tabbed = place(content, sideColumn);
     if (fits(tabbed)) {

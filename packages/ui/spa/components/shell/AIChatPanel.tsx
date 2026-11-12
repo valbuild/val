@@ -14,6 +14,8 @@ export type AIChatPanelProps = {
   hidden: boolean;
   /** Beside the work area rather than over it. See `FloatingPanel`. */
   docked?: boolean;
+  /** Its column's width, where the layout placed it; else `AI_PANEL_WIDTH`. */
+  width?: number;
   /** On a phone, its place on the strip of panes. See `FloatingPanel`. */
   phoneOffset?: number;
   phoneAnimate?: boolean;
@@ -54,6 +56,7 @@ export function AIChatPanel({
   breakpoint,
   hidden,
   docked,
+  width = AI_PANEL_WIDTH,
   phoneOffset,
   phoneAnimate,
   onClose,
@@ -66,7 +69,7 @@ export function AIChatPanel({
   return (
     <FloatingPanel
       side="right"
-      width={AI_PANEL_WIDTH}
+      width={width}
       title="AI assistant"
       // On a phone, one of the workspace's panes (`PhonePaneBar`).
       mobileVariant="pane"

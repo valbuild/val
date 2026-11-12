@@ -1,6 +1,8 @@
 import {
+  ANCHOR_MIN,
   anchorOf,
   GAP,
+  PREVIEW_MIN,
   type SidePane,
   type WorkspaceColumn,
   type WorkspaceLayout,
@@ -53,6 +55,12 @@ export type PlacedPanes = {
   chat: SidePlacement | null;
   /** Folded side panes, at the right-hand edge. */
   strips: StripPlacement[];
+  /**
+   * How much wider any one column can be dragged before the anchor -- the
+   * preview, while it is open -- is down to its minimum. A drag stops there,
+   * rather than folding a column away under the pointer.
+   */
+  slack: number;
 };
 
 /**
@@ -135,5 +143,8 @@ export function placePanes(
   }
 
   if (!open.content) content = { kind: "hidden" };
-  return { content, rightWidth, sketch, chat, strips };
+  const anchorColumn = index === -1 ? undefined : layout.columns[index];
+  const minimum = anchor === "preview" ? PREVIEW_MIN : ANCHOR_MIN;
+  const slack = Math.max(0, (anchorColumn?.width ?? 0) - minimum);
+  return { content, rightWidth, sketch, chat, strips, slack };
 }
