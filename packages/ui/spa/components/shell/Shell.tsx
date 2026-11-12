@@ -97,11 +97,18 @@ import {
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint, useWindowWidth } from "./useShellBreakpoint";
 import {
+  GAP,
   GUTTER,
+  RESIZE_MIN,
   workspaceLayout,
   type SidePane,
   type WorkspacePane as PhonePane,
 } from "./workspace/workspaceLayout";
+import { ColumnDivider } from "./workspace/ColumnDivider";
+import { useColumnWidths } from "./workspace/useColumnWidths";
+
+/** The panes right of the preview, whose left edge can be dragged. */
+const RESIZABLE_SIDES: readonly ("sketch" | "chat")[] = ["sketch", "chat"];
 import { PhonePaneBar, type PhonePaneButton } from "./workspace/PhonePaneBar";
 import { PaneTabsProvider } from "./workspace/PaneTabs";
 import {
@@ -1742,6 +1749,8 @@ export function Shell({
       chatOpen,
     ],
   );
+  /** The widths the columns were dragged to: see `ColumnDivider`. */
+  const [columnWidths, setColumnWidth] = useColumnWidths();
   const placed = useMemo(() => {
     if (breakpoint === "mobile") return null;
     const layout = workspaceLayout({
@@ -1751,9 +1760,17 @@ export function Shell({
       front: sideFront,
       narrow: "strips",
       phonePane: "preview",
+      widths: columnWidths,
     });
     return layout.kind === "columns" ? placePanes(layout, openPanes) : null;
-  }, [breakpoint, windowWidth, openPanes, recentPanes, sideFront]);
+  }, [
+    breakpoint,
+    windowWidth,
+    openPanes,
+    recentPanes,
+    sideFront,
+    columnWidths,
+  ]);
   // A pane that opens is the one in use.
   useEffect(() => {
     if (chatOpen) usePane("chat");
@@ -1978,6 +1995,12 @@ export function Shell({
               ) : undefined
             }
             contentPlacement={placed?.content}
+            onContentWidthChange={(width) => setColumnWidth(["content"], width)}
+            contentWidthMax={
+              placed?.content.kind === "column"
+                ? placed.content.width + placed.slack
+                : undefined
+            }
             codeMode={assistantSelect?.codeMode === true}
             onUseContent={() => usePane("content")}
             // Closing Content's sheet hands its room back to the pane
@@ -2080,6 +2103,41 @@ export function Shell({
             </div>
           </div>
         )}
+        {/*
+         * The left edge of Sketch's column and of the Assistant's, to drag
+         * them wider or narrower. The preview gives and takes the room, and
+         * stops a drag at its minimum. A column the two share as tabs is one
+         * column, so it has one edge, and its width is both of theirs.
+         */}
+        {placed !== null &&
+          RESIZABLE_SIDES.map((pane) => {
+            const column = placed[pane];
+            if (column === null || column.sheet) return null;
+            const panes = column.tabs ?? [pane];
+            return (
+              <ColumnDivider
+                key={pane}
+                label={
+                  panes.length === 2
+                    ? "Resize Sketch and the Assistant"
+                    : pane === "sketch"
+                      ? "Resize Sketch"
+                      : "Resize the Assistant"
+                }
+                edge="left"
+                width={column.width}
+                min={RESIZE_MIN[pane]}
+                max={column.width + placed.slack}
+                onResize={(width) => setColumnWidth(panes, width)}
+                onReset={() => setColumnWidth(panes, null)}
+                // In the gap left of the column, the line in its middle.
+                className="absolute top-20 bottom-14 z-hover"
+                style={{
+                  right: GUTTER + column.right + column.width + GAP / 2 - 6,
+                }}
+              />
+            );
+          })}
         {placed?.strips.map((strip) => (
           <PaneStrip
             key={strip.panes.join(",")}
@@ -2461,6 +2519,9 @@ export function Shell({
             phoneOffset={chatOffset}
             phoneAnimate={slide}
             docked={placed?.chat != null && !placed.chat.sheet}
+            // As wide as its column: the layout's, which a drag of its
+            // edge sets.
+            width={placed?.chat?.width}
             // While pointing, a click on the page is a pick, not a click
             // outside the panel that closes it.
             modal={!assistantPicking}
