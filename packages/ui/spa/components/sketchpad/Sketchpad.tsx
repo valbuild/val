@@ -18,6 +18,7 @@ import {
 } from "./SketchpadMediaPicker";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
 import { usePaneTabs } from "../shell/workspace/PaneTabs";
+import { SketchpadHelp } from "./SketchpadHelp";
 
 /**
  * An image in the chat that this tab has no file of: a grey frame that says
@@ -343,6 +344,7 @@ export function Sketchpad({
         <div className="min-w-0 flex-1 basis-full sm:basis-0">{titleBlock}</div>
         {people && people.length > 0 && <People people={people} />}
         {paneTabs === null && buildButton}
+        <SketchpadHelp />
         {archiveButton}
         {notice && (
           <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />

@@ -3,7 +3,12 @@ import { X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellBreakpoint } from "./types";
 import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
-import { PHONE_PANE_GAP, phoneSlideStyle } from "./workspace/phoneTrack";
+import {
+  PHONE_BOTTOM,
+  PHONE_PANE_GAP,
+  PHONE_TOP,
+  phoneSlideStyle,
+} from "./workspace/phoneTrack";
 
 export type FloatingPanelProps = {
   /** Which edge the panel floats against on desktop/tablet. */
@@ -185,11 +190,13 @@ export function FloatingPanel({
           isMobile
             ? mobileVariant === "pane"
               ? {
-                  // Above the keyboard while it is up; otherwise the class's
-                  // place above the pane bar.
-                  ...(viewport.keyboardInset > 0
-                    ? { bottom: viewport.keyboardInset + 8 }
-                    : {}),
+                  // Between the top bar and the pane bar, as the others are
+                  // (`PHONE_TOP`); above the keyboard while it is up.
+                  top: PHONE_TOP,
+                  bottom:
+                    viewport.keyboardInset > 0
+                      ? viewport.keyboardInset + 8
+                      : PHONE_BOTTOM,
                   ...phoneSlideStyle(phoneOffset, {
                     gap: PHONE_PANE_GAP,
                     animate: phoneAnimate,
@@ -212,6 +219,10 @@ export function FloatingPanel({
         }
         className={cn(
           "absolute flex flex-col",
+          // A full-height panel's contents reach its bottom edge -- the
+          // assistant's composer -- and would square off its rounded corners
+          // and cover its border there without this.
+          fill && "overflow-hidden",
           // A phone's pane is part of the workspace, like the panes beside
           // it: under the scrim and the sheets a phone opens over it (the
           // account, the menu), not over them.
@@ -224,7 +235,7 @@ export function FloatingPanel({
             ? mobileVariant === "pane"
               ? // One of the phone's panes (`PhonePaneBar`): between the top
                 // bar and the pane bar, as the others are, not over them.
-                "fixed inset-x-3 top-[4.5rem] bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)] rounded-xl"
+                "fixed inset-x-3 rounded-xl"
               : mobileVariant === "sheet"
                 ? "fixed left-0 w-[min(20rem,88vw)] border-l-0 rounded-r-lg"
                 : "fixed inset-x-0 rounded-t-xl border-b-0"

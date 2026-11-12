@@ -8,11 +8,20 @@ import type { CheckedUpgrades, UpgradePath } from "./upgradesClient";
  * page.
  */
 
+/**
+ * How a kind's badge reads: `danger` for what a vulnerability makes urgent,
+ * `caution` for what can change how the site works, `recommended` for the
+ * one to take.
+ */
+export type UpgradeKindTone = "danger" | "caution" | "recommended";
+
 /** A kind of upgrade the check found something for. */
 export type UpgradeKind = {
   path: UpgradePath;
   title: string;
   detail: string;
+  /** A word or two beside the title: how bad, or how big. */
+  badge: { label: string; tone: UpgradeKindTone };
   recommended: boolean;
 };
 
@@ -37,7 +46,13 @@ export function kindsOf(check: CheckedUpgrades): UpgradeKind[] {
     kinds.push({
       path: "cves",
       title: "Security fixes",
-      detail: `Fixes ${plural(fixable, "vulnerability", "vulnerabilities")}${check.cves.severity ? `, the worst ${check.cves.severity}` : ""}, with the smallest change that does.`,
+      detail: `Fixes ${plural(fixable, "vulnerability", "vulnerabilities")}, with the smallest change that does.`,
+      badge: {
+        label: check.cves.severity
+          ? `${check.cves.severity[0].toUpperCase()}${check.cves.severity.slice(1)}`
+          : plural(fixable, "fix", "fixes"),
+        tone: "danger",
+      },
       recommended: false,
     });
   }
@@ -53,6 +68,7 @@ export function kindsOf(check: CheckedUpgrades): UpgradeKind[] {
         val !== null
           ? `Val ${val.from} → ${val.to}${others > 0 ? `, and ${rest} to the newest version of their major` : ""}.`
           : `${plural(latest.length, "dependency", "dependencies")} to the newest version of their major.`,
+      badge: { label: "Recommended", tone: "recommended" },
       recommended: true,
     });
   }
@@ -61,7 +77,11 @@ export function kindsOf(check: CheckedUpgrades): UpgradeKind[] {
     kinds.push({
       path: "majors",
       title: "Full",
-      detail: `Minor versions, and ${plural(majors.length, "dependency", "dependencies")} onto a new major version. A new major can change how a dependency works: the upgrade is built and typechecked before it can be published.`,
+      detail: `Minor versions, and ${plural(majors.length, "dependency", "dependencies")} onto a new major version, which can change how it works. Built and typechecked before it can be published.`,
+      badge: {
+        label: plural(majors.length, "major"),
+        tone: "caution",
+      },
       recommended: false,
     });
   }
