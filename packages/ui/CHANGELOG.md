@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.153.4
+
+### Patch Changes
+
+- [#1040](https://github.com/valbuild/val/pull/1040) [`9ab3038`](https://github.com/valbuild/val/commit/9ab30383bcc137cb69b17256fe23eb81bfec225f) Thanks [@freekh](https://github.com/freekh)! - The workspace's columns can be resized: drag the edge of Content, the Sketchpad or the Assistant, and the preview takes the rest. A drag stops before the preview gets too narrow to read a page in, so nothing folds away while you drag. The arrow keys move a focused edge too, and double-clicking an edge puts the column back to its usual width. The widths are remembered in your browser.
+
 ## 0.153.3
 
 ### Patch Changes
