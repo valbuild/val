@@ -105,8 +105,11 @@ import {
 import { PhonePaneBar, type PhonePaneButton } from "./workspace/PhonePaneBar";
 import { PaneTabsProvider } from "./workspace/PaneTabs";
 import {
+  PHONE_BOTTOM,
   PHONE_ORDER,
   PHONE_PANE_GAP,
+  PHONE_TOP,
+  phoneInsets,
   phoneOffset,
   phoneSlideStyle,
   phoneStrip,
@@ -820,6 +823,17 @@ export function Shell({
   });
   const phonePane = phone.pane;
   const pagePane = phone.page;
+  /**
+   * A phone's full screen: no top bar, and the pane bar a small row of
+   * icons, so the pane in front has the screen (`PhonePaneBar`). Every pane
+   * is still one tap away. Only a phone's: wider, it is not offered, and
+   * coming back to a phone width starts out of it.
+   */
+  const [phoneFullScreenOn, setPhoneFullScreen] = useState(false);
+  const phoneFullScreen = breakpoint === "mobile" && phoneFullScreenOn;
+  useEffect(() => {
+    if (breakpoint !== "mobile") setPhoneFullScreen(false);
+  }, [breakpoint]);
   const setPhonePane = useCallback(
     (next: SetStateAction<PhonePane>) =>
       setPhone((current) => {
@@ -1907,7 +1921,12 @@ export function Shell({
         className="relative w-full overflow-clip bg-bg-canvas text-fg-primary font-sans"
         // The theme travels with `data-mode`: everything below draws its brand
         // tokens out of these custom properties. See `ValThemeProvider`.
-        style={{ height: "100svh", ...themeStyle }}
+        style={{
+          height: "100svh",
+          ...themeStyle,
+          // Where the phone's panes start and end: see `PHONE_TOP`.
+          ...(breakpoint === "mobile" ? phoneInsets(phoneFullScreen) : {}),
+        }}
       >
         {/*
          * Everything the editor works in, which a docked assistant moves out
@@ -2013,7 +2032,7 @@ export function Shell({
               breakpoint === "mobile"
                 ? // A phone's pane: below the top bar, above the pane bar,
                   // beside the others on the phone's strip (`phoneTrack`).
-                  "inset-x-3 top-[4.5rem] bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
+                  "inset-x-3"
                 : cn(
                     "top-20 bottom-14",
                     placed?.sketch == null && "hidden",
@@ -2022,10 +2041,14 @@ export function Shell({
             )}
             style={
               breakpoint === "mobile"
-                ? phoneSlideStyle(sketchOffset, {
-                    gap: PHONE_PANE_GAP,
-                    animate: slide,
-                  })
+                ? {
+                    top: PHONE_TOP,
+                    bottom: PHONE_BOTTOM,
+                    ...phoneSlideStyle(sketchOffset, {
+                      gap: PHONE_PANE_GAP,
+                      animate: slide,
+                    }),
+                  }
                 : placed?.sketch != null
                   ? {
                       right: GUTTER + placed.sketch.right,
@@ -2079,85 +2102,95 @@ export function Shell({
           />
         )}
 
-        <TopBar
-          breakpoint={breakpoint}
-          projectName={data.projectName}
-          projectHref={data.admin?.project}
-          webComponentsUrl={data.webComponentsUrl}
-          studioMode={data.studioMode}
-          logo={data.logo}
-          openPanel={openPanel}
-          aiOpen={assistantOpen}
-          onTogglePanel={togglePanel}
-          // The menu button opens the first destination this project has, which
-          // is Pages wherever there is one — but a project with no routes has to
-          // land somewhere that exists.
-          onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
-          onOpenSearch={openSearch}
-          locales={locales}
-          locale={locale}
-          onLocaleChange={onLocaleChange}
-          unreadNotifications={
-            data.notifications === undefined ? undefined : unreadNotifications
-          }
-          // The rail owns the account wherever it is shown. Passing the user
-          // here too would put the same avatar in two corners of one screen.
-          user={breakpoint === "desktop" ? undefined : data.user}
-          // The rail carries the mark on desktop; below that the top bar owns the
-          // account, so it owns the mark — and has to put a button there at all,
-          // since a failed load means there is no avatar to hang it on.
-          accountError={breakpoint === "desktop" ? undefined : accountError}
-          isLoading={isLoading}
-          aiEnabled={aiEnabled}
-          sketchpad={sketchpad}
-          proposals={proposals}
-          planStatus={
-            breakpoint === "desktop" ? renderPlanStatus?.("top-bar") : undefined
-          }
-          historyEnabled={historyEnabled}
-          historyActive={historyActive}
-          onOpenHistory={onOpenHistory}
-          onOpenValidate={onOpenValidate}
-          upgrade={upgrade}
-          validateActive={validateActive}
-          validateCount={validateCount}
-          onPreview={onPreview ?? (() => undefined)}
-          previewHref={previewHref}
-          onToggleCanvas={canCanvas ? togglePreview : undefined}
-          isCanvasOpen={isCanvasOpen}
-          paneSwitches={paneSwitches}
-          phoneActions={
-            <>
-              {/* The tour's Publish step points here on a phone. */}
-              <span data-val-tour="publish" className="inline-flex">
-                {mobilePrimary}
-              </span>
-              <button
-                type="button"
-                aria-label="More for these changes"
-                aria-pressed={openPanel === "changes"}
-                onClick={() => togglePanel("changes")}
-                className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-              >
-                <ChevronDown size={15} />
-              </button>
-            </>
-          }
-          accountDot={activityCount > 0}
-          onPublish={onPublish ?? (() => undefined)}
-          publishSlot={publishSlot}
-          pendingChanges={pendingChanges}
-          onCompare={onCompare}
-          reviewCount={reviewCount ?? pendingChanges}
-          publishState={
-            publishState === "idle" && validationErrorCount > 0
-              ? "blocked"
-              : publishState
-          }
-        />
+        {/* Full screen on a phone is the pane without the bars around it. */}
+        {!phoneFullScreen && (
+          <TopBar
+            breakpoint={breakpoint}
+            projectName={data.projectName}
+            projectHref={data.admin?.project}
+            webComponentsUrl={data.webComponentsUrl}
+            studioMode={data.studioMode}
+            logo={data.logo}
+            openPanel={openPanel}
+            aiOpen={assistantOpen}
+            onTogglePanel={togglePanel}
+            // The menu button opens the first destination this project has, which
+            // is Pages wherever there is one — but a project with no routes has to
+            // land somewhere that exists.
+            onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
+            onOpenSearch={openSearch}
+            locales={locales}
+            locale={locale}
+            onLocaleChange={onLocaleChange}
+            unreadNotifications={
+              data.notifications === undefined ? undefined : unreadNotifications
+            }
+            // The rail owns the account wherever it is shown. Passing the user
+            // here too would put the same avatar in two corners of one screen.
+            user={breakpoint === "desktop" ? undefined : data.user}
+            // The rail carries the mark on desktop; below that the top bar owns the
+            // account, so it owns the mark — and has to put a button there at all,
+            // since a failed load means there is no avatar to hang it on.
+            accountError={breakpoint === "desktop" ? undefined : accountError}
+            isLoading={isLoading}
+            aiEnabled={aiEnabled}
+            sketchpad={sketchpad}
+            proposals={proposals}
+            planStatus={
+              breakpoint === "desktop"
+                ? renderPlanStatus?.("top-bar")
+                : undefined
+            }
+            historyEnabled={historyEnabled}
+            historyActive={historyActive}
+            onOpenHistory={onOpenHistory}
+            onOpenValidate={onOpenValidate}
+            upgrade={upgrade}
+            validateActive={validateActive}
+            validateCount={validateCount}
+            onPreview={onPreview ?? (() => undefined)}
+            previewHref={previewHref}
+            onToggleCanvas={canCanvas ? togglePreview : undefined}
+            isCanvasOpen={isCanvasOpen}
+            paneSwitches={paneSwitches}
+            phoneActions={
+              <>
+                {/* The tour's Publish step points here on a phone. */}
+                <span data-val-tour="publish" className="inline-flex">
+                  {mobilePrimary}
+                </span>
+                <button
+                  type="button"
+                  aria-label="More for these changes"
+                  aria-pressed={openPanel === "changes"}
+                  onClick={() => togglePanel("changes")}
+                  className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+                >
+                  <ChevronDown size={15} />
+                </button>
+              </>
+            }
+            accountDot={activityCount > 0}
+            onPublish={onPublish ?? (() => undefined)}
+            publishSlot={publishSlot}
+            pendingChanges={pendingChanges}
+            onCompare={onCompare}
+            reviewCount={reviewCount ?? pendingChanges}
+            publishState={
+              publishState === "idle" && validationErrorCount > 0
+                ? "blocked"
+                : publishState
+            }
+          />
+        )}
 
         {breakpoint === "mobile" ? (
-          <PhonePaneBar panes={phonePanes} shown={phonePane} />
+          <PhonePaneBar
+            panes={phonePanes}
+            shown={phonePane}
+            fullScreen={phoneFullScreen}
+            onFullScreenChange={setPhoneFullScreen}
+          />
         ) : (
           <StatusBar
             breakpoint={breakpoint}

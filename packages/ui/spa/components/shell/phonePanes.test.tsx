@@ -121,7 +121,8 @@ test("the panes are Content, Preview, Assistant, Sketch, side by side", () => {
     within(bar)
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label")),
-  ).toEqual(["Content", "Preview", "Assistant", "Sketch"]);
+    // And full screen at the end, which is not a pane.
+  ).toEqual(["Content", "Preview", "Assistant", "Sketch", "Full screen"]);
 
   // The sketch is in front; the assistant one pane to its left, out of reach.
   const assistant = document.querySelector(
@@ -156,4 +157,33 @@ test("the Assistant pane has no close button, and Escape leaves it open", () => 
   fireEvent.keyDown(window, { key: "Escape" });
   expect(paneShown("Assistant")).toBe("page");
   expect(screen.getByText("The conversation")).toBeTruthy();
+});
+
+/**
+ * Full screen: the top bar goes, the pane bar stays -- smaller -- with every
+ * pane still on it, and the panes reach up where the top bar was
+ * (`phoneInsets`). Left from the same button.
+ */
+test("full screen takes the top bar away and keeps every pane a tap away", () => {
+  render(shell());
+  const bar = screen.getByRole("navigation", { name: "Workspace panes" });
+  const fullScreen = within(bar).getByRole("button", { name: "Full screen" });
+  const root = screen
+    .getByRole("navigation", { name: "Workspace panes" })
+    .closest("[data-mode]");
+  if (!(root instanceof HTMLElement)) throw new Error("No shell");
+  expect(screen.getByRole("button", { name: "Open navigation" })).toBeTruthy();
+  expect(root.style.getPropertyValue("--val-phone-top")).toBe("4.5rem");
+
+  fireEvent.click(fullScreen);
+  expect(fullScreen.getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByRole("button", { name: "Open navigation" })).toBeNull();
+  expect(root.style.getPropertyValue("--val-phone-top")).not.toBe("4.5rem");
+  fireEvent.click(within(bar).getByRole("button", { name: "Assistant" }));
+  expect(paneShown("Assistant")).toBe("page");
+
+  fireEvent.click(fullScreen);
+  expect(fullScreen.getAttribute("aria-pressed")).toBe("false");
+  expect(screen.getByRole("button", { name: "Open navigation" })).toBeTruthy();
+  expect(root.style.getPropertyValue("--val-phone-top")).toBe("4.5rem");
 });

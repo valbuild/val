@@ -1,7 +1,7 @@
 import {
-  Maximize2,
   Minus,
   Monitor,
+  MoveHorizontal,
   Plus,
   RotateCw,
   Smartphone,
@@ -166,7 +166,7 @@ export function CanvasToolbar({
           size,
         )}
       >
-        <Maximize2 size={13} />
+        <MoveHorizontal size={13} />
       </button>
       {onReload && (
         <>

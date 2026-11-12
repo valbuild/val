@@ -16,7 +16,12 @@ import {
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
-import { SLIDE_EASE, SLIDE_MS } from "../workspace/phoneTrack";
+import {
+  PHONE_BOTTOM,
+  PHONE_TOP,
+  SLIDE_EASE,
+  SLIDE_MS,
+} from "../workspace/phoneTrack";
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
@@ -198,7 +203,7 @@ const MAX_COLUMN_SHARE = 0.72;
 /** How far an arrow key moves the divider. */
 const KEYBOARD_STEP_PX = 24;
 /** Where the phone's strip of switches sits, below the floating top bar. */
-const PHONE_STRIP_TOP = "4.5rem";
+const PHONE_STRIP_TOP = PHONE_TOP;
 /** The height of everything on the phone's strip, switches and exit alike. */
 const PHONE_STRIP_CONTROL_HEIGHT = "2.125rem";
 /**
@@ -781,17 +786,12 @@ export function PageWorkspace({
       // Measured by the phone layout's spacing test, which is the only way to
       // catch a pane that pads itself on top of the track's own clearance.
       data-val-pane="fields"
-      style={railPadding}
-      className={cn(
-        "h-full px-4 md:px-6",
-        // Clear of whatever is along the bottom: the status bar, or on a phone
-        // the floating pane bar, which ends 68px up (more under a large
-        // safe area) - see `PhonePaneBar`.
-        isPhone
-          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
-          : "pb-14",
-        paneTopPadding,
-      )}
+      // Clear of whatever is along the bottom: the status bar, or on a phone
+      // the floating pane bar (`PHONE_BOTTOM`).
+      style={
+        isPhone ? { ...railPadding, paddingBottom: PHONE_BOTTOM } : railPadding
+      }
+      className={cn("h-full px-4 md:px-6", !isPhone && "pb-14", paneTopPadding)}
     >
       {page ? (
         <FieldsPanel
@@ -866,10 +866,11 @@ export function PageWorkspace({
          * pane bar, and below the top bar where nothing else clears it.
          */
         <div
-          className={cn(
-            "min-h-0 flex-1 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]",
-            !open && "pt-[4.5rem]",
-          )}
+          className="min-h-0 flex-1 px-3"
+          style={{
+            paddingBottom: PHONE_BOTTOM,
+            ...(open ? {} : { paddingTop: PHONE_TOP }),
+          }}
         >
           <div className="h-full overflow-hidden rounded-xl border border-border-float bg-bg-float">
             {moduleColumn}
@@ -1069,9 +1070,9 @@ export function PageWorkspace({
               // this pane adding another put the address bar 38px under it.
               <div
                 data-val-pane="canvas"
-                // Clears the floating pane bar, which rises with the safe
-                // area - see `PhonePaneBar`.
-                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
+                // Clears the floating pane bar (`PHONE_BOTTOM`).
+                className="h-full w-full shrink-0 px-3"
+                style={{ paddingBottom: PHONE_BOTTOM }}
               >
                 {canvasPane}
               </div>
