@@ -52,13 +52,21 @@ export function PhonePaneBar({
   shown,
   fullScreen,
   onFullScreenChange,
+  attention = false,
 }: {
   panes: PhonePaneButton[];
   /** The pane on screen. */
   shown: WorkspacePane;
   fullScreen: boolean;
   onFullScreenChange: (fullScreen: boolean) => void;
+  /**
+   * Something waits in the account: an error, a notification. The top bar
+   * says so with a dot on the avatar, and full screen hides the top bar, so
+   * the way out carries the dot instead.
+   */
+  attention?: boolean;
 }) {
+  const waiting = fullScreen && attention;
   return (
     <nav
       aria-label="Workspace panes"
@@ -108,10 +116,19 @@ export function PhonePaneBar({
         type="button"
         aria-label="Full screen"
         aria-pressed={fullScreen}
-        title={fullScreen ? "Leave full screen" : "Full screen"}
+        aria-description={
+          waiting ? "Something is waiting in your account" : undefined
+        }
+        title={
+          waiting
+            ? "Leave full screen: something is waiting in your account"
+            : fullScreen
+              ? "Leave full screen"
+              : "Full screen"
+        }
         onClick={() => onFullScreenChange(!fullScreen)}
         className={cn(
-          "flex shrink-0 items-center justify-center rounded-lg text-fg-secondary hover:text-fg-primary",
+          "relative flex shrink-0 items-center justify-center rounded-lg text-fg-secondary hover:text-fg-primary",
           fullScreen ? "h-10 w-10" : "h-12 w-10",
         )}
       >
@@ -119,6 +136,13 @@ export function PhonePaneBar({
           <Minimize2 size={16} aria-hidden />
         ) : (
           <Maximize2 size={16} aria-hidden />
+        )}
+        {waiting && (
+          <span
+            aria-hidden
+            // The same dot as on the avatar it stands in for.
+            className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-fg-primary ring-2 ring-bg-float"
+          />
         )}
       </button>
     </nav>

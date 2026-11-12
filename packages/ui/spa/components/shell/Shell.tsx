@@ -2190,6 +2190,7 @@ export function Shell({
             shown={phonePane}
             fullScreen={phoneFullScreen}
             onFullScreenChange={setPhoneFullScreen}
+            attention={activityCount > 0}
           />
         ) : (
           <StatusBar

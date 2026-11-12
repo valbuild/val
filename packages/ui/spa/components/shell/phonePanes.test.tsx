@@ -7,6 +7,7 @@ import { mockCanvasPage } from "./canvas/mockCanvasPage";
 import { TooltipProvider } from "../designSystem/tooltip";
 import { ValPortalProvider } from "../ValPortalProvider";
 import { ValThemeProvider } from "../ValThemeProvider";
+import { PhonePaneBar } from "./workspace/PhonePaneBar";
 
 // The worker behind validation, which jest cannot load; nothing here validates.
 jest.mock("../../validation/schemaValidationBridge", () => ({
@@ -186,4 +187,27 @@ test("full screen takes the top bar away and keeps every pane a tap away", () =>
   expect(fullScreen.getAttribute("aria-pressed")).toBe("false");
   expect(screen.getByRole("button", { name: "Open navigation" })).toBeTruthy();
   expect(root.style.getPropertyValue("--val-phone-top")).toBe("4.5rem");
+});
+
+/**
+ * What the avatar's dot says -- an error, a notification -- goes with the
+ * top bar in full screen, so the way out says it instead.
+ */
+test("in full screen, the way out says when something is waiting", () => {
+  const bar = (fullScreen: boolean) => (
+    <PhonePaneBar
+      shown="content"
+      panes={[{ pane: "content", onShow: () => undefined }]}
+      fullScreen={fullScreen}
+      onFullScreenChange={() => undefined}
+      attention
+    />
+  );
+  const view = render(bar(false));
+  const button = screen.getByRole("button", { name: "Full screen" });
+  expect(button.getAttribute("aria-description")).toBeNull();
+  view.rerender(bar(true));
+  expect(button.getAttribute("aria-description")).toBe(
+    "Something is waiting in your account",
+  );
 });
