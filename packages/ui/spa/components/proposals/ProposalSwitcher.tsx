@@ -215,13 +215,15 @@ export function ProposalSwitcher({
                 />
               )}
               {/* An upgrade is named by Val Build, after its kind. */}
-              {!location.proposal.upgrade && onRename !== undefined && (
-                <MenuRow
-                  icon={<Pencil size={14} />}
-                  label="Rename…"
-                  onClick={choose(onRename)}
-                />
-              )}
+              {!location.proposal.upgrade &&
+                !location.proposal.siteCode &&
+                onRename !== undefined && (
+                  <MenuRow
+                    icon={<Pencil size={14} />}
+                    label="Rename…"
+                    onClick={choose(onRename)}
+                  />
+                )}
               {onCopyLink !== undefined && (
                 <MenuRow
                   icon={<Link2 size={14} />}
@@ -407,12 +409,16 @@ export function ProposalIcon({
   size,
   className,
 }: {
-  proposal: Pick<ProposalSummary, "upgrade">;
+  proposal: Pick<ProposalSummary, "upgrade" | "siteCode">;
   size: number;
   className?: string;
 }) {
+  // The site's own code mode is the site, changed: the code it is for, not
+  // a branch someone named.
   return proposal.upgrade ? (
     <CircleArrowUp size={size} className={className} />
+  ) : proposal.siteCode ? (
+    <CodeXml size={size} className={className} />
   ) : (
     <GitBranch size={size} className={className} />
   );

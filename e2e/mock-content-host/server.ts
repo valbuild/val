@@ -3951,6 +3951,10 @@ async function proposalsRoute(
       json(res, 200, {
         proposals: [...state.proposals.values()].map((p) => proposalJson(p)),
         siteUrl: null,
+        // valbuild/home `docs/proposals.md`, "Code mode on the site". Off
+        // here: this mock opens editor proposals only, and the specs drive
+        // `</>`'s menu of them.
+        siteCodeMode: false,
       });
       return;
     }
@@ -3965,6 +3969,14 @@ async function proposalsRoute(
       }>(req);
       if (!body || typeof body.displayName !== "string") {
         json(res, 400, { message: "displayName is required" });
+        return;
+      }
+      if (body.kind === "site-code") {
+        // As home answers a project that turned it off.
+        json(res, 403, {
+          message: "Code mode on the site is turned off for this project.",
+          details: { code: "site-code-mode-off" },
+        });
         return;
       }
       if (body.kind !== undefined && body.kind !== "editor") {

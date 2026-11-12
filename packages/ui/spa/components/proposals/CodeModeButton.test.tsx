@@ -142,3 +142,54 @@ describe("CodeModeButton in a proposal", () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("CodeModeButton on the site, where the project lets it change the site's code", () => {
+  test("one press opens the site's code mode, with no menu of proposals", () => {
+    const onOpenSiteCode = jest.fn();
+    const onOpenProposalInCodeMode = jest.fn();
+    render(
+      <CodeModeButton
+        location={site}
+        proposals={[proposal]}
+        codeMode={{
+          ...codeMode(0),
+          onOpenSiteCode,
+          onOpenProposalInCodeMode,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Turn on code mode" }));
+    expect(onOpenSiteCode).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onOpenProposalInCodeMode).not.toHaveBeenCalled();
+  });
+
+  test("turned off, it lists proposals as before", () => {
+    render(
+      <CodeModeButton
+        location={site}
+        proposals={[proposal]}
+        codeMode={codeMode(0)}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Code mode: choose a proposal to change the code in",
+      }),
+    );
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+
+  test("in the site-code proposal it is the proposal's own switch", () => {
+    const onToggle = jest.fn();
+    render(
+      <CodeModeButton
+        location={{ ...inProposal, proposal: { ...proposal, siteCode: true } }}
+        proposals={[proposal]}
+        codeMode={{ ...codeMode(0), onToggle, onOpenSiteCode: () => {} }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Turn on code mode" }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});

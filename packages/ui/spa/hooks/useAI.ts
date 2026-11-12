@@ -179,6 +179,7 @@ import { createProposalsClient } from "../proposals/proposalsClient";
 import {
   codeModeState,
   readCodeMode,
+  openSiteCodeMode,
   requestCodeModeMenu,
   turnOnCodeMode,
 } from "../proposals/codeMode";
@@ -1477,7 +1478,7 @@ export function useAI(
               where:
                 inProposal !== null
                   ? { kind: "proposal", displayName: inProposal.displayName }
-                  : { kind: "site" },
+                  : { kind: "site", siteCode: codeModeState().siteCode },
               state: "asking",
             };
             chatRef.current.setCodeModeRequest(
@@ -3606,6 +3607,17 @@ Do not describe what you will do unless you do it for clarification — just do 
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       const request = codeModeRequestsRef.current.get(toolCallId);
       if (messageId === undefined || request === undefined) return;
+      if (
+        request.where.kind === "site" &&
+        request.where.siteCode &&
+        openSiteCodeMode()
+      ) {
+        answerCodeModeRequest(toolCallId, "asking", {
+          success: false,
+          note: "The Studio is opening code mode for the site: every change waiting to be published goes with it, and the page reloads there. Tell them to ask again once it has opened, and stop here.",
+        });
+        return;
+      }
       if (request.where.kind === "site") {
         requestCodeModeMenu();
         answerCodeModeRequest(toolCallId, "asking", {
