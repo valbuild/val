@@ -246,12 +246,12 @@ export function defineInlineEditingSuite(): void {
         page,
       }) => {
         const preview = await openBlog(page);
-        // "Author: <name>": the name is a field, the element is not it.
-        const author = preview.locator("aside");
-        await expect(author).toContainText("Author: ");
-        await author.click();
-        await page.mouse.move(0, 0);
-        await expect(author).toHaveCSS("outline-width", "2px");
+        // "Author: <name>": the name is a field, and the element holds more
+        // than it. The page says it cannot edit that in place, and the
+        // Studio does what a pick does: opens the field, which its address
+        // names.
+        await preview.getByText(/^Author: /).click();
+        await expect(page).toHaveURL(/[?&]field=[^&]*authors[^&]*name/);
         await expect(inlineEditor(preview)).toHaveCount(0);
       });
     });
