@@ -3,13 +3,10 @@ import {
   Ellipsis,
   ExternalLink,
   Eye,
-  EyeOff,
   Globe,
   GripHorizontal,
   LogIn,
-  MessageSquare,
   PanelsTopLeft,
-  SquareDashedMousePointer,
   X,
 } from "lucide-react";
 import React, {
@@ -50,30 +47,20 @@ import { FieldLoading } from "./FieldLoading";
 import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverTrigger } from "@radix-ui/react-popover";
-import { Switch } from "./designSystem/switch";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
-import { PublishButton } from "./PublishButton";
 import { CodeChangedCard } from "./shell/CodeChangedCard";
 import { PublishHandoffCard } from "./shell/PublishHandoff";
 import { AnimatedClock } from "./AnimatedClock";
 import { cn } from "./designSystem/cn";
-import { HoverCardArrow } from "@radix-ui/react-hover-card";
 import { OverlayMenuDivider, OverlayMenuLauncher } from "./shell/OverlayMenu";
 import { OverlayMenuDock } from "./shell/OverlayMenuDock";
+import { OverlaySettingsPanel } from "./shell/OverlaySettingsPanel";
 import {
   DEFAULT_OVERLAY_PLACEMENT,
   LEGACY_STORAGE_KEY,
-  OverlayDock,
   OverlayPlacement,
   PLACEMENT_STORAGE_KEY,
-  isDockPlacement,
   legacyDropZoneOf,
   parseStoredPlacement,
-  placementOfDock,
   placementOrientation,
 } from "./shell/overlayPlacement";
 import { ValLogo } from "./shell/ValLogo";
@@ -1291,74 +1278,8 @@ function sideFacingPage(
   }
 }
 
-const DOCK_LABELS: Record<OverlayDock, string> = {
-  "left-top": "Top left",
-  "center-top": "Top centre",
-  "right-top": "Top right",
-  "left-center": "Middle left",
-  "right-center": "Middle right",
-  "left-bottom": "Bottom left",
-  "center-bottom": "Bottom centre",
-  "right-bottom": "Bottom right",
-};
-
 /**
- * Pick one of the eight presets from a picture of the screen, for anyone who
- * would rather choose than drag. Dragging is not limited to these: a menu
- * dropped anywhere else simply has none of them selected.
- */
-function PlacementPicker({
-  placement,
-  onPlacementChange,
-}: {
-  placement: OverlayPlacement;
-  onPlacementChange: (placement: OverlayPlacement) => void;
-}) {
-  const cells: Array<OverlayDock | null> = [
-    "left-top",
-    "center-top",
-    "right-top",
-    "left-center",
-    null,
-    "right-center",
-    "left-bottom",
-    "center-bottom",
-    "right-bottom",
-  ];
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Menu position"
-      className="grid grid-cols-3 gap-1 p-1 w-[4.5rem] h-12 rounded-md border border-border-primary bg-bg-secondary"
-    >
-      {cells.map((dock, index) =>
-        dock === null ? (
-          <span key={index} aria-hidden />
-        ) : (
-          <button
-            key={dock}
-            type="button"
-            role="radio"
-            aria-checked={isDockPlacement(placement, dock)}
-            aria-label={DOCK_LABELS[dock]}
-            title={DOCK_LABELS[dock]}
-            onClick={() => onPlacementChange(placementOfDock(dock))}
-            className={cn(
-              "rounded-sm transition-colors",
-              isDockPlacement(placement, dock)
-                ? "bg-fg-primary"
-                : "bg-border-primary hover:bg-fg-secondary",
-            )}
-          />
-        ),
-      )}
-    </div>
-  );
-}
-
-/**
- * The "⋯" menu: where the menu sits, light or dark, and the two ways out —
- * leaving preview mode, and turning Val off on this site altogether.
+ * The "⋯" menu: where the menu sits, light or dark, and leaving preview mode.
  */
 function OverlaySettings({
   placement,
@@ -1366,7 +1287,6 @@ function OverlaySettings({
   draftMode,
   draftModeLoading,
   setDraftMode,
-  disableOverlay,
   side,
   open,
   onOpenChange,
@@ -1376,7 +1296,6 @@ function OverlaySettings({
   draftMode: boolean;
   draftModeLoading: boolean;
   setDraftMode: (draftMode: boolean) => void;
-  disableOverlay: () => void;
   side: "top" | "right" | "bottom" | "left";
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -1388,8 +1307,6 @@ function OverlaySettings({
    * default from `s.settings()` is what is being drawn.
    */
   const { resolvedTheme, setTheme } = useTheme();
-  const rowClassName =
-    "flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-sm text-left text-fg-primary hover:bg-bg-secondary-hover disabled:text-fg-disabled disabled:pointer-events-none";
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
@@ -1407,60 +1324,18 @@ function OverlaySettings({
         container={portalContainer}
         className="z-[9003] w-60 p-1.5"
       >
-        <div className="flex items-center justify-between gap-3 px-2 py-1.5">
-          <span className="text-sm">Position</span>
-          <PlacementPicker
-            placement={placement}
-            onPlacementChange={onPlacementChange}
-          />
-        </div>
-        <label className="flex items-center justify-between gap-3 px-2 h-9 text-sm">
-          <span>Dark mode</span>
-          <Switch
-            checked={resolvedTheme === "dark"}
-            onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-          />
-        </label>
-        <div className="my-1 h-px bg-border-primary" />
-        {draftMode && (
-          <button
-            type="button"
-            className={rowClassName}
-            disabled={draftModeLoading}
-            onClick={() => {
-              onOpenChange(false);
-              setDraftMode(false);
-            }}
-          >
-            {draftModeLoading ? (
-              <AnimatedClock size={16} />
-            ) : (
-              <EyeOff size={16} />
-            )}
-            <span className="flex flex-col leading-tight gap-0.5">
-              <span>Exit preview mode</span>
-              <span className="text-xs text-fg-tertiary">
-                See the published site
-              </span>
-            </span>
-          </button>
-        )}
-        <button
-          type="button"
-          className={rowClassName}
-          onClick={() => {
+        <OverlaySettingsPanel
+          placement={placement}
+          onPlacementChange={onPlacementChange}
+          dark={resolvedTheme === "dark"}
+          onDarkChange={(dark) => setTheme(dark ? "dark" : "light")}
+          inPreview={draftMode}
+          exitingPreview={draftModeLoading}
+          onExitPreview={() => {
             onOpenChange(false);
-            disableOverlay();
+            setDraftMode(false);
           }}
-        >
-          <X size={16} />
-          <span className="flex flex-col leading-tight gap-0.5">
-            <span>Hide Val</span>
-            <span className="text-xs text-fg-tertiary">
-              Open a page from the Studio to bring it back
-            </span>
-          </span>
-        </button>
+        />
       </PopoverContent>
     </Popover>
   );
@@ -1487,56 +1362,18 @@ function ValMenu({
   draftMode,
   draftModeLoading,
   setDraftMode,
-  mode,
-  setMode,
   disableOverlay,
   loading,
-  findAllValPathElements,
-  setAllBoundingBoxes,
-  setShowAllBoundingBoxes,
-  setAllBoundingBoxesVisible,
-  isChatOpen,
-  setIsChatOpen,
   codeChanged = [],
 }: ValMenuProps) {
   const { bornSessionId } = useContext(OverlaySessionContext);
   const authenticationState = useAuthenticationState();
-  const portalContainer = useValPortal();
-  // The publish popover, or a publish in flight, holds the menu open: see
-  // `PublishButton`'s `onHoldOpenChange`. So does the "⋯" menu, which is
-  // portalled out of the bar just the same.
-  const [publishHoldsMenuOpen, setPublishHoldsMenuOpen] = useState(false);
+  // The "⋯" menu holds the bar open: it is portalled out of the bar, so
+  // using it is leaving the bar.
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const showAllBoundingBoxesWithFadeIn = () => {
-    const boxes = findAllValPathElements();
-    setAllBoundingBoxes(boxes);
-    setShowAllBoundingBoxes(true);
-    setAllBoundingBoxesVisible(false);
-
-    // Fade in after a brief moment
-    setTimeout(() => {
-      setAllBoundingBoxesVisible(true);
-    }, 50);
-  };
-
-  const hideAllBoundingBoxesWithFadeOut = () => {
-    setAllBoundingBoxesVisible(false);
-
-    // Remove from DOM after fade-out completes
-    setTimeout(() => {
-      setShowAllBoundingBoxes(false);
-    }, 200);
-  };
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
-  const valMode = useValMode();
-  // Shown unless the project has turned it off, or has no project to run it
-  // in: an assistant nobody has decided about is offered here, and the panel
-  // asks before it is used. The same flag as the Studio's (see `wsEnabled` in
-  // `ValProvider`), so the two cannot disagree about whether there is one.
-  const { isAIChatEnabled: isChatEnabled } = useAIChatActions();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const handoff = useSiteHandoffState();
   /*
@@ -1580,7 +1417,6 @@ function ValMenu({
       draftMode={draftMode}
       draftModeLoading={draftModeLoading}
       setDraftMode={setDraftMode}
-      disableOverlay={disableOverlay}
       side={popoverSide}
       open={settingsOpen}
       onOpenChange={setSettingsOpen}
@@ -1669,134 +1505,54 @@ function ValMenu({
               dragging={dragging}
               status={launcherStatus}
               mark={<ValMark />}
-              holdOpen={publishHoldsMenuOpen || settingsOpen}
+              holdOpen={settingsOpen}
             >
-              {inPreview ? (
-                <>
-                  <HoverCard>
-                    <HoverCardTrigger className="inline-flex">
-                      <MenuButton
-                        label="Select content to edit"
-                        active={mode === "select"}
-                        onClick={() => {
-                          const newMode = mode === "select" ? null : "select";
-                          setMode(newMode);
-
-                          // Clean up if exiting select mode
-                          if (newMode !== "select") {
-                            setShowAllBoundingBoxes(false);
-                            setAllBoundingBoxesVisible(false);
-                          } else {
-                            showAllBoundingBoxesWithFadeIn();
-                          }
-                        }}
-                        onMouseEnter={() => {
-                          if (mode === "select") {
-                            showAllBoundingBoxesWithFadeIn();
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          if (mode === "select") {
-                            hideAllBoundingBoxesWithFadeOut();
-                          }
-                        }}
-                        icon={<SquareDashedMousePointer size={16} />}
-                      />
-                    </HoverCardTrigger>
-                    <HoverCardContent
-                      side={popoverSide}
-                      className="z-50"
-                      container={portalContainer}
-                    >
-                      Click on content in the page to select and edit it
-                      <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-                    </HoverCardContent>
-                  </HoverCard>
-                  <PublishButton
-                    compact
-                    onHoldOpenChange={setPublishHoldsMenuOpen}
-                    popoverSide={popoverSide}
-                  />
-                  <HoverCard>
-                    <HoverCardTrigger asChild>
-                      <MenuButton
-                        label="Open in Studio"
-                        href={studioHref}
-                        icon={
-                          // flex, so the icon does not sit on a text baseline
-                          // and make this button taller than the others
-                          <div className="flex relative">
-                            <PendingChangesBadge
-                              patchCount={patchIds.length}
-                              validationErrorCount={validationErrorCount}
-                            />
-                            {studioIcon}
-                          </div>
-                        }
-                      />
-                    </HoverCardTrigger>
-                    <HoverCardContent
-                      side={popoverSide}
-                      className="z-50"
-                      container={portalContainer}
-                    >
-                      {validationErrorCount > 0 && (
-                        <div className="text-fg-error-primary">
-                          {validationErrorCount} validation error
-                          {validationErrorCount > 1 && "s"}
-                        </div>
-                      )}
-                      {patchIds.length > 0 && validationErrorCount === 0 && (
-                        <div>
-                          {patchIds.length} pending change
-                          {patchIds.length > 1 && "s"}
-                        </div>
-                      )}
-                      Open Val Studio to edit and manage your content
-                      <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-                    </HoverCardContent>
-                  </HoverCard>
-                  {(valMode === "http" || valMode === "fs") &&
-                    isChatEnabled && (
-                      <MenuButton
-                        label="Assistant"
-                        active={isChatOpen}
-                        onClick={() => setIsChatOpen((prev) => !prev)}
-                        icon={<MessageSquare size={16} />}
-                      />
-                    )}
-                  <OverlayMenuDivider
-                    orientation={placementOrientation(placement)}
-                  />
-                  {settings}
-                </>
-              ) : (
-                <>
-                  <MenuButton
-                    label="Enable preview mode"
-                    disabled={draftModeLoading}
-                    icon={
-                      draftModeLoading ? (
-                        <AnimatedClock size={16} />
-                      ) : (
-                        <Eye size={16} />
-                      )
-                    }
-                    onClick={() => {
-                      setDraftMode(true);
-                    }}
-                  />
-                  <MenuButton
-                    label="Open in Studio"
-                    icon={studioIcon}
-                    href={studioHref}
-                  />
-                  <OverlayMenuDivider
-                    orientation={placementOrientation(placement)}
-                  />
-                  {settings}
-                </>
+              {!inPreview && (
+                <MenuButton
+                  label="Enable preview mode"
+                  disabled={draftModeLoading}
+                  icon={
+                    draftModeLoading ? (
+                      <AnimatedClock size={16} />
+                    ) : (
+                      <Eye size={16} />
+                    )
+                  }
+                  onClick={() => {
+                    setDraftMode(true);
+                  }}
+                />
               )}
+              <MenuButton
+                label={
+                  validationErrorCount > 0
+                    ? `Open in Studio (${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"})`
+                    : patchIds.length > 0
+                      ? `Open in Studio (${patchIds.length} pending change${patchIds.length === 1 ? "" : "s"})`
+                      : "Open in Studio"
+                }
+                href={studioHref}
+                icon={
+                  // flex, so the icon does not sit on a text baseline and
+                  // make this button taller than the others
+                  <div className="flex relative">
+                    <PendingChangesBadge
+                      patchCount={patchIds.length}
+                      validationErrorCount={validationErrorCount}
+                    />
+                    {studioIcon}
+                  </div>
+                }
+              />
+              {settings}
+              <OverlayMenuDivider
+                orientation={placementOrientation(placement)}
+              />
+              <MenuButton
+                label="Turn off Val on this site"
+                icon={<X size={16} />}
+                onClick={() => disableOverlay()}
+              />
             </OverlayMenuLauncher>
           )
         }

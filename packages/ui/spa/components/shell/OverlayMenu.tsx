@@ -519,14 +519,24 @@ export function OverlayMenuLauncher({
   const isVertical = orientation === "vertical";
   const growsBackward = placementGrowth(placement) === "backward";
 
-  // The natural length of the buttons, which is what the clip animates to.
+  // The natural size of the buttons, which is what the clip animates to.
+  // Both axes: the bar's buttons are not all as wide as the circle (Publish
+  // carries a count), so a clip that collapsed only its length left a
+  // vertical bar as an oval when closed.
   const contentRef = useRef<HTMLDivElement>(null);
-  const [contentLength, setContentLength] = useState<number | null>(null);
+  const [contentSize, setContentSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
     const measure = () =>
-      setContentLength(isVertical ? el.offsetHeight : el.offsetWidth);
+      setContentSize((prev) =>
+        prev?.width === el.offsetWidth && prev?.height === el.offsetHeight
+          ? prev
+          : { width: el.offsetWidth, height: el.offsetHeight },
+      );
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
@@ -535,10 +545,23 @@ export function OverlayMenuLauncher({
   }, [isVertical]);
 
   const reducedMotion = usePrefersReducedMotion();
-  const axis = isVertical ? "height" : "width";
-  const length: number | "auto" = expanded ? (contentLength ?? "auto") : 0;
+  const ms = expanded ? EXPAND_MS : COLLAPSE_MS;
+  const sizeTransition = `width ${ms}ms ${EASE}, height ${ms}ms ${EASE}`;
+  // The clip is padded across the short axis (see below), and its box is
+  // border-box, so that padding has to be added back or the widest button
+  // is cut off at the clip's edge.
+  const BADGE_ROOM = 16;
   const clipStyle: React.CSSProperties = {
-    [axis]: length,
+    width: expanded
+      ? contentSize
+        ? contentSize.width + (isVertical ? BADGE_ROOM : 0)
+        : "auto"
+      : 0,
+    height: expanded
+      ? contentSize
+        ? contentSize.height + (isVertical ? 0 : BADGE_ROOM)
+        : "auto"
+      : 0,
     opacity: expanded ? 1 : 0,
     // Not just hidden: `visibility` also takes the buttons out of the tab
     // order and the accessibility tree while collapsed, and it flips only at
@@ -547,8 +570,8 @@ export function OverlayMenuLauncher({
     transition: reducedMotion
       ? "none"
       : expanded
-        ? `${axis} ${EXPAND_MS}ms ${EASE}, opacity 180ms ease-out 70ms, visibility 0s`
-        : `${axis} ${COLLAPSE_MS}ms ${EASE}, opacity 110ms ease-in, visibility 0s linear ${COLLAPSE_MS}ms`,
+        ? `${sizeTransition}, opacity 180ms ease-out 70ms, visibility 0s`
+        : `${sizeTransition}, opacity 110ms ease-in, visibility 0s linear ${COLLAPSE_MS}ms`,
   };
 
   return (
@@ -624,8 +647,8 @@ export function OverlayMenuLauncher({
           </button>
           {/* The clip. Padded across the short axis, with a matching negative
               margin, so a button's badge is not cut off while the layout
-              stays where it was: only the long axis is ever collapsed, so
-              the padding can stay on in both states. */}
+              stays where it was. Collapsed to 0 the padding is all that is
+              left, and the margin cancels it, so the circle stays round. */}
           <div
             style={clipStyle}
             className={cn(
@@ -636,8 +659,8 @@ export function OverlayMenuLauncher({
             <div
               ref={contentRef}
               className={cn(
-                "flex items-center",
-                isVertical ? "flex-col h-max" : "flex-row w-max",
+                "flex items-center w-max h-max",
+                isVertical ? "flex-col" : "flex-row",
                 compact ? "gap-0.5" : "gap-1",
                 // Keeps the circle from touching the first button, on
                 // whichever side the circle is.
