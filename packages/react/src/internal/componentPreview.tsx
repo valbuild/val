@@ -5,6 +5,8 @@ import {
   getComponentRender,
   Internal,
   loadComponent,
+  setComponentOfValue,
+  type Schema,
   type SelectorSource,
   type Source,
   type SourcePath,
@@ -115,8 +117,15 @@ export async function resolveValComponentPreview({
     }
     value = stegaEncode(source, {
       disabled: true,
-      root: { path: sourcePath, schema: schema["executeSerialize"]() },
+      root: {
+        path: sourcePath,
+        schema: schema["executeSerialize"](),
+        // So a list of components inside the example has its components
+        instance: schema,
+      },
     });
+  } else {
+    linkComponents(value, schema);
   }
 
   // What the site hands the component (`ValComponentEditor`): the value, or
@@ -142,6 +151,54 @@ export async function resolveValComponentPreview({
     >,
     props: componentProps as Record<string, unknown>,
   };
+}
+
+/**
+ * Give every object inside `value` the component its schema links it to,
+ * as a reader does (`stegaEncode`), for a value that lost them on the way.
+ *
+ * A preview's content often has: on TanStack the route's loader reads it in a
+ * server function, and what comes back is JSON, which a component cannot
+ * ride on. The component being previewed is found by path either way, but
+ * one that renders a list of components of its own (`ValComponentEditor`)
+ * would be handed items with nothing to render them with.
+ *
+ * Looked up from the root by each object's path - through whichever variant
+ * of a union the value there takes - which is the reader's own way of
+ * finding one. A path that cannot be resolved has no component, as before.
+ */
+function linkComponents(value: unknown, schema: Schema<SelectorSource>) {
+  const visit = (node: unknown, path: string[]) => {
+    if (Array.isArray(node)) {
+      node.forEach((child, index) => visit(child, [...path, String(index)]));
+      return;
+    }
+    if (typeof node !== "object" || node === null) {
+      return;
+    }
+    // The root is the previewed component itself, which the caller renders
+    if (path.length > 0) {
+      try {
+        const at = Internal.resolvePath(
+          Internal.patchPathToModulePath(path),
+          // What the app read is the source with media resolved, which is
+          // what `resolvePath` walks: see `resolveValComponentPreview`.
+          value as Source,
+          schema,
+        );
+        const render = getComponentRender(at.schema, at.source);
+        if (render) {
+          setComponentOfValue(node, render);
+        }
+      } catch {
+        // Not a path the schema knows: nothing to link
+      }
+    }
+    for (const [key, child] of Object.entries(node)) {
+      visit(child, [...path, key]);
+    }
+  };
+  visit(value, []);
 }
 
 /** A message in place of the component, for when there is none to render. */

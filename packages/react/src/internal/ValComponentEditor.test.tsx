@@ -4,6 +4,7 @@ import {
   initVal,
   Internal,
   loadComponent,
+  type ValComponent,
 } from "@valbuild/core";
 import { act, render, screen } from "@testing-library/react";
 import {
@@ -11,6 +12,7 @@ import {
   stegaEncode,
   type ResolvedVal,
 } from "../stega/stegaEncode";
+import { resolveValComponentPreview } from "./componentPreview";
 import { ValComponentEditor } from "./ValComponentEditor";
 import {
   isHorizontal,
@@ -286,6 +288,60 @@ describe("ValComponentEditor", () => {
     await screen.findByRole("heading");
     expect(container.querySelector("[data-val-component-controls]")).toBe(null);
     expect(container.querySelector("button")).toBe(null);
+  });
+});
+
+describe("the Studio's preview of one component", () => {
+  function Row(props: { heading: string; cards: readonly ValComponent[] }) {
+    return (
+      <section>
+        <h2>{props.heading}</h2>
+        <ValComponentEditor value={props.cards} />
+      </section>
+    );
+  }
+  const row = s
+    .object({ heading: s.string(), cards: s.array(card) })
+    .component(() => Promise.resolve({ default: Row }), {
+      example: { heading: "Example", cards: [{ title: "An example card" }] },
+    });
+  const rowVal = c.define("/row.val.ts", s.object({ row }), {
+    row: { heading: "Cards", cards: [{ title: "One" }, { title: "Two" }] },
+  });
+  const ROW = '/row.val.ts?p="row"';
+
+  test("content that arrived as JSON gets its components back, however deep", async () => {
+    // What a server function hands the preview route: no symbol survives it
+    const moduleValue: unknown = JSON.parse(
+      JSON.stringify(stegaEncode(rowVal, { disabled: true })),
+    );
+    const resolved = await resolveValComponentPreview({
+      valModule: rowVal,
+      sourcePath: ROW,
+      moduleValue,
+    });
+    expect(resolved.status).toBe("ok");
+    if (resolved.status !== "ok") return;
+    expect(resolved.Component).toBe(Row);
+    const cards = resolved.props.cards;
+    expect(Array.isArray(cards) && cards.map(componentOfValue)).toEqual([
+      expect.objectContaining({ as: "component" }),
+      expect.objectContaining({ as: "component" }),
+    ]);
+  });
+
+  test("and so does the example", async () => {
+    const resolved = await resolveValComponentPreview({
+      valModule: rowVal,
+      sourcePath: ROW,
+      moduleValue: Internal.getSource(rowVal),
+      example: true,
+    });
+    expect(resolved.status).toBe("ok");
+    if (resolved.status !== "ok") return;
+    expect(resolved.props.heading).toBe("Example");
+    const cards = resolved.props.cards;
+    expect(Array.isArray(cards) && componentOfValue(cards[0])).not.toBe(null);
   });
 });
 

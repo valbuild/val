@@ -8,6 +8,8 @@ export default function Card({ title, text }: CardProps) {
   return (
     <article
       style={{
+        // As tall as its row, padding included: the cards of a row line up
+        boxSizing: "border-box",
         height: "100%",
         padding: "1rem 1.25rem",
         borderRadius: 8,

@@ -3,6 +3,7 @@
 import { Internal, VAL_PREVIEW_MESSAGES } from "@valbuild/core";
 import { DEFAULT_CANVAS_SELECTION } from "@valbuild/shared/client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ValComponentControlsOff } from "./ValComponentEditorChrome";
 
 /** Set on the tagged element under the pointer while picking is on. */
 const HOVER_ATTRIBUTE = "data-val-preview-hover";
@@ -144,7 +145,10 @@ export function ValPreviewBridgeCore({
         // The canvas's outline colour, so a pick looks the same in both
         <style>{`[${HOVER_ATTRIBUTE}] { outline: 2px solid ${DEFAULT_CANVAS_SELECTION}; outline-offset: 2px; cursor: pointer; }`}</style>
       )}
-      {children}
+      {/* One component, shown beside its fields: not a page to arrange */}
+      <ValComponentControlsOff.Provider value={true}>
+        {children}
+      </ValComponentControlsOff.Provider>
     </div>
   );
 }

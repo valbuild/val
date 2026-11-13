@@ -11,7 +11,9 @@ import {
   type ValCanvasPageMessage,
 } from "@valbuild/shared/client";
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -31,6 +33,15 @@ export const VAL_COMPONENT_ATTRIBUTE = "data-val-component";
 
 /** On the element around a list, with the list's path once there is one. */
 export const VAL_COMPONENT_LIST_ATTRIBUTE = "data-val-component-list";
+
+/**
+ * `true` where a list must not be arranged although the document is inside
+ * the Studio: the preview of ONE component beside its fields
+ * (`ValPreviewBridgeCore`). That frame is in the Studio too, so it looks like
+ * the canvas from the inside, but nothing there is listening for an edit to
+ * a list - the controls would be buttons that do nothing.
+ */
+export const ValComponentControlsOff = createContext(false);
 
 /** A rectangle in the viewport: what `getBoundingClientRect` gives. */
 export type ItemRect = {
@@ -114,7 +125,8 @@ export function ValComponentList({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inCanvas = useIsCanvasFrame();
-  const editing = inCanvas && path !== undefined;
+  const off = useContext(ValComponentControlsOff);
+  const editing = inCanvas && !off && path !== undefined;
   return (
     <div
       ref={ref}
