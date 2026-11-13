@@ -13,14 +13,21 @@ import { Spinner } from "./designSystem/spinner";
  * question card the turn waits on it, so it is never folded away with the
  * other tool calls.
  *
- * On the site there is nothing to turn on: code is changed in a proposal, so
- * the button chooses one instead, and the proposal opens with code mode on.
+ * On the site, where the project lets it, the button turns on the site's
+ * own code mode (valbuild/home `docs/proposals.md`, "Code mode on the
+ * site"). Where it does not, code is changed in a proposal, so the button
+ * chooses one instead, and the proposal opens with code mode on.
  */
 export type CodeModeRequest = {
   /** What the assistant wants to change, in its own words. */
   reason: string;
-  /** Where the Studio is: code mode is turned on in a proposal. */
-  where: { kind: "proposal"; displayName: string } | { kind: "site" };
+  /**
+   * Where the Studio is: code mode is turned on in a proposal, or -- where
+   * the project lets it (`siteCode`) -- on the site itself.
+   */
+  where:
+    | { kind: "proposal"; displayName: string }
+    | { kind: "site"; siteCode?: boolean };
   state: "asking" | "turning-on" | "on" | "declined";
 };
 
@@ -57,6 +64,8 @@ export function CodeModeRequestCard({
   }
   const turningOn = request.state === "turning-on";
   const inProposal = request.where.kind === "proposal" ? request.where : null;
+  const onSiteCode =
+    request.where.kind === "site" && request.where.siteCode === true;
   return (
     <div
       role="group"
@@ -68,7 +77,7 @@ export function CodeModeRequestCard({
           <CodeXml className="h-3.5 w-3.5" />
         </span>
         <span className="text-sm font-medium text-fg-primary">
-          {inProposal !== null
+          {inProposal !== null || onSiteCode
             ? "Turn on code mode?"
             : "This needs a code change"}
         </span>
@@ -85,6 +94,12 @@ export function CodeModeRequestCard({
             </span>
             , and you see it in the preview. The site changes only when the
             proposal is published.
+          </>
+        ) : onSiteCode ? (
+          <>
+            The assistant can then change the site&rsquo;s code, and you see it
+            in the preview. Everything waiting to be published goes with it, and
+            the site changes when you publish.
           </>
         ) : (
           <>
@@ -119,7 +134,7 @@ export function CodeModeRequestCard({
           )}
           {turningOn
             ? "Turning on…"
-            : inProposal !== null
+            : inProposal !== null || onSiteCode
               ? "Turn on code mode"
               : "Choose a proposal…"}
         </button>

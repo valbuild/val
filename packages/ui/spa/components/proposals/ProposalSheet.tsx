@@ -153,8 +153,11 @@ export function ProposalSheet({
                 Compare with the site
               </SheetRow>
             )}
-            {/* An upgrade is named after its kind, by Val Build. */}
-            {!here.proposal.upgrade && (
+            {/*
+             * An upgrade is named after its kind, by Val Build, and the
+             * site's own code mode is the site's, not a name anyone gave it.
+             */}
+            {!here.proposal.upgrade && !here.proposal.siteCode && (
               <SheetRow
                 icon={<Pencil size={16} />}
                 onClick={choose(proposals.onRename)}
@@ -177,51 +180,64 @@ export function ProposalSheet({
             </SheetRow>
           </div>
         )}
-        {codeMode !== undefined && here === null && (
+        {codeMode?.onOpenSiteCode !== undefined && here === null && (
           <div className="py-1">
             <SheetRow
               icon={<CodeXml size={16} />}
-              detail="Choose a proposal to change the code in"
-              trailing={choosingForCode ? "Hide" : undefined}
-              onClick={() => setChoosingForCode((open) => !open)}
+              detail="Let the assistant change the site's code"
+              onClick={choose(codeMode.onOpenSiteCode)}
             >
-              Code mode…
+              Turn on code mode
             </SheetRow>
-            {choosingForCode && (
-              <div className="pl-8">
-                {codeCandidates.length === 0 && (
-                  <p className="px-4 py-2 text-xs text-fg-secondary-alt">
-                    No proposals open. Start one to change the code in.
-                  </p>
-                )}
-                {codeCandidates.map((proposal) => (
-                  <SheetRow
-                    key={proposal.name}
-                    icon={
-                      <ProposalIcon
-                        proposal={proposal}
-                        size={16}
-                        className="text-fg-proposal"
-                      />
-                    }
-                    detail={`${ownerLabel(proposal)} · ${proposalChangesLabel(proposal)}`}
-                    onClick={choose(() =>
-                      codeMode.onOpenProposalInCodeMode(proposal.name),
-                    )}
-                  >
-                    {proposal.displayName}
-                  </SheetRow>
-                ))}
-                <SheetRow
-                  icon={<Plus size={16} />}
-                  onClick={choose(codeMode.onNewProposalInCodeMode)}
-                >
-                  New proposal in code mode…
-                </SheetRow>
-              </div>
-            )}
           </div>
         )}
+        {codeMode !== undefined &&
+          codeMode.onOpenSiteCode === undefined &&
+          here === null && (
+            <div className="py-1">
+              <SheetRow
+                icon={<CodeXml size={16} />}
+                detail="Choose a proposal to change the code in"
+                trailing={choosingForCode ? "Hide" : undefined}
+                onClick={() => setChoosingForCode((open) => !open)}
+              >
+                Code mode…
+              </SheetRow>
+              {choosingForCode && (
+                <div className="pl-8">
+                  {codeCandidates.length === 0 && (
+                    <p className="px-4 py-2 text-xs text-fg-secondary-alt">
+                      No proposals open. Start one to change the code in.
+                    </p>
+                  )}
+                  {codeCandidates.map((proposal) => (
+                    <SheetRow
+                      key={proposal.name}
+                      icon={
+                        <ProposalIcon
+                          proposal={proposal}
+                          size={16}
+                          className="text-fg-proposal"
+                        />
+                      }
+                      detail={`${ownerLabel(proposal)} · ${proposalChangesLabel(proposal)}`}
+                      onClick={choose(() =>
+                        codeMode.onOpenProposalInCodeMode(proposal.name),
+                      )}
+                    >
+                      {proposal.displayName}
+                    </SheetRow>
+                  ))}
+                  <SheetRow
+                    icon={<Plus size={16} />}
+                    onClick={choose(codeMode.onNewProposalInCodeMode)}
+                  >
+                    New proposal in code mode…
+                  </SheetRow>
+                </div>
+              )}
+            </div>
+          )}
         <PanelSectionLabel divided={here !== null || codeMode !== undefined}>
           Switch to
         </PanelSectionLabel>

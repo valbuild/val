@@ -235,6 +235,13 @@ const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
   siteUrl: z.string().nullable().optional(),
+  /**
+   * Whether `</>` on the site changes the site's code, in the project's
+   * site-code proposal (valbuild/home `docs/proposals.md`, "Code mode on the
+   * site"). Absent from content older than it, which has no such proposal:
+   * `</>` then lists proposals, as it did.
+   */
+  siteCodeMode: z.boolean().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
 const LockfileAnswer = z.object({ dependencies: Dependencies });
@@ -393,6 +400,24 @@ export class ProposalsApiError extends Error {
       .safeParse(this.body);
     return parsed.success ? parsed.data.details.proposal : null;
   }
+}
+
+/**
+ * Why content refused to open the site's code mode, by its `details.code`:
+ * `off`, the project turned it off (403); `publishing`, a publish is working
+ * on the site (409), which Try again outlasts. `null` for any other answer.
+ */
+export function siteCodeRefusalOf(error: unknown): "off" | "publishing" | null {
+  if (!(error instanceof ProposalsApiError)) return null;
+  const code = z
+    .object({ details: z.object({ code: z.string() }) })
+    .safeParse(error.body);
+  if (!code.success) return null;
+  if (error.status === 403 && code.data.details.code === "site-code-mode-off")
+    return "off";
+  if (error.status === 409 && code.data.details.code === "publishing")
+    return "publishing";
+  return null;
 }
 
 /**
@@ -561,7 +586,11 @@ export function commitRefusalOf(error: unknown):
 }
 
 export type ProposalsClient = {
-  list(): Promise<{ proposals: ProposalJson[]; siteUrl: string | null }>;
+  list(): Promise<{
+    proposals: ProposalJson[];
+    siteUrl: string | null;
+    siteCodeMode: boolean;
+  }>;
   get(name: string): Promise<ProposalJson>;
   create(input: {
     displayName: string;
@@ -584,6 +613,17 @@ export type ProposalsClient = {
      */
     kind?: "upgrade";
     upgrade?: { path: "cves" | "latest" | "majors"; skip?: string[] };
+  }): Promise<ProposalJson>;
+  /**
+   * Code mode on the site (valbuild/home `docs/proposals.md`, "Code mode on
+   * the site"): the project's site-code proposal, made if there is none,
+   * with every change pending on the site moved into it. Refused (403
+   * `site-code-mode-off`) where the project turned it off, and (409
+   * `publishing`) while a publish is working on the site.
+   */
+  openSiteCode(input: {
+    displayName: string;
+    requestId: string;
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   /**
@@ -788,10 +828,15 @@ export function createProposalsClient(options: {
   return {
     list: async () => {
       const answer = ListAnswer.parse(await call("", "GET"));
-      return { proposals: answer.proposals, siteUrl: answer.siteUrl ?? null };
+      return {
+        proposals: answer.proposals,
+        siteUrl: answer.siteUrl ?? null,
+        siteCodeMode: answer.siteCodeMode ?? false,
+      };
     },
     get: (name) => one(at(name), "GET"),
     create: (input) => one("", "POST", input),
+    openSiteCode: (input) => one("", "POST", { ...input, kind: "site-code" }),
     rename: (name, displayName) => one(at(name), "PATCH", { displayName }),
     setCodeMode: (name, on) => one(`${at(name)}/code-mode`, "POST", { on }),
     commit: async (name, input) =>
@@ -891,6 +936,15 @@ export function jobState(
  * A proposal as the screens show it. `viewer` is the profile id of the person
  * looking, so lists can say "You"; `people` names the rest.
  */
+/**
+ * The proposal `</>` on the site opens (valbuild/home `docs/proposals.md`,
+ * "Code mode on the site"): the Studio shows it as the site in code mode,
+ * not as a proposal someone named.
+ */
+export function isSiteCode(json: Pick<ProposalJson, "kind">): boolean {
+  return json.kind === "site-code";
+}
+
 export function toSummary(
   json: ProposalJson,
   viewer: string | null,
@@ -916,6 +970,7 @@ export function toSummary(
       (json.ownerIds ?? (json.ownerId ? [json.ownerId] : [])).includes(viewer),
     changes: json.changes ?? 0,
     ...(json.upgrade !== undefined ? { upgrade: true } : {}),
+    ...(isSiteCode(json) ? { siteCode: true } : {}),
     updatedAt: json.updatedAt,
     ...(json.setup !== undefined ? { setup: jobState(json.setup) } : {}),
     ...(json.closedBy ? { closedBy: people(json.closedBy) } : {}),

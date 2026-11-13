@@ -33,6 +33,7 @@ import {
   type UpdateResolution,
   jobState,
   sameStudioPageAt,
+  siteCodeRefusalOf,
   toSummary,
   type ProposalJson,
   type UpdateConflict,
@@ -67,7 +68,7 @@ import { studioCodeUpdateDeps } from "../../proposals/studioCodeUpdate";
 import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
 import { toAdminLinks } from "../shell/shellDataMapping";
-import { useValConfig } from "../ValFieldProvider";
+import { useSaveUnsaved, useValConfig } from "../ValFieldProvider";
 import {
   restoreCodeOf,
   withRestoreCode,
@@ -86,7 +87,10 @@ import { MergedProposalDialog } from "./MergedProposalDialog";
 import {
   asksForCodeMode,
   registerCodeModeTurnOn,
+  registerSiteCodeOpen,
   reportCodeMode,
+  reportSiteCode,
+  requestCodeModeMenu,
   setCodeModeBusy,
   useCodeModeState,
   withCodeModeParam,
@@ -1519,6 +1523,80 @@ export function useProposalsBar({
   );
 
   /*
+   * `</>` on the site, where the project lets it change the site's code
+   * (valbuild/home `docs/proposals.md`, "Code mode on the site"): every
+   * local edit is saved first, since content moves only what it has; then
+   * the site-code proposal is got or made with every change pending on the
+   * site in it, and opened in code mode, which saves them there.
+   */
+  const saveUnsaved = useSaveUnsaved();
+  const siteCodeMode = onSite && ready.siteCodeMode;
+  const openSiteCode = useCallback(async () => {
+    const to = "Opening code mode…";
+    setLeaving(to);
+    const tryAgain = {
+      label: "Try again",
+      onClick: () => void openSiteCodeRef.current(),
+    };
+    try {
+      const unsaved = await saveUnsaved();
+      if (unsaved.length > 0) {
+        setLeaving(null);
+        toast.error("Code mode did not open", {
+          description:
+            "Your latest changes could not be saved yet, and code mode takes everything waiting to be published with it. Nothing was lost: they are kept here and sent again.",
+          action: tryAgain,
+        });
+        return;
+      }
+      const made = await client.openSiteCode({
+        displayName: SITE_CODE_NAME,
+        requestId: randomUUID(),
+      });
+      void refresh();
+      go(made.address ?? (await waitForAddress(client, made.name)), to, true);
+    } catch (error) {
+      setLeaving(null);
+      const refusal = siteCodeRefusalOf(error);
+      const message = error instanceof Error ? error.message : String(error);
+      if (refusal === "off") {
+        // The project changed its mind since the list was read: `</>` goes
+        // back to listing proposals, which is offered here too.
+        void refresh();
+        toast.error("Code mode on the site is turned off", {
+          description: message,
+          action: {
+            label: "Choose a proposal…",
+            onClick: () => requestCodeModeMenu(),
+          },
+        });
+        return;
+      }
+      toast.error("Code mode did not open", {
+        description:
+          refusal === "publishing"
+            ? "The site is being published right now. Try again once that is done."
+            : message,
+        action: tryAgain,
+      });
+    }
+  }, [client, go, refresh, saveUnsaved]);
+  const openSiteCodeRef = useRef(openSiteCode);
+  openSiteCodeRef.current = openSiteCode;
+  // The assistant's `request_code_mode` card opens it the same way.
+  useEffect(() => {
+    if (!siteCodeMode) return;
+    reportSiteCode(true);
+    registerSiteCodeOpen(() => void openSiteCodeRef.current());
+    // Gone with the bar: the assistant's card must not offer what nothing
+    // can open.
+    return () => {
+      reportSiteCode(false);
+      registerSiteCodeOpen(null);
+    };
+  }, [siteCodeMode]);
+
+  /*
    * "Go back to this point", arriving: the site's Studio opened this proposal
    * with the content moved in and the commit whose code to bring back in the
    * address (`RESTORE_CODE_PARAM`). Only a proposal's own server may stage
@@ -1676,6 +1754,7 @@ export function useProposalsBar({
             }
           : null,
       onOpenProposalInCodeMode: (name) => void openProposal(name, true),
+      ...(siteCodeMode ? { onOpenSiteCode: () => void openSiteCode() } : {}),
       onNewProposalInCodeMode: () => {
         newInCodeMode.current = true;
         openDialog("new");
@@ -1939,6 +2018,12 @@ export function useProposalsBar({
       here !== null && codeOn ? { name: here.name, build: codeBuild } : null,
   };
 }
+
+/**
+ * What the site-code proposal is called where a name shows: in History, in
+ * the proposals list, and to content.
+ */
+const SITE_CODE_NAME = "Code changes to the site";
 
 function nextNewProposal(): { requestId: string; suggestedName: string } {
   return { requestId: randomUUID(), suggestedName: randomProposalName() };

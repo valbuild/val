@@ -407,6 +407,18 @@ export function usePatchSyncState(): SyncState | null {
 }
 
 /**
+ * Get every local edit onto the server, answering the ones that could not
+ * get there. See `ValSystem.saveUnsaved`.
+ */
+export function useSaveUnsaved(): () => Promise<PatchId[]> {
+  const val = useValSystem();
+  return useCallback(
+    async () => (val === null ? [] : val.system.saveUnsaved()),
+    [val],
+  );
+}
+
+/**
  * Send a save the content service failed again, now: the Try again beside
  * "Could not save". See `PatchSync.retry`.
  */

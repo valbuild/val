@@ -338,7 +338,10 @@ export type AssistantSettingsValue = {
   enabled: boolean | null;
   context: string | null;
   tone: string | null;
-  /** Only `true` is on: unset is off, unlike `enabled`. */
+  /**
+   * Three states, like `enabled`: unset means the assistant may ask to turn
+   * it on, `false` means it does not ask. See `webSearchSetting.ts`.
+   */
   webSearch?: boolean | null;
 };
 
@@ -428,7 +431,9 @@ export function AssistantSettingsFields({
           <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
             {value.webSearch === true
               ? "The assistant may look things up online. After it has, it asks before changing code. Each search is billed to your AI key."
-              : "Off. The assistant only reads this project."}
+              : value.webSearch === false
+                ? "Off. The assistant only reads this project, and does not ask."
+                : "Not decided yet. When the assistant needs the web, it asks you to turn this on."}
           </span>
         </label>
         <Switch

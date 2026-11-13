@@ -120,12 +120,19 @@ export type CodeModeState = {
    * proposal…"). A count, so asking twice opens it twice.
    */
   menuRequests: number;
+  /**
+   * On the site: `</>` opens the site's own code mode (valbuild/home
+   * `docs/proposals.md`, "Code mode on the site") rather than a menu of
+   * proposals. The project's setting, as the proposals list last said it.
+   */
+  siteCode: boolean;
 };
 
 let state: CodeModeState = {
   proposal: null,
   busy: false,
   menuRequests: 0,
+  siteCode: false,
 };
 const listeners = new Set<() => void>();
 
@@ -171,6 +178,30 @@ export function setCodeModeBusy(busy: boolean): void {
   if (state.busy !== busy) set({ busy });
 }
 
+/** Whether `</>` on the site opens the site's own code mode. */
+export function reportSiteCode(siteCode: boolean): void {
+  if (state.siteCode !== siteCode) set({ siteCode });
+}
+
+/**
+ * Open the site's own code mode: what `</>` on the site does where the
+ * project lets it, registered by the top bar, which holds the client. It
+ * leaves the page when it works, and says why when it does not, so it
+ * answers nothing.
+ */
+let openSiteCode: (() => void) | null = null;
+
+export function registerSiteCodeOpen(impl: (() => void) | null): void {
+  openSiteCode = impl;
+}
+
+/** `false` when nothing is registered: there is no top bar to open it. */
+export function openSiteCodeMode(): boolean {
+  if (openSiteCode === null) return false;
+  openSiteCode();
+  return true;
+}
+
 /** Open the `</>` menu on the site: the assistant's "Choose a proposal…". */
 export function requestCodeModeMenu(): void {
   set({ menuRequests: state.menuRequests + 1 });
@@ -202,5 +233,6 @@ export function turnOnCodeMode(): Promise<string | null> {
 /** For tests and stories: back to nothing known. */
 export function resetCodeMode(): void {
   turnOn = null;
-  set({ proposal: null, busy: false, menuRequests: 0 });
+  openSiteCode = null;
+  set({ proposal: null, busy: false, menuRequests: 0, siteCode: false });
 }

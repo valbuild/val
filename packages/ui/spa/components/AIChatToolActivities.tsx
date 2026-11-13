@@ -233,6 +233,10 @@ const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
     label: "Searching the code",
     icon: <Search className="h-3 w-3" />,
   },
+  edit_file: {
+    label: "Changing the code",
+    icon: <CodeXml className="h-3 w-3" />,
+  },
   write_files: {
     label: "Changing the code",
     icon: <CodeXml className="h-3 w-3" />,
@@ -290,6 +294,11 @@ const TOOL_DISPLAY_BY_NAME: Partial<Record<string, ToolDisplay>> = {
   // `ai_web_search`.
   web_search: {
     label: "Searched the web",
+    icon: <Globe className="h-3 w-3" />,
+  },
+  // Val's card asking to turn web search on: see `webSearchSetting.ts`.
+  request_web_search: {
+    label: "Asking to search the web",
     icon: <Globe className="h-3 w-3" />,
   },
   ...CODE_TOOL_DISPLAY,

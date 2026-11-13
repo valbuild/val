@@ -48,6 +48,19 @@ import {
   webSearchConfirmationQuestions,
   withWebSearchWaits,
 } from "./webSearchGate";
+import {
+  patchChangesWebSearchSetting,
+  readWebSearchSetting,
+  REQUEST_WEB_SEARCH_TOOL_NAME,
+  webSearchRequestOutcome,
+  webSearchRequestPromptSection,
+  webSearchRequestQuestions,
+  webSearchSettingOps,
+  withWebSearchRequest,
+  hasAssistantSection,
+  type WebSearchRequestOutcome,
+  type WebSearchAsk,
+} from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
   chatDocumentToHtmlText,
@@ -143,7 +156,9 @@ import {
   codeToolsPromptSection,
   pickedElementPrompt,
   isCodeTool,
+  projectInstructionsPromptSection,
   QUICK_PREVIEW_TOOL,
+  readProjectInstructions,
   REQUEST_CODE_MODE_TOOL,
   runCodeTool,
   runQuickPreviewTool,
@@ -180,20 +195,34 @@ import {
 import { createProposalsClient } from "../proposals/proposalsClient";
 import {
   codeModeState,
+  useCodeModeState,
   readCodeMode,
+  openSiteCodeMode,
   requestCodeModeMenu,
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
 import { createProjectSourceReader } from "@valbuild/shared/internal";
+import { assistantPersona, isInCodeMode } from "./assistantPersona";
+import { capToolResult, cappedToolResult } from "./capToolResult";
+import { valueAtPath } from "./sourceAtPath";
+import { allSchemaAnswer } from "./allSchemaAnswer";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
   description:
-    "Get all val schemas — returns the complete schema definitions for all val modules",
+    "Get all val schemas — returns the complete schema definitions for all val modules. " +
+    "In a very large project the answer can be cut, naming the modules left out: ask for those with module_file_paths.",
   parameters: {
     type: "object",
-    properties: {},
+    properties: {
+      module_file_paths: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only these modules' schemas, e.g. ['/content/homepage.val.ts']. Without it, every module's.",
+      },
+    },
     required: [],
   },
 };
@@ -209,6 +238,12 @@ const GET_SOURCE_TOOL: AITool = {
         type: "string",
         description:
           "The Val module file path, e.g. '/content/homepage.val.ts'. Can be obtained from the keys of get_all_schema.",
+      },
+      path: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only the value at this path in the module, as create_patch's path, e.g. ['posts', '3']. Use it to read part of a module too big to read whole.",
       },
     },
     required: ["module_file_path"],
@@ -874,6 +909,24 @@ export function useAI(
           system?.sourceStore.moduleSource(moduleFilePath),
         );
       },
+      /**
+       * `assistant.webSearch` as the project has it: on, off, or not decided.
+       * See `webSearchSetting.ts`.
+       */
+      getWebSearchSetting(): WebSearchAsk {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (
+          moduleFilePath === null ||
+          system?.schemaStore.get(moduleFilePath)?.readonly === true
+        ) {
+          return "cannot-save";
+        }
+        return readWebSearchSetting(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
+      },
       getSourceSnapshot(
         moduleFilePath: ModuleFilePath,
       ): { status: "success"; data: Json } | { status: "not-found" } {
@@ -1023,6 +1076,12 @@ export function useAI(
        * PNG.
        */
       filesAlreadyUploaded?: boolean,
+      /**
+       * This write is `request_web_search` writing the person's answer. Every
+       * other assistant write is refused if it moves `assistant.webSearch`:
+       * see `changesWebSearchSetting`.
+       */
+      writesPersonsWebSearchAnswer?: boolean,
     ): Promise<
       | { status: "patch-synced"; patchId: PatchId }
       | { status: "patch-error"; message: string }
@@ -1031,6 +1090,20 @@ export function useAI(
         return {
           status: "patch-error",
           message: "Cannot write: no store system is mounted.",
+        };
+      }
+      if (
+        writesPersonsWebSearchAnswer !== true &&
+        moduleFilePath ===
+          settingsModuleFilePath(valSystem.system.schemaStore.all()) &&
+        patchChangesWebSearchSetting(
+          valSystem.system.sourceStore.moduleSource(moduleFilePath),
+          patch,
+        )
+      ) {
+        return {
+          status: "patch-error",
+          message: `Only the person can turn web search on or off. Call ${REQUEST_WEB_SEARCH_TOOL_NAME} if it is not decided yet; otherwise leave it.`,
         };
       }
       const res = await valSystem.system.patchStore.createPatch(
@@ -1071,6 +1144,48 @@ export function useAI(
   const valMode = useValMode();
   const hostedRef = useRef(valMode === "http");
   hostedRef.current = valMode === "http";
+  /**
+   * The project's own instructions (`AGENTS.md`, `CLAUDE.md`), for the
+   * prompt in code mode: read as `read_file` reads the proposal's files, so
+   * a message is never held for them. Read when code mode comes on, and
+   * again after each message, so a change to them reaches the next one.
+   */
+  const projectInstructionsRef = useRef<{
+    proposal: string;
+    text: string | null;
+  } | null>(null);
+  const refreshProjectInstructions = useCallback(
+    (proposal: string) => {
+      readProjectInstructions({
+        proposal: { name: proposal },
+        client: codeClients.proposals,
+        siteSource: codeClients.siteSource,
+      })
+        .then((text) => {
+          projectInstructionsRef.current = { proposal, text };
+        })
+        .catch((error) => {
+          // Without them the assistant works as it would in a project that
+          // has none; read_file can still read them.
+          Internal.log.debug(
+            "Could not read the project's instructions for the assistant:",
+            error,
+          );
+        });
+    },
+    [codeClients],
+  );
+  const codeModeNowHere = useCodeModeState().proposal;
+  const inCodeModeNow = isInCodeMode(
+    valMode === "http",
+    currentProposal?.name ?? null,
+    codeModeNowHere,
+  );
+  useEffect(() => {
+    if (inCodeModeNow && currentProposal !== null) {
+      refreshProjectInstructions(currentProposal.name);
+    }
+  }, [inCodeModeNow, currentProposal?.name, refreshProjectInstructions]);
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   // Read by the image tools when they run, through a ref so a bucket being
   // picked does not re-subscribe the tool handler.
@@ -1241,6 +1356,9 @@ export function useAI(
   // the ones they allowed, which run without asking again.
   const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
   const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // `request_web_search` cards waiting on the person, by tool call: the id of
+  // the assistant message that opened each.
+  const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
   // The message handler, so an allowed call can be run by the same code that
   // runs every other.
   const handleServerMessageRef = useRef<
@@ -1355,6 +1473,56 @@ export function useAI(
         const rowId = `web_search:${randomUUID()}`;
         chatRef.current.addToolCall(message.id, rowId, "web_search");
         chatRef.current.completeToolCall(message.id, rowId);
+      } else if (
+        message.type === "ai_tool_call" &&
+        message.name === REQUEST_WEB_SEARCH_TOOL_NAME
+      ) {
+        // Someone may have decided since the prompt was sent: answer from what
+        // the project says now, and ask only if it is still undecided.
+        const setting = valReads.getWebSearchSetting();
+        if (setting !== null || !chatRef.current) {
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result:
+              setting === true
+                ? {
+                    success: true,
+                    note: "Web search is already on for this project. It works from the person's next message.",
+                  }
+                : {
+                    success: false,
+                    error:
+                      setting === false
+                        ? "Web search is off for this project, by the person's choice. Answer without it, and do not ask."
+                        : setting === "cannot-save"
+                          ? "Web search cannot be turned on here: this project's settings cannot be changed from the Studio. Answer without it."
+                          : "The chat is not available to ask. Answer without web search.",
+                  },
+            ...(setting === true ? {} : { isError: true }),
+          });
+          return;
+        }
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        const reason = z
+          .object({ reason: z.string() })
+          .safeParse(message.arguments);
+        // Val's question on the tool's row, answered through
+        // `answerToolQuestions`, which writes the setting.
+        chatRef.current.addToolCall(
+          message.id,
+          message.toolCallId,
+          message.name,
+          webSearchRequestQuestions(
+            reason.success ? reason.data.reason.trim() || null : null,
+          ),
+        );
+        webSearchRequestsRef.current.set(message.toolCallId, message.id);
+        pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (
         message.type === "ai_tool_call" &&
         !webAllowedCallsRef.current.has(message.toolCallId) &&
@@ -1479,7 +1647,7 @@ export function useAI(
               where:
                 inProposal !== null
                   ? { kind: "proposal", displayName: inProposal.displayName }
-                  : { kind: "site" },
+                  : { kind: "site", siteCode: codeModeState().siteCode },
               state: "asking",
             };
             chatRef.current.setCodeModeRequest(
@@ -1496,22 +1664,55 @@ export function useAI(
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
         } else if (message.name === "get_all_schema") {
-          const schemas = valReads.getAllSchemasSnapshot();
+          const schemas = valReads.getAllSchemasSnapshot() ?? {};
+          const schemaArgs: unknown = message.arguments;
+          const asked =
+            typeof schemaArgs === "object" &&
+            schemaArgs !== null &&
+            "module_file_paths" in schemaArgs
+              ? schemaArgs.module_file_paths
+              : undefined;
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: schemas ?? {},
+            result: allSchemaAnswer(schemas, asked),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_source") {
-          const args = message.arguments as { module_file_path: string };
+          const args = message.arguments as {
+            module_file_path: string;
+            path?: unknown;
+          };
           const moduleFilePath = args.module_file_path as ModuleFilePath;
           const snapshot = valReads.getSourceSnapshot(moduleFilePath);
-          if (snapshot.status === "success") {
+          const at =
+            snapshot.status === "success"
+              ? valueAtPath(snapshot.data, args.path)
+              : null;
+          if (at !== null && at.status === "invalid") {
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
-              result: { success: true, source: snapshot.data },
+              result: { success: false, error: at.message },
+              isError: true,
+            });
+            chatRef.current?.errorToolCall(message.id, message.toolCallId);
+          } else if (at !== null) {
+            const capped = capToolResult(at.value, {
+              narrow:
+                "Read what was left out with get_source and path: the path you asked with (if any) followed by an omitted path, e.g. path: ['posts', '12'].",
+            });
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId: message.toolCallId,
+              result: {
+                success: true,
+                ...(Array.isArray(args.path) ? { path: args.path } : {}),
+                source: capped.value,
+                ...(capped.truncated !== undefined
+                  ? { truncated: capped.truncated, omitted: capped.omitted }
+                  : {}),
+              },
             });
             chatRef.current?.completeToolCall(message.id, message.toolCallId);
           } else {
@@ -1544,7 +1745,13 @@ export function useAI(
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
-                result: searchResult ?? { results: [], total: 0 },
+                result: cappedToolResult(
+                  searchResult ?? { results: [], total: 0 },
+                  {
+                    narrow:
+                      "Ask for fewer with limit and page with offset, or search for something more specific.",
+                  },
+                ),
               });
               chatRef.current?.completeToolCall(message.id, message.toolCallId);
             })
@@ -1562,7 +1769,10 @@ export function useAI(
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: errors,
+            result: cappedToolResult(errors, {
+              narrow:
+                "Fix the errors that are here and validate again; get_source with a path reads the content an error is about.",
+            }),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "create_patch") {
@@ -2278,10 +2488,13 @@ export function useAI(
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: {
-              patches: patches.slice(offset, offset + limit),
-              total: patches.length,
-            },
+            result: cappedToolResult(
+              {
+                patches: patches.slice(offset, offset + limit),
+                total: patches.length,
+              },
+              { narrow: "Ask for fewer with limit and page with offset." },
+            ),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "set_session_name") {
@@ -2500,6 +2713,7 @@ export function useAI(
           }).then(async ({ result, isError }) => {
             if (
               (toolName === "write_files" ||
+                toolName === "edit_file" ||
                 toolName === "create_patch" ||
                 toolName === "format_files" ||
                 toolName === "lint") &&
@@ -3292,6 +3506,24 @@ export function useAI(
       // would offer something that fails, or that nobody can open.
       const sketchpadsOn =
         sketchpadsStateRef.current?.getSnapshot().available === true;
+      // Code mode: the person changes the site's code with its content, and
+      // the prompt says so (`assistantPersona`), with the project's own
+      // instructions. Read again after this message is sent, so an edit to
+      // them reaches the next one.
+      const inCodeMode = isInCodeMode(
+        hostedRef.current,
+        currentProposalRef.current?.name ?? null,
+        codeModeState().proposal,
+      );
+      const readInstructions = projectInstructionsRef.current;
+      const projectInstructions =
+        readInstructions !== null &&
+        readInstructions.proposal === currentProposalRef.current?.name
+          ? readInstructions.text
+          : null;
+      if (inCodeMode && currentProposalRef.current !== null) {
+        refreshProjectInstructions(currentProposalRef.current.name);
+      }
       const message: AIPromptMessage = {
         type: "ai_prompt",
         message: contentBlocks,
@@ -3317,10 +3549,7 @@ export function useAI(
             ...(valReads.getAssistantSettings().webSearch
               ? { webSearch: true }
               : {}),
-            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
-
-## Who you are talking to
-Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
+            systemPrompt: `${assistantPersona(inCodeMode)}
 
 ## User message format (HTML-esque rich text)
 The user's message text in the \`text\` content block may include rich formatting written as an HTML-esque string. Treat the formatting as the user's intent, but do NOT echo or quote the tags back at them.
@@ -3401,7 +3630,7 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
+            )}${webSearchRequestPromptSection(valReads.getWebSearchSetting())}${pageRef.current !== null ? PAGE_PROMPT_SECTION : ""}${
               hostedRef.current
                 ? codeToolsPromptSection(
                     currentProposalRef.current !== null
@@ -3409,25 +3638,32 @@ Do not describe what you will do unless you do it for clarification — just do 
                       : { kind: "site" },
                   )
                 : ""
+            }${
+              inCodeMode
+                ? projectInstructionsPromptSection(projectInstructions)
+                : ""
             }`,
-            tools: withWebSearchWaits(
-              [
-                ...ALL_TOOLS,
-                ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-                // In the Studio: the page in its preview.
-                ...(pageRef.current !== null
-                  ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL, READ_PAGE_LOG_TOOL]
-                  : []),
-                // Hosted only: see `hostedRef`.
-                ...(hostedRef.current
-                  ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
-                  : []),
-                // A quick preview is shown in a proposal's preview.
-                ...(hostedRef.current && currentProposalRef.current !== null
-                  ? [QUICK_PREVIEW_TOOL]
-                  : []),
-              ],
-              valReads.getAssistantSettings().webSearch === true,
+            tools: withWebSearchRequest(
+              withWebSearchWaits(
+                [
+                  ...ALL_TOOLS,
+                  ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
+                  // In the Studio: the page in its preview.
+                  ...(pageRef.current !== null
+                    ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL, READ_PAGE_LOG_TOOL]
+                    : []),
+                  // Hosted only: see `hostedRef`.
+                  ...(hostedRef.current
+                    ? [...CODE_TOOLS, REQUEST_CODE_MODE_TOOL]
+                    : []),
+                  // A quick preview is shown in a proposal's preview.
+                  ...(hostedRef.current && currentProposalRef.current !== null
+                    ? [QUICK_PREVIEW_TOOL]
+                    : []),
+                ],
+                valReads.getAssistantSettings().webSearch === true,
+              ),
+              valReads.getWebSearchSetting(),
             ),
           },
         ],
@@ -3444,7 +3680,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [chatModel, chatRef, sendWsMessage, lockModel],
+    [chatModel, chatRef, sendWsMessage, lockModel, refreshProjectInstructions],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -3541,8 +3777,80 @@ Do not describe what you will do unless you do it for clarification — just do 
     [sendWsMessage, failUndeliveredQuestion, chatRef],
   );
 
+  /**
+   * The person answered `request_web_search`'s card (or closed it, `null`):
+   * write what they decided, as the Settings panel would, and tell the model.
+   */
+  const answerWebSearchRequest = useCallback(
+    (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
+      const messageId = webSearchRequestsRef.current.get(toolCallId);
+      if (messageId === undefined) return false;
+      webSearchRequestsRef.current.delete(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      const outcome = webSearchRequestOutcome(answers);
+      const send = (
+        toolResult: WebSearchRequestOutcome["result"],
+        saveFailed = false,
+      ) => {
+        const sent = sendWsMessage({
+          type: "ai_tool_result",
+          toolCallId,
+          result: toolResult,
+          ...(toolResult.success ? {} : { isError: true }),
+        });
+        // "Don't turn on" is an answer, not a failure: the row is only red
+        // when the person's choice could not be kept.
+        if (saveFailed) {
+          chatRef.current?.errorToolCall(messageId, toolCallId);
+        } else {
+          chatRef.current?.completeToolCall(messageId, toolCallId);
+        }
+        if (!sent) failUndeliveredQuestion(messageId);
+      };
+      if (outcome.write === null) {
+        send(outcome.result);
+        return true;
+      }
+      const system = valSystem?.system;
+      const moduleFilePath =
+        system === undefined
+          ? null
+          : settingsModuleFilePath(system.schemaStore.all());
+      if (system === undefined || moduleFilePath === null) {
+        send({
+          success: false,
+          error:
+            "This project has no settings module to keep the choice in. Answer without web search.",
+        });
+        return true;
+      }
+      const source = system.sourceStore.moduleSource(moduleFilePath);
+      void writeAIPatch(
+        moduleFilePath,
+        webSearchSettingOps(outcome.write, hasAssistantSection(source)),
+        sessionIdRef.current,
+        undefined,
+        undefined,
+        true,
+      ).then((res) =>
+        send(
+          res.status === "patch-synced"
+            ? outcome.result
+            : {
+                success: false,
+                error: `The setting could not be saved: ${res.message}. Answer without web search.`,
+              },
+          res.status !== "patch-synced",
+        ),
+      );
+      return true;
+    },
+    [sendWsMessage, failUndeliveredQuestion, chatRef, valSystem, writeAIPatch],
+  );
+
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
+      if (answerWebSearchRequest(toolCallId, answers)) return;
       if (answerWebSearchConfirmation(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
@@ -3555,11 +3863,17 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
+    [
+      sendWsMessage,
+      failUndeliveredQuestion,
+      answerWebSearchConfirmation,
+      answerWebSearchRequest,
+    ],
   );
 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
+      if (answerWebSearchRequest(toolCallId, null)) return;
       if (answerWebSearchConfirmation(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
@@ -3573,7 +3887,12 @@ Do not describe what you will do unless you do it for clarification — just do 
         failUndeliveredQuestion(messageId);
       }
     },
-    [sendWsMessage, failUndeliveredQuestion, answerWebSearchConfirmation],
+    [
+      sendWsMessage,
+      failUndeliveredQuestion,
+      answerWebSearchConfirmation,
+      answerWebSearchRequest,
+    ],
   );
 
   /** Answer a `request_code_mode` card, and move it on. */
@@ -3622,6 +3941,17 @@ Do not describe what you will do unless you do it for clarification — just do 
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       const request = codeModeRequestsRef.current.get(toolCallId);
       if (messageId === undefined || request === undefined) return;
+      if (
+        request.where.kind === "site" &&
+        request.where.siteCode &&
+        openSiteCodeMode()
+      ) {
+        answerCodeModeRequest(toolCallId, "asking", {
+          success: false,
+          note: "The Studio is opening code mode for the site: every change waiting to be published goes with it, and the page reloads there. Tell them to ask again once it has opened, and stop here.",
+        });
+        return;
+      }
       if (request.where.kind === "site") {
         requestCodeModeMenu();
         answerCodeModeRequest(toolCallId, "asking", {
@@ -3682,6 +4012,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
       webGatedCallsRef.current.clear();
+      webSearchRequestsRef.current.clear();
     },
     [sendWsMessage],
   );

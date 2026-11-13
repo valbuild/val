@@ -133,7 +133,9 @@ export const SIDE_WIDTH = 420;
  */
 export const RESIZE_MIN: Record<SidePane, number> = {
   content: CONTENT_MIN,
-  sketch: 320,
+  // Sketch lays its boxes out three across; below 380 a word like
+  // "Traceable" no longer fits a box and breaks mid-word.
+  sketch: 380,
   chat: 320,
 };
 export const RESIZE_MAX = 960;

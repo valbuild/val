@@ -24,9 +24,14 @@ import type { ProposalSummary, StudioLocation } from "./types";
  * Code is only ever changed in a proposal, so where you are decides what the
  * button does:
  *
- * - **On the site** it opens a menu of the open proposals. Choosing one goes
- *   to its address with code mode on (a query parameter), the same way the
- *   switcher goes to one.
+ * - **On the site, where the project lets it** (`onOpenSiteCode`) it turns
+ *   on the site's own code mode: everything waiting to be published moves
+ *   into the project's site-code proposal, which opens with code mode on and
+ *   is shown as the site (valbuild/home `docs/proposals.md`, "Code mode on
+ *   the site").
+ * - **On the site, where it does not,** it opens a menu of the open
+ *   proposals. Choosing one goes to its address with code mode on (a query
+ *   parameter), the same way the switcher goes to one.
  * - **In a proposal** it is pressed while code mode is on. Code mode is the
  *   PROPOSAL's, kept by the backend and the same for everyone in it; what
  *   each person looks at is their own (`view`). Off, pressing it turns code
@@ -59,6 +64,12 @@ export type TopBarCodeMode = {
   onShowCode?: () => void;
   /** On the site: go to this proposal, with code mode on. */
   onOpenProposalInCodeMode: (name: string) => void;
+  /**
+   * On the site, where the project lets `</>` change the site's code
+   * (valbuild/home `docs/proposals.md`, "Code mode on the site"): open it.
+   * Absent where it does not, and the button lists proposals instead.
+   */
+  onOpenSiteCode?: () => void;
   /** On the site: make a new proposal, and open it with code mode on. */
   onNewProposalInCodeMode: () => void;
   /**
@@ -252,6 +263,25 @@ export function CodeModeButton({
     );
   }
 
+  if (codeMode.onOpenSiteCode !== undefined) {
+    return (
+      <button
+        type="button"
+        aria-pressed={false}
+        aria-label="Turn on code mode"
+        title="Code mode: let the assistant change the site's code, and see it in the preview. Everything waiting to be published goes with it, and the site changes when you publish."
+        disabled={disabled}
+        onClick={codeMode.onOpenSiteCode}
+        className={cn(
+          "inline-flex h-full items-center rounded-md border border-border-float px-2 text-fg-secondary",
+          "hover:bg-bg-float-raised hover:text-fg-primary",
+          "disabled:cursor-progress disabled:opacity-60",
+        )}
+      >
+        <CodeXml size={15} className="shrink-0" />
+      </button>
+    );
+  }
   const candidates = proposals.filter(
     (proposal) => proposal.status === "open" && proposal.upgrade !== true,
   );
