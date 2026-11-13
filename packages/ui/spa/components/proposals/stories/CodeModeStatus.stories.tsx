@@ -49,7 +49,10 @@ const STATES: { label: string; build: CodeModeBuild }[] = [
     build: { state: "updating", progress: null },
   },
   { label: "Updating 8%", build: { state: "updating", progress: 0.08 } },
-  { label: "Updating 42%", build: { state: "updating", progress: 0.42 } },
+  {
+    label: "Updating 42%, building the site",
+    build: { state: "updating", progress: 0.42, step: "Building the site" },
+  },
   { label: "Updating 100%", build: { state: "updating", progress: 1 } },
   {
     label: "Couldn't update",

@@ -27,8 +27,11 @@ export type CodeModeBuild =
    * is new, what runs on the server is the last build's. Save builds it.
    */
   | { state: "quick" }
-  /** `progress` from 0 to 1, or `null` when it cannot be told. */
-  | { state: "updating"; progress: number | null }
+  /**
+   * `progress` from 0 to 1, or `null` when it cannot be told; `step`, what
+   * the build is doing now ("Building the site"), when it says.
+   */
+  | { state: "updating"; progress: number | null; step?: string | null }
   /** What happened, and what can be done: see `PreviewProblem`. */
   | { state: "failed"; problem: PreviewProblem };
 
@@ -43,31 +46,14 @@ export function codeModeStatusText(build: CodeModeBuild): string {
       return "Showing the change in the preview…";
     case "quick":
       return "The preview shows the change without a build: what runs on the server is still the last build's. Save to build it.";
-    case "updating":
+    case "updating": {
+      const step = build.step ? ` ${build.step}.` : "";
       return build.progress === null
-        ? "Updating the preview…"
-        : `Updating the preview… ${percent(build.progress)}`;
+        ? `Updating the preview…${step}`
+        : `Updating the preview: ${percent(build.progress)}.${step}`;
+    }
     case "failed":
       return "The preview couldn't be updated, so it shows the last version that worked.";
-  }
-}
-
-function shortText(build: CodeModeBuild): string {
-  switch (build.state) {
-    case "up-to-date":
-      return "Up to date";
-    case "behind":
-      return "Save to update";
-    case "previewing":
-      return "Previewing…";
-    case "quick":
-      return "Quick preview";
-    case "updating":
-      return build.progress === null
-        ? "Updating…"
-        : `Updating ${percent(build.progress)}`;
-    case "failed":
-      return "Couldn't update";
   }
 }
 
@@ -76,10 +62,11 @@ function percent(progress: number): string {
 }
 
 /**
- * The reload button, carrying the preview's status in two or three words:
- * "Up to date", "Save to update", "Updating 42%", "Couldn't update". One
- * width in every state, so nothing beside it moves when the status changes,
- * and the arrow is at its end, so the arrow does not move either.
+ * The reload button, as an icon alone: what state the preview is in is said
+ * by the icon -- still, turning, a ring filling as the build goes, a dot when
+ * Save would update it, red when it could not be updated -- and in words by
+ * its tooltip and to screen readers. A fixed size, so nothing beside it moves
+ * when the state does.
  *
  * Pressing it reloads the preview -- except when the preview could not be
  * updated, where it opens what happened and what to do about it (the same
@@ -111,6 +98,10 @@ export function CodeModeStatus({
   const failed = build.state === "failed" ? build : null;
   const updating =
     build.state === "updating" || build.state === "previewing" ? build : null;
+  const progress =
+    build.state === "updating" && build.progress !== null
+      ? Math.min(1, Math.max(0, build.progress))
+      : null;
   const text = codeModeStatusText(build);
 
   return (
@@ -127,32 +118,29 @@ export function CodeModeStatus({
         aria-expanded={failed !== null ? isOpen : undefined}
         title={failed !== null ? text : `${text} Press to reload it.`}
         className={cn(
-          "relative inline-flex h-7 items-center gap-1.5 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
-          // One width in every state: nothing beside it moves.
-          "w-[7.75rem] px-2",
+          "relative grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
           isOpen && "bg-bg-float-raised text-fg-primary",
+          failed !== null && "text-fg-error-on-surface",
         )}
       >
-        {/*
-         * The words BEFORE the arrow, right-aligned against it: the arrow is
-         * pinned to the button's end, and as the words change they grow and
-         * shrink into the empty space on the left, where nothing is.
-         */}
+        {progress !== null && <ProgressRing progress={progress} />}
+        {/* The span turns, not the SVG: see designSystem/spinner. */}
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-right tabular-nums",
-            failed !== null && "text-fg-error-on-surface",
+            "inline-flex",
+            updating !== null &&
+              progress === null &&
+              "animate-spin [animation-duration:1.4s] will-change-transform",
           )}
         >
-          {shortText(build)}
+          <RotateCw size={13} className="shrink-0" />
         </span>
-        <RotateCw
-          size={13}
-          className={cn(
-            "shrink-0",
-            updating !== null && "animate-spin [animation-duration:1.4s]",
-          )}
-        />
+        {(build.state === "behind" || build.state === "quick") && (
+          <span
+            aria-hidden
+            className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-fg-brand-primary"
+          />
+        )}
       </button>
       {/* Screen readers hear changes; nothing is drawn for them. */}
       <span role="status" className="sr-only">
@@ -171,5 +159,41 @@ export function CodeModeStatus({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * How far the build is, as a ring filling round the icon: drawn from the
+ * top, clockwise. Under the icon, and taking no clicks.
+ */
+function ProgressRing({ progress }: { progress: number }) {
+  const r = 12;
+  const length = 2 * Math.PI * r;
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 28 28"
+      className="pointer-events-none absolute inset-0 h-full w-full -rotate-90"
+    >
+      <circle
+        cx="14"
+        cy="14"
+        r={r}
+        fill="none"
+        strokeWidth="2"
+        className="stroke-border-float"
+      />
+      <circle
+        cx="14"
+        cy="14"
+        r={r}
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={length}
+        strokeDashoffset={length * (1 - progress)}
+        className="stroke-fg-brand-primary transition-[stroke-dashoffset] duration-500"
+      />
+    </svg>
   );
 }
