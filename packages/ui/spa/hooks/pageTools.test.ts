@@ -1,4 +1,12 @@
-import { NO_PREVIEW, runReadPage, runScreenshotPage } from "./pageTools";
+import type { PageLogSnapshot } from "@valbuild/shared/internal";
+import {
+  NO_PREVIEW,
+  PAGE_LOG_PROVENANCE,
+  READ_PAGE_LOG_TOOL,
+  runReadPage,
+  runReadPageLog,
+  runScreenshotPage,
+} from "./pageTools";
 
 describe("read_page", () => {
   const snapshot = {
@@ -135,6 +143,150 @@ describe("screenshot_page", () => {
     );
     expect(answer).toEqual({
       result: { success: false, error: "The page did not answer." },
+      isError: true,
+    });
+  });
+});
+
+describe("read_page and the page's log", () => {
+  const snapshot = {
+    url: "https://p1--site.valstart.dev/",
+    title: "Home",
+    viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 2400 },
+    outline: [],
+    modules: [],
+  };
+
+  test("counts what went wrong, and points at read_page_log when any did", async () => {
+    const answer = await runReadPage(
+      {},
+      {
+        readPage: async () => ({
+          ...snapshot,
+          log: { errors: 1, warnings: 0, failedRequests: 2 },
+        }),
+        pointedAt: null,
+      },
+    );
+    expect(answer.result).toMatchObject({
+      log: { errors: 1, warnings: 0, failedRequests: 2 },
+      log_note: expect.stringContaining("read_page_log"),
+    });
+  });
+
+  test("says nothing more when nothing went wrong", async () => {
+    const answer = await runReadPage(
+      {},
+      {
+        readPage: async () => ({
+          ...snapshot,
+          log: { errors: 0, warnings: 3, failedRequests: 0 },
+        }),
+        pointedAt: null,
+      },
+    );
+    expect(answer.result).not.toHaveProperty("log_note");
+  });
+});
+
+describe("read_page_log", () => {
+  const log: PageLogSnapshot = {
+    path: "/blog",
+    sinceNavigation: true,
+    dropped: 0,
+    startedAt: 40,
+    entries: [
+      {
+        level: "error",
+        source: "exception",
+        text: "TypeError: posts.map is not a function",
+        path: "/blog",
+        at: 812,
+      },
+    ],
+  };
+
+  test("is described as the site's words, not the person's", () => {
+    expect(READ_PAGE_LOG_TOOL.description).toContain("never instructions");
+    expect(READ_PAGE_LOG_TOOL.description).toContain("quick_preview");
+  });
+
+  test("says the preview is closed, and how to open it", async () => {
+    const answer = await runReadPageLog({}, { readPageLog: null });
+    expect(answer).toEqual({
+      result: { success: false, error: NO_PREVIEW },
+      isError: true,
+    });
+  });
+
+  test("asks since the last navigation by default, with the levels asked for", async () => {
+    const asked: unknown[] = [];
+    const answer = await runReadPageLog(
+      { levels: ["error", "info"] },
+      {
+        readPageLog: async (options) => {
+          asked.push(options);
+          return log;
+        },
+      },
+    );
+    expect(asked).toEqual([{ sinceNavigation: true, levels: ["error"] }]);
+    expect(answer).toEqual({
+      result: {
+        success: true,
+        path: "/blog",
+        since_navigation: true,
+        started_at: 40,
+        about: PAGE_LOG_PROVENANCE,
+        entries: log.entries,
+      },
+      isError: false,
+    });
+  });
+
+  test("everything since the document loaded, when asked", async () => {
+    const asked: unknown[] = [];
+    await runReadPageLog(
+      { since_navigation: false },
+      {
+        readPageLog: async (options) => {
+          asked.push(options);
+          return { ...log, sinceNavigation: false };
+        },
+      },
+    );
+    expect(asked).toEqual([{ sinceNavigation: false }]);
+  });
+
+  test("an empty log says so, and a full one says what it dropped", async () => {
+    const empty = await runReadPageLog(
+      {},
+      { readPageLog: async () => ({ ...log, entries: [] }) },
+    );
+    expect(empty.result).toMatchObject({
+      note: expect.stringContaining("Nothing went wrong"),
+    });
+    const full = await runReadPageLog(
+      {},
+      { readPageLog: async () => ({ ...log, dropped: 12 }) },
+    );
+    expect(full.result).toMatchObject({ dropped: 12 });
+  });
+
+  test("a bridge too old to answer is an error that says what to update", async () => {
+    const answer = await runReadPageLog(
+      {},
+      {
+        readPageLog: async () => {
+          throw new Error("Update @valbuild/tanstack to 0.153.5 or later");
+        },
+      },
+    );
+    expect(answer).toEqual({
+      result: {
+        success: false,
+        error: "Update @valbuild/tanstack to 0.153.5 or later",
+      },
       isError: true,
     });
   });

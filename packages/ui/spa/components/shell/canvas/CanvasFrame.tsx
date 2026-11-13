@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bridgeInfoOf,
+  capabilitiesOf,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
+  type CanvasRequest,
   type PageLocation,
+  type PageLogLevel,
+  type PageLogSnapshot,
   type PageScreenshot,
   type PageSnapshot,
   type QuickPreviewFiles,
@@ -35,6 +40,7 @@ import {
   type HeldVersions,
 } from "../../../stores/react/sourceRelay";
 import type { ModuleVersion } from "@valbuild/shared/internal";
+import { unansweredRequestError, type FrameBridge } from "./canvasCapabilities";
 
 /**
  * How the frame is currently doing.
@@ -201,6 +207,12 @@ export type CanvasFrameProps = {
    */
   onPageCamera?: (camera: PageCamera | null) => void;
   /**
+   * Handed the way to read what the page logged as going wrong
+   * (`readPageLog`), and `null` when the frame goes: the assistant's
+   * `read_page_log`.
+   */
+  onPageLogReader?: (reader: PageLogReader | null) => void;
+  /**
    * Handed the way to store a quick preview's files in the page's worker
    * (`quickPreview`), and `null` when the frame goes.
    */
@@ -229,6 +241,12 @@ export const PAGE_READ_TIMEOUT_MS = 5000;
 export type PageCamera = (options: {
   fullPage?: boolean;
 }) => Promise<PageScreenshot>;
+
+/** Read what the page logged as going wrong: see `pageLog.ts`. */
+export type PageLogReader = (options: {
+  sinceNavigation?: boolean;
+  levels?: PageLogLevel[];
+}) => Promise<PageLogSnapshot>;
 
 /** How long a page is given to draw itself: a long page with many images is slow. */
 export const PAGE_SCREENSHOT_TIMEOUT_MS = 30_000;
@@ -277,6 +295,7 @@ export function CanvasFrame({
   scrollTo = null,
   onPageReader,
   onPageCamera,
+  onPageLogReader,
   onQuickPreviewStorer,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -390,8 +409,23 @@ export function CanvasFrame({
     [origin],
   );
 
+  /**
+   * What the document said it answers (`ready`), and the modules it read:
+   * `null` until it says. A ref, as it is read when a request is made,
+   * not rendered.
+   */
+  const bridge = useRef<FrameBridge | null>(null);
+  const bridgeHolds = useRef<readonly ModuleFilePath[]>(NO_HOLDS);
+  /** Why the page will not answer `request`: see `unansweredRequestError`. */
+  const unanswered = useCallback((request: CanvasRequest): Error | null => {
+    const error = unansweredRequestError(request, bridge.current);
+    return error === null ? null : new Error(error);
+  }, []);
+
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
+    bridge.current = null;
+    bridgeHolds.current = NO_HOLDS;
     setState({ status: "waiting" });
     onRefreshingChange?.(false);
   }, [frameSrc, reloadKey, held.documentKey, onRefreshingChange]);
@@ -414,6 +448,15 @@ export function CanvasFrame({
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
+        // Read leniently: a shape this Studio does not expect is as if
+        // absent, never a reason to ignore the page altogether.
+        const capabilities = capabilitiesOf(message.capabilities);
+        const info = bridgeInfoOf(message.bridge);
+        bridge.current = {
+          ...(capabilities !== undefined ? { capabilities } : {}),
+          ...(info !== undefined ? { bridge: info } : {}),
+        };
+        bridgeHolds.current = message.holds ?? NO_HOLDS;
         setState({
           status: "ready",
           draftMode: message.draftMode,
@@ -471,6 +514,11 @@ export function CanvasFrame({
         reading(message);
       } else if (message.type === "codeChanged") {
         onCodeChanged?.(message.modules);
+      } else if (message.type === "pageLogRead") {
+        const reading = logReadings.current.get(message.requestId);
+        if (reading === undefined) return;
+        logReadings.current.delete(message.requestId);
+        reading(message);
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -508,6 +556,8 @@ export function CanvasFrame({
   const readPage = useCallback<PageReader>(
     (options) =>
       new Promise<PageSnapshot>((resolve, reject) => {
+        const refused = unanswered("readPage");
+        if (refused !== null) return reject(refused);
         const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timer = setTimeout(() => {
           readings.current.delete(requestId);
@@ -519,8 +569,12 @@ export function CanvasFrame({
         }, PAGE_READ_TIMEOUT_MS);
         readings.current.set(requestId, (answer) => {
           clearTimeout(timer);
-          if (answer.snapshot !== null) resolve(answer.snapshot);
-          else reject(new Error(answer.error ?? "The page could not be read."));
+          if (answer.snapshot !== null) {
+            // What the page read, which the page said in `ready`.
+            resolve({ ...answer.snapshot, modules: [...bridgeHolds.current] });
+          } else {
+            reject(new Error(answer.error ?? "The page could not be read."));
+          }
         });
         send({
           val: VAL_CANVAS_MESSAGE,
@@ -534,13 +588,60 @@ export function CanvasFrame({
             : {}),
         });
       }),
-    [send],
+    [send, unanswered],
   );
   useEffect(() => {
     if (onPageReader === undefined) return;
     onPageReader(readPage);
     return () => onPageReader(null);
   }, [onPageReader, readPage]);
+
+  /** `readPageLog` requests the page has not answered yet, by id. */
+  const logReadings = useRef(
+    new Map<
+      string,
+      (answer: Extract<ValCanvasPageMessage, { type: "pageLogRead" }>) => void
+    >(),
+  );
+  const readPageLog = useCallback<PageLogReader>(
+    (options) =>
+      new Promise<PageLogSnapshot>((resolve, reject) => {
+        const refused = unanswered("readPageLog");
+        if (refused !== null) return reject(refused);
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timer = setTimeout(() => {
+          logReadings.current.delete(requestId);
+          reject(
+            new Error(
+              "The page did not answer. It may still be loading: try again in a moment.",
+            ),
+          );
+        }, PAGE_READ_TIMEOUT_MS);
+        logReadings.current.set(requestId, (answer) => {
+          clearTimeout(timer);
+          if (answer.log !== null) resolve(answer.log);
+          else
+            reject(
+              new Error(answer.error ?? "The page's log could not be read."),
+            );
+        });
+        send({
+          val: VAL_CANVAS_MESSAGE,
+          type: "readPageLog",
+          requestId,
+          ...(options.sinceNavigation !== undefined
+            ? { sinceNavigation: options.sinceNavigation }
+            : {}),
+          ...(options.levels !== undefined ? { levels: options.levels } : {}),
+        });
+      }),
+    [send, unanswered],
+  );
+  useEffect(() => {
+    if (onPageLogReader === undefined) return;
+    onPageLogReader(readPageLog);
+    return () => onPageLogReader(null);
+  }, [onPageLogReader, readPageLog]);
 
   /** `screenshotPage` requests the page has not answered yet, by id. */
   const shootings = useRef(
@@ -554,6 +655,8 @@ export function CanvasFrame({
   const screenshotPage = useCallback<PageCamera>(
     (options) =>
       new Promise<PageScreenshot>((resolve, reject) => {
+        const refused = unanswered("screenshotPage");
+        if (refused !== null) return reject(refused);
         const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timer = setTimeout(() => {
           shootings.current.delete(requestId);
@@ -580,7 +683,7 @@ export function CanvasFrame({
             : {}),
         });
       }),
-    [send],
+    [send, unanswered],
   );
   useEffect(() => {
     if (onPageCamera === undefined) return;
@@ -593,6 +696,8 @@ export function CanvasFrame({
   const storeQuickPreview = useCallback<QuickPreviewStorer>(
     (id, files) =>
       new Promise<void>((resolve, reject) => {
+        const refused = unanswered("quickPreview");
+        if (refused !== null) return reject(refused);
         const timer = setTimeout(() => {
           storings.current.delete(id);
           reject(
@@ -608,7 +713,7 @@ export function CanvasFrame({
         });
         send({ val: VAL_CANVAS_MESSAGE, type: "quickPreview", id, files });
       }),
-    [send],
+    [send, unanswered],
   );
   useEffect(() => {
     if (onQuickPreviewStorer === undefined) return;
