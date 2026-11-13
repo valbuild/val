@@ -175,18 +175,24 @@ it for a list of components of its own, which is all nesting is.
 ### Arranging a list on the page
 
 In the Studio's canvas a list rendered by `ValComponentEditor` can be
-arranged where it is shown: drag an item, add one before or after another,
-remove one. The controls are `ValComponentEditorChrome.tsx`, and exist only
-when the document is the canvas frame AND the list has a path, which it has
-in draft mode.
+arranged where it is shown: drag an item (by its grip or its outline), add
+one before or after another, remove one. The controls are
+`ValComponentEditorChrome.tsx`, and exist only when the document is the
+canvas frame, the list has a path (which it has in draft mode), AND the
+Studio's Edit is on - which the canvas bridge says on `<html>`
+(`data-val-canvas-editing`), so a list rendered after the Studio said it
+still knows. Their colour is the Studio's, from a CSS variable the bridge
+sets (`--val-canvas-selection`), for the same reason.
 
 - **The page asks, the Studio writes.** The page has no patch store. It posts
   a `componentEdit` (`ValCanvasComponentEdit` in `valCanvasProtocol.ts`) and
   `useCanvasComponentEdits` writes the patch - the list field's own `move` /
   `remove` / `add` - which comes back as a `sourceUpdate` like any edit.
-- **An addition does not say what.** The Studio has the schema, so a union
-  becomes a dialog of its variants, each with its description, and a list of
-  one schema is added to at once. The new item is then opened.
+- **An addition does not say what, and asks nothing.** The Studio has the
+  schema, so it writes an empty item at once - a union's first variant - and
+  opens it as a pick on the page would, in On this page, with its first
+  control focused. For a union that is the kind, which is opened: the first
+  thing to decide, and decided where every other value of the item is.
 - **An item is its place.** The element around each component is marked
   (`data-val-component`) with no value, and an edit names indices. An item
   the page could not render still has its element, so the count is right.

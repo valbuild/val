@@ -33,9 +33,20 @@ const FOCUSABLE_INPUT =
 
 /**
  * A field picked on the page, to put the cursor in. `id` changes on every
- * pick, so the same field picked twice is focused twice.
+ * pick, so the same field picked twice is focused twice. `added` is an item
+ * that was just added on the page: its first control is focused, and a
+ * union's kind - the first thing to decide about it - is opened.
  */
-export type FocusRequest = { path: SourcePath; id: number };
+export type FocusRequest = { path: SourcePath; id: number; added: boolean };
+
+/** What else came with a pick. */
+export type PickedHow = { added?: boolean };
+
+/**
+ * How long an added item may take to show up in the column: it is written,
+ * the page re-renders with it, and only then reports it.
+ */
+const ADDED_WAIT_MS = 5000;
 
 /**
  * The fields the page reported, as fields rather than as a list of paths.
@@ -201,6 +212,7 @@ export function CanvasFields({
    */
   const focusPath = focusRequest?.path ?? null;
   const focusId = focusRequest?.id ?? null;
+  const focusAdded = focusRequest?.added === true;
   useEffect(() => {
     const list = listRef.current;
     if (focusPath === null || !list) return;
@@ -241,9 +253,16 @@ export function CanvasFields({
               `[data-val-studio-path="${CSS.escape(focusPath)}"]`,
             );
       if (!field) return false;
-      const input = field.querySelector<HTMLElement>(FOCUSABLE_INPUT);
+      // An added item: its first control, which for a section of several
+      // kinds is the kind - and that is opened, as the first thing to decide.
+      const input = field.querySelector<HTMLElement>(
+        focusAdded ? `[role=combobox], ${FOCUSABLE_INPUT}` : FOCUSABLE_INPUT,
+      );
       if (!input) return false;
       input.focus({ preventScroll: true });
+      if (focusAdded && input.getAttribute("role") === "combobox") {
+        openSelect(input);
+      }
       // A field deep in a component's row may be below the row's top, which
       // is what the column scrolled to
       if (field !== found) field.scrollIntoView({ block: "nearest" });
@@ -254,12 +273,15 @@ export function CanvasFields({
       if (focus()) observer.disconnect();
     });
     observer.observe(list, { childList: true, subtree: true });
-    const stop = setTimeout(() => observer.disconnect(), SETTLE_MS);
+    const stop = setTimeout(
+      () => observer.disconnect(),
+      focusAdded ? ADDED_WAIT_MS : SETTLE_MS,
+    );
     return () => {
       clearTimeout(stop);
       observer.disconnect();
     };
-  }, [focusPath, focusId]);
+  }, [focusPath, focusId, focusAdded]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
@@ -599,6 +621,16 @@ function ChangedOnlyToggle({
  * already know from being on it, and repeating it on every row pushes the part
  * that differs off the end.
  */
+/**
+ * Opens a select by its trigger, the way a keyboard does: its own handler
+ * opens it on ArrowDown, so nothing about the select's state is reached into.
+ */
+function openSelect(trigger: HTMLElement) {
+  trigger.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+  );
+}
+
 /**
  * Whether `condition` has been true for `ms` without a break - `true` at
  * once when it is false, since there is nothing to wait out then. For a

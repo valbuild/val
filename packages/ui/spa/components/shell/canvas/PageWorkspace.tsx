@@ -25,7 +25,11 @@ import {
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
-import { CanvasFields, type FocusRequest } from "./CanvasFields";
+import {
+  CanvasFields,
+  type FocusRequest,
+  type PickedHow,
+} from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
 import { collapseShownPaths } from "./shownPaths";
 import { useSchemas } from "../../ValFieldProvider";
@@ -85,7 +89,7 @@ export type PageWorkspaceProps = {
        * filter has to know whether it is hiding it. `null` where a pick has no
        * source path behind it — the demo page's fields are not Val's.
        */
-      onPicked: (path: SourcePath | null) => void;
+      onPicked: (path: SourcePath | null, how?: PickedHow) => void;
       /** Esc on the page while picking fields: Content's Select turns off. */
       onPickingStopped: () => void;
     },
@@ -568,7 +572,7 @@ export function PageWorkspace({
    * state that reads as the canvas being broken.
    */
   const onPicked = useCallback(
-    (path: SourcePath | null) => {
+    (path: SourcePath | null, how?: PickedHow) => {
       if (!isPicking) return;
       onViewChange("fields");
       if (isPhone) onPaneChange("editor");
@@ -580,6 +584,7 @@ export function PageWorkspace({
         setFocusRequest((previous) => ({
           path,
           id: (previous?.id ?? 0) + 1,
+          added: how?.added === true,
         }));
       }
     },

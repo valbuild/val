@@ -1257,18 +1257,11 @@ function ValShellBody({
 
   /*
    * Edits made on the page itself: `ValComponentEditor` asks, this writes.
-   * A section that was just added is opened, as a picked field is, so its
-   * fields are the next thing in front of the editor.
+   * A section that was just added is opened as a picked field is, with the
+   * cursor in it (see `onComponentEdit` on the frame below).
    */
   const { onComponentEdit, dialog: componentEditDialog } =
-    useCanvasComponentEdits(
-      useCallback(
-        (path: SourcePath) => {
-          openPickedPath([path]);
-        },
-        [openPickedPath],
-      ),
-    );
+    useCanvasComponentEdits();
 
   /**
    * The running site, in a frame.
@@ -1385,7 +1378,11 @@ function ValShellBody({
         }}
         onRefreshingChange={onRefreshingChange}
         onCodeChanged={onCodeChanged}
-        onComponentEdit={onComponentEdit}
+        onComponentEdit={(edit) =>
+          onComponentEdit(edit, (path) => {
+            if (openPickedPath([path])) onPicked(path, { added: true });
+          })
+        }
       />
     );
   }, [

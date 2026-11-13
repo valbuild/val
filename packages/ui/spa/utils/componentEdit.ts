@@ -1,7 +1,6 @@
 import {
   Internal,
   type ModuleFilePath,
-  type SerializedObjectSchema,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
@@ -74,47 +73,14 @@ export function componentInsertPatch(
   };
 }
 
-/** One kind of item a list can take: a variant of its union. */
-export type ComponentKind = {
-  /** The variant's tag, which is also what it is called. */
-  value: string;
-  description?: string;
-  schema: SerializedObjectSchema;
-};
-
 /**
- * What can be added to a list, from its schema.
- *
- * - `one`: the items are all of one schema, so there is nothing to ask.
- * - `kinds`: the items are a discriminated union, and the editor says which.
- * - `not-a-list`: the path is not an array, which a page that is ahead of or
- *   behind this Studio's schemas can ask for.
+ * The schema of what a list holds, or `null` when the path is not a list - a
+ * page that is ahead of or behind this Studio's schemas can ask to add to
+ * one. A union is one schema here: a new item starts as its first variant,
+ * and the editor picks another in its field.
  */
-export type ComponentChoices =
-  | { status: "one"; schema: SerializedSchema }
-  | { status: "kinds"; key: string; kinds: ComponentKind[] }
-  | { status: "not-a-list" };
-
-export function componentChoicesOf(list: SerializedSchema): ComponentChoices {
-  if (list.type !== "array") {
-    return { status: "not-a-list" };
-  }
-  const item = list.item;
-  if (item.type !== "discriminated-union") {
-    return { status: "one", schema: item };
-  }
-  const kinds: ComponentKind[] = [];
-  for (const variant of item.items) {
-    const tag = variant.items[item.key];
-    if (tag?.type === "literal") {
-      kinds.push({
-        value: tag.value,
-        ...(variant.description !== undefined
-          ? { description: variant.description }
-          : {}),
-        schema: variant,
-      });
-    }
-  }
-  return { status: "kinds", key: item.key, kinds };
+export function listItemSchemaOf(
+  list: SerializedSchema,
+): SerializedSchema | null {
+  return list.type === "array" ? list.item : null;
 }

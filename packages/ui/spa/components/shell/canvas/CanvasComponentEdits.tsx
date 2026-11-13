@@ -16,32 +16,42 @@ import { useValPortal } from "../../ValPortalProvider";
 import { Button } from "../../designSystem/button";
 import { Dialog, DialogContent, DialogTitle } from "../../designSystem/dialog";
 import {
-  componentChoicesOf,
   componentEditPatch,
   componentInsertPatch,
-  type ComponentKind,
+  listItemSchemaOf,
 } from "../../../utils/componentEdit";
 
 type Insert = Extract<ValCanvasComponentEdit, { op: "insert" }>;
+
+/** Told where a new item landed, once it has been written. */
+export type OnComponentAdded = (path: SourcePath) => void;
 
 /**
  * What the canvas does with an edit the page asked for.
  *
  * `ValComponentEditor` lets an editor arrange a list of components on the
  * page itself, and the page can only ASK: the Studio is the one writer. A
- * move and a removal are written at once. An addition may need an answer
- * first - which kind of section - so it becomes a dialog, and is written when
- * the editor has chosen.
+ * move and a removal are written at once. So is an addition, as soon as the
+ * list's schema is known: an empty item, which for a list of sections of
+ * several kinds is the first kind - the editor switches it in the item's own
+ * field, where every other value of it is edited too.
  *
- * `onAdded` is told where a new item landed, so the shell can open its
- * fields: a section that was just added is the next thing to fill in.
+ * `onAdded` is told where the new item landed, so the canvas can open it and
+ * put the cursor in it: a section that was just added is the next thing to
+ * fill in.
  */
-export function useCanvasComponentEdits(onAdded: (path: SourcePath) => void): {
-  onComponentEdit: (edit: ValCanvasComponentEdit) => void;
+export function useCanvasComponentEdits(): {
+  onComponentEdit: (
+    edit: ValCanvasComponentEdit,
+    onAdded: OnComponentAdded,
+  ) => void;
   dialog: ReactNode;
 } {
   const val = useValSystem();
-  const [insert, setInsert] = useState<Insert | null>(null);
+  const [insert, setInsert] = useState<{
+    at: Insert;
+    onAdded: OnComponentAdded;
+  } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const write = useCallback(
@@ -66,9 +76,9 @@ export function useCanvasComponentEdits(onAdded: (path: SourcePath) => void): {
   );
 
   const onComponentEdit = useCallback(
-    (edit: ValCanvasComponentEdit) => {
+    (edit: ValCanvasComponentEdit, onAdded: OnComponentAdded) => {
       if (edit.op === "insert") {
-        setInsert(edit);
+        setInsert({ at: edit, onAdded });
         return;
       }
       void write(componentEditPatch(edit));
@@ -77,24 +87,24 @@ export function useCanvasComponentEdits(onAdded: (path: SourcePath) => void): {
   );
 
   const add = useCallback(
-    async (at: Insert, value: JSONValue) => {
+    async (at: Insert, value: JSONValue, onAdded: OnComponentAdded) => {
       const target = componentInsertPatch(at.list, at.index, value);
       setInsert(null);
       if (await write(target)) {
         onAdded(target.itemPath);
       }
     },
-    [write, onAdded],
+    [write],
   );
 
   const dialog = (
     <>
       {insert !== null && (
-        <AddComponentDialog
-          // A new request is a new dialog, whatever it was showing
-          key={`${insert.list}:${insert.index}`}
-          insert={insert}
-          onAdd={add}
+        <PendingInsert
+          // A new request is a new insert, whatever was pending
+          key={`${insert.at.list}:${insert.at.index}`}
+          insert={insert.at}
+          onAdd={(at, value) => add(at, value, insert.onAdded)}
           onClose={() => setInsert(null)}
         />
       )}
@@ -107,12 +117,11 @@ export function useCanvasComponentEdits(onAdded: (path: SourcePath) => void): {
 }
 
 /**
- * Which kind of section to add.
- *
- * A list of one kind is not asked about: there is one answer, so the item is
- * added as soon as the schema is known. A union lists its variants.
+ * An addition waiting for the list's schema, which says what an empty item
+ * is. It is written once that is known, and draws nothing - unless the list
+ * is not one the Studio knows.
  */
-function AddComponentDialog({
+function PendingInsert({
   insert,
   onAdd,
   onClose,
@@ -124,82 +133,40 @@ function AddComponentDialog({
   const portalContainer = useValPortal();
   const emptyOf = useEmptyOf();
   const schemaAtPath = useSchemaAtPath(insert.list);
-  const choices =
+  const item =
     schemaAtPath.status === "success"
-      ? componentChoicesOf(schemaAtPath.data)
+      ? listItemSchemaOf(schemaAtPath.data)
       : null;
 
-  // The one kind there is, added without asking - once.
+  // Written once: an effect can run twice for one value
   const added = useRef(false);
-  const only = choices?.status === "one" ? choices.schema : null;
   useEffect(() => {
-    if (only === null || added.current) return;
+    if (item === null || added.current) return;
     added.current = true;
-    onAdd(insert, emptyOf(only));
-  }, [only, insert, onAdd, emptyOf]);
+    onAdd(insert, emptyOf(item));
+  }, [item, insert, onAdd, emptyOf]);
 
-  if (schemaAtPath.status === "loading" || choices?.status === "one") {
+  if (schemaAtPath.status === "loading" || item !== null) {
     return null;
   }
-  if (choices?.status !== "kinds") {
-    return (
-      <Dialog open onOpenChange={(open) => !open && onClose()}>
-        <DialogContent
-          container={portalContainer}
-          className="max-w-md p-6 rounded-lg bg-bg-primary text-fg-primary"
-        >
-          <DialogTitle>Could not add a section here</DialogTitle>
-          <p>
-            The Studio does not know the list this page asked to add to. The
-            page may be showing a different version of the site than the one the
-            Studio has loaded, which a reload puts right.
-          </p>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={onClose}>
-              Not now
-            </Button>
-            <Button onClick={() => window.location.reload()}>Reload</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-  const { key, kinds } = choices;
-  const choose = (kind: ComponentKind) => {
-    const empty = emptyOf(kind.schema);
-    onAdd(insert, {
-      ...(typeof empty === "object" && empty !== null && !Array.isArray(empty)
-        ? empty
-        : {}),
-      [key]: kind.value,
-    });
-  };
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         container={portalContainer}
         className="max-w-md p-6 rounded-lg bg-bg-primary text-fg-primary"
       >
-        <DialogTitle>Add a section</DialogTitle>
-        <ul className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-          {kinds.map((kind) => (
-            <li key={kind.value}>
-              <button
-                type="button"
-                data-testid={`add-component-${kind.value}`}
-                onClick={() => choose(kind)}
-                className="w-full text-left px-4 py-3 rounded-lg border border-border-primary hover:bg-bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-brand-primary"
-              >
-                <span className="block font-medium">{kind.value}</span>
-                {kind.description !== undefined && (
-                  <span className="block text-sm text-fg-secondary">
-                    {kind.description}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <DialogTitle>Could not add a section here</DialogTitle>
+        <p>
+          The Studio does not know the list this page asked to add to. The page
+          may be showing a different version of the site than the one the Studio
+          has loaded, which a reload puts right.
+        </p>
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" onClick={onClose}>
+            Not now
+          </Button>
+          <Button onClick={() => window.location.reload()}>Reload</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

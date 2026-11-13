@@ -1,6 +1,6 @@
 import { initVal, type SourcePath } from "@valbuild/core";
 import {
-  componentChoicesOf,
+  listItemSchemaOf,
   componentEditPatch,
   componentInsertPatch,
 } from "./componentEdit";
@@ -56,35 +56,23 @@ describe("an edit made on the page, as a patch", () => {
 });
 
 describe("what a list can be added to with", () => {
-  const hero = s
-    .object({ type: s.literal("hero"), title: s.string() })
-    .describe("A headline");
+  const hero = s.object({ type: s.literal("hero"), title: s.string() });
   const quote = s.object({ type: s.literal("quote"), quote: s.string() });
 
-  test("a union offers its variants, named by their tag", () => {
-    const choices = componentChoicesOf(
-      s.array(s.discriminatedUnion("type", hero, quote))["executeSerialize"](),
+  test("a list holds its item schema, a union as one", () => {
+    expect(
+      listItemSchemaOf(
+        s
+          .array(s.discriminatedUnion("type", hero, quote))
+          ["executeSerialize"](),
+      )?.type,
+    ).toBe("discriminated-union");
+    expect(listItemSchemaOf(s.array(hero)["executeSerialize"]())?.type).toBe(
+      "object",
     );
-    expect(choices.status).toBe("kinds");
-    if (choices.status !== "kinds") return;
-    expect(choices.key).toBe("type");
-    expect(choices.kinds.map((kind) => [kind.value, kind.description])).toEqual(
-      [
-        ["hero", "A headline"],
-        ["quote", undefined],
-      ],
-    );
-    expect(choices.kinds[0]?.schema.type).toBe("object");
-  });
-
-  test("a list of one schema has nothing to choose between", () => {
-    const choices = componentChoicesOf(s.array(hero)["executeSerialize"]());
-    expect(choices.status).toBe("one");
   });
 
   test("anything that is not a list cannot be added to", () => {
-    expect(componentChoicesOf(hero["executeSerialize"]()).status).toBe(
-      "not-a-list",
-    );
+    expect(listItemSchemaOf(hero["executeSerialize"]())).toBe(null);
   });
 });

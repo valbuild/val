@@ -140,13 +140,17 @@ test.describe("arranging sections on the page", () => {
       .toEqual(["quote", "columns", "hero", "note"]);
     await expect(sections.nth(0)).toContainText("We stopped writing");
 
-    // Added: the Studio asks which kind, and the page shows the new one.
+    // Added at once, as the first kind, and its kind is opened in On this
+    // page for the editor to change: here, to a note.
     await showControls(frame, sections.nth(0));
     await frame
       .getByRole("button", { name: "Add a section after this one" })
       .click();
-    await page.getByTestId("add-component-note").click();
     await expect(sections).toHaveCount(5);
+    await expect
+      .poll(() => serverSections(request))
+      .toEqual(["quote", "hero", "columns", "hero", "note"]);
+    await page.getByRole("option", { name: "note" }).click();
     await expect
       .poll(() => serverSections(request))
       .toEqual(["quote", "note", "columns", "hero", "note"]);
