@@ -202,7 +202,10 @@ import {
   turnOnCodeMode,
 } from "../proposals/codeMode";
 import type { CodeModeRequest } from "../components/CodeModeRequestCard";
-import { createProjectSourceReader } from "@valbuild/shared/internal";
+import {
+  createProjectSourceReader,
+  valHeaders,
+} from "@valbuild/shared/internal";
 import { assistantPersona, isInCodeMode } from "./assistantPersona";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
@@ -3360,7 +3363,7 @@ export function useAI(
         "Content-Length": String(file.size),
       };
       if (contentAuthNonce) {
-        headers["x-val-auth-nonce"] = contentAuthNonce;
+        Object.assign(headers, valHeaders("auth-nonce", contentAuthNonce));
       }
       const queryParams = new URLSearchParams();
       queryParams.set("sessionid", encodeURIComponent(sid));

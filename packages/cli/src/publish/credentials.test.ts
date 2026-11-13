@@ -165,9 +165,12 @@ describe("the publish credential", () => {
       expect(request.method).toBe("POST");
       expect(request.url).toBe("/v1/acme/site/publish-token");
       // The person's credential is presented to val.build and to nothing
-      // further: what publishes is the ten minute token that came back.
+      // further: what publishes is the ten minute token that came back. As
+      // the bearer, where the contract puts every credential, and in
+      // `x-val-pat`, where a content host from before the contract reads it.
+      expect(request.headers.authorization).toBe(`Bearer ${A_PAT}`);
+      expect(request.headers["val-pat"]).toBe(A_PAT);
       expect(request.headers["x-val-pat"]).toBe(A_PAT);
-      expect(request.headers.authorization).toBeUndefined();
       // Which `val` asked, so Val Build can tell old CLIs from new ones.
       expect(request.headers["x-val-client"]).toBe(`@valbuild/cli@${VERSION}`);
     } finally {

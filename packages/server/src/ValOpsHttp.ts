@@ -67,14 +67,14 @@ import {
   SerializedSchema as SerializedSchemaSchema,
   PlanRefusalError,
   type ProjectVersion,
-} from "@valbuild/shared/internal";
-import { result } from "@valbuild/core/fp";
-import {
+  valCredentialHeaders,
+  valHeaders,
   getErrorMessageFromUnknownJson,
   newestCommitSha,
   valModulesEntryPath,
   type BuildRegistry,
 } from "@valbuild/shared/internal";
+import { result } from "@valbuild/core/fp";
 import { createHttpSketchpadStore } from "./sketchpads/httpSketchpadStore";
 import type { SketchpadStore } from "./sketchpads/SketchpadStore";
 import {
@@ -720,9 +720,7 @@ export class ValOpsHttp extends ValOps {
     );
     this.authHeaders = {
       ...VAL_CLIENT_HEADERS,
-      ...("pat" in auth
-        ? { "x-val-pat": auth.pat }
-        : { Authorization: `Bearer ${auth.apiKey}` }),
+      ...valCredentialHeaders(auth),
     };
     this.root = options?.root ?? "";
     this.sketchpads = createHttpSketchpadStore({
@@ -1362,7 +1360,7 @@ export class ValOpsHttp extends ValOps {
            * and a proposal is opened, renamed and closed by a person -- content
            * refuses those writes from a credential that names nobody.
            */
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(profileId !== null ? valHeaders("profile-id", profileId) : {}),
           ...(body === undefined ? {} : { "Content-Type": json }),
         },
         ...(body === undefined ? {} : { body }),
@@ -1422,7 +1420,7 @@ export class ValOpsHttp extends ValOps {
         ...init,
         headers: {
           ...this.authHeaders,
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(profileId !== null ? valHeaders("profile-id", profileId) : {}),
           ...(init.body === undefined ? {} : { "Content-Type": json }),
         },
       });
@@ -1537,7 +1535,7 @@ export class ValOpsHttp extends ValOps {
         ...init,
         headers: {
           ...this.authHeaders,
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(profileId !== null ? valHeaders("profile-id", profileId) : {}),
           ...(init.body === undefined
             ? {}
             : { "Content-Type": "application/json" }),
@@ -1716,7 +1714,7 @@ export class ValOpsHttp extends ValOps {
         ...init,
         headers: {
           ...this.authHeaders,
-          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(profileId !== null ? valHeaders("profile-id", profileId) : {}),
           ...(init.body === undefined ? {} : { "Content-Type": json }),
         },
       });
@@ -3428,7 +3426,7 @@ export class ValOpsHttp extends ValOps {
            * an identity claim beside the app's key and derives no scope from
            * it; `committer` in the body says the same.
            */
-          "x-val-profile-id": committer,
+          ...valHeaders("profile-id", committer),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

@@ -20,8 +20,7 @@
 import fs from "fs";
 import path from "path";
 import {
-  DEFAULT_CONTENT_HOST,
-  DEFAULT_VAL_REMOTE_HOST,
+  Internal,
   type ModuleFilePath,
   type SourcePath,
   type ValidationFix,
@@ -150,7 +149,7 @@ export function readPersonalAccessToken(valRoot: string): string | null {
  * host. Conflating the two uploads to the wrong place.
  */
 function createRemote(remoteHost: string): IValRemote {
-  const contentHost = process.env.VAL_CONTENT_URL ?? DEFAULT_CONTENT_HOST;
+  const contentHost = Internal.valHostsOf(process.env).content;
   return {
     remoteHost,
     getSettings: (projectName, options) => getSettings(projectName, options),
@@ -208,8 +207,7 @@ async function withProgress(
 export function createValCommands(deps: ValCommandDeps): {
   execute: (command: string, args: unknown[]) => Promise<void>;
 } {
-  const remoteHost =
-    deps.remoteHost ?? process.env.VAL_REMOTE_HOST ?? DEFAULT_VAL_REMOTE_HOST;
+  const remoteHost = deps.remoteHost ?? Internal.valHostsOf(process.env).remote;
 
   async function login(): Promise<void> {
     const project = deps.getProject();

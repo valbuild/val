@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { DEFAULT_CONTENT_HOST, ValConfig, ValModules } from "@valbuild/core";
+import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import {
   getPersonalAccessTokenPath,
   loadValModules,
@@ -63,7 +63,7 @@ export async function createDebugContext(options: {
     );
   }
   const valModules = loadValModules(projectRoot);
-  const contentUrl = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+  const contentUrl = Internal.valHostsOf(process.env).content;
   const filesDirectory = "/public/val";
   const project = config.project || process.env.VAL_PROJECT || null;
   const git = await safeReadGit(projectRoot);
