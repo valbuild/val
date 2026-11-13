@@ -1,5 +1,4 @@
 import {
-  DEFAULT_VAL_REMOTE_HOST,
   Internal,
   type Json,
   type ModuleFilePath,
@@ -158,7 +157,7 @@ export async function createValCodeActions({
   valRoot,
   moduleFilePath,
   read,
-  remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+  remoteHost = Internal.valHostsOf(process.env).remote,
   allowCreateFiles = false,
 }: {
   document: TextDocument;
@@ -588,7 +587,7 @@ export async function adjudicateGalleryCheck({
   valRoot,
   content,
   runFixHandler,
-  remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+  remoteHost = Internal.valHostsOf(process.env).remote,
 }: {
   sourcePath: SourcePath;
   validationError: ValidationError;

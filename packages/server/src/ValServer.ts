@@ -47,6 +47,10 @@ import {
   type ProjectVersion,
   type ManifestJsonT,
   type StatManifestT,
+  valCredentialHeaders,
+  valHeaders,
+  getErrorMessageFromUnknownJson,
+  newestCommitSha,
 } from "@valbuild/shared/internal";
 import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
@@ -98,10 +102,6 @@ import {
 } from "./adminProxy";
 import type { RemoteFileAuth } from "./valServerConfig";
 import { VERSION as SERVER_VERSION } from "./version";
-import {
-  getErrorMessageFromUnknownJson,
-  newestCommitSha,
-} from "@valbuild/shared/internal";
 import { createSketchpadRoutes } from "./sketchpads/sketchpadRoutes";
 import {
   DEFAULT_ANALYTICS_INGEST_URL,
@@ -4912,14 +4912,14 @@ function getProfileAuthHeaders(
   if ("pat" in auth) {
     return {
       ...VAL_CLIENT_HEADERS,
-      "x-val-pat": auth.pat,
+      ...valCredentialHeaders(auth),
       "Content-Type": type,
     };
   }
   if ("apiKey" in auth && data) {
     return {
       ...getAuthHeaders(auth.apiKey, type),
-      "x-val-profile-id": data.sub,
+      ...valHeaders("profile-id", data.sub),
     };
   }
   throw new Error("Invalid auth");

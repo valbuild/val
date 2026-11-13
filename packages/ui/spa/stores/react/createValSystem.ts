@@ -1,6 +1,7 @@
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
+import { valHeaders } from "@valbuild/shared/internal";
 import { statSnapshotOf } from "./statSnapshotOf";
 import { manifestAnswerOf } from "../manifestSource";
 import { createSystem, type System } from "../createSystem";
@@ -323,7 +324,10 @@ export function createValSystem(
               );
               xhr.setRequestHeader("Content-Type", "application/json");
               if (settings.data.nonce !== null) {
-                xhr.setRequestHeader("x-val-auth-nonce", settings.data.nonce);
+                for (const [name, value] of Object.entries(
+                  valHeaders("auth-nonce", settings.data.nonce),
+                ))
+                  xhr.setRequestHeader(name, value);
               }
               xhr.send(body);
             });

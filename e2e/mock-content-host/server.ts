@@ -589,9 +589,11 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 /**
  * CORS, because the browser uploads patch files straight to this host.
  *
- * `x-val-auth-nonce` has to be allowed explicitly: it is not a CORS-safelisted
- * header, so without it the preflight fails and the upload never happens — and
- * what the Studio shows for that is a stuck progress bar, not an error.
+ * `val-auth-nonce` and `x-val-auth-nonce` have to be allowed explicitly: they
+ * are not CORS-safelisted headers, so without them the preflight fails and the
+ * upload never happens — and what the Studio shows for that is a stuck
+ * progress bar, not an error. (Content's `cors()` reflects whatever a
+ * preflight asks for, so it lists nothing.)
  */
 function corsHeaders(res: ServerResponse): Record<string, string> {
   const origin = requestOrigins.get(res);
@@ -599,7 +601,7 @@ function corsHeaders(res: ServerResponse): Record<string, string> {
     "Access-Control-Allow-Origin": origin ?? "*",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Headers":
-      "content-type, authorization, x-val-pat, x-val-auth-nonce",
+      "content-type, authorization, val-pat, x-val-pat, val-auth-nonce, x-val-auth-nonce",
     "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
   };
 }

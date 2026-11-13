@@ -400,6 +400,7 @@ import {
  */
 import corePackageJson from "../package.json";
 import { log, isDebugEnabled, VAL_DEBUG_STORAGE_KEY } from "./log";
+import { valHosts, valHostsOf } from "./valHosts";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -410,8 +411,8 @@ export const FATAL_ERROR_TYPES = [
 ] as const;
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 
-export const DEFAULT_CONTENT_HOST = "https://content.val.build";
-export const DEFAULT_APP_HOST = "https://admin.val.build";
+export { DEFAULT_CONTENT_HOST, DEFAULT_APP_HOST } from "./valHosts";
+export type { ValHosts } from "./valHosts";
 /**
  * Where Val's own immutable build artifacts are served from: the content
  * service's `/v1/static`.
@@ -442,6 +443,9 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
 export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 const Internal = {
+  /** Where Val Build is: content, remote files, sign-in. See `valHosts.ts`. */
+  valHosts,
+  valHostsOf,
   /** Val's console output. See `log.ts` for which levels print, and when. */
   log,
   isDebugEnabled,

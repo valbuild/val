@@ -171,7 +171,7 @@ describe("the /admin/proxy route", () => {
     // is asking (`x-val-client`, which carries no credential).
     expect(init.headers).toEqual({
       ...VAL_CLIENT_HEADERS,
-      authorization: "Bearer editors-val-build-token",
+      Authorization: "Bearer editors-val-build-token",
       accept: "application/json",
     });
     expect(init.body).toBeUndefined();
@@ -372,10 +372,12 @@ describe("in fs mode", () => {
     ).toEqual({ status: 200, json: { results: [] } });
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe(`${CONTENT}/v1/studio/projects/overview`);
-    // The PAT, in the header the rest of Val Build reads it from -- and no
-    // bearer beside it.
+    // The PAT as the bearer, and in the header a content host from before
+    // the contract reads it from.
     expect(init.headers).toEqual({
       ...VAL_CLIENT_HEADERS,
+      Authorization: "Bearer developers-pat",
+      "val-pat": "developers-pat",
       "x-val-pat": "developers-pat",
       accept: "application/json",
     });

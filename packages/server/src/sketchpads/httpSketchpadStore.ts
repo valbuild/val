@@ -1,4 +1,5 @@
 import {
+  valHeaders,
   Sketchpad,
   SketchpadSummary,
   type SketchpadT,
@@ -30,7 +31,7 @@ export function createHttpSketchpadStore(options: {
       headers: {
         ...options.headers,
         // WHO, as for a proposal or a commit: the key names the project.
-        ...(init.by ? { "x-val-profile-id": init.by } : {}),
+        ...(init.by ? valHeaders("profile-id", init.by) : {}),
         ...(init.body !== undefined
           ? { "Content-Type": "application/json" }
           : {}),

@@ -1,5 +1,4 @@
 import {
-  DEFAULT_VAL_REMOTE_HOST,
   Internal,
   type SerializedFileSchema,
   type SerializedImageSchema,
@@ -168,8 +167,7 @@ export async function resolveRemoteUploadTarget(
       // which has no such field: the env var is the escape hatch for pointing
       // at another file service.
       remoteHost:
-        settings.remoteHost ??
-        (process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST),
+        settings.remoteHost ?? Internal.valHostsOf(process.env).remote,
     },
   };
 }

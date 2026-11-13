@@ -1,7 +1,7 @@
 import path from "path";
 import picocolors from "picocolors";
 import { glob } from "fast-glob";
-import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
+import { Internal } from "@valbuild/core";
 import { getSettings, uploadRemoteFile } from "@valbuild/server";
 import { formatFixedFiles } from "./formatFixedFiles";
 import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
@@ -179,11 +179,11 @@ export async function validateOnce({
     valFiles,
     project: resolvedValConfigFile?.project,
     remote: {
-      remoteHost: process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+      remoteHost: Internal.valHostsOf(process.env).remote,
       getSettings: (projectName, options) => getSettings(projectName, options),
       uploadFile: (project, bucket, fileHash, fileExt, fileBuffer, options) =>
         uploadRemoteFile(
-          process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST,
+          Internal.valHostsOf(process.env).content,
           project,
           bucket,
           fileHash,

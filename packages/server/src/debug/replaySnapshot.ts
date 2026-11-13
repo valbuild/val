@@ -1,11 +1,6 @@
 import fs from "fs";
 import path from "path";
-import {
-  ModuleFilePath,
-  PatchId,
-  DEFAULT_CONTENT_HOST,
-  Internal,
-} from "@valbuild/core";
+import { ModuleFilePath, PatchId, Internal } from "@valbuild/core";
 import { ValOpsFS } from "../ValOpsFS";
 import { loadValModules } from "../loadValModules";
 import {
@@ -67,7 +62,7 @@ export async function replaySnapshot(
   }
   const valModules = loadValModules(root);
   const serverOps = new ValOpsFS(
-    process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST,
+    Internal.valHostsOf(process.env).content,
     root,
     valModules,
     // The snapshot's own val.config, as evaluated by loadValModules - no need to
