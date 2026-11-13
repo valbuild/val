@@ -36,13 +36,20 @@ export type DiffSegment = {
 const MAX_TOKENS = 600;
 
 /**
- * Split into words and the whitespace between them, keeping both.
+ * Split into words, the whitespace between them and the punctuation that
+ * ends them, keeping all three.
  *
  * The separators are kept as tokens rather than trimmed, so joining every
  * segment's text reproduces the input exactly.
  */
 function tokenize(value: string): string[] {
-  return value.split(/(\s+)/).filter((token) => token !== "");
+  /*
+   * Punctuation that ends a word is a token of its own. Without that, "code"
+   * and "code," are two different words, so adding a clause after one reads
+   * as the word being replaced: [-code-]{+code, and more+}. Only at the END of
+   * a word: `hsl(217`, `1.5` and a URL keep their punctuation inside.
+   */
+  return value.split(/(\s+|[.,;:!?]+(?=\s|$))/).filter((token) => token !== "");
 }
 
 /**
