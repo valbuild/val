@@ -1,5 +1,29 @@
 # @valbuild/ui
 
+## 0.153.5
+
+### Patch Changes
+
+- [#1037](https://github.com/valbuild/val/pull/1037) [`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d) Thanks [@freekh](https://github.com/freekh)! - The assistant's default model is now chosen by Val Build, not built into the Studio, so it can change for every project without a Val upgrade. It starts on the newest Claude Sonnet the project's Anthropic key can reach, or, with only an OpenAI key, the newest GPT of OpenAI's balanced tier (such as `gpt-6.1-sol`). A model an editor has picked themselves is still remembered and still wins. The built-in fallback catalog, used only when the models cannot be listed, now offers the Claude 5.5 models.
+
+- [#1042](https://github.com/valbuild/val/pull/1042) [`aa26301`](https://github.com/valbuild/val/commit/aa26301afae68d31f37341b84ee3fd23ee532b45) Thanks [@freekh](https://github.com/freekh)! - **Code mode on the site.** On a project Val Build hosts, `</>` on the site no longer asks you to choose or start a proposal: one press turns code mode on for the site, and the assistant can change the site's code there. Everything waiting to be published goes with it, so a schema change and the content it affects stay together, and the site changes when you publish, after a build and a check that the site still renders.
+
+  It is on by default. A project's owners and developers can turn it off in Val Build (the project's page, Publishing, "Code mode on the site"). With it off, `</>` lists proposals as before.
+
+  The assistant's "Turn on code mode?" card on the site does the same.
+
+- [#1045](https://github.com/valbuild/val/pull/1045) [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f) Thanks [@freekh](https://github.com/freekh)! - The assistant can ask you to turn on web search, when it needs it.
+
+  If **Search the web** (Settings → Assistant) has not been decided yet and a question needs something from outside your project, the assistant now asks you to turn it on. The question comes from Val, with the assistant's reason quoted.
+
+  - **Turn on web search** turns it on for the project. Searching works from your next message.
+  - **Don't turn on** turns it off, and the assistant will not ask again.
+  - Closing the card decides nothing.
+
+  If web search is off, the assistant never asks. The assistant cannot change this setting itself: only you can, from that card or in Settings.
+
+- [#1043](https://github.com/valbuild/val/pull/1043) [`f488c90`](https://github.com/valbuild/val/commit/f488c907fc3f22a33d64ea7ac36f513c405389a2) Thanks [@freekh](https://github.com/freekh)! - Sketch can no longer be dragged narrower than 380 px, so the words in its boxes stop breaking in the middle.
+
 ## 0.153.4
 
 ### Patch Changes
