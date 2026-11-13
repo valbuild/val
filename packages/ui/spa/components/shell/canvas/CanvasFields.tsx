@@ -11,13 +11,21 @@ import { FieldLoading } from "../../FieldLoading";
 import { FieldNotFound } from "../../FieldNotFound";
 import { FieldSchemaError } from "../../FieldSchemaError";
 import { useSchemaAtPath } from "../../ValFieldProvider";
-import { isAncestorPath } from "./componentFieldPaths";
+import { isAncestorPath } from "./shownPaths";
 import { isSourcePath } from "../../../utils/sourcePath";
 
 /** How far below the top of the column a field scrolled to should land. */
 const SCROLL_MARGIN_PX = 8;
 /** How long the column keeps re-aligning as its rows fill in. */
 const SETTLE_MS = 1200;
+
+/**
+ * How long a row's field may be missing before it says so. A move, an add or
+ * a remove changes what the paths the page reported point at, and the page
+ * reports the new ones a moment later: until then, a row is as likely to be
+ * between two states as broken.
+ */
+const MISSING_GRACE_MS = 1500;
 
 /** What can take the cursor in a field: the first one is focused. */
 const FOCUSABLE_INPUT =
@@ -391,6 +399,10 @@ function CanvasFieldRow({
   onSelect?: (path: SourcePath) => void;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
+  const missingIsSettled = useLasted(
+    schemaAtPath.status === "error" || schemaAtPath.status === "not-found",
+    MISSING_GRACE_MS,
+  );
   return (
     <div
       // Read by the scroll-into-view effect above, which finds the row by path
@@ -445,20 +457,20 @@ function CanvasFieldRow({
           </span>
         )}
       </div>
-      {schemaAtPath.status === "error" ? (
+      {schemaAtPath.status === "success" ? (
+        // `compact`, because this column is a third of the workspace at most:
+        // the field has to be the editor, not the editor's full layout.
+        <AnyField path={path} schema={schemaAtPath.data} compact />
+      ) : schemaAtPath.status === "loading" || !missingIsSettled ? (
+        <FieldLoading path={path} type="module" />
+      ) : schemaAtPath.status === "error" ? (
         <FieldSchemaError
           path={path}
           error={schemaAtPath.error}
           type="module"
         />
-      ) : schemaAtPath.status === "loading" ? (
-        <FieldLoading path={path} type="module" />
-      ) : schemaAtPath.status === "not-found" ? (
-        <FieldNotFound path={path} type="module" />
       ) : (
-        // `compact`, because this column is a third of the workspace at most:
-        // the field has to be the editor, not the editor's full layout.
-        <AnyField path={path} schema={schemaAtPath.data} compact />
+        <FieldNotFound path={path} type="module" />
       )}
     </div>
   );
@@ -587,6 +599,24 @@ function ChangedOnlyToggle({
  * already know from being on it, and repeating it on every row pushes the part
  * that differs off the end.
  */
+/**
+ * Whether `condition` has been true for `ms` without a break - `true` at
+ * once when it is false, since there is nothing to wait out then. For a
+ * state that is only worth showing if it stays.
+ */
+function useLasted(condition: boolean, ms: number): boolean {
+  const [lasted, setLasted] = useState(false);
+  useEffect(() => {
+    if (!condition) {
+      setLasted(false);
+      return;
+    }
+    const timeout = setTimeout(() => setLasted(true), ms);
+    return () => clearTimeout(timeout);
+  }, [condition, ms]);
+  return !condition || lasted;
+}
+
 /**
  * The field a focus inside a row is in: the row's own path, or - in a
  * component's row, which holds the component's fields - the field nearest

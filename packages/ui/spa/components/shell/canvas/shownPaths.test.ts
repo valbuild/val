@@ -5,11 +5,11 @@ import {
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
-import { collapseIntoComponents, isAncestorPath } from "./componentFieldPaths";
+import { collapseShownPaths, isAncestorPath } from "./shownPaths";
 
 const { s, c } = initVal();
 
-function Hero(props: { title: string }) {
+function Hero(props: { title: string; bullets: string[] }) {
   return props.title;
 }
 function Card(props: { title: string }) {
@@ -20,7 +20,11 @@ function Columns(props: { heading: string; cards: { title: string }[] }) {
 }
 
 const hero = s
-  .object({ type: s.literal("hero"), title: s.string() })
+  .object({
+    type: s.literal("hero"),
+    title: s.string(),
+    bullets: s.array(s.string()),
+  })
   .component(() => Promise.resolve({ default: Hero }));
 const card = s
   .object({ title: s.string() })
@@ -37,9 +41,20 @@ const page = c.define(
   "/landing.val.ts",
   s.object({
     title: s.string(),
+    // No component anywhere in here: the rule is the same
+    footer: s.object({
+      text: s.string(),
+      links: s.array(s.object({ label: s.string() })),
+      notes: s.array(s.object({ text: s.string() })).render({ as: "inline" }),
+      internal: s.string().hidden(),
+    }),
     sections: s.array(s.discriminatedUnion("type", hero, columns)),
   }),
-  { title: "Landing", sections: [] },
+  {
+    title: "Landing",
+    footer: { text: "", links: [], notes: [], internal: "" },
+    sections: [],
+  },
 );
 
 function pathOf(...parts: (string | number)[]): SourcePath {
@@ -60,27 +75,44 @@ function schemas(): Record<ModuleFilePath, SerializedSchema> {
   ]);
 }
 
-describe("collapseIntoComponents", () => {
-  test("a component's fields are left out when the component is listed", () => {
+describe("collapseShownPaths", () => {
+  test("a section's fields are edited in its row", () => {
     expect(
-      collapseIntoComponents(
+      collapseShownPaths(
         [
           pathOf("title"),
           pathOf("sections", 0),
           pathOf("sections", 0, "title"),
-          pathOf("sections", 1),
-          pathOf("sections", 1, "heading"),
+          pathOf("sections", 0, "bullets"),
+          pathOf("sections", 0, "bullets", 1),
         ],
         schemas(),
       ),
-    ).toEqual([pathOf("title"), pathOf("sections", 0), pathOf("sections", 1)]);
+    ).toEqual([
+      pathOf("title"),
+      pathOf("sections", 0),
+      // A preview row in the section's bullets list, not an editor
+      pathOf("sections", 0, "bullets", 1),
+    ]);
   });
 
-  test("a component in a list inside a component keeps its own row", () => {
-    // The columns row shows its cards as rows to open, not their fields: the
-    // card's row is where its title can be typed in.
+  test("the outermost listed row wins", () => {
     expect(
-      collapseIntoComponents(
+      collapseShownPaths(
+        [
+          pathOf("sections", 1, "cards", 0),
+          pathOf("sections", 1, "cards", 0, "title"),
+        ],
+        schemas(),
+      ),
+    ).toEqual([pathOf("sections", 1, "cards", 0)]);
+  });
+
+  test("an item of a list that is not inline keeps its own row", () => {
+    // The columns row draws each card as a preview row: the card's own row is
+    // where its title is edited.
+    expect(
+      collapseShownPaths(
         [
           pathOf("sections", 1),
           pathOf("sections", 1, "heading"),
@@ -92,17 +124,34 @@ describe("collapseIntoComponents", () => {
     ).toEqual([pathOf("sections", 1), pathOf("sections", 1, "cards", 0)]);
   });
 
-  test("fields whose component is not on the page are all there is", () => {
+  test("the same for objects without a component, and inline lists", () => {
+    expect(
+      collapseShownPaths(
+        [
+          pathOf("footer"),
+          pathOf("footer", "text"),
+          pathOf("footer", "links", 0),
+          pathOf("footer", "links", 0, "label"),
+          pathOf("footer", "notes", 0, "text"),
+          pathOf("footer", "internal"),
+        ],
+        schemas(),
+      ),
+    ).toEqual([
+      pathOf("footer"),
+      // A preview row in the footer's row: listed, and its label in it
+      pathOf("footer", "links", 0),
+      // Hidden in the footer's row: listed
+      pathOf("footer", "internal"),
+    ]);
+  });
+
+  test("fields whose parent is not on the page are all there is", () => {
     const fields = [
       pathOf("sections", 0, "title"),
       pathOf("sections", 1, "cards", 0, "title"),
     ];
-    expect(collapseIntoComponents(fields, schemas())).toEqual(fields);
-  });
-
-  test("an object without a component keeps its fields", () => {
-    const paths = [pathOf("title"), pathOf("sections")];
-    expect(collapseIntoComponents(paths, schemas())).toBe(paths);
+    expect(collapseShownPaths(fields, schemas())).toBe(fields);
   });
 });
 

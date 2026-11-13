@@ -27,7 +27,7 @@ import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields, type FocusRequest } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
-import { collapseIntoComponents } from "./componentFieldPaths";
+import { collapseShownPaths } from "./shownPaths";
 import { useSchemas } from "../../ValFieldProvider";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
@@ -626,7 +626,7 @@ export function PageWorkspace({
   const listedPaths = useMemo(
     () =>
       schemas.status === "success"
-        ? collapseIntoComponents(reportedPaths, schemas.data)
+        ? collapseShownPaths(reportedPaths, schemas.data)
         : reportedPaths,
     [reportedPaths, schemas],
   );

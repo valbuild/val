@@ -6,44 +6,39 @@ import {
 } from "@valbuild/core";
 
 /**
- * The paths "On this page" lists, with the fields inside a component left out
- * when the component itself is listed.
+ * The paths "On this page" lists, without the ones a listed row already
+ * edits. The outermost wins: its row holds the others.
  *
- * A component rendered with `ValComponentEditor` is tagged on the page as a
- * whole (its item's path), and so is every field it shows. Listing both is
- * listing the title twice: once as a row of its own, and once inside the
- * component's row, which edits the whole object. The component's row is the
- * one kept, because it holds the others.
+ * The page tags every element that shows content, so a section is tagged as
+ * a whole and so is its title. Listing both is listing the title's editor
+ * twice: as a row of its own, and inside the section's row. Nothing here is
+ * about components: a component is an object, and an object's row edits its
+ * fields like any other's.
  *
- * A field is only left out when the component around it is in `paths`: a
- * field whose component is not tagged on the page is all there is to list.
- * And only when the component's row SHOWS it: a list in a component is a list
- * of rows to navigate into (unless it renders its items inline), so what is
- * below one of its items - a card in a row of cards - stays listed on its own,
- * or there would be nowhere on the column to type in it.
+ * What a row EDITS is decided by how the Studio draws the value
+ * ({@link edits}): an object its fields, and a list rendered inline its
+ * items. A list that is not inline draws a PREVIEW row per item, to open -
+ * which is not an editor, so a bullet in a section's bullets list keeps its
+ * own row, where it can be typed in.
+ *
+ * Only a row that stays listed counts: a field whose section is not tagged on
+ * the page is all there is to list.
  */
-export function collapseIntoComponents(
+export function collapseShownPaths(
   paths: readonly SourcePath[],
   schemas: Record<ModuleFilePath, SerializedSchema>,
 ): readonly SourcePath[] {
-  const components: { path: SourcePath; schema: SerializedSchema }[] = [];
-  for (const path of paths) {
-    const schema = schemaAt(path, schemas);
-    if (schema !== undefined && isComponentSchema(schema)) {
-      components.push({ path, schema });
-    }
+  // Outermost first, and only a row that stays listed hides anything
+  const kept = new Set<SourcePath>();
+  for (const path of [...paths].sort((a, b) => a.length - b.length)) {
+    const shown = Array.from(kept).some((ancestor) => {
+      if (!isAncestorPath(ancestor, path)) return false;
+      const schema = schemaAt(ancestor, schemas);
+      return schema !== undefined && edits(schema, partsBelow(ancestor, path));
+    });
+    if (!shown) kept.add(path);
   }
-  if (components.length === 0) {
-    return paths;
-  }
-  const collapsed = paths.filter(
-    (path) =>
-      !components.some(
-        (component) =>
-          isAncestorPath(component.path, path) &&
-          shownInside(component.schema, partsBelow(component.path, path)),
-      ),
-  );
+  const collapsed = paths.filter((path) => kept.has(path));
   return collapsed.length === paths.length ? paths : collapsed;
 }
 
@@ -66,11 +61,12 @@ export function isAncestorPath(
 }
 
 /**
- * Whether the editor of a value with `schema` shows the value `parts` below
- * it in place: through objects and union variants it does, and through a list
- * only when the list renders its items inline.
+ * Whether the editor of a value with `schema` edits the value `parts` below
+ * it in place. An object edits its fields, a union the fields of its variant
+ * and an inline list its items; any other list draws a preview row per item,
+ * which edits nothing. A hidden field is not drawn at all.
  */
-function shownInside(schema: SerializedSchema, parts: string[]): boolean {
+function edits(schema: SerializedSchema, parts: string[]): boolean {
   let current: SerializedSchema | undefined = schema;
   for (const part of parts) {
     if (current === undefined) return false;
@@ -81,8 +77,9 @@ function shownInside(schema: SerializedSchema, parts: string[]): boolean {
       return false;
     }
     current = childSchema(current, part);
+    if (current?.hidden === true) return false;
   }
-  return true;
+  return current !== undefined;
 }
 
 /** The segments of `path` below `ancestor`, which is above it. */
@@ -93,22 +90,6 @@ function partsBelow(ancestor: SourcePath, path: SourcePath): string[] {
 function modulePathParts(path: SourcePath): string[] {
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
   return modulePath ? Internal.splitModulePath(modulePath) : [];
-}
-
-/**
- * Could a value with this schema have a component: an object that declares
- * one, or a union with a variant that does. Read off the schema alone, so a
- * section whose variant has none is still counted - harmless, since only its
- * own fields are below it.
- */
-function isComponentSchema(schema: SerializedSchema | undefined): boolean {
-  if (schema === undefined) {
-    return false;
-  }
-  if (schema.type === "discriminated-union") {
-    return schema.items.some((item) => isComponentSchema(item));
-  }
-  return schema.type === "object" && schema.render?.as === "component";
 }
 
 /**
