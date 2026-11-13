@@ -61,6 +61,12 @@ const EXTRA_FILES = [
   "BlockList.tsx",
   "FieldValidationError.tsx",
   "FieldPatchAuthorsSection.tsx",
+  // Mounted by `Field`, so once per field, and `useKeysOf` is called by it
+  // whatever the field is: it read `useAllSources` and `useLoadingStatus`
+  // there for a scan only a record's entry needs, so every field on screen
+  // rendered for every write anywhere, and again when the write was saved.
+  "ArrayAndRecordTools.tsx",
+  "useKeysOf.ts",
   "LocaleFilterProvider.tsx",
   "../hooks/useProjectLocales.tsx",
   "../hooks/useEmptyOf.ts",
@@ -84,6 +90,15 @@ const WHOLE_PROJECT_HOOKS = [
  * that is reference-stable, so an unchanged answer re-renders nothing.
  */
 const ALLOWED: Record<string, { hooks: string[]; because: string }> = {
+  // `useSchemas` moves when the CODE does (a schema intake), never with a
+  // field write, and a scan for `keyOf` references reads every module's
+  // schema to find them. Its sources are read only where there is a record
+  // to scan for (`useAllSourcesWhen`).
+  "useKeysOf.ts": {
+    hooks: ["useSchemas"],
+    because:
+      "a keyOf scan reads every module's schema, which moves with code and not with content",
+  },
   // `useAllPreviews` returns the same object when no preview moved
   // (`PreviewStore.all` recomputes and compares), so an unrelated keystroke
   // costs one map rebuild and no render. The route selector genuinely needs

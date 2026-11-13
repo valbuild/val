@@ -1,5 +1,5 @@
+import { LabeledField } from "../LabeledField";
 import { SourcePath } from "@valbuild/core";
-import { Field } from "../../components/Field";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -7,7 +7,6 @@ import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
-import { AnyField } from "../../components/AnyField";
 import { ObjectLikePreview } from "./ObjectFields";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 
@@ -91,26 +90,17 @@ export function SettingsFields({
           const subPath = sourcePathOfItem(path, key);
           const itemReadonly = readonly || itemSchema.readonly;
           return (
-            <Field
+            <LabeledField
               key={subPath}
               label={fixCapitalization(key)}
               description={itemSchema.description}
               path={subPath}
-              type={itemSchema.type}
+              schema={itemSchema}
               readonly={itemReadonly}
               compact={compact}
+              inline={inline}
               errorDisplay={errorDisplay}
-            >
-              <AnyField
-                key={subPath}
-                path={subPath}
-                schema={itemSchema}
-                readonly={itemReadonly}
-                compact={compact}
-                inline={inline}
-                errorDisplay={errorDisplay}
-              />
-            </Field>
+            />
           );
         })}
       </div>

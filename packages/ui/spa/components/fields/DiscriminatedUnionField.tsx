@@ -1,3 +1,4 @@
+import { LabeledField } from "../LabeledField";
 import {
   Json,
   SerializedDiscriminatedUnionSchema,
@@ -26,10 +27,8 @@ import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
 
-import { AnyField } from "../../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useCallback, useEffect, useRef } from "react";
-import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { isJsonArray } from "../../utils/isJsonArray";
@@ -335,28 +334,20 @@ function DiscriminatedUnionFields({
         .filter((key) => key !== schema?.key)
         .map((key) => {
           const itemPath = sourcePathOfItem(path, key);
+          const itemSchema = selectedSchema.items[key];
+          if (itemSchema === undefined) return null;
           return (
-            <Field
+            <LabeledField
               key={itemPath}
               path={itemPath}
-              foldLevel="1"
               label={key}
-              description={selectedSchema?.items?.[key]?.description}
-              type={selectedSchema?.items?.[key]?.type}
+              description={itemSchema.description}
+              schema={itemSchema}
               readonly={readonly}
               compact={compact}
+              inline={inline}
               errorDisplay={errorDisplay}
-            >
-              <AnyField
-                key={key}
-                path={itemPath}
-                schema={selectedSchema?.items?.[key]}
-                readonly={readonly}
-                compact={compact}
-                inline={inline}
-                errorDisplay={errorDisplay}
-              />
-            </Field>
+            />
           );
         })}
     </div>

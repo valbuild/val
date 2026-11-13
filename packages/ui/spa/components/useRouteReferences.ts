@@ -1,6 +1,7 @@
 import { useDeferredValue, useMemo } from "react";
 import {
   useAllSources,
+  useAllSourcesWhen,
   useSchemas,
   useLoadingStatus,
 } from "./ValFieldProvider";
@@ -31,8 +32,9 @@ export function useEagerRouteReferences(
   routeKey: string | undefined,
 ): ReferencesResult {
   const schemas = useSchemas();
-  const loadingStatus = useLoadingStatus();
-  const allSources = useAllSources();
+  // Only for an entry of a router: see `useKeysOf`, which is called beside
+  // this by every field.
+  const allSources = useAllSourcesWhen(routeKey !== undefined);
   const query = useMemo(
     () => (routeKey === undefined ? null : ({ kind: "route" } as const)),
     [routeKey],
@@ -48,7 +50,7 @@ export function useEagerRouteReferences(
       return getRouteReferences(schemas.data, allSources, routeKey);
     }
     return [];
-  }, [loadingStatus, allSources, schemas, routeKey]);
+  }, [allSources, schemas, routeKey]);
 
   // Memoised for the same reason as `useKeysOf`.
   return useMemo(() => withReferences(scan, references), [scan, references]);

@@ -1,174 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect } from "react";
 import {
   Internal,
   type ModuleFilePath,
   type SourcePath,
   type ValidationError,
 } from "@valbuild/core";
-import type { ValidationResult } from "../ValidationStore";
 import { useValSystem } from "./SystemContext";
-
-const STALE: ValidationResult = { status: "stale" };
-
-/**
- * A module's validation errors, computing them if they are stale.
- *
- * ## Demand drives the computation, and this hook IS the demand
- *
- * `validationStore.peek` never computes — it reports what is known, including
- * `stale`. `validate` computes. So the hook peeks for the render and calls
- * `validate` from an effect when what it got back was stale, which is the same
- * shape `useSourceAtPath` uses for an unfetched entry and for the same reason: a
- * render must not start work.
- *
- * That is what makes validation cost one round trip per CHANGE rather than one per
- * keystroke. The engine invalidates its whole-project error map on every patch, so
- * the first read after a keystroke recomputes errors for the entire project.
- *
- * ## Per module, deliberately
- *
- * Errors are produced per module — both halves of validation walk the whole module
- * source — so a per-path subscription here would wake N fields for one result and
- * make each of them filter. The caller filters once instead, which is why
- * {@link useValidationErrorsAtPath} exists.
- */
-export function useModuleValidation(
-  moduleFilePath: ModuleFilePath,
-): ValidationResult {
-  const val = useValSystem();
-  /**
-   * PROTOTYPE: no `useSyncExternalStore`.
-   *
-   * A counter plus a memo. Two things change, one of them for the better and
-   * one of them a cost this file now has to carry itself. (`useAllValidationErrors`
-   * had the same shape and left it: one counter and memo per caller meant one
-   * whole-project filter per caller per event, so it reads
-   * `ValidationStore.surfacedErrors`, a reference-stable snapshot, through
-   * `useSyncExternalStore` instead.)
-   *
-   * BETTER: the store no longer owes anything. `getSnapshot` had to be
-   * reference-stable, and that obligation is invisible at the call site,
-   * unenforceable by types, and fails by looping rather than by erroring — three
-   * of the six defects behind the crashes on this branch were exactly that. Here
-   * the memo caches per version, so an unstable read is simply not a hazard.
-   *
-   * COST: the lost-update window below, which `useSyncExternalStore` closed for
-   * free. Everything else about it we were not using: it bails out on an
-   * `Object.is`-equal snapshot, but the subscription is already filtered to this
-   * module, so every wake-up corresponds to a real change.
-   */
-  const [version, setVersion] = useState(0);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const bump = useCallback(() => {
-    if (mounted.current) setVersion((previous) => previous + 1);
-  }, []);
-
-  const result = useMemo<ValidationResult>(() => {
-    if (val === null) {
-      return STALE;
-    }
-    void version;
-    /**
-     * `peek` never computes — it reports what is known, including `stale`.
-     * `validate` computes. So this reads for the render and the effect below
-     * asks, which is the same shape `useSourceAtPath` uses for an unfetched
-     * entry and for the same reason: a render must not start work.
-     */
-    const seen = val.system.validationStore.peek(moduleFilePath);
-    return seen.status === "stale" ? STALE : seen;
-  }, [val, moduleFilePath, version]);
-
-  /**
-   * What to DRAW, which is not `result` while the module revalidates.
-   *
-   * Every edit makes its module stale, and drawing stale as "no errors" took
-   * the message off an invalid field for the length of each revalidation — it
-   * blinked out and back in on every pause in typing, and moved everything
-   * below it twice. So the field keeps the errors it had until the next pass
-   * replaces them. `result` still decides whether to ask, below.
-   */
-  const shown = useMemo<ValidationResult>(() => {
-    if (val === null || result.status !== "stale") {
-      return result;
-    }
-    void version;
-    return val.system.validationStore.peekLastKnown(moduleFilePath);
-  }, [val, moduleFilePath, result, version]);
-
-  /**
-   * What is read during render, so the subscribe effect can tell whether it
-   * missed something. A ref rather than a dependency: it is only ever compared,
-   * never rendered from.
-   */
-  const rendered = useRef(result);
-  rendered.current = result;
-
-  useEffect(() => {
-    if (val === null) {
-      return;
-    }
-    // Both, because they are different news and a field needs to react to each:
-    // a result is new errors, an invalidation means the ones on screen are about
-    // a value that has since moved. Filtered on the module because both events
-    // carry which one they are about and this hook is about one — `ValErrorProvider`
-    // puts one of these on every field on screen.
-    const offResult = val.system.validationStore.events.on(
-      "validation:result",
-      (event) => {
-        if (event.moduleFilePath === moduleFilePath) {
-          bump();
-        }
-      },
-    );
-    const offStale = val.system.validationStore.events.on(
-      "validation:invalidate",
-      (event) => {
-        if (event.modules.includes(moduleFilePath)) {
-          bump();
-        }
-      },
-    );
-    /**
-     * THE COST OF DROPPING `useSyncExternalStore`, paid explicitly.
-     *
-     * Render read the store at T0; this effect attaches at T1. An event in
-     * between has no listener yet and is simply lost — and validation is
-     * asynchronous and kicked off by the effect below, so that window is real,
-     * not theoretical. The field would sit on a stale result until something
-     * else in the module happened to change.
-     *
-     * `useSyncExternalStore` closes this itself: it re-reads after subscribing
-     * and re-renders if the snapshot moved. Doing it by hand means comparing
-     * against what render actually used. Compared rather than bumped
-     * unconditionally, so the common case — nothing happened in the window —
-     * costs no extra render.
-     */
-    const now = val.system.validationStore.peek(moduleFilePath);
-    const settled = now.status === "stale" ? STALE : now;
-    if (settled !== rendered.current) {
-      bump();
-    }
-    return () => {
-      offResult();
-      offStale();
-    };
-  }, [val, moduleFilePath, bump]);
-
-  useEffect(() => {
-    if (val === null || result.status !== "stale") {
-      return;
-    }
-    void val.system.validationStore.validate(moduleFilePath);
-  }, [val, moduleFilePath, result]);
-
-  return shown;
-}
+import { sameDeep, useStoreValue } from "./useStoreValue";
 
 /**
  * A stable empty array for "no errors", because returning a fresh `[]` would make
@@ -198,6 +36,22 @@ const NO_ERRORS: ValidationError[] = [];
  * `getAllValidationErrorsSnapshot`, which resolved and partitioned — and this
  * hook dropped it in the port while its own comment still claimed it. Restored,
  * with a test that pins it.
+ *
+ * ## The field renders when ITS errors move
+ *
+ * Validation is per module -- both halves of it walk the whole module
+ * source -- and every field of the module hears of each result and each
+ * invalidation. They used to render for both (a counter per field, bumped by
+ * either), so one field write rendered every field of the module twice -- once to hear that the errors were stale, once to be
+ * handed the same ones again (`docs/plans/studio-write-lag.md`). Here each
+ * field looks its own path up in the result when one arrives -- the map is
+ * built once per result, by `surfacedOf` -- and is rendered only if what it
+ * finds is different (`sameDeep`: a new result is new arrays that say the
+ * same).
+ *
+ * Demand is unchanged in what it asks and when: a reader that finds the
+ * module stale asks for it once, and the store keeps at it until the answer
+ * is about source that has not moved since ({@link useValidationDemand}).
  */
 export function useValidationErrorsAtPath(
   sourcePath: SourcePath,
@@ -205,13 +59,103 @@ export function useValidationErrorsAtPath(
   const val = useValSystem();
   const [moduleFilePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const result = useModuleValidation(moduleFilePath);
-  // Once per module RESULT, for every field under it and the whole-project
-  // readers alike: see `ValidationStore.surfacedOf` for why the result object
-  // is the right key, and what invalidates it.
-  const surfaced = useMemo(
-    () => (val === null ? null : val.system.validationStore.surfacedOf(result)),
-    [val, result],
+  useValidationDemand(moduleFilePath);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      // Both, because they are different news: a result is new errors, an
+      // invalidation means the ones kept are about a value that has since
+      // moved. Filtered on the module because both events say which one
+      // they are about -- `ValErrorProvider` puts one of these on every
+      // field on screen.
+      const offResult = val.system.validationStore.events.on(
+        "validation:result",
+        (event) => {
+          if (event.moduleFilePath === moduleFilePath) onChange();
+        },
+      );
+      const offStale = val.system.validationStore.events.on(
+        "validation:invalidate",
+        (event) => {
+          if (event.modules.includes(moduleFilePath)) onChange();
+        },
+      );
+      return () => {
+        offResult();
+        offStale();
+      };
+    },
+    [val, moduleFilePath],
   );
-  return surfaced?.[sourcePath] ?? NO_ERRORS;
+  const read = useCallback((): ValidationError[] => {
+    if (val === null) return NO_ERRORS;
+    const store = val.system.validationStore;
+    const seen = store.peek(moduleFilePath);
+    // The last errors known while the module is being validated again, so
+    // typing does not blink them off and on. See `peekLastKnown`.
+    const shown =
+      seen.status === "stale" ? store.peekLastKnown(moduleFilePath) : seen;
+    // Once per module RESULT, for every field under it and the whole-project
+    // readers alike: see `ValidationStore.surfacedOf` for why the result
+    // object is the right key, and what invalidates it.
+    return store.surfacedOf(shown)?.[sourcePath] ?? NO_ERRORS;
+  }, [val, moduleFilePath, sourcePath]);
+  return useStoreValue(subscribe, read, { isSame: sameDeep });
+}
+
+/**
+ * Ask for a module's validation whenever it is found stale: on mount, and
+ * each time it is invalidated.
+ *
+ * ## Demand drives the computation, and a mounted reader IS the demand
+ *
+ * `validationStore.peek` never computes — it reports what is known, including
+ * `stale`. `validate` computes. So a reader peeks for its render and asks
+ * from here when what is known is stale, which is the same shape
+ * `useSourceAtPath` uses for an unfetched entry and for the same reason: a
+ * render must not start work.
+ *
+ * That is what makes validation cost one round trip per CHANGE rather than
+ * one per keystroke. The engine invalidated its whole-project error map on
+ * every patch, so the first read after a keystroke recomputed errors for the
+ * entire project.
+ *
+ * Asked once per time the module goes stale, not once per event: a module
+ * invalidated again while it is being validated is the store's to finish
+ * (`ValidationStore.run`), and asking on every event is the per-keystroke
+ * validation this design exists to avoid. Asked in a microtask, so the
+ * computation starts after the store has finished announcing the change
+ * that made it stale rather than in the middle of it.
+ */
+function useValidationDemand(moduleFilePath: ModuleFilePath): void {
+  const val = useValSystem();
+  useEffect(() => {
+    if (val === null) return;
+    const store = val.system.validationStore;
+    let mounted = true;
+    /** Whether this reader has asked for the stale module it is waiting on. */
+    let asked = false;
+    const look = () => {
+      if (!mounted) return;
+      if (store.peek(moduleFilePath).status !== "stale") {
+        asked = false;
+        return;
+      }
+      if (asked) return;
+      asked = true;
+      void store.validate(moduleFilePath);
+    };
+    look();
+    const offResult = store.events.on("validation:result", (event) => {
+      if (event.moduleFilePath === moduleFilePath) queueMicrotask(look);
+    });
+    const offStale = store.events.on("validation:invalidate", (event) => {
+      if (event.modules.includes(moduleFilePath)) queueMicrotask(look);
+    });
+    return () => {
+      mounted = false;
+      offResult();
+      offStale();
+    };
+  }, [val, moduleFilePath]);
 }

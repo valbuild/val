@@ -3,28 +3,34 @@ import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { localeOfModuleRoot, localeScopeAt } from "@valbuild/shared/internal";
 import { useNavMenuData } from "../NavMenu/useNavMenuData";
 import {
-  useCommittedPatches,
-  useCurrentPatchIds,
   useCurrentProfile,
   useCurrentProposal,
   useDeployments,
   useStudioDeployState,
+  useModulesWithPatches,
   usePatchSets,
+  usePendingChangeCount,
   useProfilesByAuthorId,
   useShallowModulesAtPaths,
   useStudioIsDeployer,
   useValMode,
 } from "../ValProvider";
+import { sameDeep, useKept } from "../../stores/react/useStoreValue";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import {
-  useAllSources,
+  useAllSourcesWhen,
   useFilePatchIds,
   useSchemas,
   useValConfig,
 } from "../ValFieldProvider";
 import { useProjectLocales } from "../../hooks/useProjectLocales";
 import { useCreatableRouters } from "../useCreateRouteEntry";
-import { ShellData, ShellMediaGallery } from "./types";
+import {
+  ShellActivityEntry,
+  ShellData,
+  ShellDeployment,
+  ShellMediaGallery,
+} from "./types";
 import { useValBuildAccess } from "./useValBuildAccess";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
 import { useDeploymentStaleTick } from "../../hooks/useDeploymentStaleTick";
@@ -59,15 +65,28 @@ export type ShellDataState =
  * answer. Everything here comes from a provider; anything the shell asks for
  * that has no source is left undefined rather than invented, and the shell
  * hides the affordance instead of showing an empty one.
+ *
+ * ## Nothing here may move with a field write
+ *
+ * The answer is a prop of the whole shell, so a new one is a render of the
+ * whole Studio. It used to be a new one for every field write, twice over
+ * (`docs/plans/studio-write-lag.md`): it read the patch ids, the patch sets
+ * and every module's source, and all three move when a title is typed. So:
+ *
+ * - What a write does move -- the count of pending changes and Recent
+ *   activity -- is NOT in this answer. {@link useShellLiveData} reads those,
+ *   below the shell's frame, beside what shows them.
+ * - What a write could move but usually does not is read so that this
+ *   component hears about it only when it did: which modules have a draft
+ *   (`useModulesWithPatches`), the routers' and galleries' own sources
+ *   (`useModuleSources`), and every module's source only where the project
+ *   has languages to tell pages apart by.
  */
 export function useShellData(): ShellDataState {
   const navMenu = useNavMenuData();
   const config = useValConfig();
   const profile = useCurrentProfile();
   const validationErrors = useAllValidationErrors();
-  const patchSets = usePatchSets();
-  const currentPatchIds = useCurrentPatchIds();
-  const committedPatchIds = useCommittedPatches();
   const { deployments, observedCommitShas } = useDeployments();
   /*
    * A managed project has no host watching a repository, so the Studio is the
@@ -148,12 +167,9 @@ export function useShellData(): ShellDataState {
     [recordData, externalPath],
   );
 
-  // Which modules have unpublished work. Patch sets are keyed by module, so
-  // one pass gives the draft marker for every row in the navigation.
-  const modulesWithDrafts = useMemo((): ReadonlySet<string> => {
-    if (patchSets.status !== "success") return new Set();
-    return new Set(patchSets.data.map((set) => set.moduleFilePath));
-  }, [patchSets]);
+  // Which modules have unpublished work: the draft marker for every row in
+  // the navigation.
+  const modulesWithDrafts = useModulesWithPatches();
 
   /**
    * The project's own mark, and the patch ids that say where its bytes are.
@@ -180,7 +196,9 @@ export function useShellData(): ShellDataState {
    */
   const projectLocales = useProjectLocales();
   const schemas = useSchemas();
-  const allSources = useAllSources();
+  // Every module's source moves with every field write, so it is read only
+  // where there are languages for it to answer about.
+  const allSources = useAllSourcesWhen(projectLocales.length > 0);
   const locales = useMemo(() => {
     if (projectLocales.length === 0 || schemas.status !== "success") {
       return null;
@@ -209,7 +227,7 @@ export function useShellData(): ShellDataState {
     };
   }, [projectLocales, schemas, allSources]);
 
-  return useMemo((): ShellDataState => {
+  const state = useMemo((): ShellDataState => {
     if (navMenu.status === "loading") {
       return { status: "loading" };
     }
@@ -278,24 +296,8 @@ export function useShellData(): ShellDataState {
             )
           : [],
         validationErrors: toValidationErrors(validationErrors),
-        /*
-         * The publishes ride along: this list is "what has been happening",
-         * and a publish is the other half of that. See `toActivity`.
-         *
-         * Built from whatever is known, rather than only once the PATCH SETS
-         * are. The two halves load separately - patch sets come off a worker
-         * that has to group them, publishes off the stat feed - so gating the
-         * whole list on the first one hid every publish while that worker was
-         * still grouping, and for good if it failed. An empty change list is
-         * the honest input in that state, not a reason to say nothing.
-         */
-        activity: toActivity(
-          patchSets.status === "success" ? patchSets.data : [],
-          shellDeployments,
-          Date.now(),
-          studioIsDeployer,
-        ),
-        pendingChanges: currentPatchIds.length - committedPatchIds.size,
+        // `activity` and `pendingChanges` move with every field write: see
+        // `useShellLiveData`.
         deployments: shellDeployments,
         studioIsDeployer,
         user: profile
@@ -319,10 +321,7 @@ export function useShellData(): ShellDataState {
     config,
     profile,
     validationErrors,
-    patchSets,
     modulesWithDrafts,
-    currentPatchIds,
-    committedPatchIds,
     shellDeployments,
     studioIsDeployer,
     valBuild.connected,
@@ -331,4 +330,65 @@ export function useShellData(): ShellDataState {
     proposalBranch,
     locales,
   ]);
+  /*
+   * The answer before, while this one says the same all the way down. What
+   * it is built from can move without moving it: the page being typed in is
+   * an entry of a router whose keys are the nav, so the router's source is a
+   * new object for every write and the nav built from it comes out as it
+   * was. Compared rather than trusted to its inputs, because a new answer
+   * here is a render of the whole Studio. Parts that did not move are the
+   * same objects (the media lists above all), so the comparison stops at
+   * them.
+   */
+  return useKept(state, sameDeep);
+}
+
+/** The parts of {@link ShellData} a field write moves. */
+export type ShellLiveData = {
+  /** See `ShellData.pendingChanges`. */
+  pendingChanges: number;
+  /** See `ShellData.activity`. */
+  activity: ShellActivityEntry[];
+};
+
+/**
+ * What a field write moves in the shell's data: how many changes are pending,
+ * and Recent activity.
+ *
+ * Apart from {@link useShellData} so that the component that calls this is
+ * the one that renders for a write, and it is a small one below the shell's
+ * frame (`ValShellLive`), not the Studio. Takes the publishes from the
+ * shell's own data, so the two lists that narrate them cannot disagree.
+ */
+export function useShellLiveData(
+  deployments: ShellDeployment[] | undefined,
+  studioIsDeployer: boolean | undefined,
+): ShellLiveData {
+  const patchSets = usePatchSets();
+  const pendingChanges = usePendingChangeCount();
+  /*
+   * The publishes ride along: this list is "what has been happening", and a
+   * publish is the other half of that. See `toActivity`.
+   *
+   * Built from whatever is known, rather than only once the PATCH SETS are.
+   * The two halves load separately - patch sets come off a worker that has
+   * to group them, publishes off the stat feed - so gating the whole list on
+   * the first one hid every publish while that worker was still grouping,
+   * and for good if it failed. An empty change list is the honest input in
+   * that state, not a reason to say nothing.
+   */
+  const activity = useMemo(
+    () =>
+      toActivity(
+        patchSets.status === "success" ? patchSets.data : [],
+        deployments ?? [],
+        Date.now(),
+        studioIsDeployer ?? false,
+      ),
+    [patchSets, deployments, studioIsDeployer],
+  );
+  return useMemo(
+    () => ({ pendingChanges, activity }),
+    [pendingChanges, activity],
+  );
 }

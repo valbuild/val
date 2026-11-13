@@ -101,6 +101,18 @@ function routePatternSourceOf(moduleFilePath: ModuleFilePath): string {
  * Pure, so it can be tested without a provider tree: `useCreatableRouters` is
  * only the memoised React wrapper around this.
  */
+/** The modules {@link collectCreatableRouters} reads the source of. */
+export function routerModulesOf(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+): ModuleFilePath[] {
+  const routers: ModuleFilePath[] = [];
+  for (const moduleFilePathS in schemas) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    if (isRouterSchema(schemas[moduleFilePath])) routers.push(moduleFilePath);
+  }
+  return routers;
+}
+
 export function collectCreatableRouters(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, unknown>,
