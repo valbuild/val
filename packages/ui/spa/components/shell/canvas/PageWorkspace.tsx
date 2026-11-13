@@ -16,7 +16,12 @@ import {
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
-import { SLIDE_EASE, SLIDE_MS } from "../workspace/phoneTrack";
+import {
+  PHONE_BOTTOM,
+  PHONE_TOP,
+  SLIDE_EASE,
+  SLIDE_MS,
+} from "../workspace/phoneTrack";
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
@@ -26,7 +31,13 @@ import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
 import type { ContentPlacement } from "../workspace/placePanes";
 import { PaneStrip } from "../workspace/WorkspaceChrome";
-import { GAP, GUTTER, RAIL_WIDTH } from "../workspace/workspaceLayout";
+import { ColumnDivider } from "../workspace/ColumnDivider";
+import {
+  GAP,
+  GUTTER,
+  RAIL_WIDTH,
+  RESIZE_MIN,
+} from "../workspace/workspaceLayout";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { EditorDensityProvider } from "../../EditorDensity";
 import { SourcePath } from "@valbuild/core";
@@ -153,6 +164,15 @@ export type PageWorkspaceProps = {
    */
   contentPlacement?: ContentPlacement;
   /**
+   * Content dragged to a width, or back to its designed one (`null`), while
+   * the layout places it (`contentPlacement` is a column): the layout is what
+   * decides what fits beside the preview, so the width it uses is the one
+   * the drag sets. Without it the split is this component's own.
+   */
+  onContentWidthChange?: (width: number | null) => void;
+  /** How wide Content can be dragged: until the preview is at its minimum. */
+  contentWidthMax?: number;
+  /**
    * Something in the preview's place: History's past, while it is open.
    * The column is there whether or not the preview is, and the preview is
    * not mounted meanwhile.
@@ -195,10 +215,8 @@ const MIN_CANVAS_PX = 280;
  * while leaving an ocean of canvas nobody asked for.
  */
 const MAX_COLUMN_SHARE = 0.72;
-/** How far an arrow key moves the divider. */
-const KEYBOARD_STEP_PX = 24;
 /** Where the phone's strip of switches sits, below the floating top bar. */
-const PHONE_STRIP_TOP = "4.5rem";
+const PHONE_STRIP_TOP = PHONE_TOP;
 /** The height of everything on the phone's strip, switches and exit alike. */
 const PHONE_STRIP_CONTROL_HEIGHT = "2.125rem";
 /**
@@ -271,6 +289,8 @@ export function PageWorkspace({
   isAssistantPicking = false,
   onStopAssistantPicking,
   contentPlacement,
+  onContentWidthChange,
+  contentWidthMax,
   replacePreview,
   previewStatus,
   onUseContent,
@@ -424,49 +444,6 @@ export function PageWorkspace({
     if (next !== columnPx) setColumnPx(next);
   }, [columnPx, clampColumn]);
 
-  /**
-   * Dragging the divider.
-   *
-   * Pointer capture rather than window listeners: the pointer leaves the
-   * handle immediately and would otherwise be lost to whatever is underneath
-   * — including the canvas frame, which is a different document and swallows
-   * events entirely.
-   */
-  const onDividerPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) return;
-      const container = splitRef.current;
-      if (!container) return;
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      setIsDragging(true);
-      const left = container.getBoundingClientRect().left;
-      const move = (moveEvent: PointerEvent) => {
-        setColumnPx(clampColumn(moveEvent.clientX - left));
-      };
-      const finish = () => {
-        setIsDragging(false);
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", finish);
-        window.removeEventListener("pointercancel", finish);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", finish);
-      window.addEventListener("pointercancel", finish);
-    },
-    [clampColumn],
-  );
-
-  const nudgeDivider = useCallback(
-    (delta: number) => {
-      const container = splitRef.current;
-      const current =
-        columnPx ?? container?.firstElementChild?.clientWidth ?? MIN_COLUMN_PX;
-      setColumnPx(clampColumn(current + delta));
-    },
-    [columnPx, clampColumn],
-  );
-
   const attachField = useCallback(
     (fieldId: string) => {
       setAttachedFieldIds((current) =>
@@ -521,13 +498,20 @@ export function PageWorkspace({
    * side the preview is on. Only while there is a preview to pick on.
    */
   /**
+   * Content is a column the layout placed, at the width the layout decided,
+   * and a drag of its edge goes back to the layout (`onContentWidthChange`).
+   */
+  const layoutPlacesContent =
+    onContentWidthChange !== undefined && contentPlacement?.kind === "column";
+  /**
    * Whether "Select" can be written beside the icon, in the header beside
    * the preview: the view switch takes about 260px of it, the padding 48px
    * and, on a desktop, the rail another 88px. Below that the word goes and
    * the icon stays, rather than the switch's count being cut off.
    */
-  const columnWidth =
-    columnPx ?? Math.min(520, Math.max(340, splitWidth * 0.34));
+  const columnWidth = layoutPlacesContent
+    ? contentPlacement.width + (breakpoint === "desktop" ? RAIL_WIDTH : GUTTER)
+    : (columnPx ?? Math.min(520, Math.max(340, splitWidth * 0.34)));
   const selectHasRoom = columnWidth >= (breakpoint === "desktop" ? 470 : 390);
   const contentSelectButton = (compact: boolean) => (
     <SelectButton
@@ -682,7 +666,7 @@ export function PageWorkspace({
    * of emptiness above the first field, with the switches sitting in the middle
    * of it.
    */
-  const columnClearsTopBar = !columnHasHeaderRow && !(open && isPhone);
+  const columnClearsTopBar = !columnHasHeaderRow && !isPhone;
   /**
    * What a pane adds above its own content, where something else already
    * cleared what is covering it.
@@ -693,7 +677,7 @@ export function PageWorkspace({
    * below the strip of switches, and a pane that added its own would be
    * measuring the same gap twice.
    */
-  const paneTopPadding = open && isPhone ? "pt-0" : "pt-1";
+  const paneTopPadding = isPhone ? "pt-0" : "pt-1";
 
   const moduleColumn = (
     // `val-content-area` is what ValRouter scrolls when it is asked to bring a
@@ -733,11 +717,15 @@ export function PageWorkspace({
           ...railPadding,
         }}
         className={cn(
-          "w-full mx-auto px-4 md:px-6 pb-24",
+          "w-full mx-auto px-4 md:px-6",
+          // On a phone, inside its card: the pane bar is below the card, not
+          // over the column.
+          isPhone ? "pb-6 pt-4" : "pb-24",
           // See `columnClearsTopBar`: whatever is above the column supplies the
           // gap where there is one, and only where there is nothing does the
           // column pay for it.
-          columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding,
+          !isPhone &&
+            (columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding),
         )}
       >
         {/*
@@ -777,17 +765,12 @@ export function PageWorkspace({
       // Measured by the phone layout's spacing test, which is the only way to
       // catch a pane that pads itself on top of the track's own clearance.
       data-val-pane="fields"
-      style={railPadding}
-      className={cn(
-        "h-full px-4 md:px-6",
-        // Clear of whatever is along the bottom: the status bar, or on a phone
-        // the floating pane bar, which ends 68px up (more under a large
-        // safe area) - see `PhonePaneBar`.
-        isPhone
-          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
-          : "pb-14",
-        paneTopPadding,
-      )}
+      // Clear of whatever is along the bottom: the status bar, or on a phone
+      // the floating pane bar (`PHONE_BOTTOM`).
+      style={
+        isPhone ? { ...railPadding, paddingBottom: PHONE_BOTTOM } : railPadding
+      }
+      className={cn("h-full px-4 md:px-6", !isPhone && "pb-14", paneTopPadding)}
     >
       {page ? (
         <FieldsPanel
@@ -853,9 +836,28 @@ export function PageWorkspace({
           {replacePreview === undefined && contentSelectButton(!selectHasRoom)}
         </div>
       )}
-      <div className="min-h-0 flex-1">
-        {view === "fields" && open ? fieldsColumn : moduleColumn}
-      </div>
+      {view === "fields" && open ? (
+        <div className="min-h-0 flex-1">{fieldsColumn}</div>
+      ) : isPhone ? (
+        /*
+         * On a phone, a card like every other pane's -- On this page, the
+         * preview, the Assistant, the Sketch: inset from the edges, above the
+         * pane bar, and below the top bar where nothing else clears it.
+         */
+        <div
+          className="min-h-0 flex-1 px-3"
+          style={{
+            paddingBottom: PHONE_BOTTOM,
+            ...(open ? {} : { paddingTop: PHONE_TOP }),
+          }}
+        >
+          <div className="h-full overflow-hidden rounded-xl border border-border-float bg-bg-float">
+            {moduleColumn}
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">{moduleColumn}</div>
+      )}
     </div>
   );
 
@@ -865,6 +867,9 @@ export function PageWorkspace({
    */
   const canvasPane = open && (
     <SitePreview
+      // On a phone the controls are the card's bottom edge, as the
+      // Sketchpad's tools are its page's.
+      docked={isPhone}
       route={canvasRoute}
       onRouteChange={onCanvasRouteChange}
       routes={canvasRoutes}
@@ -1044,9 +1049,9 @@ export function PageWorkspace({
               // this pane adding another put the address bar 38px under it.
               <div
                 data-val-pane="canvas"
-                // Clears the floating pane bar, which rises with the safe
-                // area - see `PhonePaneBar`.
-                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.25rem)]"
+                // Clears the floating pane bar (`PHONE_BOTTOM`).
+                className="h-full w-full shrink-0 px-3"
+                style={{ paddingBottom: PHONE_BOTTOM }}
               >
                 {canvasPane}
               </div>
@@ -1116,7 +1121,7 @@ export function PageWorkspace({
             ? "100%"
             : contentSheet
               ? `${contentPlacement.width + contentInset}px`
-              : columnPx !== null
+              : columnPx !== null && !layoutPlacesContent
                 ? `${columnPx}px`
                 : contentPlacement?.kind === "column"
                   ? `${contentPlacement.width + contentInset}px`
@@ -1140,10 +1145,27 @@ export function PageWorkspace({
         {column}
       </div>
       {split && !contentFolded && !contentSheet && !contentHidden && (
-        <SplitDivider
-          isDragging={isDragging}
-          onPointerDown={onDividerPointerDown}
-          onNudge={nudgeDivider}
+        <ColumnDivider
+          label="Resize the editor and canvas"
+          edge="right"
+          className="relative z-hover self-stretch"
+          lineClassName="inset-y-14"
+          onDraggingChange={setIsDragging}
+          {...(layoutPlacesContent
+            ? {
+                width: contentPlacement.width,
+                min: RESIZE_MIN.content,
+                max: contentWidthMax ?? contentPlacement.width,
+                onResize: (width: number) => onContentWidthChange(width),
+                onReset: () => onContentWidthChange(null),
+              }
+            : {
+                width: columnWidth,
+                min: columnBounds.min,
+                max: columnBounds.max,
+                onResize: setColumnPx,
+                onReset: () => setColumnPx(null),
+              })}
         />
       )}
       {/*
@@ -1235,62 +1257,6 @@ function FieldsAwaitingPage({
           Go to Preview
         </button>
       )}
-    </div>
-  );
-}
-
-/**
- * The grab handle between the editor and the canvas.
- *
- * A `separator` with the keyboard behaviour that implies, not just a draggable
- * strip: how much room the page gets against how much the editor gets is a real
- * decision, and one that should not need a mouse to make. The hit area is wider
- * than the line it draws, because a 1px target is a target nobody hits.
- */
-function SplitDivider({
-  isDragging,
-  onPointerDown,
-  onNudge,
-}: {
-  isDragging: boolean;
-  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onNudge: (delta: number) => void;
-}) {
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize the editor and canvas"
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          onNudge(-KEYBOARD_STEP_PX);
-        } else if (event.key === "ArrowRight") {
-          event.preventDefault();
-          onNudge(KEYBOARD_STEP_PX);
-        }
-      }}
-      className={cn(
-        // `z-hover`: the grab handle sits over the edge of both panes. It said
-        // `z-10`, which is not on this project's scale at all, so Tailwind
-        // emitted nothing and it was relying on source order.
-        "group relative z-hover w-3 shrink-0 cursor-col-resize self-stretch",
-        "focus-visible:outline-none",
-      )}
-    >
-      {/* The line, centred in the wider hit area. */}
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-y-14 left-1/2 w-px -translate-x-1/2 rounded-full",
-          "transition-colors",
-          isDragging
-            ? "bg-fg-brand-primary"
-            : "bg-border-float group-hover:bg-fg-secondary group-focus-visible:bg-fg-brand-primary",
-        )}
-      />
     </div>
   );
 }

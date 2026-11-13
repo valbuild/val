@@ -1,9 +1,21 @@
 /** @jest-environment jsdom */
-import { render, screen, within } from "@testing-library/react";
+import { render as renderIn, screen, within } from "@testing-library/react";
 import { Sketchpad } from "./Sketchpad";
 import { SketchpadWorkspace } from "./SketchpadWorkspace";
 import { PaneTabsProvider } from "../shell/workspace/PaneTabs";
 import { SideTabs } from "../shell/workspace/WorkspaceChrome";
+import { ValPortalProvider } from "../ValPortalProvider";
+import { ValThemeProvider } from "../ValThemeProvider";
+import type { ReactNode } from "react";
+
+/** The Studio's providers, as every Sketchpad has them: its ? is a popover. */
+function render(ui: ReactNode) {
+  return renderIn(
+    <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
+      <ValPortalProvider>{ui}</ValPortalProvider>
+    </ValThemeProvider>,
+  );
+}
 
 /**
  * Sketch's header while it shares a column with the Assistant (the plan's

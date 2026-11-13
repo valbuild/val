@@ -64,6 +64,8 @@ function paneBar(onShowAssistant: () => void) {
   return (
     <PhonePaneBar
       shown="content"
+      fullScreen={false}
+      onFullScreenChange={() => undefined}
       panes={[
         { pane: "content", onShow: () => undefined },
         { pane: "preview", onShow: () => undefined },
@@ -120,6 +122,8 @@ describe("the ways into the assistant", () => {
     render(
       <PhonePaneBar
         shown="content"
+        fullScreen={false}
+        onFullScreenChange={() => undefined}
         panes={[
           { pane: "content", onShow: () => undefined },
           { pane: "preview", onShow: () => undefined },

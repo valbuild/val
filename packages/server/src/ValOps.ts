@@ -1472,8 +1472,18 @@ export abstract class ValOps {
         isDelete: boolean;
       }
     > = {};
+    const publishedByModule: PatchAnalysis["publishedByModule"] = {};
     for (const patch of sortedPatches) {
       if (patch.appliedAt) {
+        /*
+         * Published, and not yet in this build: the text a publish patches
+         * has to have it, or the publish reverts it. See `publishedByModule`.
+         */
+        if (patch.patch?.some((op) => op.op !== "file")) {
+          (publishedByModule[patch.path] ??= []).push({
+            patchId: patch.patchId,
+          });
+        }
         continue;
       }
       let hasSourceFileOps = false;
@@ -1515,6 +1525,7 @@ export abstract class ValOps {
     return {
       patchesByModule,
       fileLastUpdatedByPatchId,
+      publishedByModule,
     };
   }
 
@@ -2493,10 +2504,29 @@ export abstract class ValOps {
 
       const appliedPatches: PatchId[] = [];
       const triedPatches: PatchId[] = [];
-      for (const { patchId } of patches) {
+      /*
+       * What was published since this build, first: the base text is the
+       * build's, and these bring it to what the last publish wrote. They are
+       * replayed, not committed again, so they are never in `appliedPatches`.
+       * See `PatchAnalysis.publishedByModule`.
+       */
+      const published = new Set<PatchId>(
+        (patchAnalysis.publishedByModule?.[path] ?? []).map((p) => p.patchId),
+      );
+      for (const { patchId } of [
+        ...(patchAnalysis.publishedByModule?.[path] ?? []),
+        ...patches,
+      ]) {
         const patchData = patchAnalysis.patches.find(
           (p) => p.patchId === patchId,
         );
+        if (!patchData && published.has(patchId)) {
+          errors.push({
+            message: `A change published since this build (${patchId}) is not in the chain, so ${path} cannot be brought up to what was published`,
+            filePath: path,
+          });
+          break;
+        }
         if (!patchData) {
           const message = `Analysis required non-existing patch: ${patchId}`;
           errors.push({ message });
@@ -2788,6 +2818,18 @@ export abstract class ValOps {
             break;
           }
         }
+        if (patchHadError && published.has(patchId)) {
+          /*
+           * Not the editor's change, so not one to offer to remove: what was
+           * published no longer applies to this build's text. Nothing pending
+           * can go on top of that, whatever `continueOnError` says.
+           */
+          errors.push({
+            message: `A change published since this build (${patchId}) could not be replayed over ${path} as this build has it, so the publish would revert it`,
+            filePath: path,
+          });
+          break;
+        }
         if (patchHadError) {
           unappliablePatches[patchId] = {
             moduleFilePath: path,
@@ -2811,7 +2853,9 @@ export abstract class ValOps {
           }
           break;
         }
-        appliedPatches.push(patchId);
+        if (!published.has(patchId)) {
+          appliedPatches.push(patchId);
+        }
       }
       if (errors.length > 0 && continueOnError) {
         // Diagnosis: expose what the source file would look like with the
@@ -3712,6 +3756,27 @@ export type PatchAnalysis = {
     string,
     { patchId: PatchId; remote: boolean; isDelete: boolean }
   >;
+  /**
+   * By module, in chain order: the patches that are PUBLISHED but not in this
+   * build -- `appliedAt` set, which a patch keeps until a deployment moves the
+   * base past it.
+   *
+   * Not part of anything a reader shows (the readers' sources already apply
+   * them, as part of the chain) and not part of what a publish commits. They
+   * are what a publish has to patch ON TOP OF: the base text it reads is the
+   * build's, so `prepare` replays these over it first, and the result is the
+   * text the last publish wrote. Without that, a second publish before the
+   * site redeployed silently reverted the first one's change to the same file
+   * (`e2e/http/publish.spec.ts`, "a second change publishes on top of the
+   * first commit").
+   *
+   * Empty in `fs` and memory mode, where publishing rewrites the base and no
+   * patch is ever applied-at-a-commit. Optional for a caller that builds an
+   * analysis by hand.
+   */
+  publishedByModule?: {
+    [path: ModuleFilePath]: { patchId: PatchId }[];
+  };
 };
 
 export type PatchSourceError =

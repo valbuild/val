@@ -1,7 +1,7 @@
 import {
-  Maximize2,
   Minus,
   Monitor,
+  MoveHorizontal,
   Plus,
   RotateCw,
   Smartphone,
@@ -39,6 +39,7 @@ export function CanvasToolbar({
   onFit,
   onReload,
   isRefreshing,
+  docked = false,
   className,
 }: {
   device: CanvasDevice;
@@ -70,12 +71,25 @@ export function CanvasToolbar({
    * say it is happening by itself.
    */
   isRefreshing?: boolean;
+  /**
+   * On a phone: the bottom edge of the page's card, a full-width row with a
+   * line above it, tap-sized -- as the Sketchpad's tools are docked to its
+   * page -- instead of a pill floating under the card.
+   */
+  docked?: boolean;
   className?: string;
 }) {
+  // Tap-sized where it is docked, as the Sketchpad's tools are.
+  const size = docked ? "h-10 w-10" : "h-7 w-7";
   return (
     <div
+      role="toolbar"
+      aria-label="Preview"
       className={cn(
-        "flex items-center gap-1 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
+        "flex items-center gap-1",
+        docked
+          ? "w-full justify-center border-t border-border-float bg-bg-float px-2 py-1"
+          : "rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
         // On a phone the canvas is a pane a little narrower than the screen,
         // and this is nine controls: it has to be able to run out of room
         // without pushing itself off both sides of the page it sits on.
@@ -85,7 +99,8 @@ export function CanvasToolbar({
         // buttons quietly compress towards their 14px icons and the dividers
         // vanish — the strip always fits, and never once overflows enough to
         // scroll.
-        "max-w-[calc(100%-1.5rem)] overflow-x-auto scrollbar-none [&>*]:shrink-0",
+        !docked && "max-w-[calc(100%-1.5rem)]",
+        "overflow-x-auto scrollbar-none [&>*]:shrink-0",
         className,
       )}
     >
@@ -100,7 +115,7 @@ export function CanvasToolbar({
               aria-pressed={device === option}
               onClick={() => onDeviceChange(option)}
               className={cn(
-                "grid h-7 w-7 place-items-center rounded-md",
+                cn("grid place-items-center rounded-md", size),
                 device === option
                   ? "bg-bg-float-raised text-fg-primary"
                   : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
@@ -115,7 +130,10 @@ export function CanvasToolbar({
         type="button"
         aria-label="Zoom out"
         onClick={onZoomOut}
-        className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "grid place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          size,
+        )}
       >
         <Minus size={14} />
       </button>
@@ -126,7 +144,10 @@ export function CanvasToolbar({
         type="button"
         aria-label="Zoom in"
         onClick={onZoomIn}
-        className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "grid place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          size,
+        )}
       >
         <Plus size={14} />
       </button>
@@ -140,9 +161,12 @@ export function CanvasToolbar({
         aria-label="Fit page width"
         title="Show the page at the width of the pane, from the top"
         onClick={onFit}
-        className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+        className={cn(
+          "grid place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          size,
+        )}
       >
-        <Maximize2 size={13} />
+        <MoveHorizontal size={13} />
       </button>
       {onReload && (
         <>
@@ -157,7 +181,8 @@ export function CanvasToolbar({
             }
             onClick={onReload}
             className={cn(
-              "grid h-7 w-7 place-items-center rounded-md hover:bg-bg-float-raised hover:text-fg-primary",
+              "grid place-items-center rounded-md hover:bg-bg-float-raised hover:text-fg-primary",
+              size,
               isRefreshing ? "text-fg-brand-primary" : "text-fg-secondary",
             )}
           >

@@ -1,5 +1,23 @@
 # @valbuild/server
 
+## 0.153.4
+
+### Patch Changes
+
+- Updated dependencies [[`9ab3038`](https://github.com/valbuild/val/commit/9ab30383bcc137cb69b17256fe23eb81bfec225f)]:
+  - @valbuild/ui@0.153.4
+
+## 0.153.3
+
+### Patch Changes
+
+- [#1036](https://github.com/valbuild/val/pull/1036) [`a5f9fb5`](https://github.com/valbuild/val/commit/a5f9fb5c96f5b675fb346232c7084926c8b07cf0) Thanks [@freekh](https://github.com/freekh)! - Publishing again before the site has redeployed no longer reverts what the previous publish changed in the same file.
+
+  A publish now renders its changes on top of everything published since the running build was made, not on top of the build's own text. Before, two publishes into the same `.val.ts` with no deploy in between produced a second commit that silently undid the first one's change. Val still lets you publish while a deployment is pending.
+
+- Updated dependencies [[`c957eb5`](https://github.com/valbuild/val/commit/c957eb5c5b010938b57fa475febdeae169b8831a)]:
+  - @valbuild/ui@0.153.3
+
 ## 0.153.2
 
 ### Patch Changes

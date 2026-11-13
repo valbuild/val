@@ -849,13 +849,34 @@ function pathInRemoteRef(ref: string): string | null {
  * `root` comes from the request (`val.config`'s `root`, e.g. `/examples/next`)
  * and `filePath` is module-relative, so the two have to be joined here rather
  * than baked into `REPO_ROOT`.
+ *
+ * AT `commitSha` when one is named, as home reads GitHub with `ref`: the
+ * initial commit is the working tree, a commit this mock made is its
+ * snapshot, and any other commit is not known. Reading the latest overlay
+ * whatever was asked is what hid a publish that patched the BUILD's text
+ * instead of the last published one (`e2e/http/publish.spec.ts`, "a second
+ * change publishes on top of the first commit").
  */
 async function readRepoFile(
   root: string,
   filePath: string,
+  commitSha?: string,
 ): Promise<{ value: string } | { error: string }> {
   const key = path.posix.join(root || "/", filePath);
-  const overlaid = state.repoOverlay.get(key);
+  let overlaid: OverlayValue | undefined;
+  if (commitSha === undefined) {
+    overlaid = state.repoOverlay.get(key);
+  } else if (
+    commitSha !== (process.env.MOCK_CONTENT_INITIAL_COMMIT ?? "mockcommit0")
+  ) {
+    const snapshot = state.snapshots.get(commitSha);
+    if (!snapshot) {
+      return {
+        error: `File not found at commit ${commitSha}: either the commit is unknown to GitHub (not pushed?) or the file does not exist at it`,
+      };
+    }
+    overlaid = snapshot.get(key);
+  }
   if (overlaid !== undefined) {
     if (overlaid === null) {
       return { error: `File was deleted by a commit: ${key}` };
@@ -1456,6 +1477,7 @@ const getFiles: Handler = async (req, res) => {
     const read = await readRepoFile(
       requested.root ?? body.root ?? "",
       requested.filePath,
+      requested.commitSha,
     );
     if ("error" in read) {
       errors.push({

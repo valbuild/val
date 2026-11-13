@@ -81,3 +81,36 @@ export function phoneSlideStyle(
       : undefined,
   };
 }
+
+/*
+ * Where a phone's panes start and end: below the top bar and above the pane
+ * bar, or -- in full screen, with no top bar and a smaller pane bar -- from
+ * the top of the screen down to just above that. Custom properties the
+ * Shell sets (`phoneInsets`), so everything that sits between the bars reads
+ * one answer and follows it into full screen: the Content card, the preview,
+ * the Assistant, the Sketch and Content's strip of switches.
+ *
+ * Each with what it is outside full screen as its fallback, so a pane drawn
+ * on its own, in a story, still clears bars that are not there.
+ */
+const SAFE_BOTTOM = "max(0.75rem, env(safe-area-inset-bottom))";
+const TOP_BELOW_BAR = "4.5rem";
+const BOTTOM_ABOVE_BAR = `calc(${SAFE_BOTTOM} + 4.25rem)`;
+/** Where a phone's pane starts. */
+export const PHONE_TOP = `var(--val-phone-top, ${TOP_BELOW_BAR})`;
+/** How far above the screen's bottom edge a phone's pane ends. */
+export const PHONE_BOTTOM = `var(--val-phone-bottom, ${BOTTOM_ABOVE_BAR})`;
+
+/** The custom properties behind {@link PHONE_TOP} and {@link PHONE_BOTTOM}. */
+export function phoneInsets(fullScreen: boolean): Record<string, string> {
+  return fullScreen
+    ? {
+        "--val-phone-top": "max(0.75rem, env(safe-area-inset-top))",
+        // The compact pane bar: 50px tall, and a gap above it.
+        "--val-phone-bottom": `calc(${SAFE_BOTTOM} + 3.75rem)`,
+      }
+    : {
+        "--val-phone-top": TOP_BELOW_BAR,
+        "--val-phone-bottom": BOTTOM_ABOVE_BAR,
+      };
+}

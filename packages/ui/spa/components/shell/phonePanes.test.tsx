@@ -7,6 +7,7 @@ import { mockCanvasPage } from "./canvas/mockCanvasPage";
 import { TooltipProvider } from "../designSystem/tooltip";
 import { ValPortalProvider } from "../ValPortalProvider";
 import { ValThemeProvider } from "../ValThemeProvider";
+import { PhonePaneBar } from "./workspace/PhonePaneBar";
 
 // The worker behind validation, which jest cannot load; nothing here validates.
 jest.mock("../../validation/schemaValidationBridge", () => ({
@@ -121,7 +122,8 @@ test("the panes are Content, Preview, Assistant, Sketch, side by side", () => {
     within(bar)
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label")),
-  ).toEqual(["Content", "Preview", "Assistant", "Sketch"]);
+    // And full screen at the end, which is not a pane.
+  ).toEqual(["Content", "Preview", "Assistant", "Sketch", "Full screen"]);
 
   // The sketch is in front; the assistant one pane to its left, out of reach.
   const assistant = document.querySelector(
@@ -156,4 +158,56 @@ test("the Assistant pane has no close button, and Escape leaves it open", () => 
   fireEvent.keyDown(window, { key: "Escape" });
   expect(paneShown("Assistant")).toBe("page");
   expect(screen.getByText("The conversation")).toBeTruthy();
+});
+
+/**
+ * Full screen: the top bar goes, the pane bar stays -- smaller -- with every
+ * pane still on it, and the panes reach up where the top bar was
+ * (`phoneInsets`). Left from the same button.
+ */
+test("full screen takes the top bar away and keeps every pane a tap away", () => {
+  render(shell());
+  const bar = screen.getByRole("navigation", { name: "Workspace panes" });
+  const fullScreen = within(bar).getByRole("button", { name: "Full screen" });
+  const root = screen
+    .getByRole("navigation", { name: "Workspace panes" })
+    .closest("[data-mode]");
+  if (!(root instanceof HTMLElement)) throw new Error("No shell");
+  expect(screen.getByRole("button", { name: "Open navigation" })).toBeTruthy();
+  expect(root.style.getPropertyValue("--val-phone-top")).toBe("4.5rem");
+
+  fireEvent.click(fullScreen);
+  expect(fullScreen.getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByRole("button", { name: "Open navigation" })).toBeNull();
+  expect(root.style.getPropertyValue("--val-phone-top")).not.toBe("4.5rem");
+  fireEvent.click(within(bar).getByRole("button", { name: "Assistant" }));
+  expect(paneShown("Assistant")).toBe("page");
+
+  fireEvent.click(fullScreen);
+  expect(fullScreen.getAttribute("aria-pressed")).toBe("false");
+  expect(screen.getByRole("button", { name: "Open navigation" })).toBeTruthy();
+  expect(root.style.getPropertyValue("--val-phone-top")).toBe("4.5rem");
+});
+
+/**
+ * What the avatar's dot says -- an error, a notification -- goes with the
+ * top bar in full screen, so the way out says it instead.
+ */
+test("in full screen, the way out says when something is waiting", () => {
+  const bar = (fullScreen: boolean) => (
+    <PhonePaneBar
+      shown="content"
+      panes={[{ pane: "content", onShow: () => undefined }]}
+      fullScreen={fullScreen}
+      onFullScreenChange={() => undefined}
+      attention
+    />
+  );
+  const view = render(bar(false));
+  const button = screen.getByRole("button", { name: "Full screen" });
+  expect(button.getAttribute("aria-description")).toBeNull();
+  view.rerender(bar(true));
+  expect(button.getAttribute("aria-description")).toBe(
+    "Something is waiting in your account",
+  );
 });

@@ -128,13 +128,15 @@ test.describe("the panes on a phone", () => {
     const normalGap = (await top(column)) - stripBottom;
     expected(normalGap);
 
-    // And the padding inside it is not a second clearance.
+    // And the padding inside it is not a second clearance: Content is a card
+    // like the other panes, and what is inside it is the card's own margin,
+    // no more than theirs.
     const paddingTop = await column.evaluate((node) =>
       parseFloat(
         getComputedStyle(node.firstElementChild as HTMLElement).paddingTop,
       ),
     );
-    expect(paddingTop).toBeLessThan(8);
+    expect(paddingTop).toBeLessThanOrEqual(16);
 
     await goTo(page, "On this page");
     const fieldsGap =

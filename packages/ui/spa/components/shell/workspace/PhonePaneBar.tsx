@@ -1,6 +1,8 @@
 import {
   Columns2,
   FileText,
+  Maximize2,
+  Minimize2,
   PencilRuler,
   Sparkles,
   type LucideIcon,
@@ -39,20 +41,38 @@ const PANE: Record<
  *
  * A pane that is not open yet opens when it is tapped: the Sketchpad, the
  * preview, the assistant.
+ *
+ * Full screen is its last button, whichever pane is in front, so it is
+ * entered and left from the same place. In full screen the top bar is gone
+ * and this is a small row of icons in the middle, with the way out at its
+ * end: every pane still one tap away, and nothing else on screen.
  */
 export function PhonePaneBar({
   panes,
   shown,
+  fullScreen,
+  onFullScreenChange,
+  attention = false,
 }: {
   panes: PhonePaneButton[];
   /** The pane on screen. */
   shown: WorkspacePane;
+  fullScreen: boolean;
+  onFullScreenChange: (fullScreen: boolean) => void;
+  /**
+   * Something waits in the account: an error, a notification. The top bar
+   * says so with a dot on the avatar, and full screen hides the top bar, so
+   * the way out carries the dot instead.
+   */
+  attention?: boolean;
 }) {
+  const waiting = fullScreen && attention;
   return (
     <nav
       aria-label="Workspace panes"
       className={cn(
-        "fixed inset-x-3 z-window flex items-stretch gap-1 rounded-xl border border-border-float bg-bg-float p-1 shadow-lg",
+        "fixed z-window flex items-stretch gap-1 rounded-xl border border-border-float bg-bg-float p-1 shadow-lg",
+        fullScreen ? "left-1/2 -translate-x-1/2" : "inset-x-3",
         // Clear of the home indicator, as the bar it replaces was.
         "bottom-[max(0.75rem,env(safe-area-inset-bottom))]",
       )}
@@ -66,26 +86,65 @@ export function PhonePaneBar({
             type="button"
             aria-current={active ? "page" : undefined}
             aria-label={label}
+            title={fullScreen ? label : undefined}
             data-val-tour={tour}
             onClick={onShow}
             className={cn(
-              "relative flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-[0.6875rem] font-medium",
+              "relative flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[0.6875rem] font-medium",
+              fullScreen ? "h-10 w-10" : "h-12 flex-1",
               active
                 ? "bg-bg-float-raised text-fg-primary"
                 : "text-fg-secondary hover:text-fg-primary",
             )}
           >
             <Icon size={18} aria-hidden />
-            <span className="truncate">{label}</span>
+            {!fullScreen && <span className="truncate">{label}</span>}
             {changed && !active && (
               <span
                 aria-hidden
-                className="absolute right-3 top-1.5 h-2 w-2 rounded-full bg-bg-brand-primary"
+                className={cn(
+                  "absolute h-2 w-2 rounded-full bg-bg-brand-primary",
+                  fullScreen ? "right-1.5 top-1.5" : "right-3 top-1.5",
+                )}
               />
             )}
           </button>
         );
       })}
+      <div aria-hidden className="my-1.5 w-px shrink-0 bg-border-float" />
+      <button
+        type="button"
+        aria-label="Full screen"
+        aria-pressed={fullScreen}
+        aria-description={
+          waiting ? "Something is waiting in your account" : undefined
+        }
+        title={
+          waiting
+            ? "Leave full screen: something is waiting in your account"
+            : fullScreen
+              ? "Leave full screen"
+              : "Full screen"
+        }
+        onClick={() => onFullScreenChange(!fullScreen)}
+        className={cn(
+          "relative flex shrink-0 items-center justify-center rounded-lg text-fg-secondary hover:text-fg-primary",
+          fullScreen ? "h-10 w-10" : "h-12 w-10",
+        )}
+      >
+        {fullScreen ? (
+          <Minimize2 size={16} aria-hidden />
+        ) : (
+          <Maximize2 size={16} aria-hidden />
+        )}
+        {waiting && (
+          <span
+            aria-hidden
+            // The same dot as on the avatar it stands in for.
+            className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-fg-primary ring-2 ring-bg-float"
+          />
+        )}
+      </button>
     </nav>
   );
 }
