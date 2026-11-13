@@ -755,7 +755,7 @@ export class ValOpsMemory extends ValOps {
   }> {
     const uploaded: string[] = [];
     const errors: Record<string, GenericErrorMessage> = {};
-    const project = this.options?.config.project;
+    const project = Internal.valProject(this.options?.config);
     const descriptors = Object.entries(
       preparedCommit.patchedBinaryFilesDescriptors,
     );

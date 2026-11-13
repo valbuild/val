@@ -1,5 +1,5 @@
 import { APP_MODE_REQUIRES_REMOTE_FILES, safeReadGit } from "@valbuild/server";
-import type { ValConfig } from "@valbuild/core";
+import { Internal, type ValConfig } from "@valbuild/core";
 import fs from "fs";
 import path from "path";
 import { findAndEvalValConfigFile } from "../utils/evalValConfigFile";
@@ -181,7 +181,7 @@ export async function runPublish(
   if (refusal !== null) {
     return { status: "error", message: refusal };
   }
-  const project = config?.project ?? env.VAL_PROJECT ?? null;
+  const project = Internal.valProjectOf(config, env) ?? null;
   const credential = await resolvePublishCredential({
     root,
     project,

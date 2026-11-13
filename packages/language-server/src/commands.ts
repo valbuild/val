@@ -21,6 +21,7 @@ import fs from "fs";
 import path from "path";
 import {
   DEFAULT_CONTENT_HOST,
+  Internal,
   DEFAULT_VAL_REMOTE_HOST,
   type ModuleFilePath,
   type SourcePath,
@@ -281,10 +282,10 @@ export function createValCommands(deps: ValCommandDeps): {
       const config = await findAndEvalValConfigFile(project.valRoot).catch(
         () => null,
       );
-      projectName = config?.project;
+      projectName = Internal.valProjectOf(config, process.env);
       if (!projectName) {
         connection.window.showErrorMessage(
-          "Val: no `project` in val.config, so there is nowhere to upload to.",
+          "Val: no `project` in val.config (or VAL_PROJECT), so there is nowhere to upload to.",
         );
         return;
       }
