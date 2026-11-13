@@ -366,3 +366,45 @@ describe("the publish gate", () => {
     system.dispose();
   });
 });
+
+/**
+ * The same wait, without a publish after it: code mode on the site saves
+ * every local edit before content moves the site's pending changes into the
+ * site-code proposal, and a move takes only what the server has.
+ */
+describe("saving everything first, for code mode on the site", () => {
+  it("answers nothing left once the edits are on the server", async () => {
+    const { system, saved } = makeSystem();
+    const made = await edit(system, "typed just now");
+    expect(await system.saveUnsaved()).toEqual([]);
+    expect(saved.flat()).toContain(
+      made.status === "created" ? made.record.patchId : null,
+    );
+    system.dispose();
+  });
+
+  it("answers the edits a stuck save could not get up, as soon as it is stuck", async () => {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `site-code-stuck-${++next}` as PatchId;
+      })(),
+      // Long, so an answer inside the test's own timeout can only have come
+      // from the failure and not from the backstop.
+      saveFlushTimeoutMs: 60_000,
+      savePatches: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { status: "network-error", message: "offline" };
+      },
+    });
+    system.host.receive(project());
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    const made = await edit(system, "an unsaveable value");
+    expect(await system.saveUnsaved()).toEqual([
+      made.status === "created" ? made.record.patchId : null,
+    ]);
+    system.dispose();
+  });
+});

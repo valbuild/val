@@ -3,6 +3,7 @@ import {
   createProposalsClient,
   meansNoProposals,
   sameStudioPageAt,
+  siteCodeRefusalOf,
   toSummary,
   type ProposalJson,
 } from "./proposalsClient";
@@ -528,5 +529,69 @@ describe("code mode and Commit", () => {
     ]);
     const client = createProposalsClient({ api: "/api/val", fetchImpl });
     expect((await client.get(NAME)).codeMode).toBeUndefined();
+  });
+});
+
+describe("code mode on the site", () => {
+  test("the list says whether `</>` opens it, and older content says nothing, which is no", async () => {
+    const { fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: { proposals: [], siteUrl: null, siteCodeMode: true },
+      },
+      { status: 200, body: { proposals: [], siteUrl: null } },
+    ]);
+    const client = createProposalsClient({ api: "", fetchImpl });
+    expect((await client.list()).siteCodeMode).toBe(true);
+    expect((await client.list()).siteCodeMode).toBe(false);
+  });
+
+  test("is opened as a create of the site-code kind, with no changes named", async () => {
+    const { sent, fetchImpl } = fakeFetch([
+      { status: 200, body: { proposal: json({ kind: "site-code" }) } },
+    ]);
+    const made = await createProposalsClient({
+      api: "/api/val",
+      fetchImpl,
+    }).openSiteCode({
+      displayName: "Code changes to the site",
+      requestId: "r1",
+    });
+    expect(sent).toEqual([
+      {
+        url: "/api/val/proposals-api",
+        method: "POST",
+        body: {
+          displayName: "Code changes to the site",
+          requestId: "r1",
+          kind: "site-code",
+        },
+      },
+    ]);
+    expect(toSummary(made, null, () => null).siteCode).toBe(true);
+    expect(toSummary(json(), null, () => null).siteCode).toBeUndefined();
+  });
+
+  test("a refusal says whether it is turned off or the site is publishing; anything else is neither", async () => {
+    const refused = async (status: number, body: unknown) => {
+      const { fetchImpl } = fakeFetch([{ status, body }]);
+      return createProposalsClient({ api: "", fetchImpl })
+        .openSiteCode({ displayName: "x", requestId: "r" })
+        .then(
+          () => null,
+          (error: unknown) => siteCodeRefusalOf(error),
+        );
+    };
+    expect(
+      await refused(403, {
+        message: "turned off",
+        details: { code: "site-code-mode-off" },
+      }),
+    ).toBe("off");
+    expect(
+      await refused(409, { message: "busy", details: { code: "publishing" } }),
+    ).toBe("publishing");
+    expect(await refused(500, { message: "down" })).toBeNull();
+    expect(siteCodeRefusalOf(new Error("not content's"))).toBeNull();
   });
 });

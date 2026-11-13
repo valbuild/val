@@ -243,6 +243,15 @@ export type System = HostRealm &
       options?: PublishOptions,
     ): Promise<PublishResult>;
     /**
+     * Get every local edit onto the server, and answer the ones that could
+     * not get there. Waits on the write queue until it drains or the sync
+     * calls the save stuck (`isSaveStuck`), the same wait Publish makes
+     * before it decides. Code mode on the site makes it before it moves the
+     * site's pending changes into the site-code proposal: a move takes only
+     * what the server has.
+     */
+    saveUnsaved(): Promise<PatchId[]>;
+    /**
      * Validate every loaded module, announcing start and finish.
      *
      * A second call while one is running is a no-op rather than a queue: the
@@ -1323,6 +1332,38 @@ export function createSystem(options: SystemOptions): System {
     return snapshot;
   }
 
+  /**
+   * Wait for the write queue to drain, bounded by FAILURE (see the comment
+   * in `publish`, which this was written for).
+   */
+  const waitForSave = async (): Promise<void> => {
+    if (!isSaveStuck(patchSync.currentState())) {
+      let stopWaiting = () => {};
+      await Promise.race([
+        patchSync.flush().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(
+            resolve,
+            options.saveFlushTimeoutMs ?? SAVE_FLUSH_TIMEOUT_MS,
+          );
+          // Node keeps the process alive for a pending timer; nothing here
+          // needs it to.
+          if (typeof timer === "object" && "unref" in timer) {
+            timer.unref();
+          }
+          const off = patchSync.events.on("patch:sync-state", (event) => {
+            if (isSaveStuck(event.state)) resolve();
+          });
+          stopWaiting = () => {
+            clearTimeout(timer);
+            off();
+          };
+        }),
+      ]);
+      stopWaiting();
+    }
+  };
+
   return {
     checkCodeNow: () => manifest.refresh(),
     onInStep: (listener) => manifest.onInStep(listener),
@@ -1342,6 +1383,13 @@ export function createSystem(options: SystemOptions): System {
     async findReferences(query) {
       await rescanReferences();
       return referenceStore.find(query);
+    },
+    async saveUnsaved() {
+      // A system with no save seam holds patches that are local by
+      // definition: nothing could ever get them up, so none is waited on.
+      if (options.savePatches === undefined) return [];
+      if (patchStore.unsavedRecords().length > 0) await waitForSave();
+      return patchStore.unsavedRecords().map((record) => record.patchId);
     },
     async referenceAt(path) {
       await rescanReferences();
@@ -1483,31 +1531,7 @@ export function createSystem(options: SystemOptions): System {
            * The timer is left only as a backstop for a request that never
            * answers at all, which no state change would ever report.
            */
-          if (!isSaveStuck(patchSync.currentState())) {
-            let stopWaiting = () => {};
-            await Promise.race([
-              patchSync.flush().catch(() => undefined),
-              new Promise<void>((resolve) => {
-                const timer = setTimeout(
-                  resolve,
-                  options.saveFlushTimeoutMs ?? SAVE_FLUSH_TIMEOUT_MS,
-                );
-                // Node keeps the process alive for a pending timer; nothing here
-                // needs it to.
-                if (typeof timer === "object" && "unref" in timer) {
-                  timer.unref();
-                }
-                const off = patchSync.events.on("patch:sync-state", (event) => {
-                  if (isSaveStuck(event.state)) resolve();
-                });
-                stopWaiting = () => {
-                  clearTimeout(timer);
-                  off();
-                };
-              }),
-            ]);
-            stopWaiting();
-          }
+          await waitForSave();
         }
         // Only where a save is possible at all. A system with no save seam holds
         // patches that are local by definition — there is nothing to wait for,

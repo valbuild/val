@@ -85,9 +85,20 @@ export const InAProposal: StoryObj = {
   render: () => <Interactive where={IN_PROPOSAL} />,
 };
 
-/** On the site: nothing to turn on, so the button chooses a proposal. */
+/**
+ * On the site, where the project turned code mode on the site off: the
+ * button chooses a proposal.
+ */
 export const OnTheSite: StoryObj = {
   render: () => <Interactive where={{ kind: "site" }} />,
+};
+
+/**
+ * On the site, where the project lets `</>` change the site's code (the
+ * default): the button turns on the site's own code mode.
+ */
+export const OnTheSiteWithSiteCode: StoryObj = {
+  render: () => <Interactive where={{ kind: "site", siteCode: true }} />,
 };
 
 const still = (state: CodeModeRequest["state"]): StoryObj => ({
