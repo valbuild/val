@@ -1,7 +1,11 @@
 import path from "path";
 import picocolors from "picocolors";
 import { glob } from "fast-glob";
-import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
+import {
+  DEFAULT_CONTENT_HOST,
+  DEFAULT_VAL_REMOTE_HOST,
+  Internal,
+} from "@valbuild/core";
 import { getSettings, uploadRemoteFile } from "@valbuild/server";
 import { formatFixedFiles } from "./formatFixedFiles";
 import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
@@ -120,10 +124,10 @@ export async function validateOnce({
   const resolvedValConfigFile = valConfigFile
     ? {
         ...valConfigFile,
-        project: process.env.VAL_PROJECT || valConfigFile.project,
+        project: Internal.valProjectOf(valConfigFile, process.env),
       }
-    : process.env.VAL_PROJECT
-      ? { project: process.env.VAL_PROJECT }
+    : Internal.valProjectOf(undefined, process.env)
+      ? { project: Internal.valProjectOf(undefined, process.env) }
       : undefined;
 
   console.log(

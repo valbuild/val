@@ -1321,15 +1321,16 @@ export class ValOpsFS extends ValOps {
           };
           continue;
         }
-        if (!this.options?.config.project) {
+        const project = Internal.valProject(this.options?.config);
+        if (!project) {
           errors[ref] = {
-            message: "No project found in config",
+            message: "No project: set `project` in val.config, or VAL_PROJECT",
           };
           continue;
         }
         const res = await uploadRemoteFile(
           this.contentUrl,
-          this.options.config.project,
+          project,
           splitRemoteRefRes.bucket,
           splitRemoteRefRes.fileHash,
           getFileExt(splitRemoteRefRes.filePath),

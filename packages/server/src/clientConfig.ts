@@ -73,14 +73,16 @@ export function clientConfig(options: ClientConfigSource): ValConfig {
  * in `ValProvider`), so a project named only in the environment would have
  * had it hidden while the server behind it was ready to serve it.
  *
- * `val.config` wins, as it does for the branch, and every mode gets it: unlike
- * a branch, a project means the same thing in fs mode as in http mode.
+ * The resolved project wins (`VAL_PROJECT`, else `val.config`: see
+ * `valProject.ts` in core), so the Studio names the project the server talks
+ * to. Every mode gets it: unlike a branch, a project means the same thing in
+ * fs mode as in http mode.
  */
 function withResolvedProject(
   config: ValConfig,
   project: string | undefined,
 ): ValConfig {
-  if (config.project !== undefined || project === undefined) {
+  if (project === undefined || project === config.project) {
     return config;
   }
   return { ...config, project };
