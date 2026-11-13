@@ -4,3 +4,10 @@ export { ValRichText } from "./ValRichText";
 // the sources, `layered`, `resolveVal`. Not for apps: what the framework
 // packages share, and nothing an app should import.
 export * from "../read";
+export {
+  findValModule,
+  resolveValComponentPreview,
+  ValPreviewMessage,
+  type ValComponentPreviewResolution,
+} from "./componentPreview";
+export { ValPreviewBridgeCore } from "./ValPreviewBridgeCore";

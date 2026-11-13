@@ -1,4 +1,5 @@
-import type { SerializedSchema } from "./schema";
+import type { Schema, SerializedSchema } from "./schema";
+import type { SelectorSource } from "./selector";
 
 /**
  * THE RULE, and the only sentence that needs to be remembered:
@@ -30,10 +31,12 @@ import type { SerializedSchema } from "./schema";
  * A RENDER is how a field is laid out in the editor, and it applies only when
  * you are looking at the field. On a list it is declared by the CONTAINER about
  * its children, never by a child about itself: `s.array(item).render({ as: "inline" })`
- * and `s.record(item).render({ as: "inline" })`. Two other schemas take a
+ * and `s.record(item).render({ as: "inline" })`. Three other schemas take a
  * render, each meaning something of its own: `s.keyOf(...)` (see
- * `KeyOfSchema.render`) and `s.number()` / `s.int()`, whose `{ as: "slider" }`
- * is a different input for the same value (see {@link SliderRender}).
+ * `KeyOfSchema.render`), `s.number()` / `s.int()`, whose `{ as: "slider" }`
+ * is a different input for the same value (see {@link SliderRender}), and -
+ * EXPERIMENTAL - `s.object(...)`, whose `{ as: "component" }` names the
+ * component that renders it on the site (see {@link ComponentRender}).
  *
  * Why the container: inline is a property of the LIST — "my items are edited in
  * their rows" — and the item schema is the wrong place to say it. An item can be
@@ -145,4 +148,168 @@ export function isInlineRender(container: SerializedSchema): boolean {
     return false;
   }
   return container.render?.as === "inline";
+}
+
+/**
+ * EXPERIMENTAL. A React (or any) component, typed loosely because core knows
+ * nothing about React. `never` in the parameter position accepts a component
+ * of any props, since parameters are contravariant.
+ */
+export type ValComponent = (props: never) => unknown;
+
+/**
+ * What the `component` thunk of a {@link ComponentRender} resolves to: the
+ * component itself, or a module whose default export is the component.
+ */
+export type ValComponentImport = ValComponent | { default: ValComponent };
+
+/**
+ * EXPERIMENTAL. `{ as: "component", component, example? }` on `s.object(...)`:
+ * the component that renders this object on the site, so the Studio can show
+ * it, rendered by the app, next to the fields of the object being edited.
+ *
+ * Unlike every other render this one holds a CLOSURE - the `component` thunk -
+ * so, exactly like a preview, only a marker travels in the serialized schema
+ * ({@link SerializedComponentRender}) and the component is rendered by the
+ * host app, which has the schema instance.
+ *
+ * `component` is a lazy `import()` rather than the component itself. A
+ * `.val.ts` may not import app code (`@valbuild/eslint-plugin`'s
+ * `no-illegal-imports`), because Val evaluates val files outside of the app -
+ * `val validate`, the language server and the Studio all do - and a component
+ * pulls in CSS, images and framework code none of those can load. A thunk is
+ * never called there, so the component's file is never loaded either.
+ *
+ * `example` is content to preview the component with that is not on the site:
+ * a fixture, and a good place for deliberately unrepresentative values (very
+ * long titles, empty lists) that make layout problems easy to spot.
+ */
+export type ComponentRender<Src> = {
+  as: "component";
+  component: () => Promise<ValComponentImport>;
+  example?: Src;
+  /**
+   * The widest the component is shown, in CSS pixels. The preview is the
+   * component's whole viewport, so this is also the width its media queries
+   * see: a card designed for a 400px column says `maxWidth: 400` and is not
+   * stretched across the editor.
+   *
+   * Without it the preview is as wide as there is room for.
+   */
+  maxWidth?: number;
+  /**
+   * Width divided by height, e.g. `16 / 9`, for a component that fills the
+   * space it is given rather than having a height of its own - a full-bleed
+   * hero, a background video. The preview is then that shape.
+   *
+   * Without it the preview is as tall as what the component renders.
+   */
+  aspectRatio?: number;
+  /**
+   * How the Studio shows the value to begin with: `"preview"` (the component
+   * alone), `"content"` (the fields alone) or `"split"` (the two side by side).
+   * Split starts on a phone-wide preview, which leaves the fields the most
+   * room, and pressing Split again moves to an iPad and then a desktop, scaled
+   * down to fit. The editor can switch on the field.
+   *
+   * Defaults to `"split"`.
+   */
+  defaultView?: ComponentView;
+};
+
+/** How the Studio shows a value that has a component. See {@link ComponentRender}. */
+export type ComponentView = "preview" | "content" | "split";
+
+/**
+ * What a {@link ComponentRender} serializes to. The component is a closure and
+ * cannot travel; `example` says whether there is one to preview with. The
+ * sizes are plain numbers and travel whole: the Studio lays the preview out
+ * with them.
+ */
+export type SerializedComponentRender = {
+  as: "component";
+  example?: true;
+  maxWidth?: number;
+  aspectRatio?: number;
+  defaultView?: ComponentView;
+};
+
+/**
+ * The messages between the Studio and the host app's preview route, which run
+ * in different frames. Both sides read them from here so they cannot drift.
+ *
+ * - `ready`: preview to Studio. The preview is listening; tell it whether
+ *   clicking picks.
+ * - `refresh`: Studio to preview. The content changed; render it again.
+ * - `size`: preview to Studio, with `{ height }`. What the component rendered
+ *   is this tall, so the Studio can size the frame to fit it.
+ * - `picking`: Studio to preview, with `{ enabled }`. Whether a click on
+ *   content picks the field it came from, rather than doing what a click on
+ *   the site does.
+ * - `pick`: preview to Studio, with `{ paths }`. The editor clicked content
+ *   with these source paths behind it (from its `data-val-path`).
+ */
+export const VAL_PREVIEW_MESSAGES: {
+  ready: "val-preview-ready";
+  refresh: "val-preview-refresh";
+  size: "val-preview-size";
+  picking: "val-preview-picking";
+  pick: "val-preview-pick";
+} = {
+  ready: "val-preview-ready",
+  refresh: "val-preview-refresh",
+  size: "val-preview-size",
+  picking: "val-preview-picking",
+  pick: "val-preview-pick",
+};
+
+/**
+ * Throws, where the schema is defined, on sizes no preview could be laid out
+ * with - the same place the slider's range is checked, and for the same
+ * reason: a mistake here is a developer's, and the definition is where they
+ * can see it.
+ */
+export function assertComponentRenderIsConsistent(
+  render: ComponentRender<unknown>,
+): void {
+  const views: ComponentView[] = ["preview", "content", "split"];
+  if (
+    render.defaultView !== undefined &&
+    !views.some((view) => view === render.defaultView)
+  ) {
+    throw new Error(
+      `render({ as: "component" }): defaultView must be one of ${views.join(", ")}, got ${String(render.defaultView)}`,
+    );
+  }
+  for (const key of ["maxWidth", "aspectRatio"] as const) {
+    const value = render[key];
+    if (value !== undefined && !(Number.isFinite(value) && value > 0)) {
+      throw new Error(
+        `render({ as: "component" }): ${key} must be a positive number, got ${value}`,
+      );
+    }
+  }
+}
+
+/**
+ * EXPERIMENTAL: the component that renders a value of `schema` whose source is
+ * `src`, or `null` when there is none. A discriminated union answers for the
+ * variant `src` takes, which is what a list of page sections needs.
+ */
+export function getComponentRender(
+  schema: Schema<SelectorSource>,
+  src: unknown,
+): ComponentRender<unknown> | null {
+  return schema["executeComponentRender"](src);
+}
+
+/**
+ * EXPERIMENTAL: call a {@link ComponentRender}'s thunk and unwrap a module's
+ * default export.
+ */
+export async function loadComponent(
+  render: ComponentRender<unknown>,
+): Promise<ValComponent> {
+  const imported = await render.component();
+  return typeof imported === "function" ? imported : imported.default;
 }

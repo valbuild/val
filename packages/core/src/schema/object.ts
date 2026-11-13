@@ -14,6 +14,11 @@ import {
   PreviewScope,
   mergePreviewInto,
 } from "../preview";
+import {
+  assertComponentRenderIsConsistent,
+  ComponentRender,
+  SerializedComponentRender,
+} from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -36,6 +41,8 @@ export type SerializedObjectSchema = {
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
+  /** EXPERIMENTAL. See {@link ComponentRender}. */
+  render?: SerializedComponentRender;
 };
 
 type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
@@ -83,6 +90,9 @@ export class ObjectSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly renderInput: ComponentRender<
+      NonNullable<Src>
+    > | null = null,
   ) {
     super();
   }
@@ -118,6 +128,7 @@ export class ObjectSchema<
       this.isHidden,
       description ?? undefined,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -158,6 +169,7 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -310,6 +322,7 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -322,6 +335,7 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -334,6 +348,7 @@ export class ObjectSchema<
       isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -394,7 +409,60 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       select,
+      this.renderInput,
     );
+  }
+
+  /**
+   * EXPERIMENTAL: the component that renders this object on the site, so the
+   * Studio can show it next to the fields while they are edited.
+   *
+   * `component` is a lazy `import()`, never the component itself: a `.val.ts`
+   * is evaluated outside of the app, where a component's CSS, images and
+   * framework code cannot be loaded. See {@link ComponentRender}.
+   *
+   * `example` is content that is not on the site, to preview with as well:
+   * long titles and empty lists that make layout problems easy to spot.
+   *
+   * `maxWidth` caps how wide the preview is (and so what the component's
+   * media queries see), and `aspectRatio` gives a component that fills its
+   * space a shape. Without them the preview is as wide as the editor and as
+   * tall as the component.
+   *
+   * `defaultView` is how the Studio shows the value to begin with: the
+   * component (`"preview"`), the fields (`"content"`) or both (`"split"`, the
+   * default).
+   *
+   * @example
+   * const hero = s
+   *   .object({ title: s.string() })
+   *   .render({
+   *     as: "component",
+   *     component: () => import("./HeroSection"),
+   *     example: { title: "A very long title that should wrap nicely" },
+   *     maxWidth: 1200,
+   *   });
+   * export default c.define("/example.val.ts", s.array(hero), []);
+   */
+  render(input: ComponentRender<NonNullable<Src>>): ObjectSchema<Props, Src> {
+    assertComponentRenderIsConsistent(input);
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.previewInput,
+      input,
+    );
+  }
+
+  protected override executeComponentRender(
+    src: unknown,
+  ): ComponentRender<unknown> | null {
+    void src;
+    return this.renderInput;
   }
 
   protected override executePreviewItem(
@@ -427,6 +495,20 @@ export class ObjectSchema<
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
+      // Absent rather than `undefined` when there is none, so an object
+      // without a component serializes exactly as it did before there was one.
+      ...(this.renderInput
+        ? {
+            render: {
+              as: "component",
+              example:
+                this.renderInput.example !== undefined ? true : undefined,
+              maxWidth: this.renderInput.maxWidth,
+              aspectRatio: this.renderInput.aspectRatio,
+              defaultView: this.renderInput.defaultView,
+            },
+          }
+        : {}),
     };
   }
 

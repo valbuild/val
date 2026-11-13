@@ -61,6 +61,8 @@ export default modules(config, [
   { def: () => import("./content/lists.val") },
   // A plain router read from a SERVER component — see app/notes/[note]/page.val.ts.
   { def: () => import("./app/notes/[note]/page.val") },
+  // EXPERIMENTAL: pages of sections that render with `{ as: "component" }`.
+  { def: () => import("./content/pages.val") },
   // A gallery backed by Val's remote file host, when it is switched on. See
   // `remoteMedia` above, and content/remoteImages.val.ts for why this is a
   // gallery rather than a single remote image field.

@@ -76,6 +76,82 @@ value that breaks a RULE is a validation error like any other, with a "Round
 to" next to it. Both offer a value from `Internal.number.nearestAllowedNumber`,
 the validator's own arithmetic, so the button never leads back to the error.
 
+## A component is a render (EXPERIMENTAL)
+
+```ts
+const hero = s.object({ type: s.literal("hero"), title: s.string() }).render({
+  as: "component",
+  component: () => import("../components/HeroSection"),
+  example: { type: "hero", title: "A very long title" },
+});
+```
+
+The component that renders an object on the site, so the Studio can show it,
+rendered by the app in an iframe, next to the object's fields. It is the one
+render that holds a CLOSURE, so it is plumbed like a preview, not like the
+other renders: the serialized schema carries only a marker
+(`{ as: "component", example?: true, maxWidth?, aspectRatio? }`), and the host
+app, which has the schema instance, renders the component
+(`getComponentRender` in `core/src/render.ts`). A discriminated union
+answers for the variant its value takes, so a list of sections needs nothing
+on the list itself.
+
+The app renders it on a route of its own that the Studio loads in a frame,
+`/val-preview?p=<source path>` (hard-coded in `ComponentPreview.tsx` for
+now). Finding the component and its props is shared,
+`resolveValComponentPreview` in `@valbuild/react/internal`, and each binding
+renders it its own way:
+
+- **Next**: `unstable_renderValComponent` in a Server Component, which reads
+  with the app's `fetchVal`; a refresh is `router.refresh()`.
+- **TanStack**: the loader reads the module through a server function
+  (`unstable_fetchValPreviewSource` from `@valbuild/tanstack/server`), and
+  `Unstable_ValComponentPreview` finds and renders the component in the
+  browser; a refresh is `router.invalidate()`. The route is `ssr: false` and
+  outside `_site`: under the site's `ValProvider` the frame would be taken for
+  the Studio's canvas (any frame inside the Studio is, see
+  `isValCanvasFrame`), and the edit tags are only switched on in the browser.
+
+Both wrap it in `ValPreviewBridge` (the shared `ValPreviewBridgeCore`, in its
+own `"use client"` file so a Server Component can import the resolver).
+
+`maxWidth` and `aspectRatio` are plain numbers, so unlike the component they
+travel whole, and the Studio lays the frame out with them. `maxWidth` caps the
+frame, which is the component's whole viewport, so it is also the width its
+media queries see. Without `aspectRatio` the frame is as tall as the component:
+the preview route wraps its output in `ValPreviewBridge`, which reports the
+height whenever it changes (`VAL_PREVIEW_MESSAGES` in `render.ts`), because the
+Studio cannot see into the frame to measure it.
+
+In the Studio the field itself carries the switch: Preview, Content or Split,
+starting from the render's `defaultView` (`"split"` when it has none).
+`AnyField` wraps an object or union field that has a component in
+`ComponentField` (`ComponentPreview.tsx`), so it works on the value being
+navigated to and on an object field inside it alike, but not in an inline
+row, which has no room for a frame. Split starts on a phone-wide frame, which
+leaves the fields the most room; pressing Split again moves to an iPad and
+then a desktop. A screen wider than the room is laid out at its own width and
+scaled down, so the component's media queries see the screen, not the
+column.
+
+Clicking content in the preview opens its field, and is on by default (a
+toggle on the field turns it off, so links and buttons in the component work
+as on the site). It is the canvas's mechanism in a smaller frame: the preview
+loads through `/api/val/enable`, so it renders draft content with stega,
+`autoTagJSX` tags the elements with `data-val-path`, and `ValPreviewBridge`
+turns a click on one into a `pick` message. The Studio switches to Split and
+scrolls to the field and focuses its input - without navigating, which would
+remount the field and start it over from its `defaultView`. A value that is
+not a field of its own (an item of a list of strings) scrolls to the nearest
+field above it and focuses nothing, rather than guessing an input.
+
+`component` is a lazy `import()` and never the component. Val evaluates
+`.val.ts` files outside of the app — `val validate` and the language server in
+`node:vm`, the Studio in a rolldown Worker — and a component pulls in CSS,
+images, `next/*` and `server-only`, none of which those can load. A thunk is
+never called there, so the component's file is never loaded, and
+`no-illegal-imports` (which checks only static imports) has nothing to say.
+
 ## Where they meet: a list row, and the render wins
 
 A list row is the one place both have a claim, because a row is where a value

@@ -48,3 +48,7 @@ export type {
   ValOAuthConfig,
   ValToolImpl,
 } from "@valbuild/mcp";
+export {
+  unstable_fetchValPreviewSource,
+  type ValPreviewSource,
+} from "./fetchValPreviewSource";

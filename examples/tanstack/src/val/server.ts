@@ -3,6 +3,7 @@ import {
   initValContent,
   createPrettierFormatter,
   type ValAnalytics,
+  unstable_fetchValPreviewSource,
 } from "@valbuild/tanstack/server";
 import prettier from "prettier";
 import { config } from "../../val.config";
@@ -59,7 +60,16 @@ const fetchValAnalytics = async (): Promise<ValAnalytics> => {
   };
 };
 
+/**
+ * EXPERIMENTAL: the content `src/routes/val-preview.tsx` previews a section
+ * with: the module the source path is in, read the way the site reads it, so
+ * an editor gets the draft, with edit tags.
+ */
+const fetchValPreviewSource = (sourcePath: string) =>
+  unstable_fetchValPreviewSource({ valModules, fetchVal, sourcePath });
+
 export {
+  fetchValPreviewSource,
   valApiHandler,
   draftMode,
   fetchVal,

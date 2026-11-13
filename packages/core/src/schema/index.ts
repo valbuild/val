@@ -30,6 +30,7 @@ import {
 import { FileSource } from "../source/media";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
 import { ReifiedPreview, PreviewScope, PreviewItem } from "../preview";
+import { ComponentRender } from "../render";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -527,6 +528,17 @@ export abstract class Schema<Src extends SelectorSource> {
   protected executePreviewItem(src: NonNullable<Src>): PreviewItem | null {
     // Default for schemas without a closure; every class that stores a
     // `previewInput` overrides both this and {@link declaresItemPreview}.
+    void src;
+    return null;
+  }
+  /**
+   * EXPERIMENTAL: the component that renders this value, for a value whose
+   * source is `src`. Only `s.object(...).render({ as: "component" })` declares
+   * one; a discriminated union answers for the variant `src` takes.
+   */
+  protected executeComponentRender(
+    src: unknown,
+  ): ComponentRender<unknown> | null {
     void src;
     return null;
   }
