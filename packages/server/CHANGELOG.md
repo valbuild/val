@@ -1,5 +1,15 @@
 # @valbuild/server
 
+## 0.153.5
+
+### Patch Changes
+
+- [#1037](https://github.com/valbuild/val/pull/1037) [`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d) Thanks [@freekh](https://github.com/freekh)! - The assistant's default model is now chosen by Val Build, not built into the Studio, so it can change for every project without a Val upgrade. It starts on the newest Claude Sonnet the project's Anthropic key can reach, or, with only an OpenAI key, the newest GPT of OpenAI's balanced tier (such as `gpt-6.1-sol`). A model an editor has picked themselves is still remembered and still wins. The built-in fallback catalog, used only when the models cannot be listed, now offers the Claude 5.5 models.
+- Updated dependencies [[`0176db3`](https://github.com/valbuild/val/commit/0176db30d8d621002cf72025b063b6f62b79b00d), [`aa26301`](https://github.com/valbuild/val/commit/aa26301afae68d31f37341b84ee3fd23ee532b45), [`6b3f4c5`](https://github.com/valbuild/val/commit/6b3f4c53ad51a86027654f64da5fb332f40df37f), [`f488c90`](https://github.com/valbuild/val/commit/f488c907fc3f22a33d64ea7ac36f513c405389a2)]:
+  - @valbuild/ui@0.153.5
+  - @valbuild/shared@0.153.5
+  - @valbuild/core@0.153.5
+
 ## 0.153.4
 
 ### Patch Changes
