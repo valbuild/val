@@ -2,15 +2,9 @@ import { useCallback } from "react";
 import { ModuleFilePath } from "@valbuild/core";
 import { useWriteSettingsSection } from "./useWriteSettingsSection";
 
-/** The assistant's fields, in the order a new section is written with. */
-export const ASSISTANT_FIELDS = [
-  "enabled",
-  "context",
-  "tone",
-  "webSearch",
-] as const;
+import { ASSISTANT_FIELDS, type AssistantField } from "./assistantFields";
 
-export type AssistantField = (typeof ASSISTANT_FIELDS)[number];
+export { ASSISTANT_FIELDS, type AssistantField };
 
 /**
  * Write one of the assistant's settings, creating the section if it is absent.
