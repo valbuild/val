@@ -1585,10 +1585,15 @@ export function useProposalsBar({
   openSiteCodeRef.current = openSiteCode;
   // The assistant's `request_code_mode` card opens it the same way.
   useEffect(() => {
-    reportSiteCode(siteCodeMode);
     if (!siteCodeMode) return;
+    reportSiteCode(true);
     registerSiteCodeOpen(() => void openSiteCodeRef.current());
-    return () => registerSiteCodeOpen(null);
+    // Gone with the bar: the assistant's card must not offer what nothing
+    // can open.
+    return () => {
+      reportSiteCode(false);
+      registerSiteCodeOpen(null);
+    };
   }, [siteCodeMode]);
 
   /*
