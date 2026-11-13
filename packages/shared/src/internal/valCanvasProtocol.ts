@@ -104,6 +104,22 @@ export type ValCanvasComponentEdit =
   | { op: "remove"; list: SourcePath; index: number }
   | { op: "insert"; list: SourcePath; index: number };
 
+/**
+ * On the layer that holds the controls `ValComponentEditor` draws over a
+ * list: the handle, the arrows, the add and remove buttons.
+ *
+ * They are Val's own, drawn in the page, so a click on one is never a click
+ * on the page's content - though it may well sit inside an element that has a
+ * `data-val-path`, a list inside a component being the case. Whatever asks
+ * "what content is under this click" asks {@link isOnValCanvasControls} first.
+ */
+export const VAL_CANVAS_CONTROLS_ATTRIBUTE = "data-val-component-controls";
+
+/** Whether an element is one of the controls drawn over a list of components. */
+export function isOnValCanvasControls(element: Element): boolean {
+  return element.closest(`[${VAL_CANVAS_CONTROLS_ATTRIBUTE}]`) !== null;
+}
+
 /** Narrow an unknown value to a {@link ValCanvasComponentEdit}. */
 export function isValCanvasComponentEdit(
   value: unknown,

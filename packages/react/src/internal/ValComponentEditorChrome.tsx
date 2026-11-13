@@ -3,6 +3,7 @@
 import { Internal, type SourcePath } from "@valbuild/core";
 import {
   DEFAULT_CANVAS_SELECTION,
+  VAL_CANVAS_CONTROLS_ATTRIBUTE,
   VAL_CANVAS_MESSAGE,
   isValCanvasFrame,
   isValCanvasStudioMessage,
@@ -165,21 +166,41 @@ function sendEdit(edit: ValCanvasComponentEdit) {
   send({ val: VAL_CANVAS_MESSAGE, type: "componentEdit", edit });
 }
 
-/** The Studio's selection colour: its `theme` message, or Val's green. */
-function useSelectionColor(): string {
-  const [color, setColor] = useState(DEFAULT_CANVAS_SELECTION);
-  useEffect(() => {
-    const listener = (event: MessageEvent) => {
+/*
+ * The Studio's selection colour, for every list on the page.
+ *
+ * Kept here and not in each list's state: the Studio says it once, when the
+ * page announces itself, and a list that is rendered later - one inside a
+ * section that was just added - was not there to hear it.
+ */
+let selectionColor: string = DEFAULT_CANVAS_SELECTION;
+const selectionColorListeners = new Set<() => void>();
+let listeningForSelectionColor = false;
+
+function subscribeToSelectionColor(onChange: () => void) {
+  if (!listeningForSelectionColor) {
+    listeningForSelectionColor = true;
+    window.addEventListener("message", (event: MessageEvent) => {
       if (event.source !== window.parent) return;
       if (!isValCanvasStudioMessage(event.data)) return;
-      if (event.data.type === "theme") {
-        setColor(event.data.selection);
-      }
-    };
-    window.addEventListener("message", listener);
-    return () => window.removeEventListener("message", listener);
-  }, []);
-  return color;
+      if (event.data.type !== "theme") return;
+      selectionColor = event.data.selection;
+      selectionColorListeners.forEach((listener) => listener());
+    });
+  }
+  selectionColorListeners.add(onChange);
+  return () => {
+    selectionColorListeners.delete(onChange);
+  };
+}
+
+/** The Studio's selection colour: its `theme` message, or Val's green. */
+function useSelectionColor(): string {
+  return useSyncExternalStore(
+    subscribeToSelectionColor,
+    () => selectionColor,
+    () => DEFAULT_CANVAS_SELECTION,
+  );
 }
 
 /** A list with nothing in it has nothing to hover: the way in is a button. */
@@ -214,14 +235,15 @@ function EmptyList({ path }: { path: SourcePath }) {
 const CONTROL_FONT =
   '500 13px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
+/** The toolbar's height: its buttons, and the padding around them. */
+const TOOLBAR_HEIGHT = 32;
+
 /** Above the page, below nothing: the controls must not be covered. */
 const CONTROL_Z_INDEX = 2147483000;
 
 /** How near the edge of the window a drag starts scrolling, and how fast. */
 const SCROLL_EDGE = 48;
 const SCROLL_STEP = 14;
-
-type Drag = { from: number; slot: number };
 
 function itemsOf(list: HTMLElement | null): HTMLElement[] {
   if (list === null) {
@@ -284,8 +306,11 @@ function ListControls({
   const color = useSelectionColor();
   const layerRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  // The item being dragged, and the place it would land in if let go now
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragSlot, setDragSlot] = useState(0);
+  // The item whose removal is waiting for a second click
+  const [confirming, setConfirming] = useState<number | null>(null);
   // Where the items are, in the window. Measured when something could have
   // moved them - the pointer reaching another item, a scroll, a resize, a
   // drag - and never while rendering.
@@ -300,7 +325,23 @@ function ListControls({
   const measure = useCallback(() => {
     setRects(measureItems());
   }, [measureItems]);
-  const dragging = drag !== null;
+  // What `hover` is, for the handlers: they compare against it on every move
+  // of the pointer, and must not wait for a render to know it.
+  const hovered = useRef<number | null>(null);
+  const hoverOn = useCallback(
+    (next: number | null) => {
+      if (hovered.current === next) return;
+      hovered.current = next;
+      setHover(next);
+      // A confirmation is for the item it was asked on, and no other
+      setConfirming(null);
+      if (next !== null) {
+        measure();
+      }
+    },
+    [measure],
+  );
+  const dragging = dragFrom !== null;
 
   // Which item the pointer is over.
   useEffect(() => {
@@ -317,27 +358,16 @@ function ListControls({
         item instanceof HTMLElement && item.parentElement === listRef.current
           ? itemsOf(listRef.current).indexOf(item)
           : -1;
-      const next = index === -1 ? null : index;
-      setHover((current) => {
-        if (current !== next && next !== null) {
-          measure();
-        }
-        return next;
-      });
+      hoverOn(index === -1 ? null : index);
     };
-    const onLeave = () => setHover(null);
+    const onLeave = () => hoverOn(null);
     document.addEventListener("pointermove", onMove);
     document.documentElement.addEventListener("pointerleave", onLeave);
     return () => {
       document.removeEventListener("pointermove", onMove);
       document.documentElement.removeEventListener("pointerleave", onLeave);
     };
-  }, [dragging, listRef, measure]);
-
-  // A confirmation is for the item it was asked on, and no other.
-  useEffect(() => {
-    setConfirmingRemove(false);
-  }, [hover]);
+  }, [dragging, listRef, hoverOn]);
 
   // The page scrolls and resizes under the controls.
   const active = hover !== null || dragging;
@@ -357,53 +387,70 @@ function ListControls({
   // A drag, once started, is the whole document's: the pointer leaves the
   // handle at once, and has to be followed wherever it goes.
   useEffect(() => {
-    if (!dragging) return;
-    const onMove = (event: PointerEvent) => {
-      if (event.clientY < SCROLL_EDGE) {
-        window.scrollBy(0, -SCROLL_STEP);
-      } else if (event.clientY > window.innerHeight - SCROLL_EDGE) {
-        window.scrollBy(0, SCROLL_STEP);
-      }
+    if (dragFrom === null) return;
+    // Kept here as well as in state: letting go has to know the slot the
+    // pointer is over NOW, and must send its edit exactly once - from the
+    // handler, never from a state updater, which React may run twice.
+    let slot = dragFrom;
+    let pointer: { x: number; y: number } | null = null;
+    const place = () => {
+      if (pointer === null) return;
       setRects(measureItems());
       // In the window's own coordinates, which is what the pointer is in
-      const slot = slotAt(itemsOf(listRef.current).map(rectOf), {
-        x: event.clientX,
-        y: event.clientY,
-      });
-      setDrag((current) => current && { from: current.from, slot });
+      slot = slotAt(itemsOf(listRef.current).map(rectOf), pointer);
+      setDragSlot(slot);
+    };
+    // Scrolling while the pointer rests near an edge: a pointer that is held
+    // still sends no events, so the page is moved on every frame instead.
+    let frame = requestAnimationFrame(function scroll() {
+      frame = requestAnimationFrame(scroll);
+      if (pointer === null) return;
+      const step =
+        pointer.y < SCROLL_EDGE
+          ? -SCROLL_STEP
+          : pointer.y > window.innerHeight - SCROLL_EDGE
+            ? SCROLL_STEP
+            : 0;
+      if (step !== 0) {
+        window.scrollBy(0, step);
+        place();
+      }
+    });
+    const end = () => {
+      setDragFrom(null);
+      hoverOn(null);
+    };
+    const onMove = (event: PointerEvent) => {
+      pointer = { x: event.clientX, y: event.clientY };
+      place();
     };
     const onUp = () => {
-      setDrag((current) => {
-        if (current !== null) {
-          const to = moveTarget(current.from, current.slot);
-          if (to !== null) {
-            sendEdit({ op: "move", list: path, from: current.from, to });
-          }
-        }
-        return null;
-      });
-      setHover(null);
+      const to = moveTarget(dragFrom, slot);
+      if (to !== null) {
+        sendEdit({ op: "move", list: path, from: dragFrom, to });
+      }
+      end();
     };
-    const onCancel = () => setDrag(null);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setDrag(null);
+        end();
       }
     };
     const selectable = document.body.style.userSelect;
     document.body.style.userSelect = "none";
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
-    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("pointercancel", end);
     document.addEventListener("keydown", onKey);
     return () => {
+      cancelAnimationFrame(frame);
       document.body.style.userSelect = selectable;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
-      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("pointercancel", end);
       document.removeEventListener("keydown", onKey);
     };
-  }, [dragging, listRef, path, measureItems]);
+  }, [dragFrom, listRef, path, measureItems, hoverOn]);
 
   const open = useCallback(
     (index: number) => {
@@ -416,12 +463,12 @@ function ListControls({
   );
 
   const horizontal = isHorizontal(rects);
-  const shown = drag !== null ? drag.from : hover;
+  const shown = dragFrom !== null ? dragFrom : hover;
   const rect = shown !== null ? rects[shown] : undefined;
 
   let controls: ReactNode = null;
-  if (drag !== null) {
-    const before = rects[drag.slot];
+  if (dragFrom !== null) {
+    const before = rects[dragSlot];
     const last = rects[rects.length - 1];
     const line: CSSProperties | null =
       before !== undefined
@@ -454,7 +501,7 @@ function ListControls({
             }}
           />
         )}
-        {line !== null && moveTarget(drag.from, drag.slot) !== null && (
+        {line !== null && moveTarget(dragFrom, dragSlot) !== null && (
           <div
             data-val-component-drop=""
             style={{
@@ -514,10 +561,13 @@ function ListControls({
           data-val-component-toolbar=""
           style={{
             position: "absolute",
-            // Inside the item's corner, and never off the top of the window:
-            // a section taller than the window keeps its controls in reach.
-            top: Math.max(rect.top + 8, 8),
-            left: Math.max(rect.left + rect.width - 8, 8),
+            // On top of the item's corner rather than in it, so a small
+            // component is not covered by its own controls - and touching
+            // it, so the pointer reaches them without crossing anything
+            // else. Never off the top of the window: a section that starts
+            // above it keeps its controls in reach, inside its corner.
+            top: Math.max(rect.top - TOOLBAR_HEIGHT, 8),
+            left: Math.max(rect.left + rect.width, TOOLBAR_HEIGHT * 5),
             transform: "translateX(-100%)",
             display: "flex",
             alignItems: "center",
@@ -537,7 +587,8 @@ function ListControls({
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               event.preventDefault();
-              setDrag({ from: hover, slot: hover });
+              setDragSlot(hover);
+              setDragFrom(hover);
             }}
           >
             <Icon name="grip" />
@@ -547,7 +598,7 @@ function ListControls({
             disabled={hover === 0}
             onClick={() => {
               sendEdit({ op: "move", list: path, from: hover, to: hover - 1 });
-              setHover(null);
+              hoverOn(null);
             }}
           >
             <Icon name={horizontal ? "left" : "up"} />
@@ -557,7 +608,7 @@ function ListControls({
             disabled={hover === count - 1}
             onClick={() => {
               sendEdit({ op: "move", list: path, from: hover, to: hover + 1 });
-              setHover(null);
+              hoverOn(null);
             }}
           >
             <Icon name={horizontal ? "right" : "down"} />
@@ -565,13 +616,13 @@ function ListControls({
           <ToolbarButton title="Edit the content" onClick={() => open(hover)}>
             <Icon name="pencil" />
           </ToolbarButton>
-          {confirmingRemove ? (
+          {confirming === hover ? (
             <ToolbarButton
               title="Remove this section"
               style={{ background: "#dc2626", padding: "0 8px" }}
               onClick={() => {
                 sendEdit({ op: "remove", list: path, index: hover });
-                setHover(null);
+                hoverOn(null);
               }}
             >
               Remove?
@@ -579,7 +630,7 @@ function ListControls({
           ) : (
             <ToolbarButton
               title="Remove this section"
-              onClick={() => setConfirmingRemove(true)}
+              onClick={() => setConfirming(hover)}
             >
               <Icon name="trash" />
             </ToolbarButton>
@@ -592,7 +643,7 @@ function ListControls({
   return (
     <div
       ref={layerRef}
-      data-val-component-controls=""
+      {...{ [VAL_CANVAS_CONTROLS_ATTRIBUTE]: "" }}
       style={{ position: "fixed", top: 0, left: 0, zIndex: CONTROL_Z_INDEX }}
     >
       {controls}
@@ -692,29 +743,45 @@ type IconName =
   | "trash"
   | "plus";
 
-const ICON_PATHS: Record<IconName, ReactNode> = {
-  grip: (
-    <>
-      <circle cx="9" cy="6" r="1" />
-      <circle cx="9" cy="12" r="1" />
-      <circle cx="9" cy="18" r="1" />
-      <circle cx="15" cy="6" r="1" />
-      <circle cx="15" cy="12" r="1" />
-      <circle cx="15" cy="18" r="1" />
-    </>
-  ),
-  up: <path d="M12 19V5M5 12l7-7 7 7" />,
-  down: <path d="M12 5v14M19 12l-7 7-7-7" />,
-  left: <path d="M19 12H5M12 19l-7-7 7-7" />,
-  right: <path d="M5 12h14M12 5l7 7-7 7" />,
-  pencil: (
-    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4" />
-  ),
-  trash: (
-    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
-  ),
-  plus: <path d="M5 12h14M12 5v14" />,
-};
+/**
+ * A function, and not a table of elements: a table is built when this file
+ * is imported, and this file is imported wherever `val.config.ts` is - the
+ * CLI and the language server included, which evaluate it with no React to
+ * build an element with. Nothing here may run before a component renders.
+ */
+function iconPaths(name: IconName): ReactNode {
+  switch (name) {
+    case "grip":
+      return (
+        <>
+          <circle cx="9" cy="6" r="1" />
+          <circle cx="9" cy="12" r="1" />
+          <circle cx="9" cy="18" r="1" />
+          <circle cx="15" cy="6" r="1" />
+          <circle cx="15" cy="12" r="1" />
+          <circle cx="15" cy="18" r="1" />
+        </>
+      );
+    case "up":
+      return <path d="M12 19V5M5 12l7-7 7 7" />;
+    case "down":
+      return <path d="M12 5v14M19 12l-7 7-7-7" />;
+    case "left":
+      return <path d="M19 12H5M12 19l-7-7 7-7" />;
+    case "right":
+      return <path d="M5 12h14M12 5l7 7-7 7" />;
+    case "pencil":
+      return (
+        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4" />
+      );
+    case "trash":
+      return (
+        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
+      );
+    case "plus":
+      return <path d="M5 12h14M12 5v14" />;
+  }
+}
 
 function Icon({ name }: { name: IconName }) {
   return (
@@ -729,7 +796,7 @@ function Icon({ name }: { name: IconName }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {ICON_PATHS[name]}
+      {iconPaths(name)}
     </svg>
   );
 }

@@ -158,6 +158,10 @@ describe("s.object(...).component(...)", () => {
       true,
       true,
     ]);
+    // The values behind the types above, so they are not there for the
+    // compiler alone
+    expect(headed["executeSerialize"]().type).toBe("object");
+    expect(new Classy({ heading: "Hi" }).props.heading).toBe("Hi");
   });
 
   test("types: a linked object reads as a ValComponent, and nothing else does", () => {

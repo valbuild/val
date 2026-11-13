@@ -103,6 +103,54 @@ describe("bundleValModules", () => {
       error: expect.stringContaining("no val.modules.ts"),
     });
   });
+
+  /**
+   * `s.object(...).component(() => import("./Hero"))`: the thunk is never
+   * called where Val modules are only read, so what it names is the app's
+   * code and none of this bundle's business. Bundled, it would bring the
+   * component's own imports with it - here one the site's layer does not
+   * even have - and make every module depend on its components' files.
+   */
+  const withComponent = () =>
+    project({
+      "src/home.val.ts": [
+        `import { s, c } from "../val.config";`,
+        `const hero = s.object({ title: s.string() }).component(() => import("./Hero"));`,
+        `export default c.define("/src/home.val.ts", hero, { title: "Sale" });`,
+      ].join("\n"),
+      "src/Hero.tsx": [
+        `import { Fancy } from "some-ui-kit";`,
+        `import "./hero.css";`,
+        `export default function Hero(props: { title: string }) { return <Fancy>{props.title}</Fancy>; }`,
+      ].join("\n"),
+      "src/hero.css": `h1 { color: red; }`,
+    });
+
+  test("nor is one named through a tsconfig alias", () => {
+    const files = withComponent();
+    files["src/home.val.ts"] = files["src/home.val.ts"]!.replace(
+      `import("./Hero")`,
+      `import("@/Hero")`,
+    );
+    expect(probe(files)).toMatchObject({
+      modules: {
+        "/src/home.val.ts": { schema: "object", source: { title: "Sale" } },
+      },
+    });
+  });
+
+  test("a component a schema links to is not bundled: it is the app's code", () => {
+    expect(probe(withComponent())).toEqual({
+      external: true,
+      modules: {
+        "/src/home.val.ts": { schema: "object", source: { title: "Sale" } },
+        "/src/notes.val.ts": {
+          schema: "record",
+          source: { a: { text: "First" } },
+        },
+      },
+    });
+  });
 });
 
 /**
@@ -189,6 +237,24 @@ describe("valModulesEntry's dependencies", () => {
           "src/shared.ts",
           "val.config.ts",
         ],
+      },
+      warnings: [],
+    });
+  });
+
+  test("not the component a schema links to, which is never loaded here", () => {
+    const { "src/shared.ts": _unused, ...files } = project({
+      "src/home.val.ts": [
+        `import { s, c } from "../val.config";`,
+        `const hero = s.object({ title: s.string() }).component(() => import("./Hero"));`,
+        `export default c.define("/src/home.val.ts", hero, { title: "Sale" });`,
+      ].join("\n"),
+      "src/Hero.tsx": `export default function Hero(props: { title: string }) { return props.title; }`,
+    });
+    expect(probe(files, "dependencies")).toEqual({
+      dependencies: {
+        "src/home.val.ts": ["val.config.ts"],
+        "src/notes.val.ts": ["val.config.ts"],
       },
       warnings: [],
     });

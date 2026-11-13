@@ -5,6 +5,7 @@ import { Internal, type ModuleFilePath } from "@valbuild/core";
 import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
+  isOnValCanvasControls,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
@@ -528,6 +529,9 @@ export function ValCanvasBridge({
       if (!pickingRef.current) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
+      // Val's own controls on a list of components, not the page's content:
+      // the click is theirs, wherever in the page they are drawn.
+      if (isOnValCanvasControls(target)) return;
       const tagged = target.closest("[data-val-path]");
       const attribute = tagged?.getAttribute("data-val-path");
       if (!attribute) return;
