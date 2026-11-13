@@ -30,8 +30,6 @@ export const heroFields = s.object({
 export const heroSection = heroFields
   .describe("A headline, a tagline and a few points")
   .component(() => import("../components/sections/HeroSection"), {
-    // As wide as the site's content column gets
-    maxWidth: 960,
     // Content that is not on the site, to stress the layout with
     example: {
       type: "hero",
@@ -54,11 +52,7 @@ export const quoteFields = s.object({
 });
 export const quoteSection = quoteFields
   .describe("Something someone said, and who said it")
-  .component(() => import("../components/sections/QuoteSection"), {
-    maxWidth: 560,
-    // Two short fields: the component says more than they do
-    defaultView: "preview",
-  });
+  .component(() => import("../components/sections/QuoteSection"));
 
 /*
  * A component that was not written for Val. `Callout` has props of its own
@@ -80,7 +74,6 @@ export const noteSection = s
       body: note.text,
       tone: note.important ? "warning" : "info",
     }),
-    maxWidth: 560,
   });
 
 /*
@@ -95,7 +88,6 @@ export const cardFields = s.object({
 });
 export const card = cardFields.component(
   () => import("../components/sections/Card"),
-  { maxWidth: 320 },
 );
 export const columnsFields = s.object({
   type: s.literal("columns"),
@@ -104,9 +96,7 @@ export const columnsFields = s.object({
 });
 export const columnsSection = columnsFields
   .describe("A heading over a row of cards")
-  .component(() => import("../components/sections/ColumnsSection"), {
-    maxWidth: 960,
-  });
+  .component(() => import("../components/sections/ColumnsSection"));
 
 /* One object, not a list: the page's closing call to action. */
 export const callToActionFields = s.object({
@@ -116,7 +106,6 @@ export const callToActionFields = s.object({
 });
 export const callToAction = callToActionFields.component(
   () => import("../components/sections/CallToAction"),
-  { maxWidth: 960 },
 );
 
 export default c.define(

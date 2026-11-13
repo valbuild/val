@@ -16,7 +16,6 @@ import {
 } from "../preview";
 import type { ReadOf } from "../read";
 import {
-  assertComponentRenderIsConsistent,
   ComponentArgs,
   ComponentRender,
   SerializedComponentRender,
@@ -444,21 +443,11 @@ export class ObjectSchema<
    * `example` is content that is not on the site, to preview with as well:
    * long titles and empty lists that make layout problems easy to spot.
    *
-   * `maxWidth` caps how wide the preview is (and so what the component's
-   * media queries see), and `aspectRatio` gives a component that fills its
-   * space a shape. Without them the preview is as wide as the editor and as
-   * tall as the component.
-   *
-   * `defaultView` is how the Studio shows the value to begin with: the
-   * component (`"preview"`), the fields (`"content"`) or both (`"split"`, the
-   * default).
-   *
    * @example
    * const hero = s
    *   .object({ title: s.string() })
    *   .component(() => import("./HeroSection"), {
    *     example: { title: "A very long title that should wrap nicely" },
-   *     maxWidth: 1200,
    *   });
    * export default c.define("/example.val.ts", s.array(hero), []);
    *
@@ -481,17 +470,7 @@ export class ObjectSchema<
       component: load,
       ...(options?.props !== undefined ? { props: options.props } : {}),
       ...(options?.example !== undefined ? { example: options.example } : {}),
-      ...(options?.maxWidth !== undefined
-        ? { maxWidth: options.maxWidth }
-        : {}),
-      ...(options?.aspectRatio !== undefined
-        ? { aspectRatio: options.aspectRatio }
-        : {}),
-      ...(options?.defaultView !== undefined
-        ? { defaultView: options.defaultView }
-        : {}),
     };
-    assertComponentRenderIsConsistent(input);
     return new ObjectSchema<Props, LinkedToComponent<Src>>(
       this.items,
       this.opt,
@@ -549,9 +528,6 @@ export class ObjectSchema<
               as: "component",
               example:
                 this.renderInput.example !== undefined ? true : undefined,
-              maxWidth: this.renderInput.maxWidth,
-              aspectRatio: this.renderInput.aspectRatio,
-              defaultView: this.renderInput.defaultView,
             },
           }
         : {}),

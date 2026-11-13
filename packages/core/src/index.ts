@@ -361,7 +361,6 @@ export {
   isInlineRender,
   type ComponentRender,
   type SerializedComponentRender,
-  type ComponentView,
   type ValComponentType,
   type ValComponentImport,
   type ComponentPropsOf,

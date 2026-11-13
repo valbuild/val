@@ -40,37 +40,6 @@ describe("s.object(...).component(...)", () => {
     });
   });
 
-  test("serialize: the sizes and the default view travel whole", () => {
-    const schema = s
-      .object({ title: s.string() })
-      .component(() => Promise.resolve({ default: Hero }), {
-        maxWidth: 400,
-        aspectRatio: 16 / 9,
-        defaultView: "preview",
-      });
-    const serialized = schema["executeSerialize"]();
-    expect(serialized.type === "object" && serialized.render).toEqual({
-      as: "component",
-      maxWidth: 400,
-      aspectRatio: 16 / 9,
-      defaultView: "preview",
-    });
-  });
-
-  test("throws where it is defined on a size no preview can have", () => {
-    const object = s.object({ title: s.string() });
-    const component = () => Promise.resolve({ default: Hero });
-    expect(() => object.component(component, { maxWidth: 0 })).toThrow(
-      /maxWidth must be a positive number/,
-    );
-    expect(() => object.component(component, { aspectRatio: -1 })).toThrow(
-      /aspectRatio must be a positive number/,
-    );
-    expect(() =>
-      object.component(component, { aspectRatio: Infinity }),
-    ).toThrow(/aspectRatio/);
-  });
-
   test("serialize: no render by default", () => {
     const serialized = s.object({ a: s.string() })["executeSerialize"]();
     expect(serialized.type === "object" && serialized.render).toBe(undefined);

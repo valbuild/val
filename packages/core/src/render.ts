@@ -187,9 +187,10 @@ export type ComponentPropsOf<C> = C extends (props: infer P) => unknown
  * the component that renders this object on the site.
  *
  * The site renders the object through it (`ValComponentEditor`), and the
- * Studio shows it, rendered by the app, next to the fields of the object
- * being edited. Both go through the same thunk and the same `props`, so what
- * the editor sees cannot drift from what a visitor gets.
+ * app's preview route (`ValComponentPreview`) renders it alone. Both go
+ * through the same thunk and the same `props`, so what the editor sees cannot
+ * drift from what a visitor gets. In the Studio's field panel the object is
+ * edited as any other object: its fields, with no component beside them.
  *
  * It holds CLOSURES - the `component` thunk and `props` - so, exactly like a
  * preview, only a marker travels in the serialized schema
@@ -225,45 +226,14 @@ export type ComponentRender<Src> = {
    */
   props?: (value: never) => unknown;
   example?: Src;
-  /**
-   * The widest the component is shown, in CSS pixels. The preview is the
-   * component's whole viewport, so this is also the width its media queries
-   * see: a card designed for a 400px column says `maxWidth: 400` and is not
-   * stretched across the editor.
-   *
-   * Without it the preview is as wide as there is room for.
-   */
-  maxWidth?: number;
-  /**
-   * Width divided by height, e.g. `16 / 9`, for a component that fills the
-   * space it is given rather than having a height of its own - a full-bleed
-   * hero, a background video. The preview is then that shape.
-   *
-   * Without it the preview is as tall as what the component renders.
-   */
-  aspectRatio?: number;
-  /**
-   * How the Studio shows the value to begin with: `"preview"` (the component
-   * alone), `"content"` (the fields alone) or `"split"` (the two side by side).
-   * Split starts on a phone-wide preview, which leaves the fields the most
-   * room, and pressing Split again moves to an iPad and then a desktop, scaled
-   * down to fit. The editor can switch on the field.
-   *
-   * Defaults to `"split"`.
-   */
-  defaultView?: ComponentView;
 };
 
 /**
  * The options of `.component(load, options)` that are not the `props`
- * function: how the Studio previews the component. See {@link ComponentRender}
- * for each.
+ * function. See {@link ComponentRender} for each.
  */
 export type ComponentOptions<Src> = {
   example?: Src;
-  maxWidth?: number;
-  aspectRatio?: number;
-  defaultView?: ComponentView;
 };
 
 /** {@link ComponentOptions} for a component whose props ARE the read value. */
@@ -306,21 +276,13 @@ export type ComponentArgs<Src, Read, C> = [Read] extends [ComponentPropsOf<C>]
     ]
   : [options: ComponentOptionsWithProps<Src, Read, ComponentPropsOf<C>>];
 
-/** How the Studio shows a value that has a component. See {@link ComponentRender}. */
-export type ComponentView = "preview" | "content" | "split";
-
 /**
  * What a {@link ComponentRender} serializes to. The component is a closure and
- * cannot travel; `example` says whether there is one to preview with. The
- * sizes are plain numbers and travel whole: the Studio lays the preview out
- * with them.
+ * cannot travel; `example` says whether there is one to preview with.
  */
 export type SerializedComponentRender = {
   as: "component";
   example?: true;
-  maxWidth?: number;
-  aspectRatio?: number;
-  defaultView?: ComponentView;
 };
 
 /**
@@ -351,34 +313,6 @@ export const VAL_PREVIEW_MESSAGES: {
   picking: "val-preview-picking",
   pick: "val-preview-pick",
 };
-
-/**
- * Throws, where the schema is defined, on sizes no preview could be laid out
- * with - the same place the slider's range is checked, and for the same
- * reason: a mistake here is a developer's, and the definition is where they
- * can see it.
- */
-export function assertComponentRenderIsConsistent(
-  render: ComponentRender<unknown>,
-): void {
-  const views: ComponentView[] = ["preview", "content", "split"];
-  if (
-    render.defaultView !== undefined &&
-    !views.some((view) => view === render.defaultView)
-  ) {
-    throw new Error(
-      `component(): defaultView must be one of ${views.join(", ")}, got ${String(render.defaultView)}`,
-    );
-  }
-  for (const key of ["maxWidth", "aspectRatio"] as const) {
-    const value = render[key];
-    if (value !== undefined && !(Number.isFinite(value) && value > 0)) {
-      throw new Error(
-        `component(): ${key} must be a positive number, got ${value}`,
-      );
-    }
-  }
-}
 
 /**
  * EXPERIMENTAL: the component that renders a value of `schema` whose source is

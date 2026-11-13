@@ -90,15 +90,14 @@ export const hero = heroFields.component(
 ```
 
 The component that renders an object on the site. Two things use it: the
-site, which renders the object with it (`ValComponentEditor`), and the Studio,
-which shows it, rendered by the app in an iframe, next to the object's fields.
+site, which renders the object with it (`ValComponentEditor`), and the app's
+preview route (`val-preview`), which renders it alone, in an iframe.
 
 It was `.render({ as: "component", component })`, and is its own method
 because it stopped being a render: a render is layout in the editor and
 applies only while the field is open, and this decides what a visitor gets.
 The wire form did not move - the marker is still the serialized `render`,
-`{ as: "component", example?: true, maxWidth?, aspectRatio? }` - so the
-Studio's side is unchanged.
+`{ as: "component", example?: true }` - so the Studio's side is unchanged.
 
 It holds CLOSURES (the import thunk, and `props`), so it is plumbed like a
 preview: only the marker travels, and the host app, which has the schema
@@ -233,35 +232,19 @@ renders it its own way:
 Both wrap it in `ValPreviewBridge` (the shared `ValPreviewBridgeCore`, in its
 own `"use client"` file so a Server Component can import the resolver).
 
-`maxWidth` and `aspectRatio` are plain numbers, so unlike the component they
-travel whole, and the Studio lays the frame out with them. `maxWidth` caps the
-frame, which is the component's whole viewport, so it is also the width its
-media queries see. Without `aspectRatio` the frame is as tall as the component:
-the preview route wraps its output in `ValPreviewBridge`, which reports the
-height whenever it changes (`VAL_PREVIEW_MESSAGES` in `render.ts`), because the
-Studio cannot see into the frame to measure it.
+The preview route wraps its output in `ValPreviewBridge`, which reports the
+component's height whenever it changes, and turns a click on content into a
+`pick` message (`VAL_PREVIEW_MESSAGES` in `render.ts`): it loads through
+`/api/val/enable`, so it renders draft content with stega and `autoTagJSX`
+tags the elements with `data-val-path`.
 
-In the Studio the field itself carries the switch: Preview, Content or Split,
-starting from the render's `defaultView` (`"split"` when it has none).
-`AnyField` wraps an object or union field that has a component in
-`ComponentField` (`ComponentPreview.tsx`), so it works on the value being
-navigated to and on an object field inside it alike, but not in an inline
-row, which has no room for a frame. Split starts on a phone-wide frame, which
-leaves the fields the most room; pressing Split again moves to an iPad and
-then a desktop. A screen wider than the room is laid out at its own width and
-scaled down, so the component's media queries see the screen, not the
-column.
-
-Clicking content in the preview opens its field, and is on by default (a
-toggle on the field turns it off, so links and buttons in the component work
-as on the site). It is the canvas's mechanism in a smaller frame: the preview
-loads through `/api/val/enable`, so it renders draft content with stega,
-`autoTagJSX` tags the elements with `data-val-path`, and `ValPreviewBridge`
-turns a click on one into a `pick` message. The Studio switches to Split and
-scrolls to the field and focuses its input - without navigating, which would
-remount the field and start it over from its `defaultView`. A value that is
-not a field of its own (an item of a list of strings) scrolls to the nearest
-field above it and focuses nothing, rather than guessing an input.
+**In the Studio's field panel a linked object is an ordinary object.** It
+used to carry a Preview / Content / Split switch with the component in an
+iframe beside the fields, sized by `maxWidth`, `aspectRatio` and
+`defaultView` on `.component(...)`. All of that was removed: the canvas
+already shows the component on the page, and components will get a UI of
+their own for being looked at. The preview route, the bridge and `example`
+stay for that UI, and nothing in the Studio calls them today.
 
 `component` is a lazy `import()` and never the component. Val evaluates
 `.val.ts` files outside of the app — `val validate` and the language server in

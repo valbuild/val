@@ -413,8 +413,6 @@ export const hero = heroFields.component(
   () => import("../components/HeroSection"),
   {
     example: { type: "hero", title: "A very long title, to test the layout" },
-    maxWidth: 960, // the widest it is shown, and what its media queries see
-    defaultView: "split", // or "preview" / "content"
   },
 );
 ```
@@ -474,13 +472,13 @@ Render the value where it was read. The component rides on the value, and a
 value passed through a serializing boundary (loader data, a server function's
 result) arrives without it.
 
-### Previewing beside the fields
+### A preview route
 
-Val Studio also shows a linked object, rendered by your app, next to its
-fields - and a click on its content opens that field.
-
-The Studio loads `/val-preview?p=<source path>` in a frame, so add that route,
-outside the layout that holds `ValProvider`:
+A linked object can also be rendered on its own, by your app, at
+`/val-preview?p=<source path>` - with `&example=1`, from its `example`. Val
+Studio does not load it yet: it is there for a component view that is still
+to come. To have it, add the route outside the layout that holds
+`ValProvider`:
 
 ```tsx
 // src/val/server.ts

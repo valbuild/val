@@ -655,12 +655,12 @@ visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
 page writing JSON-LD and a share link through `val.raw()`, which the dev-only
 leak warning checks (`e2e/tanstack/leakWarning.spec.ts`); and, EXPERIMENTAL,
 `.component(() => import(...))` on the sections of `/landing`
-(`_site.landing.val.ts`), with `example`, `maxWidth` and `defaultView`, a
+(`_site.landing.val.ts`), with `example`, a
 `props` function for a component with props of its own, a list of components
 inside a component and a single linked object, all rendered by
 `ValComponentEditor` (`_site.landing.tsx`), arranged on the page in the
-Studio's canvas (`e2e/tanstack/componentEditor.spec.ts`) and previewed
-beside their fields through `src/routes/val-preview.tsx`. What it does NOT cover, and why: `.remote()` on media (and
+Studio's canvas (`e2e/tanstack/componentEditor.spec.ts`), with a preview
+route of their own in `src/routes/val-preview.tsx`. What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
