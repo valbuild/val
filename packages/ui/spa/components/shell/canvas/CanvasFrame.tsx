@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bridgeAnswers,
   bridgeInfoOf,
   capabilitiesOf,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
   type CanvasRequest,
+  type InlineEditCandidate,
+  type InlineEditValue,
   type PageLocation,
   type PageLogLevel,
   type PageLogSnapshot,
@@ -152,6 +155,28 @@ export type CanvasFrameProps = {
   /** Esc on the page while `isPicking`. */
   onPickingStopped?: () => void;
   /**
+   * Editing on the page (the beta: `useCanvasInlineEdit`). A new request
+   * asks the page to put the caret in one of these fields where it shows
+   * it; `null` ends an edit that is going on. The page answers each
+   * request once, with `onInlineEditStarted` or `onInlineEditUnavailable`
+   * -- at once, without asking, when its bridge predates editing in place.
+   */
+  inlineEdit?: {
+    requestId: string;
+    candidates: InlineEditCandidate[];
+  } | null;
+  /** The caret is in the field at `path`, on the page. */
+  onInlineEditStarted?: (requestId: string, path: SourcePath) => void;
+  /** Something was typed there: the field's new value, whole. */
+  onInlineEdit?: (path: SourcePath, value: InlineEditValue) => void;
+  /**
+   * The edit ended: on the page (Enter, Esc, the focus going elsewhere), or
+   * with the document it was in, when the frame loads another.
+   */
+  onInlineEditEnded?: (path: SourcePath) => void;
+  /** The page can edit none of what was offered. */
+  onInlineEditUnavailable?: (requestId: string) => void;
+  /**
    * A two-finger gesture on the page.
    *
    * Relayed rather than observed: a frame keeps its own touches, so nothing the
@@ -285,6 +310,11 @@ export function CanvasFrame({
   onPickElement,
   onElementPickingStopped,
   onPickingStopped,
+  inlineEdit = null,
+  onInlineEditStarted,
+  onInlineEdit,
+  onInlineEditEnded,
+  onInlineEditUnavailable,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -339,6 +369,12 @@ export function CanvasFrame({
    * deciding what to send, and written from a message handler.
    */
   const pickedHere = useRef<SourcePath | null>(null);
+  /**
+   * The field being edited on the page, from the page saying it started
+   * until it says it ended. A ref: it is read to decide what to send and to
+   * say an edit ended with its document, never rendered.
+   */
+  const inlineEditing = useRef<SourcePath | null>(null);
 
   /*
    * The document the frame holds, which follows the one asked for
@@ -457,6 +493,13 @@ export function CanvasFrame({
           ...(info !== undefined ? { bridge: info } : {}),
         };
         bridgeHolds.current = message.holds ?? NO_HOLDS;
+        // A new document: an edit that was going on in the last one went
+        // with it, and that page is not there to say so.
+        const cutShort = inlineEditing.current;
+        if (cutShort !== null) {
+          inlineEditing.current = null;
+          onInlineEditEnded?.(cutShort);
+        }
         setState({
           status: "ready",
           draftMode: message.draftMode,
@@ -514,6 +557,18 @@ export function CanvasFrame({
         reading(message);
       } else if (message.type === "codeChanged") {
         onCodeChanged?.(message.modules);
+      } else if (message.type === "inlineEditStarted") {
+        inlineEditing.current = message.path;
+        onInlineEditStarted?.(message.requestId, message.path);
+      } else if (message.type === "inlineEdit") {
+        onInlineEdit?.(message.path, message.value);
+      } else if (message.type === "inlineEditEnded") {
+        if (inlineEditing.current === message.path) {
+          inlineEditing.current = null;
+        }
+        onInlineEditEnded?.(message.path);
+      } else if (message.type === "inlineEditUnavailable") {
+        onInlineEditUnavailable?.(message.requestId);
       } else if (message.type === "pageLogRead") {
         const reading = logReadings.current.get(message.requestId);
         if (reading === undefined) return;
@@ -538,6 +593,10 @@ export function CanvasFrame({
     onPickElement,
     onElementPickingStopped,
     onPickingStopped,
+    onInlineEditStarted,
+    onInlineEdit,
+    onInlineEditEnded,
+    onInlineEditUnavailable,
     onPinch,
     onZoom,
     onRefreshingChange,
@@ -749,6 +808,45 @@ export function CanvasFrame({
   useEffect(() => {
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
+
+  /*
+   * Editing on the page. Each request is asked once, by its id -- the
+   * candidates are a new array every time and say nothing about whether the
+   * request is new.
+   */
+  const inlineRequestId = inlineEdit?.requestId ?? null;
+  const inlineCandidates = useRef(inlineEdit?.candidates ?? []);
+  inlineCandidates.current = inlineEdit?.candidates ?? [];
+  const unavailable = useRef(onInlineEditUnavailable);
+  unavailable.current = onInlineEditUnavailable;
+  useEffect(() => {
+    if (inlineRequestId === null) {
+      // Withdrawn while the caret is still on the page: the page is told.
+      // An edit the page ended itself needs nothing said.
+      if (inlineEditing.current !== null) {
+        send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+      }
+      return;
+    }
+    // A page whose bridge predates editing in place never answers: said for
+    // it, so the pick opens the field in the column as it always did.
+    if (!bridgeAnswers(bridge.current?.capabilities, "editInline")) {
+      unavailable.current?.(inlineRequestId);
+      return;
+    }
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "editInline",
+      requestId: inlineRequestId,
+      candidates: inlineCandidates.current,
+    });
+  }, [send, inlineRequestId]);
+  // Leaving Select leaves all of it, the caret on the page included.
+  useEffect(() => {
+    if (!isPicking && inlineEditing.current !== null) {
+      send({ val: VAL_CANVAS_MESSAGE, type: "stopInlineEdit" });
+    }
+  }, [send, isPicking]);
 
   // Whole, every time, and again for every new document: a reload starts the
   // page's picker afresh.

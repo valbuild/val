@@ -161,6 +161,8 @@ import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useBuildEpoch } from "./canvas/useServedBuild";
+import { useCanvasInlineEdit } from "./canvas/useCanvasInlineEdit";
+import { useInlineEditingPreference } from "../../hooks/inlineEditingPreference";
 import {
   useCodeModeQuickPreview,
   withQuickPreviewState,
@@ -1233,6 +1235,22 @@ function ValShellBody({
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
   const documentKey = `${buildEpoch}:${codeReloads}`;
+  /**
+   * Editing on the page (a beta, turned on in the account panel): a pick of
+   * a text puts the caret in it where it is, and only what cannot be typed
+   * there opens in the column. See `useCanvasInlineEdit`.
+   */
+  const [inlineEditing, setInlineEditing] = useInlineEditingPreference();
+  const inlineEdit = useCanvasInlineEdit({
+    enabled: inlineEditing && pendingChangesLoaded,
+  });
+  const offerInlineEdit = inlineEdit.offer;
+  const inlineEditRequest = inlineEdit.request;
+  const inlineEditingPath = inlineEdit.editingPath;
+  const onInlineEditStarted = inlineEdit.onStarted;
+  const onInlineEdit = inlineEdit.onEdit;
+  const onInlineEditEnded = inlineEdit.onEnded;
+  const takeUnavailableInlineEdit = inlineEdit.onUnavailable;
   const openPickedPath = useCallback(
     (paths: SourcePath[]): boolean => {
       const path = paths[0];
@@ -1314,8 +1332,15 @@ function ValShellBody({
          * field used to stay behind — a single box floating on a page that is
          * otherwise back to being a page. Leaving the mode means leaving all of
          * it.
+         *
+         * And not while a field is being typed in on the page (the beta):
+         * the page outlines that one itself, and the column may have
+         * another open.
          */
-        highlightedPath={tourPagePath ?? (isPicking ? focusedPath : null)}
+        highlightedPath={
+          tourPagePath ??
+          (isPicking && inlineEditingPath === null ? focusedPath : null)
+        }
         onElements={setCanvasElements}
         /*
          * Two things happen on a pick, and they belong to different owners.
@@ -1328,10 +1353,25 @@ function ValShellBody({
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
+          // The beta first: a text is edited where it is. What the page
+          // cannot edit in place comes back as `onInlineEditUnavailable`,
+          // and is opened as below.
+          if (offerInlineEdit(paths)) return;
           if (!openPickedPath(paths)) return;
           onPicked(paths[0] ?? null);
         }}
         onPickingStopped={onPickingStopped}
+        inlineEdit={inlineEditRequest}
+        onInlineEditStarted={onInlineEditStarted}
+        onInlineEdit={onInlineEdit}
+        onInlineEditEnded={onInlineEditEnded}
+        onInlineEditUnavailable={(requestId) => {
+          // What a pick does, a round trip late: the page has no element
+          // that shows one of the picked fields and nothing else.
+          const paths = takeUnavailableInlineEdit(requestId);
+          if (paths === null || !openPickedPath(paths)) return;
+          onPicked(paths[0] ?? null);
+        }}
         /*
          * The Assistant's Select: any element in code mode, a field
          * otherwise, once. `null` rather than absent while it is off, so a
@@ -1392,6 +1432,13 @@ function ValShellBody({
     quickId,
     setQuickStorer,
     onQuickDocument,
+    offerInlineEdit,
+    inlineEditRequest,
+    inlineEditingPath,
+    onInlineEditStarted,
+    onInlineEdit,
+    onInlineEditEnded,
+    takeUnavailableInlineEdit,
   ]);
 
   /**
@@ -1897,6 +1944,8 @@ function ValShellBody({
             onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
             autoSave={autoPublish}
             onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
+            inlineEditing={inlineEditing}
+            onInlineEditingChange={setInlineEditing}
             pendingChanges={data.pendingChanges ?? 0}
             /*
              * Zeroed when the pending patches cancel out, so Review does not put a

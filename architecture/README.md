@@ -3,18 +3,19 @@
 How Val's parts are meant to fit together, and the quirks that bite when they
 don't. Written for a human reading it once, not as a reference to be exhaustive.
 
-| file                                                 | what it covers                                                                                                                       |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [terminology.md](./terminology.md)                   | Source, module file, schema, selector, paths — one meaning each, and the synonyms that cause trouble                                 |
-| [media.md](./media.md)                               | `s.imagedir()`, `s.filedir()`, `s.fontdir()`, `s.image()`, `s.file()` — collections vs fields, where bytes land, how a URL is chosen |
-| [stores.md](./stores.md)                             | The Studio's client state: ten stores, two realms, and the one rule the whole design turns on                                        |
-| [content-versions.md](./content-versions.md)         | The one content model: base + chain through one engine, versions and `seq`, the head, the manifest, the readers, how a page settles  |
-| [quirks.md](./quirks.md)                             | Things that are true, surprising, and cost someone an afternoon                                                                      |
-| [tanstack-performance.md](./tanstack-performance.md) | What Val costs a visitor who is not editing: measured, and where the bytes come from                                                 |
-| [patch-store.md](./patch-store.md)                   | Where unpublished edits live in `fs` mode: the log, the lock, and the failure that decided the shape                                 |
-| [render-and-preview.md](./render-and-preview.md)     | `.render(...)` vs `.preview(...)`: one is the field's own layout, the other is how the value shows where it is navigable             |
-| [known-issues.md](./known-issues.md)                 | Problems that are understood but not fixed, and the evidence behind each                                                             |
-| [logo.md](./logo.md)                                 | What the Val mark is of — a terminal caret over the brand dot, and why it is always green                                            |
+| file                                                 | what it covers                                                                                                                           |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| [terminology.md](./terminology.md)                   | Source, module file, schema, selector, paths — one meaning each, and the synonyms that cause trouble                                     |
+| [media.md](./media.md)                               | `s.imagedir()`, `s.filedir()`, `s.fontdir()`, `s.image()`, `s.file()` — collections vs fields, where bytes land, how a URL is chosen     |
+| [stores.md](./stores.md)                             | The Studio's client state: ten stores, two realms, and the one rule the whole design turns on                                            |
+| [content-versions.md](./content-versions.md)         | The one content model: base + chain through one engine, versions and `seq`, the head, the manifest, the readers, how a page settles      |
+| [quirks.md](./quirks.md)                             | Things that are true, surprising, and cost someone an afternoon                                                                          |
+| [tanstack-performance.md](./tanstack-performance.md) | What Val costs a visitor who is not editing: measured, and where the bytes come from                                                     |
+| [patch-store.md](./patch-store.md)                   | Where unpublished edits live in `fs` mode: the log, the lock, and the failure that decided the shape                                     |
+| [render-and-preview.md](./render-and-preview.md)     | `.render(...)` vs `.preview(...)`: one is the field's own layout, the other is how the value shows where it is navigable                 |
+| [inline-editing.md](./inline-editing.md)             | Editing on the page (beta): why a COPY of the element is typed in, what can be edited where it is shown, and what the browser gets wrong |
+| [known-issues.md](./known-issues.md)                 | Problems that are understood but not fixed, and the evidence behind each                                                                 |
+| [logo.md](./logo.md)                                 | What the Val mark is of — a terminal caret over the brand dot, and why it is always green                                                |
 
 ## What belongs here
 
