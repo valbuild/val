@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bridgeInfoOf,
+  capabilitiesOf,
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
@@ -446,11 +448,13 @@ export function CanvasFrame({
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
+        // Read leniently: a shape this Studio does not expect is as if
+        // absent, never a reason to ignore the page altogether.
+        const capabilities = capabilitiesOf(message.capabilities);
+        const info = bridgeInfoOf(message.bridge);
         bridge.current = {
-          ...(message.capabilities !== undefined
-            ? { capabilities: message.capabilities }
-            : {}),
-          ...(message.bridge !== undefined ? { bridge: message.bridge } : {}),
+          ...(capabilities !== undefined ? { capabilities } : {}),
+          ...(info !== undefined ? { bridge: info } : {}),
         };
         bridgeHolds.current = message.holds ?? NO_HOLDS;
         setState({

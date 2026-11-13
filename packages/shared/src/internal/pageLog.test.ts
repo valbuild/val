@@ -322,17 +322,178 @@ describe("the page log", () => {
     expect(first.read().entries).toHaveLength(1);
   });
 
-  it("is not installed in a page that is not the Studio's canvas", () => {
-    window.history.replaceState(null, "", "/about");
-    expect(installPageLogInCanvasFrame()).toBeNull();
-    expect(pageLogOf(window)).toBeNull();
+  describe("never changes what the page sees", () => {
+    it("hands the page a promise that rejects with its own failure, unhandled", async () => {
+      // A fire-and-forget fetch that fails must still be an unhandled
+      // rejection for the page's own error reporting: the page is handed a
+      // promise derived from its fetch, and nothing handles THAT one.
+      // (`e2e/tanstack/pageLog.spec.ts` sees the event in a real browser.)
+      const failure = new TypeError("Failed to fetch");
+      const original = Promise.reject(failure);
+      original.catch(() => undefined);
+      Reflect.set(
+        window,
+        "fetch",
+        jest.fn(() => original),
+      );
+      install();
+      const handed = window.fetch("/api/products");
+      expect(handed).not.toBe(original);
+      await expect(handed).rejects.toBe(failure);
+    });
+
+    it("passes on a fetch that resolves to something that is not a response", async () => {
+      // A shim, or a test double: reading `status` off it must not turn
+      // into a rejection the page never had.
+      Reflect.set(
+        window,
+        "fetch",
+        jest.fn(() => Promise.resolve(undefined)),
+      );
+      const pageLog = install();
+      await expect(window.fetch("/api/products")).resolves.toBeUndefined();
+      expect(pageLog.read().entries).toEqual([]);
+    });
+
+    it("does not throw out of a listener when a reason cannot be read", () => {
+      const pageLog = install();
+      const hostile = new Proxy(
+        {},
+        {
+          get: () => {
+            throw new Error("trap");
+          },
+          ownKeys: () => {
+            throw new Error("trap");
+          },
+          getPrototypeOf: () => {
+            throw new Error("trap");
+          },
+        },
+      );
+      const event = new Event("unhandledrejection");
+      Reflect.set(event, "reason", hostile);
+      expect(() => window.dispatchEvent(event)).not.toThrow();
+      expect(() => console.error(hostile)).not.toThrow();
+      // The page's console still got it (by identity: comparing a Proxy
+      // that throws on every read would throw in the test itself).
+      expect(printedErrors).toHaveLength(1);
+      expect(printedErrors[0][0] === hostile).toBe(true);
+      expect(pageLog.read().entries[0]).toMatchObject({ source: "rejection" });
+    });
+
+    it("never calls the page's getters or toJSON to describe a value", () => {
+      const pageLog = install();
+      const getter = jest.fn(() => "computed");
+      const toJSON = jest.fn(() => "json");
+      const value = { plain: 1, toJSON };
+      Object.defineProperty(value, "lazy", { get: getter, enumerable: true });
+      console.error("state", value);
+      expect(getter).not.toHaveBeenCalled();
+      expect(toJSON).not.toHaveBeenCalled();
+      expect(pageLog.read().entries[0].text).toBe(
+        'state {"plain":1,"toJSON":[function]}',
+      );
+    });
+
+    it("describes a large value in bounded time and length", () => {
+      const pageLog = install();
+      const store = Object.fromEntries(
+        Array.from({ length: 100_000 }, (_, i) => [`key${i}`, { i }]),
+      );
+      console.error(store);
+      const text = pageLog.read().entries[0].text;
+      expect(text.length).toBeLessThanOrEqual(PAGE_LOG_TEXT_LENGTH);
+      expect(text.startsWith('{"key0":{"i":0}')).toBe(true);
+    });
+
+    it("does not recurse when describing a value logs", () => {
+      const pageLog = install();
+      // A Proxy whose own keys are listed by code that itself logs.
+      const noisy = new Proxy(
+        { a: 1 },
+        {
+          ownKeys: (target) => {
+            console.error("listing keys");
+            return Reflect.ownKeys(target);
+          },
+        },
+      );
+      expect(() => console.error(noisy)).not.toThrow();
+      // Both lines printed; the inner one, logged while recording, is not
+      // recorded -- and nothing recursed.
+      expect(printedErrors).toEqual([["listing keys"], [noisy]]);
+      expect(pageLog.read().entries.map((entry) => entry.text)).toEqual([
+        '{"a":1}',
+      ]);
+    });
   });
 
-  it("is installed in the Studio's canvas", () => {
-    window.history.replaceState(null, "", "/about?val_canvas=1");
-    log = installPageLogInCanvasFrame();
-    expect(log).not.toBeNull();
-    expect(pageLogOf(window)).toBe(log);
+  it("a query that changes on the same page is not a navigation", () => {
+    const pageLog = install();
+    console.error("a hydration error");
+    // A router canonicalising its query, or filters kept in the URL.
+    window.history.replaceState(null, "", "/about?sort=asc");
+    expect(pageLog.read().entries.map((entry) => entry.text)).toEqual([
+      "a hydration error",
+    ]);
+    expect(pageLog.counts().errors).toBe(1);
+    expect(pageLog.read().path).toBe("/about");
+  });
+
+  it("shortens a long URL like text", async () => {
+    Reflect.set(
+      window,
+      "fetch",
+      jest.fn(() => Promise.resolve({ status: 404, statusText: "" })),
+    );
+    const pageLog = install();
+    await window.fetch(`/api/search?q=${"x".repeat(PAGE_LOG_TEXT_LENGTH * 3)}`);
+    await flush();
+    const entry = pageLog.read().entries[0];
+    expect(entry.url?.length).toBe(PAGE_LOG_TEXT_LENGTH);
+    expect(entry.text.length).toBe(PAGE_LOG_TEXT_LENGTH);
+  });
+
+  describe("where it is installed", () => {
+    /** This document framed by `parentPath`, as the Studio frames it. */
+    const framedBy = (parentPath: string) =>
+      jest.spyOn(window, "parent", "get").mockReturnValue(
+        Object.assign(Object.create(null), {
+          location: { pathname: parentPath },
+        }),
+      );
+    afterEach(() => jest.restoreAllMocks());
+
+    it("not in a page that is not the Studio's canvas", () => {
+      window.history.replaceState(null, "", "/about");
+      expect(installPageLogInCanvasFrame()).toBeNull();
+      expect(pageLogOf(window)).toBeNull();
+    });
+
+    it("not in a canvas URL opened in a tab of its own", () => {
+      // "Open frame in new tab", or a link someone shared: a visitor's page.
+      window.history.replaceState(null, "", "/about?val_canvas=1");
+      const before = console.error;
+      expect(installPageLogInCanvasFrame()).toBeNull();
+      expect(pageLogOf(window)).toBeNull();
+      expect(console.error).toBe(before);
+    });
+
+    it("not in the canvas while Val is not enabled in this browser", () => {
+      window.history.replaceState(null, "", "/about?val_canvas=1");
+      framedBy("/val");
+      expect(installPageLogInCanvasFrame(() => false)).toBeNull();
+      expect(pageLogOf(window)).toBeNull();
+    });
+
+    it("in the Studio's canvas, framed and enabled", () => {
+      window.history.replaceState(null, "", "/about?val_canvas=1");
+      framedBy("/val");
+      log = installPageLogInCanvasFrame(() => true);
+      expect(log).not.toBeNull();
+      expect(pageLogOf(window)).toBe(log);
+    });
   });
 });
 

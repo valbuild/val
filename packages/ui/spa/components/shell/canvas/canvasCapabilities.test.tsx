@@ -147,6 +147,19 @@ describe("the canvas asking the page", () => {
     expect(posted.some((message) => message.type === "readPage")).toBe(false);
   });
 
+  it("reads a ready it does not fully understand as one from before the list", async () => {
+    // A newer bridge's shapes: the page is still there, and asked as an
+    // older bridge would be -- not dropped to "no answer".
+    ready({ capabilities: "everything", bridge: { package: 7 } });
+    if (reader === null) throw new Error("no reader");
+    void reader({}).catch(() => undefined);
+    expect(posted.some((message) => message.type === "readPage")).toBe(true);
+    if (logReader === null) throw new Error("no log reader");
+    await expect(logReader({})).rejects.toThrow(
+      /@valbuild\/next or @valbuild\/tanstack/,
+    );
+  });
+
   it("asks a bridge that lists it, and hands back its answer", async () => {
     ready({ capabilities: [...BRIDGE_CAPABILITIES] });
     if (logReader === null) throw new Error("no log reader");

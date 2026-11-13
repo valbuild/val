@@ -81,6 +81,29 @@ test.describe("the page's log", () => {
       await new Promise((resolve) => img.addEventListener("error", resolve));
     });
 
+    // A fetch that fails, fired and forgotten, is still an unhandled
+    // rejection for the page's own error reporting: the log watches it
+    // without handling it.
+    const unhandled = await preview.locator("body").evaluate(
+      () =>
+        new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => resolve(false), 10_000);
+          window.addEventListener(
+            "unhandledrejection",
+            (event) => {
+              event.preventDefault();
+              clearTimeout(timer);
+              resolve(true);
+            },
+            { once: true },
+          );
+          void fetch("http://127.0.0.1:1/e2e-unreachable");
+        }),
+    );
+    expect(unhandled, "a failed fetch nobody handled went unreported").toBe(
+      true,
+    );
+
     const answer = await askThePage(
       page,
       { type: "readPageLog" },

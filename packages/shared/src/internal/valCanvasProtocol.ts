@@ -179,10 +179,18 @@ export type ValCanvasPageMessage =
        * bridge of a release before it: see
        * {@link ANSWERED_BEFORE_CAPABILITIES}. Unknown names -- a bridge
        * newer than the Studio -- are ignored.
+       *
+       * `unknown` on purpose, like {@link bridge}: read it with
+       * {@link capabilitiesOf}. A future bridge may send it in a shape this
+       * Studio does not expect, and that must not make the whole `ready`
+       * unreadable -- which is a preview stuck on "no answer".
        */
-      capabilities?: string[];
-      /** Which package the bridge is, so the Studio can say what to update. */
-      bridge?: CanvasBridgeInfo;
+      capabilities?: unknown;
+      /**
+       * Which package the bridge is, so the Studio can say what to update:
+       * a {@link CanvasBridgeInfo}, read with {@link bridgeInfoOf}.
+       */
+      bridge?: unknown;
     }
   | {
       val: typeof VAL_CANVAS_MESSAGE;
@@ -556,9 +564,7 @@ export function isValCanvasPageMessage(
   return (
     (message.type === "ready" &&
       isModulePathList((data as { holds?: unknown }).holds) &&
-      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions) &&
-      isStringList((data as { capabilities?: unknown }).capabilities) &&
-      isBridgeInfo((data as { bridge?: unknown }).bridge)) ||
+      isHeldVersions((data as { holdsVersions?: unknown }).holdsVersions)) ||
     message.type === "elements" ||
     message.type === "clicked" ||
     message.type === "pinch" ||
@@ -597,23 +603,26 @@ function isHeldVersions(value: unknown): boolean {
   );
 }
 
-/** `capabilities` on `ready`: absent, or a list of names. */
-function isStringList(value: unknown): boolean {
-  return (
-    value === undefined ||
-    (Array.isArray(value) && value.every((item) => typeof item === "string"))
-  );
+/**
+ * `capabilities` on `ready`, read leniently: the names in it that are
+ * strings, or `undefined` -- a bridge from before the list -- when it is
+ * absent or not a list at all.
+ */
+export function capabilitiesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === "string");
 }
 
-/** `bridge` on `ready`: absent, or which package at which version. */
-function isBridgeInfo(value: unknown): boolean {
-  if (value === undefined) return true;
-  if (typeof value !== "object" || value === null) return false;
-  const info = value as Record<string, unknown>;
-  return (
-    typeof info.package === "string" &&
-    (info.version === null || typeof info.version === "string")
-  );
+/** `bridge` on `ready`, read leniently: a malformed one is as if absent. */
+export function bridgeInfoOf(value: unknown): CanvasBridgeInfo | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const name: unknown = Reflect.get(value, "package");
+  const version: unknown = Reflect.get(value, "version");
+  if (typeof name !== "string") return undefined;
+  return {
+    package: name,
+    version: typeof version === "string" ? version : null,
+  };
 }
 
 /** `holds` on `ready`: absent, or a list of module paths. */

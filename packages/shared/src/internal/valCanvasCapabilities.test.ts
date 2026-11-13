@@ -2,6 +2,8 @@ import {
   ANSWERED_BEFORE_CAPABILITIES,
   BRIDGE_CAPABILITIES,
   bridgeAnswers,
+  bridgeInfoOf,
+  capabilitiesOf,
   isValCanvasPageMessage,
   isValCanvasStudioMessage,
   VAL_CANVAS_MESSAGE,
@@ -42,15 +44,17 @@ describe("canvas capabilities", () => {
       bridge: { package: "@valbuild/tanstack", version: "0.153.5" },
     };
     expect(isValCanvasPageMessage(ready)).toBe(true);
+    // A shape this Studio does not expect is read as absent, never as a
+    // reason to drop the whole `ready` (a preview stuck on "no answer").
     expect(isValCanvasPageMessage({ ...ready, capabilities: "readPage" })).toBe(
-      false,
+      true,
     );
     expect(
       isValCanvasPageMessage({
         ...ready,
         bridge: { package: 1, version: null },
       }),
-    ).toBe(false);
+    ).toBe(true);
     // A bridge of the release before: neither.
     const { capabilities: _, bridge: __, ...older } = ready;
     expect(isValCanvasPageMessage(older)).toBe(true);
@@ -76,5 +80,26 @@ describe("canvas capabilities", () => {
         error: "no",
       }),
     ).toBe(true);
+  });
+
+  it("reads capabilities leniently: the strings in a list, or none", () => {
+    expect(capabilitiesOf(["readPage", 3, null, "readPageLog"])).toEqual([
+      "readPage",
+      "readPageLog",
+    ]);
+    expect(capabilitiesOf("readPage")).toBeUndefined();
+    expect(capabilitiesOf(undefined)).toBeUndefined();
+  });
+
+  it("reads the bridge leniently: a malformed one is absent", () => {
+    expect(
+      bridgeInfoOf({ package: "@valbuild/next", version: "0.153.5" }),
+    ).toEqual({ package: "@valbuild/next", version: "0.153.5" });
+    expect(bridgeInfoOf({ package: "@valbuild/next", version: 7 })).toEqual({
+      package: "@valbuild/next",
+      version: null,
+    });
+    expect(bridgeInfoOf({ package: 1 })).toBeUndefined();
+    expect(bridgeInfoOf("@valbuild/next")).toBeUndefined();
   });
 });
