@@ -59,7 +59,7 @@ import {
   withWebSearchRequest,
   hasAssistantSection,
   type WebSearchRequestOutcome,
-  type WebSearchSetting,
+  type WebSearchAsk,
 } from "./webSearchSetting";
 import type { ChatDocument } from "../components/AIChatEditor";
 import {
@@ -889,12 +889,15 @@ export function useAI(
        * `assistant.webSearch` as the project has it: on, off, or not decided.
        * See `webSearchSetting.ts`.
        */
-      getWebSearchSetting(): WebSearchSetting {
+      getWebSearchSetting(): WebSearchAsk {
         const moduleFilePath = settingsModuleFilePath(
           system?.schemaStore.all() ?? {},
         );
-        if (moduleFilePath === null) {
-          return null;
+        if (
+          moduleFilePath === null ||
+          system?.schemaStore.get(moduleFilePath)?.readonly === true
+        ) {
+          return "cannot-save";
         }
         return readWebSearchSetting(
           system?.sourceStore.moduleSource(moduleFilePath),
@@ -1426,7 +1429,9 @@ export function useAI(
                     error:
                       setting === false
                         ? "Web search is off for this project, by the person's choice. Answer without it, and do not ask."
-                        : "The chat is not available to ask. Answer without web search.",
+                        : setting === "cannot-save"
+                          ? "Web search cannot be turned on here: this project's settings cannot be changed from the Studio. Answer without it."
+                          : "The chat is not available to ask. Answer without web search.",
                   },
             ...(setting === true ? {} : { isError: true }),
           });

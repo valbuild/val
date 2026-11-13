@@ -52,6 +52,13 @@ describe("the web search setting", () => {
     expect(withWebSearchRequest(CODE_TOOLS, true)).toBe(CODE_TOOLS);
   });
 
+  test("and not where the answer could not be saved", () => {
+    // No settings module, or read-only settings: "Turn on" would only lead to
+    // an error, so the assistant is not given the question to ask.
+    expect(withWebSearchRequest(CODE_TOOLS, "cannot-save")).toBe(CODE_TOOLS);
+    expect(webSearchRequestPromptSection("cannot-save")).toBe("");
+  });
+
   test("and is told about it only while undecided", () => {
     expect(webSearchRequestPromptSection(null)).toContain("request_web_search");
     expect(webSearchRequestPromptSection(false)).toBe("");

@@ -32,6 +32,14 @@ import { ASSISTANT_FIELDS } from "./assistantFields";
  */
 export type WebSearchSetting = boolean | null;
 
+/**
+ * The setting as the assistant's tools see it: {@link WebSearchSetting}, or
+ * "cannot-save" when nobody could keep an answer: the project has no settings
+ * module, or its settings are read-only. The assistant is not offered a
+ * question whose answer would only lead to an error.
+ */
+export type WebSearchAsk = WebSearchSetting | "cannot-save";
+
 export function readWebSearchSetting(
   settingsSource: Json | undefined,
 ): WebSearchSetting {
@@ -85,7 +93,7 @@ export const REQUEST_WEB_SEARCH_TOOL: AITool = {
 /** The assistant's tools, with `request_web_search` only while undecided. */
 export function withWebSearchRequest(
   tools: AITool[],
-  setting: WebSearchSetting,
+  setting: WebSearchAsk,
 ): AITool[] {
   return setting === null ? [...tools, REQUEST_WEB_SEARCH_TOOL] : tools;
 }
@@ -248,9 +256,7 @@ export function patchChangesWebSearchSetting(
  * the project has: on, `assistantSettingsPromptSection` says so; off, the
  * assistant is not told there is anything to ask for.
  */
-export function webSearchRequestPromptSection(
-  setting: WebSearchSetting,
-): string {
+export function webSearchRequestPromptSection(setting: WebSearchAsk): string {
   if (setting !== null) {
     return "";
   }
