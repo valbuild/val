@@ -1016,6 +1016,82 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
       }
     });
 
+    test("two edits of one file started together both land: code changes run one at a time", async () => {
+      // A proposal whose staging takes a moment, as content's does: both
+      // calls of one model reply arrive at once, and each must read what the
+      // one before it staged.
+      let files: Record<string, string | null> = {
+        ...OWN,
+        "src/components/Hero.tsx": HERO,
+      };
+      const d = withHero({
+        proposal: { name: "parallel-edits" },
+        client: {
+          files: async () => ({ files: { ...files }, staged: staged() }),
+          stageFiles: async (_name, written) => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            files = { ...files, ...written };
+            return { commit: "c1", staged: staged() };
+          },
+        },
+      });
+      const [first, second, read] = await Promise.all([
+        runCodeTool(
+          "edit_file",
+          {
+            path: "src/components/Hero.tsx",
+            old_string: "<h1>Hi</h1>",
+            new_string: "<h1>Hello</h1>",
+          },
+          d,
+        ),
+        runCodeTool(
+          "edit_file",
+          {
+            path: "src/components/Hero.tsx",
+            old_string: "<p>Hi</p>",
+            new_string: "<p>Bye</p>",
+          },
+          d,
+        ),
+        // Reading does not wait for the writes.
+        runCodeTool("list_files", {}, d),
+      ]);
+      expect(first.isError).toBe(false);
+      expect(second.isError).toBe(false);
+      expect(read.isError).toBe(false);
+      expect(files["src/components/Hero.tsx"]).toBe(
+        HERO.replace("<h1>Hi</h1>", "<h1>Hello</h1>").replace(
+          "<p>Hi</p>",
+          "<p>Bye</p>",
+        ),
+      );
+    });
+
+    test("a write that fails does not stop the ones after it", async () => {
+      let calls = 0;
+      const d = withHero({
+        proposal: { name: "failing-then-fine" },
+        client: {
+          files: async () => ({
+            files: { ...OWN, "src/components/Hero.tsx": HERO },
+            staged: staged(),
+          }),
+          stageFiles: async () => {
+            calls++;
+            if (calls === 1) throw new Error("refused");
+            return { commit: "c1", staged: staged() };
+          },
+        },
+      });
+      const [failed, written] = await Promise.all([
+        runCodeTool("write_files", { files: { "src/a.ts": "a" } }, d),
+        runCodeTool("write_files", { files: { "src/b.ts": "b" } }, d),
+      ]);
+      expect(failed.isError).toBe(true);
+      expect(written.isError).toBe(false);
+    });
+
     test("a file that does not exist is written with write_files", async () => {
       const edited = await runCodeTool(
         "edit_file",
@@ -1094,6 +1170,34 @@ export default c.define("/src/content/home.val.ts", s.string(), "Hello");`,
       expect(editText(text, "one\ntwo", "1\n2", false)).toMatchObject({
         status: "edited",
         text: "1\r\n2\r\nthree\r\n",
+      });
+    });
+  });
+
+  describe("editText, reviewed", () => {
+    test("in a file with Windows line breaks, a new_string of several lines is written with them", () => {
+      expect(
+        editText("one\r\ntwo\r\n", "two", "two\nthree", false),
+      ).toMatchObject({ status: "edited", text: "one\r\ntwo\r\nthree\r\n" });
+    });
+
+    test("a file with Unix line breaks keeps them", () => {
+      expect(editText("one\ntwo\n", "two", "two\nthree", false)).toMatchObject({
+        status: "edited",
+        text: "one\ntwo\nthree\n",
+      });
+    });
+
+    test("overlapping matches count: 'aa' in 'aaa' is two places, not one", () => {
+      const edit = editText("aaa", "aa", "b", false);
+      expect(edit).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/matches 2 times \(line 1\)/),
+      });
+      expect(editText("aaa", "aa", "b", true)).toMatchObject({
+        status: "edited",
+        text: "ba",
+        replaced: 1,
       });
     });
   });

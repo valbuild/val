@@ -30,8 +30,16 @@
  */
 export const MAX_CONTENT_TOOL_RESULT_CHARS = 200_000;
 
-/** Room kept for `truncated` and `omitted` themselves. */
+/**
+ * Room kept for `truncated`, and for the keys a caller puts beside the
+ * capped value (`success`, `path`, `result`). `omitted` is not in it: the
+ * paths it names are counted against the bound itself, and dropped from the
+ * end until the whole answer fits, since a record's keys can be long.
+ */
 const HINT_ROOM = 4_000;
+
+/** Of `HINT_ROOM`, what is kept for the caller's own keys beside the value. */
+const CALLER_ROOM = 500;
 
 /** At most this many omitted paths are named; the count says the rest. */
 const MAX_NAMED_OMISSIONS = 50;
@@ -60,28 +68,53 @@ export type Capped = {
   omitted?: string[][];
 };
 
-/** `value`, or as much of it as fits, with what was left out. */
+/** A part left out, and how big it is. */
+type Omission = { path: string[]; chars: number };
+
+/**
+ * `value`, or as much of it as fits, with what was left out. The whole
+ * answer -- what is kept, `truncated` and `omitted` -- is at most the bound.
+ */
 export function capToolResult(value: unknown, options: CapOptions): Capped {
   const max = options.maxChars ?? MAX_CONTENT_TOOL_RESULT_CHARS;
   const size = sizeOf(value);
   if (size <= max) return { value };
-  const omitted: string[][] = [];
-  const kept = fit(
-    value,
-    Math.max(max - HINT_ROOM, 0),
-    [],
-    options.wholeDepth ?? 0,
-    omitted,
-  );
-  const named = omitted.slice(0, MAX_NAMED_OMISSIONS);
-  return {
-    value: kept === LEFT_OUT ? null : kept,
-    truncated:
-      `The answer is ${size} characters, more than the ${max} that are sent at once, so ${omitted.length} ${omitted.length === 1 ? "part was" : "parts were"} left out` +
-      `${omitted.length > named.length ? ` (the first ${named.length} are named in omitted)` : " (named in omitted)"}. ` +
-      `What is here is exactly as it is; nothing in it was shortened. ${options.narrow}`,
-    omitted: named,
-  };
+  const budget = Math.max(max - HINT_ROOM, 0);
+  const omitted: Omission[] = [];
+  const fitted = fit(value, budget, [], options.wholeDepth ?? 0, omitted);
+  const kept = fitted === LEFT_OUT ? undefined : fitted;
+  // Parts bigger than the whole bound cannot be had by asking for them
+  // alone: saying "narrow" there sends the model round in a loop.
+  const tooLarge = omitted.filter((part) => part.chars > budget);
+  const rest = omitted.length - tooLarge.length;
+  const hint = (named: number) =>
+    `The answer is ${size} characters, more than the ${max} that are sent at once.` +
+    (tooLarge.length > 0
+      ? ` Too large to send whole, even asked for alone: ${tooLarge
+          .slice(0, 5)
+          .map(
+            (part) =>
+              `${part.path.length === 0 ? "the value itself" : JSON.stringify(part.path)} (${part.chars} characters)`,
+          )
+          .join(
+            ", ",
+          )}${tooLarge.length > 5 ? ` and ${tooLarge.length - 5} more` : ""}.`
+      : "") +
+    (rest > 0
+      ? ` ${rest} ${rest === 1 ? "part was" : "parts were"} left out${
+          named < omitted.length
+            ? ` (the first ${named} of all that was left out are named in omitted)`
+            : " (named in omitted)"
+        }. What is here is exactly as it is; nothing in it was shortened. ${options.narrow}`
+      : "");
+  const answer = (named: number): Capped => ({
+    value: kept,
+    truncated: hint(named),
+    omitted: omitted.slice(0, named).map((part) => part.path),
+  });
+  let named = Math.min(omitted.length, MAX_NAMED_OMISSIONS);
+  while (named > 0 && sizeOf(answer(named)) > max - CALLER_ROOM) named--;
+  return answer(named);
 }
 
 /**
@@ -105,7 +138,7 @@ function fit(
   budget: number,
   path: string[],
   wholeDepth: number,
-  omitted: string[][],
+  omitted: Omission[],
 ): unknown {
   if (sizeOf(value) <= budget) return value;
   const splittable =
@@ -113,7 +146,7 @@ function fit(
     budget >= MIN_SPLIT_BUDGET &&
     (Array.isArray(value) || isPlainObject(value));
   if (!splittable) {
-    omitted.push(path);
+    omitted.push({ path, chars: sizeOf(value) });
     return LEFT_OUT;
   }
   if (Array.isArray(value)) {
@@ -133,14 +166,17 @@ function fit(
       const part = fit(item, budget - used - 1, itemPath, wholeDepth, omitted);
       if (part !== LEFT_OUT) kept.push(part);
       for (let rest = index + 1; rest < value.length; rest++) {
-        omitted.push([...path, String(rest)]);
+        omitted.push({
+          path: [...path, String(rest)],
+          chars: sizeOf(value[rest]),
+        });
       }
       break;
     }
     return kept;
   }
   if (!isPlainObject(value)) {
-    omitted.push(path);
+    omitted.push({ path, chars: sizeOf(value) });
     return LEFT_OUT;
   }
   // Whole entries first, in order; then what is left cuts open the ones

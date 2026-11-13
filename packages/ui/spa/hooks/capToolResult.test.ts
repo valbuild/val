@@ -17,24 +17,86 @@ describe("capToolResult", () => {
 
   test("an object keeps whole entries that fit, names the rest, and says how to narrow", () => {
     const schemas = {
+      "/a.val.ts": { fields: "a".repeat(2_800) },
+      "/b.val.ts": { fields: "b".repeat(2_800) },
+      "/c.val.ts": { fields: "c".repeat(2_800) },
+      "/d.val.ts": { fields: "d".repeat(2_800) },
+    };
+    const capped = capToolResult(schemas, {
+      narrow: "Ask with module_file_paths.",
+      wholeDepth: 1,
+      maxChars: 10_000,
+    });
+    expect(capped.value).toEqual({
+      "/a.val.ts": schemas["/a.val.ts"],
+      "/b.val.ts": schemas["/b.val.ts"],
+    });
+    expect(capped.omitted).toEqual([["/c.val.ts"], ["/d.val.ts"]]);
+    expect(capped.truncated).toMatch(
+      /2 parts were left out.*module_file_paths/,
+    );
+    expect(capped.truncated).not.toMatch(/Too large/);
+    expect(JSON.stringify(capped).length).toBeLessThanOrEqual(10_000);
+  });
+
+  test("an entry too large to send even alone says so, with its size, and does not say to ask for it", () => {
+    const schemas = {
       "/big.val.ts": { fields: "x".repeat(6_000) },
       "/a.val.ts": { fields: "a".repeat(100) },
-      "/b.val.ts": { fields: "b".repeat(100) },
     };
     const capped = capToolResult(schemas, {
       narrow: "Ask with module_file_paths.",
       wholeDepth: 1,
       maxChars: 5_000,
     });
-    // The big module is left out whole, never cut open: and it does not
-    // crowd out the small ones after it.
-    expect(capped.value).toEqual({
-      "/a.val.ts": schemas["/a.val.ts"],
-      "/b.val.ts": schemas["/b.val.ts"],
-    });
+    // Left out whole, never cut open, and it does not crowd out the small
+    // one after it.
+    expect(capped.value).toEqual({ "/a.val.ts": schemas["/a.val.ts"] });
     expect(capped.omitted).toEqual([["/big.val.ts"]]);
-    expect(capped.truncated).toMatch(/1 part was left out.*module_file_paths/);
-    expect(JSON.stringify(capped).length).toBeLessThanOrEqual(5_000);
+    expect(capped.truncated).toMatch(
+      /Too large to send whole, even asked for alone: \["\/big\.val\.ts"\] \(60\d\d characters\)/,
+    );
+    expect(capped.truncated).not.toMatch(/module_file_paths/);
+  });
+
+  test("a single value too large is not answered as null: it is missing, and said to be too large", () => {
+    const capped = cappedToolResult("x".repeat(10_000), {
+      narrow: "Use a path.",
+      maxChars: 5_000,
+    });
+    expect(capped).not.toHaveProperty("result", null);
+    expect(JSON.stringify(capped)).not.toMatch(/"result"/);
+    expect(capped).toMatchObject({
+      truncated: expect.stringMatching(
+        /Too large to send whole, even asked for alone: the value itself \(10002 characters\)/,
+      ),
+    });
+    expect(JSON.stringify(capped)).not.toMatch(/Use a path/);
+  });
+
+  test("short omitted paths are named", () => {
+    const record = Object.fromEntries(
+      Array.from({ length: 200 }, (_, i) => [`/m${i}.val.ts`, "v".repeat(100)]),
+    );
+    const capped = capToolResult(record, { narrow: "n", maxChars: 10_000 });
+    expect(capped.omitted?.length).toBe(50);
+    expect(JSON.stringify(capped).length).toBeLessThanOrEqual(10_000);
+  });
+
+  test("the bound holds however long the omitted paths are", () => {
+    const longKey = (i: number) => `/${"k".repeat(1_500)}-${i}`;
+    const record = Object.fromEntries(
+      Array.from({ length: 200 }, (_, i) => [longKey(i), "v".repeat(100)]),
+    );
+    for (const maxChars of [5_000, 20_000, 60_000]) {
+      const capped = capToolResult(record, { narrow: "n", maxChars });
+      expect(JSON.stringify(capped).length).toBeLessThanOrEqual(maxChars);
+      expect(
+        JSON.stringify(cappedToolResult(record, { narrow: "n", maxChars }))
+          .length,
+      ).toBeLessThanOrEqual(maxChars);
+      expect(capped.truncated).toMatch(/left out/);
+    }
   });
 
   test("an array keeps a prefix, so every index that is there is true", () => {

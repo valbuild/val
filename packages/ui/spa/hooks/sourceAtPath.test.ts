@@ -26,4 +26,15 @@ describe("valueAtPath", () => {
     expect(valueAtPath(source, ["toString"]).status).toBe("invalid");
     expect(valueAtPath(source, "posts").status).toBe("invalid");
   });
+
+  test("only a canonical index reads an item", () => {
+    const list = { items: ["a", "b"] };
+    for (const index of ["", "1.0", " 1", "01", "-0", "1e0"]) {
+      expect(valueAtPath(list, ["items", index]).status).toBe("invalid");
+    }
+    expect(valueAtPath(list, ["items", "0"])).toEqual({
+      status: "found",
+      value: "a",
+    });
+  });
 });

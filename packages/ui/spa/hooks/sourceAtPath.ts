@@ -44,10 +44,11 @@ function childOf(
   segment: string,
 ): { value: unknown } | undefined {
   if (Array.isArray(value)) {
+    // Only a canonical index: "", "1.0" and " 1" are numbers to `Number`,
+    // and would read an item nobody named.
+    if (!/^(0|[1-9][0-9]*)$/.test(segment)) return undefined;
     const index = Number(segment);
-    if (!Number.isInteger(index) || index < 0 || index >= value.length) {
-      return undefined;
-    }
+    if (index >= value.length) return undefined;
     return { value: value[index] };
   }
   if (isRecord(value) && Object.prototype.hasOwnProperty.call(value, segment)) {

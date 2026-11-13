@@ -642,7 +642,40 @@ const MAX_READ_CHARS = 200_000;
 const MAX_SEARCHED_CHARS = 1_000_000;
 const MAX_MATCH_LINE_CHARS = 300;
 
-export async function runCodeTool(
+/**
+ * The code-changing tool calls running in each proposal, as one chain.
+ *
+ * The server sends every tool call of one model reply at once, and the
+ * Studio starts each as it arrives. Two `edit_file` calls on one file would
+ * both read the same text, both stage, and the second would overwrite the
+ * first while both answer success. So the tools that change code
+ * (`changesCode`) run one at a time per proposal, each after the one before
+ * has staged, and so each reads what the one before wrote. Reading does not
+ * wait.
+ */
+const codeWrites = new Map<string, Promise<unknown>>();
+
+export function runCodeTool(
+  name: string,
+  args: unknown,
+  deps: CodeToolDeps,
+): Promise<CodeToolAnswer> {
+  const input = isRecord(args) ? args : {};
+  if (deps.proposal === null || !changesCode(name, input)) {
+    return runCodeToolNow(name, args, deps);
+  }
+  const proposalName = deps.proposal.name;
+  const before = codeWrites.get(proposalName) ?? Promise.resolve();
+  // `runCodeToolNow` answers its own failures, so the chain never rejects.
+  const run = before.then(() => runCodeToolNow(name, args, deps));
+  codeWrites.set(proposalName, run);
+  void run.then(() => {
+    if (codeWrites.get(proposalName) === run) codeWrites.delete(proposalName);
+  });
+  return run;
+}
+
+async function runCodeToolNow(
   name: string,
   args: unknown,
   deps: CodeToolDeps,
@@ -1178,8 +1211,12 @@ export type TextEdit =
  * unless `replaceAll`. A refusal says what to do instead, since the model
  * reads it and tries again.
  *
- * A file with Windows line breaks is matched with them: the model writes
- * `\n`, and would otherwise never match such a file at all.
+ * A file with Windows line breaks is matched with them, and new_string is
+ * written with them: the model writes `\n`, and would otherwise never match
+ * such a file, or would put bare `\n` into it.
+ *
+ * Whether `oldString` is unique counts overlapping matches too: "aa" in
+ * "aaa" is two places it could mean, not one.
  */
 export function editText(
   text: string,
@@ -1200,17 +1237,17 @@ export function editText(
       message: "old_string and new_string are the same: nothing would change.",
     };
   }
+  const crlf = text.includes("\r\n");
   let from = oldString;
-  let to = newString;
+  const to = crlf ? newString.replace(/\r?\n/g, "\r\n") : newString;
   let at = matchesOf(text, from);
   if (
     at.length === 0 &&
-    text.includes("\r\n") &&
+    crlf &&
     !oldString.includes("\r\n") &&
     oldString.includes("\n")
   ) {
     from = oldString.replace(/\n/g, "\r\n");
-    to = newString.replace(/\r?\n/g, "\r\n");
     at = matchesOf(text, from);
   }
   if (at.length === 0) {
@@ -1236,12 +1273,15 @@ export function editText(
           : ""),
     };
   }
-  if (at.length > 1 && !replaceAll) {
-    const lines = at.slice(0, 10).map((index) => lineOf(text, index));
+  const overlapping = overlappingMatchesOf(text, from);
+  if (overlapping.length > 1 && !replaceAll) {
+    const lines = [
+      ...new Set(overlapping.slice(0, 10).map((index) => lineOf(text, index))),
+    ];
     return {
       status: "refused",
       message:
-        `old_string matches ${at.length} times (${lines.length < at.length ? "first on lines" : "lines"} ${lines.join(", ")}), so it is not clear which to change. ` +
+        `old_string matches ${overlapping.length} times (${overlapping.length > 10 ? "first on lines" : lines.length === 1 ? "line" : "lines"} ${lines.join(", ")}), so it is not clear which to change. ` +
         "Add lines around it to old_string until it matches once, or set replace_all: true to change every match.",
     };
   }
@@ -1259,6 +1299,17 @@ export function editText(
     replaced: replacing.length,
     line: lineOf(text, replacing[0]),
   };
+}
+
+/** Where `search` starts in `text`, each time, overlapping ones included. */
+function overlappingMatchesOf(text: string, search: string): number[] {
+  const at: number[] = [];
+  let index = text.indexOf(search);
+  while (index !== -1) {
+    at.push(index);
+    index = text.indexOf(search, index + 1);
+  }
+  return at;
 }
 
 /** Where `search` starts in `text`, each time, not overlapping. */

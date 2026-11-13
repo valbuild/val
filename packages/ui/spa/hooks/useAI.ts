@@ -190,6 +190,7 @@ import { createProjectSourceReader } from "@valbuild/shared/internal";
 import { assistantPersona, isInCodeMode } from "./assistantPersona";
 import { capToolResult, cappedToolResult } from "./capToolResult";
 import { valueAtPath } from "./sourceAtPath";
+import { allSchemaAnswer } from "./allSchemaAnswer";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -1564,27 +1565,10 @@ export function useAI(
             "module_file_paths" in schemaArgs
               ? schemaArgs.module_file_paths
               : undefined;
-          const only =
-            Array.isArray(asked) && asked.length > 0
-              ? new Set(asked.filter((p): p is string => typeof p === "string"))
-              : null;
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
-            result: cappedToolResult(
-              only === null
-                ? schemas
-                : Object.fromEntries(
-                    Object.entries(schemas).filter(([path]) => only.has(path)),
-                  ),
-              {
-                // A module's schema is whole or not there: half of one reads
-                // as a module without the fields that were cut.
-                wholeDepth: 1,
-                narrow:
-                  "Ask for the modules left out with module_file_paths, a few at a time.",
-              },
-            ),
+            result: allSchemaAnswer(schemas, asked),
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else if (message.name === "get_source") {
