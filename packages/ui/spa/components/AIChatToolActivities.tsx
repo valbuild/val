@@ -233,6 +233,10 @@ const CODE_TOOL_DISPLAY: Partial<Record<string, ToolDisplay>> = {
     label: "Searching the code",
     icon: <Search className="h-3 w-3" />,
   },
+  edit_file: {
+    label: "Changing the code",
+    icon: <CodeXml className="h-3 w-3" />,
+  },
   write_files: {
     label: "Changing the code",
     icon: <CodeXml className="h-3 w-3" />,

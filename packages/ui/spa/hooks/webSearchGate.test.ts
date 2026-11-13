@@ -13,6 +13,13 @@ describe("the web search gate", () => {
     expect(needsWebSearchConfirmation("write_files", false)).toBe(false);
   });
 
+  test("edit_file changes code as write_files does, so it waits as write_files does", () => {
+    expect(needsWebSearchConfirmation("edit_file", true)).toBe(true);
+    expect(needsWebSearchConfirmation("edit_file", false)).toBe(false);
+    const [edit] = webSearchConfirmationQuestions("edit_file");
+    expect(edit.question).toContain("change the site's code");
+  });
+
   test("reading and content edits never wait", () => {
     expect(needsWebSearchConfirmation("read_file", true)).toBe(false);
     expect(needsWebSearchConfirmation("create_patch", true)).toBe(false);
@@ -59,7 +66,7 @@ describe("the web search gate", () => {
 describe("withWebSearchWaits", () => {
   test("with search on, the gated tools wait as long as a question does", () => {
     const tools = withWebSearchWaits(CODE_TOOLS, true);
-    for (const name of ["write_files", "build_proposal"]) {
+    for (const name of ["write_files", "edit_file", "build_proposal"]) {
       expect(tools.find((tool) => tool.name === name)?.timeoutMs).toBeNull();
     }
     const readFile = CODE_TOOLS.find((tool) => tool.name === "read_file");
