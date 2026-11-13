@@ -739,12 +739,12 @@ export function defineCanvasSuite(): void {
 
       // Off in the normal view: the page is there to be read and clicked through
       // like a page.
-      const pick = studio.getByRole("button", { name: "Select on the page" });
+      const pick = studio.getByRole("button", { name: "Edit on the page" });
       await expect(pick, "picking had no control of its own").toBeVisible();
       await pick.click();
 
       await expect(
-        studio.getByRole("button", { name: "Stop selecting on the page" }),
+        studio.getByRole("button", { name: "Stop editing on the page" }),
         "the button did not turn picking on",
       ).toBeVisible();
       // Still the normal view — that is the whole point of the button.
@@ -755,7 +755,7 @@ export function defineCanvasSuite(): void {
       // Switching to the fields view still turns it on by itself.
       await studio.getByRole("tab", { name: /On this page/ }).click();
       await expect(
-        studio.getByRole("button", { name: "Stop selecting on the page" }),
+        studio.getByRole("button", { name: "Stop editing on the page" }),
       ).toBeVisible();
     });
   });

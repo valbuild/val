@@ -115,6 +115,31 @@ export type ValCanvasComponentEdit =
  */
 export const VAL_CANVAS_CONTROLS_ATTRIBUTE = "data-val-component-controls";
 
+/**
+ * On the canvas page's `<html>` while the Studio's Edit is on (its
+ * `setPicking`): what the controls over a list of components are shown by.
+ *
+ * An attribute the bridge sets, rather than the message itself, because the
+ * bridge is there from the first render and a list is not: one on a page
+ * navigated to later never heard the message, and an attribute is still
+ * there to be read.
+ */
+export const VAL_CANVAS_EDITING_ATTRIBUTE = "data-val-canvas-editing";
+
+/**
+ * On the element around each item `ValComponentEditor` renders. The canvas
+ * bridge leaves it out of its own outlines: the controls draw one for it.
+ */
+export const VAL_COMPONENT_ATTRIBUTE = "data-val-component";
+
+/**
+ * The Studio's selection colour, as a CSS custom property the canvas bridge
+ * sets on the page's root. The controls over a list are drawn with it, so
+ * they are the colour of everything else the canvas outlines, whenever they
+ * were rendered.
+ */
+export const VAL_CANVAS_SELECTION_PROPERTY = "--val-canvas-selection";
+
 /** Whether an element is one of the controls drawn over a list of components. */
 export function isOnValCanvasControls(element: Element): boolean {
   return element.closest(`[${VAL_CANVAS_CONTROLS_ATTRIBUTE}]`) !== null;

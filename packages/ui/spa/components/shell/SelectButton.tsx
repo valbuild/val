@@ -1,4 +1,4 @@
-import { CodeXml, MousePointerSquareDashed } from "lucide-react";
+import { CodeXml, MousePointerSquareDashed, SquarePen } from "lucide-react";
 import { cn } from "../designSystem/cn";
 
 /** Whose Select it is: what a pick on the page is for. */
@@ -10,8 +10,10 @@ export type SelectFor = "content" | "assistant";
  * There are two, one on each side of the preview, at the edge of their
  * pane's header nearest it:
  *
- * - **Content's** picks a field and opens it. It stays on until it is
- *   turned off, and the fields it can take are outlined solid.
+ * - **Content's** is called Edit: it picks a field and opens it, and while
+ *   it is on, a list rendered with `ValComponentEditor` shows the controls
+ *   to arrange it on the page. It stays on until it is turned off, and the
+ *   fields it can take are outlined solid.
  * - **The Assistant's** picks what the next message is about: a field, or in
  *   code mode any element. Once, then off. Outlined dashed, and in code mode
  *   in the proposal's colour, with a small `</>` on the button.
@@ -55,7 +57,7 @@ export function SelectButton({
         unavailable !== undefined
           ? unavailable
           : selectFor === "content"
-            ? "Select a field on the page to edit it"
+            ? "Edit on the page: click content to open its field, and arrange sections"
             : codeMode
               ? "Select anything on the page, to ask the assistant about it"
               : "Select a field on the page, to ask the assistant about it"
@@ -74,22 +76,26 @@ export function SelectButton({
         className,
       )}
     >
-      <MousePointerSquareDashed size={14} />
-      {label && "Select"}
+      {selectFor === "content" ? (
+        <SquarePen size={14} />
+      ) : (
+        <MousePointerSquareDashed size={14} />
+      )}
+      {label && (selectFor === "content" ? "Edit" : "Select")}
       {proposal && <CodeXml size={11} aria-hidden />}
     </button>
   );
 }
 
 /**
- * Said as what pressing it does, and different for each: two buttons that
- * read "Select" to a screen reader are one button twice. Content's keeps the
- * names the preview toolbar's button had, which is the act it took over.
+ * Said as what pressing it does, and different for each, so a screen reader
+ * hears two buttons rather than one twice. Content's starts with the word on
+ * the button, which is what someone using voice control will say.
  */
 const ACCESSIBLE_NAME: Record<SelectFor, { on: string; off: string }> = {
   content: {
-    off: "Select on the page",
-    on: "Stop selecting on the page",
+    off: "Edit on the page",
+    on: "Stop editing on the page",
   },
   assistant: {
     off: "Point the assistant at something on the page",

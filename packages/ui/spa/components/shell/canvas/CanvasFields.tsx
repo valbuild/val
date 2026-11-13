@@ -11,6 +11,7 @@ import { FieldLoading } from "../../FieldLoading";
 import { FieldNotFound } from "../../FieldNotFound";
 import { FieldSchemaError } from "../../FieldSchemaError";
 import { useSchemaAtPath } from "../../ValFieldProvider";
+import { isAncestorPath } from "./componentFieldPaths";
 
 /** How far below the top of the column a field scrolled to should land. */
 const SCROLL_MARGIN_PX = 8;
@@ -68,6 +69,25 @@ export function CanvasFields({
 }) {
   const [query, setQuery] = useState("");
   const changedPaths = useChangedPaths(paths);
+  /*
+   * The row the selection is in: its own, or - for a field inside a
+   * component, which is listed as the component - the component's. The
+   * nearest one, so a card in a section is the card's row when it has one.
+   */
+  const selectedRow = useMemo(() => {
+    if (!selectedPath) return null;
+    if (paths.includes(selectedPath)) return selectedPath;
+    let nearest: SourcePath | null = null;
+    for (const path of paths) {
+      if (
+        isAncestorPath(path, selectedPath) &&
+        (nearest === null || path.length > nearest.length)
+      ) {
+        nearest = path;
+      }
+    }
+    return nearest;
+  }, [selectedPath, paths]);
 
   /*
    * Only a pick, never the answer changing under a selection: reverting the
@@ -106,10 +126,10 @@ export function CanvasFields({
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const list = listRef.current;
-    if (!selectedPath || !list) return;
+    if (!selectedRow || !list) return;
     const align = () => {
       const row = list.querySelector(
-        `[data-canvas-field="${CSS.escape(selectedPath)}"]`,
+        `[data-canvas-field="${CSS.escape(selectedRow)}"]`,
       );
       if (!(row instanceof HTMLElement)) return;
       const listBox = list.getBoundingClientRect();
@@ -141,7 +161,7 @@ export function CanvasFields({
      * scroller — so without this the one case where the scroll matters most is
      * the one it never happens in.
      */
-  }, [selectedPath, paths]);
+  }, [selectedRow, paths]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
@@ -238,7 +258,7 @@ export function CanvasFields({
                   <CanvasFieldRow
                     key={path}
                     path={path}
-                    selected={selectedPath === path}
+                    selected={selectedRow === path}
                     changed={changedPaths.has(path)}
                     offPage={offPagePaths?.has(path) ?? false}
                     onSelect={onSelect}

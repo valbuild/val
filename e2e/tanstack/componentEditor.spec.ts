@@ -64,6 +64,8 @@ async function openLanding(page: Page): Promise<FrameLocator> {
   await expect(page.getByRole("tab", { name: /On this page \d/ })).toBeVisible({
     timeout: 60_000,
   });
+  // The controls are drawn only while Edit is on.
+  await page.getByRole("button", { name: "Edit on the page" }).click();
   return page.frameLocator('iframe[title="Preview of /landing"]');
 }
 
@@ -197,12 +199,11 @@ test.describe("arranging sections on the page", () => {
     await expect(cards.nth(0)).toContainText("Content");
     await expect(cards.nth(1)).toContainText("A component");
 
-    // A double click opens the card itself, not the field under the pointer
-    // (which the first click of the two opened) and not the section around it.
-    await cards.nth(0).dblclick({ position: { x: 40, y: 40 } });
+    // A click on a field inside a card opens that field, not the card.
+    await cards.nth(0).getByText("Content", { exact: true }).click();
     await expect
       .poll(() => decodeURIComponent(page.url()))
-      .toMatch(/"cards"\.0(?![.\d])/);
+      .toMatch(/"cards"\.0\."title"/);
     // The sections around them did not move.
     expect(await serverSections(request)).toEqual([
       "hero",

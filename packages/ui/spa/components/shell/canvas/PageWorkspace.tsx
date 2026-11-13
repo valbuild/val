@@ -27,6 +27,8 @@ import { CanvasPage } from "./CanvasPage";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
+import { collapseIntoComponents } from "./componentFieldPaths";
+import { useSchemas } from "../../ValFieldProvider";
 import { SitePreview, SitePreviewViewport } from "./SitePreview";
 import { SelectButton } from "../SelectButton";
 import type { ContentPlacement } from "../workspace/placePanes";
@@ -607,9 +609,18 @@ export function PageWorkspace({
       // The reload BUTTON's counter, which nothing else bumps — see the hook.
       resetKey: `${canvasRoute ?? ""}\n${reloadKey}`,
     });
+  // A component's own fields are in its row: listed once, not twice.
+  const schemas = useSchemas();
+  const listedPaths = useMemo(
+    () =>
+      schemas.status === "success"
+        ? collapseIntoComponents(reportedPaths, schemas.data)
+        : reportedPaths,
+    [reportedPaths, schemas],
+  );
   const fieldCount = page
     ? Object.keys(page.fields).length
-    : reportedPaths.length;
+    : listedPaths.length;
   const viewToggle = (
     <ViewToggle
       view={view}
@@ -782,9 +793,9 @@ export function PageWorkspace({
           attachedFieldIds={attachedFieldIds}
           isDevMode={isDevMode}
         />
-      ) : reportedPaths.length > 0 ? (
+      ) : listedPaths.length > 0 ? (
         <CanvasFields
-          paths={reportedPaths}
+          paths={listedPaths}
           offPagePaths={offPagePaths}
           changedOnly={changedFieldsOnly}
           onChangedOnlyChange={setChangedFieldsOnly}

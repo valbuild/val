@@ -32,7 +32,7 @@ test.describe("pointing at the page", () => {
     });
 
     const contentSelect = page.getByRole("button", {
-      name: "Select on the page",
+      name: "Edit on the page",
     });
     await expect(
       contentSelect,
@@ -40,7 +40,7 @@ test.describe("pointing at the page", () => {
     ).toBeVisible();
     await contentSelect.click();
     await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
+      page.getByRole("button", { name: "Stop editing on the page" }),
     ).toHaveAttribute("aria-pressed", "true");
 
     await page.getByRole("button", { name: "AI assistant" }).first().click();
@@ -54,7 +54,7 @@ test.describe("pointing at the page", () => {
     // A click on the page has one owner: Content's Select is not pressed,
     // whether Content is a column or folded to a strip.
     await expect(
-      page.getByRole("button", { name: "Stop selecting on the page" }),
+      page.getByRole("button", { name: "Stop editing on the page" }),
       "Content's Select stayed on while the assistant's picked",
     ).toHaveCount(0);
 

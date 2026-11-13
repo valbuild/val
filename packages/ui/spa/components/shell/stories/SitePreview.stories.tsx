@@ -84,7 +84,7 @@ export const OnTheCanvas: Story = {
       await canvas.findByRole("button", { name: "Fit page width" }),
     ).toBeVisible();
     await expect(
-      canvas.queryByRole("button", { name: /Select on the page/ }),
+      canvas.queryByRole("button", { name: /Edit on the page/ }),
     ).toBeNull();
   },
 };

@@ -4,6 +4,9 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isOnValCanvasControls,
+  VAL_CANVAS_EDITING_ATTRIBUTE,
+  VAL_CANVAS_SELECTION_PROPERTY,
+  VAL_COMPONENT_ATTRIBUTE,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
@@ -111,6 +114,13 @@ export function ValCanvasBridge({
   // installed once and would otherwise close over the first value forever.
   const pickingRef = React.useRef(false);
   pickingRef.current = picking;
+  // Said on the document too, for the controls `ValComponentEditor` draws:
+  // they are shown only while Edit is on.
+  React.useEffect(() => {
+    const root = document.documentElement;
+    root.toggleAttribute(VAL_CANVAS_EDITING_ATTRIBUTE, picking);
+    return () => root.removeAttribute(VAL_CANVAS_EDITING_ATTRIBUTE);
+  }, [picking]);
   /**
    * Picking ANY element (`pickElements`), as the studio last said. `null`
    * until it says.
@@ -721,9 +731,12 @@ export function ValCanvasBridge({
       // close the selector early.
       dangerouslySetInnerHTML={{
         __html: [
+          `:root { ${VAL_CANVAS_SELECTION_PROPERTY}: ${selectionColors.selection}; }`,
+          // Not around a component's item: its controls outline it, and two
+          // boxes on one element is one too many.
           picking
-            ? `[data-val-path] { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
-[data-val-path]:hover { outline: 2px solid ${selectionColors.selection}; }`
+            ? `[data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]) { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
+[data-val-path]:not([${VAL_COMPONENT_ATTRIBUTE}]):hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
           highlighted
             ? highlightRule(highlighted, selectionColors.selection)

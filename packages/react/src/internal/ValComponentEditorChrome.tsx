@@ -4,9 +4,11 @@ import { Internal, type SourcePath } from "@valbuild/core";
 import {
   DEFAULT_CANVAS_SELECTION,
   VAL_CANVAS_CONTROLS_ATTRIBUTE,
+  VAL_CANVAS_EDITING_ATTRIBUTE,
+  VAL_CANVAS_SELECTION_PROPERTY,
+  VAL_COMPONENT_ATTRIBUTE,
   VAL_CANVAS_MESSAGE,
   isValCanvasFrame,
-  isValCanvasStudioMessage,
   type ValCanvasComponentEdit,
   type ValCanvasPageMessage,
 } from "@valbuild/shared/client";
@@ -29,7 +31,7 @@ import {
  * no value: an item is known by its PLACE among its siblings, which is what
  * an edit to a list is made of.
  */
-export const VAL_COMPONENT_ATTRIBUTE = "data-val-component";
+export { VAL_COMPONENT_ATTRIBUTE };
 
 /** On the element around a list, with the list's path once there is one. */
 export const VAL_COMPONENT_LIST_ATTRIBUTE = "data-val-component-list";
@@ -166,10 +168,10 @@ export function moveTarget(from: number, slot: number): number | null {
  * The element around a list of components, and - in the Studio's canvas - the
  * controls to arrange it. See `ValComponentEditor`.
  *
- * The controls exist only when two things are true: the page is in the
- * canvas frame, so there is a Studio to hear what was asked for, and the list
- * has a path, which it has when the page is showing draft content. Anywhere
- * else this is one element and its children.
+ * The controls exist only when three things are true: the page is in the
+ * canvas frame, so there is a Studio to hear what was asked for; the list
+ * has a path, which it has when the page is showing draft content; and the
+ * Studio's Edit is on. Anywhere else this is one element and its children.
  */
 export function ValComponentList({
   path,
@@ -185,7 +187,8 @@ export function ValComponentList({
   const ref = useRef<HTMLDivElement>(null);
   const inCanvas = useIsCanvasFrame();
   const off = useContext(ValComponentControlsOff);
-  const editing = inCanvas && !off && path !== undefined;
+  const editMode = useEditMode();
+  const editing = inCanvas && editMode && !off && path !== undefined;
   return (
     <div
       ref={ref}
@@ -237,46 +240,40 @@ function sendEdit(edit: ValCanvasComponentEdit) {
   send({ val: VAL_CANVAS_MESSAGE, type: "componentEdit", edit });
 }
 
-/*
- * The Studio's selection colour, for every list on the page.
- *
- * Kept here and not in each list's state: the Studio says it once, when the
- * page announces itself, and a list that is rendered later - one inside a
- * section that was just added - was not there to hear it.
+/**
+ * Whether the Studio's Edit is on, which the canvas bridge says on `<html>`
+ * ({@link VAL_CANVAS_EDITING_ATTRIBUTE}). Off, the page in the canvas is a
+ * page - read and clicked as a visitor would - and nothing is drawn on it.
  */
-let selectionColor: string = DEFAULT_CANVAS_SELECTION;
-const selectionColorListeners = new Set<() => void>();
-let listeningForSelectionColor = false;
-
-function subscribeToSelectionColor(onChange: () => void) {
-  if (!listeningForSelectionColor) {
-    listeningForSelectionColor = true;
-    window.addEventListener("message", (event: MessageEvent) => {
-      if (event.source !== window.parent) return;
-      if (!isValCanvasStudioMessage(event.data)) return;
-      if (event.data.type !== "theme") return;
-      selectionColor = event.data.selection;
-      selectionColorListeners.forEach((listener) => listener());
-    });
-  }
-  selectionColorListeners.add(onChange);
-  return () => {
-    selectionColorListeners.delete(onChange);
-  };
+function subscribeToEditMode(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [VAL_CANVAS_EDITING_ATTRIBUTE],
+  });
+  return () => observer.disconnect();
 }
 
-/** The Studio's selection colour: its `theme` message, or Val's green. */
-function useSelectionColor(): string {
+function useEditMode(): boolean {
   return useSyncExternalStore(
-    subscribeToSelectionColor,
-    () => selectionColor,
-    () => DEFAULT_CANVAS_SELECTION,
+    subscribeToEditMode,
+    () => document.documentElement.hasAttribute(VAL_CANVAS_EDITING_ATTRIBUTE),
+    () => false,
   );
 }
 
+/**
+ * The Studio's selection colour, which the canvas bridge sets on the page's
+ * root ({@link VAL_CANVAS_SELECTION_PROPERTY}), or Val's green. A CSS value
+ * rather than a colour read from a message: a list rendered after the Studio
+ * said it - one inside a section just added, or on a page navigated to - was
+ * not there to hear it.
+ */
+const SELECTION_COLOR = `var(${VAL_CANVAS_SELECTION_PROPERTY}, ${DEFAULT_CANVAS_SELECTION})`;
+
 /** A list with nothing in it has nothing to hover: the way in is a button. */
 function EmptyList({ path }: { path: SourcePath }) {
-  const color = useSelectionColor();
+  const color = SELECTION_COLOR;
   return (
     <button
       type="button"
@@ -374,7 +371,7 @@ function ListControls({
   listRef: RefObject<HTMLDivElement | null>;
   path: SourcePath;
 }) {
-  const color = useSelectionColor();
+  const color = SELECTION_COLOR;
   const layerRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   // The item being dragged, and the place it would land in if let go now
@@ -532,31 +529,6 @@ function ListControls({
     },
     [path],
   );
-
-  // A double click on an item opens it, as its pencil does. A single click
-  // is the page's (in the canvas: the field under the pointer), so this
-  // comes after it and has the last word. The NEAREST component only, so a
-  // card in a list inside a section opens the card, not the section.
-  useEffect(() => {
-    const onDoubleClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (layerRef.current?.contains(target)) return;
-      const item = target.closest(`[${VAL_COMPONENT_ATTRIBUTE}]`);
-      if (!(item instanceof HTMLElement)) return;
-      if (item.parentElement !== listRef.current) return;
-      const index = itemsOf(listRef.current).indexOf(item);
-      if (index === -1) return;
-      // A double click also selects the word under it, which is not what
-      // was asked for here
-      window.getSelection()?.removeAllRanges();
-      open(index);
-    };
-    document.addEventListener("dblclick", onDoubleClick);
-    return () => {
-      document.removeEventListener("dblclick", onDoubleClick);
-    };
-  }, [listRef, open]);
 
   const horizontal = isHorizontal(rects);
   const shown = dragFrom !== null ? dragFrom : hover;
