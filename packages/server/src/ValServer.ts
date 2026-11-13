@@ -3645,6 +3645,7 @@ export const ValServer = (
               nonce: string;
               providers?: unknown;
               models?: unknown;
+              defaultModel?: unknown;
             };
             const wsUrl =
               options.valContentUrl
@@ -3689,11 +3690,27 @@ export const ValServer = (
                   ];
                 })
               : undefined;
+            // The model a chat starts on until the editor picks one. The
+            // content server decides it, so it can change for every project
+            // without a Val upgrade; this only carries it, shape-checked.
+            const defaultModel =
+              typeof json.defaultModel === "object" &&
+              json.defaultModel !== null &&
+              "provider" in json.defaultModel &&
+              "model" in json.defaultModel &&
+              typeof json.defaultModel.provider === "string" &&
+              typeof json.defaultModel.model === "string"
+                ? {
+                    provider: json.defaultModel.provider,
+                    model: json.defaultModel.model,
+                  }
+                : null;
             return {
               status: 200 as const,
               json: {
                 nonce: json.nonce,
                 wsUrl,
+                defaultModel,
                 // Explicit, because the distinction matters and truthiness
                 // is a bad way to express it: an empty array means "no
                 // reachable provider", which the client must be able to tell

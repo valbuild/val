@@ -6,7 +6,6 @@ import {
   resolvePreferredModel,
   writePreferredModel,
 } from "./aiModelPreference";
-import { pickDefaultModel } from "./defaultAIModel";
 
 // --- Shared types (must match server-side definitions) ---
 
@@ -85,6 +84,66 @@ export function pickAvailableModel(
   const reachable = new Set(serverProviders);
   return (
     VAL_AI_MODELS.find((info) => reachable.has(info.ref.provider))?.ref ?? null
+  );
+}
+
+/** The part of the `/ai/initialize` answer that says which models to offer. */
+export type AIInitializeModels = {
+  providers?: string[];
+  models?: { provider: string; model: string; label: string }[];
+  defaultModel?: { provider: string; model: string } | null;
+};
+
+/**
+ * The picker's state, from what `/ai/initialize` says the keys reach.
+ *
+ * `defaultModel` is what a chat starts on before anyone picks: the content
+ * server's choice, so it can change for every project without a Val upgrade,
+ * or the catalog's when the server made none (an older one) or chose a model
+ * that is not on offer. `selected` is the editor's remembered pick where it is
+ * still offered, and the default otherwise.
+ */
+export function resolveModels(json: AIInitializeModels): {
+  defaultModel: AIModel | null;
+  offered: AIModelInfo[];
+  selected: AIModel | null;
+} {
+  const fallback = pickAvailableModel(json.providers);
+  // What the providers actually offer, when the server could ask them. The
+  // built-in catalog is the fallback, filtered to reachable providers, so an
+  // older content server or a provider that would not answer still leaves a
+  // usable picker rather than an empty one.
+  const reported = toModelInfos(json.models);
+  const offered =
+    reported.length > 0 ? reported : fallbackModels(json.providers, fallback);
+  const refs = offered.map((info) => info.ref);
+  const defaultModel = offeredModel(refs, json.defaultModel) ?? fallback;
+  return {
+    defaultModel,
+    offered,
+    selected: resolvePreferredModel(refs, defaultModel),
+  };
+}
+
+/**
+ * The content server's default, if it is one of the models on offer.
+ *
+ * Checked against the list rather than trusted: a default the picker does not
+ * show would start a chat on a model the editor cannot see or switch back to.
+ */
+function offeredModel(
+  offered: AIModel[],
+  serverDefault: { provider: string; model: string } | null | undefined,
+): AIModel | null {
+  if (!serverDefault) {
+    return null;
+  }
+  return (
+    offered.find(
+      (entry) =>
+        entry.provider === serverDefault.provider &&
+        entry.model === serverDefault.model,
+    ) ?? null
   );
 }
 
@@ -630,31 +689,12 @@ export function useAIWebSocket(
   }, []);
 
   /** What `/ai/initialize` says the keys reach, as the picker's state. */
-  const applyModels = useCallback(
-    (json: {
-      providers?: string[];
-      models?: { provider: string; model: string; label: string }[];
-    }) => {
-      const fallback = pickAvailableModel(json.providers);
-      // What the providers actually offer, when the server could ask them. The
-      // built-in catalog is the fallback, filtered to reachable providers, so
-      // an older content server or a provider that would not answer still
-      // leaves a usable picker rather than an empty one.
-      const reported = toModelInfos(json.models);
-      const offered =
-        reported.length > 0
-          ? reported
-          : fallbackModels(json.providers, fallback);
-      const refs = offered.map((info) => info.ref);
-      // The newest Sonnet, or OpenAI's equivalent, among what is offered; the
-      // catalog's pick only when the list has nothing we recognise.
-      const defaultModel = pickDefaultModel(refs) ?? fallback;
-      setAvailableModel(defaultModel);
-      setAvailableModels(offered);
-      setSelectedModel(resolvePreferredModel(refs, defaultModel));
-    },
-    [],
-  );
+  const applyModels = useCallback((json: AIInitializeModels) => {
+    const { defaultModel, offered, selected } = resolveModels(json);
+    setAvailableModel(defaultModel);
+    setAvailableModels(offered);
+    setSelectedModel(selected);
+  }, []);
   const applyModelsRef = useRef(applyModels);
   applyModelsRef.current = applyModels;
 
