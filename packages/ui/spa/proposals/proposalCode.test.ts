@@ -1682,6 +1682,62 @@ describe("buildProposalOnServer: Val Build builds it", () => {
     expect(new Set(steps.slice(1))).toEqual(new Set(["on-server"]));
   });
 
+  test("while it waits, it says how far Val Build says the build is", async () => {
+    const { now, sleep } = clock();
+    const said = [
+      { queued: 1, step: null, built: false },
+      {
+        queued: null,
+        step: { label: "Building the site", index: 3, of: 4 },
+        built: false,
+      },
+    ];
+    const progress: unknown[] = [];
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        get: reading([read(), pending(), pending(), served("b1")]),
+        askBuild: async () => pending(),
+        buildProgress: async (_name, inputs) => {
+          expect(inputs).toBe(INPUTS);
+          return said.shift() ?? null;
+        },
+      },
+      onStep: (step) => {
+        if (step.kind === "on-server" && step.progress)
+          progress.push(step.progress);
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+    expect(progress).toEqual([
+      { queued: 1, step: null, built: false },
+      {
+        queued: null,
+        step: { label: "Building the site", index: 3, of: 4 },
+        built: false,
+      },
+    ]);
+  });
+
+  test("a progress read that fails is no progress, and the build is still waited for", async () => {
+    const { now, sleep } = clock();
+    const outcome = await buildProposalOnServer({
+      name: NAME,
+      client: {
+        get: reading([read(), pending(), served("b1")]),
+        askBuild: async () => pending(),
+        buildProgress: async () => {
+          throw new Error("Val Build could not be reached.");
+        },
+      },
+      now,
+      sleep,
+    });
+    expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+  });
+
   test("a project Val Build does not build yet is off, nothing else is asked, and no step says it built there", async () => {
     const get = jest.fn().mockResolvedValue(read());
     const steps: string[] = [];

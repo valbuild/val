@@ -909,6 +909,7 @@ export function useProposalsBar({
       ? {
           state: "updating",
           progress: buildPercent === null ? null : buildPercent / 100,
+          step: proposalBuild.progress?.label ?? null,
         }
       : previewProblem !== null
         ? { state: "failed", problem: previewProblem }
