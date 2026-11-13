@@ -2776,6 +2776,19 @@ export const Api = {
                 }),
               )
               .optional(),
+            /**
+             * The model a chat starts on until the editor picks one.
+             *
+             * Chosen by the content server, from `models`, so the default can
+             * change for every project at once rather than at each project's
+             * next Val upgrade. Null or absent (an older content server, or
+             * nothing it recognised) means the Studio picks from its own
+             * catalog.
+             */
+            defaultModel: z
+              .object({ provider: z.string(), model: z.string() })
+              .nullable()
+              .optional(),
           }),
         }),
         z.object({
