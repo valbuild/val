@@ -65,6 +65,65 @@ export function isHorizontal(rects: readonly ItemRect[]): boolean {
 }
 
 /**
+ * How far in from an item's edge its outline can be grabbed to drag it. Wider
+ * than the 2px outline that is drawn, so it can be hit, and narrow enough to
+ * leave what the component has near its edge clickable.
+ */
+const BORDER_GRAB = 8;
+
+/** Marks the strips along an item's outline that start a drag. */
+const VAL_COMPONENT_BORDER_ATTRIBUTE = "data-val-component-border";
+
+/**
+ * The four strips along the inside of an item's outline. A side shorter than
+ * twice the grab width is all strip, which is still only the item itself.
+ */
+export function borderStrips(
+  rect: ItemRect,
+): { edge: "top" | "right" | "bottom" | "left"; style: CSSProperties }[] {
+  const grabX = Math.min(BORDER_GRAB, rect.width / 2);
+  const grabY = Math.min(BORDER_GRAB, rect.height / 2);
+  return [
+    {
+      edge: "top",
+      style: {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: grabY,
+      },
+    },
+    {
+      edge: "bottom",
+      style: {
+        top: rect.top + rect.height - grabY,
+        left: rect.left,
+        width: rect.width,
+        height: grabY,
+      },
+    },
+    {
+      edge: "left",
+      style: {
+        top: rect.top + grabY,
+        left: rect.left,
+        width: grabX,
+        height: Math.max(rect.height - 2 * grabY, 0),
+      },
+    },
+    {
+      edge: "right",
+      style: {
+        top: rect.top + grabY,
+        left: rect.left + rect.width - grabX,
+        width: grabX,
+        height: Math.max(rect.height - 2 * grabY, 0),
+      },
+    },
+  ];
+}
+
+/**
  * Where a dragged item would land if it were let go at `point`: the number of
  * items that come before that place, so `0` is the top of the list and
  * `rects.length` is the end of it.
@@ -474,6 +533,31 @@ function ListControls({
     [path],
   );
 
+  // A double click on an item opens it, as its pencil does. A single click
+  // is the page's (in the canvas: the field under the pointer), so this
+  // comes after it and has the last word. The NEAREST component only, so a
+  // card in a list inside a section opens the card, not the section.
+  useEffect(() => {
+    const onDoubleClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (layerRef.current?.contains(target)) return;
+      const item = target.closest(`[${VAL_COMPONENT_ATTRIBUTE}]`);
+      if (!(item instanceof HTMLElement)) return;
+      if (item.parentElement !== listRef.current) return;
+      const index = itemsOf(listRef.current).indexOf(item);
+      if (index === -1) return;
+      // A double click also selects the word under it, which is not what
+      // was asked for here
+      window.getSelection()?.removeAllRanges();
+      open(index);
+    };
+    document.addEventListener("dblclick", onDoubleClick);
+    return () => {
+      document.removeEventListener("dblclick", onDoubleClick);
+    };
+  }, [listRef, open]);
+
   const horizontal = isHorizontal(rects);
   const shown = dragFrom !== null ? dragFrom : hover;
   const rect = shown !== null ? rects[shown] : undefined;
@@ -530,6 +614,12 @@ function ListControls({
     );
   } else if (hover !== null && rect !== undefined) {
     const count = rects.length;
+    const startDrag = (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      setDragSlot(hover);
+      setDragFrom(hover);
+    };
     controls = (
       <>
         <div
@@ -541,6 +631,22 @@ function ListControls({
             pointerEvents: "none",
           }}
         />
+        {/* The outline is a handle too: a strip along each edge, inside the
+            item, that starts the same drag as the toolbar's grip. Before the
+            add buttons and the toolbar, so those stay on top of it. */}
+        {borderStrips(rect).map((strip) => (
+          <div
+            key={strip.edge}
+            {...{ [VAL_COMPONENT_BORDER_ATTRIBUTE]: strip.edge }}
+            onPointerDown={startDrag}
+            style={{
+              position: "absolute",
+              ...strip.style,
+              cursor: "grab",
+              touchAction: "none",
+            }}
+          />
+        ))}
         <AddButton
           title="Add a section before this one"
           color={color}
@@ -596,12 +702,7 @@ function ListControls({
           <ToolbarButton
             title="Drag to move"
             style={{ cursor: "grab", touchAction: "none" }}
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              event.preventDefault();
-              setDragSlot(hover);
-              setDragFrom(hover);
-            }}
+            onPointerDown={startDrag}
           >
             <Icon name="grip" />
           </ToolbarButton>

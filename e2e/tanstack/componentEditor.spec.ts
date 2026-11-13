@@ -174,6 +174,35 @@ test.describe("arranging sections on the page", () => {
     await frame.getByRole("button", { name: "Move down" }).click();
     await expect(cards.nth(0)).toContainText("A component");
     await expect(cards.nth(1)).toContainText("A schema");
+
+    // Dragged by its outline rather than its handle: the last card, grabbed
+    // at its top edge (the middle of a side is its add button), to before
+    // the first.
+    await showControls(frame, cards.nth(2));
+    const last = await cards.nth(2).boundingBox();
+    const firstCard = await cards.nth(0).boundingBox();
+    if (last === null || firstCard === null) {
+      throw new Error("a card has no box");
+    }
+    await page.mouse.move(last.x + last.width / 3, last.y + 3);
+    await page.mouse.down();
+    await page.mouse.move(firstCard.x + 8, firstCard.y + firstCard.height / 2, {
+      steps: 12,
+    });
+    await expect(
+      frame.locator("[data-val-component-drop]"),
+      "dragging by the outline did not show where the card would land",
+    ).toBeVisible();
+    await page.mouse.up();
+    await expect(cards.nth(0)).toContainText("Content");
+    await expect(cards.nth(1)).toContainText("A component");
+
+    // A double click opens the card itself, not the field under the pointer
+    // (which the first click of the two opened) and not the section around it.
+    await cards.nth(0).dblclick({ position: { x: 40, y: 40 } });
+    await expect
+      .poll(() => decodeURIComponent(page.url()))
+      .toMatch(/"cards"\.0(?![.\d])/);
     // The sections around them did not move.
     expect(await serverSections(request)).toEqual([
       "hero",
