@@ -34,9 +34,12 @@ import type { SelectorSource } from "./selector";
  * and `s.record(item).render({ as: "inline" })`. Three other schemas take a
  * render, each meaning something of its own: `s.keyOf(...)` (see
  * `KeyOfSchema.render`), `s.number()` / `s.int()`, whose `{ as: "slider" }`
- * is a different input for the same value (see {@link SliderRender}), and -
- * EXPERIMENTAL - `s.object(...)`, whose `{ as: "component" }` names the
- * component that renders it on the site (see {@link ComponentRender}).
+ * is a different input for the same value (see {@link SliderRender}).
+ *
+ * EXPERIMENTAL: an object's component is declared with `.component(...)` and
+ * not with `.render(...)`, because it is more than layout in the editor: the
+ * site renders the object with it (see {@link ComponentRender}). Its marker
+ * still travels as the serialized `render`, `{ as: "component" }`.
  *
  * Why the container: inline is a property of the LIST — "my items are edited in
  * their rows" — and the item schema is the wrong place to say it. An item can be

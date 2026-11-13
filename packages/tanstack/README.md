@@ -51,7 +51,7 @@ this package mounts at `/val`.
 - [Reading content](#reading-content)
 - [Routes](#routes)
 - [Preview and draft mode](#preview-and-draft-mode)
-- [Component previews (experimental)](#component-previews-experimental)
+- [Components (experimental)](#components-experimental)
 - [Images](#images)
 - [Coding agents (MCP)](#coding-agents-mcp)
 - [Differences from `@valbuild/next`](#differences-from-valbuildnext)
@@ -399,25 +399,85 @@ nothing for it. It needs React 19 and a `<Suspense>` boundary (see above). With
 `draft` given, the server already has that page's content, so its first render
 does not 404 either.
 
-## Component previews (experimental)
+## Components (experimental)
 
-An object schema can name the component that renders it, so Val Studio shows
-the section, rendered by your app, next to its fields — and a click on its
-content opens that field:
+An object schema can be linked to the component that renders it:
 
 ```ts
-const hero = s.object({ type: s.literal("hero"), title: s.string() }).render({
-  as: "component",
-  component: () => import("../components/HeroSection"),
-  example: { type: "hero", title: "A very long title, to test the layout" },
-  maxWidth: 960, // the widest it is shown, and what its media queries see
-  defaultView: "split", // or "preview" / "content"
+// src/routes/landing.val.ts
+export const heroFields = s.object({
+  type: s.literal("hero"),
+  title: s.string(),
 });
+export const hero = heroFields.component(
+  () => import("../components/HeroSection"),
+  {
+    example: { type: "hero", title: "A very long title, to test the layout" },
+    maxWidth: 960, // the widest it is shown, and what its media queries see
+    defaultView: "split", // or "preview" / "content"
+  },
+);
 ```
 
-`component` is a lazy `import()`: Val evaluates `.val.ts` files outside your
-app, where a component's CSS and framework code cannot be loaded, and never
-calls it there.
+The import is lazy: Val evaluates `.val.ts` files outside your app, where a
+component's CSS and framework code cannot be loaded, and never calls it there.
+On the site it means a page downloads the components it shows and no others.
+
+It is type checked against the component's own props. When the object's
+fields are the props, nothing else is needed. For a component that was not
+written for the schema - one from a design system, say - add a `props`
+function, which is then required and whose result is checked instead:
+
+```ts
+export const note = s
+  .object({ type: s.literal("note"), title: s.string(), urgent: s.boolean() })
+  .component(() => import("../components/Callout"), {
+    props: (note) => ({
+      heading: note.title,
+      tone: note.urgent ? "warning" : "info",
+    }),
+  });
+```
+
+`props` is given the value as `useVal` returns it, so a string it passes on
+unchanged can still be clicked to edit, and one it transforms cannot.
+
+A component that types its props from its schema must read them from the
+FIELDS (`t.inferSchema<typeof heroFields>`), not from the linked schema: that
+one's type depends on the component's, and TypeScript will not resolve the
+circle.
+
+### Rendering: `ValComponentEditor`
+
+```tsx
+import { ValComponentEditor } from "@valbuild/tanstack";
+
+function Landing() {
+  const page = useValRoute(pageVal, {});
+  return <ValComponentEditor value={page.sections} />;
+}
+```
+
+Each object is rendered by the component its own schema links it to, so there
+is no `type` to component map to keep. It takes a list or a single object,
+and only ones that are linked: a list with a variant that has no component,
+or an object that never had one, is a type error.
+
+It is optional. The same content can be rendered by hand with a `map` and a
+`switch`, and a page can use it for one list and not for the rest of what it
+shows. A component can use it too, for a list of components of its own.
+
+In Val Studio, on the page itself, a list rendered this way can be arranged:
+drag a section to another place, add one between two others, remove one.
+
+Render the value where it was read. The component rides on the value, and a
+value passed through a serializing boundary (loader data, a server function's
+result) arrives without it.
+
+### Previewing beside the fields
+
+Val Studio also shows a linked object, rendered by your app, next to its
+fields - and a click on its content opens that field.
 
 The Studio loads `/val-preview?p=<source path>` in a frame, so add that route,
 outside the layout that holds `ValProvider`:

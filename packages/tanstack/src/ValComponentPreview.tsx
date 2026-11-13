@@ -10,7 +10,7 @@ import type { ValPreviewSource } from "./server/fetchValPreviewSource";
 
 /**
  * EXPERIMENTAL: renders the value at a source path with the component its
- * schema declares - `s.object(...).render({ as: "component", component })`.
+ * schema declares - `s.object(...).component(() => import(...))`.
  *
  * The TanStack half of a component preview. The content is read on the server
  * (`unstable_fetchValPreviewSource` from `@valbuild/tanstack/server`, through

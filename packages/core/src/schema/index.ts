@@ -533,7 +533,7 @@ export abstract class Schema<Src extends SelectorSource> {
   }
   /**
    * EXPERIMENTAL: the component that renders this value, for a value whose
-   * source is `src`. Only `s.object(...).render({ as: "component" })` declares
+   * source is `src`. Only `s.object(...).component(...)` declares
    * one; a discriminated union answers for the variant `src` takes.
    */
   protected executeComponentRender(

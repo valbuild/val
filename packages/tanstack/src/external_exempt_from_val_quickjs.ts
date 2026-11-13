@@ -44,7 +44,7 @@ export {
 
 // TanStack specific
 export { ValProvider } from "./ValProvider";
-// EXPERIMENTAL: component previews (`.render({ as: "component" })`)
+// EXPERIMENTAL: component previews (`s.object(...).component(...)`)
 export { ValPreviewBridge } from "./ValPreviewBridge";
 // EXPERIMENTAL: content rendered by the components its schema links it to
 // (`s.object(...).component(...)`), arranged on the page in the Studio

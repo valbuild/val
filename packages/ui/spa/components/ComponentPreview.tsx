@@ -127,7 +127,7 @@ function componentRenderOf(
 
 /**
  * EXPERIMENTAL: a field whose value has a component -
- * `s.object(...).render({ as: "component" })`, or a union whose current
+ * `s.object(...).component(...)`, or a union whose current
  * variant is one. It is shown as the component, as its fields (`children`) or
  * both, starting from the render's `defaultView`, and switched on the field.
  *

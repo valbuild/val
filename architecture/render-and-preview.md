@@ -76,25 +76,143 @@ value that breaks a RULE is a validation error like any other, with a "Round
 to" next to it. Both offer a value from `Internal.number.nearestAllowedNumber`,
 the validator's own arithmetic, so the button never leads back to the error.
 
-## A component is a render (EXPERIMENTAL)
+## A component is linked to an object (EXPERIMENTAL)
 
 ```ts
-const hero = s.object({ type: s.literal("hero"), title: s.string() }).render({
-  as: "component",
-  component: () => import("../components/HeroSection"),
-  example: { type: "hero", title: "A very long title" },
+export const heroFields = s.object({
+  type: s.literal("hero"),
+  title: s.string(),
 });
+export const hero = heroFields.component(
+  () => import("../components/HeroSection"),
+  { example: { type: "hero", title: "A very long title" } },
+);
 ```
 
-The component that renders an object on the site, so the Studio can show it,
-rendered by the app in an iframe, next to the object's fields. It is the one
-render that holds a CLOSURE, so it is plumbed like a preview, not like the
-other renders: the serialized schema carries only a marker
-(`{ as: "component", example?: true, maxWidth?, aspectRatio? }`), and the host
-app, which has the schema instance, renders the component
-(`getComponentRender` in `core/src/render.ts`). A discriminated union
-answers for the variant its value takes, so a list of sections needs nothing
-on the list itself.
+The component that renders an object on the site. Two things use it: the
+site, which renders the object with it (`ValComponentEditor`), and the Studio,
+which shows it, rendered by the app in an iframe, next to the object's fields.
+
+It was `.render({ as: "component", component })`, and is its own method
+because it stopped being a render: a render is layout in the editor and
+applies only while the field is open, and this decides what a visitor gets.
+The wire form did not move - the marker is still the serialized `render`,
+`{ as: "component", example?: true, maxWidth?, aspectRatio? }` - so the
+Studio's side is unchanged.
+
+It holds CLOSURES (the import thunk, and `props`), so it is plumbed like a
+preview: only the marker travels, and the host app, which has the schema
+instance, finds the component (`getComponentRender` in `core/src/render.ts`).
+A discriminated union answers for the variant its value takes, so a list of
+sections needs nothing on the list itself.
+
+### The link is type checked, on the line that makes it
+
+`.component(load, options)` infers the component's type from the `import()`
+and reads its props off it structurally (`ComponentPropsOf`), with no React in
+core. What follows the thunk is `ComponentArgs`: when what a READER gives back
+for the object is assignable to those props, options are optional; when it is
+not, options with a `props` function are required, and the function's result
+is checked instead. That is what lets any component be linked, not only one
+written for the schema.
+
+"What a reader gives back" is why the read types (`StegaOfSource`, `Image`,
+`ValEncodedString` and the rest) are defined in core, in `read.ts`:
+`.component()` lives in core and has to be able to say them. An image has a
+`url` only on the read side, so checking against the Source would refuse a
+component that renders one. `@valbuild/react/stega` re-exports them all.
+
+One trap, which the example above is shaped to avoid: a component that types
+its props from the schema it is linked FROM (`t.inferSchema<typeof hero>`)
+makes the schema's type depend on the component's and the component's on the
+schema's, and TypeScript reports `'hero' implicitly has type 'any'`. Declare
+the fields first and link them in a second `const`, or let the component own
+its props.
+
+`props` is called through `componentPropsOf`, in one place for the site and
+for the Studio's preview, so the preview cannot show a component the site
+renders differently. It holds the one assertion this needs: a render found by
+path has lost its relation to the schema `.component()` checked it against.
+
+### How the site finds the component: it rides on the value
+
+`<ValComponentEditor value={page.sections} />` takes no map from a `type` to
+a component. Each object says what renders it, because the reader attached
+it: `stegaEncode` sets the object's `ComponentRender` on a symbol
+(`setComponentOfValue` / `componentOfValue` in `core/src/render.ts`). The same
+mechanism as a view's handle, and for the same reason - the app cannot get
+from a value back to its schema, and the reader is the one place with both.
+
+- **From the schema INSTANCE.** The walk is over the serialized schema, which
+  has the marker and not the closure, so an object with the marker looks its
+  component up from the root of what is being walked, by its own path
+  (`componentRenderAt`). For a `.jsonValues()` entry read by key the root is
+  the entry, which is why `getJsonEntryStegaRoot` hands over the item schema.
+- **In production too.** Unlike an object's path, which is set only in draft
+  mode: this is how the site renders.
+- **Lazy.** Attaching a thunk loads nothing. A page downloads the components
+  it shows, each the first time it is shown, through one `React.lazy` per
+  thunk, kept (`lazyComponentOf`) - a new one per render is a new component
+  type per render.
+- **It does not survive serialization.** A value passed from a server
+  component to a client one, or through loader data, arrives without it, and
+  `ValComponentEditor` renders nothing for it and says so once.
+
+### `ValComponentEditor` only takes what is linked
+
+`.component()` returns a schema whose SOURCE type carries an optional slot
+(`ValComponentSource`, the same shape as the slot on `ValViewSource`), and
+`StegaOfSource` turns that into a required one on the read side: `ValComponent`.
+The editor's `value` is `ValComponent | readonly ValComponent[] | null`. So a
+list with one variant that was not linked, or an object that never was, fails
+to compile where it is rendered - there is no runtime "no component for this
+type" on a page that type checks. The slot is optional on the source so the
+content in the `.val.ts` stays a plain literal.
+
+It is not a page: it renders what it is handed and nothing around it. A page
+can use it for one list and write the rest by hand, and a component can use
+it for a list of components of its own, which is all nesting is.
+
+### Arranging a list on the page
+
+In the Studio's canvas a list rendered by `ValComponentEditor` can be
+arranged where it is shown: drag an item, add one before or after another,
+remove one. The controls are `ValComponentEditorChrome.tsx`, and exist only
+when the document is the canvas frame AND the list has a path, which it has
+in draft mode.
+
+- **The page asks, the Studio writes.** The page has no patch store. It posts
+  a `componentEdit` (`ValCanvasComponentEdit` in `valCanvasProtocol.ts`) and
+  `useCanvasComponentEdits` writes the patch - the list field's own `move` /
+  `remove` / `add` - which comes back as a `sourceUpdate` like any edit.
+- **An addition does not say what.** The Studio has the schema, so a union
+  becomes a dialog of its variants, each with its description, and a list of
+  one schema is added to at once. The new item is then opened.
+- **An item is its place.** The element around each component is marked
+  (`data-val-component`) with no value, and an edit names indices. An item
+  the page could not render still has its element, so the count is right.
+- **A list answers for its own items only.** The pointer's NEAREST component
+  decides, so a list inside a component of another list has its own controls.
+- **The controls are not the page's content.** They may sit inside an element
+  with a `data-val-path`, and the bridge's pick handler asks
+  `isOnValCanvasControls` first.
+- **No `react-dom`.** The layer is the list's last child, `position: fixed`
+  and measured rather than assumed to be at the window's corner
+  (`relativeTo`), instead of a portal: the file is reached from
+  `val.config.ts` through the framework package's entry. For the same reason
+  nothing in it may run at import time - a table of JSX elements there broke
+  `val validate`, which evaluates the config with no React.
+
+### Where the thunk must NOT be followed
+
+Val modules are evaluated outside the app, and the thunk is never called
+there. A bundler follows it anyway. `bundleValModules` in
+`@valbuild/tanstack-build` therefore leaves a dynamic import from a `.val.ts`
+external when it names app code (`isAppCodeImport`): bundled, the component
+and everything it imports would be in the module the Studio evaluates, and
+every Val module would depend on its components' files.
+
+### The preview beside the fields
 
 The app renders it on a route of its own that the Studio loads in a frame,
 `/val-preview?p=<source path>` (hard-coded in `ComponentPreview.tsx` for

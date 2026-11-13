@@ -14,7 +14,7 @@ export type ValComponentPreviewOptions = {
    * `/content/pages.val.ts?p="landing"."sections".0`.
    *
    * The schema at this path says which component renders it: an object with
-   * `.render({ as: "component", component })`, or a discriminated union whose
+   * `.component(() => import(...))`, or a discriminated union whose
    * variant at this path is one.
    */
   sourcePath: string;
@@ -41,7 +41,7 @@ export type ValComponentPreviewOptions = {
 
 /**
  * EXPERIMENTAL: renders the value at a source path with the component its
- * schema declares - `s.object(...).render({ as: "component", component })`.
+ * schema declares - `s.object(...).component(() => import(...))`.
  *
  * Meant to be called from a Server Component behind a route that the Val UI
  * loads in an iframe, so an editor sees the section they are editing, rendered

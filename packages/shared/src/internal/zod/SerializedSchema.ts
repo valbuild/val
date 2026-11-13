@@ -46,7 +46,7 @@ const NumberRender = z
     step: z.number().optional(),
   })
   .optional();
-// EXPERIMENTAL: `s.object(...).render({ as: "component" })`. Only a marker: the
+// EXPERIMENTAL: `s.object(...).component(...)`. Only a marker: the
 // component is a closure and stays in the host app, like a preview.
 const ComponentRender = z
   .object({

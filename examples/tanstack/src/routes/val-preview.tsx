@@ -17,7 +17,7 @@ const getPreviewSource = createServerFn()
 
 /**
  * EXPERIMENTAL: renders the value at one source path with the component its
- * schema declares (`.render({ as: "component", component })`).
+ * schema declares (`.component(() => import(...))`).
  *
  * The Val Studio loads this route in a frame, so a section renders with the
  * app's own React and CSS. Outside `_site`, so it is just the component: no

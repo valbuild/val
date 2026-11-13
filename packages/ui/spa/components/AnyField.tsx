@@ -87,7 +87,7 @@ export function AnyField({
   const effectiveReadonly = readonly || schema.readonly || writeHeld;
   const leafProps = { readonly: effectiveReadonly, compact };
   /*
-   * An object (or a union variant) with `.render({ as: "component" })` is
+   * An object (or a union variant) with `.component(...)` is
    * shown with its component too, switched on the field itself. Not in an
    * inline row, which is laid out for density and has no room for a frame.
    */

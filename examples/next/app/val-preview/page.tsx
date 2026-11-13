@@ -4,7 +4,7 @@ import { fetchVal } from "../../val/rsc";
 
 /**
  * EXPERIMENTAL: renders the value at one source path with the component its
- * schema declares (`.render({ as: "component", component })`).
+ * schema declares (`.component(() => import(...))`).
  *
  * The Val UI loads this route in an iframe so that a component renders with the
  * app's own React, CSS and providers, and so that server components work.
