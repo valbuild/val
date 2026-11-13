@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import fs from "fs";
 import path from "path";
-import simpleGit, { StatusResult } from "simple-git";
+import { simpleGit, StatusResult } from "simple-git";
 import { gitHubOwnerAndRepo } from "./gitRemote";
 import { confirm } from "@inquirer/prompts";
 import { transformNextAppRouterValProvider } from "./codemods/transformNextAppRouterValProvider";

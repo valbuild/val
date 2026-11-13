@@ -52,6 +52,7 @@ import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
 import { z } from "zod";
 import { parseRangeHeader } from "./httpRange";
+import { isPublicFilePath, isSafePatchId } from "./safeFilePath";
 import {
   isHlsPlaylistPath,
   rewriteDraftPlaylist,
@@ -623,7 +624,8 @@ export const ValServer = (
       `${redirectUrl.origin}${options.route}`,
       token,
     );
-    await callbacks.onEnable(true);
+    // Draft mode is NOT turned on here: nobody has signed in yet, and this
+    // is reachable by anyone. `/callback` turns it on, once they have.
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
@@ -1884,6 +1886,9 @@ export const ValServer = (
           },
           valSecret,
         );
+        // Signed in: now draft mode, which `/authorize` used to turn on for
+        // whoever asked.
+        await callbacks.onEnable(true);
 
         return {
           status: 302,
@@ -2379,7 +2384,7 @@ export const ValServer = (
         }
         const pathParts = req.path.split("/");
         const patchId = pathParts[1] as PatchId;
-        const isValidPatchId = patchId.length === 36;
+        const isValidPatchId = patchId.length === 36 && isSafePatchId(patchId);
         const isValidEndpoint =
           pathParts[0] === "" && isValidPatchId && pathParts[2] === "files";
         if (!isValidEndpoint) {
@@ -4578,6 +4583,19 @@ export const ValServer = (
         // nothing fetches it backend-to-backend. Neither half of the argument
         // above transfers. See architecture/media.md, "Why /files has no auth,
         // and /history/files does".
+        // Media and nothing else. This route has no auth (above), so what it
+        // serves is decided by the path: a file under /public, which the site
+        // serves anyway, or a draft of one. Without this it answered any path
+        // in the project -- `.env`, the source -- and in http mode asked the
+        // content service for it with the project's api key.
+        if (!isPublicFilePath(filePath)) {
+          return {
+            status: 404,
+            json: {
+              message: "File not found",
+            },
+          };
+        }
         const remote = query.remote === "true";
         const patchId = query.patch_id;
         if (!patchId && isHttpOps(serverOps) && remote) {

@@ -1,7 +1,8 @@
 /**
  * What `redirect_to` may be on Val's routes (`/enable`, `/disable`,
- * `/authorize`, `/draft/enable`, ...): an absolute URL, or a path on the site
- * that was asked, which is made absolute against the request's own origin.
+ * `/authorize`, `/draft/enable`, ...): a path on the site that was asked,
+ * which is made absolute against the request's own origin, or an absolute
+ * URL on that same site.
  *
  * A path used to go through as it was, and two things downstream need an
  * absolute URL: `/authorize` reads the origin off it to build the callback,
@@ -18,11 +19,16 @@ export type ResolvedRedirect =
   | { ok: false; message: string };
 
 export const REDIRECT_TO_ACCEPTS =
-  "redirect_to must be an absolute URL (https://example.com/page) or a path on this site starting with / (/page).";
+  "redirect_to must be a path on this site starting with / (/page), or an absolute URL on this site (https://this-site.example/page).";
 
+/**
+ * `siteHosts` are the other names the request knows this site by (`Host`,
+ * `X-Forwarded-Host`), for a server behind a proxy whose own URL is internal.
+ */
 export function resolveRedirectTo(
   value: string,
   requestOrigin: string,
+  siteHosts: readonly (string | null | undefined)[] = [],
 ): ResolvedRedirect {
   if (value.startsWith("/") && !value.startsWith("//")) {
     // A path stays on this origin. `/\host/x` also starts with one slash,
@@ -34,10 +40,20 @@ export function resolveRedirectTo(
       ? { ok: true, href: resolved.href }
       : { ok: false, message: REDIRECT_TO_ACCEPTS };
   }
-  if (parsed(value) !== null) {
-    return { ok: true, href: value };
+  // An absolute URL, on this site only. Any URL used to pass, which made
+  // `/logout` and `/enable` redirect wherever a link said, and `/authorize`
+  // send the sign-in's code to that host: it reads the callback's origin off
+  // this. http(s) only: `javascript:` parses as a URL too.
+  const url = parsed(value);
+  if (url === null || (url.protocol !== "https:" && url.protocol !== "http:")) {
+    return { ok: false, message: REDIRECT_TO_ACCEPTS };
   }
-  return { ok: false, message: REDIRECT_TO_ACCEPTS };
+  const hosts = [new URL(requestOrigin).host, ...siteHosts]
+    .filter((host): host is string => typeof host === "string" && host !== "")
+    .map((host) => host.toLowerCase());
+  return hosts.includes(url.host.toLowerCase())
+    ? { ok: true, href: value }
+    : { ok: false, message: REDIRECT_TO_ACCEPTS };
 }
 
 /**

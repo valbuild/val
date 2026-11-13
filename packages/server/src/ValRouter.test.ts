@@ -106,12 +106,25 @@ describe("ValRouter", () => {
       );
     });
 
-    test("an absolute URL is redirected to as it is", async () => {
-      const res = await enable("https://example.com/page");
+    test("an absolute URL on this site is redirected to as it is", async () => {
+      const res = await enable("http://localhost:3000/page");
       expect(res.status).toBe(302);
       expect("redirectTo" in res && res.redirectTo).toBe(
-        "https://example.com/page",
+        "http://localhost:3000/page",
       );
+    });
+
+    // Any URL used to pass: an open redirect, and on `/authorize` the host
+    // the sign-in's code was sent back to.
+    test("an absolute URL on another site is refused", async () => {
+      for (const value of [
+        "https://example.com/page",
+        "http://localhost:3001/page",
+        "javascript:alert(1)",
+      ]) {
+        const res = await enable(value);
+        expect(res.status).toBe(400);
+      }
     });
 
     test("anything else is refused, saying what is accepted", async () => {
