@@ -29,7 +29,13 @@ import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
 import type { ValView, ValViewSource } from "@valbuild/core";
 import { isValViewSource } from "@valbuild/core";
-import { JsonPrimitive } from "@valbuild/core";
+import {
+  getComponentRender,
+  setComponentOfValue,
+  type ComponentRender,
+  type Schema,
+  type SourcePath,
+} from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
 import type {
@@ -39,273 +45,18 @@ import type {
   SelectorSource,
 } from "@valbuild/core";
 
-declare const brand: unique symbol;
-
-/**
- * ValEncodedString is a string that is encoded using steganography.
- *
- * This means that there is a hidden / non-visible object embedded in the string.
- * This object includes a path, which is used to automatically tag
- * where the content comes from for contextual editing.
- *
- */
-export type ValEncodedString =
-  `${string}__VAL_ENCODED_STRING_INVISIBLE_CHARS` & {
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    substring: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    match: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    charAt: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    charCodeAt: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    concat: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    indexOf: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    lastIndexOf: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    slice: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    toString: never;
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-
-    // ---
-
-    /**
-     *
-     * NB: This is a Val ENCODED string, which means that you should not use length on it.
-     *
-     * Instead, get the raw string using `val.raw`
-     *
-     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
-     *
-     * @example
-     * val.raw(myEncodedString) // returns a normal string
-     */
-    length: never;
-
-    // includes, toLowerCase and toUpperCase should be fine
-
-    [brand]: "ValEncodedString";
-  };
-
-/**
- * An image as a consumer sees it: what was authored, plus the generated `url`.
- *
- * `path` stays a plain string — it is what `url` is derived from, so encoding it
- * would corrupt every URL built from it.
- */
-export type Image = {
-  readonly path: string;
-  readonly url: ValEncodedString;
-  readonly width?: number;
-  readonly height?: number;
-  readonly mimeType?: string;
-  readonly alt?: string;
-  readonly hotspot?: MediaHotspot;
-};
-
-export type File = {
-  readonly path: string;
-  readonly url: ValEncodedString;
-  readonly mimeType?: string;
-};
-
-/**
- * A video as a consumer sees it: what was authored, plus a generated `url` on
- * the video, on its poster and on each caption track.
- *
- * Only the video's own `url` carries the edit tag — a click on the player
- * reaches the field. The poster and the captions are parts of the same field,
- * not fields of their own, so their URLs are plain.
- *
- * An HLS stream (`mimeType` `application/vnd.apple.mpegurl`) plays natively in
- * Safari and needs a library such as hls.js everywhere else; `url` is then the
- * master playlist.
- */
-export type Video = {
-  readonly path: string;
-  readonly url: ValEncodedString;
-  readonly mimeType: string;
-  readonly width?: number;
-  readonly height?: number;
-  readonly duration?: number;
-  readonly alt?: string;
-  readonly hotspot?: MediaHotspot;
-  readonly posterTime?: number;
-  readonly poster?: {
-    readonly path: string;
-    readonly url: string;
-    readonly width?: number;
-    readonly height?: number;
-    readonly mimeType?: string;
-  };
-  readonly startTime?: number;
-  readonly endTime?: number;
-  readonly captions?: readonly (Omit<VideoCaptionSource, "patch_id"> & {
-    readonly url: string;
-  })[];
-};
-
-export type StegaOfRichTextSource<T extends Source> = Json extends T
-  ? Json
-  : T extends ImageSource
-    ? Image
-    : T extends SourceObject
-      ? {
-          [key in keyof T]: StegaOfRichTextSource<T[key]>;
-        }
-      : T extends SourceArray
-        ? StegaOfRichTextSource<T[number]>[]
-        : T extends JsonPrimitive
-          ? T
-          : never;
-
-/**
- * RichText is accessible by users (after conversion via useVal / fetchVal)
- **/
-export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
-  RichTextSource<O>
-> & {
-  readonly __brand?: "RichText";
-};
-
-export type StegaOfSource<T extends Source> = Json extends T
-  ? Json
-  : T extends RichTextSource<infer O>
-    ? RichText<O>
-    : // Above `ImageSource`: a video is structurally an image too (a `path`
-      // and optional fields), so this arm has to be asked first. Its declared
-      // keys are what tell them apart (`IsVideoSource`): a field picked from a
-      // set has no `mimeType` of its own, so a required one cannot. Not
-      // distributive by itself, and need not be — the arm above already
-      // split a union into its members.
-      IsVideoSource<T> extends true
-      ? Video
-      : T extends ImageSource
-        ? Image
-        : T extends FileSource
-          ? File
-          : // A view is a pointer at another module: nothing of it is rendered, so
-            // there is nothing here to encode or to read. `ValView<Target>`
-            // names what is behind it and exposes no properties.
-            T extends ValViewSource<string, infer Target>
-            ? ValView<Target>
-            : T extends SourceObject
-              ? {
-                  [key in keyof T]: StegaOfSource<T[key]>;
-                }
-              : T extends SourceArray
-                ? StegaOfSource<T[number]>[]
-                : T extends RawString
-                  ? string
-                  : string extends T
-                    ? ValEncodedString
-                    : T extends JsonPrimitive
-                      ? T
-                      : never;
+// The read types are defined in core (`read.ts`), which has to be able to say
+// them: `.component()` checks a component against what a reader gives back.
+export type {
+  ValEncodedString,
+  Image,
+  File,
+  Video,
+  StegaOfRichTextSource,
+  RichText,
+  StegaOfSource,
+} from "@valbuild/core";
+import type { StegaOfSource } from "@valbuild/core";
 
 /**
  * What resolving `T` gives back — the one definition the framework readers
@@ -376,6 +127,47 @@ export type RouteValueOf<T> =
       ? C | null
       : StegaOfSource<NonNullable<SourceOfResolvable<T>>[string]> | null
     : never;
+
+type ComponentRoot = {
+  /** The path `source` was read at: a module's, or a `.jsonValues()` entry's. */
+  path: SourcePath;
+  schema: Schema<SelectorSource>;
+  source: any;
+};
+
+/**
+ * The component of the object at `path`, looked up on the schema INSTANCE of
+ * what is being walked: from the root down, by the path, through whichever
+ * variant of a union the value there takes. `null` when it cannot be found,
+ * which leaves the object without a component, as one whose schema has none.
+ */
+function componentRenderAt(
+  root: ComponentRoot,
+  path: SourcePath,
+): ComponentRender<unknown> | null {
+  try {
+    // Only the part below the root: a `.jsonValues()` entry's root is the
+    // entry, whose own path already has a key in it.
+    const [, rootModulePath] = Internal.splitModuleFilePathAndModulePath(
+      root.path,
+    );
+    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+    const below = Internal.splitModulePath(modulePath).slice(
+      Internal.splitModulePath(rootModulePath).length,
+    );
+    if (below.length === 0) {
+      return getComponentRender(root.schema, root.source);
+    }
+    const at = Internal.resolvePath(
+      Internal.patchPathToModulePath(below),
+      root.source,
+      root.schema,
+    );
+    return getComponentRender(at.schema, at.source);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolves the matching variant of a discriminated union from the value's tag.
@@ -508,9 +300,11 @@ export function stegaEncode(
      * the encoder and the whole call is an identity transform.
      *
      * `path` is the entry's path (`Internal.createValPathOfItem(modulePath, key)`)
-     * and `schema` is the SERIALIZED item schema.
+     * and `schema` is the SERIALIZED item schema. `instance` is the item
+     * schema itself, which is where a `.component()` lives: without it the
+     * entry's objects are encoded and carry no component.
      */
-    root?: { path: any; schema: any };
+    root?: { path: any; schema: any; instance?: Schema<SelectorSource> };
   },
 ): any {
   const viewModules = new Map<string, unknown>();
@@ -522,6 +316,20 @@ export function stegaEncode(
   const galleries = new Map<string, unknown>();
   const getGallery = (modulePath: string): unknown =>
     opts.getModule?.(modulePath) ?? galleries.get(modulePath);
+  /**
+   * What is being walked, with its schema INSTANCE: the one thing that holds a
+   * `.component()`'s closures. Everything below walks the serialized schema,
+   * which carries a marker and not the component, so an object with the
+   * marker looks its component up from here, by its own path.
+   */
+  let componentRoot: ComponentRoot | undefined =
+    opts.root?.instance !== undefined
+      ? {
+          path: opts.root.path,
+          schema: opts.root.instance,
+          source: input,
+        }
+      : undefined;
   // Handed a view handle rather than a module: resolve it and encode what it
   // points at. This is what makes `useVal(page.header)` read the header.
   const resolved = Internal.viewHandleModule(input);
@@ -684,16 +492,28 @@ export function stegaEncode(
         for (const [path, entries] of Internal.media.galleriesOf(newSchema)) {
           galleries.set(path, entries);
         }
-        return rec(
+        const moduleSource =
           opts.getModule && opts.getModule(selectorPath) !== undefined
             ? opts.getModule(selectorPath)
-            : Internal.getSource(sourceOrSelector),
-          { path: selectorPath, schema: newSchema?.["executeSerialize"]() },
-        );
+            : Internal.getSource(sourceOrSelector);
+        const outerComponentRoot = componentRoot;
+        componentRoot = newSchema && {
+          path: selectorPath,
+          schema: newSchema,
+          source: moduleSource,
+        };
+        try {
+          return rec(moduleSource, {
+            path: selectorPath,
+            schema: newSchema?.["executeSerialize"](),
+          });
+        } finally {
+          componentRoot = outerComponentRoot;
+        }
       }
 
       if (Array.isArray(sourceOrSelector)) {
-        return sourceOrSelector.map((el, i) =>
+        const items = sourceOrSelector.map((el, i) =>
           rec(
             el,
             recOpts && {
@@ -702,6 +522,13 @@ export function stegaEncode(
             },
           ),
         );
+        // Where the list was read from, as for an object below: an EMPTY list
+        // has no item to learn it from, and that is the list an editor most
+        // needs to be able to add to (`ValComponentEditor`).
+        if (recOpts?.path && !opts.disabled) {
+          Internal.setValPath(items, recOpts.path);
+        }
+        return items;
       }
 
       if (!Array.isArray(sourceOrSelector)) {
@@ -726,6 +553,20 @@ export function stegaEncode(
         // else is tagged either.
         if (recOpts?.path && !opts.disabled) {
           Internal.setValPath(res, recOpts.path);
+        }
+        // The component this object is linked to (`.component()`), so the app
+        // can render the object without a registry. In production too: this
+        // is how the site renders, not only how the Studio edits.
+        if (
+          componentRoot &&
+          recOpts?.path &&
+          isObjectSchema(recOpts.schema) &&
+          recOpts.schema.render?.as === "component"
+        ) {
+          const render = componentRenderAt(componentRoot, recOpts.path);
+          if (render) {
+            setComponentOfValue(res, render);
+          }
         }
         return res;
       }

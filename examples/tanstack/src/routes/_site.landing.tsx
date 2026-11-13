@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ValComponentEditor } from "@valbuild/tanstack";
 import { useValRoute } from "../val/client";
 import { NotFound } from "../components/NotFound";
-import HeroSection from "../components/sections/HeroSection";
-import QuoteSection from "../components/sections/QuoteSection";
 import pageVal from "./_site.landing.val";
 
 export const Route = createFileRoute("/_site/landing")({
@@ -10,9 +9,16 @@ export const Route = createFileRoute("/_site/landing")({
 });
 
 /**
- * The page the sections make up. The site renders each section with the same
- * component its schema names for the Studio's preview, so the two cannot
- * drift.
+ * The page the sections make up.
+ *
+ * `ValComponentEditor` renders each section with the component its schema
+ * links it to (`_site.landing.val.ts`), which is also the one the Studio
+ * previews it with, so the two cannot drift. In the Studio the sections can
+ * be arranged on this page; for a visitor it is the components and nothing
+ * else. It takes a single object as well as a list: `callToAction` is one.
+ *
+ * It is optional, and only what is handed to it is its business: the heading
+ * below is ordinary JSX, and the sections could be a `map` with a `switch`.
  */
 function Landing() {
   const page = useValRoute(pageVal, {});
@@ -21,13 +27,11 @@ function Landing() {
   }
   return (
     <main>
-      {page.sections.map((section, i) =>
-        section.type === "hero" ? (
-          <HeroSection key={i} {...section} />
-        ) : (
-          <QuoteSection key={i} {...section} />
-        ),
-      )}
+      <p style={{ padding: "1rem 1.5rem 0", color: "var(--muted)" }}>
+        {page.title}
+      </p>
+      <ValComponentEditor value={page.sections} />
+      <ValComponentEditor value={page.callToAction} />
     </main>
   );
 }

@@ -1,7 +1,7 @@
 import type { t } from "../../val.config";
-import type { quoteSection } from "../../content/pages.val";
+import type { quoteFields } from "../../content/pages.val";
 
-export type QuoteSectionProps = t.inferSchema<typeof quoteSection>;
+export type QuoteSectionProps = t.inferSchema<typeof quoteFields>;
 
 export default function QuoteSection({
   quote,

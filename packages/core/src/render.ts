@@ -155,21 +155,41 @@ export function isInlineRender(container: SerializedSchema): boolean {
  * nothing about React. `never` in the parameter position accepts a component
  * of any props, since parameters are contravariant.
  */
-export type ValComponent = (props: never) => unknown;
+export type ValComponentType =
+  | ((props: never) => unknown)
+  | (new (props: never) => unknown);
 
 /**
  * What the `component` thunk of a {@link ComponentRender} resolves to: the
  * component itself, or a module whose default export is the component.
  */
-export type ValComponentImport = ValComponent | { default: ValComponent };
+export type ValComponentImport =
+  | ValComponentType
+  | { default: ValComponentType };
 
 /**
- * EXPERIMENTAL. `{ as: "component", component, example? }` on `s.object(...)`:
- * the component that renders this object on the site, so the Studio can show
- * it, rendered by the app, next to the fields of the object being edited.
+ * The props a component takes, read off its own type: what `.component()`
+ * checks a schema's fields (or its `props` function) against. Structural, so
+ * it needs nothing of React: a function component is a function of its props,
+ * and a class component is constructed with them.
+ */
+export type ComponentPropsOf<C> = C extends (props: infer P) => unknown
+  ? P
+  : C extends new (props: infer P) => unknown
+    ? P
+    : never;
+
+/**
+ * EXPERIMENTAL. What `.component(load, options)` on `s.object(...)` holds:
+ * the component that renders this object on the site.
  *
- * Unlike every other render this one holds a CLOSURE - the `component` thunk -
- * so, exactly like a preview, only a marker travels in the serialized schema
+ * The site renders the object through it (`ValComponentEditor`), and the
+ * Studio shows it, rendered by the app, next to the fields of the object
+ * being edited. Both go through the same thunk and the same `props`, so what
+ * the editor sees cannot drift from what a visitor gets.
+ *
+ * It holds CLOSURES - the `component` thunk and `props` - so, exactly like a
+ * preview, only a marker travels in the serialized schema
  * ({@link SerializedComponentRender}) and the component is rendered by the
  * host app, which has the schema instance.
  *
@@ -178,7 +198,15 @@ export type ValComponentImport = ValComponent | { default: ValComponent };
  * `no-illegal-imports`), because Val evaluates val files outside of the app -
  * `val validate`, the language server and the Studio all do - and a component
  * pulls in CSS, images and framework code none of those can load. A thunk is
- * never called there, so the component's file is never loaded either.
+ * never called there, so the component's file is never loaded either. On the
+ * site it also means a page downloads the components it shows and no others.
+ *
+ * `props` turns the value into the component's props, for a component whose
+ * props are not the object's fields: one that was written before the schema,
+ * or belongs to a design system. It is called with the READ value (an image
+ * has its `url`, a string carries its edit tag), so a string it passes on
+ * unchanged is still a click away from its field, and one it transforms is
+ * not. Without it the value itself is the props.
  *
  * `example` is content to preview the component with that is not on the site:
  * a fixture, and a good place for deliberately unrepresentative values (very
@@ -187,6 +215,12 @@ export type ValComponentImport = ValComponent | { default: ValComponent };
 export type ComponentRender<Src> = {
   as: "component";
   component: () => Promise<ValComponentImport>;
+  /**
+   * `never`, because this is the mapper with its types erased: the schema
+   * that holds it knows what it takes, and nothing that finds it by path
+   * does. Call it through {@link componentPropsOf}.
+   */
+  props?: (value: never) => unknown;
   example?: Src;
   /**
    * The widest the component is shown, in CSS pixels. The preview is the
@@ -216,6 +250,58 @@ export type ComponentRender<Src> = {
    */
   defaultView?: ComponentView;
 };
+
+/**
+ * The options of `.component(load, options)` that are not the `props`
+ * function: how the Studio previews the component. See {@link ComponentRender}
+ * for each.
+ */
+export type ComponentOptions<Src> = {
+  example?: Src;
+  maxWidth?: number;
+  aspectRatio?: number;
+  defaultView?: ComponentView;
+};
+
+/** {@link ComponentOptions} for a component whose props ARE the read value. */
+export interface ComponentOptionsWithOptionalProps<
+  Src,
+  Read,
+  Props,
+> extends ComponentOptions<Src> {
+  props?: (value: Read) => Props;
+}
+
+/**
+ * {@link ComponentOptions} for a component whose props are NOT the read
+ * value: `props` is what makes them, so it is required.
+ */
+export interface ComponentOptionsWithProps<
+  Src,
+  Read,
+  Props,
+> extends ComponentOptions<Src> {
+  props: (value: Read) => Props;
+}
+
+/**
+ * What follows the thunk in `.component(load, ...)`: nothing or options when
+ * the value a reader gives back (`Read`) is assignable to the component's
+ * props, and options with a `props` function when it is not. That is the
+ * whole type check: a component that cannot be handed this object does not
+ * compile, on the line that links them.
+ *
+ * In tuples so the test does not distribute over a union of props.
+ */
+export type ComponentArgs<Src, Read, C> = [Read] extends [ComponentPropsOf<C>]
+  ? [
+      options?: ComponentOptionsWithOptionalProps<
+        Src,
+        Read,
+        ComponentPropsOf<C>
+      >,
+    ]
+  : [options: ComponentOptionsWithProps<Src, Read, ComponentPropsOf<C>>];
 
 /** How the Studio shows a value that has a component. See {@link ComponentRender}. */
 export type ComponentView = "preview" | "content" | "split";
@@ -278,14 +364,14 @@ export function assertComponentRenderIsConsistent(
     !views.some((view) => view === render.defaultView)
   ) {
     throw new Error(
-      `render({ as: "component" }): defaultView must be one of ${views.join(", ")}, got ${String(render.defaultView)}`,
+      `component(): defaultView must be one of ${views.join(", ")}, got ${String(render.defaultView)}`,
     );
   }
   for (const key of ["maxWidth", "aspectRatio"] as const) {
     const value = render[key];
     if (value !== undefined && !(Number.isFinite(value) && value > 0)) {
       throw new Error(
-        `render({ as: "component" }): ${key} must be a positive number, got ${value}`,
+        `component(): ${key} must be a positive number, got ${value}`,
       );
     }
   }
@@ -309,7 +395,90 @@ export function getComponentRender(
  */
 export async function loadComponent(
   render: ComponentRender<unknown>,
-): Promise<ValComponent> {
+): Promise<ValComponentType> {
   const imported = await render.component();
   return typeof imported === "function" ? imported : imported.default;
+}
+
+/**
+ * EXPERIMENTAL: the props to render a {@link ComponentRender}'s component
+ * with, for `value` as a reader gave it back: what its `props` function makes
+ * of it, or the value itself when it has none.
+ *
+ * The one place the mapper is called, so the site (`ValComponentEditor`) and
+ * the Studio's preview cannot disagree about what the component is handed.
+ */
+export function componentPropsOf(
+  render: ComponentRender<unknown>,
+  value: unknown,
+): unknown {
+  if (render.props === undefined) {
+    return value;
+  }
+  // `.component()` checked this function against the read type of the schema
+  // that holds it. A render found by path has lost that relation - it is why
+  // the parameter is `never` - and `value` is that schema's value, read: this
+  // assertion is what restores it, here and nowhere else.
+  return render.props(value as never);
+}
+
+/**
+ * Where a value's component rides. Registered globally for the reason the
+ * selector symbols are (`selector/index.ts`): two bundled copies of core must
+ * agree on it, or what one attached the other cannot find.
+ */
+const ComponentOfValue = Symbol.for("@valbuild/core/ComponentOfValue");
+
+function isComponentRender(value: unknown): value is ComponentRender<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "as" in value &&
+    value.as === "component" &&
+    "component" in value &&
+    typeof value.component === "function"
+  );
+}
+
+/**
+ * EXPERIMENTAL: attach, to a value a reader is about to give back, the
+ * component its schema links it to (`.component()`), so `ValComponentEditor`
+ * can render the value without a registry: the value says what renders it.
+ *
+ * The same idea as a view's handle, for the same reason. The app cannot get
+ * from a value back to its schema, and the reader (`stegaEncode`) is the one
+ * place that has both.
+ *
+ * Not enumerable, and a symbol: `Object.keys`, `JSON.stringify` and every
+ * walk that reads content as data still see only the content. So, like a
+ * view's handle, it does not survive serialization: a value passed from a
+ * server component to a client one arrives without it.
+ */
+export function setComponentOfValue(
+  target: object,
+  render: ComponentRender<unknown>,
+): void {
+  Object.defineProperty(target, ComponentOfValue, {
+    value: render,
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+/**
+ * EXPERIMENTAL: the component a read value is linked to, or `null` when it
+ * carries none: its schema has no `.component()`, or the value crossed a
+ * server/client boundary and lost it.
+ */
+export function componentOfValue(
+  value: unknown,
+): ComponentRender<unknown> | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const render: unknown = Object.getOwnPropertyDescriptor(
+    value,
+    ComponentOfValue,
+  )?.value;
+  return isComponentRender(render) ? render : null;
 }

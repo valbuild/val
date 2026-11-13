@@ -80,6 +80,44 @@ export type ValCanvasElement = {
 export const DEFAULT_CANVAS_SELECTION = "#079455";
 export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
 
+/**
+ * An edit to a list of components, asked for on the page itself.
+ *
+ * `ValComponentEditor` renders a list of objects with the components their
+ * schemas link them to, and in the canvas it lets the editor arrange that
+ * list where it is shown: drag a section, add one between two others, take
+ * one away. The page cannot make the edit - it has no patch store, and the
+ * studio is the one writer - so it says what was asked for and the studio
+ * writes the patch, which comes back as a `sourceUpdate` like any other edit.
+ *
+ * `list` is the path of the array. Indices are positions in it as the page
+ * last rendered it:
+ *
+ * - `move`: the item at `from` ends up at `to`, as a JSON patch `move` does.
+ * - `remove`: the item at `index` is deleted.
+ * - `insert`: a new item goes in at `index`, pushing what was there down.
+ *   The page does not say WHICH: the studio has the schema, so it asks the
+ *   editor when there is more than one kind to choose from.
+ */
+export type ValCanvasComponentEdit =
+  | { op: "move"; list: SourcePath; from: number; to: number }
+  | { op: "remove"; list: SourcePath; index: number }
+  | { op: "insert"; list: SourcePath; index: number };
+
+/** Narrow an unknown value to a {@link ValCanvasComponentEdit}. */
+export function isValCanvasComponentEdit(
+  value: unknown,
+): value is ValCanvasComponentEdit {
+  if (typeof value !== "object" || value === null) return false;
+  const edit = value as Record<string, unknown>;
+  if (typeof edit.list !== "string" || edit.list === "") return false;
+  const isIndex = (index: unknown) =>
+    typeof index === "number" && Number.isInteger(index) && index >= 0;
+  if (edit.op === "move") return isIndex(edit.from) && isIndex(edit.to);
+  if (edit.op === "remove" || edit.op === "insert") return isIndex(edit.index);
+  return false;
+}
+
 /** What the page tells the studio. */
 export type ValCanvasPageMessage =
   | {
@@ -266,6 +304,17 @@ export type ValCanvasPageMessage =
       val: typeof VAL_CANVAS_MESSAGE;
       type: "codeChanged";
       modules: ModuleFilePath[];
+    }
+  | {
+      /**
+       * The editor arranged a list of components on the page
+       * ({@link ValCanvasComponentEdit}). A studio that predates it ignores
+       * it, as it ignores any type it does not know, and the page then simply
+       * does not change.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "componentEdit";
+      edit: ValCanvasComponentEdit;
     };
 
 /** What the studio tells the page. */
@@ -479,7 +528,9 @@ export function isValCanvasPageMessage(
       typeof (data as { id?: unknown }).id === "string") ||
     (message.type === "codeChanged" &&
       Array.isArray((data as { modules?: unknown }).modules) &&
-      isModulePathList((data as { modules?: unknown }).modules))
+      isModulePathList((data as { modules?: unknown }).modules)) ||
+    (message.type === "componentEdit" &&
+      isValCanvasComponentEdit((data as { edit?: unknown }).edit))
   );
 }
 

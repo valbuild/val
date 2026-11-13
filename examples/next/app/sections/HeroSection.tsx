@@ -1,7 +1,7 @@
 import type { t } from "../../val.config";
-import type { heroSection } from "../../content/pages.val";
+import type { heroFields } from "../../content/pages.val";
 
-export type HeroSectionProps = t.inferSchema<typeof heroSection>;
+export type HeroSectionProps = t.inferSchema<typeof heroFields>;
 
 /**
  * An ordinary React component: the props are exactly what `fetchVal` / `useVal`

@@ -117,6 +117,21 @@ export {
 } from "./val";
 export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
+  ValEncodedString,
+  Image,
+  File,
+  Video,
+  StegaOfRichTextSource,
+  RichText,
+  StegaOfSource,
+  ReadOf,
+} from "./read";
+export type {
+  ValComponent,
+  ValComponentSource,
+  IsValComponentSource,
+} from "./source/component";
+export type {
   ValidationError,
   ValidationErrors,
 } from "./schema/validation/ValidationError";
@@ -145,7 +160,14 @@ import {
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
-import { ModulePath, SourcePath, getValPath, isVal, setValPath } from "./val";
+import {
+  ModulePath,
+  SourcePath,
+  getValPath,
+  isVal,
+  setValPath,
+  valPathOf,
+} from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
@@ -340,10 +362,16 @@ export {
   type ComponentRender,
   type SerializedComponentRender,
   type ComponentView,
-  type ValComponent,
+  type ValComponentType,
   type ValComponentImport,
+  type ComponentPropsOf,
+  type ComponentOptions,
+  type ComponentArgs,
   getComponentRender,
   loadComponent,
+  componentPropsOf,
+  setComponentOfValue,
+  componentOfValue,
   VAL_PREVIEW_MESSAGES,
 } from "./render";
 export type {
@@ -484,6 +512,7 @@ const Internal = {
   getSchema,
   getValPath,
   setValPath,
+  valPathOf,
   getSource,
   isValModule,
   resolvePath,

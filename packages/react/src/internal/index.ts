@@ -11,3 +11,7 @@ export {
   type ValComponentPreviewResolution,
 } from "./componentPreview";
 export { ValPreviewBridgeCore } from "./ValPreviewBridgeCore";
+export {
+  ValComponentEditor,
+  type ValComponentEditorProps,
+} from "./ValComponentEditor";

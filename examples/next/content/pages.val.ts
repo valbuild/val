@@ -3,25 +3,29 @@ import { s, c } from "../val.config";
 /**
  * EXPERIMENTAL: page sections that know the component that renders them.
  *
- * `.render({ as: "component" })` is what makes the Val Studio show a section,
- * rendered by this app, next to its fields. The component is a lazy `import()`:
- * a `.val.ts` may not import app code, because Val evaluates it outside of the
- * app, and a thunk is never called there.
+ * `.component(() => import(...))` links a section to its component: the Val
+ * Studio shows it, rendered by this app, next to the section's fields, and
+ * `ValComponentEditor` renders the section with it. The component is a lazy
+ * `import()`: a `.val.ts` may not import app code, because Val evaluates it
+ * outside of the app, and a thunk is never called there.
+ *
+ * The fields are declared first and linked in a second `const`: a component
+ * that types its props from its section reads them from the fields, because
+ * the linked schema's type depends on the component's.
  */
-export const heroSection = s
-  .object({
-    type: s.literal("hero"),
-    title: s.string().minLength(2),
-    tagline: s.string(),
-    bullets: s.array(s.string()),
-    cta: s.object({
-      label: s.string(),
-      href: s.string(),
-    }),
-  })
-  .render({
-    as: "component",
-    component: () => import("../app/sections/HeroSection"),
+export const heroFields = s.object({
+  type: s.literal("hero"),
+  title: s.string().minLength(2),
+  tagline: s.string(),
+  bullets: s.array(s.string()),
+  cta: s.object({
+    label: s.string(),
+    href: s.string(),
+  }),
+});
+export const heroSection = heroFields.component(
+  () => import("../app/sections/HeroSection"),
+  {
     // A full-width section: wider than this, the site centres it.
     maxWidth: 1200,
     // Deliberately not representative of any real page: long values and a
@@ -44,23 +48,24 @@ export const heroSection = s
         href: "https://val.build",
       },
     },
-  });
+  },
+);
 
 /** No example: the preview shows the content being edited, and nothing else. */
-export const quoteSection = s
-  .object({
-    type: s.literal("quote"),
-    quote: s.string(),
-    attribution: s.string(),
-  })
-  .render({
-    as: "component",
-    component: () => import("../app/sections/QuoteSection"),
+export const quoteFields = s.object({
+  type: s.literal("quote"),
+  quote: s.string(),
+  attribution: s.string(),
+});
+export const quoteSection = quoteFields.component(
+  () => import("../app/sections/QuoteSection"),
+  {
     // Shown in a narrow column on the site, so previewed as one.
     maxWidth: 560,
     // Two short fields: the component says more than they do.
     defaultView: "preview",
-  });
+  },
+);
 
 export const schema = s.record(
   s.object({

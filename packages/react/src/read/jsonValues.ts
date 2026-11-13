@@ -1,4 +1,9 @@
-import { Internal, RecordSchema } from "@valbuild/core";
+import {
+  Internal,
+  RecordSchema,
+  type Schema,
+  type SelectorSource,
+} from "@valbuild/core";
 
 /*
  * `.jsonValues()` records, as the readers meet them. Moved here from the
@@ -54,7 +59,7 @@ export function getJsonEntryStegaRoot(
   selector: any,
   key: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): { path: any; schema: any } | undefined {
+): { path: any; schema: any; instance: Schema<SelectorSource> } | undefined {
   const modulePath = selector && Internal.getValPath(selector);
   if (!modulePath) {
     return undefined;
@@ -67,5 +72,10 @@ export function getJsonEntryStegaRoot(
   if (!path) {
     return undefined;
   }
-  return { path, schema: schema["executeSerialize"]().item };
+  return {
+    path,
+    schema: schema["executeSerialize"]().item,
+    // Where a `.component()` of the entry's objects lives: see `stegaEncode`.
+    instance: schema["item"],
+  };
 }

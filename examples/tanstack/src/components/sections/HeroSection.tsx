@@ -1,7 +1,11 @@
 import type { t } from "../../../val.config";
-import type { heroSection } from "../../routes/_site.landing.val";
+import type { heroFields } from "../../routes/_site.landing.val";
 
-export type HeroSectionProps = t.inferSchema<typeof heroSection>;
+/**
+ * From the section's FIELDS, not from the schema that links this component:
+ * that one's type depends on this file's. See `_site.landing.val.ts`.
+ */
+export type HeroSectionProps = t.inferSchema<typeof heroFields>;
 
 /**
  * An ordinary component: its props are what `useVal` returns for the schema.

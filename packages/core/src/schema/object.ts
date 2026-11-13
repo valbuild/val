@@ -14,11 +14,15 @@ import {
   PreviewScope,
   mergePreviewInto,
 } from "../preview";
+import type { ReadOf } from "../read";
 import {
   assertComponentRenderIsConsistent,
+  ComponentArgs,
   ComponentRender,
   SerializedComponentRender,
+  ValComponentType,
 } from "../render";
+import type { LinkedToComponent } from "../source/component";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -90,9 +94,9 @@ export class ObjectSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
-    private readonly renderInput: ComponentRender<
-      NonNullable<Src>
-    > | null = null,
+    // `unknown`: `example` was checked against the source type where
+    // `.component()` was called, and nothing reads it as more than a value.
+    private readonly renderInput: ComponentRender<unknown> | null = null,
   ) {
     super();
   }
@@ -414,12 +418,28 @@ export class ObjectSchema<
   }
 
   /**
-   * EXPERIMENTAL: the component that renders this object on the site, so the
-   * Studio can show it next to the fields while they are edited.
+   * EXPERIMENTAL: the component that renders this object on the site.
    *
-   * `component` is a lazy `import()`, never the component itself: a `.val.ts`
-   * is evaluated outside of the app, where a component's CSS, images and
+   * The site renders the object with it through `ValComponentEditor`, and the
+   * Studio shows it next to the fields while they are edited, so the two
+   * cannot drift.
+   *
+   * `load` is a lazy `import()`, never the component itself: a `.val.ts` is
+   * evaluated outside of the app, where a component's CSS, images and
    * framework code cannot be loaded. See {@link ComponentRender}.
+   *
+   * It is type checked against the component's own props. An object whose
+   * fields ARE the props needs nothing else. One whose fields are not - any
+   * component that was not written for this schema - takes a `props`
+   * function, which is then required and whose result is checked instead.
+   * `props` is given the value as a reader returns it (an image has its
+   * `url`), so a string it passes on unchanged can still be clicked to edit.
+   *
+   * Do not type the component's props from the schema it is linked from
+   * (`t.inferSchema<typeof hero>` where `hero` is the result of this call):
+   * the schema's type then depends on the component's and the component's on
+   * the schema's, and TypeScript gives up on both. Declare the fields first
+   * and link them in a second `const`, or let the component own its props.
    *
    * `example` is content that is not on the site, to preview with as well:
    * long titles and empty lists that make layout problems easy to spot.
@@ -436,17 +456,43 @@ export class ObjectSchema<
    * @example
    * const hero = s
    *   .object({ title: s.string() })
-   *   .render({
-   *     as: "component",
-   *     component: () => import("./HeroSection"),
+   *   .component(() => import("./HeroSection"), {
    *     example: { title: "A very long title that should wrap nicely" },
    *     maxWidth: 1200,
    *   });
    * export default c.define("/example.val.ts", s.array(hero), []);
+   *
+   * @example
+   * // A component with props of its own: `props` says how to make them.
+   * const banner = s
+   *   .object({ heading: s.string() })
+   *   .component(() => import("./HeroSection"), {
+   *     props: (value) => ({ title: value.heading }),
+   *   });
+   * export default c.define("/example.val.ts", banner, { heading: "Hello" });
    */
-  render(input: ComponentRender<NonNullable<Src>>): ObjectSchema<Props, Src> {
+  component<C extends ValComponentType>(
+    load: () => Promise<{ default: C }>,
+    ...rest: ComponentArgs<NonNullable<Src>, ReadOf<NonNullable<Src>>, C>
+  ): ObjectSchema<Props, LinkedToComponent<Src>> {
+    const [options] = rest;
+    const input: ComponentRender<unknown> = {
+      as: "component",
+      component: load,
+      ...(options?.props !== undefined ? { props: options.props } : {}),
+      ...(options?.example !== undefined ? { example: options.example } : {}),
+      ...(options?.maxWidth !== undefined
+        ? { maxWidth: options.maxWidth }
+        : {}),
+      ...(options?.aspectRatio !== undefined
+        ? { aspectRatio: options.aspectRatio }
+        : {}),
+      ...(options?.defaultView !== undefined
+        ? { defaultView: options.defaultView }
+        : {}),
+    };
     assertComponentRenderIsConsistent(input);
-    return new ObjectSchema(
+    return new ObjectSchema<Props, LinkedToComponent<Src>>(
       this.items,
       this.opt,
       this.customValidateFunctions,

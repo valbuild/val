@@ -1,6 +1,7 @@
 // No hooks in this file: `@valbuild/next` calls it from a Server Component.
 // The bridge, which has them, is `ValPreviewBridgeCore.tsx`.
 import {
+  componentPropsOf,
   getComponentRender,
   Internal,
   loadComponent,
@@ -103,7 +104,7 @@ export async function resolveValComponentPreview({
   if (!render) {
     return {
       status: "error",
-      message: `${sourcePath} has no component: give its schema .render({ as: "component", component }) to preview it.`,
+      message: `${sourcePath} has no component: give its schema .component(() => import(...)) to preview it.`,
     };
   }
 
@@ -118,24 +119,28 @@ export async function resolveValComponentPreview({
     });
   }
 
-  if (typeof value !== "object" || value === null) {
+  // What the site hands the component (`ValComponentEditor`): the value, or
+  // what the schema's `props` function makes of it. One function for both, so
+  // the preview cannot show a component the site renders differently.
+  const componentProps = componentPropsOf(render, value);
+  if (typeof componentProps !== "object" || componentProps === null) {
     return {
       status: "error",
       message: `Expected an object to spread as props, got ${
-        value === null ? "null" : typeof value
+        componentProps === null ? "null" : typeof componentProps
       }.`,
     };
   }
   // Core cannot express a React component's type, and the lookup above is by
   // path, which erases the relation between the schema and its component that
-  // `.render(...)` was given. These casts are what restore it - and the reason
-  // this lives in the library instead of in every app with a preview.
+  // `.component(...)` was given. These casts are what restore it - and the
+  // reason this lives in the library instead of in every app with a preview.
   return {
     status: "ok",
     Component: (await loadComponent(render)) as ComponentType<
       Record<string, unknown>
     >,
-    props: value as Record<string, unknown>,
+    props: componentProps as Record<string, unknown>,
   };
 }
 

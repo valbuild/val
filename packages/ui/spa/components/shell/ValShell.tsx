@@ -11,6 +11,7 @@ import { isListedUnder } from "../../utils/isAtLocation";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame, PageCamera, PageReader } from "./canvas/CanvasFrame";
+import { useCanvasComponentEdits } from "./canvas/CanvasComponentEdits";
 import { AssistantPage, AssistantPageContext } from "./canvas/AssistantPage";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
@@ -1254,6 +1255,21 @@ function ValShellBody({
     [navigation, resolveNavPath, reportError],
   );
 
+  /*
+   * Edits made on the page itself: `ValComponentEditor` asks, this writes.
+   * A section that was just added is opened, as a picked field is, so its
+   * fields are the next thing in front of the editor.
+   */
+  const { onComponentEdit, dialog: componentEditDialog } =
+    useCanvasComponentEdits(
+      useCallback(
+        (path: SourcePath) => {
+          openPickedPath([path]);
+        },
+        [openPickedPath],
+      ),
+    );
+
   /**
    * The running site, in a frame.
    *
@@ -1369,6 +1385,7 @@ function ValShellBody({
         }}
         onRefreshingChange={onRefreshingChange}
         onCodeChanged={onCodeChanged}
+        onComponentEdit={onComponentEdit}
       />
     );
   }, [
@@ -1376,6 +1393,7 @@ function ValShellBody({
     documentKey,
     focusedPath,
     openPickedPath,
+    onComponentEdit,
     tourPagePath,
     assistantSelecting,
     assistantPick,
@@ -2066,6 +2084,7 @@ function ValShellBody({
               />
             </div>
           )}
+          {componentEditDialog}
         </LocaleFilterProvider>
       </ContentAnalyticsProvider>
     </AssistantPageContext.Provider>,
