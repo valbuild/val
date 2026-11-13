@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import {
@@ -8,7 +8,12 @@ import {
   type PickedElement,
 } from "@valbuild/shared/internal";
 import { isListedUnder } from "../../utils/isAtLocation";
-import { findShellSelection, Shell, ShellSelection } from "./Shell";
+import {
+  findShellSelection,
+  Shell,
+  ShellSelection,
+  type ShellProps,
+} from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame, PageCamera, PageReader } from "./canvas/CanvasFrame";
 import { useCanvasComponentEdits } from "./canvas/CanvasComponentEdits";
@@ -41,7 +46,8 @@ import {
   ShellMediaGallery,
   ShellValidationError,
 } from "./types";
-import { useShellData } from "./useShellData";
+import { useShellData, useShellLiveData } from "./useShellData";
+import { sameItems } from "../../stores/react/useStoreValue";
 import { useShellVersions } from "./useShellVersions";
 import { pagesInLocale } from "./localePages";
 import { ValSettingsSections } from "./ValSettingsSections";
@@ -116,6 +122,7 @@ import {
   useProfilesError,
   usePatchSets,
   usePendingClientSidePatchIds,
+  useChangesToReview,
   useProfilesByAuthorId,
   usePublishCount,
   usePublishSummary,
@@ -123,8 +130,6 @@ import {
   useSiteHandoffState,
   useOtherPublishJobs,
   useStudioIsDeployer,
-  useHasNetChanges,
-  usePendingChangeCount,
   useInitialPatchesApplied,
   usePatchFetchError,
   usePendingChangesProgress,
@@ -142,6 +147,7 @@ import {
   useFilePatchIds,
   useGetNavPath,
   usePatchSyncState,
+  useFailedSave,
   useResolveNavPath,
   useRetrySave,
 } from "../ValFieldProvider";
@@ -240,8 +246,14 @@ export function ValShell() {
  * hooks run: a signed-out session has no profile, no patch sets and no
  * navigation to load, and asking for them only produces failing requests
  * behind the login dialog.
+ *
+ * A `memo`, so `ValShell` rendering -- for its own reasons, or for an answer
+ * of `useShellData` that came out the same -- is not this rendering. And
+ * nothing read in here may move with a field write: this builds the props of
+ * the whole Studio, so a render here is a render of all of it. What a write
+ * moves is read in `ValShellLive`, at the foot of this file.
  */
-function ValShellBody({
+const ValShellBody = memo(function ValShellBody({
   state,
   studioAccess,
 }: {
@@ -387,11 +399,14 @@ function ValShellBody({
   const validateCount = useValidateCount();
   const { history } = useHistoryParams();
   const commitState = useHistoricalCommit(history.commitSha);
-  const connectionStatus = useConnectionStatus();
-  const pendingClientSidePatchIds = usePendingClientSidePatchIds();
-  const syncState = usePatchSyncState();
+  /*
+   * NOT read here: whether a write is saved yet, how many changes are
+   * pending, what Discard all would discard. Each moves with every field
+   * write, and this component renders the whole Studio. `ValShellLive`
+   * reads them, below, and hands them to the shell's live store.
+   */
+  const failedSave = useFailedSave();
   const retrySave = useRetrySave();
-  const { patchErrors } = useAllPatchErrors();
   const validationErrors = useAllValidationErrors();
   // The query the search overlay is showing, so the content index can answer
   // it. Held here because the overlay is presentational and the index is not.
@@ -419,11 +434,12 @@ function ValShellBody({
    * bar. Each with the next step beside it. See `planLimits/planNotices.ts`.
    */
   const project = useValConfig()?.project;
-  const hasNetChanges = useHasNetChanges();
-  const pendingChangeCount = usePendingChangeCount();
+  // Counted only under a refusal, which is the one notice that says how
+  // many changes are waiting: the count moves with every field write.
+  const changesWaiting = useChangesToReview(studioAccess.refusal !== null);
   const plan = usePlanNotice(studioAccess, {
     project: project?.split("/")[1] || null,
-    changesWaiting: hasNetChanges ? pendingChangeCount : 0,
+    changesWaiting,
   });
   /*
    * A refused save, publish or upload reports an error. One whose words are
@@ -504,7 +520,6 @@ function ValShellBody({
   // Changes left behind by a renamed or deleted file: told, with Discard.
   useChangesWithoutModuleNotice();
   const portalContainer = useValPortal();
-  const discardAll = useDiscardAll();
   /*
    * The branch history is listed under, which decides whether History is
    * offered at all: the proposal's in a proposal, else the site's (see
@@ -1008,27 +1023,34 @@ function ValShellBody({
    * of the editor: a click on the page has to become a navigation, and the
    * column beside it has to list the same things.
    */
-  const [canvasElements, setCanvasElements] = useState<ValCanvasElement[]>([]);
-
   /**
    * The reported paths, deduplicated and in the order they appear on the page.
    *
    * Reading order, because that is the order someone works down the page in.
    * Deduplicated because one path can be on several elements — a value used
    * twice is tagged twice — and the same field twice in a list is noise.
+   *
+   * The paths are what is held, not the elements, and the list it already
+   * is when the page reports the same ones: the page reports again after
+   * every edit it shows, with each element's new place on it, and nothing
+   * here reads the places. Held as elements, every edit rendered the whole
+   * Studio a second time, for a list that said what it had said.
    */
-  const canvasPaths = useMemo(() => {
+  const [canvasPaths, setCanvasPaths] = useState<SourcePath[]>([]);
+  const setCanvasElements = useCallback((elements: ValCanvasElement[]) => {
     const seen = new Set<string>();
     const ordered: SourcePath[] = [];
-    for (const element of canvasElements) {
+    for (const element of elements) {
       for (const path of element.paths) {
         if (seen.has(path)) continue;
         seen.add(path);
         ordered.push(path);
       }
     }
-    return ordered;
-  }, [canvasElements]);
+    setCanvasPaths((current) =>
+      sameItems(current, ordered) ? current : ordered,
+    );
+  }, []);
 
   /**
    * Open the page in a new tab, with preview mode on.
@@ -1470,27 +1492,6 @@ function ValShellBody({
   }, [mode]);
 
   /**
-   * What the status bar says about saving.
-   *
-   * A patch that has not reached the server yet is the only thing that means
-   * "saving": patches are applied locally first, so the editor is never
-   * waiting on a round trip to show your change.
-   */
-  const rawSaveState: SaveState = useMemo(
-    () =>
-      saveStateOf({
-        sync: syncState,
-        unsavedCount: pendingClientSidePatchIds.length,
-        hasPatchErrors: Object.values(patchErrors ?? {}).some(
-          (forModule) => Object.keys(forModule ?? {}).length > 0,
-        ),
-        serviceUnavailable: connectionStatus === "service-unavailable",
-      }),
-    [syncState, patchErrors, connectionStatus, pendingClientSidePatchIds],
-  );
-  /** Held through a burst of writes, so typing does not blink the bar. */
-  const saveState = useSteadySaveState(rawSaveState);
-  /**
    * A save the content service would not take: said where it stays until it
    * is fixed, with Try again beside it. One id for the whole spell, so a
    * dismissed notice folds into the status bar and is not pushed back up by
@@ -1498,22 +1499,22 @@ function ValShellBody({
    */
   const saveFailedNotice: FloatingNoticeItem | null = useMemo(
     () =>
-      syncState?.status === "failed"
+      failedSave !== null
         ? {
             id: "save-failed",
             label: "Not saved",
             icon: <AlertTriangle size={13} />,
             content: (
               <SaveFailedNotice
-                message={syncState.message}
-                details={syncState.details}
-                changeCount={syncState.patches.length}
+                message={failedSave.message}
+                details={failedSave.details}
+                changeCount={failedSave.patches.length}
                 onRetry={retrySave}
               />
             ),
           }
         : null,
-    [syncState, retrySave],
+    [failedSave, retrySave],
   );
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
@@ -1552,12 +1553,20 @@ function ValShellBody({
     siteUrl: proposalSiteUrl,
     codeChanges,
   } = useProposalsBar({
-    unsaved: hasNetChanges ? pendingChangeCount : 0,
+    // Save's count, so counted only in a proposal: see `changesWaiting`.
+    unsaved: useChangesToReview(inProposal),
     portalContainer,
     onCompare: openSiteCompare,
     owners: studioAccess.access?.owners ?? NO_OWNERS,
     projectUrl: studioAccess.access?.projectUrl ?? null,
   });
+  const floatingNotices = useMemo(
+    () =>
+      saveFailedNotice === null
+        ? proposalNotices
+        : [saveFailedNotice, ...proposalNotices],
+    [saveFailedNotice, proposalNotices],
+  );
   /*
    * Code mode holds the preview open: what the code changes is seen there,
    * and the changes themselves are in Review (`openCodeChanges`).
@@ -1797,7 +1806,7 @@ function ValShellBody({
           locale={locale}
           location={navigation.currentSourcePath || null}
         >
-          <Shell
+          <ValShellLive
             sketchpad={sketchpads.sketchpad}
             onSketchPage={sketchpads.onSketchPage}
             /*
@@ -1886,11 +1895,7 @@ function ValShellBody({
             }
             editorOverride={overrideEditor}
             notice={editorNotice}
-            floatingNotices={
-              saveFailedNotice === null
-                ? proposalNotices
-                : [saveFailedNotice, ...proposalNotices]
-            }
+            floatingNotices={floatingNotices}
             renderPlanStatus={planStatus}
             statusNotice={remoteFilesStatusNotice}
             publishSlot={
@@ -1898,39 +1903,20 @@ function ValShellBody({
             }
             publishState={publishState}
             publishIndicator={publishIndicatorState}
-            saveState={saveState}
-            onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
             autoSave={autoPublish}
             onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
-            pendingChanges={data.pendingChanges ?? 0}
             /*
-             * Zeroed when the pending patches cancel out, so Review does not put a
-             * number on changes that will not ship. The button itself stays: that
-             * view is where Discard is, and Publish is disabled until something
-             * changes.
+             * In a proposal, Review counts what Publish would change on the
+             * site. Outside one it is the pending changes, which move with
+             * every field write: `ValShellLive` counts those.
              */
-            reviewCount={
+            proposalReviewCount={
               inProposal
                 ? siteChanges.status === "ready"
                   ? siteChanges.changeCount
                   : 0
-                : hasNetChanges
-                  ? pendingChangeCount
-                  : 0
+                : undefined
             }
-            /*
-             * Offered only once the metadata behind the confirm has arrived.
-             *
-             * The confirm names the other people whose work would go, and those
-             * names come from the patch sets. While those are still grouping the
-             * list is empty — so an eager button could throw away a colleague's
-             * work having promised, and shown, nothing about it. A row that appears
-             * a moment late is the cheaper mistake.
-             */
-            onDiscardAll={
-              discardAll.enabled ? discardAll.discardAll : undefined
-            }
-            discardAllDescription={discardAll.description}
             portalContainer={portalContainer}
             isLoading={state.status === "loading"}
             loadError={state.status === "error" ? state.error : undefined}
@@ -2085,6 +2071,101 @@ function ValShellBody({
         </LocaleFilterProvider>
       </ContentAnalyticsProvider>
     </AssistantPageContext.Provider>,
+  );
+});
+
+/**
+ * The shell, with what a field write moves read HERE rather than in
+ * `ValShellBody`: whether the write is saved yet, how many changes are
+ * pending and to review, Recent activity, and what Discard all would
+ * discard.
+ *
+ * Every one of those moves with every write, and `ValShellBody` builds the
+ * props of the whole Studio: read there, each write rendered all of it, nine
+ * times over (`docs/plans/studio-write-lag.md`). This component is small,
+ * and what it hands `Shell` goes into the shell's live store, so a write
+ * renders this, `Shell`'s split, and the few components that show what
+ * moved. The props it passes through are `ValShellBody`'s own, untouched,
+ * which is what lets the shell's frame see that nothing of its own moved.
+ *
+ * Add a read here, not in `ValShellBody`, when what it answers moves per
+ * write and the shell shows it.
+ */
+function ValShellLive({
+  proposalReviewCount,
+  data: frameData,
+  ...shell
+}: Omit<
+  ShellProps,
+  | "saveState"
+  | "onRetrySave"
+  | "pendingChanges"
+  | "reviewCount"
+  | "onDiscardAll"
+  | "discardAllDescription"
+> & {
+  /** Review's count in a proposal; `undefined` outside one. */
+  proposalReviewCount: number | undefined;
+}) {
+  const connectionStatus = useConnectionStatus();
+  const pendingClientSidePatchIds = usePendingClientSidePatchIds();
+  const syncState = usePatchSyncState();
+  const retrySave = useRetrySave();
+  const { patchErrors } = useAllPatchErrors();
+  /**
+   * What the status bar says about saving.
+   *
+   * A patch that has not reached the server yet is the only thing that means
+   * "saving": patches are applied locally first, so the editor is never
+   * waiting on a round trip to show your change.
+   */
+  const rawSaveState: SaveState = useMemo(
+    () =>
+      saveStateOf({
+        sync: syncState,
+        unsavedCount: pendingClientSidePatchIds.length,
+        hasPatchErrors: Object.values(patchErrors ?? {}).some(
+          (forModule) => Object.keys(forModule ?? {}).length > 0,
+        ),
+        serviceUnavailable: connectionStatus === "service-unavailable",
+      }),
+    [syncState, patchErrors, connectionStatus, pendingClientSidePatchIds],
+  );
+  /** Held through a burst of writes, so typing does not blink the bar. */
+  const saveState = useSteadySaveState(rawSaveState);
+  const live = useShellLiveData(
+    frameData.deployments,
+    frameData.studioIsDeployer,
+  );
+  const data = useMemo(() => ({ ...frameData, ...live }), [frameData, live]);
+  /*
+   * Zeroed when the pending patches cancel out, so Review does not put a
+   * number on changes that will not ship. The button itself stays: that
+   * view is where Discard is, and Publish is disabled until something
+   * changes.
+   */
+  const changesToReview = useChangesToReview();
+  const discardAll = useDiscardAll();
+  return (
+    <Shell
+      {...shell}
+      data={data}
+      saveState={saveState}
+      onRetrySave={syncState?.status === "failed" ? retrySave : undefined}
+      pendingChanges={live.pendingChanges}
+      reviewCount={proposalReviewCount ?? changesToReview}
+      /*
+       * Offered only once the metadata behind the confirm has arrived.
+       *
+       * The confirm names the other people whose work would go, and those
+       * names come from the patch sets. While those are still grouping the
+       * list is empty — so an eager button could throw away a colleague's
+       * work having promised, and shown, nothing about it. A row that appears
+       * a moment late is the cheaper mistake.
+       */
+      onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
+      discardAllDescription={discardAll.description}
+    />
   );
 }
 

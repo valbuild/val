@@ -618,10 +618,12 @@ export class ValidationStore {
    * either side alone.
    *
    * `peek` answers `stale` with ONE shared object, deliberately, so repeated
-   * peeks are `===`. The reader (`useModuleValidation`) re-asks from an effect
-   * keyed on the result it rendered. So a module that goes stale → raced result
-   * → stale hands the reader the same `STALE` object twice, the effect's
-   * dependencies do not change, and the re-ask never happens. Validation stopped
+   * peeks are `===`. The reader re-asked from an effect keyed on the result
+   * it rendered. So a module that goes stale → raced result → stale handed the
+   * reader the same `STALE` object twice, the effect's dependencies did not
+   * change, and the re-ask never happened. (The reader is `useValidationDemand`
+   * now, which asks once per time the module goes stale, and relies on this
+   * loop for the same reason.) Validation stopped
    * for that module until something remounted the field: typing an invalid value
    * in the canvas showed no error at all, while opening the same field on its own
    * showed it immediately.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onPlanRefusal, type PlanRefusal } from "../../../utils/planRefusal";
 import { ADMIN_PROXY } from "../ProjectSwitcher";
 import { orgOfProject } from "../ProjectMembersButton";
@@ -265,5 +265,10 @@ export function useStudioAccess(
   }, [connected, access, refusal, refresh, asked]);
 
   const clearRefusal = useCallback(() => setRefusal(null), []);
-  return { access, refusal, refresh, clearRefusal };
+  // One object while the answer is the same: it is a prop of the shell's
+  // body, where a new one is a render of the whole Studio.
+  return useMemo(
+    () => ({ access, refusal, refresh, clearRefusal }),
+    [access, refusal, refresh, clearRefusal],
+  );
 }

@@ -1,8 +1,9 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
 import { useValSystem } from "../../../stores/react/SystemContext";
-import { useChainVersion, useNoOpSourcePaths } from "../../ValProvider";
+import { noOpSourcePathsOf } from "../../ValProvider";
+import { useLateStoreValue } from "../../../stores/react/useStoreValue";
 import { changedFieldsAmong, indexFields } from "./changedFields";
 import { cn } from "../../designSystem/cn";
 import { prettifyFilename } from "../../../utils/prettifyFilename";
@@ -400,8 +401,13 @@ export function CanvasFields({
  * hooks cannot be called in a loop over it. That also means each field resolves
  * and re-renders independently, which is what keeps one slow module from
  * holding up the rest of the column.
+ *
+ * A `memo`, so the column rendering -- a dot appearing on one row, a filter
+ * typed -- is not every field on the page rendering. Its props are a path,
+ * three booleans and the column's own `onSelect`: keep them to values that
+ * are the same while they say the same.
  */
-function CanvasFieldRow({
+const CanvasFieldRow = memo(function CanvasFieldRow({
   path,
   selected,
   changed,
@@ -496,7 +502,7 @@ function CanvasFieldRow({
       )}
     </div>
   );
-}
+});
 
 /**
  * The paths among `paths` whose value differs from what is published.
@@ -505,57 +511,48 @@ function CanvasFieldRow({
  * patch could have changed; the source store then compares each of those with
  * its published value, which is what drops an edit that was typed back to the
  * original and sorts out which items of a list actually moved. The same
- * comparison the review screen makes, through the same hook.
+ * comparison the review screen makes (`noOpSourcePathsOf`).
  *
- * Re-read when the chain moves, which is every edit, save and publish. Kept
- * reference-stable while the answer is the same, so a keystroke in a field that
- * was already changed does not re-filter the column.
+ * Asked again when the chain or a source moves, which is every edit, save and
+ * publish -- AFTER it, in a task of its own, so the match never holds up the
+ * write that moved the chain (`useLateStoreValue`). And this column renders
+ * only when the answer moved: it used to render for every write, and its
+ * rows are every field on the page, so a keystroke in a field that was
+ * already changed rendered all of them to draw the same dots.
  */
 function useChangedPaths(
   paths: readonly SourcePath[],
 ): ReadonlySet<SourcePath> {
-  const candidates = useTouchedPaths(paths);
-  const candidateList = useMemo(() => Array.from(candidates), [candidates]);
-  const unchanged = useNoOpSourcePaths(candidateList);
-  const previous = useRef<ReadonlySet<SourcePath>>(new Set());
-  return useMemo(() => {
-    const next = new Set<SourcePath>();
-    for (const path of candidateList) {
-      if (!unchanged.has(path)) next.add(path);
-    }
-    if (sameSet(previous.current, next)) return previous.current;
-    previous.current = next;
-    return next;
-  }, [candidateList, unchanged]);
+  const val = useValSystem();
+  const fields = useMemo(() => indexFields(paths), [paths]);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offSources = val.system.sourceStore.events.on(
+        "source:change",
+        onChange,
+      );
+      return () => {
+        offChain();
+        offSources();
+      };
+    },
+    [val],
+  );
+  const read = useCallback((): ReadonlySet<SourcePath> => {
+    if (val === null) return NO_CHANGED_PATHS;
+    const store = val.system.patchStore;
+    const candidates = Array.from(
+      changedFieldsAmong(fields, store.allRecords(), store.publishedPatchIds()),
+    );
+    const unchanged = noOpSourcePathsOf(val.system, candidates);
+    return new Set(candidates.filter((path) => !unchanged.has(path)));
+  }, [val, fields]);
+  return useLateStoreValue(subscribe, read, sameSet);
 }
 
-/** The first pass of {@link useChangedPaths}: what a patch could have changed. */
-function useTouchedPaths(
-  paths: readonly SourcePath[],
-): ReadonlySet<SourcePath> {
-  const val = useValSystem();
-  /*
-   * Deferred, so the match never holds up the keystroke that moved the chain:
-   * the field being typed in renders first, and the dots and the filter catch
-   * up in a render React is free to interrupt.
-   */
-  const chainVersion = useDeferredValue(useChainVersion());
-  const fields = useMemo(() => indexFields(paths), [paths]);
-  const previous = useRef<ReadonlySet<SourcePath>>(new Set());
-  return useMemo(() => {
-    void chainVersion;
-    if (val === null) return previous.current;
-    const store = val.system.patchStore;
-    const next = changedFieldsAmong(
-      fields,
-      store.allRecords(),
-      store.publishedPatchIds(),
-    );
-    if (sameSet(previous.current, next)) return previous.current;
-    previous.current = next;
-    return next;
-  }, [val, chainVersion, fields]);
-}
+const NO_CHANGED_PATHS: ReadonlySet<SourcePath> = new Set();
 
 function sameSet<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
   if (a.size !== b.size) return false;

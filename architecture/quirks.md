@@ -96,6 +96,33 @@ user's file. Studio media edits are per-property for the same reason.
 
 ## React in the Studio
 
+**A hook that reads a version number renders its caller for every field
+write, whatever it then does with it.** The pattern is
+`useSyncExternalStore(subscribe, () => store.chainVersion())` with the answer
+derived in a `useMemo` on that number. The memo makes the ANSWER stable; it
+cannot stop the render, because the snapshot is the number and the number
+moved. Called in a leaf that is nothing. Called in `ValShellBody`, which
+builds the props of the whole Studio, it was every component on screen, and a
+dozen such hooks plus an object-literal context value made one write nine
+renders of about 1,500 components (`docs/plans/studio-write-lag.md`). So the
+derivation goes IN the snapshot, kept while it says the same: `useStoreValue`
+(`stores/react/useStoreValue.ts`). And what a write does move is read where it
+is shown, not in the shell. The symptom is typing that freezes a quarter
+second after each pause; `e2e/measure/studioWriteRenders.measure.ts` names
+which component woke and which hook of it moved.
+
+**The patch chain is announced BEFORE the patch is applied to source.**
+`PatchStore.createPatch` bumps the chain (`patch:chain`) and only then emits
+`patch:create`, which is what makes `SourceStore` apply it. So a listener on
+`patch:chain` that reads SOURCE in the event -- which is where
+`useSyncExternalStore` reads its snapshot -- sees the source from before the
+write, decides nothing moved, and is never asked again. A hook that derived
+from the chain's version in a render did not have this problem, because the
+render came after both. Reading source for a chain event means also hearing
+`source:change` (`useChangesToReview`'s `useChainAndSources`), or looking again
+once the write has finished (`useRetainedCanvasPaths`), or reading late
+(`useLateStoreValue`).
+
 **A `var()` inside a custom property is substituted where the property is
 DECLARED, not where it is used.** This is CSS, not React, and it is the trap
 that shipped a half-themed Studio. `index.css` says

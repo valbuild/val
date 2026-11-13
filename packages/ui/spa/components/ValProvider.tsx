@@ -104,7 +104,16 @@ import { ProjectLocalesProvider } from "../hooks/ProjectLocalesProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValStoreProvider } from "../stores/react/ValStoreProvider";
-import { useValSystem } from "../stores/react/SystemContext";
+import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
+import type { System } from "../stores/createSystem";
+import {
+  createValueStore,
+  sameItems,
+  sameMembers,
+  useKept,
+  useStoreValue,
+  type ValueStore,
+} from "../stores/react/useStoreValue";
 import type { StatusSnapshot } from "../stores/StatusStore";
 import type { PatchErrorEntry, PatchRecord } from "../stores/types";
 import type { PatchAtPath } from "../stores/PatchStore";
@@ -290,23 +299,6 @@ type ValContextValue = {
    */
   observedPublishJobs: readonly ObservedJob[];
   /**
-   * The changes a publish that is still running holds, as content said:
-   * pressed on this tab, another tab or another device -- and kept until
-   * content lists them as pending again. See `heldByContent`.
-   */
-  serverPublishingPatchIds: ReadonlySet<string>;
-  /**
-   * When content said the holds `serverPublishingPatchIds` was last moved by,
-   * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
-   */
-  serverPublishingReportedAt: number | undefined;
-  /**
-   * The changes a publish that failed on its content holds back from later
-   * publishes, until Try again or Discard, as content said (`heldBackPatches`
-   * on `/stat` and the socket). Pending, and not ready to publish.
-   */
-  serverHeldBackPatchIds: ReadonlySet<string>;
-  /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
    */
@@ -410,6 +402,54 @@ const NO_VAL_PROVIDER = new Proxy(
 ) as ValContextValue;
 
 const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
+
+/**
+ * What content holds, apart from the rest of {@link ValContextValue}.
+ *
+ * It is heard again with every change to the chain: `reportedAt` moves each
+ * time content lists the patches, which is after every field write. In the
+ * one context, that was a render of everything that reads the mode, the
+ * config or the client -- most of the Studio -- for a time only the two
+ * hooks that read it look at. In a context of its own it was still a render
+ * of whatever calls those hooks, and the shell does. So the context holds a
+ * STORE of it (`createValueStore`), and a reader renders when the set it
+ * derives moves: see {@link usePublishingPatchIds}.
+ */
+type ValHoldsValue = {
+  /**
+   * The changes a publish that is still running holds, as content said:
+   * pressed on this tab, another tab or another device -- and kept until
+   * content lists them as pending again. See `heldByContent`.
+   */
+  publishingPatchIds: ReadonlySet<string>;
+  /**
+   * When content said the holds `publishingPatchIds` was last moved by,
+   * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
+   */
+  reportedAt: number | undefined;
+  /**
+   * The changes a publish that failed on its content holds back from later
+   * publishes, until Try again or Discard, as content said (`heldBackPatches`
+   * on `/stat` and the socket). Pending, and not ready to publish.
+   */
+  heldBackPatchIds: ReadonlySet<string>;
+};
+const NO_HOLDS: ValHoldsValue = {
+  publishingPatchIds: new Set(),
+  reportedAt: undefined,
+  heldBackPatchIds: new Set(),
+};
+const ValHoldsContext = React.createContext<ValueStore<ValHoldsValue>>(
+  createValueStore(NO_HOLDS),
+);
+
+/** No profiles yet. One object, so the context does not move for it. */
+const NO_PROFILES: ValContextValue["profiles"] = {};
+
+/** The same content, for values that are JSON (a config from `/stat`). */
+function sameJson(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
 
 /** How many publish jobs the status bar remembers. See `observedPublishJobs`. */
 const OBSERVED_JOBS_KEPT = 20;
@@ -617,7 +657,8 @@ export function ValProvider({
     [client],
   );
 
-  const runtimeConfig = statConfig;
+  // Every `/stat` answer parses a new config: kept while it says the same.
+  const runtimeConfig = useKept(statConfig, sameJson);
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
     boolean | undefined
@@ -800,27 +841,34 @@ export function ValProvider({
 
   /** See {@link ValContextValue.serverPublishingPatchIds}. */
   const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
-  /*
-   * The chain's version, so a hold is let go once the store has taken in what
-   * content said: committed, or forgotten. See `heldByContent`.
-   */
-  const heldChainVersion = useSyncExternalStore(
-    useCallback(
-      (onChange: () => void) =>
-        system.patchStore.events.on("patch:chain", onChange),
-      [system],
+  const subscribeToChain = useCallback(
+    (onChange: () => void) =>
+      system.patchStore.events.on("patch:chain", onChange),
+    [system],
+  );
+  const chainVersionOf = useCallback(
+    () => system.patchStore.chainVersion(),
+    [system],
+  );
+  // From `contentHolds`, as what is publishing is: see `ContentHolds`. The
+  // holds are heard again with every change to the chain, so the set is kept
+  // while its members are: a new one is a render of every reader of it.
+  const serverHeldBackPatchIds = useKept(
+    useMemo(
+      () => new Set<string>(contentHolds?.heldBackPatches ?? []),
+      [contentHolds],
     ),
-    useCallback(() => system.patchStore.chainVersion(), [system]),
-    useCallback(() => system.patchStore.chainVersion(), [system]),
+    sameMembers,
   );
-  // From `contentHolds`, as what is publishing is: see `ContentHolds`.
-  const serverHeldBackPatchIds = useMemo(
-    () => new Set<string>(contentHolds?.heldBackPatches ?? []),
-    [contentHolds],
-  );
-  // From `contentHolds`, not the stat: see `ContentHolds`.
-  const serverPublishingPatchIds = useMemo(() => {
-    void heldChainVersion;
+  /*
+   * From `contentHolds`, not the stat: see `ContentHolds`. Read again when
+   * the chain moves, so a hold is let go once the store has taken in what
+   * content said: committed, or forgotten (see `heldByContent`). Read off the
+   * store rather than derived from its version in a render: the chain moves
+   * on every field write, and this provider rendering is every reader of its
+   * context rendering.
+   */
+  const readServerPublishing = useCallback(() => {
     const store = system.patchStore;
     const published = store.publishedPatchIds();
     const unpublished = new Set<string>(
@@ -835,7 +883,12 @@ export function ValProvider({
       (patchId) => unpublished.has(patchId),
     );
     return heldByContentRef.current;
-  }, [contentHolds, system, heldChainVersion]);
+  }, [contentHolds, system]);
+  const serverPublishingPatchIds = useStoreValue(
+    subscribeToChain,
+    readServerPublishing,
+    { version: chainVersionOf },
+  );
 
   /**
    * Whether this project has an assistant, from its settings module.
@@ -1534,18 +1587,11 @@ export function ValProvider({
    * "are you sure you want to leave". This counts unsaved PATCHES, which is the
    * only thing a user can actually lose by closing the tab.
    */
-  const unsavedCount = useSyncExternalStore(
-    useCallback(
-      (onChange: () => void) =>
-        system.patchStore.events.on("patch:chain", onChange),
-      [system],
-    ),
-    useCallback(() => system.patchStore.pendingPatchIds().length, [system]),
-    useCallback(() => system.patchStore.pendingPatchIds().length, [system]),
-  );
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (unsavedCount > 0) {
+      // Asked of the store when the tab is leaving, not kept in a state that
+      // every write would move: nothing is shown for it.
+      if (system.patchStore.pendingPatchIds().length > 0) {
         event.preventDefault();
         event.returnValue = ""; // Required for Chrome and some other browsers
       }
@@ -1554,7 +1600,7 @@ export function ValProvider({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [unsavedCount]);
+  }, [system]);
   const { state: profilesData, retry: retryProfiles } = useProfilesData(
     client,
     authenticationState,
@@ -1563,140 +1609,220 @@ export function ValProvider({
     runtimeConfig?.project,
   );
 
+  const statData = "data" in stat && stat.data ? stat.data : undefined;
+  const mode = statData ? statData.mode : "unknown";
+  const publishRefusal = statData?.publishRefusal?.message ?? null;
+  const sourceMode = statData ? (statData.sourceMode ?? null) : null;
+  const historyBranch = statData
+    ? (statData.historyBranch ?? statData.config.gitBranch ?? null)
+    : null;
+  const profileAuthError =
+    profilesData.status === "auth-error" ? profilesData.error : null;
+  const profilesErrorMessage =
+    profilesData.status === "error" ? profilesData.error : null;
+  const profilesWillRetry =
+    profilesData.status === "error" ? profilesData.willRetry : false;
+  const profilesError = useMemo(
+    () =>
+      profilesErrorMessage === null
+        ? null
+        : { message: profilesErrorMessage, willRetry: profilesWillRetry },
+    [profilesErrorMessage, profilesWillRetry],
+  );
+  const profiles =
+    "data" in profilesData && profilesData.data
+      ? profilesData.data
+      : NO_PROFILES;
+  /*
+   * One object per change to what it holds, not per render of this provider.
+   *
+   * It was an object literal in the JSX, so every render here -- each `/stat`
+   * answer, each socket message -- was a new value, and a new value is a
+   * render of every component that reads ANY of it: `useValMode`,
+   * `useValConfig`, `useClient`, in the shell and in fields alike. Each field
+   * of it is therefore kept while it says the same thing (the config by
+   * content: every `/stat` answer parses a new one).
+   */
+  const contextValue = useMemo<ValContextValue>(
+    () => ({
+      client,
+      publishSummaryState,
+      setPublishSummaryState,
+      deploy: deployView,
+      handoff,
+      publishJobs,
+      publishJobsState,
+      observedPublishJobs,
+      publishesAsJobs,
+      profileId: statProfileId,
+      mode,
+      publishRefusal,
+      sourceMode,
+      proposal,
+      historyBranch,
+      refreshStat,
+      profileAuthError,
+      profilesError,
+      retryProfiles,
+      serviceUnavailable: showServiceUnavailable,
+      baseSha,
+      observedCommitShas,
+      deployments,
+      authenticationState,
+      config: runtimeConfig,
+      profiles,
+      remoteFiles,
+      subscribeToWsMessages,
+      sendWsMessage,
+      isWsConnected,
+      aiAuthError,
+      aiConnectionError,
+      retryAiConnection,
+      refreshAiModels,
+      aiGetSessions,
+      aiGetSessionMessages,
+      aiSetSessionName,
+      availableAiModel,
+      availableAiModels,
+      selectedAiModel,
+      selectAiModel,
+      aiSessionImagesToPatchFile,
+    }),
+    [
+      client,
+      publishSummaryState,
+      setPublishSummaryState,
+      deployView,
+      handoff,
+      publishJobs,
+      publishJobsState,
+      observedPublishJobs,
+      publishesAsJobs,
+      statProfileId,
+      mode,
+      publishRefusal,
+      sourceMode,
+      proposal,
+      historyBranch,
+      refreshStat,
+      profileAuthError,
+      profilesError,
+      retryProfiles,
+      showServiceUnavailable,
+      baseSha,
+      observedCommitShas,
+      deployments,
+      authenticationState,
+      runtimeConfig,
+      profiles,
+      remoteFiles,
+      subscribeToWsMessages,
+      sendWsMessage,
+      isWsConnected,
+      aiAuthError,
+      aiConnectionError,
+      retryAiConnection,
+      refreshAiModels,
+      aiGetSessions,
+      aiGetSessionMessages,
+      aiSetSessionName,
+      availableAiModel,
+      availableAiModels,
+      selectedAiModel,
+      selectAiModel,
+      aiSessionImagesToPatchFile,
+    ],
+  );
+  const [holdsStore] = useState(() => createValueStore(NO_HOLDS));
+  useEffect(() => {
+    holdsStore.set({
+      publishingPatchIds: serverPublishingPatchIds,
+      reportedAt: contentHoldsAt,
+      heldBackPatchIds: serverHeldBackPatchIds,
+    });
+  }, [
+    holdsStore,
+    serverPublishingPatchIds,
+    contentHoldsAt,
+    serverHeldBackPatchIds,
+  ]);
+
   return (
-    <ValContext.Provider
-      value={{
-        client,
-        publishSummaryState,
-        setPublishSummaryState,
-        deploy: deployView,
-        handoff,
-        publishJobs,
-        publishJobsState,
-        observedPublishJobs,
-        serverPublishingPatchIds,
-        serverPublishingReportedAt: contentHoldsAt,
-        serverHeldBackPatchIds,
-        publishesAsJobs,
-        profileId: statProfileId,
-        mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
-        publishRefusal:
-          "data" in stat && stat.data
-            ? (stat.data.publishRefusal?.message ?? null)
-            : null,
-        sourceMode:
-          "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
-        proposal,
-        historyBranch:
-          "data" in stat && stat.data
-            ? (stat.data.historyBranch ?? stat.data.config.gitBranch ?? null)
-            : null,
-        refreshStat,
-        profileAuthError:
-          profilesData.status === "auth-error" ? profilesData.error : null,
-        profilesError:
-          profilesData.status === "error"
-            ? { message: profilesData.error, willRetry: profilesData.willRetry }
-            : null,
-        retryProfiles,
-        serviceUnavailable: showServiceUnavailable,
-        baseSha,
-        observedCommitShas,
-        deployments,
-        authenticationState,
-        config: runtimeConfig,
-        profiles:
-          "data" in profilesData && profilesData.data ? profilesData.data : {},
-        remoteFiles,
-        subscribeToWsMessages,
-        sendWsMessage,
-        isWsConnected,
-        aiAuthError,
-        aiConnectionError,
-        retryAiConnection,
-        refreshAiModels,
-        aiGetSessions,
-        aiGetSessionMessages,
-        aiSetSessionName,
-        availableAiModel,
-        availableAiModels,
-        selectedAiModel,
-        selectAiModel,
-        aiSessionImagesToPatchFile,
-      }}
-    >
-      <TooltipProvider>
-        {/*
+    <ValContext.Provider value={contextValue}>
+      <ValHoldsContext.Provider value={holdsStore}>
+        <TooltipProvider>
+          {/*
           Configured and connected are two different questions, and the studio
           answers them in two different places: whether to offer an assistant at
           all, and whether an affordance that needs a live conversation can do
           anything yet.
         */}
-        <AIChatActionsProvider
-          /*
-           * Shown unless the project has turned it off. An assistant nobody has
-           * decided about is still offered: the panel is where the offer is
-           * made, so hiding it would leave no way to accept.
-           */
-          isAIChatEnabled={wsEnabled && assistant !== "off"}
-          /*
-           * "Online" is stricter, and deliberately: it is what decides whether
-           * an affordance that needs a LIVE conversation is offered (mentioning
-           * a field, chiefly), and an unconfigured assistant cannot take a
-           * message until someone has said yes.
-           */
-          isAIChatOnline={wsEnabled && isWsConnected && assistant === "on"}
-        >
-          {theme !== undefined && setTheme ? (
-            <ValThemeProvider
-              theme={theme}
-              setTheme={setTheme}
-              config={runtimeConfig}
-              settingsTheme={settingsTheme}
-            >
-              <ValStoreProvider
-                system={system}
-                valModules={valModules ?? null}
-                stat={storeStat}
+          <AIChatActionsProvider
+            /*
+             * Shown unless the project has turned it off. An assistant nobody has
+             * decided about is still offered: the panel is where the offer is
+             * made, so hiding it would leave no way to accept.
+             */
+            isAIChatEnabled={wsEnabled && assistant !== "off"}
+            /*
+             * "Online" is stricter, and deliberately: it is what decides whether
+             * an affordance that needs a LIVE conversation is offered (mentioning
+             * a field, chiefly), and an unconfigured assistant cannot take a
+             * message until someone has said yes.
+             */
+            isAIChatOnline={wsEnabled && isWsConnected && assistant === "on"}
+          >
+            {theme !== undefined && setTheme ? (
+              <ValThemeProvider
+                theme={theme}
+                setTheme={setTheme}
+                config={runtimeConfig}
+                settingsTheme={settingsTheme}
               >
-                <ValErrorProvider>
-                  <AutoPublishProvider>
-                    <ValPortalProvider>
-                      <ValRemoteProvider remoteFiles={remoteFiles}>
-                        <ValFieldProvider
-                          getDirectFileUploadSettings={
-                            getDirectFileUploadSettings
-                          }
-                          config={runtimeConfig}
-                        >
-                          {/*
+                <ValStoreProvider
+                  system={system}
+                  valModules={valModules ?? null}
+                  stat={storeStat}
+                >
+                  <ValErrorProvider>
+                    <AutoPublishProvider>
+                      <ValPortalProvider>
+                        <ValRemoteProvider remoteFiles={remoteFiles}>
+                          <ValFieldProvider
+                            getDirectFileUploadSettings={
+                              getDirectFileUploadSettings
+                            }
+                            config={runtimeConfig}
+                          >
+                            {/*
                           Tell the host page when a module's source moves, so the
                           customer's own components behind the Studio show the
                           edit rather than the committed value.
                         */}
-                          <ValOverlayEmitter
-                            enabled={dispatchValEvents}
-                            pageHolds={pageHolds}
-                            pageHoldsVersions={pageHoldsVersions}
-                          />
-                          <LocalModulesErrorBanner />
-                          <HeldEditsBanner />
-                          <ProjectLocalesProvider>
-                            {children}
-                          </ProjectLocalesProvider>
-                          <StudioOutOfDateGate />
-                        </ValFieldProvider>
-                      </ValRemoteProvider>
-                    </ValPortalProvider>
-                  </AutoPublishProvider>
-                </ValErrorProvider>
-              </ValStoreProvider>
-            </ValThemeProvider>
-          ) : (
-            children
-          )}
-        </AIChatActionsProvider>
-      </TooltipProvider>
+                            <ValOverlayEmitter
+                              enabled={dispatchValEvents}
+                              pageHolds={pageHolds}
+                              pageHoldsVersions={pageHoldsVersions}
+                            />
+                            <LocalModulesErrorBanner />
+                            <HeldEditsBanner />
+                            <ProjectLocalesProvider>
+                              {children}
+                            </ProjectLocalesProvider>
+                            <StudioOutOfDateGate />
+                          </ValFieldProvider>
+                        </ValRemoteProvider>
+                      </ValPortalProvider>
+                    </AutoPublishProvider>
+                  </ValErrorProvider>
+                </ValStoreProvider>
+              </ValThemeProvider>
+            ) : (
+              children
+            )}
+          </AIChatActionsProvider>
+        </TooltipProvider>
+      </ValHoldsContext.Provider>
     </ValContext.Provider>
   );
 }
@@ -2233,6 +2359,93 @@ export function usePatchSets():
   return state;
 }
 
+const NO_PATCH_IDS: PatchId[] = [];
+const NO_COMMIT_SHAS: string[] = [];
+const NO_COMMITTED_PATCHES: ReadonlySet<PatchId> = new Set();
+
+/**
+ * A value read off the patch chain, which renders its reader when the VALUE
+ * moves rather than when the chain does. See `useStoreValue`.
+ *
+ * The chain moves on every field write (a patch created, then saved), and
+ * most of what is asked of it does not: which patches are committed, whether
+ * anything is unsaved. Each of those hooks used to render its reader for
+ * every write, and the shell reads a dozen of them.
+ *
+ * `read` and `absent` must be stable: a function and a value of the module's
+ * own, or a `useCallback`.
+ */
+function useChainValue<T>(
+  read: (system: System) => T,
+  absent: T,
+  isSame?: (previous: T, next: T) => boolean,
+  /** `false`: `read` is still asked, once, and the chain is not heard. */
+  watch: boolean = true,
+): T {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null || !watch) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val, watch],
+  );
+  const version = useCallback(
+    () => (val === null ? -1 : val.system.patchStore.chainVersion()),
+    [val],
+  );
+  const readNow = useCallback(
+    () => (val === null ? absent : read(val.system)),
+    [val, read, absent],
+  );
+  return useStoreValue(subscribe, readNow, { version, isSame });
+}
+
+/** See {@link useCommittedPatches}. */
+function committedPatchesOf(system: System): ReadonlySet<PatchId> {
+  const committed = new Set<PatchId>();
+  const published = system.patchStore.publishedPatchIds();
+  for (const record of system.patchStore.allRecords()) {
+    if (record.appliedAt || published.has(record.patchId)) {
+      committed.add(record.patchId);
+    }
+  }
+  return committed;
+}
+
+const NO_MODULES: ReadonlySet<ModuleFilePath> = new Set();
+
+/**
+ * The modules with a patch in the chain: what a draft marker means, and what
+ * a proposal has unsaved edits in.
+ *
+ * Off the chain itself, kept while the same modules are in it. Its readers
+ * read it off the patch sets, which are grouped again in a worker after
+ * every write and arrive as a new list each time -- so the shell's data, and
+ * the shell, moved a moment after every write to say that the module being
+ * typed in still has a draft. The patch sets are built from the same records
+ * (`computePatchSets`), so the modules are the same ones, a worker's round
+ * trip sooner.
+ *
+ * `watch: false` is no modules and no subscription.
+ */
+export function useModulesWithPatches(
+  watch: boolean = true,
+): ReadonlySet<ModuleFilePath> {
+  const read = useCallback(
+    (system: System): ReadonlySet<ModuleFilePath> =>
+      watch
+        ? new Set(
+            system.patchStore
+              .allRecords()
+              .map((record) => record.moduleFilePath),
+          )
+        : NO_MODULES,
+    [watch],
+  );
+  return useChainValue(read, NO_MODULES, sameMembers, watch);
+}
+
 /** Moved by every change to the patch chain. See `PatchStore`'s `bump`. */
 export function useChainVersion(): number {
   const val = useValSystem();
@@ -2290,20 +2503,7 @@ export function usePublishCount(): number {
  * window. `PatchStore.filePatchIds` applies the same union, for the same reason.
  */
 export function useCommittedPatches(): ReadonlySet<PatchId> {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  return useMemo(() => {
-    const committed = new Set<PatchId>();
-    if (val === null) return committed;
-    void chainVersion;
-    const published = val.system.patchStore.publishedPatchIds();
-    for (const record of val.system.patchStore.allRecords()) {
-      if (record.appliedAt || published.has(record.patchId)) {
-        committed.add(record.patchId);
-      }
-    }
-    return committed;
-  }, [val, chainVersion]);
+  return useChainValue(committedPatchesOf, NO_COMMITTED_PATCHES, sameMembers);
 }
 
 /**
@@ -2316,23 +2516,21 @@ export function useCommittedPatches(): ReadonlySet<PatchId> {
  * would both be described by whichever one happened to be first.
  */
 export function useDeployingCommitShas(): string[] {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  return useMemo(() => {
-    if (val === null) return [];
-    void chainVersion;
-    const shas: string[] = [];
-    const seen = new Set<string>();
-    // Records are in chain order, so the newest commit is at the end.
-    for (const record of val.system.patchStore.allRecords()) {
-      const sha = record.appliedAt?.commitSha;
-      if (sha !== undefined && !seen.has(sha)) {
-        seen.add(sha);
-        shas.unshift(sha);
-      }
+  return useChainValue(deployingCommitShasOf, NO_COMMIT_SHAS, sameItems);
+}
+
+function deployingCommitShasOf(system: System): string[] {
+  const shas: string[] = [];
+  const seen = new Set<string>();
+  // Records are in chain order, so the newest commit is at the end.
+  for (const record of system.patchStore.allRecords()) {
+    const sha = record.appliedAt?.commitSha;
+    if (sha !== undefined && !seen.has(sha)) {
+      seen.add(sha);
+      shas.unshift(sha);
     }
-    return shas;
-  }, [val, chainVersion]);
+  }
+  return shas;
 }
 
 /**
@@ -2365,29 +2563,41 @@ export function useNoOpSourcePaths(
    */
   const chainVersion = useChainVersion();
   return useMemo(() => {
-    const equal = new Set<SourcePath>();
-    if (val === null) return equal;
+    if (val === null) return new Set<SourcePath>();
     void sourcesVersion;
     void chainVersion;
-    const store = val.system.sourceStore;
-    for (const path of paths) {
-      const after = store.peek(path);
-      const before = store.peekBase(path);
-      // Only a settled pair can be compared. Anything still loading is not
-      // "unchanged", it is unknown, and calling it unchanged would hide a real
-      // change behind a slow read.
-      if (after.status !== "ready" || before.status !== "ready") continue;
-      if (
-        deepEqual(
-          after.data as ReadonlyJSONValue,
-          before.data as ReadonlyJSONValue,
-        )
-      ) {
-        equal.add(path);
-      }
-    }
-    return equal;
+    return noOpSourcePathsOf(val.system, paths);
   }, [val, sourcesVersion, chainVersion, paths]);
+}
+
+/**
+ * {@link useNoOpSourcePaths}'s answer, read off the stores now: for a caller
+ * that decides for itself when to ask ("On this page", which asks after a
+ * write rather than rendering for one).
+ */
+export function noOpSourcePathsOf(
+  system: System,
+  paths: readonly SourcePath[],
+): Set<SourcePath> {
+  const equal = new Set<SourcePath>();
+  const store = system.sourceStore;
+  for (const path of paths) {
+    const after = store.peek(path);
+    const before = store.peekBase(path);
+    // Only a settled pair can be compared. Anything still loading is not
+    // "unchanged", it is unknown, and calling it unchanged would hide a real
+    // change behind a slow read.
+    if (after.status !== "ready" || before.status !== "ready") continue;
+    if (
+      deepEqual(
+        after.data as ReadonlyJSONValue,
+        before.data as ReadonlyJSONValue,
+      )
+    ) {
+      equal.add(path);
+    }
+  }
+  return equal;
 }
 
 /**
@@ -2404,72 +2614,127 @@ export function useNoOpSourcePaths(
  */
 export function useHasNetChanges(): boolean {
   const val = useValSystem();
-  const sourcesVersion = useSourcesVersion();
-  const chainVersion = useChainVersion();
-  const committed = useCommittedPatches();
   const publishing = usePublishingPatchIds();
+  /*
+   * Asked again when the chain or any source moves, and answered to React
+   * only when the answer does. It is a boolean that flips at the first edit
+   * and at the last revert, and it used to render its reader -- the shell --
+   * twice for every field write in between.
+   */
+  const { subscribe, version } = useChainAndSources(val, true);
+  const read = useCallback(
+    // What is not known yet counts as a change. `false` would mean "nothing
+    // to publish", and it is not this hook's place to disable Publish
+    // because the system has not finished arriving.
+    () => (val === null ? true : hasNetChangesOf(val.system, publishing)),
+    [val, publishing],
+  );
+  return useStoreValue(subscribe, read, { version });
+}
 
+/**
+ * How many changes are waiting to go out: the pending ones, or none when
+ * they cancel out ({@link useHasNetChanges}). Review's count, the Save
+ * button's in a proposal, and what a plan's notice says is waiting.
+ *
+ * `watch: false` is 0 and no subscription. The count moves with every field
+ * write, so a reader that shows it only some of the time -- the shell, in a
+ * proposal or under a refusal -- is not rendered by it the rest of the time.
+ */
+export function useChangesToReview(watch: boolean = true): number {
+  const val = useValSystem();
+  const publishing = usePublishingPatchIds();
+  const { subscribe, version } = useChainAndSources(val, watch);
+  const read = useCallback(
+    () =>
+      !watch || val === null
+        ? 0
+        : hasNetChangesOf(val.system, publishing)
+          ? pendingChangeCountOf(val.system)
+          : 0,
+    [val, publishing, watch],
+  );
+  return useStoreValue(subscribe, read, { version });
+}
+
+/** Both the chain and the sources, as one thing to hear and one version. */
+function useChainAndSources(val: ValSystem | null, watch: boolean) {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null || !watch) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offSources = val.system.sourceStore.events.on(
+        "source:change",
+        onChange,
+      );
+      return () => {
+        offChain();
+        offSources();
+      };
+    },
+    [val, watch],
+  );
+  const version = useCallback(
+    () =>
+      val === null || !watch
+        ? ""
+        : `${val.system.patchStore.chainVersion()}:${val.system.sourceStore.sourcesVersion()}`,
+    [val, watch],
+  );
+  return { subscribe, version };
+}
+
+/** See {@link useHasNetChanges}. */
+function hasNetChangesOf(
+  system: System,
+  publishing: ReadonlySet<string>,
+): boolean {
   /*
    * Read off the CHAIN, not off the patch sets.
    *
    * `usePatchSets` is grouped asynchronously in a worker and reports
-   * `not-asked` until the first result. Mapping that to "no modules" made this
-   * hook answer "nothing changes" during the window — which disables Publish
-   * and zeroes Review as though everything had been reverted, on a project
-   * where nothing has. `patchStore.allRecords()` already names each record's
-   * module and is synchronous, so there is no window.
+   * `not-asked` until the first result. Mapping that to "no modules" made
+   * this answer "nothing changes" during the window — which disables
+   * Publish and zeroes Review as though everything had been reverted, on a
+   * project where nothing has. `patchStore.allRecords()` already names each
+   * record's module and is synchronous, so there is no window.
    */
-  const { compare: modules, changesOnPublishing } = useMemo<
-    ReturnType<typeof netChangeModules>
-  >(() => {
-    if (val === null) return { compare: [], changesOnPublishing: false };
-    void chainVersion;
-    return netChangeModules(
-      val.system.patchStore.allRecords(),
-      committed,
-      publishing,
+  const { compare: modules, changesOnPublishing } = netChangeModules(
+    system.patchStore.allRecords(),
+    committedPatchesOf(system),
+    publishing,
+  );
+  /*
+   * Nothing uncommitted means nothing has been REVERTED — there is no
+   * pending work to cancel out. Answering `false` here labelled a chain of
+   * already-published records, which is what an `http` publish leaves
+   * behind, as "every change has been reverted, discard them" — about
+   * records that cannot be discarded.
+   */
+  if (modules.length === 0) return true;
+  // See `netChangeModules`: compared with a base that is about to move.
+  if (changesOnPublishing) return true;
+  const store = system.sourceStore;
+  for (const moduleFilePath of modules) {
+    const after = store.moduleSource(moduleFilePath);
+    // The module root as a source path — core's own conversion, rather than
+    // an assertion between two brands that do not overlap.
+    const before = store.peekBase(
+      Internal.joinModuleFilePathAndModulePath(
+        moduleFilePath,
+        "" as ModulePath,
+      ),
     );
-  }, [val, chainVersion, committed, publishing]);
-
-  return useMemo(() => {
-    // As in the loop below: what is not known yet counts as a change. `false`
-    // would mean "nothing to publish", and it is not this hook's place to
-    // disable Publish because the system has not finished arriving.
-    if (val === null) return true;
-    /*
-     * Nothing uncommitted means nothing has been REVERTED — there is no
-     * pending work to cancel out. Answering `false` here labelled a chain of
-     * already-published records, which is what an `http` publish leaves
-     * behind, as "every change has been reverted, discard them" — about
-     * records that cannot be discarded.
-     */
-    if (modules.length === 0) return true;
-    // See `netChangeModules`: compared with a base that is about to move.
-    if (changesOnPublishing) return true;
-    void sourcesVersion;
-    void chainVersion;
-    const store = val.system.sourceStore;
-    for (const moduleFilePath of modules) {
-      const after = store.moduleSource(moduleFilePath);
-      // The module root as a source path — core's own conversion, rather than
-      // an assertion between two brands that do not overlap.
-      const before = store.peekBase(
-        Internal.joinModuleFilePathAndModulePath(
-          moduleFilePath,
-          "" as ModulePath,
-        ),
-      );
-      // Unknown counts AS a change: a module still loading must not be able to
-      // disable Publish, which would silently drop real work.
-      if (after === undefined || before.status !== "ready") return true;
-      if (
-        !deepEqual(after as ReadonlyJSONValue, before.data as ReadonlyJSONValue)
-      ) {
-        return true;
-      }
+    // Unknown counts AS a change: a module still loading must not be able to
+    // disable Publish, which would silently drop real work.
+    if (after === undefined || before.status !== "ready") return true;
+    if (
+      !deepEqual(after as ReadonlyJSONValue, before.data as ReadonlyJSONValue)
+    ) {
+      return true;
     }
-    return false;
-  }, [val, sourcesVersion, chainVersion, modules, changesOnPublishing]);
+  }
+  return false;
 }
 
 /**
@@ -2481,28 +2746,24 @@ export function useHasNetChanges(): boolean {
  * unsaved, so the three lists are three filters of one list.
  */
 export function usePendingServerSidePatchIds(): PatchId[] {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  return useMemo(() => {
-    if (val === null) return [];
-    void chainVersion;
-    const store = val.system.patchStore;
-    return store
-      .allRecords()
-      .map((record) => record.patchId)
-      .filter((patchId) => !store.isPending(patchId));
-  }, [val, chainVersion]);
+  return useChainValue(serverSidePatchIdsOf, NO_PATCH_IDS, sameItems);
+}
+
+function serverSidePatchIdsOf(system: System): PatchId[] {
+  const store = system.patchStore;
+  return store
+    .allRecords()
+    .map((record) => record.patchId)
+    .filter((patchId) => !store.isPending(patchId));
 }
 
 /** Patches created here that have not reached the server yet. */
 export function usePendingClientSidePatchIds(): PatchId[] {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  return useMemo(() => {
-    if (val === null) return [];
-    void chainVersion;
-    return val.system.patchStore.pendingPatchIds();
-  }, [val, chainVersion]);
+  return useChainValue(clientSidePatchIdsOf, NO_PATCH_IDS, sameItems);
+}
+
+function clientSidePatchIdsOf(system: System): PatchId[] {
+  return system.patchStore.pendingPatchIds();
 }
 
 /**
@@ -2619,13 +2880,11 @@ export function usePatchFetchError(): string | null {
 }
 
 export function useCurrentPatchIds(): PatchId[] {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  return useMemo(() => {
-    if (val === null) return [];
-    void chainVersion;
-    return val.system.patchStore.allRecords().map((record) => record.patchId);
-  }, [val, chainVersion]);
+  return useChainValue(currentPatchIdsOf, NO_PATCH_IDS, sameItems);
+}
+
+function currentPatchIdsOf(system: System): PatchId[] {
+  return system.patchStore.allRecords().map((record) => record.patchId);
 }
 
 /**
@@ -2636,19 +2895,17 @@ export function useCurrentPatchIds(): PatchId[] {
  * Review offer work that is already in a commit.
  */
 export function usePendingChangeCount(): number {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  const committed = useCommittedPatches();
-  return useMemo(() => {
-    if (val === null) return 0;
-    void chainVersion;
-    let count = 0;
-    for (const record of val.system.patchStore.allRecords()) {
-      if (committed.has(record.patchId)) continue;
-      count++;
-    }
-    return count;
-  }, [val, chainVersion, committed]);
+  return useChainValue(pendingChangeCountOf, 0);
+}
+
+function pendingChangeCountOf(system: System): number {
+  const committed = committedPatchesOf(system);
+  let count = 0;
+  for (const record of system.patchStore.allRecords()) {
+    if (committed.has(record.patchId)) continue;
+    count++;
+  }
+  return count;
 }
 
 export type PendingPatch = {
@@ -2802,20 +3059,18 @@ export function useOtherPublishJobs(): readonly ObservedJob[] {
  * Not pending work while they go, so Publish does not offer them again.
  */
 export function usePublishingPatchIds(): ReadonlySet<string> {
-  const {
-    publishJobsState,
-    serverPublishingPatchIds,
-    serverPublishingReportedAt,
-  } = useContext(ValContext);
-  return useMemo(
-    () =>
-      publishingPatchIds(
-        publishJobsState,
-        serverPublishingPatchIds,
-        serverPublishingReportedAt,
-      ),
-    [publishJobsState, serverPublishingPatchIds, serverPublishingReportedAt],
-  );
+  const { publishJobsState } = useContext(ValContext);
+  const holds = useContext(ValHoldsContext);
+  // Kept while its members are: `reportedAt` moves with every change to the
+  // chain, and the changes being published almost never do.
+  const read = useCallback(() => {
+    const { publishingPatchIds: held, reportedAt } = holds.get();
+    return publishingPatchIds(publishJobsState, held, reportedAt);
+  }, [publishJobsState, holds]);
+  return useStoreValue(holds.subscribe, read, {
+    version: holds.get,
+    isSame: sameMembers,
+  });
 }
 
 /**
@@ -2823,20 +3078,16 @@ export function usePublishingPatchIds(): ReadonlySet<string> {
  * See {@link ValContextValue.serverHeldBackPatchIds}.
  */
 export function useHeldBackPatchIds(): ReadonlySet<string> {
-  const {
-    publishJobsState,
-    serverHeldBackPatchIds,
-    serverPublishingReportedAt,
-  } = useContext(ValContext);
-  return useMemo(
-    () =>
-      heldBackPatchIds(
-        publishJobsState,
-        serverHeldBackPatchIds,
-        serverPublishingReportedAt,
-      ),
-    [publishJobsState, serverHeldBackPatchIds, serverPublishingReportedAt],
-  );
+  const { publishJobsState } = useContext(ValContext);
+  const holds = useContext(ValHoldsContext);
+  const read = useCallback(() => {
+    const { heldBackPatchIds: held, reportedAt } = holds.get();
+    return heldBackPatchIds(publishJobsState, held, reportedAt);
+  }, [publishJobsState, holds]);
+  return useStoreValue(holds.subscribe, read, {
+    version: holds.get,
+    isSame: sameMembers,
+  });
 }
 
 /** See {@link ValContextValue.handoff}. */
@@ -2921,7 +3172,9 @@ export function useModuleSourcesNowAndBase(
   base: Partial<Record<ModuleFilePath, Json>>;
 } | null {
   const val = useValSystem();
-  const sourcesVersion = useSourcesVersion();
+  // Nothing to compare is nothing to follow: this is read by the shell (for
+  // a proposal's changes), where every source change would render all of it.
+  const sourcesVersion = useSourcesVersion(moduleFilePaths.length > 0);
   return useMemo(() => {
     if (val === null) return null;
     void sourcesVersion;
@@ -2939,19 +3192,23 @@ export function useModuleSourcesNowAndBase(
   }, [val, sourcesVersion, moduleFilePaths]);
 }
 
-/** Moved by every source change anywhere in the project. */
-function useSourcesVersion(): number {
+/**
+ * Moved by every source change anywhere in the project. `watch: false` is 0
+ * and no subscription.
+ */
+function useSourcesVersion(watch: boolean = true): number {
   const val = useValSystem();
   const subscribe = useCallback(
     (onChange: () => void) => {
-      if (val === null) return () => {};
+      if (val === null || !watch) return () => {};
       return val.system.sourceStore.events.on("source:change", onChange);
     },
-    [val],
+    [val, watch],
   );
   const getSnapshot = useCallback(
-    () => (val === null ? 0 : val.system.sourceStore.sourcesVersion()),
-    [val],
+    () =>
+      val === null || !watch ? 0 : val.system.sourceStore.sourcesVersion(),
+    [val, watch],
   );
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -3031,7 +3288,16 @@ export function usePublishSummary() {
     refreshStat,
   } = useContext(ValContext);
   const val = useValSystem();
-  const globalServerSidePatchIds = useCurrentPatchIds();
+  /*
+   * The chain's patches, read off the store when a publish or a summary asks
+   * for them. Not `useCurrentPatchIds()`: nothing here is SHOWN from them,
+   * and that hook renders its caller for every field write -- this hook's
+   * callers are the Publish button and the shell.
+   */
+  const currentPatchIds = useCallback(
+    (): PatchId[] => (val === null ? [] : currentPatchIdsOf(val.system)),
+    [val],
+  );
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -3041,7 +3307,7 @@ export function usePublishSummary() {
         storedSummaryState &&
         storedSummaryState.type !== "not-asked" &&
         // Only load if there's actually patches to publish
-        globalServerSidePatchIds.length > 0
+        currentPatchIds().length > 0
       ) {
         setPublishSummaryState(storedSummaryState);
       }
@@ -3100,6 +3366,8 @@ export function usePublishSummary() {
       /** See `PublishOptions.invalidAllowed`: a save in code mode. */
       saveOptions?: { invalidAllowed?: boolean },
     ): Promise<PagePublishResult> => {
+      // As the chain is at the press, and the same list for a retry of it.
+      const globalServerSidePatchIds = currentPatchIds();
       /*
        * A page that cannot build hands the publish to a Studio tab. The press
        * that opened the summary normally prepared it already -- that is the
@@ -3261,7 +3529,7 @@ export function usePublishSummary() {
     },
     [
       val,
-      globalServerSidePatchIds,
+      currentPatchIds,
       isPublishing,
       runtimeConfig?.project,
       setPublishSummaryState,
@@ -3422,7 +3690,7 @@ export function usePublishSummary() {
           publishSummary = {
             type: summary.type,
             text: summary.text,
-            patchIds: globalServerSidePatchIds,
+            patchIds: currentPatchIds(),
             isGenerating: !!prev.isGenerating,
           };
         }
@@ -3430,7 +3698,7 @@ export function usePublishSummary() {
         return publishSummary;
       });
     },
-    [globalServerSidePatchIds, setPublishSummaryState, runtimeConfig?.project],
+    [currentPatchIds, setPublishSummaryState, runtimeConfig?.project],
   );
   return {
     publish,
@@ -4131,9 +4399,7 @@ export function useShallowModulesAtPaths<
   moduleFilePaths: ModuleFilePath[],
   type: SchemaType,
 ): ShallowSourcesOf<SchemaType> {
-  const val = useValSystem();
   const initializedAt = useInitialized();
-  const sourcesVersion = useSourcesVersion();
   const previous = useRef<ShallowSourcesOf<SchemaType> | null>(null);
   const mapped = useRef(
     new Map<
@@ -4145,17 +4411,7 @@ export function useShallowModulesAtPaths<
       }
     >(),
   );
-  const sourcesRes = useMemo(() => {
-    if (val === null) return null;
-    void sourcesVersion;
-    // Read out of the store rather than subscribed to per module: the callers
-    // are whole-list views (a nav tree, a route list) that already re-render on
-    // any source change, and one subscription per module would be one wake per
-    // module for a single keystroke.
-    return (moduleFilePaths ?? []).map((moduleFilePath) =>
-      val.system.sourceStore.moduleSource(moduleFilePath),
-    );
-  }, [val, sourcesVersion, moduleFilePaths]);
+  const sourcesRes = useModuleSources(moduleFilePaths);
   const result = useMemo((): ShallowSourcesOf<SchemaType> => {
     if (initializedAt === null) {
       return { status: "loading" };
@@ -4236,6 +4492,59 @@ export function useShallowModulesAtPaths<
   }, [sourcesRes, type, initializedAt, moduleFilePaths]);
   previous.current = result;
   return result;
+}
+
+/**
+ * These modules' sources, as fields read them, in the order asked: `null`
+ * before there is a system, `undefined` for a module that has not arrived.
+ *
+ * Read out of the store on any source change rather than subscribed to per
+ * module: one subscription per module would be one wake per module for a
+ * single write. And kept while every module asked about is the one it was
+ * (`moduleSource` is stable while a module's view is): the callers are the
+ * nav tree, the route list and the shell's media lists, and a write to some
+ * other module used to render each of them, with the shell around them, for
+ * an answer that had not moved.
+ *
+ * `moduleFilePaths` must be stable (a `useMemo`): a new array is a new
+ * question.
+ */
+export function useModuleSources(
+  moduleFilePaths: readonly ModuleFilePath[],
+): (Json | undefined)[] | null {
+  const val = useValSystem();
+  const subscribeToSources = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.events.on("source:change", onChange);
+    },
+    [val],
+  );
+  const sourcesVersionOf = useCallback(
+    () => (val === null ? -1 : val.system.sourceStore.sourcesVersion()),
+    [val],
+  );
+  const readSources = useCallback(
+    () =>
+      val === null
+        ? null
+        : (moduleFilePaths ?? []).map((moduleFilePath) =>
+            val.system.sourceStore.moduleSource(moduleFilePath),
+          ),
+    [val, moduleFilePaths],
+  );
+  return useStoreValue(subscribeToSources, readSources, {
+    version: sourcesVersionOf,
+    isSame: sameModuleSources,
+  });
+}
+
+/** The same modules' sources, each the object it was. */
+function sameModuleSources(
+  a: (Json | undefined)[] | null,
+  b: (Json | undefined)[] | null,
+): boolean {
+  return a === b || (a !== null && b !== null && sameItems(a, b));
 }
 
 /**

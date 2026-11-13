@@ -83,7 +83,23 @@ export function SortableContainer({
       nextItems.push({ path: path, id });
       id++;
     }
-    setItems(nextItems);
+    /*
+     * The list it already is, when it is: `source` is a new array each time
+     * the field above renders, and every edit inside an item renders it, so
+     * setting the same rows again was a second render of every row for each
+     * write. An optimistic permutation is NOT the same list -- its ids are
+     * in another order -- so it is still undone here.
+     */
+    setItems((current) =>
+      current.length === nextItems.length &&
+      current.every(
+        (item, index) =>
+          item.path === nextItems[index]?.path &&
+          item.id === nextItems[index]?.id,
+      )
+        ? current
+        : nextItems,
+    );
   }, [source]);
 
   const sensors = useSensors(

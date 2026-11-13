@@ -70,19 +70,23 @@ export function useBuildEpoch(): number {
  * server re-reads on, without asking it on a timer of its own. In a
  * proposal it moves with each staging, so every Studio open on it hears of
  * a change someone else's assistant made.
+ *
+ * `watch: false` is `null` and no subscription: `seq` moves with every save,
+ * so a reader that only follows it some of the time (in a proposal) should
+ * not be rendered by it the rest of the time.
  */
-export function useProjectSeq(): number | null {
+export function useProjectSeq(watch: boolean = true): number | null {
   const manifest = useValSystem()?.system.manifest;
   const subscribe = useCallback(
     (listener: () => void) =>
-      manifest?.onSeq(listener) ?? NOTHING_TO_UNSUBSCRIBE,
-    [manifest],
+      (watch ? manifest?.onSeq(listener) : undefined) ?? NOTHING_TO_UNSUBSCRIBE,
+    [manifest, watch],
   );
-  return useSyncExternalStore(
-    subscribe,
-    () => manifest?.seq() ?? null,
-    () => null,
+  const getSnapshot = useCallback(
+    () => (watch ? (manifest?.seq() ?? null) : null),
+    [manifest, watch],
   );
+  return useSyncExternalStore(subscribe, getSnapshot, () => null);
 }
 
 /** How long `seq` has to stay put before {@link useSettledProjectSeq} moves. */
@@ -92,11 +96,16 @@ export const SEQ_SETTLE_MS = 500;
  * {@link useProjectSeq}, once it has stopped moving for `settleMs`: `seq`
  * moves with every save, so someone typing moves it every few seconds, and
  * what re-reads on it reads once for a burst rather than once per save.
+ *
+ * Even so it is two renders of its reader per burst, and its readers are in
+ * the shell: pass `watch: false` while nothing would be re-read (see
+ * {@link useProjectSeq}).
  */
 export function useSettledProjectSeq(
   settleMs: number = SEQ_SETTLE_MS,
+  watch: boolean = true,
 ): number | null {
-  const seq = useProjectSeq();
+  const seq = useProjectSeq(watch);
   const [settled, setSettled] = useState(seq);
   useEffect(() => {
     if (seq === settled) return;

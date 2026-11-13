@@ -1,5 +1,5 @@
 import { DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import type { RemoteUploadSettings } from "../utils/uploadLocalMedia";
 
 type RemoteFiles =
@@ -57,12 +57,10 @@ export function ValRemoteProvider({
   children: React.ReactNode;
   remoteFiles: RemoteFiles;
 }) {
+  // One object while the settings are the same ones: see `ValFieldProvider`.
+  const value = useMemo(() => ({ remoteFiles }), [remoteFiles]);
   return (
-    <ValRemoteContext.Provider
-      value={{
-        remoteFiles,
-      }}
-    >
+    <ValRemoteContext.Provider value={value}>
       {children}
     </ValRemoteContext.Provider>
   );
