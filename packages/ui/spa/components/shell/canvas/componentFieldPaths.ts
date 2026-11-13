@@ -17,19 +17,32 @@ import {
  *
  * A field is only left out when the component around it is in `paths`: a
  * field whose component is not tagged on the page is all there is to list.
+ * And only when the component's row SHOWS it: a list in a component is a list
+ * of rows to navigate into (unless it renders its items inline), so what is
+ * below one of its items - a card in a row of cards - stays listed on its own,
+ * or there would be nowhere on the column to type in it.
  */
 export function collapseIntoComponents(
   paths: readonly SourcePath[],
   schemas: Record<ModuleFilePath, SerializedSchema>,
 ): readonly SourcePath[] {
-  const components = paths.filter((path) =>
-    isComponentSchema(schemaAt(path, schemas)),
-  );
+  const components: { path: SourcePath; schema: SerializedSchema }[] = [];
+  for (const path of paths) {
+    const schema = schemaAt(path, schemas);
+    if (schema !== undefined && isComponentSchema(schema)) {
+      components.push({ path, schema });
+    }
+  }
   if (components.length === 0) {
     return paths;
   }
   const collapsed = paths.filter(
-    (path) => !components.some((component) => isAncestorPath(component, path)),
+    (path) =>
+      !components.some(
+        (component) =>
+          isAncestorPath(component.path, path) &&
+          shownInside(component.schema, partsBelow(component.path, path)),
+      ),
   );
   return collapsed.length === paths.length ? paths : collapsed;
 }
@@ -50,6 +63,36 @@ export function isAncestorPath(
   return ancestor.includes("?p=")
     ? next.startsWith(".")
     : next.startsWith("?p=");
+}
+
+/**
+ * Whether the editor of a value with `schema` shows the value `parts` below
+ * it in place: through objects and union variants it does, and through a list
+ * only when the list renders its items inline.
+ */
+function shownInside(schema: SerializedSchema, parts: string[]): boolean {
+  let current: SerializedSchema | undefined = schema;
+  for (const part of parts) {
+    if (current === undefined) return false;
+    if (
+      (current.type === "array" || current.type === "record") &&
+      current.render?.as !== "inline"
+    ) {
+      return false;
+    }
+    current = childSchema(current, part);
+  }
+  return true;
+}
+
+/** The segments of `path` below `ancestor`, which is above it. */
+function partsBelow(ancestor: SourcePath, path: SourcePath): string[] {
+  return modulePathParts(path).slice(modulePathParts(ancestor).length);
+}
+
+function modulePathParts(path: SourcePath): string[] {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  return modulePath ? Internal.splitModulePath(modulePath) : [];
 }
 
 /**
@@ -78,11 +121,9 @@ function schemaAt(
   path: SourcePath,
   schemas: Record<ModuleFilePath, SerializedSchema>,
 ): SerializedSchema | undefined {
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(path);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   let schema: SerializedSchema | undefined = schemas[moduleFilePath];
-  const parts = modulePath ? Internal.splitModulePath(modulePath) : [];
-  for (const part of parts) {
+  for (const part of modulePathParts(path)) {
     schema = childSchema(schema, part);
     if (schema === undefined) {
       return undefined;

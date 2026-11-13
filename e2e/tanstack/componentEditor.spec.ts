@@ -204,6 +204,20 @@ test.describe("arranging sections on the page", () => {
     await expect
       .poll(() => decodeURIComponent(page.url()))
       .toMatch(/"cards"\.0\."title"/);
+    // ...and puts the cursor in it, inside the card's row of On this page.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active =
+            document.getElementById("val-shadow-root")?.shadowRoot
+              ?.activeElement;
+          return active instanceof HTMLInputElement ||
+            active instanceof HTMLTextAreaElement
+            ? active.value
+            : (active?.textContent ?? null);
+        }),
+      )
+      .toBe("Content");
     // The sections around them did not move.
     expect(await serverSections(request)).toEqual([
       "hero",

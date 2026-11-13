@@ -76,17 +76,20 @@ describe("collapseIntoComponents", () => {
     ).toEqual([pathOf("title"), pathOf("sections", 0), pathOf("sections", 1)]);
   });
 
-  test("a component inside a component: the outer one holds them all", () => {
+  test("a component in a list inside a component keeps its own row", () => {
+    // The columns row shows its cards as rows to open, not their fields: the
+    // card's row is where its title can be typed in.
     expect(
       collapseIntoComponents(
         [
           pathOf("sections", 1),
+          pathOf("sections", 1, "heading"),
           pathOf("sections", 1, "cards", 0),
           pathOf("sections", 1, "cards", 0, "title"),
         ],
         schemas(),
       ),
-    ).toEqual([pathOf("sections", 1)]);
+    ).toEqual([pathOf("sections", 1), pathOf("sections", 1, "cards", 0)]);
   });
 
   test("fields whose component is not on the page are all there is", () => {

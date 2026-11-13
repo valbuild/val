@@ -12,11 +12,22 @@ import { FieldNotFound } from "../../FieldNotFound";
 import { FieldSchemaError } from "../../FieldSchemaError";
 import { useSchemaAtPath } from "../../ValFieldProvider";
 import { isAncestorPath } from "./componentFieldPaths";
+import { isSourcePath } from "../../../utils/sourcePath";
 
 /** How far below the top of the column a field scrolled to should land. */
 const SCROLL_MARGIN_PX = 8;
 /** How long the column keeps re-aligning as its rows fill in. */
 const SETTLE_MS = 1200;
+
+/** What can take the cursor in a field: the first one is focused. */
+const FOCUSABLE_INPUT =
+  "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), [contenteditable=true], select:not([disabled])";
+
+/**
+ * A field picked on the page, to put the cursor in. `id` changes on every
+ * pick, so the same field picked twice is focused twice.
+ */
+export type FocusRequest = { path: SourcePath; id: number };
 
 /**
  * The fields the page reported, as fields rather than as a list of paths.
@@ -43,6 +54,7 @@ export function CanvasFields({
   onChangedOnlyChange,
   pickToReveal,
   onPickRevealed,
+  focusRequest,
   selectedPath,
   onSelect,
 }: {
@@ -63,6 +75,11 @@ export function CanvasFields({
    */
   pickToReveal?: SourcePath | null;
   onPickRevealed?: () => void;
+  /**
+   * A field picked on the page: its input is focused once its row has
+   * rendered - inside the component's row, for a field of a component.
+   */
+  focusRequest?: FocusRequest | null;
   /** The field the editor is on, highlighted here to match. */
   selectedPath?: SourcePath | null;
   onSelect?: (path: SourcePath) => void;
@@ -162,6 +179,79 @@ export function CanvasFields({
      * the one it never happens in.
      */
   }, [selectedRow, paths]);
+
+  /*
+   * A pick on the page puts the cursor in the field it picked, on a desktop
+   * and on a phone alike: pointing at something is asking to change it.
+   *
+   * Once the row has rendered it, which can be a moment: a row asks for its
+   * own schema, and on a phone the column was only just brought into view.
+   * So it is retried as the column changes, for as long as the scroll above
+   * settles, and given up on after that rather than taking the cursor from
+   * wherever the editor has put it since. Without scrolling: the effect above
+   * does that, and a focus that scrolls too lands somewhere else.
+   */
+  const focusPath = focusRequest?.path ?? null;
+  const focusId = focusRequest?.id ?? null;
+  useEffect(() => {
+    const list = listRef.current;
+    if (focusPath === null || !list) return;
+    const row = () => {
+      const exact = list.querySelector(
+        `[data-canvas-field="${CSS.escape(focusPath)}"]`,
+      );
+      if (exact) return exact;
+      // A field inside a component is in the component's row
+      let nearest: Element | null = null;
+      let nearestLength = -1;
+      for (const candidate of Array.from(
+        list.querySelectorAll("[data-canvas-field]"),
+      )) {
+        const rowPath = candidate.getAttribute("data-canvas-field");
+        if (
+          rowPath !== null &&
+          isSourcePath(rowPath) &&
+          isAncestorPath(rowPath, focusPath) &&
+          rowPath.length > nearestLength
+        ) {
+          nearest = candidate;
+          nearestLength = rowPath.length;
+        }
+      }
+      return nearest;
+    };
+    const focus = (): boolean => {
+      const found = row();
+      if (!found) return false;
+      // The field itself and nothing near it: a row that does not show it
+      // (it is in a list in there, to be opened) has no input of its own to
+      // offer, and focusing another would select that one instead.
+      const field =
+        found.getAttribute("data-canvas-field") === focusPath
+          ? found
+          : found.querySelector(
+              `[data-val-studio-path="${CSS.escape(focusPath)}"]`,
+            );
+      if (!field) return false;
+      const input = field.querySelector<HTMLElement>(FOCUSABLE_INPUT);
+      if (!input) return false;
+      input.focus({ preventScroll: true });
+      // A field deep in a component's row may be below the row's top, which
+      // is what the column scrolled to
+      if (field !== found) field.scrollIntoView({ block: "nearest" });
+      return true;
+    };
+    if (focus()) return;
+    const observer = new MutationObserver(() => {
+      if (focus()) observer.disconnect();
+    });
+    observer.observe(list, { childList: true, subtree: true });
+    const stop = setTimeout(() => observer.disconnect(), SETTLE_MS);
+    return () => {
+      clearTimeout(stop);
+      observer.disconnect();
+    };
+  }, [focusPath, focusId]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
@@ -307,7 +397,9 @@ function CanvasFieldRow({
       // rather than by holding a ref per row: the list is dynamic, and a map of
       // refs to a changing set of paths is a leak waiting to be written.
       data-canvas-field={path}
-      onFocusCapture={() => onSelect?.(path)}
+      onFocusCapture={(event) =>
+        onSelect?.(focusedFieldPath(event.target, path))
+      }
       className={cn(
         "rounded-lg border px-2.5 py-2",
         // The accent border says which row the page selected — until a control
@@ -495,6 +587,25 @@ function ChangedOnlyToggle({
  * already know from being on it, and repeating it on every row pushes the part
  * that differs off the end.
  */
+/**
+ * The field a focus inside a row is in: the row's own path, or - in a
+ * component's row, which holds the component's fields - the field nearest
+ * the focused element, so the page outlines the field being typed in rather
+ * than the whole component.
+ */
+function focusedFieldPath(
+  target: EventTarget,
+  rowPath: SourcePath,
+): SourcePath {
+  if (!(target instanceof Element)) return rowPath;
+  const field = target
+    .closest("[data-val-studio-path]")
+    ?.getAttribute("data-val-studio-path");
+  return field && isSourcePath(field) && isAncestorPath(rowPath, field)
+    ? field
+    : rowPath;
+}
+
 export function fieldLabel(path: SourcePath): string {
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!modulePath) return path;
