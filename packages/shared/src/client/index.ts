@@ -21,6 +21,7 @@ export * from "../internal/elementPicker";
 export * from "../internal/pageInspection";
 export * from "../internal/pageScreenshot";
 export * from "../internal/pageLog";
+export * from "../internal/pageInteraction";
 export * from "../internal/quickPreview";
 export * from "../internal/parseRoutePattern";
 export * from "../internal/getNextAppRouterSourceFolder";

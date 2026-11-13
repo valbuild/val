@@ -1,8 +1,16 @@
-import type { PageLogSnapshot } from "@valbuild/shared/internal";
+import type {
+  PageInteraction,
+  PageLogSnapshot,
+} from "@valbuild/shared/internal";
+import type { PageInteractRequest } from "../components/shell/canvas/CanvasFrame";
 import {
+  INTERACT_PAGE_TOOL,
   NO_PREVIEW,
+  PAGE_DATA_PROVENANCE,
   PAGE_LOG_PROVENANCE,
+  PAGE_PROMPT_SECTION,
   READ_PAGE_LOG_TOOL,
+  runInteractPage,
   runReadPage,
   runReadPageLog,
   runScreenshotPage,
@@ -288,6 +296,166 @@ describe("read_page_log", () => {
         error: "Update @valbuild/tanstack to 0.153.5 or later",
       },
       isError: true,
+    });
+  });
+});
+
+describe("interact_page", () => {
+  const interaction = (
+    overrides: Partial<PageInteraction> = {},
+  ): PageInteraction => ({
+    did: 'clicked <button#more> "More"',
+    before: { url: "/shop", title: "Shop" },
+    after: { url: "/shop/cart", title: "Cart" },
+    settled: true,
+    waitedMs: 640,
+    pendingRequests: 0,
+    snapshot: {
+      url: "https://site.example/shop/cart",
+      title: "Cart",
+      viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 900 },
+      outline: [],
+    },
+    log: [],
+    ...overrides,
+  });
+
+  test("is offered with a prompt that says to check changes with it", () => {
+    expect(INTERACT_PAGE_TOOL.name).toBe("interact_page");
+    // A submit waits for the person, as long as a question.
+    expect(INTERACT_PAGE_TOOL.timeoutMs).toBeNull();
+    expect(PAGE_PROMPT_SECTION).toContain("interact_page");
+    expect(PAGE_PROMPT_SECTION).toContain("quick_preview");
+  });
+
+  test("answers with the page after the action, what changed, and whose words they are", async () => {
+    const asked: PageInteractRequest[] = [];
+    const answer = await runInteractPage(
+      { action: "click", selector: "#more", max_items: 50 },
+      {
+        interactPage: (request) => {
+          asked.push(request);
+          return Promise.resolve({
+            status: "done",
+            interaction: interaction(),
+            navigated: false,
+          });
+        },
+      },
+    );
+    expect(asked).toEqual([
+      { action: { kind: "click", selector: "#more" }, maxItems: 50 },
+    ]);
+    expect(answer).toMatchObject({
+      isError: false,
+      result: {
+        success: true,
+        did: 'clicked <button#more> "More"',
+        settled: true,
+        url: "/shop/cart",
+        title: "Cart",
+        changed: {
+          url: { from: "/shop", to: "/shop/cart" },
+          title: { from: "Shop", to: "Cart" },
+        },
+        about: PAGE_DATA_PROVENANCE,
+        log: [],
+        log_note: "Nothing went wrong that the page could hear.",
+      },
+    });
+  });
+
+  test("says plainly when the page had not settled", async () => {
+    const answer = await runInteractPage(
+      { action: "open", path: "/feed" },
+      {
+        interactPage: () =>
+          Promise.resolve({
+            status: "done",
+            interaction: interaction({
+              settled: false,
+              waitedMs: 15_000,
+              busy: ["requests", "changing"],
+              pendingRequests: 2,
+            }),
+            navigated: true,
+          }),
+      },
+    );
+    expect(answer.result).toMatchObject({
+      settled: false,
+      not_settled:
+        "The page had not settled when it was read, after 15 seconds: requests it made had not answered, it was still changing. This is the page as it was then, and it may still change: read_page again in a moment before concluding.",
+      pending_requests: 2,
+      navigated: expect.stringContaining("new document"),
+    });
+  });
+
+  test("turns the tool's words into the preview's", async () => {
+    const asked: PageInteractRequest[] = [];
+    const interactPage = (request: PageInteractRequest) => {
+      asked.push(request);
+      return Promise.resolve({
+        status: "done" as const,
+        interaction: interaction(),
+        navigated: false,
+      });
+    };
+    await runInteractPage(
+      { action: "viewport", device: "phone" },
+      { interactPage },
+    );
+    await runInteractPage(
+      { action: "type", selector: "#q", text: "shoes", append: true },
+      { interactPage },
+    );
+    await runInteractPage({ action: "press", key: "Escape" }, { interactPage });
+    await runInteractPage(
+      { action: "click", selector: "#buy" },
+      { interactPage, allowSubmit: true },
+    );
+    expect(asked).toEqual([
+      { action: { kind: "viewport", device: "mobile" } },
+      {
+        action: { kind: "type", selector: "#q", text: "shoes", append: true },
+      },
+      { action: { kind: "press", key: "Escape" } },
+      { action: { kind: "click", selector: "#buy" }, allowSubmit: true },
+    ]);
+  });
+
+  test("says what is missing before it asks the page anything", async () => {
+    const interactPage = jest.fn();
+    for (const [args, error] of [
+      [{ action: "open" }, "open needs a path"],
+      [{ action: "click" }, "click needs a selector"],
+      [{ action: "press", key: "F5" }, "press needs a key"],
+      [{ action: "viewport", device: "watch" }, "viewport needs a device"],
+      [{ action: "scroll" }, "action must be one of"],
+    ] as const) {
+      const answer = await runInteractPage(args, { interactPage });
+      expect(answer).toMatchObject({
+        isError: true,
+        result: { error: expect.stringContaining(error) },
+      });
+    }
+    expect(interactPage).not.toHaveBeenCalled();
+    expect(
+      await runInteractPage({ action: "click" }, { interactPage: null }),
+    ).toMatchObject({ result: { error: NO_PREVIEW } });
+  });
+
+  test("passes on what the preview refused, in its words", async () => {
+    const answer = await runInteractPage(
+      { action: "type", selector: "#password", text: "x" },
+      {
+        interactPage: () =>
+          Promise.reject(new Error("<input#password> is a password field")),
+      },
+    );
+    expect(answer).toEqual({
+      isError: true,
+      result: { success: false, error: "<input#password> is a password field" },
     });
   });
 });

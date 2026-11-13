@@ -5,6 +5,7 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   installPageLog,
+  interactWithPage,
   isValCanvasStudioMessage,
   QUICK_PREVIEW_SERVICE_WORKER_PATH,
   readPageSnapshot,
@@ -49,6 +50,13 @@ const DEFAULT_SELECTION = {
  * in the list before anyone goes looking for it.
  */
 const RESCAN_INTERVAL_MS = 5000;
+
+/**
+ * This document, among the ones the frame loads: sent with every `ready`
+ * (see `document` there). Made when the module is evaluated, which is once
+ * per document. Not `crypto.randomUUID`, which an insecure context lacks.
+ */
+const DOCUMENT_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 /**
  * The page's half of the canvas protocol.
@@ -247,6 +255,7 @@ export function ValCanvasBridge({
       // What this bridge answers, so the Studio never waits on a request
       // it would not: see `capabilities` in the protocol.
       capabilities: [...BRIDGE_CAPABILITIES],
+      document: DOCUMENT_ID,
       bridge: { package: "@valbuild/tanstack", version: VERSION },
     });
   }, [post, draftMode, holds, holdsVersions]);
@@ -398,6 +407,45 @@ export function ValCanvasBridge({
         const asker = event.origin;
         if (asker !== window.location.origin) return;
         window.parent.postMessage(readPageLogReply(message), asker);
+        return;
+      }
+      if (message.type === "interact") {
+        // The assistant's `interact_page`: do something on the page and
+        // read it once it settled (`pageInteraction.ts`). It changes what
+        // the page shows and may reach the site's backend, so as
+        // `readPage`: only for the frame's parent, when that is the Studio
+        // here, and answered to it alone.
+        if (event.source !== window.parent) return;
+        const asker = event.origin;
+        if (asker !== window.location.origin) return;
+        const { requestId } = message;
+        void interactWithPage(
+          window,
+          {
+            action: message.action,
+            ...(message.maxItems !== undefined
+              ? { maxItems: message.maxItems }
+              : {}),
+            ...(message.allowSubmit !== undefined
+              ? { allowSubmit: message.allowSubmit }
+              : {}),
+            ...(message.timeoutMs !== undefined
+              ? { timeoutMs: message.timeoutMs }
+              : {}),
+            ...(message.logFrom !== undefined
+              ? { logFrom: message.logFrom }
+              : {}),
+          },
+          pageLog(),
+        ).then((outcome) => {
+          const answer: ValCanvasPageMessage = {
+            val: VAL_CANVAS_MESSAGE,
+            type: "interacted",
+            requestId,
+            outcome,
+          };
+          window.parent.postMessage(answer, asker);
+        });
         return;
       }
       if (message.type === "screenshotPage") {

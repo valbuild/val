@@ -128,6 +128,9 @@ describe("the canvas bridge, looked at from the Studio", () => {
     const ready = posted.find((message) => message.type === "ready");
     expect(ready).toMatchObject({
       capabilities: [...BRIDGE_CAPABILITIES],
+      // Which document, so the Studio can tell a new page from this one
+      // speaking again.
+      document: expect.any(String),
       bridge: { package: "@valbuild/next" },
     });
   });
@@ -167,13 +170,60 @@ describe("the canvas bridge, looked at from the Studio", () => {
         },
         answer: "quickPreviewStored",
       },
+      // Every action of `interact` is a capability of its own: answered,
+      // here with why not (nothing on this page matches) or once settled.
+      "interact:settle": {
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId: "i1",
+          action: { kind: "settle" },
+          timeoutMs: 0,
+        },
+        answer: "interacted",
+      },
+      "interact:click": {
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId: "i2",
+          action: { kind: "click", selector: "#nothing-here" },
+        },
+        answer: "interacted",
+      },
+      "interact:type": {
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId: "i3",
+          action: { kind: "type", selector: "#nothing-here", text: "x" },
+        },
+        answer: "interacted",
+      },
+      "interact:press": {
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId: "i4",
+          action: { kind: "press", selector: "#nothing-here", key: "Enter" },
+        },
+        answer: "interacted",
+      },
     };
     for (const request of BRIDGE_CAPABILITIES) {
-      tell(asks[request].ask);
+      const { ask, answer } = asks[request];
+      tell(ask);
+      // This request's own answer, where it has an id: several share a type.
+      const asked: unknown = Reflect.get(ask, "requestId");
       await waitFor(() =>
-        expect(posted.map((message) => message.type)).toContain(
-          asks[request].answer,
-        ),
+        expect(
+          posted.some(
+            (message) =>
+              message.type === answer &&
+              (asked === undefined ||
+                Reflect.get(message, "requestId") === asked),
+          ),
+        ).toBe(true),
       );
     }
   });

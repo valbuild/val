@@ -13,6 +13,7 @@ import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import {
   CanvasFrame,
   PageCamera,
+  PageInteractor,
   PageLogReader,
   PageReader,
 } from "./canvas/CanvasFrame";
@@ -1219,6 +1220,7 @@ function ValShellBody({
   const pageReader = useRef<PageReader | null>(null);
   const pageCamera = useRef<PageCamera | null>(null);
   const pageLogReader = useRef<PageLogReader | null>(null);
+  const pageInteractor = useRef<PageInteractor | null>(null);
   const assistantPage = useMemo(
     (): AssistantPage => ({
       codeMode: assistantPick.codeMode,
@@ -1229,6 +1231,7 @@ function ValShellBody({
       readPage: () => pageReader.current,
       screenshotPage: () => pageCamera.current,
       readPageLog: () => pageLogReader.current,
+      interactPage: () => pageInteractor.current,
     }),
     [assistantPick.codeMode, assistantSelecting, pointedAt],
   );
@@ -1274,6 +1277,7 @@ function ValShellBody({
     return ({
       width,
       height,
+      setDevice,
       reloadKey,
       isPicking,
       onRefreshingChange,
@@ -1364,6 +1368,11 @@ function ValShellBody({
         onPageLogReader={(reader) => {
           pageLogReader.current = reader;
         }}
+        onPageInteractor={(interactor) => {
+          pageInteractor.current = interactor;
+        }}
+        // The toolbar's device switch: `interact_page`'s `viewport`.
+        {...(setDevice !== undefined ? { onDeviceChange: setDevice } : {})}
         onPinch={onPinch}
         onZoom={onZoom}
         /*

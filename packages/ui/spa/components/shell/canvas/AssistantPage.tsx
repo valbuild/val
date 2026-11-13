@@ -1,6 +1,11 @@
 import { createContext, useContext } from "react";
 import type { PickedElement } from "@valbuild/shared/internal";
-import type { PageCamera, PageLogReader, PageReader } from "./CanvasFrame";
+import type {
+  PageCamera,
+  PageInteractor,
+  PageLogReader,
+  PageReader,
+} from "./CanvasFrame";
 import type { SendContext } from "../../AIChat";
 
 /**
@@ -30,6 +35,8 @@ export type AssistantPage = {
   screenshotPage: () => PageCamera | null;
   /** What the page logged as going wrong, for `read_page_log`. */
   readPageLog: () => PageLogReader | null;
+  /** Using the page in the preview, for `interact_page`. */
+  interactPage: () => PageInteractor | null;
 };
 
 export const AssistantPageContext = createContext<AssistantPage | null>(null);

@@ -246,6 +246,59 @@ describe("the page log", () => {
     });
   });
 
+  describe("since an interaction", () => {
+    it("reads only what was recorded after a mark, repeats counted from it", () => {
+      const pageLog = install();
+      console.error("Render loop");
+      console.error("Render loop");
+      const mark = pageLog.mark();
+      console.error("Render loop");
+      console.warn("Slow image");
+      expect(pageLog.read({ since: mark }).entries).toMatchObject([
+        { text: "Render loop" },
+        { text: "Slow image" },
+      ]);
+      // The repeat after the mark counts once, not three times.
+      expect(pageLog.read({ since: mark }).entries[0].repeated).toBeUndefined();
+      expect(pageLog.read().entries[0].repeated).toBe(3);
+      expect(pageLog.read({ since: pageLog.mark() }).entries).toEqual([]);
+    });
+
+    it("counts the page's requests until they answer, and not Val's own", async () => {
+      const answers: Array<(value: { status: number }) => void> = [];
+      Reflect.set(
+        window,
+        "fetch",
+        jest.fn(
+          () =>
+            new Promise<{ status: number }>((resolve) => {
+              answers.push(resolve);
+            }),
+        ),
+      );
+      const pageLog = install();
+      expect(pageLog.inFlight()).toBe(0);
+      const pending = window.fetch("/api/products");
+      void window.fetch("/api/val/draft/stat");
+      expect(pageLog.inFlight()).toBe(1);
+      answers[0]({ status: 200 });
+      await pending;
+      await flush();
+      expect(pageLog.inFlight()).toBe(0);
+    });
+
+    it("stops counting a request that failed", async () => {
+      Reflect.set(
+        window,
+        "fetch",
+        jest.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+      );
+      const pageLog = install();
+      await expect(window.fetch("/api/products")).rejects.toThrow();
+      expect(pageLog.inFlight()).toBe(0);
+    });
+  });
+
   it("finds an image that was already broken when it started", () => {
     const img = document.createElement("img");
     img.setAttribute("src", "/before.jpg");

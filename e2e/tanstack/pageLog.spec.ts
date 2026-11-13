@@ -1,5 +1,6 @@
-import { expect, type Page } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { openStudio, test } from "../studio";
+import { askThePage, PREVIEW } from "./askThePage";
 
 /**
  * What went wrong on the page in the preview, as the assistant's
@@ -13,53 +14,6 @@ import { openStudio, test } from "../studio";
  * Studio asks it.
  */
 test.use({ viewport: { width: 1512, height: 900 } });
-
-const PREVIEW = 'iframe[title^="Preview of"]';
-
-/** Post a request into the preview from the Studio, and wait for its answer. */
-function askThePage(
-  page: Page,
-  request: Record<string, unknown>,
-  answerType: string,
-): Promise<Record<string, unknown>> {
-  return page.evaluate(
-    ({ selector, request, answerType }) => {
-      // The preview lives in the Studio's shadow root.
-      const frame =
-        document
-          .querySelector("#val-shadow-root")
-          ?.shadowRoot?.querySelector<HTMLIFrameElement>(selector) ??
-        document.querySelector<HTMLIFrameElement>(selector);
-      const target = frame?.contentWindow;
-      if (!target) throw new Error("no preview");
-      const requestId = `e2e-${Math.random()}`;
-      return new Promise<Record<string, unknown>>((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error(`no ${answerType}`)),
-          10_000,
-        );
-        window.addEventListener("message", function listen(event) {
-          const data: unknown = event.data;
-          if (
-            typeof data === "object" &&
-            data !== null &&
-            Reflect.get(data, "type") === answerType &&
-            Reflect.get(data, "requestId") === requestId
-          ) {
-            clearTimeout(timer);
-            window.removeEventListener("message", listen);
-            resolve(Object.fromEntries(Object.entries(data)));
-          }
-        });
-        target.postMessage(
-          { val: "val-canvas", ...request, requestId },
-          window.origin,
-        );
-      });
-    },
-    { selector: PREVIEW, request, answerType },
-  );
-}
 
 test.describe("the page's log", () => {
   test("the page says what went wrong on it", async ({ page }) => {

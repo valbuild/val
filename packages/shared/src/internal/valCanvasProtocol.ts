@@ -24,7 +24,14 @@ import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { PickedElement, PickModifier } from "./elementPicker";
 import type { PageLocation, PageSnapshot } from "./pageInspection";
 import type { PageScreenshot } from "./pageScreenshot";
-import type { PageLogLevel, PageLogSnapshot } from "./pageLog";
+import type { PageLogEntry, PageLogLevel, PageLogSnapshot } from "./pageLog";
+import {
+  isPageAction,
+  type PageAction,
+  type PageActionKind,
+  type PageInteractOutcome,
+  type PageState,
+} from "./pageInteraction";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
 
 /** Marks a page load as the studio's canvas frame. */
@@ -85,15 +92,50 @@ export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
  * The requests a page can be asked, each answered with a message of its own
  * (`readPage` with `pageRead`, and so on), and the names a bridge lists in
  * `ready`'s `capabilities`. A capability is named after its request, so the
- * list needs no second vocabulary: a request added later -- opening a URL in
- * the page, clicking, typing -- is a new name here and in
- * {@link BRIDGE_CAPABILITIES}, and nothing else about the handshake changes.
+ * list needs no second vocabulary.
+ *
+ * ## `interact`: one request, a capability per action
+ *
+ * Using the page (`pageInteraction.ts`, the assistant's `interact_page`) is
+ * ONE request, `interact`, carrying a {@link PageAction}, answered with one
+ * `interacted`. But it is listed as a capability PER ACTION --
+ * `interact:click`, `interact:type`, `interact:press`, `interact:settle` --
+ * and not as `interact` alone.
+ *
+ * Because actions will be added, and a bridge's version is the site's, not
+ * the Studio's. A capability named `interact` would say a bridge answers the
+ * request, not which actions it knows: a Studio that adds `interact:scroll`
+ * would send it to a bridge that knows `interact`, and the bridge could only
+ * say "unknown action" -- or, being older than the check, say nothing, which
+ * is the timeout this list exists to prevent. Named per action, an older
+ * bridge simply does not list the new one, and the Studio says at once which
+ * package to update, as for every other request.
+ *
+ * So adding an action costs: a member of `PageAction`, its name in
+ * `PAGE_ACTION_KINDS` and in {@link BRIDGE_CAPABILITIES}, the
+ * code that does it in `interactWithPage`, and the words for the "update"
+ * error in the Studio (`canvasCapabilities.ts`, which the compiler holds to
+ * this union). The message, its guard and both bridges stay as they are:
+ * the bridges hand every action to `interactWithPage` unread.
+ *
+ * Opening another page and changing the width are not actions: the Studio
+ * does those to the frame -- its `src`, its width, as the address bar and
+ * the device switch do -- and then asks the page to `settle`.
  */
 export type CanvasRequest =
   | "readPage"
   | "screenshotPage"
   | "readPageLog"
-  | "quickPreview";
+  | "quickPreview"
+  | InteractCapability;
+
+/** An action of `interact`, as a capability: see {@link CanvasRequest}. */
+export type InteractCapability = `interact:${PageActionKind}`;
+
+/** The capability that answers `action`. */
+export function interactCapability(kind: PageActionKind): InteractCapability {
+  return `interact:${kind}`;
+}
 
 /**
  * Every request a bridge of THIS release answers: what both bindings send in
@@ -106,6 +148,13 @@ export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
   "screenshotPage",
   "readPageLog",
   "quickPreview",
+  // Written out, not mapped from `PAGE_ACTION_KINDS`: this module is read
+  // while `pageInteraction.ts` is still loading (it imports the inspection,
+  // which imports this). `pageInteraction.test.ts` holds the two equal.
+  "interact:settle",
+  "interact:click",
+  "interact:type",
+  "interact:press",
 ];
 
 /**
@@ -186,6 +235,15 @@ export type ValCanvasPageMessage =
        * unreadable -- which is a preview stuck on "no answer".
        */
       capabilities?: unknown;
+      /**
+       * Which document this is: the same for every `ready` one document
+       * posts -- it posts again when draft mode or what it holds changes --
+       * and new for each document the frame loads. What tells the Studio
+       * an interaction took the frame to another page (`interactPage`), and
+       * not that the same page spoke again. Absent from a bridge of a
+       * release before it, whose every `ready` is taken as a new document.
+       */
+      document?: string;
       /**
        * Which package the bridge is, so the Studio can say what to update:
        * a {@link CanvasBridgeInfo}, read with {@link bridgeInfoOf}.
@@ -334,6 +392,22 @@ export type ValCanvasPageMessage =
       requestId: string;
       log: PageLogSnapshot | null;
       error?: string;
+    }
+  | {
+      /**
+       * What `interact` asked for: the action done and the page read after
+       * it settled, or why not (`pageInteraction.ts`). `leaving` is sent
+       * first when the action takes the frame to another document, whose
+       * `ready` is then asked to `settle` -- see `interact`.
+       *
+       * `outcome` is `unknown` on purpose, like `ready`'s `capabilities`:
+       * read it with {@link interactOutcomeOf}, so a shape this Studio does
+       * not know is a failed interaction rather than an unreadable message.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "interacted";
+      requestId: string;
+      outcome: unknown;
     }
   | {
       /**
@@ -544,6 +618,32 @@ export type ValCanvasStudioMessage =
     }
   | {
       /**
+       * Use the page (`pageInteraction.ts`): the assistant's
+       * `interact_page`. Do `action`, wait for the page to settle, and
+       * answer `interacted` with the page as it is then -- or `leaving`, if
+       * the action took the frame to another document, which answers the
+       * rest when the Studio asks it to `settle`.
+       *
+       * Asked only of a bridge whose `ready` lists the action's capability
+       * (`interact:<kind>`, see {@link CanvasRequest}), and answered only to
+       * the frame's parent at the page's own origin, as `readPage` is: it
+       * changes what the page shows, and it may reach the site's backend.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "interact";
+      requestId: string;
+      action: PageAction;
+      /** At most this many items in the outline read afterwards. */
+      maxItems?: number;
+      /** The person allowed a submit (`SubmitApproval`). */
+      allowSubmit?: boolean;
+      /** How long the page has to settle: what is left of the Studio's bound. */
+      timeoutMs?: number;
+      /** Which of the page's log to answer with: see `InteractRequest`. */
+      logFrom?: "action" | "document";
+    }
+  | {
+      /**
        * Store a quick preview's files in this origin's worker
        * (`storeQuickPreview`): the tab cannot, being another origin.
        * Answered with `quickPreviewStored`.
@@ -581,6 +681,8 @@ export function isValCanvasPageMessage(
       typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "pageLogRead" &&
       typeof (data as { requestId?: unknown }).requestId === "string") ||
+    (message.type === "interacted" &&
+      typeof (data as { requestId?: unknown }).requestId === "string") ||
     (message.type === "quickPreviewStored" &&
       typeof (data as { id?: unknown }).id === "string") ||
     (message.type === "codeChanged" &&
@@ -611,6 +713,126 @@ function isHeldVersions(value: unknown): boolean {
 export function capabilitiesOf(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.filter((item): item is string => typeof item === "string");
+}
+
+/**
+ * `outcome` on `interacted`, read leniently: `null` when it is not one this
+ * Studio knows -- a bridge newer than it, or a malformed message -- which
+ * the Studio reports as a failed interaction.
+ */
+export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
+  if (typeof value !== "object" || value === null) return null;
+  const status: unknown = Reflect.get(value, "status");
+  if (status === "refused") {
+    const error: unknown = Reflect.get(value, "error");
+    return typeof error === "string" ? { status, error } : null;
+  }
+  if (status === "leaving") {
+    const did: unknown = Reflect.get(value, "did");
+    const before: unknown = Reflect.get(value, "before");
+    return typeof did === "string" && isPageState(before)
+      ? { status, did, before }
+      : null;
+  }
+  if (status === "needs-approval") {
+    const approval: unknown = Reflect.get(value, "approval");
+    if (typeof approval !== "object" || approval === null) return null;
+    const via: unknown = Reflect.get(approval, "via");
+    const fields = ["page", "label", "method", "action"].map((key): unknown =>
+      Reflect.get(approval, key),
+    );
+    if (via !== "click" && via !== "press") return null;
+    const [page, label, method, action] = fields;
+    return typeof page === "string" &&
+      typeof label === "string" &&
+      typeof method === "string" &&
+      typeof action === "string"
+      ? { status, approval: { via, page, label, method, action } }
+      : null;
+  }
+  if (status === "done") {
+    const interaction: unknown = Reflect.get(value, "interaction");
+    if (typeof interaction !== "object" || interaction === null) return null;
+    const did: unknown = Reflect.get(interaction, "did");
+    const before: unknown = Reflect.get(interaction, "before");
+    const after: unknown = Reflect.get(interaction, "after");
+    const settled: unknown = Reflect.get(interaction, "settled");
+    const waitedMs: unknown = Reflect.get(interaction, "waitedMs");
+    const pendingRequests: unknown = Reflect.get(
+      interaction,
+      "pendingRequests",
+    );
+    const snapshot: unknown = Reflect.get(interaction, "snapshot");
+    const log: unknown = Reflect.get(interaction, "log");
+    const busy: unknown = Reflect.get(interaction, "busy");
+    if (
+      typeof did !== "string" ||
+      !isPageState(before) ||
+      !isPageState(after) ||
+      typeof settled !== "boolean" ||
+      typeof waitedMs !== "number" ||
+      typeof pendingRequests !== "number" ||
+      !isPageSnapshot(snapshot) ||
+      !Array.isArray(log)
+    ) {
+      return null;
+    }
+    return {
+      status,
+      interaction: {
+        did,
+        before,
+        after,
+        settled,
+        waitedMs,
+        pendingRequests,
+        snapshot,
+        // The page's log entries, as the page wrote them: data, passed on.
+        log: log.filter(isPageLogEntry),
+        ...(Array.isArray(busy)
+          ? {
+              busy: busy.filter(
+                (item): item is "loading" | "requests" | "changing" | "width" =>
+                  item === "loading" ||
+                  item === "requests" ||
+                  item === "changing" ||
+                  item === "width",
+              ),
+            }
+          : {}),
+      },
+    };
+  }
+  return null;
+}
+
+function isPageState(value: unknown): value is PageState {
+  if (typeof value !== "object" || value === null) return false;
+  const url: unknown = Reflect.get(value, "url");
+  const title: unknown = Reflect.get(value, "title");
+  return (
+    typeof url === "string" &&
+    (title === undefined || typeof title === "string")
+  );
+}
+
+function isPageSnapshot(value: unknown): value is PageSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  return (
+    typeof Reflect.get(value, "url") === "string" &&
+    typeof Reflect.get(value, "title") === "string" &&
+    Array.isArray(Reflect.get(value, "outline"))
+  );
+}
+
+function isPageLogEntry(value: unknown): value is PageLogEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const level: unknown = Reflect.get(value, "level");
+  return (
+    (level === "error" || level === "warn") &&
+    typeof Reflect.get(value, "source") === "string" &&
+    typeof Reflect.get(value, "text") === "string"
+  );
 }
 
 /** `bridge` on `ready`, read leniently: a malformed one is as if absent. */
@@ -744,6 +966,23 @@ export function isValCanvasStudioMessage(
       (read.levels === undefined ||
         (Array.isArray(read.levels) &&
           read.levels.every((level) => level === "error" || level === "warn")))
+    );
+  }
+  if (message.type === "interact") {
+    const asked = data as Record<string, unknown>;
+    return (
+      typeof asked.requestId === "string" &&
+      isPageAction(asked.action) &&
+      (asked.maxItems === undefined || typeof asked.maxItems === "number") &&
+      (asked.allowSubmit === undefined ||
+        typeof asked.allowSubmit === "boolean") &&
+      (asked.timeoutMs === undefined ||
+        (typeof asked.timeoutMs === "number" &&
+          Number.isFinite(asked.timeoutMs) &&
+          asked.timeoutMs >= 0)) &&
+      (asked.logFrom === undefined ||
+        asked.logFrom === "action" ||
+        asked.logFrom === "document")
     );
   }
   if (message.type === "readPage") {

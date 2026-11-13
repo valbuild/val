@@ -54,8 +54,9 @@ export function needsWebSearchConfirmation(
   return turnSearchedTheWeb && WEB_GATED_TOOLS.has(toolName);
 }
 
-const ALLOW = "Allow";
-const DONT_ALLOW = "Don't allow";
+/** The two options every gate's card offers, the yes first. */
+export const ALLOW = "Allow";
+export const DONT_ALLOW = "Don't allow";
 
 /** The card shown in place of the tool's own row while it waits. */
 export function webSearchConfirmationQuestions(
@@ -82,17 +83,24 @@ export function webSearchConfirmationQuestions(
   ];
 }
 
-export type WebSearchConfirmation =
+export type WebSearchConfirmation = GateConfirmation;
+
+/** What the person's answer to a Studio-written gate means. */
+export type GateConfirmation =
   | { allow: true }
   | { allow: false; result: { success: false; error: string } };
 
 /**
- * What the person's answer means. Only the first option is a yes: an answer
- * typed into "Other" is something to tell the model, not a permission.
+ * What the person's answer to a gate's card means -- this one, and any other
+ * call the Studio holds for the person (`pageSubmitGate.ts`). Only the first
+ * option is a yes: an answer typed into "Other" is something to tell the
+ * model, not a permission. `refusal` is what the model is told otherwise,
+ * with what they typed, if anything.
  */
-export function webSearchConfirmationOf(
+export function gateConfirmationOf(
   answers: AskUserQuestionAnswer[] | null,
-): WebSearchConfirmation {
+  refusal: (said: string | null) => string,
+): GateConfirmation {
   const answer = answers?.[0];
   if (answer !== undefined && answer.selectedOptions.includes(0)) {
     return { allow: true };
@@ -100,12 +108,18 @@ export function webSearchConfirmationOf(
   const said = answer?.customAnswer?.trim();
   return {
     allow: false,
-    result: {
-      success: false,
-      error:
-        "The person did not allow this after your web search" +
-        (said ? `, and said: ${said}` : ".") +
-        " Do not try again in this answer. Say what you would have changed, and let them ask.",
-    },
+    result: { success: false, error: refusal(said ? said : null) },
   };
+}
+
+export function webSearchConfirmationOf(
+  answers: AskUserQuestionAnswer[] | null,
+): WebSearchConfirmation {
+  return gateConfirmationOf(
+    answers,
+    (said) =>
+      "The person did not allow this after your web search" +
+      (said !== null ? `, and said: ${said}` : ".") +
+      " Do not try again in this answer. Say what you would have changed, and let them ask.",
+  );
 }

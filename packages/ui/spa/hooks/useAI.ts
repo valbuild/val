@@ -49,6 +49,10 @@ import {
   withWebSearchWaits,
 } from "./webSearchGate";
 import {
+  pageSubmitConfirmationOf,
+  runGatedInteractPage,
+} from "./pageSubmitGate";
+import {
   patchChangesWebSearchSetting,
   readWebSearchSetting,
   REQUEST_WEB_SEARCH_TOOL_NAME,
@@ -168,6 +172,7 @@ import {
   NO_PREVIEW,
   PAGE_PROMPT_SECTION,
   READ_PAGE_LOG_TOOL,
+  INTERACT_PAGE_TOOL,
   READ_PAGE_TOOL,
   runReadPage,
   runReadPageLog,
@@ -1351,10 +1356,14 @@ export function useAI(
   const codeModeRequestsRef = useRef<Map<string, CodeModeRequest>>(new Map());
   // Prompts whose turn has searched the web: see `webSearchGate.ts`.
   const webSearchedPromptsRef = useRef<Set<string>>(new Set());
-  // Tool calls waiting on the person after a web search, by tool call, and
-  // the ones they allowed, which run without asking again.
-  const webGatedCallsRef = useRef<Map<string, AIToolCallMessage>>(new Map());
-  const webAllowedCallsRef = useRef<Set<string>>(new Set());
+  // Tool calls held for the person, by tool call, and which gate holds each:
+  // after a web search (`webSearchGate.ts`), or a form `interact_page` would
+  // submit (`pageSubmitGate.ts`). And the ones they allowed, which run again
+  // without asking -- an allowed `interact_page` may submit.
+  const gatedCallsRef = useRef<
+    Map<string, { call: AIToolCallMessage; gate: "web-search" | "page-submit" }>
+  >(new Map());
+  const allowedCallsRef = useRef<Set<string>>(new Set());
   // `request_web_search` cards waiting on the person, by tool call: the id of
   // the assistant message that opened each.
   const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
@@ -1524,7 +1533,7 @@ export function useAI(
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (
         message.type === "ai_tool_call" &&
-        !webAllowedCallsRef.current.has(message.toolCallId) &&
+        !allowedCallsRef.current.has(message.toolCallId) &&
         needsWebSearchConfirmation(
           message.name,
           webSearchedPromptsRef.current.has(message.id),
@@ -1556,7 +1565,10 @@ export function useAI(
           message.name,
           webSearchConfirmationQuestions(message.name),
         );
-        webGatedCallsRef.current.set(message.toolCallId, message);
+        gatedCallsRef.current.set(message.toolCallId, {
+          call: message,
+          gate: "web-search",
+        });
         pendingQuestionsRef.current.set(message.toolCallId, message.id);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
@@ -1597,7 +1609,7 @@ export function useAI(
         // A call the person allowed after a web search has its row already.
         if (
           chatRef.current &&
-          !webAllowedCallsRef.current.has(message.toolCallId)
+          !allowedCallsRef.current.has(message.toolCallId)
         ) {
           if (activeIdRef.current !== message.id) {
             activeIdRef.current = message.id;
@@ -2551,6 +2563,41 @@ export function useAI(
               ...(isError ? { isError: true } : {}),
             });
             chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
+        } else if (message.name === INTERACT_PAGE_TOOL.name) {
+          const { toolCallId, id: messageId } = message;
+          const chat = chatRef.current;
+          void runGatedInteractPage(message.arguments, {
+            interactPage: pageRef.current?.interactPage() ?? null,
+            // Allowed by the person, after the page asked (below).
+            allowSubmit: allowedCallsRef.current.has(toolCallId),
+            noPage: NO_PREVIEW,
+            // A form submit: the Studio's own question on the tool's row,
+            // and the call held until it is answered (`answerGatedCall`).
+            ask:
+              chat === null
+                ? null
+                : (questions) => {
+                    chat.askToolQuestions(messageId, toolCallId, questions);
+                    gatedCallsRef.current.set(toolCallId, {
+                      call: message,
+                      gate: "page-submit",
+                    });
+                    pendingQuestionsRef.current.set(toolCallId, messageId);
+                  },
+            answer: ({ result, isError }) => {
+              sendWsMessage({
+                type: "ai_tool_result",
+                toolCallId,
+                result,
+                ...(isError ? { isError: true } : {}),
+              });
+              if (isError) {
+                chatRef.current?.errorToolCall(messageId, toolCallId);
+              } else {
+                chatRef.current?.completeToolCall(messageId, toolCallId);
+              }
+            },
           });
         } else if (message.name === READ_PAGE_LOG_TOOL.name) {
           const { toolCallId, id: messageId } = message;
@@ -3650,7 +3697,7 @@ Do not describe what you will do unless you do it for clarification — just do 
                   // In the Studio: the page in its preview. Without
                   // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.
                   ...(pageRef.current !== null
-                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL]
+                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL, INTERACT_PAGE_TOOL]
                     : []),
                   // Hosted only: see `hostedRef`.
                   ...(hostedRef.current
@@ -3744,20 +3791,24 @@ Do not describe what you will do unless you do it for clarification — just do 
   }, [sendWsMessage, chatRef]);
 
   /**
-   * The person answered the Studio's question about a call after a web search
-   * (or closed it, `null`): run the call, or tell the model they said no.
+   * The person answered the Studio's question about a call it held -- after
+   * a web search, or before a form submit -- or closed it (`null`): run the
+   * call again, allowed, or tell the model they said no.
    */
-  const answerWebSearchConfirmation = useCallback(
+  const answerGatedCall = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[] | null): boolean => {
-      const call = webGatedCallsRef.current.get(toolCallId);
-      if (call === undefined) return false;
-      webGatedCallsRef.current.delete(toolCallId);
+      const held = gatedCallsRef.current.get(toolCallId);
+      if (held === undefined) return false;
+      gatedCallsRef.current.delete(toolCallId);
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
-      const confirmation = webSearchConfirmationOf(answers);
+      const confirmation =
+        held.gate === "page-submit"
+          ? pageSubmitConfirmationOf(answers)
+          : webSearchConfirmationOf(answers);
       if (confirmation.allow) {
-        webAllowedCallsRef.current.add(toolCallId);
-        handleServerMessageRef.current?.(call);
+        allowedCallsRef.current.add(toolCallId);
+        handleServerMessageRef.current?.(held.call);
         return true;
       }
       if (messageId !== undefined) {
@@ -3851,7 +3902,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
       if (answerWebSearchRequest(toolCallId, answers)) return;
-      if (answerWebSearchConfirmation(toolCallId, answers)) return;
+      if (answerGatedCall(toolCallId, answers)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3866,7 +3917,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     [
       sendWsMessage,
       failUndeliveredQuestion,
-      answerWebSearchConfirmation,
+      answerGatedCall,
       answerWebSearchRequest,
     ],
   );
@@ -3874,7 +3925,7 @@ Do not describe what you will do unless you do it for clarification — just do 
   const cancelToolQuestion = useCallback(
     (toolCallId: string) => {
       if (answerWebSearchRequest(toolCallId, null)) return;
-      if (answerWebSearchConfirmation(toolCallId, null)) return;
+      if (answerGatedCall(toolCallId, null)) return;
       const messageId = pendingQuestionsRef.current.get(toolCallId);
       pendingQuestionsRef.current.delete(toolCallId);
       const sent = sendWsMessage({
@@ -3890,7 +3941,7 @@ Do not describe what you will do unless you do it for clarification — just do 
     [
       sendWsMessage,
       failUndeliveredQuestion,
-      answerWebSearchConfirmation,
+      answerGatedCall,
       answerWebSearchRequest,
     ],
   );
@@ -4011,7 +4062,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
-      webGatedCallsRef.current.clear();
+      gatedCallsRef.current.clear();
       webSearchRequestsRef.current.clear();
     },
     [sendWsMessage],
