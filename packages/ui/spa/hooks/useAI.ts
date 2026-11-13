@@ -172,7 +172,6 @@ import {
   runReadPage,
   runReadPageLog,
   runScreenshotPage,
-  SCREENSHOT_PAGE_TOOL,
 } from "./pageTools";
 import {
   takePointedAt,
@@ -740,8 +739,8 @@ export type UseAIOptions = {
   onSessionCleared?: () => void;
   /**
    * The page in the Studio's preview: what the Assistant's Select pointed at,
-   * which goes with the next message, and the page `read_page` and
-   * `screenshot_page` read. Absent outside the Studio.
+   * which goes with the next message, and the page `read_page` reads.
+   * Absent outside the Studio.
    */
   page?: AssistantPage | null;
 };
@@ -3648,9 +3647,10 @@ Do not describe what you will do unless you do it for clarification — just do 
                 [
                   ...ALL_TOOLS,
                   ...(sketchpadsOn ? SKETCHPAD_TOOLS : []),
-                  // In the Studio: the page in its preview.
+                  // In the Studio: the page in its preview. Without
+                  // `screenshot_page` for now: see `SCREENSHOT_PAGE_TOOL`.
                   ...(pageRef.current !== null
-                    ? [READ_PAGE_TOOL, SCREENSHOT_PAGE_TOOL, READ_PAGE_LOG_TOOL]
+                    ? [READ_PAGE_TOOL, READ_PAGE_LOG_TOOL]
                     : []),
                   // Hosted only: see `hostedRef`.
                   ...(hostedRef.current
