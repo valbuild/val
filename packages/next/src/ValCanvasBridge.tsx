@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Internal, type ModuleFilePath } from "@valbuild/core";
+import { Internal, type ModuleFilePath, type SourcePath } from "@valbuild/core";
 import {
   BRIDGE_CAPABILITIES,
   DEFAULT_CANVAS_SELECTION,
@@ -13,11 +13,13 @@ import {
   screenshotPage,
   restoreScroll,
   startElementPicking,
+  startInlineEditing,
   storeQuickPreview,
   watchPageLocation,
   VAL_CANVAS_MESSAGE,
   isCodeChangedDetail,
   type ElementPicking,
+  type InlineEditing,
   type PickModifier,
   ValCanvasElement,
   ValCanvasPageMessage,
@@ -135,6 +137,25 @@ export function ValCanvasBridge({
   /** A scroll back to where the last build was, still trying. */
   const stopRestoring = React.useRef<(() => void) | null>(null);
   React.useEffect(() => () => stopRestoring.current?.(), []);
+  /**
+   * The field being edited on the page itself (`editInline`), or the last
+   * one that was, while its copy waits for the page to catch up. See
+   * `inlineEditing.ts` in `@valbuild/shared`, which both bindings run.
+   */
+  const inlineEditing = React.useRef<InlineEditing | null>(null);
+  React.useEffect(() => () => inlineEditing.current?.release(), []);
+  /**
+   * The last pick: the element and where on it. `editInline` is the Studio's
+   * answer to a `clicked`, and the caret belongs where that click was.
+   */
+  const lastPick = React.useRef<{
+    element: Element;
+    x: number;
+    y: number;
+  } | null>(null);
+  // Read when an edit starts, long after the render that set it.
+  const selectionColor = React.useRef(selectionColors.selection);
+  selectionColor.current = selectionColors.selection;
 
   const post = React.useCallback((message: ValCanvasPageMessage) => {
     // `*` as the target origin: the studio and the page share an origin today,
@@ -443,6 +464,72 @@ export function ValCanvasBridge({
         })();
         return;
       }
+      if (message.type === "stopInlineEdit") {
+        inlineEditing.current?.stop();
+        return;
+      }
+      if (message.type === "editInline") {
+        // A field's words go back as they are typed, unpublished ones
+        // included. As `readPage`: only for the frame's parent, when that
+        // is the Studio here, and answered to it alone.
+        if (event.source !== window.parent) return;
+        const asker = event.origin;
+        if (asker !== window.location.origin) return;
+        const reply = (answer: ValCanvasPageMessage) =>
+          window.parent.postMessage(answer, asker);
+        // One edit at a time, and the element of the last one back as the
+        // page has it: it may be the very one asked for again.
+        inlineEditing.current?.release();
+        inlineEditing.current = null;
+        const pick = lastPick.current;
+        lastPick.current = null;
+        for (const candidate of message.candidates) {
+          const picked =
+            pick !== null &&
+            pick.element.isConnected &&
+            pathOn(pick.element, candidate.path) !== null
+              ? pick.element
+              : null;
+          const element = picked ?? findByPath(candidate.path);
+          if (element === null) continue;
+          const path = pathOn(element, candidate.path);
+          if (path === null) continue;
+          const editing = startInlineEditing(element, candidate, {
+            // Where the click was, when it was on this element.
+            at:
+              picked !== null && pick !== null
+                ? { x: pick.x, y: pick.y }
+                : null,
+            color: selectionColor.current,
+            onChange: (value) =>
+              reply({
+                val: VAL_CANVAS_MESSAGE,
+                type: "inlineEdit",
+                path,
+                value,
+              }),
+            onEnd: () =>
+              reply({ val: VAL_CANVAS_MESSAGE, type: "inlineEditEnded", path }),
+          });
+          if (editing === null) continue;
+          inlineEditing.current = editing;
+          reply({
+            val: VAL_CANVAS_MESSAGE,
+            type: "inlineEditStarted",
+            requestId: message.requestId,
+            path,
+          });
+          return;
+        }
+        // Nothing on the page shows one of them and nothing else: the
+        // Studio opens the field in its own column.
+        reply({
+          val: VAL_CANVAS_MESSAGE,
+          type: "inlineEditUnavailable",
+          requestId: message.requestId,
+        });
+        return;
+      }
       if (message.type === "theme") {
         setSelectionColors({
           selection: message.selection,
@@ -549,14 +636,29 @@ export function ValCanvasBridge({
    */
   React.useEffect(() => {
     const onClick = (event: MouseEvent) => {
-      if (!pickingRef.current) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
+      // A click in the field being typed in places the caret, and that is
+      // all it does: it is neither a pick nor a click on the link or button
+      // the text happens to be in. (The caret is the mousedown's, so
+      // cancelling the click leaves it where it was put.)
+      const editing = inlineEditing.current;
+      if (editing !== null && editing.isActive() && editing.contains(target)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (!pickingRef.current) return;
       const tagged = target.closest("[data-val-path]");
       const attribute = tagged?.getAttribute("data-val-path");
-      if (!attribute) return;
+      if (!tagged || !attribute) return;
       event.preventDefault();
       event.stopPropagation();
+      lastPick.current = {
+        element: tagged,
+        x: event.clientX,
+        y: event.clientY,
+      };
       post({
         val: VAL_CANVAS_MESSAGE,
         type: "clicked",
@@ -882,19 +984,27 @@ function isScrollable(el: Element): boolean {
 function findByPath(path: string): Element | null {
   const elements = document.querySelectorAll("[data-val-path]");
   for (const el of Array.from(elements)) {
-    const attribute = el.getAttribute("data-val-path");
-    if (!attribute) continue;
-    // Compared as strings: the split returns branded `SourcePath`s and what
-    // came back over `postMessage` is a plain string, which is the same value.
-    if (
-      Internal.splitJoinedSourcePaths(attribute).some(
-        (candidate) => candidate === path,
-      )
-    ) {
-      return el;
-    }
+    if (pathOn(el, path) !== null) return el;
   }
   return null;
+}
+
+/**
+ * `path` as `element` carries it, or null when it does not.
+ *
+ * Compared as strings: the split returns branded `SourcePath`s and what came
+ * back over `postMessage` is a plain string, which is the same value. What is
+ * returned is the element's own, so it is a `SourcePath` without anyone
+ * having to say so.
+ */
+function pathOn(element: Element, path: string): SourcePath | null {
+  const attribute = element.getAttribute("data-val-path");
+  if (!attribute) return null;
+  return (
+    Internal.splitJoinedSourcePaths(attribute).find(
+      (candidate) => candidate === path,
+    ) ?? null
+  );
 }
 
 /** What `screenshotPage` answers: the picture, or why it could not be taken. */

@@ -24,6 +24,7 @@ const WHAT: Record<CanvasRequest, string> = {
   readPageLog:
     "say what went wrong on it (its console errors and failed requests)",
   quickPreview: "show a quick preview",
+  editInline: "be edited in place",
 };
 
 /**

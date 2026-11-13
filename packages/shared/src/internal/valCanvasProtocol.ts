@@ -26,6 +26,12 @@ import type { PageLocation, PageSnapshot } from "./pageInspection";
 import type { PageScreenshot } from "./pageScreenshot";
 import type { PageLogLevel, PageLogSnapshot } from "./pageLog";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
+import {
+  isInlineEditCandidate,
+  isInlineEditValue,
+  type InlineEditCandidate,
+  type InlineEditValue,
+} from "./inlineEditing";
 
 /** Marks a page load as the studio's canvas frame. */
 export const VAL_CANVAS_PARAM = "val_canvas";
@@ -93,7 +99,8 @@ export type CanvasRequest =
   | "readPage"
   | "screenshotPage"
   | "readPageLog"
-  | "quickPreview";
+  | "quickPreview"
+  | "editInline";
 
 /**
  * Every request a bridge of THIS release answers: what both bindings send in
@@ -106,6 +113,7 @@ export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
   "screenshotPage",
   "readPageLog",
   "quickPreview",
+  "editInline",
 ];
 
 /**
@@ -355,6 +363,46 @@ export type ValCanvasPageMessage =
       val: typeof VAL_CANVAS_MESSAGE;
       type: "codeChanged";
       modules: ModuleFilePath[];
+    }
+  | {
+      /**
+       * What `editInline` asked for is happening: the caret is in the field
+       * at `path`, on the page (`inlineEditing.ts`).
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditStarted";
+      /** The `editInline` this answers. */
+      requestId: string;
+      /** Which of the fields it offered. */
+      path: SourcePath;
+    }
+  | {
+      /**
+       * Something was typed into the field being edited on the page: its new
+       * value, whole. The Studio writes it as the field in its own column
+       * would.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEdit";
+      path: SourcePath;
+      value: InlineEditValue;
+    }
+  | {
+      /** Editing on the page ended: Enter, Esc, or the focus went elsewhere. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditEnded";
+      path: SourcePath;
+    }
+  | {
+      /**
+       * None of what `editInline` offered can be edited on the page: no
+       * element shows one of them and nothing else. The Studio opens the
+       * field in its own column instead.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "inlineEditUnavailable";
+      /** The `editInline` this answers. */
+      requestId: string;
     };
 
 /** What the studio tells the page. */
@@ -552,6 +600,28 @@ export type ValCanvasStudioMessage =
       type: "quickPreview";
       id: string;
       files: QuickPreviewFiles;
+    }
+  | {
+      /**
+       * Edit one of these fields ON the page (`inlineEditing.ts`): sent in
+       * answer to a `clicked`, with the fields of that element that can be
+       * typed -- a string, a richtext -- and what each holds, which is how
+       * the page tells that the element shows one of them and nothing else.
+       *
+       * The first the page can edit is edited (`inlineEditStarted`, then
+       * `inlineEdit` as it is typed and `inlineEditEnded`); when there is
+       * none it says `inlineEditUnavailable`. Asked only of a bridge whose
+       * `ready` lists `editInline`.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "editInline";
+      requestId: string;
+      candidates: InlineEditCandidate[];
+    }
+  | {
+      /** End whatever is being edited on the page: Select was turned off. */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "stopInlineEdit";
     };
 
 /** Narrow an unknown `event.data` to a message from the page. */
@@ -585,7 +655,17 @@ export function isValCanvasPageMessage(
       typeof (data as { id?: unknown }).id === "string") ||
     (message.type === "codeChanged" &&
       Array.isArray((data as { modules?: unknown }).modules) &&
-      isModulePathList((data as { modules?: unknown }).modules))
+      isModulePathList((data as { modules?: unknown }).modules)) ||
+    (message.type === "inlineEditStarted" &&
+      typeof (data as { requestId?: unknown }).requestId === "string" &&
+      typeof (data as { path?: unknown }).path === "string") ||
+    (message.type === "inlineEditEnded" &&
+      typeof (data as { path?: unknown }).path === "string") ||
+    (message.type === "inlineEdit" &&
+      typeof (data as { path?: unknown }).path === "string" &&
+      isInlineEditValue((data as { value?: unknown }).value)) ||
+    (message.type === "inlineEditUnavailable" &&
+      typeof (data as { requestId?: unknown }).requestId === "string")
   );
 }
 
@@ -746,6 +826,14 @@ export function isValCanvasStudioMessage(
           read.levels.every((level) => level === "error" || level === "warn")))
     );
   }
+  if (message.type === "editInline") {
+    const edit = data as Record<string, unknown>;
+    return (
+      typeof edit.requestId === "string" &&
+      Array.isArray(edit.candidates) &&
+      edit.candidates.every(isInlineEditCandidate)
+    );
+  }
   if (message.type === "readPage") {
     const read = data as Record<string, unknown>;
     return (
@@ -760,6 +848,7 @@ export function isValCanvasStudioMessage(
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
     message.type === "sourcesSynced" ||
+    message.type === "stopInlineEdit" ||
     (message.type === "confirmed" &&
       ((data as { seq?: unknown }).seq === null ||
         typeof (data as { seq?: unknown }).seq === "number"))
