@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
-import { ArrowUp, Ellipsis, Eye, Globe, X } from "lucide-react";
+import { Ellipsis, Eye, Globe, X } from "lucide-react";
 import {
   OverlayCard,
   OverlayDock,
@@ -8,9 +8,7 @@ import {
   OverlayMenuButton,
   OverlayMenuDivider,
   OverlayMenuLauncher,
-  OverlaySelectionBox,
   OverlayTooltip,
-  OverlayWindow,
 } from "../OverlayMenu";
 import { OverlayMenuDock } from "../OverlayMenuDock";
 import { OverlaySettingsPanel } from "../OverlaySettingsPanel";
@@ -23,7 +21,6 @@ import {
 import { cn } from "../../designSystem/cn";
 import { ValLogo } from "../ValLogo";
 import { useShellBreakpoint } from "../useShellBreakpoint";
-import { useVisualViewport } from "../useVisualViewport";
 import { HostPage } from "./HostPage";
 
 /**
@@ -66,7 +63,7 @@ const meta: Meta<typeof OverlayMenuHarness> = {
     validationErrors: { control: "number" },
     open: {
       control: "select",
-      options: [null, "select", "edit", "chat", "settings", "tooltip"],
+      options: [null, "settings", "tooltip"],
       description: "Which of the bar's buttons has been opened",
     },
     collapsed: {
@@ -74,22 +71,12 @@ const meta: Meta<typeof OverlayMenuHarness> = {
       description:
         "The menu at rest, as a circle. Hover or tap it to expand the pill.",
     },
-    keyboardOpen: {
-      control: "boolean",
-      description:
-        "Simulate a phone's software keyboard, to check a full-screen sheet keeps its footer above it",
-    },
-    readout: {
-      control: "boolean",
-      description:
-        "Show what useVisualViewport reports, live. For testing on a real device: tap a field and watch the numbers.",
-    },
   },
 };
 export default meta;
 
 /** What a button opened, if anything. */
-type OpenSurface = "select" | "edit" | "chat" | "settings" | "tooltip" | null;
+type OpenSurface = "settings" | "tooltip" | null;
 
 type HarnessProps = {
   dock: OverlayDock;
@@ -106,10 +93,6 @@ type HarnessProps = {
   open: OpenSurface;
   /** Render the menu at rest rather than expanded. */
   collapsed: boolean;
-  /** Simulated keyboard: a real one cannot be opened from a screenshot. */
-  keyboardOpen: boolean;
-  /** Live viewport numbers, for testing against a real keyboard. */
-  readout: boolean;
 };
 
 function OverlayMenuHarness({
@@ -121,8 +104,6 @@ function OverlayMenuHarness({
   validationErrors,
   open,
   collapsed,
-  keyboardOpen,
-  readout,
 }: HarnessProps) {
   const breakpoint = useShellBreakpoint();
   const compact = breakpoint === "mobile";
@@ -138,83 +119,16 @@ function OverlayMenuHarness({
   const [currentTheme, setCurrentTheme] = useState(theme);
   useEffect(() => setCurrentTheme(theme), [theme]);
   const orientation = placementOrientation(placement);
-  const selectMode = open === "select";
-  const chatOpen = open === "chat";
-  // Select mode marks every editable region, so the boxes are also shown
-  // while the edit window is open — that is what a click on one leads to.
-  const showBoxes = selectMode || open === "edit";
-  // A real keyboard cannot be opened from a screenshot, so the story reserves
-  // the same space one would and the sheet is told to sit above it — the same
-  // number `useVisualViewport` reports from the real thing.
-  const keyboardInset = keyboardOpen && compact ? 336 : 0;
   return (
     <div
       className="relative w-full overflow-hidden"
       style={{ height: "100svh" }}
     >
       <HostPage />
-      {/* The regions of the host page Val knows how to edit. Positions match
-          the mock page's headline, intro and three cards. */}
-      {showBoxes && (
-        <div data-mode={currentTheme} aria-hidden>
-          {EDITABLE_REGIONS.map((rect, i) => (
-            <OverlaySelectionBox
-              key={i}
-              rect={rect}
-              emphasis={open === "edit" && i === 0 ? "hover" : "all"}
-            />
-          ))}
-        </div>
-      )}
-      {open === "edit" &&
-        (compact ? (
-          // On a phone the window takes the screen: a 420px panel floating
-          // over a 390px viewport is not a floating panel, it is a bad modal.
-          <div data-mode={currentTheme} className="absolute inset-0 z-40">
-            <EditWindow
-              compact
-              fullScreen
-              keyboardInset={keyboardInset}
-              readout={readout}
-            />
-          </div>
-        ) : (
-          // Beside the highlighted region, not on top of it: the point of the
-          // window is to edit what you can still see.
-          <div
-            data-mode={currentTheme}
-            className="absolute z-40 left-[48%] top-[16%]"
-          >
-            <EditWindow compact={false} />
-          </div>
-        ))}
-      {chatOpen && (
-        <div
-          data-mode={currentTheme}
-          className={cn(
-            "absolute z-40",
-            compact ? "inset-0" : "right-6 bottom-24 top-16",
-          )}
-        >
-          <ChatWindowMock
-            compact={compact}
-            fullScreen={compact}
-            keyboardInset={keyboardInset}
-            readout={readout}
-          />
-        </div>
-      )}
-      {keyboardInset > 0 && <SimulatedKeyboard height={keyboardInset} />}
-      {/* A full-screen sheet covers the bar: the bar would otherwise sit on
-          top of the sheet's own footer, which is where Save and the chat
-          input live. */}
       <OverlayMenuDock
         placement={placement}
         onPlacementChange={setPlacement}
-        className={cn(
-          "z-50",
-          compact && (open === "edit" || chatOpen) && "hidden",
-        )}
+        className="z-50"
       >
         {({ dragging }) => (
           <div data-mode={currentTheme} className="relative">
@@ -280,7 +194,7 @@ function OverlayMenuHarness({
             )}
             {open === "tooltip" && (
               <OverlayTooltip className={cn("absolute", besideBar(placement))}>
-                Click on content in the page to select and edit it
+                Turn off Val on this site
               </OverlayTooltip>
             )}
           </div>
@@ -318,179 +232,6 @@ function besideBar(placement: OverlayPlacement): string {
   return `${across} ${along}`;
 }
 
-/**
- * Where Val can edit on the mock page. Percentages so the boxes track the
- * host page across viewport sizes rather than drifting off it.
- */
-const EDITABLE_REGIONS = [
-  { top: "17%", left: "2%", width: "42%", height: "12%" },
-  { top: "32%", left: "2%", width: "36%", height: "6%" },
-  { top: "42%", left: "2%", width: "16%", height: "34%" },
-  { top: "42%", left: "18.5%", width: "16%", height: "34%" },
-  { top: "42%", left: "35%", width: "16%", height: "34%" },
-];
-
-/** The window a click on a selected region opens. */
-function EditWindow({
-  compact,
-  fullScreen,
-  keyboardInset = 0,
-  readout,
-}: {
-  compact: boolean;
-  fullScreen?: boolean;
-  keyboardInset?: number;
-  readout?: boolean;
-}) {
-  return (
-    <OverlayWindow
-      title="Edit content"
-      compact={compact}
-      onClose={() => undefined}
-      className={fullScreen ? "absolute inset-x-0 top-0" : undefined}
-      style={
-        fullScreen
-          ? // What `useVisualViewport` computes at runtime, stated directly so
-            // the story can show it without a real keyboard.
-            { height: `calc(100% - ${keyboardInset}px)` }
-          : { width: 420 }
-      }
-      footer={
-        <div className="flex gap-2 p-3">
-          <button
-            type="button"
-            className="flex-1 h-9 inline-flex items-center justify-center rounded-md text-xs text-fg-secondary border border-border-float"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="flex-1 h-9 inline-flex items-center justify-center rounded-md text-xs font-medium bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary"
-          >
-            Save
-          </button>
-        </div>
-      }
-    >
-      <div className="p-4 space-y-5">
-        {readout && <ViewportReadout />}
-        <div>
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-[0.8125rem] font-medium">Headline</span>
-            <span className="text-[0.6875rem] text-fg-secondary-alt font-mono">
-              /content/home.val.ts
-            </span>
-          </div>
-          <textarea
-            defaultValue="Clothes that outlast the season."
-            rows={2}
-            aria-label="Headline"
-            className="w-full px-3 py-2 rounded-md border border-border-float bg-bg-surface text-[0.9375rem] leading-snug resize-none focus:outline-none focus:border-border-brand-primary"
-          />
-        </div>
-        <div>
-          <div className="mb-2 text-[0.8125rem] font-medium">Eyebrow</div>
-          <input
-            defaultValue="Autumn 2026"
-            aria-label="Eyebrow"
-            className="w-full h-10 px-3 rounded-md border border-border-float bg-bg-surface text-[0.9375rem] focus:outline-none focus:border-border-brand-primary"
-          />
-        </div>
-        <div>
-          <div className="mb-2 text-[0.8125rem] font-medium">Body</div>
-          <textarea
-            defaultValue="Made in Bergen from wool we can trace to the farm. Repaired free, for as long as you own it."
-            rows={5}
-            aria-label="Body"
-            className="w-full px-3 py-2 rounded-md border border-border-float bg-bg-surface text-[0.9375rem] leading-relaxed resize-none focus:outline-none focus:border-border-brand-primary"
-          />
-        </div>
-      </div>
-    </OverlayWindow>
-  );
-}
-
-/** The assistant, opened from the bar. */
-function ChatWindowMock({
-  compact,
-  fullScreen,
-  keyboardInset = 0,
-  readout,
-}: {
-  compact: boolean;
-  fullScreen?: boolean;
-  keyboardInset?: number;
-  readout?: boolean;
-}) {
-  return (
-    <OverlayWindow
-      title="AI assistant"
-      compact={compact}
-      onClose={() => undefined}
-      className={fullScreen ? "absolute inset-x-0 top-0" : "h-full"}
-      style={
-        fullScreen
-          ? { height: `calc(100% - ${keyboardInset}px)` }
-          : { width: 360 }
-      }
-      footer={
-        <div className="p-3 space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {["Improve this page", "Shorten the headline"].map((s) => (
-              <span
-                key={s}
-                className="h-7 px-2 inline-flex items-center rounded-full text-[0.6875rem] text-fg-secondary border border-border-float"
-              >
-                {s}
-              </span>
-            ))}
-          </div>
-          <div className="flex items-end gap-1.5 p-1.5 rounded-lg bg-bg-float-raised">
-            <textarea
-              rows={1}
-              placeholder="Ask anything about this page…"
-              aria-label="Message the assistant"
-              className="flex-1 min-w-0 max-h-24 px-1.5 py-1 bg-transparent text-xs resize-none focus:outline-none placeholder:text-fg-secondary-alt"
-            />
-            <span className="grid place-items-center w-7 h-7 shrink-0 rounded-md bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary">
-              <ArrowUp size={14} />
-            </span>
-          </div>
-        </div>
-      }
-    >
-      <div className="p-3 space-y-3">
-        {readout && <ViewportReadout />}
-        <div className="flex justify-end">
-          <p className="max-w-[85%] px-2.5 py-1.5 rounded-lg rounded-br-sm bg-bg-float-raised text-xs">
-            Shorten the headline a little.
-          </p>
-        </div>
-        <div className="max-w-[85%] space-y-2">
-          <p className="text-xs leading-relaxed">
-            Here is a shorter version. It keeps the promise but drops the
-            qualifier.
-          </p>
-          <div className="rounded-md border border-border-float bg-bg-surface overflow-hidden">
-            <div className="px-2.5 py-1.5 border-b border-border-float text-[0.625rem] text-fg-secondary-alt">
-              Home › Hero › Headline
-            </div>
-            <p className="px-2.5 py-2 text-xs">Clothes that outlast.</p>
-            <div className="flex gap-1.5 px-2.5 pb-2">
-              <span className="h-6 px-2 inline-flex items-center rounded text-[0.6875rem] font-medium bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary">
-                Apply
-              </span>
-              <span className="h-6 px-2 inline-flex items-center rounded text-[0.6875rem] text-fg-secondary border border-border-float">
-                Try another
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </OverlayWindow>
-  );
-}
-
 type Story = StoryObj<typeof OverlayMenuHarness>;
 
 const base: HarnessProps = {
@@ -501,8 +242,6 @@ const base: HarnessProps = {
   validationErrors: 0,
   open: null,
   collapsed: false,
-  keyboardOpen: false,
-  readout: false,
 };
 
 /** Preview mode: the full toolset, docked bottom centre. */
@@ -569,27 +308,6 @@ export const NothingToPublish: Story = {
 export const LightMode: Story = { args: { ...base, theme: "light" } };
 
 /**
- * Select mode on: every region Val can edit is outlined on the user's page.
- *
- * The outline colour is fixed rather than themed — it is drawn on their
- * design, and a token that inverted with Val's theme would go pale on a light
- * site and muddy on a dark one.
- */
-export const SelectModeOpen: Story = {
-  args: { ...base, open: "select" },
-};
-
-/** A region clicked: the edit window opens over the page, next to it. */
-export const EditWindowOpen: Story = {
-  args: { ...base, open: "edit" },
-};
-
-/** The assistant, opened from the bar and floating over the page. */
-export const ChatOpen: Story = {
-  args: { ...base, open: "chat" },
-};
-
-/**
  * The "⋯" button: where the bar sits, light or dark, and the two ways out.
  *
  * This is the real panel. Pick a position and the bar moves there; flip the
@@ -622,53 +340,6 @@ export const TooltipOpen: Story = {
   args: { ...base, open: "tooltip" },
 };
 
-/** The edit window in light mode, over the same page. */
-export const EditWindowOpenLight: Story = {
-  args: { ...base, open: "edit", theme: "light" },
-};
-
-/** The assistant in light mode. */
-export const ChatOpenLight: Story = {
-  args: { ...base, open: "chat", theme: "light" },
-};
-
-/**
- * A stand-in for the iOS keyboard.
- *
- * Playwright cannot raise a real one, and the point of the full-screen sheet
- * is precisely what happens when it appears — so the story reserves the space
- * a keyboard takes on a 390×844 phone and the sheet sizes itself to what is
- * left, which is what `useVisualViewport` does at runtime.
- */
-function SimulatedKeyboard({ height }: { height: number }) {
-  const rows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
-  return (
-    <div
-      aria-hidden
-      style={{ height }}
-      className="absolute inset-x-0 bottom-0 z-[60] flex flex-col justify-center gap-2 px-1 pb-6 bg-[#d1d3d9]"
-    >
-      {rows.map((row) => (
-        <div key={row} className="flex justify-center gap-1.5">
-          {row.split("").map((key) => (
-            <span
-              key={key}
-              className="w-[9%] h-10 grid place-items-center rounded-[5px] bg-white text-[#1c1c1e] text-sm shadow-sm"
-            >
-              {key}
-            </span>
-          ))}
-        </div>
-      ))}
-      <div className="flex justify-center gap-1.5">
-        <span className="w-[16%] h-10 rounded-[5px] bg-[#adb3bd]" />
-        <span className="w-[52%] h-10 rounded-[5px] bg-white" />
-        <span className="w-[16%] h-10 rounded-[5px] bg-[#adb3bd]" />
-      </div>
-    </div>
-  );
-}
-
 /**
  * The menu at rest: a circle, and nothing else.
  *
@@ -693,80 +364,4 @@ export const CollapsedRightCenter: Story = {
 /** Collapsed in light mode. */
 export const CollapsedLight: Story = {
   args: { ...base, collapsed: true, theme: "light" },
-};
-
-/**
- * The edit sheet on a phone with the keyboard up.
- *
- * The sheet is sized to the visual viewport rather than to `100vh`, so Save
- * and Cancel stay above the keyboard instead of underneath it, and the fields
- * scroll within what is left rather than the page scrolling behind.
- *
- * The keyboard here is drawn by the story — Playwright cannot raise a real
- * one — but the height it reserves is the height `useVisualViewport` reports
- * from an actual iPhone.
- */
-export const EditSheetWithKeyboard: Story = {
-  args: { ...base, open: "edit", keyboardOpen: true },
-};
-
-/** The assistant on a phone with the keyboard up: the input stays reachable. */
-export const ChatSheetWithKeyboard: Story = {
-  args: { ...base, open: "chat", keyboardOpen: true },
-};
-
-/** The same sheets with the keyboard down, for comparison. */
-export const EditSheetNoKeyboard: Story = {
-  args: { ...base, open: "edit" },
-};
-
-/**
- * What `useVisualViewport` is reporting, live.
- *
- * For testing against a real keyboard: tap a field and watch these change.
- * `keyboard` flipping to `open` while `inset` jumps to a few hundred pixels is
- * the hook seeing the keyboard, and the sheet's footer should stay visible at
- * that same moment. If `inset` stays at 0 while a keyboard is plainly up, the
- * VisualViewport API is not reporting on that browser and the sheet has
- * fallen back to full height — that is the failure to look for.
- */
-function ViewportReadout() {
-  const viewport = useVisualViewport(true);
-  const rows: Array<[string, string]> = [
-    ["visible height", `${Math.round(viewport.height)}px`],
-    [
-      "window height",
-      typeof window === "undefined" ? "-" : `${window.innerHeight}px`,
-    ],
-    ["offset top", `${Math.round(viewport.offsetTop)}px`],
-    ["keyboard inset", `${Math.round(viewport.keyboardInset)}px`],
-    ["keyboard", viewport.isKeyboardOpen ? "OPEN" : "closed"],
-  ];
-  return (
-    <div className="rounded-md border border-border-float bg-bg-float-raised p-2.5 font-mono text-[0.6875rem] leading-relaxed">
-      {rows.map(([label, value]) => (
-        <div key={label} className="flex justify-between gap-3">
-          <span className="text-fg-secondary-alt">{label}</span>
-          <span>{value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * For trying on a real phone: the edit sheet with real inputs, a live readout
- * and no simulated keyboard.
- *
- * Serve Storybook to your device with `pnpm --filter @valbuild/ui run
- * storybook:host`, open this story there, tap a field, and check that Save and
- * Cancel stay above the keyboard while the readout shows it.
- */
-export const DeviceTestEditSheet: Story = {
-  args: { ...base, open: "edit", readout: true },
-};
-
-/** The same for the assistant: its input must stay above the keyboard. */
-export const DeviceTestChatSheet: Story = {
-  args: { ...base, open: "chat", readout: true },
 };

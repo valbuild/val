@@ -36,10 +36,6 @@ import { useAssistantPage } from "./shell/canvas/AssistantPage";
  * transcript on screen — and that is read back from the service by session id.
  * What is genuinely lost is a turn in flight, whose tool calls have nobody to
  * answer them until the panel is open again.
- *
- * NOT the on-page overlay's copy — `ValOverlay` mounts its own `useAI`, because
- * its session id is seeded from `sessionStorage` rather than from the studio's
- * URL, which is how the two hand a conversation back and forth.
  */
 export function AIChatSurface({ className }: { className?: string }) {
   /**

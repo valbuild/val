@@ -14,9 +14,7 @@ export type { DeploymentSummary } from "./Deployments";
 export { FloatingPanel } from "./FloatingPanel";
 export {
   OverlayMenuLauncher,
-  OverlayWindow,
   OverlayCard,
-  OverlaySelectionBox,
   OverlayTooltip,
   OverlayMenuBar,
   OverlayMenuButton,

@@ -7,8 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { GripHorizontal, X } from "lucide-react";
-import { useLockBodyScroll, useVisualViewport } from "./useVisualViewport";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import {
@@ -27,7 +25,7 @@ import {
  * greys, one hairline, one shadow, and colour only where an action commits
  * something. Anything more competes with the page it is floating over.
  *
- * Presentational only: the overlay owns the state, the hover cards and the
+ * Presentational only: the overlay owns the state and the
  * popovers, and composes these pieces.
  */
 
@@ -204,93 +202,6 @@ export function OverlayMenuBadge({
   );
 }
 
-/**
- * A floating window over the user's page — the edit window, the assistant.
- *
- * Same surface as the bar, one size up: hairline, shadow, rounded corners,
- * and a title bar that is a drag handle on desktop.
- */
-export function OverlayWindow({
-  title,
-  compact,
-  onClose,
-  footer,
-  children,
-  className,
-  style,
-  fullScreen,
-}: {
-  title: string;
-  compact?: boolean;
-  onClose?: () => void;
-  footer?: ReactNode;
-  children: ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-  /**
-   * Fill the phone screen, tracking the visual viewport so the footer stays
-   * above the software keyboard instead of under it. See
-   * `useVisualViewport`.
-   */
-  fullScreen?: boolean;
-}) {
-  const viewport = useVisualViewport(fullScreen === true);
-  useLockBodyScroll(fullScreen === true);
-  // Pinned to the visual viewport rather than the layout viewport: with the
-  // keyboard up those are different rectangles, and only the first one is
-  // the part of the screen the user can see.
-  const fullScreenStyle: React.CSSProperties | undefined = fullScreen
-    ? {
-        position: "fixed",
-        left: 0,
-        right: 0,
-        top: viewport.offsetTop,
-        height: viewport.height,
-      }
-    : undefined;
-  return (
-    <div
-      role="dialog"
-      aria-label={title}
-      style={{ ...fullScreenStyle, ...style }}
-      className={cn(
-        "flex flex-col bg-bg-float text-fg-primary",
-        fullScreen
-          ? "rounded-none border-0 z-full"
-          : "rounded-lg border border-border-float shadow-xl",
-        className,
-      )}
-    >
-      <div className="grid grid-cols-3 items-center shrink-0 px-3 h-11 border-b border-border-float">
-        <div className="text-[0.8125rem] font-semibold tracking-tight truncate">
-          {title}
-        </div>
-        <div className="flex justify-center text-fg-secondary-alt">
-          {!compact && !fullScreen && <GripHorizontal size={16} />}
-        </div>
-        <div className="flex justify-end">
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={`Close ${title}`}
-              className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              <X size={15} />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-slim">
-        {children}
-      </div>
-      {footer !== undefined && (
-        <div className="shrink-0 border-t border-border-float">{footer}</div>
-      )}
-    </div>
-  );
-}
-
 /** A small floating card anchored to a menu button — the settings popover. */
 export function OverlayCard({
   children,
@@ -308,41 +219,6 @@ export function OverlayCard({
     >
       {children}
     </div>
-  );
-}
-
-/**
- * The outline drawn around an editable region of the user's page.
- *
- * Deliberately not themed: this sits on their design, not on ours, so it uses
- * the fixed page-selection green that reads on a light and a dark page alike.
- */
-export function OverlaySelectionBox({
-  rect,
-  emphasis = "all",
-  className,
-}: {
-  /** Any CSS length: the real overlay measures pixels, stories use percentages. */
-  rect: {
-    top: number | string;
-    left: number | string;
-    width: number | string;
-    height: number | string;
-  };
-  /** `all` marks every editable region; `hover` is the one a click would open. */
-  emphasis?: "all" | "hover";
-  className?: string;
-}) {
-  return (
-    <div
-      aria-hidden
-      style={rect}
-      className={cn(
-        "absolute rounded-sm border-2 border-bg-page-selection pointer-events-none",
-        emphasis === "hover" ? "bg-bg-page-selection-fill" : "opacity-70",
-        className,
-      )}
-    />
   );
 }
 
