@@ -1,94 +1,38 @@
 import classNames from "classnames";
-import {
-  Ellipsis,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  GitCompareArrows,
-  Globe,
-  GripHorizontal,
-  LogIn,
-  MessageSquare,
-  PanelBottom,
-  PanelLeft,
-  PanelRight,
-  PanelTop,
-  PanelsTopLeft,
-  SquareDashedMousePointer,
-  X,
-} from "lucide-react";
-import React, {
-  Dispatch,
-  SetStateAction,
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { AnimateHeight } from "./AnimateHeight";
-import {
-  Internal,
-  ModuleFilePath,
-  ModulePath,
-  SourcePath,
-} from "@valbuild/core";
-import { Button } from "./designSystem/button";
-import { AnyField } from "./AnyField";
+import { Ellipsis, Eye, Globe, LogIn, PanelsTopLeft, X } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Internal, ModuleFilePath, ModulePath } from "@valbuild/core";
 import {
   useAuthenticationState,
   useCurrentPatchIds,
-  useValMode,
   useSiteHandoffState,
   useShallowModulesAtPaths,
   usePublishJobsState,
 } from "./ValProvider";
 import { ownPublishCard } from "../publish/ownPublishCard";
 import { useAllValidationErrors } from "./ValErrorProvider";
-import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
-import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
-import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
+import { useValConfig, useSchemas } from "./ValFieldProvider";
 import { useTheme } from "./ValThemeProvider";
 import { useValPortal } from "./ValPortalProvider";
-import { FieldLoading } from "./FieldLoading";
-import { urlOf, VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import { urlOf } from "@valbuild/shared/internal";
 import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverTrigger } from "@radix-ui/react-popover";
-import { Switch } from "./designSystem/switch";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
-import { PublishButton } from "./PublishButton";
 import { CodeChangedCard } from "./shell/CodeChangedCard";
 import { PublishHandoffCard } from "./shell/PublishHandoff";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./designSystem/select";
 import { AnimatedClock } from "./AnimatedClock";
-import { cn } from "./designSystem/cn";
-import { HoverCardArrow } from "@radix-ui/react-hover-card";
+import { OverlayMenuDivider, OverlayMenuLauncher } from "./shell/OverlayMenu";
+import { OverlayMenuDock } from "./shell/OverlayMenuDock";
+import { OverlaySettingsPanel } from "./shell/OverlaySettingsPanel";
 import {
-  OverlayDock,
-  OverlayMenuDivider,
-  OverlayMenuLauncher,
-} from "./shell/OverlayMenu";
+  DEFAULT_OVERLAY_PLACEMENT,
+  LEGACY_STORAGE_KEY,
+  OverlayPlacement,
+  PLACEMENT_STORAGE_KEY,
+  legacyDropZoneOf,
+  parseStoredPlacement,
+  placementOrientation,
+} from "./shell/overlayPlacement";
 import { ValLogo } from "./shell/ValLogo";
-import {
-  useLockBodyScroll,
-  useVisualViewport,
-} from "./shell/useVisualViewport";
-import { AIChat } from "./AIChat";
-import type { AIChatHandle } from "./AIChat";
-import { useAI } from "../hooks/useAI";
-import { useAIChatActions } from "./AIChatActionsContext";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -103,1327 +47,203 @@ export type ValOverlayProps = {
   disableOverlay: () => void;
 };
 
-/**
- * Holds the overlay's "born" AI chat session id so that the studio-link
- * sites (top menu, WindowField) can append `?session=` to their hrefs.
- * Null until the user has actually used the chat (sent a message or
- * uploaded an attachment) — matches the unborn/born model in useAI.
- */
-const OverlaySessionContext = createContext<{
-  bornSessionId: string | null;
-  setBornSessionId: (id: string | null) => void;
-}>({ bornSessionId: null, setBornSessionId: () => {} });
-
-function appendSessionParam(base: string, sid: string | null): string {
-  if (!sid) return base;
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}session=${encodeURIComponent(sid)}`;
-}
-
 type ValMenuProps = ValOverlayProps & {
-  setMode: Dispatch<SetStateAction<OverlayModes>>;
-  mode: OverlayModes;
   loading: boolean;
-  setDropZone: (dropZone: DropZones | null) => void;
-  dropZone: DropZones | null;
-  findAllValPathElements: () => Array<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-    joinedPaths: string;
-  }>;
-  setAllBoundingBoxes: Dispatch<
-    SetStateAction<
-      Array<{
-        top: number;
-        left: number;
-        width: number;
-        height: number;
-        joinedPaths: string;
-      }>
-    >
-  >;
-  setShowAllBoundingBoxes: Dispatch<SetStateAction<boolean>>;
-  setAllBoundingBoxesVisible: Dispatch<SetStateAction<boolean>>;
-  isChatOpen: boolean;
-  setIsChatOpen: Dispatch<SetStateAction<boolean>>;
-};
-type DropZones =
-  | "val-menu-left-top"
-  | "val-menu-left-center"
-  | "val-menu-left-bottom"
-  | "val-menu-center-top"
-  | "val-menu-center-bottom"
-  | "val-menu-right-top"
-  | "val-menu-right-center"
-  | "val-menu-right-bottom";
-
-type OverlayModes = "select" | null;
-type EditMode = {
-  joinedPaths: string;
-  clientY: number;
-  clientX: number;
-  boundingBox: {
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-  };
+  placement: OverlayPlacement;
+  setPlacement: (placement: OverlayPlacement) => void;
 };
 
 export function ValOverlay(props: ValOverlayProps) {
-  const [mode, setMode] = useState<OverlayModes>(null);
-  const [editMode, setEditMode] = useState<EditMode | null>(null);
-
-  const [boundingBox, setBoundingBox] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-    joinedPaths: string;
-  } | null>(null);
-  const [showAllBoundingBoxes, setShowAllBoundingBoxes] = useState(false);
-  const [allBoundingBoxesVisible, setAllBoundingBoxesVisible] = useState(false);
-  const [allBoundingBoxes, setAllBoundingBoxes] = useState<
-    Array<{
-      top: number;
-      left: number;
-      width: number;
-      height: number;
-      joinedPaths: string;
-    }>
-  >([]);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  // The overlay's "born" chat session id is mirrored to sessionStorage so it
-  // survives a host page reload and so other consumers (e.g. studio links
-  // generated from inside the overlay) keep working after reload.
-  const [bornSessionId, setBornSessionIdState] = useState<string | null>(() => {
-    try {
-      return sessionStorage.getItem(VAL_AI_SESSION_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
-  const setBornSessionId = useCallback((id: string | null) => {
-    setBornSessionIdState(id);
-    try {
-      if (id == null) sessionStorage.removeItem(VAL_AI_SESSION_STORAGE_KEY);
-      else sessionStorage.setItem(VAL_AI_SESSION_STORAGE_KEY, id);
-    } catch {
-      // sessionStorage may be disabled (private mode, quota) — fall back to
-      // React-state-only behavior.
-    }
-  }, []);
-  useEffect(() => {
-    if (!props.draftMode) {
-      setMode(null);
-      setEditMode(null);
-      setBoundingBox(null);
-      setShowAllBoundingBoxes(false);
-      setAllBoundingBoxesVisible(false);
-      setAllBoundingBoxes([]);
-      setIsChatOpen(false);
-    }
-  }, [props.draftMode]);
-  useEffect(() => {
-    if (mode === "select" && editMode === null) {
-      const listener = (clientX: number, clientY: number) => {
-        const elements = document.elementsFromPoint(clientX, clientY);
-        let boundingBox: {
-          top: number;
-          left: number;
-          width: number;
-          height: number;
-          joinedPaths: string;
-        } | null = null;
-        for (const el of elements) {
-          if (el instanceof HTMLElement) {
-            const path = el.getAttribute("data-val-path");
-            if (path) {
-              // If this is a <source> element, use its parent <video> or <picture> element instead
-              let targetElement = el;
-              if (el.tagName === "SOURCE") {
-                const parent = el.parentElement;
-                if (
-                  parent &&
-                  (parent.tagName === "VIDEO" || parent.tagName === "PICTURE")
-                ) {
-                  targetElement = parent;
-                }
-              }
-
-              const rect = targetElement.getBoundingClientRect();
-              boundingBox = {
-                top: rect.top + window.scrollY,
-                left: rect.left + window.scrollX,
-                width: rect.width,
-                height: rect.height,
-                joinedPaths: path,
-              };
-            }
-          }
-        }
-        /**
-         * Set unconditionally, `null` included.
-         *
-         * `null` is the answer whenever the pointer is over nothing Val
-         * tracks, and it has to be written: this used to set only when it
-         * found something, so the box stayed parked over the last piece of
-         * content the pointer crossed for as long as select mode was on. That
-         * box is the thing that turns a click into "edit this" — it sits above
-         * the page and stops the event — so whatever the page had at those
-         * coordinates stopped responding, and a link under it could not be
-         * followed. The stale outline looked like a rendering quirk; the dead
-         * link underneath was the real cost.
-         */
-        setBoundingBox(boundingBox);
-      };
-      const touchListener = (ev: TouchEvent) => {
-        listener(ev.touches[0].clientX, ev.touches[0].clientY);
-      };
-      const mouseListener = (ev: MouseEvent) => {
-        listener(ev.clientX, ev.clientY);
-      };
-      const mouseLeaveListener = () => {
-        setBoundingBox(null);
-      };
-      const resizeListener = () => {
-        setBoundingBox(null);
-      };
-      window.addEventListener("mousemove", mouseListener);
-      window.addEventListener("touchmove", touchListener);
-      window.addEventListener("touchstart", touchListener);
-      window.addEventListener("mouseleave", mouseLeaveListener);
-      window.addEventListener("resize", resizeListener);
-      return () => {
-        window.removeEventListener("mousemove", mouseListener);
-        window.removeEventListener("touchmove", touchListener);
-        window.removeEventListener("touchstart", touchListener);
-        window.removeEventListener("mouseleave", mouseLeaveListener);
-        window.removeEventListener("resize", resizeListener);
-        setBoundingBox(null);
-      };
-    } else {
-      // Clear bounding box when not in select mode
-      setBoundingBox(null);
-    }
-  }, [editMode, mode]);
-  useEffect(() => {
-    if (mode === "select" && editMode === null) {
-      const keyDownListener = (ev: KeyboardEvent) => {
-        if (ev.key === "Escape") {
-          setMode(null);
-          setBoundingBox(null);
-        }
-      };
-      window.addEventListener("keydown", keyDownListener);
-      return () => {
-        window.removeEventListener("keydown", keyDownListener);
-      };
-    }
-  }, [mode, editMode]);
-
   /*
    * `theme` as well as `resolvedTheme`: `theme === null` still means "nothing
    * has said what mode this is yet", which is what the menu shows its loading
    * state for. `resolvedTheme` is never null, because it is what gets stamped.
    */
   const { theme, resolvedTheme, themeStyle } = useTheme();
-  const [dropZone, setDropZoneRaw] = useState<DropZones | null>(null);
+  const [placement, setPlacementRaw] = useState<OverlayPlacement | null>(null);
   const config = useValConfig();
-  const defaultDropZone = "val-menu-right-center"; // TODO: get from config
+  const projectKey =
+    PLACEMENT_STORAGE_KEY + "-" + (config?.project || "unknown");
   useEffect(() => {
     try {
-      const storedDropZone =
+      /*
+       * The project's own first, then whatever was used last anywhere. Each
+       * is read in its current form, then as the dock name it was stored as
+       * before the menu could be dragged freely, so nobody's menu moves on
+       * upgrade.
+       */
+      const stored =
+        (config && parseStoredPlacement(localStorage.getItem(projectKey))) ||
+        parseStoredPlacement(localStorage.getItem(PLACEMENT_STORAGE_KEY)) ||
         (config &&
-          localStorage.getItem(
-            "val-menu-drop-zone-" + (config?.project || "unknown"),
+          parseStoredPlacement(
+            localStorage.getItem(
+              "val-menu-drop-zone-" + (config?.project || "unknown"),
+            ),
           )) ||
-        localStorage.getItem("val-menu-drop-zone-default");
-      if (storedDropZone) {
-        if (
-          storedDropZone === "val-menu-left-top" ||
-          storedDropZone === "val-menu-left-center" ||
-          storedDropZone === "val-menu-left-bottom" ||
-          storedDropZone === "val-menu-center-top" ||
-          storedDropZone === "val-menu-center-bottom" ||
-          storedDropZone === "val-menu-right-top" ||
-          storedDropZone === "val-menu-right-center" ||
-          storedDropZone === "val-menu-right-bottom"
-        ) {
-          setDropZoneRaw(storedDropZone);
-        } else {
-          throw new Error("Invalid drop zone: " + storedDropZone);
-        }
-      } else {
-        setDropZoneRaw(defaultDropZone);
-      }
+        parseStoredPlacement(localStorage.getItem(LEGACY_STORAGE_KEY));
+      setPlacementRaw(stored ?? DEFAULT_OVERLAY_PLACEMENT);
     } catch (e) {
-      Internal.log.debug("Error getting drop zone from local storage", e);
-      setDropZoneRaw(defaultDropZone);
+      Internal.log.debug("Error getting menu placement from local storage", e);
+      setPlacementRaw(DEFAULT_OVERLAY_PLACEMENT);
     }
-  }, [config]);
-  const setDropZone = (dropZone: DropZones | null) => {
-    setDropZoneRaw(dropZone);
-    try {
-      if (dropZone) {
-        localStorage.setItem(
-          "val-menu-drop-zone-" + (config?.project || "unknown"),
-          dropZone,
-        );
-        localStorage.setItem("val-menu-drop-zone-default", dropZone);
+  }, [config, projectKey]);
+  const setPlacement = useCallback(
+    (next: OverlayPlacement) => {
+      setPlacementRaw(next);
+      try {
+        const json = JSON.stringify(next);
+        localStorage.setItem(projectKey, json);
+        localStorage.setItem(PLACEMENT_STORAGE_KEY, json);
+        // The framework packages draw a loading circle before the Studio has
+        // loaded, and know only the eight docks.
+        localStorage.setItem(LEGACY_STORAGE_KEY, legacyDropZoneOf(next));
+      } catch (e) {
+        Internal.log.debug("Error setting menu placement to local storage", e);
       }
-    } catch (e) {
-      Internal.log.debug("Error setting drop zone to local storage", e);
-    }
-  };
-
-  const findAllValPathElements = () => {
-    const elements = document.querySelectorAll("[data-val-path]");
-    const boxes: Array<{
-      top: number;
-      left: number;
-      width: number;
-      height: number;
-      joinedPaths: string;
-    }> = [];
-
-    elements.forEach((el) => {
-      if (el instanceof HTMLElement) {
-        const path = el.getAttribute("data-val-path");
-        if (path) {
-          // If this is a <source> element, use its parent <video> or <picture> element instead
-          let targetElement = el;
-          if (el.tagName === "SOURCE") {
-            const parent = el.parentElement;
-            if (
-              parent &&
-              (parent.tagName === "VIDEO" || parent.tagName === "PICTURE")
-            ) {
-              targetElement = parent;
-            }
-          }
-
-          const rect = targetElement.getBoundingClientRect();
-          boxes.push({
-            top: rect.top + window.scrollY,
-            left: rect.left + window.scrollX,
-            width: rect.width,
-            height: rect.height,
-            joinedPaths: path,
-          });
-        }
-      }
-    });
-
-    return boxes;
-  };
-
-  return (
-    <OverlaySessionContext.Provider value={{ bornSessionId, setBornSessionId }}>
-      <div
-        data-mode={resolvedTheme}
-        /*
-         * The theme travels with `data-mode`, and this realm is the one where
-         * it matters most: the outlines the canvas draws around editable
-         * elements are `--bg-page-selection*`, which the accent moves.
-         */
-        style={themeStyle}
-        id="val-overlay-container"
-      >
-        <Window
-          editMode={editMode}
-          setMode={setMode}
-          setEditMode={setEditMode}
-        />
-        {boundingBox && (
-          <div
-            className={cn(
-              "absolute z-[8998]",
-              "cursor-pointer",
-              "rounded-sm",
-              "transition-all duration-150 ease-in-out",
-              "border-2 border-bg-page-selection bg-bg-page-selection-fill",
-            )}
-            style={maxRect(
-              {
-                top: boundingBox.top,
-                left: boundingBox.left,
-                width: boundingBox.width,
-                height: boundingBox.height,
-              },
-              {
-                top: window.scrollY,
-                left: window.scrollX,
-                width: window.innerWidth,
-                height: window.innerHeight,
-              },
-              2,
-            )}
-            onClick={(ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              setBoundingBox(null);
-              setEditMode({
-                joinedPaths: boundingBox.joinedPaths,
-                clientX: boundingBox.left,
-                clientY: boundingBox.top,
-                boundingBox: {
-                  top: boundingBox.top,
-                  left: boundingBox.left,
-                  width: boundingBox.width,
-                  height: boundingBox.height,
-                },
-              });
-            }}
-          ></div>
-        )}
-        {showAllBoundingBoxes &&
-          allBoundingBoxes.map((box, index) => (
-            <div
-              key={`${box.joinedPaths}-${index}`}
-              className={cn(
-                "absolute z-[8997] pointer-events-none",
-                "rounded-sm",
-                "border-2 border-bg-page-selection",
-                "transition-opacity duration-200 ease-out",
-                allBoundingBoxesVisible ? "opacity-70" : "opacity-0",
-              )}
-              style={maxRect(
-                {
-                  top: box.top,
-                  left: box.left,
-                  width: box.width,
-                  height: box.height,
-                },
-                {
-                  top: window.scrollY,
-                  left: window.scrollX,
-                  width: window.innerWidth,
-                  height: window.innerHeight,
-                },
-                2,
-              )}
-            />
-          ))}
-        <ChatWindow
-          isOpen={isChatOpen && props.draftMode}
-          onClose={() => setIsChatOpen(false)}
-          onOpen={() => setIsChatOpen(true)}
-        />
-        {editMode === null && (
-          <DraggableValMenu
-            {...props}
-            mode={mode}
-            setMode={setMode}
-            loading={theme === null}
-            dropZone={dropZone}
-            setDropZone={setDropZone}
-            findAllValPathElements={findAllValPathElements}
-            setAllBoundingBoxes={setAllBoundingBoxes}
-            setShowAllBoundingBoxes={setShowAllBoundingBoxes}
-            setAllBoundingBoxesVisible={setAllBoundingBoxesVisible}
-            isChatOpen={isChatOpen}
-            setIsChatOpen={setIsChatOpen}
-          />
-        )}
-      </div>
-    </OverlaySessionContext.Provider>
+    },
+    [projectKey],
   );
-}
-
-function Window({
-  editMode,
-  setMode,
-  setEditMode,
-}: {
-  editMode: EditMode | null;
-  setMode: Dispatch<SetStateAction<OverlayModes>>;
-  setEditMode: Dispatch<SetStateAction<EditMode | null>>;
-}) {
-  const { bornSessionId } = useContext(OverlaySessionContext);
-  // place outside viewport initially
-  const [windowPos, setWindowPos] = useState({
-    x: window.innerWidth,
-    y: window.innerHeight,
-  });
-  const [windowSize, setWindowSize] = useState({
-    width: 0,
-    height: 0,
-  });
-  const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
-  const ref = useRef<HTMLDivElement>(null);
-  const isMobile = windowInnerWidth < 1024;
-  const visualViewport = useVisualViewport(isMobile);
-  // Stop the user's page scrolling behind a full-screen sheet — on iOS
-  // that also drags the visual viewport around.
-  useLockBodyScroll(isMobile && editMode !== null);
-  const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
-
-  useEffect(() => {
-    const handlePosition = () => {
-      if (editMode) {
-        setTimeout(() => {
-          if (ref.current) {
-            const { innerWidth, innerHeight } = window;
-            const { offsetWidth, offsetHeight } = ref.current;
-            let newX = editMode.clientX;
-            let newY = editMode.clientY;
-            const padding = 20;
-
-            // Set initial size
-            setWindowSize({ width: offsetWidth, height: offsetHeight });
-
-            // Keep window within viewport bounds
-            if (newX + offsetWidth > innerWidth - padding) {
-              newX = innerWidth - offsetWidth - padding;
-            }
-            if (newX < padding) {
-              newX = padding;
-            }
-            if (newY + offsetHeight > innerHeight - padding) {
-              newY = innerHeight - offsetHeight - padding;
-            }
-            if (newY < padding) {
-              newY = padding;
-            }
-
-            setWindowPos({ x: newX, y: newY });
-          }
-        }, 100);
-      } else {
-        setWindowPos({ x: window.innerWidth, y: window.innerHeight });
-        setWindowSize({ width: 0, height: 0 });
-      }
-    };
-
-    if (window.innerWidth < 1024) {
-      setWindowPos({ x: 16, y: 16 });
-    } else {
-      handlePosition();
-    }
-  }, [editMode]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setWindowInnerWidth(window.innerWidth);
-      if (window.innerWidth < 1024) {
-        setWindowPos({ x: 16, y: 16 });
-      } else if (ref.current) {
-        // On desktop, constrain position if window is now out of bounds
-        setWindowPos((pos) => {
-          const { innerWidth, innerHeight } = window;
-          const { offsetWidth } = ref.current!;
-
-          const minVisible = 100;
-          const maxX = innerWidth - minVisible;
-          const maxY = innerHeight - minVisible;
-          const minX = -(offsetWidth - minVisible);
-          const minY = 0;
-
-          const newX = Math.max(minX, Math.min(maxX, pos.x));
-          const newY = Math.max(minY, Math.min(maxY, pos.y));
-
-          return { x: newX, y: newY };
-        });
-      }
-    };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  const [isDragging, setIsDragging] = useState(false);
-  useEffect(() => {
-    if (isDragging && !isMobile) {
-      const handleMove = (ev: MouseEvent) => {
-        setWindowPos((pos) => {
-          if (!ref.current) return pos;
-
-          const { innerWidth, innerHeight } = window;
-          const { offsetWidth } = ref.current;
-
-          // Calculate new position
-          let newX = pos.x + ev.movementX;
-          let newY = pos.y + ev.movementY;
-
-          // Constrain to viewport - keep at least 100px of the window visible
-          const minVisible = 100;
-          const maxX = innerWidth - minVisible;
-          const maxY = innerHeight - minVisible;
-          const minX = -(offsetWidth - minVisible);
-          const minY = 0;
-
-          newX = Math.max(minX, Math.min(maxX, newX));
-          newY = Math.max(minY, Math.min(maxY, newY));
-
-          return { x: newX, y: newY };
-        });
-      };
-      const handleMoveEnd = () => {
-        setIsDragging(false);
-      };
-      window.addEventListener("mousemove", handleMove);
-      window.addEventListener("mouseup", handleMoveEnd);
-      return () => {
-        window.removeEventListener("mousemove", handleMove);
-        window.removeEventListener("mouseup", handleMoveEnd);
-      };
-    }
-  }, [isDragging, isMobile]);
-
-  useEffect(() => {
-    if (isResizing && !isMobile) {
-      const handleResize = (ev: MouseEvent) => {
-        const minWidth = 400;
-        const minHeight = 300;
-        const { innerWidth, innerHeight } = window;
-
-        if (isResizing === "se" || isResizing === "e") {
-          setWindowSize((size) => {
-            const newWidth = Math.max(
-              minWidth,
-              Math.min(
-                innerWidth - windowPos.x - 20,
-                size.width + ev.movementX,
-              ),
-            );
-            return { ...size, width: newWidth };
-          });
-        }
-        if (isResizing === "se" || isResizing === "s") {
-          setWindowSize((size) => {
-            const newHeight = Math.max(
-              minHeight,
-              Math.min(
-                innerHeight - windowPos.y - 20,
-                size.height + ev.movementY,
-              ),
-            );
-            return { ...size, height: newHeight };
-          });
-        }
-      };
-      const handleResizeEnd = () => {
-        setIsResizing(null);
-      };
-      window.addEventListener("mousemove", handleResize);
-      window.addEventListener("mouseup", handleResizeEnd);
-      return () => {
-        window.removeEventListener("mousemove", handleResize);
-        window.removeEventListener("mouseup", handleResizeEnd);
-      };
-    }
-  }, [isResizing, isMobile, windowPos.x, windowPos.y]);
-
-  useEffect(() => {
-    const keydownListener = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setMode("select");
-        setEditMode(null);
-      }
-    };
-    window.addEventListener("keydown", keydownListener);
-
-    return () => {
-      window.removeEventListener("keydown", keydownListener);
-    };
-  }, []);
-
-  const handleClose = () => {
-    setMode("select");
-    setEditMode(null);
-  };
 
   return (
     <div
-      className={classNames(
-        "fixed top-0 left-0",
-        isMobile ? "z-[9001]" : "z-[8998]",
-        {
-          hidden: editMode === null,
-          "opacity-100 w-[200svw] h-[100svh]": editMode !== null && !isMobile,
-          "opacity-100 w-[100vw] h-[100svh]": editMode !== null && isMobile,
-        },
+      data-mode={resolvedTheme}
+      /*
+       * The theme travels with `data-mode`, and this realm is the one where
+       * it matters most: the outlines the canvas draws around editable
+       * elements are `--bg-page-selection*`, which the accent moves.
+       */
+      style={themeStyle}
+      id="val-overlay-container"
+    >
+      {placement !== null && (
+        <ValMenu
+          {...props}
+          loading={theme === null}
+          placement={placement}
+          setPlacement={setPlacement}
+        />
       )}
-    >
-      <div
-        className={classNames("fixed top-0 left-0", {
-          hidden: editMode === null,
-          "w-[100vw] h-[100svh]": editMode !== null,
-        })}
-        onClick={(ev) => {
-          ev.preventDefault();
-          if (!isDragging) {
-            handleClose();
-          }
-        }}
-      ></div>
-      <div
-        className={classNames(
-          "flex flex-col bg-bg-float text-fg-primary",
-          isMobile
-            ? "fixed inset-x-0 border-0 rounded-none"
-            : "absolute rounded-lg border border-border-float shadow-xl",
-        )}
-        ref={ref}
-        style={
-          isMobile
-            ? // Pinned to the visual viewport, not the layout viewport: with
-              // the keyboard up those are different rectangles and only this
-              // one is the part of the screen the user can see.
-              { top: visualViewport.offsetTop, height: visualViewport.height }
-            : {
-                top: windowPos.y,
-                left: windowPos.x,
-                ...(windowSize.width > 0
-                  ? { width: windowSize.width, height: windowSize.height }
-                  : { maxWidth: "640px" }),
-              }
-        }
-      >
-        {/* Header bar - for dragging on desktop, shows close button on mobile */}
-        <div
-          className={classNames(
-            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
-            {
-              "cursor-grab active:cursor-grabbing": !isMobile,
-            },
-          )}
-          onMouseDown={(ev) => {
-            if (!isMobile) {
-              ev.preventDefault();
-              setIsDragging(true);
-            }
-          }}
-        >
-          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
-            Edit content
-          </div>
-          <div className="flex justify-center">
-            {!isMobile && (
-              <GripHorizontal size={16} className="text-fg-secondary" />
-            )}
-          </div>
-          <div className="flex justify-end">
-            {isMobile && (
-              <button
-                onClick={handleClose}
-                className="grid place-items-center w-7 h-7 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary transition-colors"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Content area with scroll */}
-        <div
-          className={classNames("flex-1 overflow-y-auto", {
-            "p-6": !isMobile,
-            "p-4": isMobile,
-          })}
-        >
-          <form
-            className="flex flex-col gap-6 w-full"
-            onSubmit={(ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              handleClose();
-            }}
-          >
-            {editMode && (
-              <>
-                {/* Fields */}
-                {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
-                  (path) => {
-                    const hasMultipleFields =
-                      Internal.splitJoinedSourcePaths(editMode.joinedPaths)
-                        .length > 1;
-                    return (
-                      <WindowField
-                        key={path}
-                        path={path}
-                        showInlineStudioLink={hasMultipleFields}
-                      />
-                    );
-                  },
-                )}
-              </>
-            )}
-            <div className="flex items-center justify-between gap-3 pt-2 border-t border-border-secondary">
-              {/* Show Studio button at bottom if only one field */}
-              {editMode &&
-                Internal.splitJoinedSourcePaths(editMode.joinedPaths).length ===
-                  1 && (
-                  <a
-                    href={appendSessionParam(
-                      window.origin +
-                        "/val/~" +
-                        Internal.splitJoinedSourcePaths(
-                          editMode.joinedPaths,
-                        )[0],
-                      bornSessionId,
-                    )}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-primary transition-colors"
-                  >
-                    <ExternalLink size={16} />
-                    <span>Open Studio</span>
-                  </a>
-                )}
-              <div className="flex-1" />
-              <Button type="submit">Done</Button>
-            </div>
-          </form>
-        </div>
-
-        {/* Resize handles - desktop only */}
-        {!isMobile && (
-          <>
-            {/* Right edge resize handle */}
-            <div
-              className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-bg-brand-primary/50 transition-colors"
-              onMouseDown={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                setIsResizing("e");
-              }}
-            />
-            {/* Bottom edge resize handle */}
-            <div
-              className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-bg-brand-primary/50 transition-colors"
-              onMouseDown={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                setIsResizing("s");
-              }}
-            />
-            {/* Bottom-right corner resize handle */}
-            <div
-              className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize group"
-              onMouseDown={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                setIsResizing("se");
-              }}
-            >
-              <svg
-                className="absolute bottom-0.5 right-0.5 w-3 h-3 text-fg-tertiary group-hover:text-fg-secondary transition-colors"
-                viewBox="0 0 12 12"
-                fill="none"
-              >
-                <path
-                  d="M10 2L2 10M10 6L6 10M10 10H10.01"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-          </>
-        )}
-      </div>
     </div>
   );
 }
 
-function ChatWindow({
-  isOpen,
-  onClose,
-  onOpen,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onOpen: () => void;
-}) {
-  const assistant = useAssistantAvailability();
-  const chatRef = useRef<AIChatHandle | null>(null);
-  const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
-  useEffect(() => {
-    setOpenAIChatImpl(onOpen);
-    return () => setOpenAIChatImpl(null);
-  }, [onOpen, setOpenAIChatImpl]);
-  const { bornSessionId, setBornSessionId } = useContext(OverlaySessionContext);
-  // Capture the seeded-from-sessionStorage value once so later state changes
-  // don't re-trigger useAI's mount-load effect. This is how a user coming
-  // back from the studio (with an active session) sees the chat rehydrate
-  // in the overlay.
-  const initialBornSessionIdRef = useRef(bornSessionId);
-  const {
-    sendMessage,
-    uploadAiImage,
-    isConnected,
-    authError,
-    newSession,
-    sessions,
-    currentSessionId,
-    getSessions,
-    setSessionName,
-    loadSession,
-    isLoadingSession,
-    answerToolQuestions,
-    cancelToolQuestion,
-    enableCodeMode,
-    declineCodeMode,
-  } = useAI(chatRef, {
-    initialSessionId: initialBornSessionIdRef.current,
-    onSessionBorn: setBornSessionId,
-    onSessionCleared: () => setBornSessionId(null),
-  });
-  const mode = useValMode();
-  const [windowPos, setWindowPos] = useState({
-    x: Math.max(20, window.innerWidth - 570),
-    y: 80,
-  });
-  const [windowSize, setWindowSize] = useState({ width: 480, height: 600 });
-  const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState<"se" | "e" | "s" | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const isMobile = windowInnerWidth < 1024;
-  const visualViewport = useVisualViewport(isMobile);
-  // Stop the user's page scrolling behind a full-screen sheet — on iOS
-  // that also drags the visual viewport around.
-  useLockBodyScroll(isMobile && isOpen);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setWindowInnerWidth(window.innerWidth);
-      if (window.innerWidth < 1024) {
-        setWindowPos({ x: 16, y: 16 });
-      } else {
-        setWindowPos((pos) => {
-          const minVisible = 100;
-          const maxX = window.innerWidth - minVisible;
-          const maxY = window.innerHeight - minVisible;
-          return {
-            x: Math.max(
-              -(windowSize.width - minVisible),
-              Math.min(maxX, pos.x),
-            ),
-            y: Math.max(0, Math.min(maxY, pos.y)),
-          };
-        });
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [windowSize.width]);
-
-  useEffect(() => {
-    if (isDragging && !isMobile) {
-      const handleMove = (ev: MouseEvent) => {
-        setWindowPos((pos) => {
-          const minVisible = 100;
-          const maxX = window.innerWidth - minVisible;
-          const maxY = window.innerHeight - minVisible;
-          const w = ref.current?.offsetWidth ?? windowSize.width;
-          return {
-            x: Math.max(
-              -(w - minVisible),
-              Math.min(maxX, pos.x + ev.movementX),
-            ),
-            y: Math.max(0, Math.min(maxY, pos.y + ev.movementY)),
-          };
-        });
-      };
-      const handleMoveEnd = () => setIsDragging(false);
-      window.addEventListener("mousemove", handleMove);
-      window.addEventListener("mouseup", handleMoveEnd);
-      return () => {
-        window.removeEventListener("mousemove", handleMove);
-        window.removeEventListener("mouseup", handleMoveEnd);
-      };
-    }
-  }, [isDragging, isMobile, windowSize.width]);
-
-  useEffect(() => {
-    if (isResizing && !isMobile) {
-      const handleResize = (ev: MouseEvent) => {
-        const minWidth = 360;
-        const minHeight = 400;
-        if (isResizing === "se" || isResizing === "e") {
-          setWindowSize((size) => ({
-            ...size,
-            width: Math.max(
-              minWidth,
-              Math.min(
-                window.innerWidth - windowPos.x - 20,
-                size.width + ev.movementX,
-              ),
-            ),
-          }));
-        }
-        if (isResizing === "se" || isResizing === "s") {
-          setWindowSize((size) => ({
-            ...size,
-            height: Math.max(
-              minHeight,
-              Math.min(
-                window.innerHeight - windowPos.y - 20,
-                size.height + ev.movementY,
-              ),
-            ),
-          }));
-        }
-      };
-      const handleResizeEnd = () => setIsResizing(null);
-      window.addEventListener("mousemove", handleResize);
-      window.addEventListener("mouseup", handleResizeEnd);
-      return () => {
-        window.removeEventListener("mousemove", handleResize);
-        window.removeEventListener("mouseup", handleResizeEnd);
-      };
-    }
-  }, [isResizing, isMobile, windowPos.x, windowPos.y]);
-
-  return (
-    <div
-      className={cn("fixed top-0 left-0", isMobile ? "z-[9001]" : "z-[8999]")}
-      style={!isOpen ? { display: "none" } : undefined}
-    >
-      <div
-        className={classNames(
-          "flex flex-col bg-bg-float text-fg-primary",
-          isMobile
-            ? "fixed inset-x-0 border-0 rounded-none"
-            : "absolute rounded-lg border border-border-float shadow-xl",
-        )}
-        ref={ref}
-        style={
-          isMobile
-            ? // See the edit window: with the keyboard open the chat input has
-              // to sit above it, which only the visual viewport can tell us.
-              { top: visualViewport.offsetTop, height: visualViewport.height }
-            : {
-                top: windowPos.y,
-                left: windowPos.x,
-                width: windowSize.width,
-                height: windowSize.height,
-              }
-        }
-      >
-        <div
-          className={classNames(
-            "grid grid-cols-3 items-center px-4 h-11 border-b border-border-float rounded-t-lg",
-            { "cursor-grab active:cursor-grabbing": !isMobile },
-          )}
-          onMouseDown={(ev) => {
-            if (!isMobile) {
-              ev.preventDefault();
-              setIsDragging(true);
-            }
-          }}
-        >
-          <div className="text-[0.8125rem] font-semibold tracking-tight text-fg-primary">
-            AI assistant
-          </div>
-          <div className="flex justify-center">
-            {!isMobile && (
-              <GripHorizontal size={16} className="text-fg-secondary" />
-            )}
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={onClose}
-              className="p-1 rounded hover:bg-bg-secondary transition-colors"
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-hidden">
-          {/*
-            The same offer the Studio's panel makes, for the same reason: this
-            window is reachable while nobody has said whether the project has an
-            assistant, and it must ask rather than open a chat that cannot send.
-          */}
-          {assistant === "unconfigured" ? (
-            <EnableAssistantPrompt />
-          ) : (
-            <AIChat
-              ref={chatRef}
-              chatEditorRef={chatEditorRef}
-              onSendMessage={sendMessage}
-              onUploadFile={uploadAiImage}
-              onNewSession={newSession}
-              isConnected={isConnected}
-              authError={authError}
-              mode={mode}
-              sessions={sessions}
-              currentSessionId={currentSessionId}
-              onLoadSession={loadSession}
-              onFetchSessions={getSessions}
-              onSetSessionName={setSessionName}
-              isLoadingSession={isLoadingSession}
-              onAnswerToolQuestions={answerToolQuestions}
-              onCancelToolQuestion={cancelToolQuestion}
-              onEnableCodeMode={enableCodeMode}
-              onDeclineCodeMode={declineCodeMode}
-            />
-          )}
-        </div>
-        {!isMobile && (
-          <>
-            <div
-              className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-bg-brand-primary/50 transition-colors"
-              onMouseDown={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                setIsResizing("e");
-              }}
-            />
-            <div
-              className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-bg-brand-primary/50 transition-colors"
-              onMouseDown={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                setIsResizing("s");
-              }}
-            />
-            <div
-              className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize group"
-              onMouseDown={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                setIsResizing("se");
-              }}
-            >
-              <svg
-                className="absolute bottom-0.5 right-0.5 w-3 h-3 text-fg-tertiary group-hover:text-fg-secondary transition-colors"
-                viewBox="0 0 12 12"
-                fill="none"
-              >
-                <path
-                  d="M10 2L2 10M10 6L6 10M10 10H10.01"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// inline-flex + centering (rather than inline-block) so every button in the
-// menu is exactly icon + padding + border tall: an inline icon sits on the text
-// baseline, which adds descender space that varies with the inherited
-// line-height and makes the buttons different heights
-// Kept in step with OverlayMenuButton: the overlay's own buttons and the ones
-// rendered inside its windows have to look like the same control.
 const buttonClassName =
   "inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors disabled:text-fg-disabled disabled:pointer-events-none";
 const buttonInactiveClassName =
   "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
 
-function WindowField({
-  path: path,
-  showInlineStudioLink,
-}: {
-  path: SourcePath;
-  showInlineStudioLink: boolean;
-}) {
-  const schemaAtPath = useSchemaAtPath(path);
-  const { bornSessionId } = useContext(OverlaySessionContext);
-  const studioUrl = appendSessionParam(
-    window.origin + "/val/~" + path,
-    bornSessionId,
-  );
-
-  if (schemaAtPath.status === "error") {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="text-fg-error-on-surface text-sm">
-          {schemaAtPath.error}
-        </div>
-      </div>
-    );
-  }
-  if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
-    return (
-      <div className="flex flex-col gap-4">
-        <FieldLoading path={path} />
-      </div>
-    );
-  }
-
-  if (showInlineStudioLink) {
-    return (
-      <div className="flex flex-col gap-2 w-full">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            {schemaAtPath.data.description && (
-              <div className="pb-2 text-sm text-fg-tertiary">
-                {schemaAtPath.data.description}
-              </div>
-            )}
-            <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
-          </div>
-          <a
-            href={studioUrl}
-            className="flex-shrink-0 p-2 rounded-md border border-border-primary bg-bg-secondary hover:bg-bg-secondary-hover text-fg-secondary hover:text-fg-primary transition-colors mt-1"
-            title="Open in Studio"
-            aria-label="Open in Studio"
-          >
-            <ExternalLink size={16} />
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4 w-full">
-      {schemaAtPath.data.description && (
-        <div className="text-sm text-fg-tertiary">
-          {schemaAtPath.data.description}
-        </div>
-      )}
-      <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
-    </div>
-  );
-}
-
-function DropZoneLabel({ dropZone }: { dropZone: DropZones }) {
-  if (dropZone === "val-menu-left-top") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelTop className="w-4 h-4" />
-        <span>Left Top</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-left-center") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelLeft className="w-4 h-4" />
-        <span>Left Center</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-left-bottom") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelBottom className="w-4 h-4" />
-        <span>Left Bottom</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-center-top") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelTop className="w-4 h-4" />
-        <span>Center Top</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-center-bottom") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelBottom className="w-4 h-4" />
-        <span>Center Bottom</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-right-top") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelTop className="w-4 h-4" />
-        <span>Right Top</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-right-center") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelRight className="w-4 h-4" />
-        <span>Right Center</span>
-      </div>
-    );
-  } else if (dropZone === "val-menu-right-bottom") {
-    return (
-      <div className="flex items-center gap-2">
-        <PanelBottom className="w-4 h-4" />
-        <span>Right Bottom</span>
-      </div>
-    );
-  } else {
-    Internal.log.warn("Unknown drop zone:", dropZone);
-    return null;
+/** The side of a menu button that faces into the page, for its popovers. */
+function sideFacingPage(
+  placement: OverlayPlacement,
+): "top" | "right" | "bottom" | "left" {
+  switch (placement.edge) {
+    case "left":
+      return "right";
+    case "right":
+      return "left";
+    case "top":
+      return "bottom";
+    case "bottom":
+      return "top";
   }
 }
 
-function ValMenu({
-  dropZone,
-  ghost,
+/**
+ * The "⋯" menu: where the menu sits, light or dark, and leaving preview mode.
+ */
+function OverlaySettings({
+  placement,
+  onPlacementChange,
   draftMode,
   draftModeLoading,
   setDraftMode,
-  mode,
-  setMode,
-  disableOverlay,
-  loading,
-  setDropZone,
-  findAllValPathElements,
-  setAllBoundingBoxes,
-  setShowAllBoundingBoxes,
-  setAllBoundingBoxesVisible,
-  isChatOpen,
-  setIsChatOpen,
-  codeChanged = [],
+  side,
+  open,
+  onOpenChange,
 }: {
-  dropZone: DropZones;
-  ghost?: boolean;
-} & ValMenuProps) {
-  const { bornSessionId } = useContext(OverlaySessionContext);
-  const dir =
-    dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
-      ? "vertical"
-      : "horizontal";
-  const authenticationState = useAuthenticationState();
+  placement: OverlayPlacement;
+  onPlacementChange: (placement: OverlayPlacement) => void;
+  draftMode: boolean;
+  draftModeLoading: boolean;
+  setDraftMode: (draftMode: boolean) => void;
+  side: "top" | "right" | "bottom" | "left";
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const portalContainer = useValPortal();
-  // The publish popover, or a publish in flight, holds the menu open: see
-  // `PublishButton`'s `onHoldOpenChange`.
-  const [publishHoldsMenuOpen, setPublishHoldsMenuOpen] = useState(false);
-
-  const showAllBoundingBoxesWithFadeIn = () => {
-    const boxes = findAllValPathElements();
-    setAllBoundingBoxes(boxes);
-    setShowAllBoundingBoxes(true);
-    setAllBoundingBoxesVisible(false);
-
-    // Fade in after a brief moment
-    setTimeout(() => {
-      setAllBoundingBoxesVisible(true);
-    }, 50);
-  };
-
-  const hideAllBoundingBoxesWithFadeOut = () => {
-    setAllBoundingBoxesVisible(false);
-
-    // Remove from DOM after fade-out completes
-    setTimeout(() => {
-      setShowAllBoundingBoxes(false);
-    }, 200);
-  };
   /*
    * `resolvedTheme`, so the switch shows the mode that is on screen. `theme`
    * can still be null here — nobody has chosen — while the project's own
    * default from `s.settings()` is what is being drawn.
    */
   const { resolvedTheme, setTheme } = useTheme();
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        aria-label="More"
+        title="More"
+        className={classNames(buttonClassName, buttonInactiveClassName, {
+          "bg-bg-float-raised text-fg-primary": open,
+        })}
+      >
+        <Ellipsis size={16} />
+      </PopoverTrigger>
+      <PopoverContent
+        side={side}
+        sideOffset={10}
+        container={portalContainer}
+        className="z-[9003] w-60 p-1.5"
+      >
+        <OverlaySettingsPanel
+          placement={placement}
+          onPlacementChange={onPlacementChange}
+          dark={resolvedTheme === "dark"}
+          onDarkChange={(dark) => setTheme(dark ? "dark" : "light")}
+          inPreview={draftMode}
+          exitingPreview={draftModeLoading}
+          onExitPreview={() => {
+            onOpenChange(false);
+            setDraftMode(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * The menu over the user's page.
+ *
+ * Kept to what is worth a button on someone else's design: go to the Studio,
+ * and turn Val off on this site (✕). Everything else is in "⋯" — where it
+ * sits, light or dark, and leaving preview mode — because those are things
+ * done once, not while editing. Out of preview mode it adds the way back in.
+ * Editing happens in the Studio: the select mode, the edit window and the
+ * chat window the overlay used to have are gone.
+ *
+ * ONE launcher for both modes. It used to be two, each in an `AnimateHeight`,
+ * cross-fading their heights when preview mode changed — under a menu that
+ * was itself animating its length — which is a large part of why it moved
+ * oddly.
+ */
+function ValMenu({
+  placement,
+  setPlacement,
+  draftMode,
+  draftModeLoading,
+  setDraftMode,
+  disableOverlay,
+  loading,
+  codeChanged = [],
+}: ValMenuProps) {
+  const authenticationState = useAuthenticationState();
+  // The "⋯" menu holds the bar open: it is portalled out of the bar, so
+  // using it is leaving the bar.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
-  const valMode = useValMode();
-  // Shown unless the project has turned it off, or has no project to run it
-  // in: an assistant nobody has decided about is offered here, and the panel
-  // asks before it is used. The same flag as the Studio's (see `wsEnabled` in
-  // `ValProvider`), so the two cannot disagree about whether there is one.
-  const { isAIChatEnabled: isChatEnabled } = useAIChatActions();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const handoff = useSiteHandoffState();
   /*
@@ -1438,27 +258,7 @@ function ValMenu({
     handoff.state === null
       ? ownPublishCard(publishJobsState, dismissedPublishes)
       : null;
-  const publishPopoverSide =
-    dropZone === "val-menu-center-bottom"
-      ? "top"
-      : dropZone === "val-menu-center-top"
-        ? "bottom"
-        : dropZone === "val-menu-right-center"
-          ? "left"
-          : dropZone === "val-menu-left-center"
-            ? "right"
-            : dropZone === "val-menu-left-bottom"
-              ? "top"
-              : dropZone === "val-menu-right-bottom"
-                ? "top"
-                : dropZone === "val-menu-right-top"
-                  ? "bottom"
-                  : dropZone === "val-menu-left-top"
-                    ? "bottom"
-                    : "top";
-  // The launcher grows from the edge it is docked to, and it needs the dock
-  // without the drop-zone prefix.
-  const launcherDock = dropZone.replace("val-menu-", "") as OverlayDock;
+  const popoverSide = sideFacingPage(placement);
   // Collapsed, the circle still has to say whether there is work outstanding.
   const launcherStatus: "none" | "changes" | "errors" =
     validationErrorCount > 0
@@ -1466,41 +266,33 @@ function ValMenu({
       : patchIds.length > 0
         ? "changes"
         : "none";
-  const allDropZones: DropZones[] = [
-    "val-menu-left-top",
-    "val-menu-left-center",
-    "val-menu-left-bottom",
-    "val-menu-center-top",
-    "val-menu-center-bottom",
-    "val-menu-right-top",
-    "val-menu-right-center",
-    "val-menu-right-bottom",
-  ];
+  const inPreview = draftMode && !draftModeLoading;
+  const pageInStudio =
+    sourcePathResult.status === "success" && sourcePathResult.data
+      ? sourcePathResult.data
+      : "";
+  const studioHref = window.origin + "/val/~" + pageInStudio;
+  const studioIcon = pageInStudio ? (
+    <Globe size={16} />
+  ) : (
+    <PanelsTopLeft size={16} />
+  );
+  const settings = (
+    <OverlaySettings
+      placement={placement}
+      onPlacementChange={setPlacement}
+      draftMode={draftMode}
+      draftModeLoading={draftModeLoading}
+      setDraftMode={setDraftMode}
+      side={popoverSide}
+      open={settingsOpen}
+      onOpenChange={setSettingsOpen}
+    />
+  );
   return (
-    <div className="p-4 right-16">
-      {/* See ValNextProvider: this same snippet is used there  */}
-      {loading && (
-        <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
-            <AnimatedClock size={16} />
-          </div>
-        </div>
-      )}
-      {authenticationState === "login-required" && (
-        <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-float border border-border-float text-fg-primary shadow-lg">
-            <a
-              href={urlOf("/api/val/authorize", {
-                redirect_to: window.location.href,
-              })}
-            >
-              <LogIn size={16} />
-            </a>
-          </div>
-        </div>
-      )}
-      {!ghost && codeChanged.length > 0 && (
-        <div className={handoffCardPositionClassName(dropZone)}>
+    <>
+      {codeChanged.length > 0 && (
+        <div className={handoffCardPositionClassName(placement)}>
           <CodeChangedCard
             modules={codeChanged}
             onReload={() => window.location.reload()}
@@ -1513,7 +305,7 @@ function ValMenu({
          * Beside the dock rather than in a window: it is news about something
          * happening elsewhere, and editing carries on under it.
          */
-        <div className={handoffCardPositionClassName(dropZone)}>
+        <div className={handoffCardPositionClassName(placement)}>
           <PublishHandoffCard
             state={handoff.state}
             onReload={() => window.location.reload()}
@@ -1528,7 +320,7 @@ function ValMenu({
         </div>
       )}
       {own !== null && (
-        <div className={handoffCardPositionClassName(dropZone)}>
+        <div className={handoffCardPositionClassName(placement)}>
           <PublishHandoffCard
             state={own.card}
             onReload={() => window.location.reload()}
@@ -1551,280 +343,88 @@ function ValMenu({
           />
         </div>
       )}
-      <AnimateHeight
-        isOpen={
-          draftMode &&
-          !draftModeLoading &&
-          !loading &&
-          authenticationState !== "login-required"
-        }
+      <OverlayMenuDock
+        placement={placement}
+        onPlacementChange={setPlacement}
+        className="z-[8999]"
       >
-        <OverlayMenuLauncher
-          orientation={dir}
-          dock={launcherDock}
-          ghost={ghost}
-          status={launcherStatus}
-          mark={<ValMark />}
-          holdOpen={publishHoldsMenuOpen}
-        >
-          <HoverCard>
-            <HoverCardTrigger className="inline-flex">
-              <MenuButton
-                active={mode === "select"}
-                onClick={() => {
-                  const newMode = mode === "select" ? null : "select";
-                  setMode(newMode);
-
-                  // Clean up if exiting select mode
-                  if (newMode !== "select") {
-                    setShowAllBoundingBoxes(false);
-                    setAllBoundingBoxesVisible(false);
-                  } else {
-                    showAllBoundingBoxesWithFadeIn();
-                  }
-                }}
-                onMouseEnter={() => {
-                  if (mode === "select") {
-                    showAllBoundingBoxesWithFadeIn();
-                  }
-                }}
-                onMouseLeave={() => {
-                  if (mode === "select") {
-                    hideAllBoundingBoxesWithFadeOut();
-                  }
-                }}
-                icon={<SquareDashedMousePointer size={16} />}
-              />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
+        {({ dragging }) =>
+          // See ValNextProvider: the same circle is drawn there while the
+          // Studio loads, so the menu does not appear from nowhere.
+          loading ? (
+            <div className="grid place-items-center w-[42px] h-[42px] rounded-full bg-bg-float border border-border-float text-fg-primary shadow-lg">
+              <AnimatedClock size={16} />
+            </div>
+          ) : authenticationState === "login-required" ? (
+            <a
+              href={urlOf("/api/val/authorize", {
+                redirect_to: window.location.href,
+              })}
+              aria-label="Sign in to Val"
+              title="Sign in to Val"
+              className="grid place-items-center w-[42px] h-[42px] rounded-full bg-bg-float border border-border-float text-fg-primary shadow-lg hover:bg-bg-float-raised"
             >
-              Click on content in the page to select and edit it
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          <HoverCard>
-            <HoverCardTrigger className="inline-flex">
+              <LogIn size={16} />
+            </a>
+          ) : (
+            <OverlayMenuLauncher
+              placement={placement}
+              dragging={dragging}
+              status={launcherStatus}
+              mark={<ValMark />}
+              holdOpen={settingsOpen}
+            >
+              {!inPreview && (
+                <MenuButton
+                  label="Enable preview mode"
+                  disabled={draftModeLoading}
+                  icon={
+                    draftModeLoading ? (
+                      <AnimatedClock size={16} />
+                    ) : (
+                      <Eye size={16} />
+                    )
+                  }
+                  onClick={() => {
+                    setDraftMode(true);
+                  }}
+                />
+              )}
               <MenuButton
-                disabled={draftModeLoading}
-                icon={
-                  draftModeLoading ? (
-                    <AnimatedClock size={16} />
-                  ) : (
-                    <EyeOff size={16} />
-                  )
+                label={
+                  validationErrorCount > 0
+                    ? `Open in Studio (${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"})`
+                    : patchIds.length > 0
+                      ? `Open in Studio (${patchIds.length} pending change${patchIds.length === 1 ? "" : "s"})`
+                      : "Open in Studio"
                 }
-                onClick={() => setDraftMode(false)}
-              />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              Exit preview mode to see the currently published version of your
-              content
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          <OverlayMenuDivider orientation={dir} />
-          <HoverCard>
-            <HoverCardTrigger asChild>
-              <MenuButton
-                href={appendSessionParam(
-                  window.origin + "/val/compare",
-                  bornSessionId,
-                )}
+                href={studioHref}
                 icon={
-                  // flex, so the icon does not sit on a text baseline and make
-                  // this button taller than the others
+                  // flex, so the icon does not sit on a text baseline and
+                  // make this button taller than the others
                   <div className="flex relative">
                     <PendingChangesBadge
                       patchCount={patchIds.length}
                       validationErrorCount={validationErrorCount}
                     />
-                    <GitCompareArrows size={16} />
+                    {studioIcon}
                   </div>
                 }
               />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              {validationErrorCount > 0 && (
-                <div className="text-fg-error-primary">
-                  {validationErrorCount} validation error
-                  {validationErrorCount > 1 && "s"}
-                </div>
-              )}
-              {patchIds.length > 0 && validationErrorCount === 0 && (
-                <div>
-                  {patchIds.length} pending change
-                  {patchIds.length > 1 && "s"}
-                </div>
-              )}
-              Review changes in Studio
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          <PublishButton
-            compact
-            onHoldOpenChange={setPublishHoldsMenuOpen}
-            popoverSide={publishPopoverSide}
-          />
-          <HoverCard>
-            <HoverCardTrigger asChild>
-              <MenuButton
-                icon={
-                  sourcePathResult.status === "success" &&
-                  sourcePathResult.data ? (
-                    <Globe size={16} />
-                  ) : (
-                    <PanelsTopLeft size={16} />
-                  )
-                }
-                href={appendSessionParam(
-                  window.origin +
-                    "/val/~" +
-                    (sourcePathResult.status === "success" &&
-                    sourcePathResult.data
-                      ? sourcePathResult.data
-                      : ""),
-                  bornSessionId,
-                )}
+              {settings}
+              <OverlayMenuDivider
+                orientation={placementOrientation(placement)}
               />
-            </HoverCardTrigger>
-            <HoverCardContent
-              side={publishPopoverSide}
-              className="z-50"
-              container={portalContainer}
-            >
-              Open Val Studio to edit and manage your content
-              <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-            </HoverCardContent>
-          </HoverCard>
-          {(valMode === "http" || valMode === "fs") && isChatEnabled && (
-            <HoverCard>
-              <HoverCardTrigger className="inline-flex">
-                <MenuButton
-                  active={isChatOpen}
-                  onClick={() => setIsChatOpen((prev) => !prev)}
-                  icon={<MessageSquare size={16} />}
-                />
-              </HoverCardTrigger>
-              <HoverCardContent
-                side={publishPopoverSide}
-                className="z-50"
-                container={portalContainer}
-              >
-                Open AI Chat to ask questions and edit content with AI
-                <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
-              </HoverCardContent>
-            </HoverCard>
-          )}
-          <Popover>
-            <PopoverTrigger
-              className={classNames(buttonClassName, buttonInactiveClassName)}
-            >
-              <Ellipsis size={16} />
-            </PopoverTrigger>
-            <PopoverContent container={portalContainer} className="z-[9003]">
-              <div className="grid grid-cols-[1fr,auto] gap-2 items-center">
-                <span>Position</span>
-                <Select
-                  value={dropZone}
-                  onValueChange={(value) => {
-                    setDropZone(value as DropZones);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue>
-                      <DropZoneLabel dropZone={dropZone} />
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent
-                    container={portalContainer}
-                    className="z-[9004]"
-                  >
-                    {allDropZones.map((zone) => (
-                      <SelectItem key={zone} value={zone}>
-                        <DropZoneLabel dropZone={zone} />
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span>
-                  {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
-                </span>
-                <Switch
-                  checked={resolvedTheme === "dark"}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      setTheme("dark");
-                    } else {
-                      setTheme("light");
-                    }
-                  }}
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
-        </OverlayMenuLauncher>
-      </AnimateHeight>
-      <AnimateHeight
-        isOpen={
-          !(draftMode && !draftModeLoading) &&
-          !loading &&
-          authenticationState !== "login-required"
+              <MenuButton
+                label="Turn off Val on this site"
+                icon={<X size={16} />}
+                onClick={() => disableOverlay()}
+              />
+            </OverlayMenuLauncher>
+          )
         }
-      >
-        <OverlayMenuLauncher
-          orientation={dir}
-          dock={launcherDock}
-          ghost={ghost}
-          status={launcherStatus}
-          mark={<ValMark />}
-        >
-          <MenuButton
-            label="Enable preview mode"
-            disabled={draftModeLoading}
-            icon={
-              draftModeLoading ? <AnimatedClock size={16} /> : <Eye size={16} />
-            }
-            onClick={() => {
-              setDraftMode(true);
-            }}
-          />
-          <MenuButton
-            label="Studio"
-            icon={
-              sourcePathResult.status === "success" && sourcePathResult.data ? (
-                <Globe size={16} />
-              ) : (
-                <PanelsTopLeft size={16} />
-              )
-            }
-            href={appendSessionParam(
-              window.origin +
-                "/val/~" +
-                (sourcePathResult.status === "success" && sourcePathResult.data
-                  ? sourcePathResult.data
-                  : ""),
-              bornSessionId,
-            )}
-          />
-          <MenuButton
-            label="Disable Val"
-            icon={<X size={16} />}
-            onClick={() => disableOverlay()}
-          />
-        </OverlayMenuLauncher>
-      </AnimateHeight>
-    </div>
+      </OverlayMenuDock>
+    </>
   );
 }
 
@@ -2012,210 +612,41 @@ const MenuButton = React.forwardRef<
 );
 MenuButton.displayName = "MenuButton";
 
-function DraggableValMenu(props: ValMenuProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const { dropZone, setDropZone } = props;
-  const [dragOverDropZone, setDragOverDropZone] = useState<DropZones | null>(
-    null,
-  );
-  const onDrop = (id: DropZones) => (event: React.DragEvent) => {
-    event.preventDefault();
-    setDropZone(id);
-  };
-  const onDragOver = (id: DropZones) => (event: React.DragEvent) => {
-    event.preventDefault();
-    setDragOverDropZone(id);
-  };
-  return (
-    <>
-      {dropZone && (
-        <div
-          className={classNames(
-            "z-[8999] cursor-grab",
-            getPositionClassName(dropZone),
-          )}
-          draggable
-          onDragStart={() => {
-            setIsDragging(true);
-          }}
-          onDragEnd={() => {
-            setIsDragging(false);
-          }}
-        >
-          <ValMenu {...props} dropZone={dropZone} />
-        </div>
-      )}
-      {isDragging && dropZone && (
-        <>
-          {dragOverDropZone && dragOverDropZone !== dropZone && (
-            <div
-              className={classNames(
-                "z-[3]",
-                getPositionClassName(dragOverDropZone),
-              )}
-              onDrop={onDrop(dragOverDropZone)}
-              onDragOver={onDragOver(dragOverDropZone)}
-            >
-              <ValMenu ghost {...props} dropZone={dragOverDropZone} />
-            </div>
-          )}
-          <div className="fixed top-0 left-0 grid w-screen h-screen grid-cols-3 grid-rows-3 z-[2]">
-            <DropZone
-              id="val-menu-left-top"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-center-top"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-right-top"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-left-center"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <div></div>
-            <DropZone
-              id="val-menu-right-center"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-left-bottom"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-center-bottom"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-            <DropZone
-              id="val-menu-right-bottom"
-              dropZone={dropZone}
-              dragOverDropZone={dragOverDropZone}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            ></DropZone>
-          </div>
-        </>
-      )}
-    </>
-  );
-}
-
-// NOTE: This is also used in ValNextProvider to display a loading spinner
 /**
- * Where the handoff card sits: off the dock's edge, toward the page, far
- * enough out to clear the bar in any of its eight positions.
+ * Where the cards beside the menu sit: one step in from the edge the menu is
+ * on, so they clear it wherever along that edge it is, and toward the same
+ * end of the edge as the menu.
  */
-function handoffCardPositionClassName(dropZone: string | null): string {
-  const base = "fixed transform z-[8999]";
-  switch (dropZone) {
-    case "val-menu-left-top":
-      return `${base} left-4 top-20`;
-    case "val-menu-left-center":
-      return `${base} left-20 top-1/2 -translate-y-1/2`;
-    case "val-menu-left-bottom":
-      return `${base} left-4 bottom-20`;
-    case "val-menu-center-top":
-      return `${base} left-1/2 -translate-x-1/2 top-20`;
-    case "val-menu-center-bottom":
-      return `${base} left-1/2 -translate-x-1/2 bottom-20`;
-    case "val-menu-right-top":
-      return `${base} right-4 top-20`;
-    case "val-menu-right-center":
-      return `${base} right-20 top-1/2 -translate-y-1/2`;
-    default:
-      return `${base} right-4 bottom-20`;
+function handoffCardPositionClassName(placement: OverlayPlacement): string {
+  const base = "fixed z-[8999]";
+  const third =
+    placement.offset < 1 / 3
+      ? "start"
+      : placement.offset > 2 / 3
+        ? "end"
+        : "middle";
+  switch (placement.edge) {
+    case "left":
+    case "right": {
+      const across = placement.edge === "left" ? "left-20" : "right-20";
+      const along =
+        third === "start"
+          ? "top-4"
+          : third === "end"
+            ? "bottom-4"
+            : "top-1/2 -translate-y-1/2";
+      return `${base} ${across} ${along}`;
+    }
+    case "top":
+    case "bottom": {
+      const across = placement.edge === "top" ? "top-20" : "bottom-20";
+      const along =
+        third === "start"
+          ? "left-4"
+          : third === "end"
+            ? "right-4"
+            : "left-1/2 -translate-x-1/2";
+      return `${base} ${across} ${along}`;
+    }
   }
-}
-
-function getPositionClassName(dropZone: string | null) {
-  let className = "fixed transform";
-  if (dropZone === "val-menu-left-top") {
-    className += " left-0 top-0";
-  } else if (dropZone === "val-menu-left-center") {
-    className += " left-0 top-1/2 -translate-y-1/2";
-  } else if (dropZone === "val-menu-left-bottom") {
-    className += " left-0 bottom-0";
-  } else if (dropZone === "val-menu-center-top") {
-    className += " left-1/2 -translate-x-1/2 top-0";
-  } else if (dropZone === "val-menu-center-bottom") {
-    className += " left-1/2 -translate-x-1/2 bottom-0";
-  } else if (dropZone === "val-menu-right-top") {
-    className += " right-0 top-0";
-  } else if (dropZone === "val-menu-right-center") {
-    className += " right-0 top-1/2 -translate-y-1/2";
-  } else if (dropZone === "val-menu-right-bottom") {
-    className += " right-0 bottom-0";
-  } else {
-    className += " right-0 bottom-0";
-  }
-  return className;
-}
-
-const DropZone = ({
-  id,
-  onDrop,
-  onDragOver,
-}: {
-  id: DropZones;
-  onDrop: (id: DropZones) => (event: React.DragEvent) => void;
-  onDragOver: (id: DropZones) => (event: React.DragEvent) => void;
-  dropZone: DropZones;
-  dragOverDropZone: DropZones | null;
-}) => {
-  return <div onDrop={onDrop(id)} onDragOver={onDragOver(id)}></div>;
-};
-
-function maxRect(
-  rect: { top: number; left: number; width: number; height: number },
-  viewport: { top: number; left: number; width: number; height: number },
-  strokeWidth: number,
-) {
-  // Calculate the rect with stroke
-  const rectTop = rect.top - strokeWidth;
-  const rectLeft = rect.left - strokeWidth;
-  const rectWidth = rect.width + strokeWidth * 2;
-  const rectHeight = rect.height + strokeWidth * 2;
-
-  // Clip to viewport bounds
-  const clippedTop = Math.max(viewport.top, rectTop);
-  const clippedLeft = Math.max(viewport.left, rectLeft);
-  const clippedRight = Math.min(
-    viewport.left + viewport.width,
-    rectLeft + rectWidth,
-  );
-  const clippedBottom = Math.min(
-    viewport.top + viewport.height,
-    rectTop + rectHeight,
-  );
-
-  return {
-    top: clippedTop,
-    left: clippedLeft,
-    width: Math.max(0, clippedRight - clippedLeft),
-    height: Math.max(0, clippedBottom - clippedTop),
-  };
 }
