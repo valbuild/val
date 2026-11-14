@@ -14,6 +14,32 @@ function side(
 
 describe("wordDiff", () => {
   /**
+   * A clause added after a word is an addition, and the word is untouched.
+   * With punctuation glued to the word it ended, "code" and "code," were
+   * different words, and the diff struck out a word nobody changed.
+   */
+  test("punctuation that ends a word does not change the word", () => {
+    const before = "Content that ships with your code";
+    const after = "Content that ships with the code, and stays editable";
+    const segments = wordDiff(before, after);
+    expect(segments.filter((segment) => segment.kind === "removed")).toEqual([
+      { text: "your", kind: "removed" },
+    ]);
+    expect(side(segments, "before")).toBe(before);
+    expect(side(segments, "after")).toBe(after);
+  });
+
+  /** Inside a token it stays: these are one word each, not three. */
+  test("punctuation inside a token is kept in it", () => {
+    const segments = wordDiff("gap: 1.5rem", "gap: 2.5rem");
+    expect(segments).toEqual([
+      { text: "gap: ", kind: "same" },
+      { text: "1.5rem", kind: "removed" },
+      { text: "2.5rem", kind: "added" },
+    ]);
+  });
+
+  /**
    * The invariant that matters more than any particular grouping: whatever the
    * diff decides, rendering it must reproduce the two stored values exactly. A
    * review screen that shows a value which is not the stored value is worse
