@@ -41,25 +41,31 @@ export function pageSubmitQuestions(
   approval: PageApproval,
 ): AskUserQuestionItem[] {
   if (approval.kind === "action") {
-    const what =
-      approval.action === "click"
-        ? "click"
-        : `press ${approval.key ?? "a key"} on`;
     const named =
       approval.label !== ""
         ? `the ${approval.role} \u201c${approval.label}\u201d`
         : `a ${approval.role}`;
+    const what =
+      approval.action === "click"
+        ? `click ${named}`
+        : approval.submits !== undefined
+          ? `press ${approval.key ?? "Enter"} in ${named}, which submits its form${
+              approval.submits !== ""
+                ? ` (\u201c${approval.submits}\u201d)`
+                : ""
+            }`
+          : `press ${approval.key ?? "a key"} on ${named}`;
     return [
       {
         header: "Use the site",
         question:
-          `The assistant wants to ${what} ${named} on ${approval.page} in the preview. ` +
+          `The assistant wants to ${what} on ${approval.page} in the preview. ` +
           "This is the real site: a click can save, send, buy or delete something. Let it?",
         options: [
           {
             label: ALLOW,
             description:
-              "Exactly this, once, on this element. If the page changed meanwhile, you are asked again.",
+              "Exactly this, once, on this element. If the element changed meanwhile, you are asked again.",
           },
           {
             label: DONT_ALLOW,

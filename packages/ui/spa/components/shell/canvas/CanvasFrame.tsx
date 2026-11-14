@@ -1043,8 +1043,10 @@ export function CanvasFrame({
             throw new PageRefusedError(outcome.error);
           }
           if (outcome.status === "needs-approval") {
-            // The new page tried to send something as it loaded: kept from
-            // it, and asked about like any other.
+            // The new page tried to send something while it settled, after
+            // it said `ready`: held, and asked about like any other. What it
+            // sent while it LOADED, before then, was not held -- nothing
+            // runs in a document before it does.
             return approvalAnswer(outcome.approval);
           }
           return {
@@ -1057,7 +1059,10 @@ export function CanvasFrame({
 
       const action = request.action;
       if (action.kind === "open") {
-        const refused = unanswered("interact:settle");
+        // Asked before navigating, so a page that cannot answer is refused
+        // with nothing changed.
+        const refused =
+          unanswered("interact:settle") ?? unanswered("interact:release");
         if (refused !== null) throw refused;
         const target = sitePathOf(action.path, origin);
         if ("error" in target) throw new Error(target.error);
@@ -1087,15 +1092,20 @@ export function CanvasFrame({
         }
         // Asked before resizing, so an older page is refused with nothing
         // changed.
-        const refused = unanswered("interact:settle");
+        const refused =
+          unanswered("interact:settle") ?? unanswered("interact:release");
         if (refused !== null) throw refused;
         const width = CANVAS_DEVICE_WIDTHS[action.device];
-        resize(action.device);
         did = `set the preview to ${action.device} width (${width}px)`;
-        outcome = await askToInteract(
+        // The settle is asked for FIRST, so its hold is up before the page
+        // is resized -- best effort: the page hears the message and the
+        // resize as two separate tasks, in the order the browser runs them.
+        const settling = askToInteract(
           { kind: "settle", width },
           { deadline, ...(maxItems !== undefined ? { maxItems } : {}) },
         );
+        resize(action.device);
+        outcome = await settling;
       } else {
         outcome = await askToInteract(action, {
           deadline,

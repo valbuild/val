@@ -336,6 +336,39 @@ describe("using the page in the canvas", () => {
     await expect(answered).rejects.toThrow(/more than the 10/);
   });
 
+  it("asks for the hold before it opens or resizes anything, and settles before it resizes", async () => {
+    ready(BRIDGE_CAPABILITIES.filter((name) => name !== "interact:release"));
+    await expect(
+      start({ action: { kind: "open", path: "/about" } }),
+    ).rejects.toThrow(/hold what it sends for your approval/);
+    await expect(
+      start({ action: { kind: "viewport", device: "mobile" } }),
+    ).rejects.toThrow(/hold what it sends for your approval/);
+    expect(frame.getAttribute("src")).toBe("/shop?val_canvas=1");
+    expect(devices).toEqual([]);
+
+    // With a bridge that holds: the settle is on its way before the width
+    // changes.
+    ready();
+    // At the moment of the resize, the settle had already been posted.
+    let sent = 0;
+    let postedAtResize: number | null = null;
+    rerenderWith({
+      onDeviceChange: () => {
+        postedAtResize = posted.length - sent;
+      },
+    });
+    sent = posted.length;
+    const answered = start({ action: { kind: "viewport", device: "mobile" } });
+    expect(postedAtResize).toBe(1);
+    await flush();
+    answer(asked()[0].requestId, {
+      status: "done",
+      interaction: interaction("waited for the page"),
+    });
+    await expect(answered).resolves.toMatchObject({ status: "done" });
+  });
+
   it("listens only to the document it asked", async () => {
     ready(undefined, "doc-1");
     const answered = start({ action: { kind: "click", selector: "#send" } });

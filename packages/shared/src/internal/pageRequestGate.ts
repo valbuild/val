@@ -40,12 +40,19 @@
  *
  * ## Not covered, in either mode
  *
- * Requests sent after the page settled (an autosave on a timer), WebSocket
- * and EventSource traffic, workers, embedded frames, a reference to the
- * original `fetch` or `XMLHttpRequest.prototype.send` taken before the
- * action, an XHR opened before the action, and GET navigations -- links,
- * which can have side effects of their own (a logout link, an unsubscribe
- * link).
+ * Requests a page sends while it loads (a gate starts with an action, in a
+ * document that is already there), requests sent after the page settled
+ * (an autosave on a timer), WebSocket and EventSource traffic, workers,
+ * embedded frames, a reference to the original `fetch` or
+ * `XMLHttpRequest.prototype.send` taken before the action, an XHR opened
+ * before the action, GET, HEAD and OPTIONS requests -- to other sites too,
+ * where a query string can carry data -- image and script loads, and GET
+ * navigations: links, which can have side effects of their own (a logout
+ * link, an unsubscribe link), and script navigations and redirects, which
+ * can leave the site.
+ *
+ * A body that cannot be copied as it is (a stream, a document) is not held
+ * but refused, so what Allow sends is always what the person was shown.
  *
  * Every wrapper knows when its gate has stopped and then passes straight
  * through to what it wrapped, so a page or an SDK that wraps `fetch` again
@@ -78,8 +85,14 @@ export const MAX_HELD_REQUESTS = 10;
 /** How much of a request's body the person is shown. */
 export const BODY_EXCERPT_LENGTH = 200;
 
-/** A held request, and how to send or refuse it. */
-type Held = PageRequest & { send: () => void; refuse: () => void };
+/**
+ * A held request, and how to send or refuse it. `send` says why it could
+ * not be sent, if it could not.
+ */
+type Held = PageRequest & {
+  send: () => string | undefined;
+  refuse: () => void;
+};
 
 /** The methods that only read: let through. */
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -158,19 +171,29 @@ export function startRequestGate(
       return new Promise<Response>((resolve, reject) => {
         const refuse = () => reject(abortError(win));
         if (decision === "block") return block(request, refuse);
-        // As it is now: what the person is shown is what Allow sends.
+        // As it is now: what the person is shown is what Allow sends -- a
+        // `Request` copy, or where there is none, a copy of the body.
         const snapshot = snapshotRequest(win, input, init);
+        const body =
+          snapshot === null
+            ? copyBody(win, init !== undefined ? init.body : undefined)
+            : { copy: undefined };
+        if (body === null) return block(request, refuse);
         held.push({
           ...request,
           refuse,
           send: () => {
             // The address again, as it will be sent: still this site?
             const url = snapshot?.url ?? request.url;
-            if (!isSameSite(url, origin)) return refuse();
+            if (!isSameSite(url, origin)) {
+              refuse();
+              return "its address is not on this site";
+            }
             (snapshot !== null
               ? originalFetch.call(win, snapshot)
-              : call()
+              : originalFetch.call(win, input, { ...init, body: body.copy })
             ).then(resolve, reject);
+            return undefined;
           },
         });
       });
@@ -219,12 +242,46 @@ export function startRequestGate(
       if (decision === "send") return counted();
       const refuse = () => failXhr(win, this);
       if (decision === "block") return block(withBody, refuse);
+      // The body as it is now; one that cannot be copied is not held.
+      const body = copyBody(win, args[0]);
+      if (body === null) return block(withBody, refuse);
+      // Opened again before the person answered: the page moved on, and
+      // this hold is no longer what it would send.
+      let reopened = false;
+      Reflect.defineProperty(this, "open", {
+        configurable: true,
+        writable: true,
+        // An arrow: `this` is the page's XHR, as in the send around it.
+        value: (...again: unknown[]) => {
+          reopened = true;
+          Reflect.deleteProperty(this, "open");
+          return Reflect.apply(this.open, this, again);
+        },
+      });
+      const forget = () => Reflect.deleteProperty(this, "open");
       held.push({
         ...withBody,
-        refuse,
+        refuse: () => {
+          forget();
+          if (!reopened) refuse();
+        },
         send: () => {
-          if (!isSameSite(withBody.url, origin)) return refuse();
-          counted();
+          forget();
+          if (reopened) return "the page opened it again before you answered";
+          if (!isSameSite(withBody.url, origin)) {
+            refuse();
+            return "its address is not on this site";
+          }
+          xhrInFlight++;
+          this.addEventListener(
+            "loadend",
+            () => {
+              xhrInFlight = Math.max(0, xhrInFlight - 1);
+            },
+            { once: true },
+          );
+          Reflect.apply(originalSend, this, [body.copy]);
+          return undefined;
         },
       });
     };
@@ -258,11 +315,21 @@ export function startRequestGate(
         block(request, () => {});
         return false;
       }
+      // The data as it is now; data that cannot be copied is not held.
+      const body = copyBody(win, data);
+      if (body === null) {
+        block(request, () => {});
+        return false;
+      }
       held.push({
         ...request,
         refuse: () => {},
         send: () => {
-          if (isSameSite(request.url, origin)) call(request.url);
+          if (!isSameSite(request.url, origin)) {
+            return "its address is not on this site";
+          }
+          Reflect.apply(originalBeacon, navigator, [request.url, body.copy]);
+          return undefined;
         },
       });
       return true;
@@ -299,9 +366,14 @@ export function startRequestGate(
       ...(fields !== null ? { body: excerptOfEntries(fields) } : {}),
       refuse: () => {},
       send: () => {
-        if (!isSameSite(target.url, origin)) return;
-        if (fields === null) return originalSubmit.call(form);
-        submitSnapshot(win, form, target, fields, originalSubmit);
+        if (!isSameSite(target.url, origin)) {
+          return "its address is not on this site";
+        }
+        if (fields === null) {
+          originalSubmit.call(form);
+          return undefined;
+        }
+        return submitSnapshot(win, form, target, fields, originalSubmit);
       },
     });
   };
@@ -374,9 +446,14 @@ export function startRequestGate(
         ...(fields !== null ? { body: excerptOfEntries(fields) } : {}),
         refuse: () => {},
         send: () => {
-          if (!isSameSite(target.url, origin)) return;
-          if (fields === null) return originalSubmit.call(form);
-          submitSnapshot(win, form, target, fields, originalSubmit);
+          if (!isSameSite(target.url, origin)) {
+            return "its address is not on this site";
+          }
+          if (fields === null) {
+            originalSubmit.call(form);
+            return undefined;
+          }
+          return submitSnapshot(win, form, target, fields, originalSubmit);
         },
       });
     });
@@ -409,7 +486,13 @@ export function startRequestGate(
 }
 
 /** Where a form goes, and how, as the browser resolves it. */
-type FormTarget = { method: string; url: string; otherWindow: boolean };
+type FormTarget = {
+  method: string;
+  url: string;
+  /** How its fields are encoded: the submitter's `formenctype` first. */
+  enctype: string;
+  otherWindow: boolean;
+};
 
 function formTargetOf(
   win: Win,
@@ -430,9 +513,16 @@ function formTargetOf(
     submitter?.getAttribute("formtarget") ??
     form.getAttribute("target") ??
     baseTargetOf(win.document);
+  // The attribute, not `formEnctype`: not every DOM reflects it, and the
+  // copy's `enctype` normalises whatever it is given.
+  const enctype =
+    submitter?.getAttribute("formenctype") ??
+    form.getAttribute("enctype") ??
+    "";
   return {
     method: method.toUpperCase(),
     url: resolveUrl(win, url) ?? "",
+    enctype,
     otherWindow: target !== null && target !== "" && target !== "_self",
   };
 }
@@ -459,9 +549,10 @@ function formDataOf(
 
 /**
  * Submit a held submission as it was snapshot: a form of its own, with the
- * fields it had then (files through a `DataTransfer`, where the browser has
- * one), to the address and with the method it had -- appended for the
- * submit, and removed after.
+ * fields it had then, to the address, with the method and the encoding it
+ * had -- appended for the submit, and removed after. Files go through a
+ * `DataTransfer`; where the browser has none, a form with files is not sent
+ * at all rather than sent without them: the answer says why.
  */
 function submitSnapshot(
   win: Win,
@@ -469,12 +560,19 @@ function submitSnapshot(
   target: FormTarget,
   fields: FormData,
   submit: () => void,
-): void {
+): string | undefined {
+  let hasFiles = false;
+  fields.forEach((value) => {
+    if (typeof value !== "string") hasFiles = true;
+  });
+  if (hasFiles && typeof win.DataTransfer !== "function") {
+    return "the form sends a file, which this browser cannot attach to the copy that would be sent -- submit it yourself in the preview";
+  }
   const doc = form.ownerDocument;
   const copy = doc.createElement("form");
   copy.method = target.method.toLowerCase();
   copy.action = target.url;
-  copy.enctype = form.enctype;
+  copy.enctype = target.enctype;
   copy.acceptCharset = form.acceptCharset;
   copy.target = "_self";
   copy.hidden = true;
@@ -502,6 +600,7 @@ function submitSnapshot(
   } finally {
     copy.remove();
   }
+  return undefined;
 }
 
 /** A refused XHR, as one that failed: done, and every event a page waits on. */
@@ -559,21 +658,37 @@ export function releaseHold(
   win: Window,
   id: string,
   allow: boolean,
-): readonly PageRequest[] | null {
+): { requests: readonly PageRequest[]; notSent: string[] } | null {
   const holds = holdsOf(win);
   const hold = holds.get(id);
   if (hold === undefined) return null;
   holds.delete(id);
   clearTimeout(hold.timer);
+  const notSent: string[] = [];
   for (const request of hold.requests) {
     try {
-      if (allow) request.send();
-      else request.refuse();
-    } catch {
+      if (allow) {
+        const why = request.send();
+        if (why !== undefined)
+          notSent.push(`${request.method} ${request.url}: ${why}`);
+      } else {
+        request.refuse();
+      }
+    } catch (error) {
       // One that cannot be sent does not stop the rest.
+      notSent.push(
+        `${request.method} ${request.url}: ${error instanceof Error ? error.message : "it failed"}`,
+      );
     }
   }
-  return hold.requests.map(({ via, method, url }) => ({ via, method, url }));
+  return {
+    requests: hold.requests.map(({ via, method, url }) => ({
+      via,
+      method,
+      url,
+    })),
+    notSent,
+  };
 }
 
 /** Refuse every hold of the window: a new action means they were not wanted. */
@@ -684,6 +799,41 @@ function snapshotRequest(
     return typeof win.Request === "function"
       ? new win.Request(input, init)
       : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A copy of a request body as it is now, so the page changing it later
+ * does not change what is sent: `null` for a body that cannot be copied (a
+ * stream, a document), which is then not held but refused.
+ */
+function copyBody(
+  win: Win,
+  body: unknown,
+): { copy: BodyInit | null | undefined } | null {
+  try {
+    if (body === undefined || body === null) return { copy: body };
+    if (typeof body === "string") return { copy: body };
+    if (body instanceof win.URLSearchParams) {
+      return { copy: new win.URLSearchParams(body.toString()) };
+    }
+    if (body instanceof win.FormData) {
+      const copy = new win.FormData();
+      body.forEach((value, name) => copy.append(name, value));
+      return { copy };
+    }
+    if (body instanceof win.Blob) {
+      return { copy: body.slice(0, body.size, body.type) };
+    }
+    if (body instanceof ArrayBuffer) return { copy: body.slice(0) };
+    if (ArrayBuffer.isView(body)) {
+      const copy = new Uint8Array(body.byteLength);
+      copy.set(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+      return { copy };
+    }
+    return null;
   } catch {
     return null;
   }

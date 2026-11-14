@@ -769,6 +769,7 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
       const role = text("role");
       const tag = text("tag");
       const key: unknown = Reflect.get(approval, "key");
+      const submits: unknown = Reflect.get(approval, "submits");
       const pageKey = PAGE_KEYS.find((known) => known === key);
       if (
         fingerprint === null ||
@@ -786,6 +787,7 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
           fingerprint,
           action,
           ...(pageKey !== undefined ? { key: pageKey } : {}),
+          ...(typeof submits === "string" ? { submits } : {}),
           page,
           label,
           role,

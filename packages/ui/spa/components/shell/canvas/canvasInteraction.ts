@@ -130,6 +130,9 @@ export function trustedApproval(
         fingerprint: approval.fingerprint,
         action: approval.action,
         ...(approval.key !== undefined ? { key: approval.key } : {}),
+        ...(approval.submits !== undefined
+          ? { submits: quotable(approval.submits, 60) }
+          : {}),
         page: pagePath,
         label: quotable(approval.label, 60),
         role: KNOWN_ROLES.has(approval.role) ? approval.role : tag,

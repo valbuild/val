@@ -604,6 +604,136 @@ describe("the canvas bridge, used from the Studio", () => {
       expect(defaultPrevented).toBe(true);
     });
 
+    it("never acts on an element the page swapped in after the person allowed", async () => {
+      const deleted = jest.fn();
+      const send = jest
+        .spyOn(XMLHttpRequest.prototype, "send")
+        .mockImplementation(() => {});
+      function Page() {
+        return (
+          <main>
+            <input
+              id="q"
+              onChange={() => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", "/api/draft");
+                // The page's own reaction to a failed save, at once: a new
+                // button where the old one was.
+                xhr.onerror = () => {
+                  const danger = document.createElement("button");
+                  danger.id = "go";
+                  danger.textContent = "Delete account";
+                  danger.addEventListener("click", deleted);
+                  document.getElementById("go")?.replaceWith(danger);
+                };
+                xhr.send("{}");
+              }}
+            />
+            <button id="go">Save draft</button>
+          </main>
+        );
+      }
+      try {
+        render(
+          <>
+            <Page />
+            <ValCanvasBridge draftMode />
+          </>,
+        );
+        // The person is asked about "Save draft"...
+        const asked = await interact({ kind: "click", selector: "#go" });
+        expect(asked).toMatchObject({ approval: { label: "Save draft" } });
+        const fingerprint = String(
+          Reflect.get(
+            Object(Reflect.get(Object(asked), "approval")),
+            "fingerprint",
+          ),
+        );
+        // ...meanwhile typing makes the page hold an XHR...
+        expect(
+          await interact({ kind: "type", selector: "#q", text: "x" }),
+        ).toMatchObject({ approval: { kind: "requests" } });
+        // ...and the Allow arrives: refusing that XHR swaps the button.
+        expect(
+          await interact(
+            { kind: "click", selector: "#go" },
+            { approved: fingerprint },
+          ),
+        ).toMatchObject({
+          status: "needs-approval",
+          approval: { label: "Delete account" },
+        });
+        expect(deleted).not.toHaveBeenCalled();
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("names the element as its accessible name does", async () => {
+      render(
+        <main>
+          <span id="caption">Newsletter address</span>
+          <input id="by" aria-labelledby="caption" />
+          <label htmlFor="for">Your name</label>
+          <input id="for" />
+          <label>
+            Phone <input id="around" />
+          </label>
+          <input id="hint" placeholder="Search the shop" />
+          <ValCanvasBridge draftMode />
+        </main>,
+      );
+      for (const [selector, label] of [
+        ["#by", "Newsletter address"],
+        ["#for", "Your name"],
+        ["#around", "Phone"],
+        ["#hint", "Search the shop"],
+      ]) {
+        expect(await interact({ kind: "click", selector })).toMatchObject({
+          approval: { label: expect.stringContaining(label) },
+        });
+      }
+    });
+
+    it("says when Enter would submit the form, and names its button", async () => {
+      render(
+        <main>
+          <form action="/subscribe" method="post">
+            <input name="email" />
+            <button>Subscribe</button>
+          </form>
+          <form action="/search">
+            <input name="q" />
+          </form>
+          <input name="loose" />
+          <ValCanvasBridge draftMode />
+        </main>,
+      );
+      expect(
+        await interact({
+          kind: "press",
+          key: "Enter",
+          selector: 'input[name="email"]',
+        }),
+      ).toMatchObject({ approval: { submits: "Subscribe" } });
+      // One field and no button: it still submits, with nothing to name.
+      expect(
+        await interact({
+          kind: "press",
+          key: "Enter",
+          selector: 'input[name="q"]',
+        }),
+      ).toMatchObject({ approval: { submits: "" } });
+      const loose = await interact({
+        kind: "press",
+        key: "Enter",
+        selector: 'input[name="loose"]',
+      });
+      expect(
+        Reflect.get(Object(Reflect.get(Object(loose), "approval")), "submits"),
+      ).toBeUndefined();
+    });
+
     it("refuses an off-site link before asking, and nothing is clicked (no ping)", async () => {
       const clicks: unknown[] = [];
       render(
@@ -895,6 +1025,181 @@ describe("the canvas bridge, used from the Studio", () => {
       // After the action, the page's POST goes straight out.
       await window.fetch("/api/later", { method: "POST" });
       expect(sent).toEqual([{ url: "/api/later", method: "POST" }]);
+    });
+
+    it("sends a held XHR's body as it was, and drops the hold if the page opens it again", async () => {
+      const bodies: unknown[] = [];
+      const send = jest
+        .spyOn(XMLHttpRequest.prototype, "send")
+        .mockImplementation((body?: unknown) => {
+          bodies.push(body instanceof FormData ? body.get("email") : body);
+        });
+      // What the page made, kept where the test can reach it.
+      const page: { xhr: XMLHttpRequest | null; fields: FormData | null } = {
+        xhr: null,
+        fields: null,
+      };
+      try {
+        render(
+          <>
+            <Field
+              onType={(value) => {
+                const xhr = new XMLHttpRequest();
+                page.xhr = xhr;
+                xhr.open("POST", "/api/draft");
+                const fields = new FormData();
+                fields.append("email", value);
+                page.fields = fields;
+                xhr.send(fields);
+              }}
+            />
+            <ValCanvasBridge draftMode />
+          </>,
+        );
+        const first = heldOf(await type("ada@example.com"));
+        // The page changes what it sent while the card waits.
+        page.fields?.set("email", "changed@example.com");
+        await interact({ kind: "release", hold: first.hold, allow: true });
+        expect(bodies).toEqual(["ada@example.com"]);
+
+        const second = heldOf(await type("x"));
+        // Opened again before the person answered: no longer that request.
+        page.xhr?.open("GET", "/api/other");
+        expect(
+          await interact({ kind: "release", hold: second.hold, allow: true }),
+        ).toMatchObject({
+          status: "done",
+          interaction: {
+            did: expect.stringContaining("the page opened it again"),
+          },
+        });
+        expect(bodies).toEqual(["ada@example.com"]);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("refuses to hold a body it cannot copy", async () => {
+      const send = jest
+        .spyOn(XMLHttpRequest.prototype, "send")
+        .mockImplementation(() => {});
+      try {
+        render(
+          <>
+            <Field
+              onType={() => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", "/api/draft");
+                // A document: nothing that can be copied as it is now.
+                xhr.send(document);
+              }}
+            />
+            <ValCanvasBridge draftMode />
+          </>,
+        );
+        expect(await type()).toMatchObject({
+          status: "done",
+          interaction: {
+            blocked: [{ via: "xhr", method: "POST" }],
+          },
+        });
+        expect(send).not.toHaveBeenCalled();
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("submits a held form with the submitter's own encoding", async () => {
+      const encodings: string[] = [];
+      HTMLFormElement.prototype.submit = function (this: HTMLFormElement) {
+        encodings.push(this.enctype);
+      };
+      render(
+        <>
+          <main>
+            <form id="f" action="/upload" method="post">
+              <input
+                name="title"
+                onChange={() =>
+                  document
+                    .querySelector<HTMLFormElement>("#f")
+                    ?.requestSubmit(
+                      document.querySelector<HTMLElement>("#send") ?? undefined,
+                    )
+                }
+              />
+              <button
+                id="send"
+                formEncType="multipart/form-data"
+                formMethod="post"
+              >
+                Upload
+              </button>
+            </form>
+          </main>
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      const { hold } = heldOf(
+        await interact({
+          kind: "type",
+          selector: 'input[name="title"]',
+          text: "x",
+        }),
+      );
+      await interact({ kind: "release", hold, allow: true });
+      expect(encodings).toEqual(["multipart/form-data"]);
+    });
+
+    it("does not send a form with a file where the browser cannot attach it", async () => {
+      // jsdom has no DataTransfer: as a browser without one.
+      expect(typeof Reflect.get(window, "DataTransfer")).toBe("undefined");
+      render(
+        <>
+          <main>
+            <form
+              id="f"
+              action="/upload"
+              method="post"
+              encType="multipart/form-data"
+            >
+              <input type="file" name="photo" />
+              <input
+                name="title"
+                onChange={() =>
+                  document.querySelector<HTMLFormElement>("#f")?.submit()
+                }
+              />
+            </form>
+          </main>
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      const file = document.querySelector<HTMLInputElement>(
+        'input[name="photo"]',
+      );
+      if (file !== null) {
+        Object.defineProperty(file, "files", {
+          configurable: true,
+          value: [new File(["x"], "photo.png", { type: "image/png" })],
+        });
+      }
+      const fields = new FormData();
+      fields.append("photo", new File(["x"], "photo.png"));
+      jest.spyOn(window, "FormData").mockImplementation(() => fields);
+      const { hold } = heldOf(
+        await interact({
+          kind: "type",
+          selector: 'input[name="title"]',
+          text: "x",
+        }),
+      );
+      expect(
+        await interact({ kind: "release", hold, allow: true }),
+      ).toMatchObject({
+        interaction: { did: expect.stringContaining("sends a file") },
+      });
+      expect(submitted).toEqual([]);
     });
 
     it("puts the page's own functions back when the action ends", async () => {

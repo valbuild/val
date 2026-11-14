@@ -332,7 +332,7 @@ describe("interact_page", () => {
   test("answers with the page after the action, what changed, and whose words they are", async () => {
     const asked: PageInteractRequest[] = [];
     const answer = await runInteractPage(
-      { action: "click", selector: "#more", max_items: 50 },
+      { action: "type", selector: "#q", text: "x", max_items: 50 },
       {
         interactPage: (request) => {
           asked.push(request);
@@ -345,7 +345,7 @@ describe("interact_page", () => {
       },
     );
     expect(asked).toEqual([
-      { action: { kind: "click", selector: "#more" }, maxItems: 50 },
+      { action: { kind: "type", selector: "#q", text: "x" }, maxItems: 50 },
     ]);
     expect(answer).toMatchObject({
       isError: false,
@@ -425,6 +425,35 @@ describe("interact_page", () => {
     ]);
   });
 
+  test("never takes a click the page did without asking", async () => {
+    const done = {
+      status: "done" as const,
+      interaction: interaction(),
+      navigated: false,
+    };
+    for (const args of [
+      { action: "click", selector: "#buy" },
+      { action: "press", key: "Enter" },
+      { action: "press", key: "Space", selector: "#buy" },
+    ]) {
+      expect(
+        await runInteractPage(args, {
+          interactPage: () => Promise.resolve(done),
+        }),
+      ).toMatchObject({
+        isError: true,
+        result: { error: expect.stringContaining("without asking the person") },
+      });
+    }
+    // Escape asks nobody, and is taken.
+    expect(
+      await runInteractPage(
+        { action: "press", key: "Escape" },
+        { interactPage: () => Promise.resolve(done) },
+      ),
+    ).toMatchObject({ isError: false });
+  });
+
   test("says what is missing before it asks the page anything", async () => {
     const interactPage = jest.fn();
     for (const [args, error] of [
@@ -474,6 +503,14 @@ describe("interact_page", () => {
       expect(text).toMatch(/held until the page settles/);
       expect(text).toMatch(/autosave after a delay/);
       expect(text).toMatch(/WebSockets, workers, embedded frames/);
+      expect(text).toMatch(/GET, HEAD and OPTIONS|GET\/HEAD\/OPTIONS/);
+      expect(text).toMatch(/while it loads after open/);
+      expect(text).toMatch(/captured/);
+      expect(text).toMatch(
+        /script navigations or redirects|script navigations and redirects/,
+      );
+      expect(text).not.toContain("never leaves the site");
+      expect(text).not.toContain("anything but GET)");
       expect(text).not.toContain("however the page makes it");
       expect(text).not.toContain("buttons outside forms");
     }

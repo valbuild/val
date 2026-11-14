@@ -104,6 +104,25 @@ describe("the page gate", () => {
     ).toContain("wants to press Enter on the button");
   });
 
+  test("says when Enter submits the form, and that only the element is checked", () => {
+    const enter: ActionApproval = {
+      ...click,
+      action: "press",
+      key: "Enter",
+      role: "text field",
+      label: "Email",
+      submits: "Subscribe",
+    };
+    const [question] = pageSubmitQuestions(enter);
+    expect(question.question).toBe(
+      "The assistant wants to press Enter in the text field \u201cEmail\u201d, which submits its form (\u201cSubscribe\u201d) on /contact in the preview. " +
+        "This is the real site: a click can save, send, buy or delete something. Let it?",
+    );
+    expect(question.options[0].description).toBe(
+      "Exactly this, once, on this element. If the element changed meanwhile, you are asked again.",
+    );
+  });
+
   test("shows every held request, with what it sends", () => {
     expect(pageSubmitQuestions(held)[0].question).toBe(
       "While the assistant acted on “email” on /contact in the preview, the page tried to send this request to the real site, which may save, send or buy something: " +

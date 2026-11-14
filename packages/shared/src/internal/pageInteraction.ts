@@ -31,16 +31,21 @@
  *   settle after opening a page or changing the width -- requests that send
  *   data are held until the page settles (`pageRequestGate.ts`) and shown to
  *   the person, and Allow sends exactly those (the `release` action).
- * - **It never takes the frame off the site.** A link to another origin or
- *   into another window is refused before anything is asked; data sent to
- *   another site, and a form that would leave it, are refused when the page
- *   tries. (A script that navigates on its own cannot be stopped; the Studio
- *   then says no page arrived.)
+ * - **Links and forms that go to another site are refused.** A link to
+ *   another origin or into another window is refused before anything is
+ *   asked; sends of data to another site (POST, PUT, PATCH, DELETE, forms,
+ *   beacons), and a form that would leave it, are refused when the page
+ *   tries. (A script navigation or a redirect can still leave the site;
+ *   the Studio then says no page arrived.)
  * - **It never types into a password field.** Whatever the model was told.
  *
- * Not covered: what the page sends after it settled (an autosave on a
- * timer), WebSockets, workers, embedded frames, and the GET navigations of
- * typing and keys -- which can have side effects of their own.
+ * Not covered: what a page sends while it loads after `open` or any
+ * navigation (nothing of Val's runs in a document before it does), what it
+ * sends after it settled (an autosave on a timer), requests through a
+ * `fetch` or XHR captured before the action and XHRs opened before it,
+ * GET, HEAD and OPTIONS requests -- to other sites too -- and image or
+ * script loads, WebSockets, workers, embedded frames, and script
+ * navigations and redirects, which can still leave the site.
  *
  * ## The events are synthetic
  *
@@ -230,6 +235,11 @@ export type ActionApproval = {
   /** What it is: its role (`button`, `link`) or its tag. */
   role: string;
   tag: string;
+  /**
+   * Enter here submits a form: what the form's submit button says, or ""
+   * when it has none with a label. Absent when Enter submits nothing.
+   */
+  submits?: string;
   before: PageState;
 };
 
@@ -338,12 +348,15 @@ export async function interactWithPage(
   const doc = win.document;
   const before: PageState = stateOf(win);
   const mark = log?.mark() ?? 0;
+  // Anything still held from an action before this one was not wanted: the
+  // assistant moved on without the person's answer. FIRST: refusing a held
+  // XHR runs the page's own handlers, which can change the page -- so the
+  // element is looked for, and checked, only after.
+  if (request.action.kind !== "release") refuseAllHolds(win);
   // A click or Enter/Space: the person first, before anything is dispatched.
   const asked = askFirst(win, request);
-  if (asked !== "approved" && asked !== "not-asked") return asked;
-  // Anything still held from an action before this one was not wanted: the
-  // assistant moved on without the person's answer.
-  if (request.action.kind !== "release") refuseAllHolds(win);
+  if (asked.kind === "answer") return asked.outcome;
+  const approvedTarget = asked.kind === "approved" ? asked.target : null;
   // A cross-document navigation the action started: the page says so
   // before it goes, and the next document answers the rest.
   let leaving = false;
@@ -357,7 +370,7 @@ export async function interactWithPage(
   // From before the action is dispatched until the page settled. An action
   // the person approved is theirs: only what leaves the site is refused.
   const gate = startRequestGate(win, {
-    mode: asked === "approved" ? "off-site" : "hold",
+    mode: approvedTarget !== null ? "off-site" : "hold",
   });
   let stopped = false;
   const stopGate = () => {
@@ -365,9 +378,24 @@ export async function interactWithPage(
     return gate.stop();
   };
   try {
+    // The last look before anything is dispatched: still the element the
+    // person allowed, as they were shown it? If not, they are asked again.
+    if (
+      approvedTarget !== null &&
+      (!approvedTarget.isConnected ||
+        fingerprintOf(win, request, approvedTarget) !== request.approved)
+    ) {
+      refuseHeld(stopGate());
+      const again = askFirst(win, { ...request, approved: undefined });
+      return again.kind === "answer"
+        ? again.outcome
+        : refused(
+            "The page changed before the action: do it again to ask again.",
+          );
+    }
     let acted: Acted;
     try {
-      acted = act(win, request);
+      acted = act(win, request, approvedTarget);
     } catch (error) {
       refuseHeld(stopGate());
       return refused(
@@ -468,40 +496,50 @@ const MAX_REQUESTS = 20;
  * or `refused` for what would never be allowed. Nothing is dispatched to the
  * page here.
  */
-function askFirst(
-  win: Win,
-  request: InteractRequest,
-): PageInteractOutcome | "approved" | "not-asked" {
+type AskFirst =
+  | { kind: "approved"; target: Element }
+  | { kind: "not-asked" }
+  | { kind: "answer"; outcome: PageInteractOutcome };
+
+function askFirst(win: Win, request: InteractRequest): AskFirst {
   const action = request.action;
+  const answer = (outcome: PageInteractOutcome): AskFirst => ({
+    kind: "answer",
+    outcome,
+  });
   let target: Element;
   if (action.kind === "click") {
     const found = find(win, action.selector);
-    if (typeof found === "string") return refused(found);
+    if (typeof found === "string") return answer(refused(found));
     if (isDisabled(found)) {
-      return refused(
-        `${describe(found)} is disabled: clicking it does nothing.`,
+      return answer(
+        refused(`${describe(found)} is disabled: clicking it does nothing.`),
       );
     }
     target = found;
   } else if (action.kind === "press" && ASKING_KEYS.has(action.key)) {
     if (action.selector !== undefined) {
       const found = find(win, action.selector);
-      if (typeof found === "string") return refused(found);
+      if (typeof found === "string") return answer(refused(found));
       target = found;
     } else {
       target = win.document.activeElement ?? win.document.body;
     }
   } else {
-    return "not-asked";
+    return { kind: "not-asked" };
   }
   // Never asked about: a link off the site, or into another window.
   const offSite = leavesTheSite(win, target);
-  if (offSite !== null) return refused(offSite);
+  if (offSite !== null) return answer(refused(offSite));
   const fingerprint = fingerprintOf(win, request, target);
   if (request.approved !== undefined && request.approved === fingerprint) {
-    return "approved";
+    return { kind: "approved", target };
   }
-  return {
+  const submits =
+    action.kind === "press" && action.key === "Enter"
+      ? enterSubmits(win, target)
+      : null;
+  return answer({
     status: "needs-approval",
     approval: {
       kind: "action",
@@ -512,9 +550,33 @@ function askFirst(
       label: labelOf(target),
       role: roleOf(target),
       tag: clamp(target.tagName.toLowerCase(), 20),
+      ...(submits !== null ? { submits } : {}),
       before: stateOf(win),
     },
-  };
+  });
+}
+
+/**
+ * Whether Enter on `target` submits a form -- a field whose form submits
+ * implicitly, or that form's submit button -- and if so, what the form's
+ * submit button says ("" when it has none, or none is labelled). `null`
+ * when it submits nothing.
+ */
+function enterSubmits(win: Win, target: Element): string | null {
+  const control = target.closest("button, input");
+  if (control === null) return null;
+  const form: unknown = Reflect.get(control, "form");
+  if (!(form instanceof win.HTMLFormElement)) return null;
+  const html = asHtml(win, control);
+  if (html !== null && isSubmitButton(win, html)) return labelOf(html);
+  const isField =
+    control instanceof win.HTMLInputElement &&
+    !["submit", "image", "button", "reset", "checkbox", "radio"].includes(
+      control.type,
+    );
+  if (!isField || !submitsImplicitly(win, form)) return null;
+  const button = defaultButtonOf(win, form);
+  return button !== null ? labelOf(button) : "";
 }
 
 /**
@@ -574,7 +636,15 @@ type Acted =
   | { status: "acted"; did: string; label: string }
   | PageInteractOutcome;
 
-function act(win: Win, request: InteractRequest): Acted {
+/**
+ * Do the action. `approved`: the element the person allowed it on, found
+ * and checked by `askFirst` -- used as it is, never looked up again.
+ */
+function act(
+  win: Win,
+  request: InteractRequest,
+  approved: Element | null,
+): Acted {
   const action = request.action;
   switch (action.kind) {
     case "settle":
@@ -586,17 +656,21 @@ function act(win: Win, request: InteractRequest): Acted {
           "The requests the person was asked about are no longer waiting: the page reloaded, or they were refused already. Do the action again to ask again.",
         );
       }
-      const what = `${released.length} request${released.length === 1 ? "" : "s"}`;
+      const count = released.requests.length;
+      const what = `${count} request${count === 1 ? "" : "s"}`;
+      const notSent = released.notSent;
       return {
         status: "acted",
         did: action.allow
-          ? `sent the ${what} the person allowed`
+          ? notSent.length === 0
+            ? `sent the ${what} the person allowed`
+            : `sent ${count - notSent.length} of the ${what} the person allowed; not sent: ${notSent.join("; ")}`
           : `refused the ${what} the person did not allow`,
         label: "",
       };
     }
     case "click": {
-      const target = find(win, action.selector);
+      const target = approved ?? find(win, action.selector);
       if (typeof target === "string") return refused(target);
       return click(win, target);
     }
@@ -610,7 +684,10 @@ function act(win: Win, request: InteractRequest): Acted {
     }
     case "press": {
       let target: Element;
-      if (action.selector !== undefined) {
+      if (approved !== null) {
+        target = approved;
+        focus(target);
+      } else if (action.selector !== undefined) {
         const found = find(win, action.selector);
         if (typeof found === "string") return refused(found);
         target = found;
@@ -1229,17 +1306,44 @@ function describe(element: Element): string {
   }>${label !== "" ? ` ${JSON.stringify(label)}` : ""}`;
 }
 
-/** What an element says, shortened: its label, or its words. */
+/**
+ * What an element is called, shortened, in the order an accessible name is
+ * found: `aria-labelledby`, `aria-label`, its `<label>` (by `for`, or one
+ * around it), `alt`, `title`, `placeholder` -- and then, for a button's
+ * `<input>`, its value, and for anything else, its text.
+ */
 function labelOf(element: Element): string {
-  const value: unknown =
-    element.tagName === "INPUT" ? Reflect.get(element, "value") : undefined;
-  const words =
-    element.getAttribute("aria-label") ??
-    (element.tagName === "INPUT" &&
+  const tidy = (text: string) => clamp(text.replace(/\s+/g, " ").trim(), 40);
+  const doc = element.ownerDocument;
+  const labelledBy = element.getAttribute("aria-labelledby");
+  if (labelledBy !== null) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => doc.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    if (tidy(text) !== "") return tidy(text);
+  }
+  const ariaLabel = element.getAttribute("aria-label");
+  if (ariaLabel !== null && tidy(ariaLabel) !== "") return tidy(ariaLabel);
+  const labels: unknown = Reflect.get(element, "labels");
+  if (labels !== null && typeof labels === "object") {
+    // `<label for>` and a `<label>` around it: the element's own `labels`.
+    const text = Array.from<unknown>(Object(labels))
+      .map((label) => String(Reflect.get(Object(label), "textContent") ?? ""))
+      .join(" ");
+    if (tidy(text) !== "") return tidy(text);
+  }
+  for (const attribute of ["alt", "title", "placeholder"]) {
+    const value = element.getAttribute(attribute);
+    if (value !== null && tidy(value) !== "") return tidy(value);
+  }
+  if (
+    element.tagName === "INPUT" &&
     ["submit", "button", "reset"].includes(String(Reflect.get(element, "type")))
-      ? String(value ?? "")
-      : (element.textContent ?? ""));
-  return clamp(words.replace(/\s+/g, " ").trim(), 40);
+  ) {
+    return tidy(String(Reflect.get(element, "value") ?? ""));
+  }
+  return tidy(element.textContent ?? "");
 }
 
 /** The page's text, cut to `length`. */

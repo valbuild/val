@@ -128,7 +128,9 @@ test.describe("using the page in the preview", () => {
     });
     expect(typed).toMatchObject({
       status: "done",
-      interaction: { did: 'typed 3 characters into <input name="name">' },
+      interaction: {
+        did: 'typed 3 characters into <input name="name"> "Name"',
+      },
     });
     await expect(preview.getByLabel("Name")).toHaveValue("Ada");
 
