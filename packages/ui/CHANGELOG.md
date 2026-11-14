@@ -1,5 +1,48 @@
 # @valbuild/ui
 
+## 0.153.6
+
+### Patch Changes
+
+- [#1046](https://github.com/valbuild/val/pull/1046) [`a561665`](https://github.com/valbuild/val/commit/a5616659c202eaa5ad61e1a035c9b9ca2a007e9a) Thanks [@freekh](https://github.com/freekh)! - The Studio's assistant changes code more carefully and reads less to do it:
+
+  - **Small code changes stay small.** A new `edit_file` tool replaces one exact piece of a file instead of rewriting the whole file, so a one-line change no longer risks a truncated or accidentally rewritten file. It asks before running after a web search, like every tool that changes code.
+  - **Long files are read in parts.** `read_file` takes `offset` and `limit` (in lines) and says where the part is in the file; a file too long for one answer says where to read on.
+  - **In code mode, the assistant talks to you as someone working on the code.** It names files, components and schemas by their real names instead of avoiding technical words. Outside code mode, nothing changes for content editors.
+  - **Your project's instructions are followed.** In code mode the assistant reads `AGENTS.md`, `CLAUDE.md` and `.claude/CLAUDE.md` at the root of your repository, when they are there, and follows them when it changes your code.
+  - **Large content no longer overwhelms the assistant.** Answers from reading schemas, content, search results, validation errors and pending changes are capped; when something is left out the assistant is told what and how to ask for it. `get_all_schema` can ask for named modules, and `get_source` for one path in a module.
+
+- [#1047](https://github.com/valbuild/val/pull/1047) [`00b13fe`](https://github.com/valbuild/val/commit/00b13fe0ed9adc2ce22b3e9827e9fa5b10d5bfdf) Thanks [@freekh](https://github.com/freekh)! - The assistant can now see what went wrong on the page in the preview. A new `read_page_log` tool reads the page's console errors and warnings, uncaught exceptions, unhandled promise rejections, images, scripts and stylesheets that did not load, and `fetch` requests that failed or answered 400 or more, so a section that is blank because its component threw no longer looks like a section with nothing in it. Every `read_page` answer also counts them, and names the Val modules the page read. The log is kept only in the Studio's preview, never on a visitor's page, and leaves Val's own requests and log lines out.
+
+  The preview now says which requests it answers. When the site runs an older `@valbuild/next` or `@valbuild/tanstack` than the Studio, a page tool it cannot answer fails at once with which package to update, and to which version, instead of waiting for an answer that never comes. Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `read_page_log`.
+
+- [#1057](https://github.com/valbuild/val/pull/1057) [`79b4452`](https://github.com/valbuild/val/commit/79b4452441ae2a9442f1217cca372f2d7cebd5a4) Thanks [@freekh](https://github.com/freekh)! - Security fixes. Update if you run Val's dev server, or have deployed a site without `VAL_API_KEY` and `VAL_SECRET`.
+
+  - **`/api/val/files` serves media only.** It answered any path in the project, without a sign-in: `/api/val/files/.env` returned the file. It now serves files under `/public`, and their drafts, and nothing else.
+  - **An upload cannot be written outside Val's patch store.** A file's path and a patch's id are checked before anything is written or read, so a path with `..` in it is refused.
+  - **In local filesystem mode, the API answers only your own Studio.** A request from another site's page is refused, and so is one addressed to a host name that is not `localhost` or an IP address. If you develop on another name (`my-app.test`, a tunnel that passes its own `Host`), list it in the `VAL_ALLOWED_HOSTS` environment variable, comma separated.
+  - **A deployed site without credentials no longer serves the API.** Without `VAL_API_KEY` and `VAL_SECRET` an app runs in local filesystem mode, which has no sign-in. With `NODE_ENV=production` it now refuses, and says what to set.
+  - **`redirect_to` stays on your site.** `/api/val/logout`, `/enable`, `/disable` and `/authorize` redirected to any URL they were given. They now accept a path, or a URL on the same site.
+  - **Draft mode is turned on after sign-in**, not when the sign-in starts, so a visitor who is not signed in can no longer switch it on.
+  - `image-size`, `simple-git` and `zod` are updated past their published advisories.
+
+- [#1058](https://github.com/valbuild/val/pull/1058) [`3944e3e`](https://github.com/valbuild/val/commit/3944e3e3c33678bca2a0aa46fcc0f4adbf8c2ba5) Thanks [@freekh](https://github.com/freekh)! - The menu Val draws over your site has been simplified and can now be moved anywhere:
+
+  - **Drag it to any edge, on desktop or on a phone.** Let go and it snaps to the nearest edge of the screen, staying as far along that edge as you left it. It snaps to the exact middle when you drop it near the middle. Where you put it is remembered, and existing positions carry over.
+  - **Fewer buttons.** The bar now has the Val circle, **Studio** (with the count of pending changes or errors), **⋯** and **✕**. **⋯** holds the position (eight presets, if you would rather pick than drag), light or dark mode, and **Exit preview mode**. **✕** turns Val off on the site. Outside preview mode the bar also has **Enable preview mode**.
+  - **Editing moves to the Studio.** The overlay no longer has its own select mode, edit window or assistant chat. Use **Studio** to edit the page you are on.
+  - **Smoother animation.** It opens and closes as a single pill growing from its circle. It no longer pauses and then snaps shut, the circle stays round, and it no longer jumps between two bars when preview mode changes.
+
+- [#1054](https://github.com/valbuild/val/pull/1054) [`a8a1056`](https://github.com/valbuild/val/commit/a8a105620849ff73b91aff1492c39548926a7a7f) Thanks [@freekh](https://github.com/freekh)! - In code mode:
+
+  - **Build progress.** While Val Build builds the preview, the Studio shows how far it is: waiting in the queue, then the builder's steps ("Building the site"), then checking the page and serving it. The refresh button beside the preview fills as a ring as the build goes, and its tooltip says the step and the percent.
+  - **The preview's refresh button is just the icon.** The words that sat beside it ("Up to date", "Save to update", "Updating 42%") are gone. The state shows on the icon itself: it turns while updating, fills as a ring while building, shows a dot when Save would update the preview, and turns red when the preview could not be updated. The tooltip and screen readers still say it in words.
+  - **The `</>` button on the site** is the same size as the other buttons in the top bar.
+
+- [#1050](https://github.com/valbuild/val/pull/1050) [`2c98fcc`](https://github.com/valbuild/val/commit/2c98fcc776f15c979dae74a1a86ca91cad70e7de) Thanks [@freekh](https://github.com/freekh)! - The Studio's assistant no longer offers `screenshot_page` for now: its picture was not always of the page as it is after the latest change. `read_page` still gives it the page's text, order, sizes and computed styles.
+
+- [#1059](https://github.com/valbuild/val/pull/1059) [`0dd664f`](https://github.com/valbuild/val/commit/0dd664f7bde9bfb552ecd643b2345998c69d5914) Thanks [@freekh](https://github.com/freekh)! - Compare: adding a clause after a word no longer strikes out the word. The highlighted difference between two texts treated `code` and `code,` as different words, so "…with your code" against "…with the code, and stays editable" showed "code" as replaced. Punctuation that ends a word is now compared on its own.
+
 ## 0.153.5
 
 ### Patch Changes
