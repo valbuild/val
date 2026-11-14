@@ -209,6 +209,15 @@ describe("the canvas bridge, looked at from the Studio", () => {
         },
         answer: "interacted",
       },
+      "interact:release": {
+        ask: {
+          val: VAL_CANVAS_MESSAGE,
+          type: "interact",
+          requestId: "i5",
+          action: { kind: "release", hold: "no-such-hold", allow: false },
+        },
+        answer: "interacted",
+      },
     };
     for (const request of BRIDGE_CAPABILITIES) {
       const { ask, answer } = asks[request];

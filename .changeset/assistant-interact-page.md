@@ -9,9 +9,10 @@ The assistant can now use the page in the preview, not only read it. A new `inte
 
 The preview is the real site, talking to its real backend, so:
 
-- **Submitting a form asks you first.** Clicking a submit button, or pressing Enter in a form's field, shows a card in the chat — written by the Studio, not the assistant — and nothing is sent until you allow it.
-- **It never types into a password field**, and **never takes the preview off the site**: links and forms to other sites, and links that open new windows, are refused.
+- **Nothing is sent to your site's server without you.** While the assistant clicks, types or presses a key, anything the page tries to send because of it — a form submit, or any request other than a `GET`, however the page makes it — is held unsent, and a card in the chat shows exactly what the page tried (the method and the address). The card's words are the Studio's, not the assistant's. Allow sends exactly those requests; Don't allow, or stopping the answer, drops them and the page sees them fail.
+- **It never types into a password field**, and **never takes the preview off the site**: links to other sites or new windows are refused, and data the page tries to send to another site is never sent.
+- After a web search in the same answer, the assistant asks before it uses the preview at all.
 
-Typing, plain links, buttons outside forms, keys and width changes need no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+Reading pages, plain links, typing, keys and width changes need no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
 
 Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.

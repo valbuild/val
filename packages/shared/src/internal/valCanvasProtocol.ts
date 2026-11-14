@@ -30,6 +30,7 @@ import {
   type PageAction,
   type PageActionKind,
   type PageInteractOutcome,
+  type PageRequest,
   type PageState,
 } from "./pageInteraction";
 import { isQuickPreviewFiles, type QuickPreviewFiles } from "./quickPreview";
@@ -99,7 +100,8 @@ export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
  * Using the page (`pageInteraction.ts`, the assistant's `interact_page`) is
  * ONE request, `interact`, carrying a {@link PageAction}, answered with one
  * `interacted`. But it is listed as a capability PER ACTION --
- * `interact:click`, `interact:type`, `interact:press`, `interact:settle` --
+ * `interact:click`, `interact:type`, `interact:press`, `interact:settle`,
+ * `interact:release` --
  * and not as `interact` alone.
  *
  * Because actions will be added, and a bridge's version is the site's, not
@@ -155,6 +157,7 @@ export const BRIDGE_CAPABILITIES: readonly CanvasRequest[] = [
   "interact:click",
   "interact:type",
   "interact:press",
+  "interact:release",
 ];
 
 /**
@@ -408,6 +411,13 @@ export type ValCanvasPageMessage =
       type: "interacted";
       requestId: string;
       outcome: unknown;
+      /**
+       * The document that answered (`ready`'s `document`). The `interact`
+       * message is posted into the page's window, where any script of the
+       * site can see it and answer first; the id it does not know is what
+       * the Studio matches, with the `requestId`.
+       */
+      document?: string;
     }
   | {
       /**
@@ -635,8 +645,6 @@ export type ValCanvasStudioMessage =
       action: PageAction;
       /** At most this many items in the outline read afterwards. */
       maxItems?: number;
-      /** The person allowed a submit (`SubmitApproval`). */
-      allowSubmit?: boolean;
       /** How long the page has to settle: what is left of the Studio's bound. */
       timeoutMs?: number;
       /** Which of the page's log to answer with: see `InteractRequest`. */
@@ -735,20 +743,36 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
       : null;
   }
   if (status === "needs-approval") {
+    // Its shape only: what it says is the page's, and the Studio checks it
+    // before it shows any of it (`trustedApproval`).
     const approval: unknown = Reflect.get(value, "approval");
     if (typeof approval !== "object" || approval === null) return null;
-    const via: unknown = Reflect.get(approval, "via");
-    const fields = ["page", "label", "method", "action"].map((key): unknown =>
-      Reflect.get(approval, key),
+    const [hold, page, label, did] = ["hold", "page", "label", "did"].map(
+      (key): unknown => Reflect.get(approval, key),
     );
-    if (via !== "click" && via !== "press") return null;
-    const [page, label, method, action] = fields;
-    return typeof page === "string" &&
-      typeof label === "string" &&
-      typeof method === "string" &&
-      typeof action === "string"
-      ? { status, approval: { via, page, label, method, action } }
-      : null;
+    const before: unknown = Reflect.get(approval, "before");
+    const requests: unknown = Reflect.get(approval, "requests");
+    if (
+      typeof hold !== "string" ||
+      typeof page !== "string" ||
+      typeof label !== "string" ||
+      typeof did !== "string" ||
+      !isPageState(before) ||
+      !Array.isArray(requests)
+    ) {
+      return null;
+    }
+    return {
+      status,
+      approval: {
+        hold,
+        page,
+        label,
+        did,
+        before,
+        requests: requests.filter(isPageRequest),
+      },
+    };
   }
   if (status === "done") {
     const interaction: unknown = Reflect.get(value, "interaction");
@@ -789,6 +813,13 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
         snapshot,
         // The page's log entries, as the page wrote them: data, passed on.
         log: log.filter(isPageLogEntry),
+        ...(Array.isArray(Reflect.get(interaction, "blocked"))
+          ? {
+              blocked: Array.from<unknown>(
+                Reflect.get(interaction, "blocked"),
+              ).filter(isPageRequest),
+            }
+          : {}),
         ...(Array.isArray(busy)
           ? {
               busy: busy.filter(
@@ -804,6 +835,16 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
     };
   }
   return null;
+}
+
+function isPageRequest(value: unknown): value is PageRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const via: unknown = Reflect.get(value, "via");
+  return (
+    (via === "fetch" || via === "xhr" || via === "beacon" || via === "form") &&
+    typeof Reflect.get(value, "method") === "string" &&
+    typeof Reflect.get(value, "url") === "string"
+  );
 }
 
 function isPageState(value: unknown): value is PageState {
@@ -974,8 +1015,6 @@ export function isValCanvasStudioMessage(
       typeof asked.requestId === "string" &&
       isPageAction(asked.action) &&
       (asked.maxItems === undefined || typeof asked.maxItems === "number") &&
-      (asked.allowSubmit === undefined ||
-        typeof asked.allowSubmit === "boolean") &&
       (asked.timeoutMs === undefined ||
         (typeof asked.timeoutMs === "number" &&
           Number.isFinite(asked.timeoutMs) &&
@@ -1040,8 +1079,15 @@ function isValStudioPathname(pathname: string): boolean {
   return pathname === "/val" || pathname.startsWith("/val/");
 }
 
-/** Add the canvas marker to a page URL. */
+/**
+ * Add the canvas marker to a page URL: in its query, before any `#hash` --
+ * after it, the marker would be part of the fragment, and the page would
+ * not know it is the canvas. A relative URL stays relative.
+ */
 export function withValCanvasParam(url: string): string {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}${VAL_CANVAS_PARAM}=1`;
+  const hash = url.indexOf("#");
+  const beforeHash = hash === -1 ? url : url.slice(0, hash);
+  const fragment = hash === -1 ? "" : url.slice(hash);
+  const separator = beforeHash.includes("?") ? "&" : "?";
+  return `${beforeHash}${separator}${VAL_CANVAS_PARAM}=1${fragment}`;
 }

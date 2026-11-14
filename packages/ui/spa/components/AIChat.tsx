@@ -1214,10 +1214,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           message: withPauseSynced(
             {
               ...prev.message,
-              toolActivities: (prev.message.toolActivities ?? []).map((t) =>
-                t.toolCallId === toolCallId
-                  ? { ...t, status: "pending", questions }
-                  : t,
+              // A new question, unanswered: the answers to one asked
+              // before on this row (the page asked again) are not its.
+              toolActivities: (prev.message.toolActivities ?? []).map(
+                (t): ToolActivity => {
+                  if (t.toolCallId !== toolCallId) return t;
+                  const { answers: _answered, ...rest } = t;
+                  return { ...rest, status: "pending", questions };
+                },
               ),
             },
             Date.now(),

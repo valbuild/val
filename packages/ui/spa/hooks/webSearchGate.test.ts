@@ -20,6 +20,13 @@ describe("the web search gate", () => {
     expect(edit.question).toContain("change the site's code");
   });
 
+  test("using the site in the preview waits after a web search, in words about the preview", () => {
+    expect(needsWebSearchConfirmation("interact_page", true)).toBe(true);
+    expect(needsWebSearchConfirmation("interact_page", false)).toBe(false);
+    const [use] = webSearchConfirmationQuestions("interact_page");
+    expect(use.question).toContain("use the site in the preview");
+  });
+
   test("reading and content edits never wait", () => {
     expect(needsWebSearchConfirmation("read_file", true)).toBe(false);
     expect(needsWebSearchConfirmation("create_patch", true)).toBe(false);

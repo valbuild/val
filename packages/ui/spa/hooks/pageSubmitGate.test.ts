@@ -1,5 +1,8 @@
-import type { SubmitApproval } from "@valbuild/shared/internal";
-import type { PageInteractRequest } from "../components/shell/canvas/CanvasFrame";
+import type { PageApproval } from "@valbuild/shared/internal";
+import type {
+  PageInteractAnswer,
+  PageInteractRequest,
+} from "../components/shell/canvas/CanvasFrame";
 import type { AskUserQuestionItem } from "../components/AIChatToolActivities";
 import {
   pageSubmitConfirmationOf,
@@ -7,26 +10,53 @@ import {
   runGatedInteractPage,
 } from "./pageSubmitGate";
 
-const approval: SubmitApproval = {
-  via: "click",
+const approval: PageApproval = {
+  hold: "hold-1",
   page: "/contact",
   label: "Send message",
-  method: "POST",
-  action: "/api/contact",
+  did: 'clicked <button> "Send message"',
+  before: { url: "/contact", title: "Contact" },
+  requests: [{ via: "fetch", method: "POST", url: "/api/contact" }],
+};
+
+const done: PageInteractAnswer = {
+  status: "done",
+  navigated: false,
+  interaction: {
+    did: "sent the 1 request the person allowed",
+    before: { url: "/contact" },
+    after: { url: "/contact/thanks", title: "Thanks" },
+    settled: true,
+    waitedMs: 900,
+    pendingRequests: 0,
+    snapshot: {
+      url: "https://site.example/contact/thanks",
+      title: "Thanks",
+      viewport: { width: 1280, height: 800, scrollY: 0, pageHeight: 800 },
+      outline: [],
+    },
+    log: [],
+  },
 };
 
 /**
- * A form in the preview is submitted only once the person allowed it: the
- * page answers `needs-approval` without submitting, the Studio asks in its
- * own words, and an Allow runs the call again, allowed -- the web search
+ * What the page tries to send is held for the person (`pageRequestGate.ts`):
+ * the Studio asks in its own words, and the answer sends -- or refuses --
+ * exactly what was held, rather than doing the action again. The web search
  * gate's mechanism (`webSearchGate.ts`), for another reason to hold a call.
  */
 describe("the page submit gate", () => {
-  test("asks in the Studio's words, quoting only the page's own", () => {
-    const [question] = pageSubmitQuestions(approval);
+  test("asks in the Studio's words, showing what the page really tried", () => {
+    const [question] = pageSubmitQuestions({
+      ...approval,
+      requests: [
+        ...approval.requests,
+        { via: "beacon", method: "POST", url: "/api/track" },
+      ],
+    });
     expect(question.question).toBe(
-      "The assistant wants to submit a form on /contact with its “Send message” button, by clicking. " +
-        "It sends a POST to /api/contact on the real site, which may save, send or buy something. Let it?",
+      "The assistant acted on “Send message” on /contact in the preview, and the page tried to send POST /api/contact and 1 more request to the real site, which may save, send or buy something. " +
+        "Nothing has been sent yet. Send it?",
     );
     expect(question.options.map((option) => option.label)).toEqual([
       "Allow",
@@ -34,72 +64,59 @@ describe("the page submit gate", () => {
     ]);
   });
 
-  test("holds the call, then runs it again allowed once the person says yes", async () => {
+  test("holds the call, then sends exactly what was held once the person says yes", async () => {
     const asked: PageInteractRequest[] = [];
     const interactPage = (request: PageInteractRequest) => {
       asked.push(request);
-      return Promise.resolve(
-        request.allowSubmit === true
-          ? {
-              status: "done" as const,
-              navigated: true,
-              interaction: {
-                did: 'clicked <button> "Send message"',
-                before: { url: "/contact" },
-                after: { url: "/contact/thanks", title: "Thanks" },
-                settled: true,
-                waitedMs: 900,
-                pendingRequests: 0,
-                snapshot: {
-                  url: "https://site.example/contact/thanks",
-                  title: "Thanks",
-                  viewport: {
-                    width: 1280,
-                    height: 800,
-                    scrollY: 0,
-                    pageHeight: 800,
-                  },
-                  outline: [],
-                },
-                log: [],
-              },
-            }
-          : { status: "needs-approval" as const, approval },
+      return Promise.resolve<PageInteractAnswer>(
+        request.action.kind === "release"
+          ? done
+          : { status: "needs-approval", approval },
       );
     };
     const questions: AskUserQuestionItem[][] = [];
+    const held: PageApproval[] = [];
     const answers: unknown[] = [];
-    const deps = (allowSubmit: boolean) => ({
+    const deps = {
       interactPage,
-      allowSubmit,
-      ask: (asking: AskUserQuestionItem[]) => void questions.push(asking),
+      ask: (asking: AskUserQuestionItem[], holding: PageApproval) => {
+        questions.push(asking);
+        held.push(holding);
+      },
       answer: (answer: { result: unknown; isError: boolean }) =>
         void answers.push(answer),
-    });
+    };
     const call = { action: "click", selector: "#send" };
 
-    await runGatedInteractPage(call, deps(false));
+    await runGatedInteractPage(call, deps);
     // Asked, and nothing answered to the model yet: the call is held.
     expect(questions).toEqual([pageSubmitQuestions(approval)]);
     expect(answers).toEqual([]);
 
-    // The person said yes.
+    // The person said yes: the same call, run as that answer.
     expect(
       pageSubmitConfirmationOf([
         { question: "", selectedOptions: [0], customAnswer: "" },
       ]),
-    ).toEqual({
-      allow: true,
+    ).toEqual({ allow: true });
+    await runGatedInteractPage(call, {
+      ...deps,
+      release: { approval: held[0], allow: true },
     });
-    await runGatedInteractPage(call, deps(true));
-    expect(asked.map((request) => request.allowSubmit)).toEqual([
-      undefined,
-      true,
+    expect(asked.map((request) => request.action)).toEqual([
+      { kind: "click", selector: "#send" },
+      // Not the click again: what the click made the page try.
+      { kind: "release", hold: "hold-1", allow: true },
     ]);
     expect(answers).toMatchObject([
       {
         isError: false,
-        result: { success: true, url: "/contact/thanks" },
+        result: {
+          success: true,
+          did: 'clicked <button> "Send message"; sent the 1 request the person allowed',
+          url: "/contact/thanks",
+          changed: { url: { from: "/contact", to: "/contact/thanks" } },
+        },
       },
     ]);
   });
@@ -118,19 +135,22 @@ describe("the page submit gate", () => {
       result: {
         success: false,
         error:
-          "The person did not allow the form to be submitted, and said: not on production Nothing was sent. Do not submit it another way; say what you would have checked, and let them ask.",
+          "The person did not allow what the page tried to send, and said: not on production Nothing was sent. Do not send it another way; say what you would have checked, and let them ask.",
       },
     });
     expect(pageSubmitConfirmationOf(null)).toMatchObject({ allow: false });
   });
 
-  test("refuses the submit when there is no chat to ask in", async () => {
+  test("refuses what the page held when there is no chat to ask in", async () => {
+    const asked: PageInteractRequest[] = [];
     const answers: unknown[] = [];
     await runGatedInteractPage(
       { action: "press", key: "Enter", selector: "#email" },
       {
-        interactPage: () =>
-          Promise.resolve({ status: "needs-approval", approval }),
+        interactPage: (request) => {
+          asked.push(request);
+          return Promise.resolve({ status: "needs-approval", approval });
+        },
         ask: null,
         answer: (answer) => void answers.push(answer),
       },
@@ -141,5 +161,38 @@ describe("the page submit gate", () => {
         result: { error: expect.stringContaining("Nothing was sent") },
       },
     ]);
+    expect(asked[1]?.action).toEqual({
+      kind: "release",
+      hold: "hold-1",
+      allow: false,
+    });
+  });
+
+  test("after Stop, neither asks nor answers, and the page drops what it held", async () => {
+    const asked: PageInteractRequest[] = [];
+    let stopped = false;
+    const ask = jest.fn();
+    const answer = jest.fn();
+    await runGatedInteractPage(
+      { action: "click", selector: "#send" },
+      {
+        interactPage: (request) => {
+          asked.push(request);
+          // The person pressed Stop while the page was busy.
+          stopped = true;
+          return Promise.resolve({ status: "needs-approval", approval });
+        },
+        isCurrent: () => !stopped,
+        ask,
+        answer,
+      },
+    );
+    expect(ask).not.toHaveBeenCalled();
+    expect(answer).not.toHaveBeenCalled();
+    expect(asked[1]?.action).toEqual({
+      kind: "release",
+      hold: "hold-1",
+      allow: false,
+    });
   });
 });

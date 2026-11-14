@@ -3,6 +3,7 @@ import type {
   PageLogSnapshot,
 } from "@valbuild/shared/internal";
 import type { PageInteractRequest } from "../components/shell/canvas/CanvasFrame";
+import { PageRefusedError } from "../components/shell/canvas/canvasInteraction";
 import {
   INTERACT_PAGE_TOOL,
   NO_PREVIEW,
@@ -412,7 +413,7 @@ describe("interact_page", () => {
     await runInteractPage({ action: "press", key: "Escape" }, { interactPage });
     await runInteractPage(
       { action: "click", selector: "#buy" },
-      { interactPage, allowSubmit: true },
+      { interactPage },
     );
     expect(asked).toEqual([
       { action: { kind: "viewport", device: "mobile" } },
@@ -420,7 +421,7 @@ describe("interact_page", () => {
         action: { kind: "type", selector: "#q", text: "shoes", append: true },
       },
       { action: { kind: "press", key: "Escape" } },
-      { action: { kind: "click", selector: "#buy" }, allowSubmit: true },
+      { action: { kind: "click", selector: "#buy" } },
     ]);
   });
 
@@ -445,17 +446,34 @@ describe("interact_page", () => {
     ).toMatchObject({ result: { error: NO_PREVIEW } });
   });
 
-  test("passes on what the preview refused, in its words", async () => {
+  test("passes on what the page refused, saying whose words they are", async () => {
     const answer = await runInteractPage(
       { action: "type", selector: "#password", text: "x" },
       {
         interactPage: () =>
-          Promise.reject(new Error("<input#password> is a password field")),
+          Promise.reject(
+            new PageRefusedError(
+              `<input#${"x".repeat(2000)}> is a password field`,
+            ),
+          ),
       },
     );
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       isError: true,
-      result: { success: false, error: "<input#password> is a password field" },
+      result: { success: false, about: PAGE_DATA_PROVENANCE },
     });
+    // Shortened: the page's own id is in it.
+    expect(
+      String(Reflect.get(Object(answer.result), "error")).length,
+    ).toBeLessThanOrEqual(600);
+  });
+
+  test("tells the model the narrowed rule: what is sent to the server waits", () => {
+    expect(INTERACT_PAGE_TOOL.description).toContain(
+      "anything the page tries to send to the site's server",
+    );
+    expect(INTERACT_PAGE_TOOL.description).not.toContain(
+      "buttons outside forms",
+    );
   });
 });

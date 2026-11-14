@@ -411,8 +411,8 @@ export function ValCanvasBridge({
       }
       if (message.type === "interact") {
         // The assistant's `interact_page`: do something on the page and
-        // read it once it settled (`pageInteraction.ts`). It changes what
-        // the page shows and may reach the site's backend, so as
+        // read it once it settled (`pageInteraction.ts`), holding what the
+        // page tries to send until the person allows it. As
         // `readPage`: only for the frame's parent, when that is the Studio
         // here, and answered to it alone.
         if (event.source !== window.parent) return;
@@ -425,9 +425,6 @@ export function ValCanvasBridge({
             action: message.action,
             ...(message.maxItems !== undefined
               ? { maxItems: message.maxItems }
-              : {}),
-            ...(message.allowSubmit !== undefined
-              ? { allowSubmit: message.allowSubmit }
               : {}),
             ...(message.timeoutMs !== undefined
               ? { timeoutMs: message.timeoutMs }
@@ -443,6 +440,8 @@ export function ValCanvasBridge({
             type: "interacted",
             requestId,
             outcome,
+            // Which document answered: see `interacted` in the protocol.
+            document: DOCUMENT_ID,
           };
           window.parent.postMessage(answer, asker);
         });

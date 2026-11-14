@@ -19,15 +19,18 @@
  *
  * The preview is the real site, talking to its real backend, so:
  *
- * - **Submitting a form waits for the person.** A click on a submit button,
- *   or Enter in a form's field, is answered with `needs-approval` and nothing
- *   is done; the Studio asks the person in its own words and asks again with
- *   `allowSubmit`. A submit cannot be told apart from a harmless one from
- *   here -- a search box and a payment form are both forms.
- * - **It never takes the frame off the site.** A link or a form that goes to
- *   another origin is refused, and so is one that opens another window. (A
- *   script that navigates on its own cannot be stopped; the Studio then says
- *   no page arrived.)
+ * - **Nothing is sent to the site's server without the person.** While an
+ *   action runs, every request the page makes that sends data -- a form
+ *   POST, a `fetch` or XHR other than GET, a beacon -- is held unsent
+ *   (`pageRequestGate.ts`) and the answer is `needs-approval`, with exactly
+ *   what the page tried. The Studio asks the person, and Allow sends those
+ *   requests and nothing else (the `release` action). What was clicked is not
+ *   looked at to decide this: what the page does is.
+ * - **It never takes the frame off the site.** A link that goes to another
+ *   origin, or into another window, is refused before it is clicked; a form
+ *   or a data-sending request to another site is refused when the page makes
+ *   it. (A script that navigates on its own cannot be stopped; the Studio
+ *   then says no page arrived.)
  * - **It never types into a password field.** Whatever the model was told.
  *
  * ## The events are synthetic
@@ -42,6 +45,15 @@
  */
 
 import type { PageLog, PageLogEntry } from "./pageLog";
+import {
+  baseTargetOf,
+  holdRequests,
+  refuseAllHolds,
+  refuseHeld,
+  releaseHold,
+  startRequestGate,
+  type PageRequest,
+} from "./pageRequestGate";
 import {
   findBySelector,
   pageLocationOf,
@@ -90,7 +102,14 @@ export type PageAction =
    */
   | { kind: "type"; text: string; selector?: string; append?: boolean }
   /** A key, on the focused element or `selector`'s. */
-  | { kind: "press"; key: PageKey; selector?: string };
+  | { kind: "press"; key: PageKey; selector?: string }
+  /**
+   * What the person decided about the requests an action held
+   * (`needs-approval`): send exactly those (`allow`), or refuse them. Then
+   * the page settles and is read, as after any action -- and anything new
+   * it tries to send is held again.
+   */
+  | { kind: "release"; hold: string; allow: boolean };
 
 export type PageActionKind = PageAction["kind"];
 
@@ -100,6 +119,7 @@ export const PAGE_ACTION_KINDS: readonly PageActionKind[] = [
   "click",
   "type",
   "press",
+  "release",
 ];
 
 /** The longest text `type` takes. */
@@ -134,6 +154,15 @@ export function isPageAction(value: unknown): value is PageAction {
     const key: unknown = Reflect.get(value, "key");
     return PAGE_KEYS.some((known) => known === key) && optionalSelector;
   }
+  if (kind === "release") {
+    const hold: unknown = Reflect.get(value, "hold");
+    const allow: unknown = Reflect.get(value, "allow");
+    return (
+      typeof hold === "string" &&
+      hold.length <= 100 &&
+      typeof allow === "boolean"
+    );
+  }
   return false;
 }
 
@@ -160,17 +189,25 @@ export type PageState = {
   title?: string;
 };
 
-/** A submit the page will not do until the person says so. */
-export type SubmitApproval = {
-  /** How it would have been submitted. */
-  via: "click" | "press";
-  /** The page it is on. */
+export type { PageRequest } from "./pageRequestGate";
+
+/**
+ * Requests an action made the page try, held unsent until the person says
+ * (`pageRequestGate.ts`). Every string in it is the page's: the Studio checks
+ * it before it shows any of it.
+ */
+export type PageApproval = {
+  /** What to send back with the person's answer (`release`). */
+  hold: string;
+  /** The page they were tried on. */
   page: string;
-  /** What the submit button says, shortened: the page's words. */
+  /** What was acted on, shortened: the page's words. */
   label: string;
-  method: string;
-  /** Where the form goes: a path on the site. */
-  action: string;
+  /** What was done. */
+  did: string;
+  before: PageState;
+  /** What the page tried to send, as the browser resolved it. */
+  requests: PageRequest[];
 };
 
 /** Why the page did not settle in time: what was still going on. */
@@ -197,6 +234,11 @@ export type PageInteraction = {
    * that just loaded, since it started loading.
    */
   log: PageLogEntry[];
+  /**
+   * Requests the page tried that were refused, never sent: data sent to
+   * another site, or a form that would have left it.
+   */
+  blocked?: PageRequest[];
 };
 
 /** What {@link interactWithPage} answers. */
@@ -207,8 +249,8 @@ export type PageInteractOutcome =
    * `ready` and answer the rest: this one is about to be gone.
    */
   | { status: "leaving"; did: string; before: PageState }
-  /** A submit, not done: the person has to allow it. */
-  | { status: "needs-approval"; approval: SubmitApproval }
+  /** The page tried to send data: held, until the person says. */
+  | { status: "needs-approval"; approval: PageApproval }
   /** Not done, and why. */
   | { status: "refused"; error: string };
 
@@ -216,8 +258,6 @@ export type InteractRequest = {
   action: PageAction;
   /** At most this many items in the outline read afterwards. */
   maxItems?: number;
-  /** The person allowed a submit. */
-  allowSubmit?: boolean;
   /** How long to wait for the page to settle. */
   timeoutMs?: number;
   /** How long it must be quiet. */
@@ -242,6 +282,9 @@ export async function interactWithPage(
   const doc = win.document;
   const before: PageState = stateOf(win);
   const mark = log?.mark() ?? 0;
+  // Anything still held from an action before this one was not wanted: the
+  // assistant moved on without the person's answer.
+  if (request.action.kind !== "release") refuseAllHolds(win);
   // A cross-document navigation the action started: the page says so
   // before it goes, and the next document answers the rest.
   let leaving = false;
@@ -252,18 +295,28 @@ export async function interactWithPage(
   };
   win.addEventListener("beforeunload", leave);
   win.addEventListener("pagehide", leave);
+  // From before the action is dispatched until the page settled.
+  const gate = startRequestGate(win);
+  let stopped = false;
+  const stopGate = () => {
+    stopped = true;
+    return gate.stop();
+  };
   try {
-    let did: string;
+    let acted: Acted;
     try {
-      const acted = act(win, request);
-      if (acted.status !== "acted") return acted;
-      did = acted.did;
+      acted = act(win, request);
     } catch (error) {
-      return {
-        status: "refused",
-        error: `The page threw while it was ${request.action.kind === "settle" ? "being read" : "being used"}: ${error instanceof Error ? error.message : String(error)}`,
-      };
+      refuseHeld(stopGate());
+      return refused(
+        `The page threw while it was ${request.action.kind === "settle" ? "being read" : "being used"}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
+    if (acted.status !== "acted") {
+      refuseHeld(stopGate());
+      return acted;
+    }
+    const { did, label } = acted;
     const leaveNow: PageInteractOutcome = { status: "leaving", did, before };
     if (leaving) return leaveNow;
     const settled = await Promise.race([
@@ -281,6 +334,21 @@ export async function interactWithPage(
       }),
     ]);
     if (settled === "leaving" || leaving) return leaveNow;
+    const blocked = gate.blocked();
+    const held = stopGate();
+    if (held.requests.length > 0) {
+      return {
+        status: "needs-approval",
+        approval: {
+          hold: holdRequests(win, held),
+          page: pageLocationOf(win).path,
+          label,
+          did,
+          before,
+          requests: gate.held().slice(0, MAX_REQUESTS),
+        },
+      };
+    }
     const snapshot = readPageSnapshot(doc, {
       ...(request.maxItems !== undefined ? { maxItems: request.maxItems } : {}),
     });
@@ -305,30 +373,58 @@ export async function interactWithPage(
           ...(log !== null ? { log: log.counts() } : {}),
         },
         log: entries,
+        ...(blocked.length > 0
+          ? { blocked: blocked.slice(0, MAX_REQUESTS) }
+          : {}),
       },
     };
   } finally {
+    // A document that is going away takes what it held with it.
+    if (!stopped) refuseHeld(gate.stop());
     win.removeEventListener("beforeunload", leave);
     win.removeEventListener("pagehide", leave);
   }
 }
 
+/** The most requests one answer lists. */
+const MAX_REQUESTS = 20;
+
 /** The page's window, as `window` is typed: with its own constructors. */
 type Win = Window & typeof globalThis;
 
-/** An action done, before the page settles; or the outcome that ends it. */
-type Acted = { status: "acted"; did: string } | PageInteractOutcome;
+/**
+ * An action done, before the page settles -- what was done, and what it was
+ * done to, for the approval card -- or the outcome that ends it.
+ */
+type Acted =
+  | { status: "acted"; did: string; label: string }
+  | PageInteractOutcome;
 
 function act(win: Win, request: InteractRequest): Acted {
   const action = request.action;
-  const allowSubmit = request.allowSubmit === true;
   switch (action.kind) {
     case "settle":
-      return { status: "acted", did: "waited for the page" };
+      return { status: "acted", did: "waited for the page", label: "" };
+    case "release": {
+      const released = releaseHold(win, action.hold, action.allow);
+      if (released === null) {
+        return refused(
+          "The requests the person was asked about are no longer waiting: the page reloaded, or they were refused already. Do the action again to ask again.",
+        );
+      }
+      const what = `${released.length} request${released.length === 1 ? "" : "s"}`;
+      return {
+        status: "acted",
+        did: action.allow
+          ? `sent the ${what} the person allowed`
+          : `refused the ${what} the person did not allow`,
+        label: "",
+      };
+    }
     case "click": {
       const target = find(win, action.selector);
       if (typeof target === "string") return refused(target);
-      return click(win, target, allowSubmit);
+      return click(win, target);
     }
     case "type": {
       const target =
@@ -348,7 +444,7 @@ function act(win: Win, request: InteractRequest): Acted {
       } else {
         target = win.document.activeElement ?? win.document.body;
       }
-      return pressKey(win, target, action.key, allowSubmit);
+      return pressKey(win, target, action.key);
     }
   }
 }
@@ -392,7 +488,7 @@ function isDisabled(element: Element): boolean {
 
 // --- click -----------------------------------------------------------------
 
-function click(win: Win, target: Element, allowSubmit: boolean): Acted {
+function click(win: Win, target: Element): Acted {
   if (isDisabled(target)) {
     return refused(
       `${describe(target)} is disabled: clicking it does nothing.`,
@@ -400,16 +496,6 @@ function click(win: Win, target: Element, allowSubmit: boolean): Acted {
   }
   const offSite = leavesTheSite(win, target);
   if (offSite !== null) return refused(offSite);
-  const submit = submitOf(win, target);
-  if (submit !== null) {
-    if (typeof submit === "string") return refused(submit);
-    if (!allowSubmit) {
-      return {
-        status: "needs-approval",
-        approval: approvalOf(win, submit, "click"),
-      };
-    }
-  }
   const rect = target.getBoundingClientRect();
   const point = {
     clientX: rect.left + rect.width / 2,
@@ -460,28 +546,33 @@ function click(win: Win, target: Element, allowSubmit: boolean): Acted {
   pointer("pointerup");
   if (down) mouse("mouseup", 0);
   // The click itself: a dispatched click runs the element's activation
-  // behaviour -- a link is followed, a button submits its form.
+  // behaviour -- a link is followed, a button submits its form (which the
+  // request gate holds, if it sends anything).
   mouse("click", 0);
-  return { status: "acted", did: `clicked ${describe(target)}` };
+  return {
+    status: "acted",
+    did: `clicked ${describe(target)}`,
+    label: labelOf(target),
+  };
 }
 
 /**
  * Why following `target` would take the frame off the site, or `null`: a
  * link to another origin, or one that opens another window or downloads.
  */
-function leavesTheSite(win: Window, target: Element): string | null {
-  const link = target.closest("a[href], area[href]");
+function leavesTheSite(win: Win, target: Element): string | null {
+  const link = target.closest("a[href], area[href], a[*|href]");
   if (link === null) return null;
-  const href = link.getAttribute("href") ?? "";
-  const url = parseUrl(href, win);
+  const url = linkUrlOf(win, link);
   if (url === null) return null;
   if (url.protocol === "javascript:") return null;
   if (url.origin !== win.location.origin) {
-    return `${describe(link)} leads to another site (${url.origin}), and the preview stays on this one. Its address is in read_page's outline (href).`;
+    return `${describe(link)} leads to another site (${clamp(url.origin, 80)}), and the preview stays on this one.`;
   }
-  const opens = link.getAttribute("target");
+  // Its own target, or the document's `<base target>`.
+  const opens = link.getAttribute("target") ?? baseTargetOf(win.document);
   if (opens !== null && opens !== "" && opens !== "_self") {
-    return `${describe(link)} opens in another window, which the preview cannot show. Open its address (${url.pathname}) instead.`;
+    return `${describe(link)} opens in another window, which the preview cannot show. Open its address (${clamp(url.pathname, 200)}) instead.`;
   }
   if (link.hasAttribute("download")) {
     return `${describe(link)} downloads a file, which the preview cannot show.`;
@@ -489,77 +580,23 @@ function leavesTheSite(win: Window, target: Element): string | null {
   return null;
 }
 
-/** A form and what would submit it. */
-type Submit = {
-  form: HTMLFormElement;
-  submitter: HTMLElement | null;
-};
-
 /**
- * The form a click on `target` would submit: `null` when it submits none,
- * or why it is refused -- a form that goes to another site.
+ * Where a link goes, as the browser resolves it: `href` the property, which
+ * follows `<base href>` -- and for an SVG `<a>`, whose `href` is an animated
+ * string, `href` or `xlink:href` resolved against the document's base.
  */
-function submitOf(win: Win, target: Element): Submit | string | null {
-  const control = target.closest("button, input");
-  if (control === null) return null;
-  const type = (control.getAttribute("type") ?? "").toLowerCase();
-  const isSubmitter =
-    control.tagName === "BUTTON"
-      ? type === "" || type === "submit"
-      : type === "submit" || type === "image";
-  if (!isSubmitter) return null;
-  const form: unknown = Reflect.get(control, "form");
-  if (!(form instanceof win.HTMLFormElement)) return null;
-  return checkedSubmit(win, { form, submitter: asHtml(win, control) });
-}
-
-function checkedSubmit(win: Win, submit: Submit): Submit | string {
-  const action = actionOf(win, submit);
-  if (action.origin !== win.location.origin) {
-    return `That submits a form to another site (${action.origin}), and the preview stays on this one.`;
-  }
-  const opens =
-    submit.submitter?.getAttribute("formtarget") ??
-    submit.form.getAttribute("target");
-  if (opens !== null && opens !== "" && opens !== "_self") {
-    return "That submits a form into another window, which the preview cannot show.";
-  }
-  return submit;
-}
-
-function actionOf(win: Win, submit: Submit): URL {
+function linkUrlOf(win: Win, link: Element): URL | null {
+  const property: unknown = Reflect.get(link, "href");
+  if (typeof property === "string") return parseUrl(property, win);
   const written =
-    submit.submitter?.getAttribute("formaction") ??
-    submit.form.getAttribute("action") ??
-    "";
-  return parseUrl(written, win) ?? new URL(win.location.href);
-}
-
-function approvalOf(
-  win: Win,
-  submit: Submit,
-  via: SubmitApproval["via"],
-): SubmitApproval {
-  const action = actionOf(win, submit);
-  const method = (
-    submit.submitter?.getAttribute("formmethod") ??
-    submit.form.getAttribute("method") ??
-    "get"
-  ).toUpperCase();
-  const submitter = submit.submitter;
-  const label =
-    submitter === null
-      ? ""
-      : submitter instanceof win.HTMLInputElement
-        ? submitter.value
-        : (submitter.textContent ?? "");
-  return {
-    via,
-    page: pageLocationOf(win).path,
-    label: shorten(label.replace(/\s+/g, " ").trim(), 60),
-    method: method === "POST" || method === "DIALOG" ? method : "GET",
-    action: `${action.pathname}${action.search}`,
-  };
+    link.getAttribute("href") ??
+    link.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+  if (written === null) return null;
+  try {
+    return new URL(written, win.document.baseURI);
+  } catch {
+    return null;
+  }
 }
 
 // --- type ------------------------------------------------------------------
@@ -653,6 +690,7 @@ function setValue(
   return {
     status: "acted",
     did: `typed ${text.length} character${text.length === 1 ? "" : "s"} into ${describe(target)}`,
+    label: labelOf(target),
   };
 }
 
@@ -691,6 +729,7 @@ function typeIntoEditable(
   return {
     status: "acted",
     did: `typed ${text.length} character${text.length === 1 ? "" : "s"} into ${describe(target)}`,
+    label: labelOf(target),
   };
 }
 
@@ -722,8 +761,8 @@ const KEY_CODES: Record<string, string> = {
  * done with it -- which a dispatched key event does not do by itself:
  *
  * - **Enter** on a link or a button clicks it; in a form's field it submits
- *   the form (implicit submission), which waits for the person. Checked
- *   BEFORE the key is dispatched: a page's own Enter handler may submit too.
+ *   the form (implicit submission). What that sends is the request gate's
+ *   to hold (`pageRequestGate.ts`), as for a click.
  * - **Tab** / **Shift+Tab** moves the focus to the next or previous thing
  *   that takes it.
  * - **Arrows** on the page itself scroll it.
@@ -732,16 +771,11 @@ const KEY_CODES: Record<string, string> = {
  * None of that is done when the page cancelled the `keydown`, as a browser
  * would not.
  */
-function pressKey(
-  win: Win,
-  target: Element,
-  key: PageKey,
-  allowSubmit: boolean,
-): Acted {
+function pressKey(win: Win, target: Element, key: PageKey): Acted {
   const shift = key === "Shift+Tab";
   const name = shift ? "Tab" : key;
-  // Enter: what it would submit, decided before the page hears it.
-  let submit: Submit | null = null;
+  // Enter: what it would activate or submit.
+  let submits: HTMLFormElement | null = null;
   let activates: Element | null = null;
   if (name === "Enter") {
     const control = target.closest("a[href], button, input, textarea");
@@ -752,14 +786,7 @@ function pressKey(
       );
     if (isField) {
       const form = control.form;
-      if (form !== null && submitsImplicitly(win, form)) {
-        const checked = checkedSubmit(win, {
-          form,
-          submitter: defaultButtonOf(win, form),
-        });
-        if (typeof checked === "string") return refused(checked);
-        submit = checked;
-      }
+      if (form !== null && submitsImplicitly(win, form)) submits = form;
     } else if (
       control !== null &&
       !(control instanceof win.HTMLTextAreaElement)
@@ -768,15 +795,6 @@ function pressKey(
       activates = control;
       const offSite = leavesTheSite(win, control);
       if (offSite !== null) return refused(offSite);
-      const submits = submitOf(win, control);
-      if (typeof submits === "string") return refused(submits);
-      submit = submits;
-    }
-    if (submit !== null && !allowSubmit) {
-      return {
-        status: "needs-approval",
-        approval: approvalOf(win, submit, "press"),
-      };
     }
   }
   const init: KeyboardEventInit = {
@@ -792,12 +810,9 @@ function pressKey(
     if (name === "Enter") {
       if (activates !== null) {
         if (activates instanceof win.HTMLElement) activates.click();
-      } else if (submit !== null) {
-        submit.form.requestSubmit(
-          submit.submitter !== null && isSubmitButton(win, submit.submitter)
-            ? submit.submitter
-            : undefined,
-        );
+      } else if (submits !== null) {
+        const button = defaultButtonOf(win, submits);
+        submits.requestSubmit(button ?? undefined);
       }
     } else if (name === "Tab") {
       moveFocus(win, target, shift ? -1 : 1);
@@ -816,6 +831,7 @@ function pressKey(
   return {
     status: "acted",
     did: `pressed ${key} on ${describe(target)}${proceed ? "" : " (the page cancelled it)"}`,
+    label: `${key} on ${labelOf(target)}`,
   };
 }
 
@@ -845,10 +861,19 @@ function defaultButtonOf(win: Win, form: HTMLFormElement): HTMLElement | null {
   return null;
 }
 
+/**
+ * Whether the browser treats `element` as a submit button: by its `type`
+ * PROPERTY, which is what the browser resolved -- `<button type="foo">` is
+ * a submit button, and so is `type="submit "`.
+ */
 function isSubmitButton(win: Win, element: HTMLElement): boolean {
-  const type = (element.getAttribute("type") ?? "").toLowerCase();
-  if (element.tagName === "BUTTON") return type === "" || type === "submit";
-  return element.tagName === "INPUT" && (type === "submit" || type === "image");
+  if (element instanceof win.HTMLButtonElement) {
+    return element.type === "submit";
+  }
+  return (
+    element instanceof win.HTMLInputElement &&
+    (element.type === "submit" || element.type === "image")
+  );
 }
 
 function isPageItself(win: Window, target: Element): boolean {
@@ -1002,16 +1027,37 @@ function asHtml(win: Win, element: Element): HTMLElement | null {
 }
 
 /** An element, as the answer names it: `<button> "Save"`. */
+/**
+ * An element, as the answer names it: `<button#send> "Save"`. Every part is
+ * the page's own -- its tag, id, name and words -- so each is shortened, and
+ * the words are quoted as the data they are.
+ */
 function describe(element: Element): string {
-  const tag = element.tagName.toLowerCase();
+  const tag = clamp(element.tagName.toLowerCase(), 20);
   const id = element.getAttribute("id");
   const name = element.getAttribute("name");
-  const label =
+  const label = labelOf(element);
+  return `<${tag}${id ? `#${clamp(id, 40)}` : ""}${
+    name ? ` name=${JSON.stringify(clamp(name, 40))}` : ""
+  }>${label !== "" ? ` ${JSON.stringify(label)}` : ""}`;
+}
+
+/** What an element says, shortened: its label, or its words. */
+function labelOf(element: Element): string {
+  const value: unknown =
+    element.tagName === "INPUT" ? Reflect.get(element, "value") : undefined;
+  const words =
     element.getAttribute("aria-label") ??
-    (element.textContent ?? "").replace(/\s+/g, " ").trim();
-  return `<${tag}${id ? `#${id}` : ""}${name ? ` name="${name}"` : ""}>${
-    label !== "" ? ` ${JSON.stringify(shorten(label, 40))}` : ""
-  }`;
+    (element.tagName === "INPUT" &&
+    ["submit", "button", "reset"].includes(String(Reflect.get(element, "type")))
+      ? String(value ?? "")
+      : (element.textContent ?? ""));
+  return clamp(words.replace(/\s+/g, " ").trim(), 40);
+}
+
+/** The page's text, cut to `length`. */
+function clamp(text: string, length: number): string {
+  return shorten(text, length);
 }
 
 function shorten(text: string, length: number): string {

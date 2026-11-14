@@ -178,17 +178,28 @@ describe("the interact request and its answer", () => {
     expect(
       interactOutcomeOf({ status: "refused", error: "No such element" }),
     ).toEqual({ status: "refused", error: "No such element" });
+    const approval = {
+      hold: "h1",
+      page: "/",
+      label: "Buy",
+      did: "clicked <button>",
+      before: { url: "/" },
+      requests: [
+        { via: "fetch", method: "POST", url: "http://localhost/checkout" },
+        // Not a request this release knows: left out, not trusted.
+        { via: "carrier-pigeon", method: "POST", url: "/x" },
+      ],
+    };
+    expect(interactOutcomeOf({ status: "needs-approval", approval })).toEqual({
+      status: "needs-approval",
+      approval: { ...approval, requests: [approval.requests[0]] },
+    });
+    // The shape of the request before: not an approval any more.
     expect(
       interactOutcomeOf({
         status: "needs-approval",
-        approval: {
-          via: "click",
-          page: "/",
-          label: "Buy",
-          method: "POST",
-          action: "/checkout",
-        },
+        approval: { via: "click", page: "/", label: "Buy", method: "POST" },
       }),
-    ).toMatchObject({ status: "needs-approval" });
+    ).toBeNull();
   });
 });

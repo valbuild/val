@@ -29,6 +29,8 @@ const WHAT: Record<CanvasRequest, string> = {
   "interact:click": "be clicked from the Studio",
   "interact:type": "be typed into from the Studio",
   "interact:press": "be sent keys from the Studio",
+  "interact:release":
+    "hold what it sends for your approval, so the assistant cannot use it",
 };
 
 /**

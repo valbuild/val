@@ -12,8 +12,8 @@ import {
   type PageAction,
   type PageInteraction,
   type PageInteractOutcome,
+  type PageApproval,
   type PageState,
-  type SubmitApproval,
   type PageLocation,
   type PageLogLevel,
   type PageLogSnapshot,
@@ -33,7 +33,12 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { CanvasPinch } from "./CanvasWindow";
 import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
 import { CANVAS_DEVICE_WIDTHS, CanvasDevice, CanvasPoint } from "./types";
-import { INTERACT_ANSWER_MARGIN_MS, sitePathOf } from "./canvasInteraction";
+import {
+  INTERACT_ANSWER_MARGIN_MS,
+  PageRefusedError,
+  sitePathOf,
+  trustedApproval,
+} from "./canvasInteraction";
 import {
   frameHasFocus,
   sameDocument,
@@ -252,8 +257,6 @@ export type PageInteractRequest = {
     | { kind: "viewport"; device: CanvasDevice };
   /** At most this many items in the outline read afterwards. */
   maxItems?: number;
-  /** The person allowed a submit. */
-  allowSubmit?: boolean;
 };
 
 /** What the preview answers `interact_page`. */
@@ -264,8 +267,12 @@ export type PageInteractAnswer =
       /** The action took the frame to another document. */
       navigated: boolean;
     }
-  /** A submit, not done: the person has to allow it. */
-  | { status: "needs-approval"; approval: SubmitApproval };
+  /**
+   * The page tried to send data, held unsent: the person has to allow it,
+   * which is a `release` of `approval.hold`. Checked by the Studio
+   * (`trustedApproval`) before it is handed on.
+   */
+  | { status: "needs-approval"; approval: PageApproval };
 
 /**
  * Use the page: see `pageInteraction.ts`. Rejects with what to tell the
@@ -489,10 +496,37 @@ export function CanvasFrame({
   /** The last document's id (`ready`'s `document`), where it said one. */
   const lastDocument = useRef<string | null>(null);
   const documentWaiters = useRef(new Set<() => void>());
-  /** `interact` requests the page has not answered yet, by id. */
+  /**
+   * `interact` requests the page has not answered yet, by id, with the
+   * document they were sent to: an answer from any other is not theirs.
+   */
   const interactions = useRef(
-    new Map<string, (outcome: PageInteractOutcome | null) => void>(),
+    new Map<
+      string,
+      {
+        document: string | null;
+        answer: (outcome: PageInteractOutcome | null) => void;
+      }
+    >(),
   );
+  /**
+   * Interactions waiting on the frame, told when the Studio loads it again
+   * itself -- a new build, a quick preview, another route: that document is
+   * not one the action took the page to, and must not be read as if it were.
+   */
+  const interruptions = useRef(new Set<(error: Error) => void>());
+  const frameIdentity = `${frameSrc}\n${reloadKey}\n${held.documentKey}`;
+  const lastFrameIdentity = useRef(frameIdentity);
+  useEffect(() => {
+    if (lastFrameIdentity.current === frameIdentity) return;
+    lastFrameIdentity.current = frameIdentity;
+    const error = new Error(
+      "The Studio loaded the preview again while the action ran (a new build, a quick preview, or another page picked in the Studio), so what happened after it cannot be told apart. Read the page with read_page, and do the action again if it is still needed.",
+    );
+    for (const interrupt of Array.from(interruptions.current)) {
+      interrupt(error);
+    }
+  }, [frameIdentity]);
 
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
@@ -603,8 +637,16 @@ export function CanvasFrame({
       } else if (message.type === "interacted") {
         const interacting = interactions.current.get(message.requestId);
         if (interacting === undefined) return;
+        // Answered by the document it was asked of, or it is not the answer:
+        // any script of the site sees the request in its window.
+        if (
+          interacting.document !== null &&
+          message.document !== interacting.document
+        ) {
+          return;
+        }
         interactions.current.delete(message.requestId);
-        interacting(interactOutcomeOf(message.outcome));
+        interacting.answer(interactOutcomeOf(message.outcome));
       } else if (message.type === "pageScreenshot") {
         const shooting = shootings.current.get(message.requestId);
         if (shooting === undefined) return;
@@ -819,6 +861,7 @@ export function CanvasFrame({
         const timer = setTimeout(
           () => {
             documentWaiters.current.delete(arrived);
+            interruptions.current.delete(interrupted);
             reject(
               new Error(
                 `The preview started loading another page, and none arrived within ${Math.round(INTERACT_SETTLE_TIMEOUT_MS / 1000)} seconds. It may still be loading (read_page in a moment says), it may have downloaded a file, or it went to a page that is not the site's own -- which the Studio cannot read.`,
@@ -830,9 +873,17 @@ export function CanvasFrame({
         const arrived = () => {
           clearTimeout(timer);
           documentWaiters.current.delete(arrived);
+          interruptions.current.delete(interrupted);
           resolve();
         };
+        const interrupted = (error: Error) => {
+          clearTimeout(timer);
+          documentWaiters.current.delete(arrived);
+          interruptions.current.delete(interrupted);
+          reject(error);
+        };
         documentWaiters.current.add(arrived);
+        interruptions.current.add(interrupted);
       }),
     [],
   );
@@ -847,7 +898,6 @@ export function CanvasFrame({
       options: {
         deadline: number;
         maxItems?: number;
-        allowSubmit?: boolean;
         logFrom?: "action" | "document";
       },
     ) =>
@@ -860,7 +910,13 @@ export function CanvasFrame({
           clearTimeout(timer);
           interactions.current.delete(requestId);
           documentWaiters.current.delete(replaced);
+          interruptions.current.delete(interrupted);
         };
+        const interrupted = (error: Error) => {
+          done();
+          reject(error);
+        };
+        interruptions.current.add(interrupted);
         const timer = setTimeout(() => {
           done();
           reject(
@@ -874,17 +930,20 @@ export function CanvasFrame({
           resolve("replaced");
         };
         documentWaiters.current.add(replaced);
-        interactions.current.set(requestId, (outcome) => {
-          done();
-          if (outcome === null) {
-            reject(
-              new Error(
-                "The page answered in a way this Studio does not understand: its Val package may be newer than the Studio. Reload the Studio.",
-              ),
-            );
-          } else {
-            resolve(outcome);
-          }
+        interactions.current.set(requestId, {
+          document: lastDocument.current,
+          answer: (outcome) => {
+            done();
+            if (outcome === null) {
+              reject(
+                new Error(
+                  "The page answered in a way this Studio does not understand: its Val package may be newer than the Studio. Reload the Studio.",
+                ),
+              );
+            } else {
+              resolve(outcome);
+            }
+          },
         });
         send({
           val: VAL_CANVAS_MESSAGE,
@@ -895,7 +954,6 @@ export function CanvasFrame({
           ...(options.maxItems !== undefined
             ? { maxItems: options.maxItems }
             : {}),
-          ...(options.allowSubmit === true ? { allowSubmit: true } : {}),
           ...(options.logFrom !== undefined
             ? { logFrom: options.logFrom }
             : {}),
@@ -916,6 +974,24 @@ export function CanvasFrame({
       });
 
       /**
+       * What the page asked the person about, checked before any of it is
+       * shown -- every field of it is the page's (`trustedApproval`). What
+       * cannot be shown is refused, and the page told so, which drops what
+       * it held.
+       */
+      const approvalAnswer = (approval: PageApproval): PageInteractAnswer => {
+        const trusted = trustedApproval(approval, origin);
+        if ("error" in trusted) {
+          void askToInteract(
+            { kind: "release", hold: approval.hold, allow: false },
+            { deadline: Date.now() + INTERACT_ANSWER_MARGIN_MS },
+          ).catch(() => {});
+          throw new PageRefusedError(trusted.error);
+        }
+        return { status: "needs-approval", approval: trusted.approval };
+      };
+
+      /**
        * The document the action took the frame to, once it said `ready`:
        * asked to settle and read, its log from when it started loading.
        * Again for each document after it -- a redirect, a page that
@@ -928,6 +1004,13 @@ export function CanvasFrame({
       ): Promise<PageInteractAnswer> => {
         for (;;) {
           await nextDocument(seen, deadline);
+          // The one bound holds here too: a page that reloads itself, or
+          // redirects to itself, would otherwise be followed for ever.
+          if (Date.now() >= deadline) {
+            throw new Error(
+              `The page kept loading new pages -- a redirect or a reload that repeats -- and did not stay on one within ${Math.round(INTERACT_SETTLE_TIMEOUT_MS / 1000)} seconds. read_page_log may say why.`,
+            );
+          }
           seen = documentsSeen.current;
           const outcome = await askToInteract(
             { kind: "settle" },
@@ -940,12 +1023,13 @@ export function CanvasFrame({
           if (outcome === "replaced" || outcome.status === "leaving") {
             continue;
           }
-          if (outcome.status !== "done") {
-            throw new Error(
-              outcome.status === "refused"
-                ? outcome.error
-                : "The new page could not be read.",
-            );
+          if (outcome.status === "refused") {
+            throw new PageRefusedError(outcome.error);
+          }
+          if (outcome.status === "needs-approval") {
+            // The new page tried to send something as it loaded: kept from
+            // it, and asked about like any other.
+            return approvalAnswer(outcome.approval);
           }
           return {
             status: "done",
@@ -966,9 +1050,9 @@ export function CanvasFrame({
         const before = where();
         const seen = documentsSeen.current;
         // As turning preview mode on does: a navigation of the frame, which
-        // the new document answers with `ready`.
-        bridge.current = null;
-        setState({ status: "waiting" });
+        // the new document answers with `ready`. What the frame said so far
+        // stands until it does: a navigation that never lands (a hash on
+        // the same page, an empty answer, a download) leaves it as it was.
         frame.src = withValCanvasParam(
           withQuickPreview(target.path, heldQuick.current),
         );
@@ -1000,7 +1084,6 @@ export function CanvasFrame({
         outcome = await askToInteract(action, {
           deadline,
           ...(maxItems !== undefined ? { maxItems } : {}),
-          ...(request.allowSubmit === true ? { allowSubmit: true } : {}),
         });
       }
       if (outcome === "replaced") {
@@ -1015,9 +1098,9 @@ export function CanvasFrame({
         case "leaving":
           return settleNewDocument(seen, outcome.did, outcome.before);
         case "needs-approval":
-          return outcome;
+          return approvalAnswer(outcome.approval);
         case "refused":
-          throw new Error(outcome.error);
+          throw new PageRefusedError(outcome.error);
         case "done":
           return {
             status: "done",

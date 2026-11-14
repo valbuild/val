@@ -50,6 +50,7 @@ import {
 } from "./webSearchGate";
 import {
   pageSubmitConfirmationOf,
+  refusePageApproval,
   runGatedInteractPage,
 } from "./pageSubmitGate";
 import {
@@ -182,7 +183,7 @@ import {
   takePointedAt,
   type AssistantPage,
 } from "../components/shell/canvas/AssistantPage";
-import type { PickedElement } from "@valbuild/shared/internal";
+import type { PageApproval, PickedElement } from "@valbuild/shared/internal";
 import {
   markTypeErrorsTold,
   scheduleTypecheck,
@@ -1361,9 +1362,39 @@ export function useAI(
   // submit (`pageSubmitGate.ts`). And the ones they allowed, which run again
   // without asking -- an allowed `interact_page` may submit.
   const gatedCallsRef = useRef<
-    Map<string, { call: AIToolCallMessage; gate: "web-search" | "page-submit" }>
+    Map<
+      string,
+      | { call: AIToolCallMessage; gate: "web-search" }
+      // What the page held, which the answer sends or refuses.
+      | { call: AIToolCallMessage; gate: "page-submit"; approval: PageApproval }
+    >
   >(new Map());
   const allowedCallsRef = useRef<Set<string>>(new Set());
+  // `interact_page` calls the person answered, to run again as exactly that
+  // answer: send (or refuse) what the page held (`pageSubmitGate.ts`).
+  const pageReleasesRef = useRef<
+    Map<string, { approval: PageApproval; allow: boolean }>
+  >(new Map());
+  // Bumped when a turn is stopped or the session changes: an `interact_page`
+  // still running from before neither asks nor answers (`isCurrent`).
+  const turnStopsRef = useRef(0);
+  /**
+   * Drop every `interact_page` waiting on the person, and tell its page to
+   * refuse what it held: the turn that asked is gone.
+   */
+  const refuseHeldPageRequests = useCallback(() => {
+    turnStopsRef.current += 1;
+    pageReleasesRef.current.clear();
+    for (const [toolCallId, held] of Array.from(gatedCallsRef.current)) {
+      if (held.gate !== "page-submit") continue;
+      gatedCallsRef.current.delete(toolCallId);
+      pendingQuestionsRef.current.delete(toolCallId);
+      refusePageApproval(
+        pageRef.current?.interactPage() ?? null,
+        held.approval,
+      );
+    }
+  }, []);
   // `request_web_search` cards waiting on the person, by tool call: the id of
   // the assistant message that opened each.
   const webSearchRequestsRef = useRef<Map<string, string>>(new Map());
@@ -2567,21 +2598,27 @@ export function useAI(
         } else if (message.name === INTERACT_PAGE_TOOL.name) {
           const { toolCallId, id: messageId } = message;
           const chat = chatRef.current;
+          const turn = turnStopsRef.current;
+          // The person's answer about what an earlier run held, if this is
+          // that call again (`answerGatedCall`).
+          const release = pageReleasesRef.current.get(toolCallId);
+          pageReleasesRef.current.delete(toolCallId);
           void runGatedInteractPage(message.arguments, {
             interactPage: pageRef.current?.interactPage() ?? null,
-            // Allowed by the person, after the page asked (below).
-            allowSubmit: allowedCallsRef.current.has(toolCallId),
+            ...(release !== undefined ? { release } : {}),
             noPage: NO_PREVIEW,
-            // A form submit: the Studio's own question on the tool's row,
-            // and the call held until it is answered (`answerGatedCall`).
+            isCurrent: () => turnStopsRef.current === turn,
+            // The page tried to send something: the Studio's own question
+            // on the tool's row, and the call held until it is answered.
             ask:
               chat === null
                 ? null
-                : (questions) => {
+                : (questions, approval) => {
                     chat.askToolQuestions(messageId, toolCallId, questions);
                     gatedCallsRef.current.set(toolCallId, {
                       call: message,
                       gate: "page-submit",
+                      approval,
                     });
                     pendingQuestionsRef.current.set(toolCallId, messageId);
                   },
@@ -3294,6 +3331,7 @@ export function useAI(
         ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
       } else if (message.type === "ai_cancelled") {
+        refuseHeldPageRequests();
         // The user asked for this, so it settles rather than fails: whatever
         // arrived before the stop stays in the transcript, and a stop before
         // any text says so instead of leaving an empty bubble behind.
@@ -3758,6 +3796,8 @@ Do not describe what you will do unless you do it for clarification — just do 
    * connection cannot leave the chat wedged mid-turn with no way out.
    */
   const cancel = useCallback((): boolean => {
+    // Whatever the page holds for this turn is refused with it.
+    refuseHeldPageRequests();
     const id = inFlightPromptIdRef.current;
     // Nothing is running as far as we know, but the composer is showing a stop
     // button, so something is out of step. Settle locally rather than leaving
@@ -3788,7 +3828,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       setIsStreaming(false);
     }
     return true;
-  }, [sendWsMessage, chatRef]);
+  }, [sendWsMessage, chatRef, refuseHeldPageRequests]);
 
   /**
    * The person answered the Studio's question about a call it held -- after
@@ -3808,8 +3848,22 @@ Do not describe what you will do unless you do it for clarification — just do 
           : webSearchConfirmationOf(answers);
       if (confirmation.allow) {
         allowedCallsRef.current.add(toolCallId);
+        if (held.gate === "page-submit") {
+          // Not the action again: exactly what was shown, sent.
+          pageReleasesRef.current.set(toolCallId, {
+            approval: held.approval,
+            allow: true,
+          });
+        }
         handleServerMessageRef.current?.(held.call);
         return true;
+      }
+      if (held.gate === "page-submit") {
+        // The page drops what it held, and its request fails as an abort.
+        refusePageApproval(
+          pageRef.current?.interactPage() ?? null,
+          held.approval,
+        );
       }
       if (messageId !== undefined) {
         chatRef.current?.errorToolCall(messageId, toolCallId);
@@ -4060,12 +4114,13 @@ Do not describe what you will do unless you do it for clarification — just do 
           isError: true,
         });
       }
+      refuseHeldPageRequests();
       pendingQuestionsRef.current.clear();
       codeModeRequestsRef.current.clear();
       gatedCallsRef.current.clear();
       webSearchRequestsRef.current.clear();
     },
-    [sendWsMessage],
+    [sendWsMessage, refuseHeldPageRequests],
   );
 
   const newSession = useCallback(() => {

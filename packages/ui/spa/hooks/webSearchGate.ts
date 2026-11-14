@@ -26,6 +26,9 @@ export const WEB_GATED_TOOLS: ReadonlySet<string> = new Set([
   "write_files",
   "edit_file",
   "build_proposal",
+  // The preview is the real site: a model steered by a page it read could
+  // use it to fill in and send forms (`interact_page`).
+  "interact_page",
 ]);
 
 /**
@@ -68,7 +71,9 @@ export function webSearchConfirmationQuestions(
       question:
         toolName === "build_proposal"
           ? "The assistant read web pages in this answer and now wants to build the site. Pages can contain instructions meant for it. Build anyway?"
-          : "The assistant read web pages in this answer and now wants to change the site's code. Pages can contain instructions meant for it. Let it?",
+          : toolName === "interact_page"
+            ? "The assistant read web pages in this answer and now wants to use the site in the preview (open pages, click, type). Pages can contain instructions meant for it. Let it?"
+            : "The assistant read web pages in this answer and now wants to change the site's code. Pages can contain instructions meant for it. Let it?",
       options: [
         {
           label: ALLOW,

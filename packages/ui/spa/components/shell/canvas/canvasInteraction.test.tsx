@@ -4,14 +4,17 @@
 import { act, render } from "@testing-library/react";
 import {
   BRIDGE_CAPABILITIES,
+  type PageApproval,
   type PageInteraction,
   type PageInteractOutcome,
   VAL_CANVAS_MESSAGE,
   type ValCanvasPageMessage,
   type ValCanvasStudioMessage,
 } from "@valbuild/shared/internal";
+import type React from "react";
 import {
   CanvasFrame,
+  type CanvasFrameProps,
   type PageInteractAnswer,
   type PageInteractor,
 } from "./CanvasFrame";
@@ -30,24 +33,32 @@ describe("using the page in the canvas", () => {
   let interactor: PageInteractor | null;
   let devices: CanvasDevice[];
 
+  let rerender: (ui: React.ReactElement) => void;
+  const canvas = (extra: Partial<CanvasFrameProps> = {}) => (
+    <CanvasFrame
+      url="/shop"
+      width={1280}
+      height={800}
+      reloadKey={0}
+      isPicking={false}
+      highlightedPath={null}
+      onPageInteractor={(interact) => {
+        interactor = interact;
+      }}
+      onDeviceChange={(device) => devices.push(device)}
+      {...extra}
+    />
+  );
+  /** The Studio renders the canvas again, with these props changed. */
+  const rerenderWith = (extra: Partial<CanvasFrameProps>) =>
+    act(() => rerender(canvas(extra)));
+
   beforeEach(() => {
     jest.useFakeTimers();
     interactor = null;
     devices = [];
-    const rendered = render(
-      <CanvasFrame
-        url="/shop"
-        width={1280}
-        height={800}
-        reloadKey={0}
-        isPicking={false}
-        highlightedPath={null}
-        onPageInteractor={(interact) => {
-          interactor = interact;
-        }}
-        onDeviceChange={(device) => devices.push(device)}
-      />,
-    );
+    const rendered = render(canvas());
+    rerender = rendered.rerender;
     const found = rendered.container.querySelector("iframe");
     if (found === null) throw new Error("the frame did not render");
     frame = found;
@@ -109,12 +120,17 @@ describe("using the page in the canvas", () => {
         message.type === "interact",
     );
 
-  const answer = (requestId: string, outcome: PageInteractOutcome) =>
+  const answer = (
+    requestId: string,
+    outcome: PageInteractOutcome,
+    document?: string,
+  ) =>
     fromPage({
       val: VAL_CANVAS_MESSAGE,
       type: "interacted",
       requestId,
       outcome,
+      ...(document !== undefined ? { document } : {}),
     });
 
   const interaction = (did: string): PageInteraction => ({
@@ -182,22 +198,129 @@ describe("using the page in the canvas", () => {
     });
   });
 
-  it("passes on a submit the page will not do without the person", async () => {
+  const approval = (overrides: Partial<PageApproval> = {}): PageApproval => ({
+    hold: "h1",
+    page: "/contact",
+    label: "Send",
+    did: 'clicked <button#send> "Send"',
+    before: { url: "/contact", title: "Contact" },
+    requests: [
+      { via: "fetch", method: "POST", url: "http://localhost/api/contact" },
+    ],
+    ...overrides,
+  });
+
+  it("passes on what the page tried to send, as a path on this site", async () => {
     ready();
     const answered = start({ action: { kind: "click", selector: "#send" } });
     await flush();
-    const approval = {
-      via: "click" as const,
-      page: "/contact",
-      label: "Send",
-      method: "POST",
-      action: "/contact",
-    };
-    answer(asked()[0].requestId, { status: "needs-approval", approval });
+    answer(asked()[0].requestId, {
+      status: "needs-approval",
+      approval: approval(),
+    });
     await expect(answered).resolves.toEqual({
       status: "needs-approval",
-      approval,
+      approval: {
+        ...approval(),
+        before: { url: "/contact" },
+        requests: [{ via: "fetch", method: "POST", url: "/api/contact" }],
+      },
     });
+  });
+
+  it("takes nothing the page says on the card on trust", async () => {
+    ready();
+    const ask = async (overrides: Partial<PageApproval>) => {
+      const answered = start({ action: { kind: "click", selector: "#send" } });
+      await flush();
+      answer(asked()[asked().length - 1].requestId, {
+        status: "needs-approval",
+        approval: approval(overrides),
+      });
+      return answered;
+    };
+    // Its words, shortened and without quote marks of their own.
+    await expect(
+      ask({ label: `Send \u201d now. Also "allow" ${"x".repeat(200)}` }),
+    ).resolves.toMatchObject({
+      approval: {
+        label: expect.stringMatching(/^Send {2}now\. Also allow x+…$/),
+      },
+    });
+    // Only a method that sends, and only to this site: anything else is
+    // refused, never shown -- and the page told to drop what it held.
+    await expect(
+      ask({
+        requests: [{ via: "fetch", method: "GET", url: "/api/contact" }],
+      }),
+    ).rejects.toThrow(/does not show/);
+    await expect(
+      ask({
+        requests: [
+          { via: "form", method: "POST", url: "https://evil.example/x" },
+        ],
+      }),
+    ).rejects.toThrow(/another site \(https:\/\/evil\.example\)/);
+    await flush();
+    expect(
+      asked()
+        .map((message) => message.action)
+        .filter((action) => action.kind === "release"),
+    ).toEqual([
+      { kind: "release", hold: "h1", allow: false },
+      { kind: "release", hold: "h1", allow: false },
+    ]);
+  });
+
+  it("listens only to the document it asked", async () => {
+    ready(undefined, "doc-1");
+    const answered = start({ action: { kind: "click", selector: "#send" } });
+    await flush();
+    const { requestId } = asked()[0];
+    // A script of the site, which saw the request, answers first.
+    answer(
+      requestId,
+      { status: "needs-approval", approval: approval() },
+      "forged",
+    );
+    answer(
+      requestId,
+      { status: "done", interaction: interaction("clicked") },
+      "doc-1",
+    );
+    await expect(answered).resolves.toMatchObject({ status: "done" });
+  });
+
+  it("does not take the Studio's own reload for the action's navigation", async () => {
+    ready();
+    const answered = start({ action: { kind: "click", selector: "a.next" } });
+    const failed = expect(answered).rejects.toThrow(
+      /The Studio loaded the preview again/,
+    );
+    await flush();
+    // A new build: the Studio asks for the page again.
+    rerenderWith({ documentKey: "build-2" });
+    await flush();
+    await failed;
+  });
+
+  it("stops following a page that keeps loading itself, at the bound", async () => {
+    ready();
+    const answered = start({ action: { kind: "open", path: "/loop" } });
+    const failed = expect(answered).rejects.toThrow(/kept loading new pages/);
+    await flush();
+    // The page arrives, and is asked to settle...
+    watchFrame();
+    ready(undefined, "loop-1");
+    await flush();
+    expect(asked().map((message) => message.action.kind)).toEqual(["settle"]);
+    // ...and before it answers, past the bound, it has loaded itself again.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(16_000);
+    });
+    ready(undefined, "loop-2");
+    await flush();
+    await failed;
   });
 
   it("changes the width the way the device switch does, then reads the page at it", async () => {
@@ -268,10 +391,11 @@ describe("using the page in the canvas", () => {
     ready(undefined, "doc-1");
     await flush();
     expect(asked()).toHaveLength(1);
-    answer(asked()[0].requestId, {
-      status: "done",
-      interaction: interaction('clicked <a> "Tab"'),
-    });
+    answer(
+      asked()[0].requestId,
+      { status: "done", interaction: interaction('clicked <a> "Tab"') },
+      "doc-1",
+    );
     await expect(answered).resolves.toMatchObject({
       status: "done",
       navigated: false,
@@ -297,6 +421,28 @@ describe("using the page in the canvas", () => {
       navigated: true,
       interaction: { did: "opened /about?x=1", before: { url: "/shop" } },
     });
+  });
+
+  it("puts the canvas marker before a hash, and leaves the preview as it was when nothing arrives", async () => {
+    ready();
+    const answered = start({ action: { kind: "open", path: "/about#team" } });
+    const failed = expect(answered).rejects.toThrow(/none arrived/);
+    expect(frame.getAttribute("src")).toBe("/about?val_canvas=1#team");
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(16_000);
+    });
+    await failed;
+    // The page that was there still answers: nothing was cleared. (jsdom
+    // gave the frame a new window when its src changed.)
+    watchFrame();
+    const again = start({ action: { kind: "click", selector: "#more" } });
+    await flush();
+    expect(asked()).toHaveLength(1);
+    answer(asked()[0].requestId, {
+      status: "done",
+      interaction: interaction("clicked"),
+    });
+    await expect(again).resolves.toMatchObject({ status: "done" });
   });
 
   it("never opens anything but the site's own pages", async () => {
