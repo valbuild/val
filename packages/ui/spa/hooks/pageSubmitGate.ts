@@ -13,47 +13,82 @@ import {
 } from "./webSearchGate";
 
 /**
- * Before the page in the preview sends anything to the site's server
- * because of `interact_page`, the person is asked.
+ * Before `interact_page` clicks, or presses Enter or Space, in the preview
+ * -- and before the page sends what the other actions made it try -- the
+ * person is asked.
  *
- * The preview is the real site, and its backend is real: a request can send
- * an email, place an order, delete an account. What the page sends is held
- * unsent while an action runs (`pageRequestGate.ts`), and the page answers
- * `needs-approval` with exactly what it tried -- method and address, as the
- * browser resolved them, and checked by the Studio (`trustedApproval`).
+ * The preview is the real site, and its backend is real: a click can send
+ * an email, place an order, delete an account, and from outside the page a
+ * harmless click and a harmful one look alike. So:
+ *
+ * - every click and every Enter or Space is asked about BEFORE it reaches
+ *   the page (`ActionApproval`), naming the element as the page shows it;
+ *   Allow sends the action back with the element's fingerprint, and the page
+ *   asks again if the element changed meanwhile;
+ * - what typing and the other actions make the page try to send is held
+ *   unsent (`pageRequestGate.ts`), shown -- method, address, an excerpt of
+ *   the body -- and Allow sends exactly that (`RequestsApproval`).
  *
  * The same mechanism as the web search gate (`webSearchGate.ts`): the call
  * is held, the Studio shows its OWN question on the tool's row, and the
- * answer runs the call again -- here not by doing the action again, but by
- * sending or refusing exactly the requests that were shown (`release`). The
- * question's words are the Studio's, never the model's: a model talked into
- * sending would write a reassuring one. What it quotes from the page -- what
- * was clicked, the addresses -- is the site's own, shortened and quoted.
+ * answer runs the call again AS that answer. The question's words are the
+ * Studio's, never the model's: a model talked into acting would write a
+ * reassuring one. What it quotes from the page -- the element's words, the
+ * addresses, the bodies -- is the site's own, checked by the Studio
+ * (`trustedApproval`), shortened, and shown in quotes.
  */
 export function pageSubmitQuestions(
   approval: PageApproval,
 ): AskUserQuestionItem[] {
-  const [first, ...more] = approval.requests;
-  const what =
-    first === undefined
-      ? "a request"
-      : `${first.method} ${first.url}${
-          more.length > 0
-            ? ` and ${more.length} more request${more.length === 1 ? "" : "s"}`
-            : ""
-        }`;
-  const on = approval.label !== "" ? ` on “${approval.label}”` : "";
+  if (approval.kind === "action") {
+    const what =
+      approval.action === "click"
+        ? "click"
+        : `press ${approval.key ?? "a key"} on`;
+    const named =
+      approval.label !== ""
+        ? `the ${approval.role} \u201c${approval.label}\u201d`
+        : `a ${approval.role}`;
+    return [
+      {
+        header: "Use the site",
+        question:
+          `The assistant wants to ${what} ${named} on ${approval.page} in the preview. ` +
+          "This is the real site: a click can save, send, buy or delete something. Let it?",
+        options: [
+          {
+            label: ALLOW,
+            description:
+              "Exactly this, once, on this element. If the page changed meanwhile, you are asked again.",
+          },
+          {
+            label: DONT_ALLOW,
+            description:
+              "Nothing is done on the page, and the assistant is told you said no.",
+          },
+        ],
+      },
+    ];
+  }
+  const lines = approval.requests.map(
+    (request) =>
+      `${request.method} ${request.url}${
+        request.body !== undefined ? ` \u201c${request.body}\u201d` : ""
+      }`,
+  );
+  const on = approval.label !== "" ? ` on \u201c${approval.label}\u201d` : "";
   return [
     {
       header: "Send to the site",
       question:
-        `The assistant acted${on} on ${approval.page} in the preview, and the page tried to send ${what} to the real site, which may save, send or buy something. ` +
-        "Nothing has been sent yet. Send it?",
+        `While the assistant acted${on} on ${approval.page} in the preview, the page tried to send ` +
+        `${lines.length === 1 ? "this request" : `these ${lines.length} requests`} to the real site, which may save, send or buy something: ` +
+        `${lines.join("; ")}. Nothing has been sent yet. Send ${lines.length === 1 ? "it" : "them"}?`,
       options: [
         {
           label: ALLOW,
           description:
-            "Exactly what the page tried is sent, once, as if you had done it.",
+            "Exactly what is shown is sent, once, as the page tried to send it.",
         },
         {
           label: DONT_ALLOW,
@@ -72,9 +107,9 @@ export function pageSubmitConfirmationOf(
   return gateConfirmationOf(
     answers,
     (said) =>
-      "The person did not allow what the page tried to send" +
+      "The person did not allow it" +
       (said !== null ? `, and said: ${said}` : ".") +
-      " Nothing was sent. Do not send it another way; say what you would have checked, and let them ask.",
+      " Nothing was done or sent. Do not do it another way; say what you would have checked, and let them ask.",
   );
 }
 
@@ -87,7 +122,8 @@ export function refusePageApproval(
   interactPage: PageInteractor | null,
   approval: PageApproval,
 ): void {
-  if (interactPage === null) return;
+  // An action not done holds nothing: there is nothing to drop.
+  if (interactPage === null || approval.kind !== "requests") return;
   void interactPage({
     action: { kind: "release", hold: approval.hold, allow: false },
   }).catch(() => {});
@@ -114,10 +150,10 @@ export type GatedInteractDeps = InteractPageDeps & {
 };
 
 /**
- * `interact_page` as the Studio runs it: the action -- or, with `release`,
- * the person's answer about what it held -- and, when the page tried to
- * send something, the person asked in the Studio's words instead of an
- * answer. What `useAI` calls for every `interact_page`.
+ * `interact_page` as the Studio runs it: the action -- or, with `answered`,
+ * the person's Allow -- and, when the page needs the person, them asked in
+ * the Studio's words instead of an answer. What `useAI` calls for every
+ * `interact_page`.
  */
 export async function runGatedInteractPage(
   args: unknown,
@@ -141,7 +177,7 @@ export async function runGatedInteractPage(
       result: {
         success: false,
         error:
-          "The page tried to send data to the site's server, which needs the person's permission, and the chat is not available to ask. Nothing was sent.",
+          "This needs the person's permission, and the chat is not available to ask. Nothing was done or sent.",
       },
       isError: true,
     });

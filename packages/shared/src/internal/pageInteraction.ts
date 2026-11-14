@@ -15,23 +15,32 @@
  * this one copy. Only what {@link interactWithPage} returns crosses the frame
  * (`valCanvasProtocol.ts`).
  *
- * ## What it will not do
+ * ## What it asks first, and what it will not do
  *
  * The preview is the real site, talking to its real backend, so:
  *
- * - **Nothing is sent to the site's server without the person.** While an
- *   action runs, every request the page makes that sends data -- a form
- *   POST, a `fetch` or XHR other than GET, a beacon -- is held unsent
- *   (`pageRequestGate.ts`) and the answer is `needs-approval`, with exactly
- *   what the page tried. The Studio asks the person, and Allow sends those
- *   requests and nothing else (the `release` action). What was clicked is not
- *   looked at to decide this: what the page does is.
- * - **It never takes the frame off the site.** A link that goes to another
- *   origin, or into another window, is refused before it is clicked; a form
- *   or a data-sending request to another site is refused when the page makes
- *   it. (A script that navigates on its own cannot be stopped; the Studio
+ * - **Every click, and every Enter or Space, asks the person first.** Before
+ *   anything is dispatched to the page, the answer is `needs-approval`,
+ *   naming the element (its label or text, its role, the page); the Studio
+ *   asks in its own words, and Allow sends the same action back with the
+ *   element's FINGERPRINT (`approved`). If the element is no longer the one
+ *   that was shown -- a re-render, a navigation, a click the person made
+ *   meanwhile -- the page asks again rather than act. An approved action
+ *   runs as the person's own: nothing it sends to this site is held.
+ * - **While the actions that do not ask run** -- typing, other keys, the
+ *   settle after opening a page or changing the width -- requests that send
+ *   data are held until the page settles (`pageRequestGate.ts`) and shown to
+ *   the person, and Allow sends exactly those (the `release` action).
+ * - **It never takes the frame off the site.** A link to another origin or
+ *   into another window is refused before anything is asked; data sent to
+ *   another site, and a form that would leave it, are refused when the page
+ *   tries. (A script that navigates on its own cannot be stopped; the Studio
  *   then says no page arrived.)
  * - **It never types into a password field.** Whatever the model was told.
+ *
+ * Not covered: what the page sends after it settled (an autosave on a
+ * timer), WebSockets, workers, embedded frames, and the GET navigations of
+ * typing and keys -- which can have side effects of their own.
  *
  * ## The events are synthetic
  *
@@ -48,6 +57,7 @@ import type { PageLog, PageLogEntry } from "./pageLog";
 import {
   baseTargetOf,
   holdRequests,
+  MAX_HELD_REQUESTS,
   refuseAllHolds,
   refuseHeld,
   releaseHold,
@@ -63,11 +73,13 @@ import {
 
 /**
  * The keys `press` knows. Each one either reaches the page's own listeners
- * (Escape, the arrows) or is also done the way the browser would (Enter, Tab):
- * see {@link pressKey}.
+ * (Escape, the arrows) or is also done the way the browser would (Enter,
+ * Space, Tab): see {@link pressKey}. Enter and Space ask the person first,
+ * as a click does: {@link ASKING_KEYS}.
  */
 export const PAGE_KEYS = [
   "Enter",
+  "Space",
   "Escape",
   "Tab",
   "Shift+Tab",
@@ -77,6 +89,9 @@ export const PAGE_KEYS = [
   "ArrowRight",
 ] as const;
 export type PageKey = (typeof PAGE_KEYS)[number];
+
+/** The keys that activate what has the focus, as a click does: asked about. */
+export const ASKING_KEYS: ReadonlySet<PageKey> = new Set(["Enter", "Space"]);
 
 /**
  * What the page itself can be asked to do. Each `kind` is a capability of
@@ -190,13 +205,40 @@ export type PageState = {
 };
 
 export type { PageRequest } from "./pageRequestGate";
+// One cap, and one excerpt length, for the bridge and the Studio's card.
+export { BODY_EXCERPT_LENGTH, MAX_HELD_REQUESTS } from "./pageRequestGate";
 
 /**
- * Requests an action made the page try, held unsent until the person says
- * (`pageRequestGate.ts`). Every string in it is the page's: the Studio checks
- * it before it shows any of it.
+ * A click, or Enter or Space, the page will do once the person allows it --
+ * nothing has been dispatched yet. Every string in it is the page's: the
+ * Studio checks it before it shows any of it.
  */
-export type PageApproval = {
+export type ActionApproval = {
+  kind: "action";
+  /**
+   * The element as it was shown: what Allow sends back (`approved`), and
+   * what the page checks it against before it acts.
+   */
+  fingerprint: string;
+  action: "click" | "press";
+  /** For `press`: the key. */
+  key?: PageKey;
+  /** The page it is on. */
+  page: string;
+  /** What the element says: its accessible label or its text, shortened. */
+  label: string;
+  /** What it is: its role (`button`, `link`) or its tag. */
+  role: string;
+  tag: string;
+  before: PageState;
+};
+
+/**
+ * Requests an action that did not ask made the page try, held unsent until
+ * the person says (`pageRequestGate.ts`). Every string in it is the page's.
+ */
+export type RequestsApproval = {
+  kind: "requests";
   /** What to send back with the person's answer (`release`). */
   hold: string;
   /** The page they were tried on. */
@@ -209,6 +251,9 @@ export type PageApproval = {
   /** What the page tried to send, as the browser resolved it. */
   requests: PageRequest[];
 };
+
+/** What the person is asked about: an action, or what an action sent. */
+export type PageApproval = ActionApproval | RequestsApproval;
 
 /** Why the page did not settle in time: what was still going on. */
 export type PageBusy = "loading" | "requests" | "changing" | "width";
@@ -249,7 +294,10 @@ export type PageInteractOutcome =
    * `ready` and answer the rest: this one is about to be gone.
    */
   | { status: "leaving"; did: string; before: PageState }
-  /** The page tried to send data: held, until the person says. */
+  /**
+   * The person has to say first: about a click or Enter/Space, not done
+   * yet, or about what an action made the page try to send, held unsent.
+   */
   | { status: "needs-approval"; approval: PageApproval }
   /** Not done, and why. */
   | { status: "refused"; error: string };
@@ -268,6 +316,14 @@ export type InteractRequest = {
    * loaded because of the action, where all of it is.
    */
   logFrom?: "action" | "document";
+  /**
+   * The fingerprint of the element the person allowed this click or key
+   * on (`ActionApproval`): only the Studio sends it, after the person's
+   * Allow. Absent, a click or Enter/Space only asks.
+   */
+  approved?: string;
+  /** Which document this is (`ready`'s `document`): in the fingerprint. */
+  document?: string;
 };
 
 /**
@@ -282,6 +338,9 @@ export async function interactWithPage(
   const doc = win.document;
   const before: PageState = stateOf(win);
   const mark = log?.mark() ?? 0;
+  // A click or Enter/Space: the person first, before anything is dispatched.
+  const asked = askFirst(win, request);
+  if (asked !== "approved" && asked !== "not-asked") return asked;
   // Anything still held from an action before this one was not wanted: the
   // assistant moved on without the person's answer.
   if (request.action.kind !== "release") refuseAllHolds(win);
@@ -295,8 +354,11 @@ export async function interactWithPage(
   };
   win.addEventListener("beforeunload", leave);
   win.addEventListener("pagehide", leave);
-  // From before the action is dispatched until the page settled.
-  const gate = startRequestGate(win);
+  // From before the action is dispatched until the page settled. An action
+  // the person approved is theirs: only what leaves the site is refused.
+  const gate = startRequestGate(win, {
+    mode: asked === "approved" ? "off-site" : "hold",
+  });
   let stopped = false;
   const stopGate = () => {
     stopped = true;
@@ -323,7 +385,7 @@ export async function interactWithPage(
       waitForPageSettle(win, {
         timeoutMs: request.timeoutMs ?? INTERACT_SETTLE_TIMEOUT_MS,
         quietMs: request.quietMs ?? INTERACT_QUIET_MS,
-        inFlight: () => log?.inFlight() ?? 0,
+        inFlight: () => (log?.inFlight() ?? 0) + gate.inFlight(),
         ...(request.action.kind === "settle" &&
         request.action.width !== undefined
           ? { width: request.action.width }
@@ -335,17 +397,26 @@ export async function interactWithPage(
     ]);
     if (settled === "leaving" || leaving) return leaveNow;
     const blocked = gate.blocked();
+    const requests = gate.held();
     const held = stopGate();
-    if (held.requests.length > 0) {
+    if (requests.length > MAX_HELD_REQUESTS) {
+      // Not shown in part: the person must see all that Allow would send.
+      refuseHeld(held);
+      return refused(
+        `${did}, and the page tried to send ${requests.length} requests to the site's server -- more than the ${MAX_HELD_REQUESTS} the person can be shown at once. None was sent.`,
+      );
+    }
+    if (requests.length > 0) {
       return {
         status: "needs-approval",
         approval: {
+          kind: "requests",
           hold: holdRequests(win, held),
           page: pageLocationOf(win).path,
           label,
           did,
           before,
-          requests: gate.held().slice(0, MAX_REQUESTS),
+          requests: [...requests],
         },
       };
     }
@@ -386,8 +457,111 @@ export async function interactWithPage(
   }
 }
 
-/** The most requests one answer lists. */
+/** The most refused requests one answer lists. */
 const MAX_REQUESTS = 20;
+
+/**
+ * Whether the person has to allow this first -- a click, or Enter or Space
+ * -- and if so, whether they did: `approved` when the Studio sent back the
+ * fingerprint of exactly this element, `not-asked` for an action that does
+ * not ask, and otherwise the outcome: `needs-approval`, naming the element,
+ * or `refused` for what would never be allowed. Nothing is dispatched to the
+ * page here.
+ */
+function askFirst(
+  win: Win,
+  request: InteractRequest,
+): PageInteractOutcome | "approved" | "not-asked" {
+  const action = request.action;
+  let target: Element;
+  if (action.kind === "click") {
+    const found = find(win, action.selector);
+    if (typeof found === "string") return refused(found);
+    if (isDisabled(found)) {
+      return refused(
+        `${describe(found)} is disabled: clicking it does nothing.`,
+      );
+    }
+    target = found;
+  } else if (action.kind === "press" && ASKING_KEYS.has(action.key)) {
+    if (action.selector !== undefined) {
+      const found = find(win, action.selector);
+      if (typeof found === "string") return refused(found);
+      target = found;
+    } else {
+      target = win.document.activeElement ?? win.document.body;
+    }
+  } else {
+    return "not-asked";
+  }
+  // Never asked about: a link off the site, or into another window.
+  const offSite = leavesTheSite(win, target);
+  if (offSite !== null) return refused(offSite);
+  const fingerprint = fingerprintOf(win, request, target);
+  if (request.approved !== undefined && request.approved === fingerprint) {
+    return "approved";
+  }
+  return {
+    status: "needs-approval",
+    approval: {
+      kind: "action",
+      fingerprint,
+      action: action.kind === "click" ? "click" : "press",
+      ...(action.kind === "press" ? { key: action.key } : {}),
+      page: pageLocationOf(win).path,
+      label: labelOf(target),
+      role: roleOf(target),
+      tag: clamp(target.tagName.toLowerCase(), 20),
+      before: stateOf(win),
+    },
+  };
+}
+
+/**
+ * The element an action would act on, as the person was shown it: the
+ * document, the action, the element's tag and words, and where it is among
+ * all the document's elements. A re-render that replaces it, a navigation,
+ * or a change to what it says gives another fingerprint, and the person is
+ * asked again.
+ */
+function fingerprintOf(
+  win: Win,
+  request: InteractRequest,
+  target: Element,
+): string {
+  const action = request.action;
+  const all = win.document.getElementsByTagName("*");
+  return JSON.stringify([
+    request.document ?? "",
+    pageLocationOf(win).path,
+    action.kind,
+    "selector" in action ? (action.selector ?? "") : "",
+    action.kind === "press" ? action.key : "",
+    target.tagName,
+    labelOf(target),
+    Array.prototype.indexOf.call(all, target),
+  ]);
+}
+
+/** What an element is, as a person would name it: its role, or its tag. */
+function roleOf(element: Element): string {
+  const role = element.getAttribute("role");
+  if (role !== null && /^[a-z]{1,20}$/.test(role)) return role;
+  const tag = element.tagName.toLowerCase();
+  if (tag === "a" || tag === "area") {
+    return element.hasAttribute("href") ? "link" : tag;
+  }
+  if (tag === "button" || tag === "summary") return "button";
+  if (tag === "select") return "list";
+  if (tag === "textarea") return "text field";
+  if (tag === "input") {
+    const type = String(Reflect.get(element, "type"));
+    if (["submit", "button", "reset", "image"].includes(type)) return "button";
+    if (type === "checkbox" || type === "radio") return type;
+    return "text field";
+  }
+  return clamp(tag, 20);
+}
 
 /** The page's window, as `window` is typed: with its own constructors. */
 type Win = Window & typeof globalThis;
@@ -748,6 +922,7 @@ function inputEvent(win: Win, text: string): Event {
 
 const KEY_CODES: Record<string, string> = {
   Enter: "Enter",
+  Space: "Space",
   Escape: "Escape",
   Tab: "Tab",
   ArrowUp: "ArrowUp",
@@ -774,6 +949,8 @@ const KEY_CODES: Record<string, string> = {
 function pressKey(win: Win, target: Element, key: PageKey): Acted {
   const shift = key === "Shift+Tab";
   const name = shift ? "Tab" : key;
+  // What a key event says for Space: a space.
+  const eventKey = name === "Space" ? " " : name;
   // Enter: what it would activate or submit.
   let submits: HTMLFormElement | null = null;
   let activates: Element | null = null;
@@ -797,8 +974,16 @@ function pressKey(win: Win, target: Element, key: PageKey): Acted {
       if (offSite !== null) return refused(offSite);
     }
   }
+  // Space activates a button, a checkbox or a radio as a click would; a
+  // link it does not.
+  if (name === "Space") {
+    const control = target.closest(
+      'button, summary, input[type="checkbox"], input[type="radio"], input[type="submit"], input[type="button"], input[type="reset"], [role="button"], [role="checkbox"]',
+    );
+    if (control !== null) activates = control;
+  }
   const init: KeyboardEventInit = {
-    key: name,
+    key: eventKey,
     code: KEY_CODES[name] ?? name,
     shiftKey: shift,
     bubbles: true,
@@ -807,9 +992,11 @@ function pressKey(win: Win, target: Element, key: PageKey): Acted {
   };
   const proceed = target.dispatchEvent(new win.KeyboardEvent("keydown", init));
   if (proceed) {
-    if (name === "Enter") {
+    if (name === "Enter" || name === "Space") {
       if (activates !== null) {
         if (activates instanceof win.HTMLElement) activates.click();
+      } else if (name === "Space" && isPageItself(win, target)) {
+        win.scrollBy(0, Math.round(win.innerHeight * 0.8));
       } else if (submits !== null) {
         const button = defaultButtonOf(win, submits);
         submits.requestSubmit(button ?? undefined);

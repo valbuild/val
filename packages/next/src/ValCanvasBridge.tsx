@@ -413,8 +413,8 @@ export function ValCanvasBridge({
       }
       if (message.type === "interact") {
         // The assistant's `interact_page`: do something on the page and
-        // read it once it settled (`pageInteraction.ts`), holding what the
-        // page tries to send until the person allows it. As
+        // read it once it settled (`pageInteraction.ts`) -- a click or
+        // Enter/Space only once the person allowed it. As
         // `readPage`: only for the frame's parent, when that is the Studio
         // here, and answered to it alone.
         if (event.source !== window.parent) return;
@@ -434,6 +434,12 @@ export function ValCanvasBridge({
             ...(message.logFrom !== undefined
               ? { logFrom: message.logFrom }
               : {}),
+            // The person's Allow, for a click or Enter/Space, and which
+            // document this is: both in the element's fingerprint.
+            ...(message.approved !== undefined
+              ? { approved: message.approved }
+              : {}),
+            document: DOCUMENT_ID,
           },
           pageLog(),
         ).then((outcome) => {

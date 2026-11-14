@@ -1,4 +1,6 @@
 import {
+  BODY_EXCERPT_LENGTH,
+  MAX_HELD_REQUESTS,
   VAL_CANVAS_PARAM,
   type PageApproval,
   type PageRequest,
@@ -70,8 +72,29 @@ export function clampPageText(text: string, length: number): string {
 /** The methods a held request may be shown with: the ones that send. */
 const SENDING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-/** At most this many requests on one card. */
-const MAX_SHOWN_REQUESTS = 10;
+/** A role a card may name; anything else is shown as "element". */
+const KNOWN_ROLES = new Set([
+  "button",
+  "link",
+  "text field",
+  "checkbox",
+  "radio",
+  "list",
+  "menuitem",
+  "tab",
+  "switch",
+  "option",
+  "combobox",
+  "textbox",
+]);
+
+/** Page text for a card: shortened, its own quote marks taken out. */
+function quotable(text: string, length: number): string {
+  return clampPageText(
+    text.replace(/["'`\u201c\u201d\u2018\u2019]/g, "").trim(),
+    length,
+  );
+}
 
 /**
  * What the page asked the person about, checked before the Studio shows
@@ -79,21 +102,52 @@ const MAX_SHOWN_REQUESTS = 10;
  *
  * Every field came from the page, and not only from Val's code there: the
  * `interact` message is posted into the page's window, where any script of
- * the site sees it and can answer first. So nothing is taken on trust. A
- * method must be one that sends data; an address must be on this site (the
- * bridge refuses others, and anything that says otherwise is not the
- * bridge); the label is shortened and its quote marks taken out, so it can
- * be shown as one quoted piece of the page's text and nothing more.
+ * the site sees it and can answer first. So nothing is taken on trust:
+ *
+ * - text is shortened and its quote marks taken out, so it can be shown as
+ *   one quoted piece of the page's words and nothing more;
+ * - a role must be one the Studio knows, a tag plain letters;
+ * - a held request's method must be one that sends data, its address on
+ *   this site (the bridge refuses others; anything that says otherwise is
+ *   not the bridge), and there may be no more of them than the card shows
+ *   ({@link MAX_HELD_REQUESTS}, the bridge's own cap): the person sees all
+ *   that Allow sends, or is not asked.
  */
 export function trustedApproval(
   approval: PageApproval,
   origin: string,
 ): { approval: PageApproval } | { error: string } {
+  const page = sitePathOf(approval.page, origin);
+  const pagePath = "path" in page ? clampPageText(page.path, 200) : "this page";
+  const before = { url: clampPageText(approval.before.url, 200) };
+  if (approval.kind === "action") {
+    const tag = /^[a-z][a-z0-9-]{0,19}$/.test(approval.tag)
+      ? approval.tag
+      : "element";
+    return {
+      approval: {
+        kind: "action",
+        fingerprint: approval.fingerprint,
+        action: approval.action,
+        ...(approval.key !== undefined ? { key: approval.key } : {}),
+        page: pagePath,
+        label: quotable(approval.label, 60),
+        role: KNOWN_ROLES.has(approval.role) ? approval.role : tag,
+        tag,
+        before,
+      },
+    };
+  }
   if (approval.requests.length === 0) {
     return { error: "The page asked about sending nothing: nothing was sent." };
   }
+  if (approval.requests.length > MAX_HELD_REQUESTS) {
+    return {
+      error: `The page tried to send ${approval.requests.length} requests, more than the ${MAX_HELD_REQUESTS} the person can be shown at once: nothing was sent.`,
+    };
+  }
   const requests: PageRequest[] = [];
-  for (const request of approval.requests.slice(0, MAX_SHOWN_REQUESTS)) {
+  for (const request of approval.requests) {
     const method = request.method.toUpperCase();
     if (!SENDING_METHODS.has(method)) {
       return {
@@ -106,28 +160,34 @@ export function trustedApproval(
     } catch {
       return {
         error:
-          "The page asked about a request with no address: nothing was sent.",
+          "The page tried to send a request whose address could not be read: nothing was sent.",
       };
     }
-    if (url.origin !== origin) {
+    if (request.url === "" || url.origin !== origin) {
       return {
-        error: `The page tried to send data to another site (${clampPageText(url.origin, 80)}), which is never allowed from the preview: nothing was sent.`,
+        error:
+          request.url === ""
+            ? "The page tried to send a request whose address could not be read: nothing was sent."
+            : `The page tried to send data to another site (${clampPageText(url.origin, 80)}), which is never allowed from the preview: nothing was sent.`,
       };
     }
     requests.push({
       via: request.via,
       method,
       url: clampPageText(`${url.pathname}${url.search}`, 200),
+      ...(request.body !== undefined
+        ? { body: quotable(request.body, BODY_EXCERPT_LENGTH) }
+        : {}),
     });
   }
-  const page = sitePathOf(approval.page, origin);
   return {
     approval: {
+      kind: "requests",
       hold: approval.hold,
-      page: "path" in page ? clampPageText(page.path, 200) : "this page",
-      label: clampPageText(approval.label.replace(/["'`“”‘’]/g, ""), 60),
+      page: pagePath,
+      label: quotable(approval.label, 60),
       did: clampPageText(approval.did, 200),
-      before: { url: clampPageText(approval.before.url, 200) },
+      before,
       requests,
     },
   };

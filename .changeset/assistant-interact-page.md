@@ -9,10 +9,13 @@ The assistant can now use the page in the preview, not only read it. A new `inte
 
 The preview is the real site, talking to its real backend, so:
 
-- **Nothing is sent to your site's server without you.** While the assistant clicks, types or presses a key, anything the page tries to send because of it — a form submit, or any request other than a `GET`, however the page makes it — is held unsent, and a card in the chat shows exactly what the page tried (the method and the address). The card's words are the Studio's, not the assistant's. Allow sends exactly those requests; Don't allow, or stopping the answer, drops them and the page sees them fail.
+- **Every click, and every Enter or Space, asks you first.** A card in the chat — written by the Studio, not the assistant — names the element as the page shows it (its label, what it is, the page it is on), and nothing reaches the page until you allow it. Allow does exactly that, once, on that element; if the page changed in the meantime, you are asked again.
+- **While the assistant types, presses other keys, opens a page or changes the width,** requests the page makes that send data (anything but `GET`) are held until the page settles, and a card shows each one — its method, its address and an excerpt of what it sends. Allow sends exactly those; Don't allow, or stopping the answer, drops them and the page sees them fail.
 - **It never types into a password field**, and **never takes the preview off the site**: links to other sites or new windows are refused, and data the page tries to send to another site is never sent.
 - After a web search in the same answer, the assistant asks before it uses the preview at all.
 
-Reading pages, plain links, typing, keys and width changes need no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
+What is not covered: requests a page sends later on its own (an autosave after a delay), WebSockets, workers, embedded frames, and plain links and other `GET` navigations — which can still have side effects, such as a logout or unsubscribe link.
+
+Reading pages needs no permission. Width changes use the preview's own device switch, so you see the same width the assistant does.
 
 Update `@valbuild/next` or `@valbuild/tanstack` together with the Studio to get `interact_page`; with an older one, the tool says at once which package to update.

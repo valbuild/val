@@ -257,6 +257,12 @@ export type PageInteractRequest = {
     | { kind: "viewport"; device: CanvasDevice };
   /** At most this many items in the outline read afterwards. */
   maxItems?: number;
+  /**
+   * The fingerprint of the element the person allowed this click or
+   * Enter/Space on (`ActionApproval`). Set by the Studio's gate after the
+   * person's Allow, never from the model's arguments.
+   */
+  approved?: string;
 };
 
 /** What the preview answers `interact_page`. */
@@ -899,10 +905,15 @@ export function CanvasFrame({
         deadline: number;
         maxItems?: number;
         logFrom?: "action" | "document";
+        approved?: string;
       },
     ) =>
       new Promise<PageInteractOutcome | "replaced">((resolve, reject) => {
-        const refused = unanswered(interactCapability(action.kind));
+        // A bridge that cannot hold what the page sends is never asked to
+        // act: `release` is how it answers the person.
+        const refused =
+          unanswered(interactCapability(action.kind)) ??
+          unanswered("interact:release");
         if (refused !== null) return reject(refused);
         const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const remaining = Math.max(0, options.deadline - Date.now());
@@ -957,6 +968,9 @@ export function CanvasFrame({
           ...(options.logFrom !== undefined
             ? { logFrom: options.logFrom }
             : {}),
+          ...(options.approved !== undefined
+            ? { approved: options.approved }
+            : {}),
         });
       }),
     [send, unanswered],
@@ -982,10 +996,12 @@ export function CanvasFrame({
       const approvalAnswer = (approval: PageApproval): PageInteractAnswer => {
         const trusted = trustedApproval(approval, origin);
         if ("error" in trusted) {
-          void askToInteract(
-            { kind: "release", hold: approval.hold, allow: false },
-            { deadline: Date.now() + INTERACT_ANSWER_MARGIN_MS },
-          ).catch(() => {});
+          if (approval.kind === "requests") {
+            void askToInteract(
+              { kind: "release", hold: approval.hold, allow: false },
+              { deadline: Date.now() + INTERACT_ANSWER_MARGIN_MS },
+            ).catch(() => {});
+          }
           throw new PageRefusedError(trusted.error);
         }
         return { status: "needs-approval", approval: trusted.approval };
@@ -1084,6 +1100,9 @@ export function CanvasFrame({
         outcome = await askToInteract(action, {
           deadline,
           ...(maxItems !== undefined ? { maxItems } : {}),
+          ...(request.approved !== undefined
+            ? { approved: request.approved }
+            : {}),
         });
       }
       if (outcome === "replaced") {

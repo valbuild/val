@@ -2605,7 +2605,7 @@ export function useAI(
           pageReleasesRef.current.delete(toolCallId);
           void runGatedInteractPage(message.arguments, {
             interactPage: pageRef.current?.interactPage() ?? null,
-            ...(release !== undefined ? { release } : {}),
+            ...(release !== undefined ? { answered: release } : {}),
             noPage: NO_PREVIEW,
             isCurrent: () => turnStopsRef.current === turn,
             // The page tried to send something: the Studio's own question
@@ -3849,7 +3849,8 @@ Do not describe what you will do unless you do it for clarification — just do 
       if (confirmation.allow) {
         allowedCallsRef.current.add(toolCallId);
         if (held.gate === "page-submit") {
-          // Not the action again: exactly what was shown, sent.
+          // As that answer: the action on exactly the element shown, or
+          // exactly the requests shown, sent.
           pageReleasesRef.current.set(toolCallId, {
             approval: held.approval,
             allow: true,

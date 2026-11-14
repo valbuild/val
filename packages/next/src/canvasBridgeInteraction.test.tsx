@@ -82,7 +82,7 @@ describe("the canvas bridge, used from the Studio", () => {
   /** Ask the page to do `action`, and wait for what it answers. */
   async function interact(
     action: PageAction,
-    extra: { timeoutMs?: number } = {},
+    extra: { timeoutMs?: number; approved?: string } = {},
   ): Promise<unknown> {
     const requestId = `i${++requests}`;
     tell({
@@ -109,6 +109,24 @@ describe("the canvas bridge, used from the Studio", () => {
     return outcome;
   }
 
+  /**
+   * A click or Enter/Space, as the Studio runs it: asked first -- nothing
+   * dispatched -- and then sent again with what the person allowed.
+   */
+  async function approvedly(action: PageAction): Promise<unknown> {
+    const asked = await interact(action);
+    expect(asked).toMatchObject({
+      status: "needs-approval",
+      approval: { kind: "action" },
+    });
+    const fingerprint: unknown = Reflect.get(
+      Object(Reflect.get(Object(asked), "approval")),
+      "fingerprint",
+    );
+    if (typeof fingerprint !== "string") throw new Error("no fingerprint");
+    return interact(action, { approved: fingerprint });
+  }
+
   it("clicks, and answers with the page after the click", async () => {
     function Counter() {
       const [count, setCount] = React.useState(0);
@@ -127,7 +145,7 @@ describe("the canvas bridge, used from the Studio", () => {
         <ValCanvasBridge draftMode />
       </>,
     );
-    const outcome = await interact({ kind: "click", selector: "#more" });
+    const outcome = await approvedly({ kind: "click", selector: "#more" });
     expect(outcome).toMatchObject({
       status: "done",
       interaction: {
@@ -264,160 +282,81 @@ describe("the canvas bridge, used from the Studio", () => {
     expect(document.activeElement?.id).toBe("first");
   });
 
-  /**
-   * The request gate (`pageRequestGate.ts`): what the page SENDS is held for
-   * the person, whatever was clicked to make it. Each case below submitted
-   * with no card when the gate guessed from the clicked element instead.
-   */
-  describe("holding what the page sends", () => {
-    /** The page's own `fetch`, answering every request. */
-    let sent: Array<{ url: string; method: string }>;
-    /** What `form.submit()` was really called on. */
-    let submitted: HTMLFormElement[];
-    const submit = HTMLFormElement.prototype.submit;
-
-    beforeEach(() => {
-      sent = [];
-      submitted = [];
-      Reflect.set(
-        window,
-        "fetch",
-        jest.fn((input: unknown, init?: { method?: string }) => {
-          sent.push({ url: String(input), method: init?.method ?? "GET" });
-          return Promise.resolve({ status: 200, statusText: "" });
-        }),
-      );
-      // jsdom navigates nowhere: what submitting a form natively comes to.
-      HTMLFormElement.prototype.submit = function (this: HTMLFormElement) {
-        submitted.push(this);
-      };
-    });
-    afterEach(() => {
-      HTMLFormElement.prototype.submit = submit;
-    });
-
-    /** The approval an outcome asks for. */
-    function approvalOf(outcome: unknown): {
-      hold: string;
-      requests: unknown[];
-    } {
-      expect(outcome).toMatchObject({ status: "needs-approval" });
-      const approval: unknown = Reflect.get(Object(outcome), "approval");
-      const hold: unknown = Reflect.get(Object(approval), "hold");
-      const requests: unknown = Reflect.get(Object(approval), "requests");
-      if (typeof hold !== "string" || !Array.isArray(requests)) {
-        throw new Error("no hold");
-      }
-      return { hold, requests };
-    }
-
-    const POST_TO_SUBSCRIBE = {
-      via: "form",
-      method: "POST",
-      url: "http://localhost/subscribe",
-    };
-
-    it("holds a form POST, and sends exactly it once the person allows", async () => {
-      render(
-        <main>
-          <form action="/subscribe" method="post">
-            <input name="email" />
-            <button id="send" name="list" value="weekly">
-              Subscribe
-            </button>
-          </form>
-          <ValCanvasBridge draftMode />
-        </main>,
-      );
-      const { hold, requests } = approvalOf(
-        await interact({ kind: "click", selector: "#send" }),
-      );
-      expect(requests).toEqual([POST_TO_SUBSCRIBE]);
-      expect(submitted).toEqual([]);
-      // Restored once the action ended: the page is as it was.
-      expect(HTMLFormElement.prototype.submit).not.toBe(submit);
-      expect(
-        await interact({ kind: "release", hold, allow: true }),
-      ).toMatchObject({
-        status: "done",
-        interaction: { did: "sent the 1 request the person allowed" },
+  /** The page's own `fetch`, answering every request, and what it sent. */
+  let sent: Array<{ url: string; method: string }>;
+  /** What `form.submit()` was really called on, with its fields then. */
+  let submitted: Array<{ action: string; fields: string }>;
+  const submit = HTMLFormElement.prototype.submit;
+  beforeEach(() => {
+    sent = [];
+    submitted = [];
+    Reflect.set(
+      window,
+      "fetch",
+      jest.fn((input: unknown, init?: { method?: string }) => {
+        sent.push({ url: String(input), method: init?.method ?? "GET" });
+        return Promise.resolve({ status: 200, statusText: "" });
+      }),
+    );
+    // jsdom navigates nowhere: what submitting a form natively comes to.
+    HTMLFormElement.prototype.submit = function (this: HTMLFormElement) {
+      submitted.push({
+        action: this.action,
+        fields: new URLSearchParams(
+          Array.from(new FormData(this).entries()).map(
+            ([name, value]): [string, string] => [name, String(value)],
+          ),
+        ).toString(),
       });
-      expect(submitted).toHaveLength(1);
-      // Released once: a second answer finds nothing waiting.
-      expect(
-        await interact({ kind: "release", hold, allow: true }),
-      ).toMatchObject({ status: "refused" });
-      expect(submitted).toHaveLength(1);
-    });
+    };
+  });
+  afterEach(() => {
+    HTMLFormElement.prototype.submit = submit;
+  });
 
-    it("holds Enter in a form's field", async () => {
+  /**
+   * Every click, and every Enter or Space, asks the person BEFORE anything
+   * reaches the page: so nothing a click could set off -- a submit by any
+   * route, a fetch from a handler -- happens until they allow it.
+   */
+  describe("asking before a click or Enter/Space", () => {
+    it("asks first, dispatching nothing, and names the element", async () => {
+      const clicked = jest.fn();
       render(
         <main>
-          <form action="/subscribe" method="post">
-            <input name="email" />
-            <button>Subscribe</button>
-          </form>
+          <button id="buy" onPointerDown={clicked} onClick={clicked}>
+            Buy &ldquo;now&rdquo;
+          </button>
           <ValCanvasBridge draftMode />
         </main>,
       );
-      const { requests } = approvalOf(
-        await interact({
-          kind: "press",
-          key: "Enter",
-          selector: 'input[name="email"]',
-        }),
-      );
-      expect(requests).toEqual([POST_TO_SUBSCRIBE]);
-      expect(submitted).toEqual([]);
+      expect(await interact({ kind: "click", selector: "#buy" })).toEqual({
+        status: "needs-approval",
+        approval: {
+          kind: "action",
+          fingerprint: expect.any(String),
+          action: "click",
+          page: "/form",
+          label: "Buy “now”",
+          role: "button",
+          tag: "button",
+          before: { url: "/form", title: "" },
+        },
+      });
+      expect(clicked).not.toHaveBeenCalled();
     });
 
-    it('holds a submit by <button type="foo">, which the browser reads as submit', async () => {
+    it("dispatches nothing before the person allows, whatever the click would set off", async () => {
+      const fetched = jest.fn();
       render(
         <main>
-          <form action="/subscribe" method="post">
+          <form id="f" action="/subscribe" method="post">
             <button id="odd">Odd</button>
-          </form>
-          <ValCanvasBridge draftMode />
-        </main>,
-      );
-      // Not a type React lets be written: set as a page's markup would.
-      document.getElementById("odd")?.setAttribute("type", "foo");
-      expect(
-        approvalOf(await interact({ kind: "click", selector: "#odd" }))
-          .requests,
-      ).toEqual([POST_TO_SUBSCRIBE]);
-      expect(submitted).toEqual([]);
-    });
-
-    it("holds a submit by a label that clicks the button", async () => {
-      render(
-        <main>
-          <form action="/subscribe" method="post">
             <button id="submitBtn">Subscribe</button>
           </form>
           <label id="for" htmlFor="submitBtn">
             Go
           </label>
-          <form action="/subscribe" method="post">
-            <label id="around">
-              <button>Wrapped</button>
-            </label>
-          </form>
-          <ValCanvasBridge draftMode />
-        </main>,
-      );
-      for (const selector of ["#for", "#around"]) {
-        expect(
-          approvalOf(await interact({ kind: "click", selector })).requests,
-        ).toEqual([POST_TO_SUBSCRIBE]);
-      }
-      expect(submitted).toEqual([]);
-    });
-
-    it("holds a submit a script makes: requestSubmit from a div, form.submit() from a link", async () => {
-      render(
-        <main>
-          <form id="f" action="/subscribe" method="post" />
           <div
             id="div"
             onClick={() =>
@@ -429,172 +368,212 @@ describe("the canvas bridge, used from the Studio", () => {
           <a
             id="link"
             href="#"
-            onClick={(event) => {
-              event.preventDefault();
-              document.querySelector<HTMLFormElement>("#f")?.submit();
-            }}
+            onClick={() =>
+              document.querySelector<HTMLFormElement>("#f")?.submit()
+            }
           >
             Send
           </a>
+          <button id="save" onClick={fetched}>
+            Save
+          </button>
           <ValCanvasBridge draftMode />
         </main>,
       );
-      for (const selector of ["#div", "#link"]) {
-        expect(
-          approvalOf(await interact({ kind: "click", selector })).requests,
-        ).toEqual([POST_TO_SUBSCRIBE]);
+      document.getElementById("odd")?.setAttribute("type", "foo");
+      for (const selector of ["#odd", "#for", "#div", "#link", "#save"]) {
+        expect(await interact({ kind: "click", selector })).toMatchObject({
+          status: "needs-approval",
+          approval: { kind: "action" },
+        });
       }
       expect(submitted).toEqual([]);
+      expect(fetched).not.toHaveBeenCalled();
     });
 
-    it("holds onchange=this.form.submit(), fired by typing", async () => {
+    it("asks before Enter and Space, and not before other keys", async () => {
       render(
         <main>
-          <form id="f" action="/subscribe" method="post">
-            <input
-              name="email"
-              onChange={(event) => event.currentTarget.form?.submit()}
-            />
+          <form action="/subscribe" method="post">
+            <input name="email" />
+            <button>Subscribe</button>
           </form>
           <ValCanvasBridge draftMode />
         </main>,
       );
-      expect(
-        approvalOf(
+      for (const key of ["Enter", "Space"] as const) {
+        expect(
           await interact({
-            kind: "type",
+            kind: "press",
+            key,
             selector: 'input[name="email"]',
-            text: "a@b.example",
           }),
-        ).requests,
-      ).toEqual([POST_TO_SUBSCRIBE]);
+        ).toMatchObject({
+          status: "needs-approval",
+          approval: { kind: "action", action: "press", key },
+        });
+      }
+      for (const key of ["Escape", "Tab", "ArrowDown"] as const) {
+        expect(await interact({ kind: "press", key })).toMatchObject({
+          status: "done",
+        });
+      }
       expect(submitted).toEqual([]);
     });
 
-    it("holds a fetch POST from onClick, and the page gets an abort when the person says no", async () => {
-      function Save() {
-        const [state, setState] = React.useState("idle");
+    it("asks again when the element is not the one the person was shown", async () => {
+      function Changing() {
+        const [label, setLabel] = React.useState("Save draft");
         return (
           <main>
-            <button
-              id="save"
-              onClick={() => {
-                fetch("/api/save", { method: "POST", body: "{}" }).then(
-                  () => setState("saved"),
-                  (error: unknown) =>
-                    setState(Reflect.get(Object(error), "name")),
-                );
-              }}
-            >
-              Save
+            <button id="b" onClick={() => setLabel("Clicked")}>
+              {label}
             </button>
-            <p>State: {state}</p>
+            <button id="other" onClick={() => setLabel("Delete all")}>
+              Other
+            </button>
           </main>
         );
       }
       render(
         <>
-          <Save />
+          <Changing />
           <ValCanvasBridge draftMode />
         </>,
       );
-      const first = approvalOf(
-        await interact({ kind: "click", selector: "#save" }),
+      const asked = await interact({ kind: "click", selector: "#b" });
+      const fingerprint = String(
+        Reflect.get(
+          Object(Reflect.get(Object(asked), "approval")),
+          "fingerprint",
+        ),
       );
-      expect(first.requests).toEqual([
-        { via: "fetch", method: "POST", url: "http://localhost/api/save" },
-      ]);
-      expect(sent).toEqual([]);
+      // While the card waited, the button became something else.
+      act(() => document.getElementById("other")?.click());
       expect(
-        await interact({ kind: "release", hold: first.hold, allow: false }),
+        await interact(
+          { kind: "click", selector: "#b" },
+          { approved: fingerprint },
+        ),
       ).toMatchObject({
-        status: "done",
-        interaction: {
-          snapshot: {
-            outline: expect.arrayContaining([
-              expect.objectContaining({ text: "State: AbortError" }),
-            ]),
-          },
-        },
+        status: "needs-approval",
+        approval: { label: "Delete all" },
       });
-      expect(sent).toEqual([]);
-
-      const second = approvalOf(
-        await interact({ kind: "click", selector: "#save" }),
-      );
+      expect(document.getElementById("b")?.textContent).toBe("Delete all");
+      // A fingerprint for another element, or made up, is not an Allow.
       expect(
-        await interact({ kind: "release", hold: second.hold, allow: true }),
-      ).toMatchObject({
-        status: "done",
-        interaction: {
-          snapshot: {
-            outline: expect.arrayContaining([
-              expect.objectContaining({ text: "State: saved" }),
-            ]),
-          },
-        },
-      });
-      expect(sent).toEqual([{ url: "/api/save", method: "POST" }]);
+        await interact({ kind: "click", selector: "#b" }, { approved: "[]" }),
+      ).toMatchObject({ status: "needs-approval" });
+      expect(document.getElementById("b")?.textContent).toBe("Delete all");
     });
 
-    it("holds an XHR POST and a beacon", async () => {
-      const beacons: unknown[] = [];
-      Reflect.set(window.navigator, "sendBeacon", (url: unknown) => {
-        beacons.push(url);
-        return true;
-      });
-      let failed = false;
+    it("runs an approved click as the person's own: nothing same-site is held or cancelled", async () => {
+      let defaultPrevented: boolean | null = null;
       render(
         <main>
-          <button
-            id="send"
-            onClick={() => {
-              const request = new XMLHttpRequest();
-              request.open("PUT", "/api/item/1");
-              request.onerror = () => {
-                failed = true;
-              };
-              request.send("{}");
-              navigator.sendBeacon("/api/track", "clicked");
+          <form
+            action="/subscribe"
+            method="post"
+            onSubmit={(event) => {
+              defaultPrevented = event.defaultPrevented;
             }}
           >
-            Send
+            <input name="email" defaultValue="a@b.example" />
+            <button id="send">Subscribe</button>
+          </form>
+          <button
+            id="save"
+            onClick={() => {
+              void fetch("/api/save", { method: "POST" });
+            }}
+          >
+            Save
           </button>
           <ValCanvasBridge draftMode />
         </main>,
       );
-      const { hold, requests } = approvalOf(
-        await interact({ kind: "click", selector: "#send" }),
-      );
-      expect(requests).toEqual([
-        { via: "xhr", method: "PUT", url: "http://localhost/api/item/1" },
-        { via: "beacon", method: "POST", url: "http://localhost/api/track" },
-      ]);
-      expect(beacons).toEqual([]);
-      await interact({ kind: "release", hold, allow: false });
-      // Refused: the XHR fails, as one that could not be sent.
-      expect(failed).toBe(true);
-      expect(beacons).toEqual([]);
+      jest.spyOn(console, "error").mockImplementation(() => {});
+      expect(
+        await approvedly({ kind: "click", selector: "#save" }),
+      ).toMatchObject({ status: "done" });
+      expect(sent).toEqual([{ url: "/api/save", method: "POST" }]);
+      // jsdom does not navigate: the submit event is what can be seen.
+      expect(
+        await approvedly({ kind: "click", selector: "#send" }),
+      ).toMatchObject({ status: "done" });
+      expect(defaultPrevented).toBe(false);
     });
 
-    it("refuses data sent to another site, without asking", async () => {
+    it("runs a React 19 form action through an approved click", async () => {
+      const actions: unknown[] = [];
+      function Subscribe() {
+        const [state, formAction] = React.useActionState(
+          async (_previous: string, fields: FormData) => {
+            actions.push(fields.get("email"));
+            return `Subscribed ${String(fields.get("email"))}`;
+          },
+          "Not yet",
+        );
+        return (
+          <main>
+            <form action={formAction}>
+              <input name="email" defaultValue="ada@example.com" />
+              <button id="go">Subscribe</button>
+            </form>
+            <p>{state}</p>
+          </main>
+        );
+      }
+      render(
+        <>
+          <Subscribe />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      expect(
+        await approvedly({ kind: "click", selector: "#go" }),
+      ).toMatchObject({
+        status: "done",
+        interaction: {
+          snapshot: {
+            outline: expect.arrayContaining([
+              expect.objectContaining({ text: "Subscribed ada@example.com" }),
+            ]),
+          },
+        },
+      });
+      expect(actions).toEqual(["ada@example.com"]);
+    });
+
+    it("still refuses what an approved click sends to another site", async () => {
+      let defaultPrevented: boolean | null = null;
       render(
         <main>
+          <form
+            id="away"
+            action="https://elsewhere.example/subscribe"
+            method="post"
+            onSubmit={(event) => {
+              defaultPrevented = event.defaultPrevented;
+            }}
+          >
+            <button id="send">Subscribe</button>
+          </form>
           <button
-            id="send"
+            id="track"
             onClick={() => {
               void fetch("https://tracker.example/collect", {
                 method: "POST",
               }).catch(() => {});
             }}
           >
-            Send
+            Track
           </button>
           <ValCanvasBridge draftMode />
         </main>,
       );
       expect(
-        await interact({ kind: "click", selector: "#send" }),
+        await approvedly({ kind: "click", selector: "#track" }),
       ).toMatchObject({
         status: "done",
         interaction: {
@@ -608,43 +587,275 @@ describe("the canvas bridge, used from the Studio", () => {
         },
       });
       expect(sent).toEqual([]);
+      expect(
+        await approvedly({ kind: "click", selector: "#send" }),
+      ).toMatchObject({
+        status: "done",
+        interaction: {
+          blocked: [
+            {
+              via: "form",
+              method: "POST",
+              url: "https://elsewhere.example/subscribe",
+            },
+          ],
+        },
+      });
+      expect(defaultPrevented).toBe(true);
     });
 
-    it("lets reading through: a GET fetch and a GET form need no one", async () => {
-      jest.spyOn(console, "error").mockImplementation(() => {});
+    it("refuses an off-site link before asking, and nothing is clicked (no ping)", async () => {
+      const clicks: unknown[] = [];
       render(
         <main>
-          <button
-            id="load"
-            onClick={() => {
-              void fetch("/api/products");
-            }}
-          >
-            Load
-          </button>
-          <form action="/search">
-            <input name="q" />
-            <button id="search">Search</button>
-          </form>
+          <a id="away" href="https://elsewhere.example/" ping="/ping">
+            Elsewhere
+          </a>
           <ValCanvasBridge draftMode />
         </main>,
       );
+      document.addEventListener("click", (event) => clicks.push(event), true);
       expect(
-        await interact({ kind: "click", selector: "#load" }),
-      ).toMatchObject({ status: "done" });
-      expect(sent).toEqual([{ url: "/api/products", method: "GET" }]);
+        await interact({ kind: "click", selector: "#away" }),
+      ).toMatchObject({
+        status: "refused",
+        error: expect.stringContaining("another site"),
+      });
+      expect(clicks).toEqual([]);
+    });
+  });
+
+  /**
+   * The actions that do not ask -- typing, other keys, the settle after
+   * opening a page -- run with the request hold (`pageRequestGate.ts`):
+   * what the page sends meanwhile is held until the person says.
+   */
+  describe("holding what the page sends while typing", () => {
+    /** The approval an outcome asks for. */
+    function heldOf(outcome: unknown): { hold: string; requests: unknown[] } {
+      expect(outcome).toMatchObject({
+        status: "needs-approval",
+        approval: { kind: "requests" },
+      });
+      const approval: unknown = Reflect.get(Object(outcome), "approval");
+      const hold: unknown = Reflect.get(Object(approval), "hold");
+      const requests: unknown = Reflect.get(Object(approval), "requests");
+      if (typeof hold !== "string" || !Array.isArray(requests)) {
+        throw new Error("no hold");
+      }
+      return { hold, requests };
+    }
+
+    /** A field whose typing makes the page do `onType`. */
+    function Field({ onType }: { onType: (value: string) => void }) {
+      return (
+        <main>
+          <form id="f" action="/subscribe" method="post">
+            <input
+              name="email"
+              onChange={(event) => onType(event.target.value)}
+            />
+          </form>
+          <p id="note">Note</p>
+        </main>
+      );
+    }
+    const type = (text = "a@b.example") =>
+      interact({ kind: "type", selector: 'input[name="email"]', text });
+
+    it("holds onchange=this.form.submit(), and sends the fields as they were", async () => {
+      render(
+        <>
+          <Field
+            onType={() =>
+              document.querySelector<HTMLFormElement>("#f")?.submit()
+            }
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      const { hold, requests } = heldOf(await type());
+      expect(requests).toEqual([
+        {
+          via: "form",
+          method: "POST",
+          url: "http://localhost/subscribe",
+          body: "email=a%40b.example".replace("%40", "@"),
+        },
+      ]);
+      expect(submitted).toEqual([]);
+      // The page changes the field while the card waits: Allow sends what
+      // the person was shown.
+      const field = document.querySelector<HTMLInputElement>(
+        'input[name="email"]',
+      );
+      if (field !== null) field.value = "changed@example.com";
       expect(
-        await interact({ kind: "click", selector: "#search" }),
-      ).toMatchObject({ status: "done" });
+        await interact({ kind: "release", hold, allow: true }),
+      ).toMatchObject({
+        status: "done",
+        interaction: { did: "sent the 1 request the person allowed" },
+      });
+      expect(submitted).toEqual([
+        {
+          action: "http://localhost/subscribe",
+          fields: "email=a%40b.example",
+        },
+      ]);
+      // Released once: a second answer finds nothing waiting.
+      expect(
+        await interact({ kind: "release", hold, allow: true }),
+      ).toMatchObject({ status: "refused" });
+    });
+
+    it("holds a fetch POST, shows its body, and the page gets an abort when the person says no", async () => {
+      let outcome = "waiting";
+      render(
+        <>
+          <Field
+            onType={(value) => {
+              fetch("/api/draft", {
+                method: "POST",
+                body: JSON.stringify({ email: value }),
+              }).then(
+                () => {
+                  outcome = "sent";
+                },
+                (error: unknown) => {
+                  outcome = String(Reflect.get(Object(error), "name"));
+                },
+              );
+            }}
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      const { hold, requests } = heldOf(await type("x"));
+      expect(requests).toEqual([
+        {
+          via: "fetch",
+          method: "POST",
+          url: "http://localhost/api/draft",
+          body: '{"email":"x"}',
+        },
+      ]);
+      await interact({ kind: "release", hold, allow: false });
+      expect(outcome).toBe("AbortError");
+      expect(sent).toEqual([]);
+    });
+
+    it("holds an XHR and a beacon, and a refused XHR finishes as a failure", async () => {
+      const beacons: unknown[] = [];
+      Reflect.set(window.navigator, "sendBeacon", (url: unknown) => {
+        beacons.push(url);
+        return true;
+      });
+      const events: string[] = [];
+      let request: XMLHttpRequest | null = null;
+      render(
+        <>
+          <Field
+            onType={() => {
+              const xhr = new XMLHttpRequest();
+              request = xhr;
+              xhr.open("PUT", "/api/item/1");
+              for (const name of ["readystatechange", "error", "loadend"]) {
+                xhr.addEventListener(name, () => events.push(name));
+              }
+              xhr.send("{}");
+              navigator.sendBeacon("/api/track", "typed");
+            }}
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      const { hold, requests } = heldOf(await type());
+      expect(requests).toEqual([
+        {
+          via: "xhr",
+          method: "PUT",
+          url: "http://localhost/api/item/1",
+          body: "{}",
+        },
+        {
+          via: "beacon",
+          method: "POST",
+          url: "http://localhost/api/track",
+          body: "typed",
+        },
+      ]);
+      await interact({ kind: "release", hold, allow: false });
+      expect(events).toEqual(["readystatechange", "error", "loadend"]);
+      expect(Reflect.get(Object(request), "readyState")).toBe(4);
+      expect(beacons).toEqual([]);
+    });
+
+    it("holds what it cannot read, rather than letting it through", async () => {
+      render(
+        <>
+          <Field
+            onType={() => {
+              const address = { toString: () => "/api/save" };
+              Promise.resolve(
+                Reflect.apply(window.fetch, window, [
+                  address,
+                  { method: "POST" },
+                ]),
+              ).catch(() => {});
+            }}
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      expect(heldOf(await type()).requests).toEqual([
+        { via: "fetch", method: "POST", url: "" },
+      ]);
+      expect(sent).toEqual([]);
+    });
+
+    it("refuses outright more requests than the person can be shown", async () => {
+      render(
+        <>
+          <Field
+            onType={() => {
+              for (let i = 0; i < 11; i++) {
+                void fetch(`/api/item/${i}`, { method: "DELETE" }).catch(
+                  () => {},
+                );
+              }
+            }}
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      expect(await type()).toMatchObject({
+        status: "refused",
+        error: expect.stringContaining("11 requests"),
+      });
+      expect(sent).toEqual([]);
+    });
+
+    it("lets reading through: a GET fetch needs no one", async () => {
+      render(
+        <>
+          <Field
+            onType={() => {
+              void fetch("/api/suggest");
+            }}
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      expect(await type()).toMatchObject({ status: "done" });
+      expect(sent).toEqual([{ url: "/api/suggest", method: "GET" }]);
     });
 
     it("refuses what an earlier action held when the assistant moves on", async () => {
       let outcome = "waiting";
       render(
-        <main>
-          <button
-            id="save"
-            onClick={() => {
+        <>
+          <Field
+            onType={() => {
               fetch("/api/save", { method: "POST" }).then(
                 () => {
                   outcome = "sent";
@@ -654,32 +865,49 @@ describe("the canvas bridge, used from the Studio", () => {
                 },
               );
             }}
-          >
-            Save
-          </button>
-          <p id="other">Other</p>
+          />
           <ValCanvasBridge draftMode />
-        </main>,
+        </>,
       );
-      approvalOf(await interact({ kind: "click", selector: "#save" }));
-      await interact({ kind: "click", selector: "#other" });
+      heldOf(await type());
+      await interact({ kind: "press", key: "Escape", selector: "#note" });
       expect(outcome).toBe("refused");
       expect(sent).toEqual([]);
     });
 
+    it("leaves nothing stuck when the page wraps fetch again during an action", async () => {
+      let wrapped: typeof window.fetch | null = null;
+      render(
+        <>
+          <Field
+            onType={() => {
+              // An SDK that instruments fetch, as the page loads it.
+              const inner = window.fetch;
+              wrapped = (input, init) => inner(input, init);
+              window.fetch = wrapped;
+            }}
+          />
+          <ValCanvasBridge draftMode />
+        </>,
+      );
+      expect(await type()).toMatchObject({ status: "done" });
+      expect(window.fetch).toBe(wrapped);
+      // After the action, the page's POST goes straight out.
+      await window.fetch("/api/later", { method: "POST" });
+      expect(sent).toEqual([{ url: "/api/later", method: "POST" }]);
+    });
+
     it("puts the page's own functions back when the action ends", async () => {
-      const pageFetch = window.fetch;
       const open = XMLHttpRequest.prototype.open;
       render(
-        <main>
-          <p id="text">Text</p>
+        <>
+          <Field onType={() => {}} />
           <ValCanvasBridge draftMode />
-        </main>,
+        </>,
       );
       // The page log wraps `fetch` once, when the bridge mounts.
       const logged = window.fetch;
-      expect(logged).not.toBe(pageFetch);
-      await interact({ kind: "click", selector: "#text" });
+      await type();
       expect(window.fetch).toBe(logged);
       expect(XMLHttpRequest.prototype.open).toBe(open);
       expect(HTMLFormElement.prototype.submit).not.toBe(submit);
@@ -765,7 +993,7 @@ describe("the canvas bridge, used from the Studio", () => {
       </main>,
     );
     console.error("Logged before anything was clicked");
-    const outcome = await interact({ kind: "click", selector: "#broken" });
+    const outcome = await approvedly({ kind: "click", selector: "#broken" });
     expect(outcome).toMatchObject({
       status: "done",
       interaction: {
@@ -813,7 +1041,7 @@ describe("the canvas bridge, used from the Studio", () => {
         <ValCanvasBridge draftMode />
       </main>,
     );
-    expect(await interact({ kind: "click", selector: "#go" })).toEqual({
+    expect(await approvedly({ kind: "click", selector: "#go" })).toEqual({
       status: "leaving",
       did: 'clicked <button#go> "Go"',
       before: { url: "/form", title: "" },

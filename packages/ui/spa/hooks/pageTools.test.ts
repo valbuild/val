@@ -468,12 +468,14 @@ describe("interact_page", () => {
     ).toBeLessThanOrEqual(600);
   });
 
-  test("tells the model the narrowed rule: what is sent to the server waits", () => {
-    expect(INTERACT_PAGE_TOOL.description).toContain(
-      "anything the page tries to send to the site's server",
-    );
-    expect(INTERACT_PAGE_TOOL.description).not.toContain(
-      "buttons outside forms",
-    );
+  test("says exactly what is enforced, and what is not", () => {
+    for (const text of [INTERACT_PAGE_TOOL.description, PAGE_PROMPT_SECTION]) {
+      expect(text).toMatch(/every click, and every Enter or Space/i);
+      expect(text).toMatch(/held until the page settles/);
+      expect(text).toMatch(/autosave after a delay/);
+      expect(text).toMatch(/WebSockets, workers, embedded frames/);
+      expect(text).not.toContain("however the page makes it");
+      expect(text).not.toContain("buttons outside forms");
+    }
   });
 });

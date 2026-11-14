@@ -4,8 +4,9 @@
 import { act, render } from "@testing-library/react";
 import {
   BRIDGE_CAPABILITIES,
-  type PageApproval,
+  type ActionApproval,
   type PageInteraction,
+  type RequestsApproval,
   type PageInteractOutcome,
   VAL_CANVAS_MESSAGE,
   type ValCanvasPageMessage,
@@ -198,7 +199,10 @@ describe("using the page in the canvas", () => {
     });
   });
 
-  const approval = (overrides: Partial<PageApproval> = {}): PageApproval => ({
+  const approval = (
+    overrides: Partial<RequestsApproval> = {},
+  ): RequestsApproval => ({
+    kind: "requests",
     hold: "h1",
     page: "/contact",
     label: "Send",
@@ -230,7 +234,7 @@ describe("using the page in the canvas", () => {
 
   it("takes nothing the page says on the card on trust", async () => {
     ready();
-    const ask = async (overrides: Partial<PageApproval>) => {
+    const ask = async (overrides: Partial<RequestsApproval>) => {
       const answered = start({ action: { kind: "click", selector: "#send" } });
       await flush();
       answer(asked()[asked().length - 1].requestId, {
@@ -270,6 +274,66 @@ describe("using the page in the canvas", () => {
       { kind: "release", hold: "h1", allow: false },
       { kind: "release", hold: "h1", allow: false },
     ]);
+  });
+
+  it("asks a click of nothing but a bridge that can also hold what the page sends", async () => {
+    ready(BRIDGE_CAPABILITIES.filter((name) => name !== "interact:release"));
+    await expect(
+      start({ action: { kind: "click", selector: "#send" } }),
+    ).rejects.toThrow(/hold what it sends for your approval/);
+    expect(asked()).toEqual([]);
+  });
+
+  it("sends the person's Allow with the action, and checks the element's words on the card", async () => {
+    ready();
+    const answered = start({
+      action: { kind: "click", selector: "#buy" },
+      approved: "fingerprint-1",
+    });
+    await flush();
+    expect(asked()[0]).toMatchObject({
+      action: { kind: "click", selector: "#buy" },
+      approved: "fingerprint-1",
+    });
+    const card: ActionApproval = {
+      kind: "action",
+      fingerprint: "fingerprint-2",
+      action: "click",
+      page: "/shop",
+      label: `Buy "now" \u201cplease\u201d ${"y".repeat(100)}`,
+      role: "not-a-role",
+      tag: "BUTTON<script>",
+      before: { url: "/shop" },
+    };
+    answer(asked()[0].requestId, { status: "needs-approval", approval: card });
+    await expect(answered).resolves.toEqual({
+      status: "needs-approval",
+      approval: {
+        ...card,
+        label: expect.stringMatching(/^Buy now please y+…$/),
+        role: "element",
+        tag: "element",
+      },
+    });
+  });
+
+  it("refuses rather than shows more held requests than the card can", async () => {
+    ready();
+    const answered = start({
+      action: { kind: "type", selector: "#q", text: "x" },
+    });
+    await flush();
+    answer(asked()[0].requestId, {
+      status: "needs-approval",
+      approval: approval({
+        requests: Array.from({ length: 11 }, (_, i) => ({
+          via: "fetch" as const,
+          method: "POST",
+          url: `http://localhost/api/${i}`,
+        })),
+      }),
+    });
+    await expect(answered).rejects.toThrow(/more than the 10/);
   });
 
   it("listens only to the document it asked", async () => {

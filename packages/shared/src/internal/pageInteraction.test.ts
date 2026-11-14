@@ -179,6 +179,7 @@ describe("the interact request and its answer", () => {
       interactOutcomeOf({ status: "refused", error: "No such element" }),
     ).toEqual({ status: "refused", error: "No such element" });
     const approval = {
+      kind: "requests",
       hold: "h1",
       page: "/",
       label: "Buy",
@@ -194,6 +195,30 @@ describe("the interact request and its answer", () => {
       status: "needs-approval",
       approval: { ...approval, requests: [approval.requests[0]] },
     });
+    // A click asked about first.
+    const asked = {
+      kind: "action",
+      fingerprint: "fp",
+      action: "press",
+      key: "Enter",
+      page: "/",
+      label: "Buy",
+      role: "button",
+      tag: "button",
+      before: { url: "/" },
+    };
+    expect(
+      interactOutcomeOf({ status: "needs-approval", approval: asked }),
+    ).toEqual({
+      status: "needs-approval",
+      approval: asked,
+    });
+    expect(
+      interactOutcomeOf({
+        status: "needs-approval",
+        approval: { ...asked, key: "F5" },
+      }),
+    ).toBeNull();
     // The shape of the request before: not an approval any more.
     expect(
       interactOutcomeOf({

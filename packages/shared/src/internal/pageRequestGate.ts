@@ -1,13 +1,17 @@
 /**
- * What stops `interact_page` from sending anything to the site's server
- * without the person: the page's own requests, held while an action runs.
+ * What `interact_page` lets the page send to the site's server while an
+ * action runs.
  *
- * The preview is the real site, and its backend is real: a submit can send an
- * email, place an order, delete an account. Looking at what was clicked
- * cannot say whether that will happen -- a `<div onclick>` can post, a
- * `<button type=submit>` in a search box does not, a label clicks the button
- * it names -- so this does not look. It watches what the page DOES, from the
- * moment the action is dispatched until the page has settled:
+ * The preview is the real site, and its backend is real. The first line of
+ * defence is the person: every click and every Enter or Space in the
+ * preview is asked about BEFORE it is dispatched (`pageInteraction.ts`).
+ * This is the second, for the actions that are not asked about -- typing,
+ * other keys, opening a page, changing the width -- and for the off-site
+ * rule, which holds for every action.
+ *
+ * ## `hold`: for the actions nobody approved
+ *
+ * From the moment the action is dispatched until the page has settled:
  *
  * - `fetch`, `XMLHttpRequest` and `navigator.sendBeacon` with a method that
  *   sends data (anything but GET, HEAD and OPTIONS) are not sent. The page's
@@ -17,26 +21,37 @@
  *   capture-phase `submit` listener on the window, or by `form.submit()`,
  *   which fires no event and is wrapped -- is not submitted.
  *
- * Those are HELD, not dropped: the person is shown exactly what the page
- * tried (method, the URL the browser resolved), and Allow sends exactly those
- * (`releaseHold`); anything else, or a minute nobody answered in, rejects
- * them as an abort. Holding them rather than re-running the action is what
- * ties the approval to what was shown: a page that re-rendered, or a click
- * the person made in the preview while the card waited, cannot put another
- * request in their place.
+ * What was held is shown to the person -- method, the address the browser
+ * resolved, and an excerpt of the body -- and Allow sends exactly that
+ * (`releaseHold`), as it was SNAPSHOT when it was held: a `Request` copy, a
+ * `FormData` of the form at that moment. Anything else, or
+ * {@link HOLD_TIMEOUT_MS} with no answer, refuses it as an abort. What this
+ * gate cannot read -- an address it cannot resolve, a method it cannot see
+ * -- is held, not let through.
  *
- * A request to ANOTHER site that sends data is refused outright, never
- * asked about, and so is a form that would take the frame to another site or
- * into another window: the preview stays on the site.
+ * ## `off-site`: for an action the person approved
  *
- * Everything is put back when the action ends (`stop`). Outside an action
- * the page is untouched, and nothing here runs outside the Studio's frame:
- * only the canvas bridge calls it.
+ * The action is the person's, so the page does exactly what it would for
+ * them: nothing same-site is held, and no same-site submit is cancelled --
+ * React form actions and routers that bail on `defaultPrevented` work. Only
+ * data sent to ANOTHER site, and a form that would take the frame to another
+ * site or window, are refused. In both modes that is refused without
+ * asking: the preview stays on the site.
  *
- * Not caught: a request made with a reference the page took to the
- * original `fetch` or `XMLHttpRequest.prototype.send` before the action (a
- * library that captured it at load), WebSocket and EventSource messages,
- * and an XHR opened before the action started.
+ * ## Not covered, in either mode
+ *
+ * Requests sent after the page settled (an autosave on a timer), WebSocket
+ * and EventSource traffic, workers, embedded frames, a reference to the
+ * original `fetch` or `XMLHttpRequest.prototype.send` taken before the
+ * action, an XHR opened before the action, and GET navigations -- links,
+ * which can have side effects of their own (a logout link, an unsubscribe
+ * link).
+ *
+ * Every wrapper knows when its gate has stopped and then passes straight
+ * through to what it wrapped, so a page or an SDK that wraps `fetch` again
+ * during an action, or two gates that overlap, leave nothing stuck behind.
+ * Nothing here runs outside the Studio's frame: only the canvas bridge
+ * calls it.
  */
 
 /** The page's window, as `window` is typed: with its own constructors. */
@@ -45,11 +60,23 @@ type Win = Window & typeof globalThis;
 /** A request the page tried to make during an action. */
 export type PageRequest = {
   via: "fetch" | "xhr" | "beacon" | "form";
-  /** Upper case: `POST`. */
+  /** Upper case: `POST`. `UNKNOWN` when it could not be read. */
   method: string;
-  /** Absolute, as the browser resolved it. */
+  /** Absolute, as the browser resolved it; empty when it could not be. */
   url: string;
+  /** A short excerpt of what it sends: form fields, JSON, or its size. */
+  body?: string;
 };
+
+/**
+ * The most requests one hold keeps. More than this is refused outright
+ * rather than shown in part: the person must see everything Allow sends. The
+ * Studio checks the same number.
+ */
+export const MAX_HELD_REQUESTS = 10;
+
+/** How much of a request's body the person is shown. */
+export const BODY_EXCERPT_LENGTH = 200;
 
 /** A held request, and how to send or refuse it. */
 type Held = PageRequest & { send: () => void; refuse: () => void };
@@ -57,17 +84,25 @@ type Held = PageRequest & { send: () => void; refuse: () => void };
 /** The methods that only read: let through. */
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-/** How long a hold waits for the person before it is refused. */
+/**
+ * How long a hold waits for the person -- a card can sit for a while --
+ * before what it holds is refused.
+ */
 export const HOLD_TIMEOUT_MS = 10 * 60_000;
+
+export type GateMode = "hold" | "off-site";
 
 export type RequestGate = {
   /** What was held so far. */
   held: () => readonly PageRequest[];
-  /** What was refused for going to another site. */
+  /** What was refused for going to another site, or for leaving it. */
   blocked: () => readonly PageRequest[];
+  /** XHRs let through and not finished: counted as in flight. */
+  inFlight: () => number;
   /**
-   * Put every wrap back. What was held stays held, and is returned: hand it
-   * to {@link holdRequests}, or refuse it.
+   * Stop: every wrapper passes straight through from now on, and is put
+   * back where nothing wrapped it since. What was held stays held, and is
+   * returned: hand it to {@link holdRequests}, or refuse it.
    */
   stop: () => HeldRequests;
 };
@@ -75,33 +110,36 @@ export type RequestGate = {
 /** Requests held by a gate that stopped: opaque outside this module. */
 export type HeldRequests = { readonly requests: readonly Held[] };
 
-/** Start holding the page's data-sending requests: see the module doc. */
-export function startRequestGate(win: Win): RequestGate {
+/** Start the gate in `mode`: see the module doc. */
+export function startRequestGate(
+  win: Win,
+  { mode }: { mode: GateMode },
+): RequestGate {
   const held: Held[] = [];
   const blocked: PageRequest[] = [];
   const restores: Array<() => void> = [];
   const origin = win.location.origin;
+  let stopped = false;
+  let xhrInFlight = 0;
 
-  /** Let it through, hold it, or refuse it: which was done. */
-  const consider = (
+  /** What to do with a request: send it, hold it, or refuse it. */
+  const decide = (
     request: PageRequest,
-    send: () => void,
-    refuse: () => void,
-    options: { offSiteReads?: "pass" | "block" } = {},
-  ): "sent" | "held" | "blocked" => {
+    options: { navigates?: boolean } = {},
+  ): "send" | "hold" | "block" => {
     const sameSite = isSameSite(request.url, origin);
     const reads = READ_METHODS.has(request.method);
-    if (reads && (sameSite || options.offSiteReads !== "block")) {
-      send();
-      return "sent";
+    // Reading from anywhere is fine -- unless it navigates the frame there.
+    if (reads && (sameSite || (!options.navigates && request.url !== ""))) {
+      return "send";
     }
-    if (!sameSite) {
-      blocked.push(request);
-      refuse();
-      return "blocked";
-    }
-    held.push({ ...request, send, refuse });
-    return "held";
+    if (!sameSite)
+      return request.url === "" && mode === "hold" ? "hold" : "block";
+    return mode === "hold" ? "hold" : "send";
+  };
+  const block = (request: PageRequest, refuse: () => void) => {
+    blocked.push(request);
+    refuse();
   };
 
   // --- fetch -----------------------------------------------------------------
@@ -111,16 +149,30 @@ export function startRequestGate(win: Win): RequestGate {
       input: RequestInfo | URL,
       init?: RequestInit,
     ): Promise<Response> {
-      const request = fetchRequestOf(win, input, init);
       // On the window, whatever it was called on: "Illegal invocation".
       const call = () => originalFetch.call(win, input, init);
-      if (request === null || READ_METHODS.has(request.method)) return call();
+      if (stopped) return call();
+      const request = fetchRequestOf(win, input, init);
+      const decision = decide(request);
+      if (decision === "send") return call();
       return new Promise<Response>((resolve, reject) => {
-        consider(
-          request,
-          () => call().then(resolve, reject),
-          () => reject(abortError(win)),
-        );
+        const refuse = () => reject(abortError(win));
+        if (decision === "block") return block(request, refuse);
+        // As it is now: what the person is shown is what Allow sends.
+        const snapshot = snapshotRequest(win, input, init);
+        held.push({
+          ...request,
+          refuse,
+          send: () => {
+            // The address again, as it will be sent: still this site?
+            const url = snapshot?.url ?? request.url;
+            if (!isSameSite(url, origin)) return refuse();
+            (snapshot !== null
+              ? originalFetch.call(win, snapshot)
+              : call()
+            ).then(resolve, reject);
+          },
+        });
       });
     };
     win.fetch = gatedFetch;
@@ -136,13 +188,12 @@ export function startRequestGate(win: Win): RequestGate {
     const originalSend = xhr.send;
     const opened = new WeakMap<XMLHttpRequest, PageRequest>();
     const gatedOpen = function (this: XMLHttpRequest, ...args: unknown[]) {
-      const [method, url] = args;
-      const resolved = resolveUrl(win, url);
-      if (typeof method === "string" && resolved !== null) {
+      if (!stopped) {
+        const [method, url] = args;
         opened.set(this, {
           via: "xhr",
-          method: method.toUpperCase(),
-          url: resolved,
+          method: typeof method === "string" ? method.toUpperCase() : "UNKNOWN",
+          url: resolveUrl(win, url) ?? "",
         });
       }
       return Reflect.apply(originalOpen, this, args);
@@ -150,13 +201,31 @@ export function startRequestGate(win: Win): RequestGate {
     const gatedSend = function (this: XMLHttpRequest, ...args: unknown[]) {
       const request = opened.get(this);
       const call = () => Reflect.apply(originalSend, this, args);
-      if (request === undefined || READ_METHODS.has(request.method)) {
+      // Opened before the gate: not one it can judge.
+      if (stopped || request === undefined) return call();
+      const withBody = withExcerpt(win, request, args[0]);
+      const decision = decide(withBody);
+      const counted = () => {
+        xhrInFlight++;
+        this.addEventListener(
+          "loadend",
+          () => {
+            xhrInFlight = Math.max(0, xhrInFlight - 1);
+          },
+          { once: true },
+        );
         return call();
-      }
-      consider(request, call, () => {
-        // As a request that failed: what the page listens for.
-        this.dispatchEvent(new win.ProgressEvent("error"));
-        this.dispatchEvent(new win.ProgressEvent("loadend"));
+      };
+      if (decision === "send") return counted();
+      const refuse = () => failXhr(win, this);
+      if (decision === "block") return block(withBody, refuse);
+      held.push({
+        ...withBody,
+        refuse,
+        send: () => {
+          if (!isSameSite(withBody.url, origin)) return refuse();
+          counted();
+        },
       });
     };
     xhr.open = gatedOpen;
@@ -173,15 +242,30 @@ export function startRequestGate(win: Win): RequestGate {
   if (typeof originalBeacon === "function") {
     const own = Object.getOwnPropertyDescriptor(navigator, "sendBeacon");
     const gatedBeacon = (url: unknown, data?: unknown): boolean => {
-      const resolved = resolveUrl(win, url);
-      const call = () => Reflect.apply(originalBeacon, navigator, [url, data]);
-      if (resolved === null) return Boolean(call());
-      // Always a POST: a beacon only sends.
-      return (
-        consider({ via: "beacon", method: "POST", url: resolved }, call, () => {
-          // Nothing to tell: a refused beacon is one that was never queued.
-        }) !== "blocked"
+      const call = (to: unknown) =>
+        Boolean(Reflect.apply(originalBeacon, navigator, [to, data]));
+      if (stopped) return call(url);
+      // Always a POST: a beacon only sends. The address as it is now.
+      const request = withExcerpt(
+        win,
+        { via: "beacon", method: "POST", url: resolveUrl(win, url) ?? "" },
+        data,
       );
+      const decision = decide(request);
+      if (decision === "send") return call(url);
+      if (decision === "block") {
+        // Nothing to tell: a refused beacon is one that was never queued.
+        block(request, () => {});
+        return false;
+      }
+      held.push({
+        ...request,
+        refuse: () => {},
+        send: () => {
+          if (isSameSite(request.url, origin)) call(request.url);
+        },
+      });
+      return true;
     };
     Reflect.defineProperty(navigator, "sendBeacon", {
       configurable: true,
@@ -190,45 +274,52 @@ export function startRequestGate(win: Win): RequestGate {
     });
     restores.push(() => {
       if (Reflect.get(navigator, "sendBeacon") !== gatedBeacon) return;
-      if (own !== undefined)
+      if (own !== undefined) {
         Reflect.defineProperty(navigator, "sendBeacon", own);
-      else Reflect.deleteProperty(navigator, "sendBeacon");
+      } else {
+        Reflect.deleteProperty(navigator, "sendBeacon");
+      }
     });
   }
 
   // --- forms -----------------------------------------------------------------
   const formPrototype = win.HTMLFormElement.prototype;
   const originalSubmit = formPrototype.submit;
-  /** A form's submission, decided: let through, held or refused. */
-  const considerForm = (
+  /** Hold a form's submission, as its fields are now. */
+  const holdForm = (
     form: HTMLFormElement,
     submitter: HTMLElement | null,
-    send: () => void,
-    refuse: () => void,
-  ): "sent" | "held" | "blocked" | "dialog" => {
-    const target = formTargetOf(win, form, submitter);
-    if (target.method === "DIALOG") return "dialog";
-    if (target.otherWindow) {
-      blocked.push({ via: "form", method: target.method, url: target.url });
-      refuse();
-      return "blocked";
-    }
-    // A form NAVIGATES the frame: one to another site is refused even when
-    // it only reads.
-    return consider(
-      { via: "form", method: target.method, url: target.url },
-      send,
-      refuse,
-      { offSiteReads: "block" },
-    );
+    target: FormTarget,
+  ) => {
+    const fields = formDataOf(win, form, submitter);
+    held.push({
+      via: "form",
+      method: target.method,
+      url: target.url,
+      ...(fields !== null ? { body: excerptOfEntries(fields) } : {}),
+      refuse: () => {},
+      send: () => {
+        if (!isSameSite(target.url, origin)) return;
+        if (fields === null) return originalSubmit.call(form);
+        submitSnapshot(win, form, target, fields, originalSubmit);
+      },
+    });
   };
   const gatedSubmit = function (this: HTMLFormElement) {
-    considerForm(
-      this,
-      null,
-      () => originalSubmit.call(this),
-      () => {},
-    );
+    if (stopped) return originalSubmit.call(this);
+    const target = formTargetOf(win, this, null);
+    if (target.method === "DIALOG") return originalSubmit.call(this);
+    const request: PageRequest = {
+      via: "form",
+      method: target.method,
+      url: target.url,
+    };
+    if (target.otherWindow) return block(request, () => {});
+    // A form NAVIGATES the frame: to another site even reading is refused.
+    const decision = decide(request, { navigates: true });
+    if (decision === "send") return originalSubmit.call(this);
+    if (decision === "block") return block(request, () => {});
+    holdForm(this, null, target);
   };
   formPrototype.submit = gatedSubmit;
   restores.push(() => {
@@ -239,16 +330,15 @@ export function startRequestGate(win: Win): RequestGate {
 
   /**
    * A form's `submit` event, before the page's own listeners: capture, on
-   * the window. A GET to this site is left alone -- a search, a filter: a
-   * navigation like a link. Anything else is cancelled here, and held unless
-   * the page's own handler cancels it too: then the page handles the submit
-   * itself, and whatever it sends goes through the wraps above.
-   *
-   * The page's handlers see the event already cancelled
-   * (`defaultPrevented`), which is the one way this can be noticed.
+   * the window. What leaves the site is cancelled in either mode. In `hold`
+   * a same-site submit that sends is cancelled too, and held unless the
+   * page's own handler cancels it -- then the page submits by itself, and
+   * what it sends goes through the wraps above. In `off-site` a same-site
+   * submit is not touched: the person approved the action.
    */
   const preventDefault = win.Event.prototype.preventDefault;
   const onSubmit = (event: Event) => {
+    if (stopped) return;
     const form = event.target;
     if (!(form instanceof win.HTMLFormElement)) return;
     const submitterValue: unknown = Reflect.get(event, "submitter");
@@ -256,13 +346,17 @@ export function startRequestGate(win: Win): RequestGate {
       submitterValue instanceof win.HTMLElement ? submitterValue : null;
     const target = formTargetOf(win, form, submitter);
     if (target.method === "DIALOG") return;
-    const leaves = target.otherWindow || !isSameSite(target.url, origin);
-    if (!leaves && READ_METHODS.has(target.method)) return;
+    const request: PageRequest = {
+      via: "form",
+      method: target.method,
+      url: target.url,
+    };
+    const decision = target.otherWindow
+      ? "block"
+      : decide(request, { navigates: true });
+    if (decision === "send") return;
     preventDefault.call(event);
-    if (leaves) {
-      blocked.push({ via: "form", method: target.method, url: target.url });
-      return;
-    }
+    if (decision === "block") return block(request, () => {});
     let handledByPage = false;
     Reflect.defineProperty(event, "preventDefault", {
       configurable: true,
@@ -270,15 +364,20 @@ export function startRequestGate(win: Win): RequestGate {
         handledByPage = true;
       },
     });
+    // The fields as they are when it was submitted.
+    const fields = formDataOf(win, form, submitter);
     // Once every listener has had the event.
     win.queueMicrotask(() => {
       if (handledByPage) return;
       held.push({
-        via: "form",
-        method: target.method,
-        url: target.url,
-        send: () => submitNatively(form, submitter, target, originalSubmit),
+        ...request,
+        ...(fields !== null ? { body: excerptOfEntries(fields) } : {}),
         refuse: () => {},
+        send: () => {
+          if (!isSameSite(target.url, origin)) return;
+          if (fields === null) return originalSubmit.call(form);
+          submitSnapshot(win, form, target, fields, originalSubmit);
+        },
       });
     });
   };
@@ -286,14 +385,22 @@ export function startRequestGate(win: Win): RequestGate {
   restores.push(() => win.removeEventListener("submit", onSubmit, true));
 
   return {
-    held: () => held.map(({ via, method, url }) => ({ via, method, url })),
+    held: () =>
+      held.map(({ via, method, url, body }) => ({
+        via,
+        method,
+        url,
+        ...(body !== undefined ? { body } : {}),
+      })),
     blocked: () => [...blocked],
+    inFlight: () => xhrInFlight,
     stop: () => {
+      stopped = true;
       for (const restore of restores.splice(0).reverse()) {
         try {
           restore();
         } catch {
-          // Put back what can be put back.
+          // What cannot be put back passes through: `stopped`.
         }
       }
       return { requests: [...held] };
@@ -325,7 +432,7 @@ function formTargetOf(
     baseTargetOf(win.document);
   return {
     method: method.toUpperCase(),
-    url: resolveUrl(win, url) ?? win.location.href,
+    url: resolveUrl(win, url) ?? "",
     otherWindow: target !== null && target !== "" && target !== "_self",
   };
 }
@@ -335,40 +442,80 @@ export function baseTargetOf(doc: Document): string | null {
   return doc.querySelector("base[target]")?.getAttribute("target") ?? null;
 }
 
-/**
- * Submit a held native submission the way the browser would have: to the
- * resolved address, with the method, and with the submitter's own name and
- * value -- which `form.submit()` alone leaves out.
- */
-function submitNatively(
+/** The form's fields as the browser would send them, submitter included. */
+function formDataOf(
+  win: Win,
   form: HTMLFormElement,
   submitter: HTMLElement | null,
+): FormData | null {
+  try {
+    return submitter !== null
+      ? new win.FormData(form, submitter)
+      : new win.FormData(form);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Submit a held submission as it was snapshot: a form of its own, with the
+ * fields it had then (files through a `DataTransfer`, where the browser has
+ * one), to the address and with the method it had -- appended for the
+ * submit, and removed after.
+ */
+function submitSnapshot(
+  win: Win,
+  form: HTMLFormElement,
   target: FormTarget,
+  fields: FormData,
   submit: () => void,
 ): void {
-  const saved: Array<[string, string | null]> = ["action", "method"].map(
-    (name) => [name, form.getAttribute(name)],
-  );
-  form.setAttribute("action", target.url);
-  form.setAttribute("method", target.method.toLowerCase());
-  const name = submitter?.getAttribute("name");
-  let extra: HTMLInputElement | null = null;
-  if (submitter !== null && name) {
-    extra = form.ownerDocument.createElement("input");
-    extra.type = "hidden";
-    extra.name = name;
-    extra.value = String(Reflect.get(submitter, "value") ?? "");
-    form.append(extra);
-  }
-  try {
-    submit.call(form);
-  } finally {
-    extra?.remove();
-    for (const [attribute, value] of saved) {
-      if (value === null) form.removeAttribute(attribute);
-      else form.setAttribute(attribute, value);
+  const doc = form.ownerDocument;
+  const copy = doc.createElement("form");
+  copy.method = target.method.toLowerCase();
+  copy.action = target.url;
+  copy.enctype = form.enctype;
+  copy.acceptCharset = form.acceptCharset;
+  copy.target = "_self";
+  copy.hidden = true;
+  // `forEach` rather than `entries()`: not every program this is checked in
+  // has the DOM's iterable types.
+  fields.forEach((value, name) => {
+    const input = doc.createElement("input");
+    input.name = name;
+    if (typeof value === "string") {
+      input.type = "hidden";
+      input.value = value;
+    } else {
+      input.type = "file";
+      if (typeof win.DataTransfer === "function") {
+        const files = new win.DataTransfer();
+        files.items.add(value);
+        input.files = files.files;
+      }
     }
+    copy.append(input);
+  });
+  doc.body.append(copy);
+  try {
+    submit.call(copy);
+  } finally {
+    copy.remove();
   }
+}
+
+/** A refused XHR, as one that failed: done, and every event a page waits on. */
+function failXhr(win: Win, request: XMLHttpRequest): void {
+  const finished: Array<[string, number]> = [
+    ["readyState", 4],
+    ["status", 0],
+  ];
+  for (const [name, value] of finished) {
+    Reflect.defineProperty(request, name, { configurable: true, value });
+  }
+  request.dispatchEvent(new win.Event("readystatechange"));
+  request.dispatchEvent(new win.ProgressEvent("error"));
+  request.dispatchEvent(new win.ProgressEvent("loadend"));
 }
 
 // --- holds -------------------------------------------------------------------
@@ -456,54 +603,135 @@ function refuseAll(requests: readonly Held[]): void {
 
 // --- helpers -----------------------------------------------------------------
 
+/**
+ * Whether `url` stays on the site: this origin -- or a `javascript:` URL,
+ * which goes nowhere but into the page's own code (React renders one as the
+ * `action` of a form whose action is a function).
+ */
 function isSameSite(url: string, origin: string): boolean {
   try {
-    return new URL(url).origin === origin;
+    if (url === "") return false;
+    const parsed = new URL(url);
+    return parsed.protocol === "javascript:" || parsed.origin === origin;
   } catch {
     return false;
   }
 }
 
-function resolveUrl(win: Window, value: unknown): string | null {
+/**
+ * An address as the browser resolves it, against the document's base. Only
+ * from what can be read without running the page's code -- a string, a URL,
+ * a Location -- and `null` for anything else (an object with a `toString`
+ * of its own), which the gate then holds rather than lets through.
+ */
+function resolveUrl(win: Win, value: unknown): string | null {
   try {
     const written =
       value instanceof URL
         ? value.href
-        : typeof value === "string"
-          ? value
-          : null;
+        : typeof win.Location === "function" && value instanceof win.Location
+          ? value.href
+          : typeof value === "string"
+            ? value
+            : null;
     if (written === null) return null;
-    // Against the document's base URL, `<base href>` included.
     return new URL(written, win.document.baseURI).href;
   } catch {
     return null;
   }
 }
 
+/** What a `fetch` call sends, read without throwing: unknown is unknown. */
 function fetchRequestOf(
+  win: Win,
+  input: unknown,
+  init?: RequestInit,
+): PageRequest {
+  let method = "UNKNOWN";
+  let url = "";
+  try {
+    const fromRequest =
+      typeof win.Request === "function" && input instanceof win.Request;
+    url =
+      resolveUrl(
+        win,
+        fromRequest ? Reflect.get(Object(input), "url") : input,
+      ) ?? "";
+    const written: unknown =
+      init !== undefined && "method" in Object(init)
+        ? Reflect.get(Object(init), "method")
+        : fromRequest
+          ? Reflect.get(Object(input), "method")
+          : "GET";
+    if (typeof written === "string") method = written.toUpperCase();
+    return withExcerpt(
+      win,
+      { via: "fetch", method, url },
+      init !== undefined ? Reflect.get(Object(init), "body") : undefined,
+    );
+  } catch {
+    return { via: "fetch", method, url };
+  }
+}
+
+/** A copy of the request as it is now, or `null` where there is no `Request`. */
+function snapshotRequest(
   win: Win,
   input: RequestInfo | URL,
   init?: RequestInit,
-): PageRequest | null {
+): Request | null {
   try {
-    const fromRequest =
-      typeof input === "object" &&
-      !(input instanceof URL) &&
-      typeof Reflect.get(input, "url") === "string";
-    const url = resolveUrl(
-      win,
-      fromRequest ? Reflect.get(input, "url") : input,
-    );
-    if (url === null) return null;
-    const method = String(
-      init?.method ??
-        (fromRequest ? Reflect.get(input, "method") : undefined) ??
-        "GET",
-    ).toUpperCase();
-    return { via: "fetch", method, url };
+    return typeof win.Request === "function"
+      ? new win.Request(input, init)
+      : null;
   } catch {
     return null;
   }
+}
+
+/** `request`, with an excerpt of `body` if it has one. */
+function withExcerpt(
+  win: Win,
+  request: PageRequest,
+  body: unknown,
+): PageRequest {
+  const excerpt = excerptOf(win, body);
+  return excerpt === undefined ? request : { ...request, body: excerpt };
+}
+
+/** A short, readable excerpt of a body: its text, its fields, or its size. */
+function excerptOf(win: Win, body: unknown): string | undefined {
+  try {
+    if (body === undefined || body === null) return undefined;
+    if (typeof body === "string") return clampExcerpt(body);
+    if (body instanceof win.URLSearchParams)
+      return clampExcerpt(body.toString());
+    if (body instanceof win.FormData) return excerptOfEntries(body);
+    if (body instanceof win.Blob) return `(${body.size} bytes)`;
+    if (body instanceof ArrayBuffer) return `(${body.byteLength} bytes)`;
+    if (ArrayBuffer.isView(body)) return `(${body.byteLength} bytes)`;
+    return "(data)";
+  } catch {
+    return "(data)";
+  }
+}
+
+function excerptOfEntries(fields: FormData): string {
+  const parts: string[] = [];
+  let length = 0;
+  fields.forEach((value, name) => {
+    if (length > BODY_EXCERPT_LENGTH) return;
+    const part = `${name}=${typeof value === "string" ? value : `(file ${value.name})`}`;
+    parts.push(part);
+    length += part.length + 1;
+  });
+  return clampExcerpt(parts.join("&"));
+}
+
+function clampExcerpt(text: string): string {
+  return text.length > BODY_EXCERPT_LENGTH
+    ? `${text.slice(0, BODY_EXCERPT_LENGTH - 1)}…`
+    : text;
 }
 
 function abortError(win: Win): Error {

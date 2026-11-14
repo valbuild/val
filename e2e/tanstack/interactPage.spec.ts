@@ -5,9 +5,9 @@ import { askThePage } from "./askThePage";
 /**
  * The assistant using the page in the preview (`interact_page`,
  * `pageInteraction.ts`): typing into a real form, and a click on its submit
- * whose request -- the page's own POST to a server function -- is held for
- * the person, then sent once allowed. Each answered with the page AFTER the
- * action took effect.
+ * that asks the person first and, once allowed, runs as theirs -- the page's
+ * own POST to a server function and its client-side navigation after it.
+ * Each answered with the page AFTER the action took effect.
  *
  * In a real browser because that is what the answer is about: a React form
  * that hydrates, a server function the submit calls, a client-side
@@ -44,10 +44,17 @@ type Outcome = {
     log: unknown[];
   };
   approval?: {
-    hold: string;
+    kind: string;
+    fingerprint?: string;
+    hold?: string;
     label: string;
     page: string;
-    requests: Array<{ via: string; method: string; url: string }>;
+    requests?: Array<{
+      via: string;
+      method: string;
+      url: string;
+      body?: string;
+    }>;
   };
   error?: string;
 };
@@ -125,40 +132,36 @@ test.describe("using the page in the preview", () => {
     });
     await expect(preview.getByLabel("Name")).toHaveValue("Ada");
 
-    // The sign-in reaches the site's backend: what the page sends for it --
-    // a server function, POSTed by the page's own code -- is held for the
-    // person, not sent.
-    const held = await interact(page, {
+    // A click on the real site asks the person first: nothing is
+    // dispatched, and the card names the button.
+    const asked = await interact(page, {
       kind: "click",
       selector: button?.selector,
     });
-    expect(held, JSON.stringify(held)).toMatchObject({
+    expect(asked, JSON.stringify(asked)).toMatchObject({
       status: "needs-approval",
       approval: {
+        kind: "action",
+        action: "click",
         label: "Sign in",
+        role: "button",
         page: expect.stringMatching(/^\/login/),
-        requests: [
-          expect.objectContaining({
-            via: "fetch",
-            method: "POST",
-            url: expect.stringContaining(new URL(page.url()).origin),
-          }),
-        ],
       },
     });
     await expect(preview.getByText("Signed in as Ada")).toHaveCount(0);
 
-    // Allowed: exactly that request is sent. Signed in, and the answer is
-    // the dashboard it went to.
-    const submitted = await interact(page, {
-      kind: "release",
-      hold: held.approval?.hold,
-      allow: true,
-    });
+    // Allowed: the click runs as the person's own -- the page's own POST to
+    // its server function is not held -- and the answer is the dashboard
+    // it went to.
+    const submitted = await interact(
+      page,
+      { kind: "click", selector: button?.selector },
+      { approved: asked.approval?.fingerprint },
+    );
     expect(submitted.status, JSON.stringify(submitted)).toBe("done");
     expect(submitted.interaction).toMatchObject({
       settled: true,
-      did: "sent the 1 request the person allowed",
+      did: 'clicked <button> "Sign in"',
       after: { url: "/dashboard" },
     });
     expect(
@@ -179,11 +182,20 @@ test.describe("using the page in the preview", () => {
       const password = document.createElement("input");
       password.type = "password";
       password.id = "e2e-password";
+      // A field that saves as it is typed in: its own POST, from its code.
+      const draft = document.createElement("input");
+      draft.id = "e2e-draft";
+      draft.addEventListener("input", () => {
+        void fetch("/e2e-draft", {
+          method: "POST",
+          body: JSON.stringify({ draft: draft.value }),
+        }).catch(() => {});
+      });
       const away = document.createElement("a");
       away.href = "https://example.com/";
       away.id = "e2e-away";
       away.textContent = "Elsewhere";
-      body.append(password, away);
+      body.append(password, draft, away);
     });
     expect(
       await interact(page, {
@@ -194,6 +206,27 @@ test.describe("using the page in the preview", () => {
     ).toMatchObject({
       status: "refused",
       error: expect.stringContaining("password"),
+    });
+    // Typing does not ask, but what it makes the page send is held, and
+    // shown with its body.
+    const typed = await interact(page, {
+      kind: "type",
+      selector: "#e2e-draft",
+      text: "hi",
+    });
+    expect(typed, JSON.stringify(typed)).toMatchObject({
+      status: "needs-approval",
+      approval: {
+        kind: "requests",
+        requests: [
+          {
+            via: "fetch",
+            method: "POST",
+            url: expect.stringContaining("/e2e-draft"),
+            body: '{"draft":"hi"}',
+          },
+        ],
+      },
     });
     expect(
       await interact(page, { kind: "click", selector: "#e2e-away" }),

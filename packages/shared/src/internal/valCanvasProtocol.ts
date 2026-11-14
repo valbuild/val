@@ -27,6 +27,7 @@ import type { PageScreenshot } from "./pageScreenshot";
 import type { PageLogEntry, PageLogLevel, PageLogSnapshot } from "./pageLog";
 import {
   isPageAction,
+  PAGE_KEYS,
   type PageAction,
   type PageActionKind,
   type PageInteractOutcome,
@@ -649,6 +650,12 @@ export type ValCanvasStudioMessage =
       timeoutMs?: number;
       /** Which of the page's log to answer with: see `InteractRequest`. */
       logFrom?: "action" | "document";
+      /**
+       * The fingerprint of the element the person allowed a click or
+       * Enter/Space on (`ActionApproval`), sent only after their Allow.
+       * Without it, such an action only asks.
+       */
+      approved?: string;
     }
   | {
       /**
@@ -747,32 +754,67 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
     // before it shows any of it (`trustedApproval`).
     const approval: unknown = Reflect.get(value, "approval");
     if (typeof approval !== "object" || approval === null) return null;
-    const [hold, page, label, did] = ["hold", "page", "label", "did"].map(
-      (key): unknown => Reflect.get(approval, key),
-    );
-    const before: unknown = Reflect.get(approval, "before");
-    const requests: unknown = Reflect.get(approval, "requests");
-    if (
-      typeof hold !== "string" ||
-      typeof page !== "string" ||
-      typeof label !== "string" ||
-      typeof did !== "string" ||
-      !isPageState(before) ||
-      !Array.isArray(requests)
-    ) {
-      return null;
-    }
-    return {
-      status,
-      approval: {
-        hold,
-        page,
-        label,
-        did,
-        before,
-        requests: requests.filter(isPageRequest),
-      },
+    const kind: unknown = Reflect.get(approval, "kind");
+    const text = (key: string): string | null => {
+      const field: unknown = Reflect.get(approval, key);
+      return typeof field === "string" ? field : null;
     };
+    const before: unknown = Reflect.get(approval, "before");
+    const page = text("page");
+    const label = text("label");
+    if (page === null || label === null || !isPageState(before)) return null;
+    if (kind === "action") {
+      const fingerprint = text("fingerprint");
+      const action = text("action");
+      const role = text("role");
+      const tag = text("tag");
+      const key: unknown = Reflect.get(approval, "key");
+      const pageKey = PAGE_KEYS.find((known) => known === key);
+      if (
+        fingerprint === null ||
+        role === null ||
+        tag === null ||
+        (action !== "click" && action !== "press") ||
+        (action === "press" && pageKey === undefined)
+      ) {
+        return null;
+      }
+      return {
+        status,
+        approval: {
+          kind,
+          fingerprint,
+          action,
+          ...(pageKey !== undefined ? { key: pageKey } : {}),
+          page,
+          label,
+          role,
+          tag,
+          before,
+        },
+      };
+    }
+    if (kind === "requests") {
+      const hold = text("hold");
+      const did = text("did");
+      const requests: unknown = Reflect.get(approval, "requests");
+      if (hold === null || did === null || !Array.isArray(requests)) {
+        return null;
+      }
+      return {
+        status,
+        approval: {
+          kind,
+          hold,
+          page,
+          label,
+          did,
+          before,
+          requests: requests.filter(isPageRequest),
+        },
+      };
+    }
+    return null;
   }
   if (status === "done") {
     const interaction: unknown = Reflect.get(value, "interaction");
@@ -840,10 +882,12 @@ export function interactOutcomeOf(value: unknown): PageInteractOutcome | null {
 function isPageRequest(value: unknown): value is PageRequest {
   if (typeof value !== "object" || value === null) return false;
   const via: unknown = Reflect.get(value, "via");
+  const body: unknown = Reflect.get(value, "body");
   return (
     (via === "fetch" || via === "xhr" || via === "beacon" || via === "form") &&
     typeof Reflect.get(value, "method") === "string" &&
-    typeof Reflect.get(value, "url") === "string"
+    typeof Reflect.get(value, "url") === "string" &&
+    (body === undefined || typeof body === "string")
   );
 }
 
@@ -1021,7 +1065,9 @@ export function isValCanvasStudioMessage(
           asked.timeoutMs >= 0)) &&
       (asked.logFrom === undefined ||
         asked.logFrom === "action" ||
-        asked.logFrom === "document")
+        asked.logFrom === "document") &&
+      (asked.approved === undefined ||
+        (typeof asked.approved === "string" && asked.approved.length <= 2000))
     );
   }
   if (message.type === "readPage") {
