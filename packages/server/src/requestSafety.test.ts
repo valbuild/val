@@ -167,6 +167,14 @@ describe("fs mode: what the API refuses", () => {
       ).toBe(200);
     });
 
+    test("a form posted from another site is refused, though it navigates", async () => {
+      const res = await upload(makeRoute(), "/public/val/x.png", {
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+      });
+      expect(res.status).toBe(403);
+    });
+
     test("the Studio's own requests are answered", async () => {
       const onRoute = makeRoute();
       const own: Record<string, string>[] = [

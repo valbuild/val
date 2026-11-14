@@ -83,11 +83,12 @@ export function refuseUnsafeRequest(
     }
   }
   // A request with no `Origin` can still come from another site: an `<img>`,
-  // a script. Following a link here is not refused: sign-in comes back as one.
-  if (
-    req.headers.get("sec-fetch-site") === "cross-site" &&
-    req.headers.get("sec-fetch-mode") !== "navigate"
-  ) {
+  // a script. Following a link here is not refused: sign-in comes back as
+  // one. A link is a GET; a form posted from another site navigates too.
+  const followedLink =
+    req.method?.toUpperCase() === "GET" &&
+    req.headers.get("sec-fetch-mode") === "navigate";
+  if (req.headers.get("sec-fetch-site") === "cross-site" && !followedLink) {
     return refusal(
       "Val refused a request from another site. In local filesystem mode the API only answers the Studio on its own address.",
     );

@@ -2,6 +2,9 @@
 "@valbuild/server": patch
 "@valbuild/shared": patch
 "@valbuild/init": patch
+"@valbuild/cli": patch
+"@valbuild/mcp": patch
+"@valbuild/ui": patch
 ---
 
 Security fixes. Update if you run Val's dev server, or have deployed a site without `VAL_API_KEY` and `VAL_SECRET`.
