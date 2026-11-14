@@ -57,7 +57,7 @@
     "flexsearch": "^0.8.212",
     "modern-screenshot": "^4.7.0",
     "yaml": "^2.9.0",
-    "zod": "^4.4.3",
+    "zod": "^4.6.6",
     "zod-validation-error": "^5.0.0"
   },
   "files": [

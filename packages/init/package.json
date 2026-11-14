@@ -27,7 +27,7 @@
     "jscodeshift": "^17.4.0",
     "meow": "^9.0.0",
     "semver": "^7.8.5",
-    "simple-git": "^3.36.0"
+    "simple-git": "^4.0.1"
   },
   "preconstruct": {
     "entrypoints": [
