@@ -924,7 +924,7 @@ export const PlanFreeWarningForAnEditor: Story = {
   args: { ...PlanFreeWarningForAnOwner.args, planViewer: "editor" },
 };
 
-/** Free at 1,000 changes: when editing opens again, and Upgrade to Pro. */
+/** Free at 1,000 changes: when editing opens again, and Upgrade to Custom hosting. */
 export const PlanFreeAtLimitForAnOwner: Story = {
   args: { ...PlanTrialForAnOwner.args, plan: "free-at-limit" },
 };
@@ -933,7 +933,7 @@ export const PlanFreeAtLimitForAnEditor: Story = {
   args: { ...PlanFreeAtLimitForAnOwner.args, planViewer: "editor" },
 };
 
-/** A remote upload refused on Free: remote files are part of Pro. */
+/** A remote upload refused on Free: remote files are part of Custom hosting. */
 export const PlanFreeRemoteFilesForAnOwner: Story = {
   args: { ...PlanTrialForAnOwner.args, plan: "free-remote-files" },
 };

@@ -1,6 +1,6 @@
 {
   "statusCode": 403,
-  "message": "website has used this week's 1,000 changes on the Free plan. Everything saved so far is kept. Editing opens again at 2026-10-14 12:00 UTC, as older changes leave the 7 days. An owner can upgrade to Pro, which has no limit: https://admin.val.build/~/acme?section=billing",
+  "message": "website has used this week's 1,000 changes on the Free plan. Everything saved so far is kept. Editing opens again at 2026-10-14 12:00 UTC, as older changes leave the 7 days. An owner can upgrade to Custom hosting, which has no limit: https://admin.val.build/~/acme?section=billing",
   "error": {
     "code": "limit:changes",
     "fix": "upgrade",
