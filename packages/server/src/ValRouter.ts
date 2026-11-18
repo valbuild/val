@@ -6,6 +6,7 @@ import { initHandlerOptions } from "./valServerConfig";
 import { nodePlatform } from "./nodePlatform";
 import { valRuntime, type ValRuntime } from "./valRuntime";
 import { createValRequestHandler } from "./ValRouterCore";
+import { parseAllowedHosts, setRequestGuard } from "./requestGuard";
 
 type Versions = {
   versions?: {
@@ -280,7 +281,7 @@ export async function createValServer(
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
-  return ValServer(
+  const server = ValServer(
     valModules,
     {
       formatter,
@@ -299,6 +300,13 @@ export async function createValServer(
     callbacks,
     nodePlatform,
   );
+  // fs mode has no sign-in, so which requests it answers is decided here.
+  setRequestGuard(server, {
+    mode: valServerConfig.mode,
+    production: process.env.NODE_ENV === "production",
+    allowedHosts: parseAllowedHosts(process.env.VAL_ALLOWED_HOSTS),
+  });
+  return server;
 }
 
 /**

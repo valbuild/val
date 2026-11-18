@@ -7,7 +7,10 @@ import {
   type BuildTargetResponse,
   type SchemaError,
 } from "@valbuild/shared/internal";
-import { StudioPublishError } from "@valbuild/shared/publish";
+import {
+  StudioPublishError,
+  type ServerBuildProgress,
+} from "@valbuild/shared/publish";
 import type {
   ProposalJobState,
   ProposalPerson,
@@ -244,6 +247,18 @@ const ListAnswer = z.object({
   siteCodeMode: z.boolean().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
+const BuildProgressAnswer = z.object({
+  progress: z
+    .object({
+      inputs: z.string().nullable(),
+      queued: z.number().nullable(),
+      step: z
+        .object({ label: z.string(), index: z.number(), of: z.number() })
+        .nullable(),
+      built: z.boolean(),
+    })
+    .nullable(),
+});
 const LockfileAnswer = z.object({ dependencies: Dependencies });
 const TypecheckAnswer = z.object({ typecheck: TypecheckJson });
 const MergeCheck = z.object({
@@ -748,6 +763,16 @@ export type ProposalsClient = {
    */
   askBuild(name: string, inputs: string): Promise<ProposalJson>;
   /**
+   * How far Val Build's build of the staged files `inputs` names is
+   * (valbuild/home `GET /proposals/:name/build-progress`), or `null` when it
+   * cannot be told: no build runs, a build of other files, or content from
+   * before it said (404).
+   */
+  buildProgress(
+    name: string,
+    inputs: string,
+  ): Promise<ServerBuildProgress | null>;
+  /**
    * Ask Val Build for a quick preview of its staged files `inputs` names
    * (`quickPreviewOnServer`): the browser half of their build, for the
    * page's quick preview worker, answered when it is built. Nothing is
@@ -874,6 +899,19 @@ export function createProposalsClient(options: {
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     askBuild: (name, inputs) => one(`${at(name)}/build`, "POST", { inputs }),
+    buildProgress: async (name, inputs) => {
+      const answer = BuildProgressAnswer.safeParse(
+        await call(`${at(name)}/build-progress`, "GET").catch(() => null),
+      );
+      const progress = answer.success ? answer.data.progress : null;
+      return progress === null || progress.inputs !== inputs
+        ? null
+        : {
+            queued: progress.queued,
+            step: progress.step,
+            built: progress.built,
+          };
+    },
     quickPreview: async (name, inputs) =>
       QuickPreviewAnswer.parse(
         await call(`${at(name)}/quick-preview`, "POST", { inputs }),

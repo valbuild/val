@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  isMediaFilePath,
+  isSafePatchId,
+  MEDIA_FILE_PATH_ACCEPTS,
+} from "./safeFilePath";
+import {
   MediaSource,
   FileMetadata,
   FileSource,
@@ -3147,6 +3152,25 @@ export abstract class ValOps {
       | ServiceErrorSavingPatch
     >
   > {
+    // The id names a directory and each `file` op names a file in it, and
+    // later a file a publish writes. Checked here, the one door every patch
+    // comes through (the Studio, MCP), rather than at each of them.
+    if (!isSafePatchId(patchId)) {
+      return result.err({
+        errorType: "other",
+        error: { message: "This change's id is not a valid patch id." },
+      });
+    }
+    for (const op of patch) {
+      if (op.op === "file" && !isMediaFilePath(op.filePath)) {
+        return result.err({
+          errorType: "other",
+          error: {
+            message: `This change names a file at '${op.filePath}', which is not somewhere Val stores files. ${MEDIA_FILE_PATH_ACCEPTS}`,
+          },
+        });
+      }
+    }
     const saveRes = await this.saveSourceFilePatch(
       path,
       patch,

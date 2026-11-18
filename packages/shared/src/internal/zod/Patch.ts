@@ -145,9 +145,18 @@ const Operation = z.discriminatedUnion("op", [
 export const Patch = z.array(Operation);
 export type Patch = z.infer<typeof Patch>;
 
-export const PatchId = z.string().refine(
-  (_id): _id is PatchIdT => true, // TODO: validation
-);
+/**
+ * A patch id names a directory in the local patch store and a segment of a
+ * content service URL, so it is one path segment: not empty, no separator,
+ * and not `.` or `..`. What an id looks like beyond that is its minter's.
+ */
+export const PatchId = z
+  .string()
+  .refine(
+    (id): id is PatchIdT =>
+      id.length > 0 && id !== "." && id !== ".." && !/[/\\\0]/.test(id),
+    "Not a valid patch id",
+  );
 
 type ParentRefInput =
   | {
