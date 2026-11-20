@@ -1982,6 +1982,7 @@ function ValShellBody({
             canvasPaths={canvasPaths}
             onSelectCanvasPath={openPath}
             selectedCanvasPath={focusedPath}
+            editingCanvasPath={inlineEditingPath}
             canvasRoute={canvasUrl}
             onCanvasRouteChange={onCanvasRouteChange}
             canvasRoutes={canvasRoutes}

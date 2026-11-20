@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test";
 import { openStudio, test } from "./studio";
 import {
+  columnRow,
   defineInlineEditingSuite,
   inlineEditor,
   selectOnPreview,
@@ -57,5 +58,41 @@ test.describe("editing a richtext with marks on the page", () => {
     await expect
       .poll(() => written(request, lead))
       .toContain(" from a file next to the route that renders it.");
+  });
+});
+
+/**
+ * The front page again, for its length: seventeen fields, so the column has
+ * somewhere to scroll to.
+ */
+test.describe("a text typed in on the page, in the column", () => {
+  test.use({ viewport: { width: 1512, height: 900 } });
+
+  test("the column turns to the page's fields and scrolls to the one being typed in", async ({
+    page,
+  }) => {
+    await turnOnInlineEditing(page);
+    await openStudio(page);
+    await page.getByRole("button", { name: "Open the canvas" }).click();
+    const preview = await selectOnPreview(page);
+    // The last thing on the page, and so the last row of the column.
+    const footer = preview.locator("footer");
+    await footer.scrollIntoViewIfNeeded();
+    await footer.click();
+    const copy = inlineEditor(preview);
+    await expect(copy, "the caret did not go into the footer").toBeFocused();
+
+    const row = columnRow(page, '?p="footer"');
+    await expect(
+      row,
+      "the column did not scroll to the field",
+    ).toBeInViewport();
+    await page.keyboard.press("End");
+    await page.keyboard.type(", typed on the page");
+    await expect(row.locator("input")).toHaveValue(
+      "Built with Val Build, typed on the page",
+    );
+    // The column showing it did not take the caret from the page.
+    await expect(copy).toBeFocused();
   });
 });

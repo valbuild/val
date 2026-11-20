@@ -335,6 +335,8 @@ export type ShellProps = {
   canvasPaths?: PageWorkspaceProps["canvasPaths"];
   onSelectCanvasPath?: PageWorkspaceProps["onSelectCanvasPath"];
   selectedCanvasPath?: PageWorkspaceProps["selectedCanvasPath"];
+  /** The field being typed in on the page. See `PageWorkspaceProps`. */
+  editingCanvasPath?: PageWorkspaceProps["editingCanvasPath"];
   /** The canvas's address bar. See `PageWorkspaceProps`. */
   canvasRoute?: PageWorkspaceProps["canvasRoute"];
   onCanvasRouteChange?: PageWorkspaceProps["onCanvasRouteChange"];
@@ -732,6 +734,7 @@ export function Shell({
   canvasPaths,
   onSelectCanvasPath,
   selectedCanvasPath,
+  editingCanvasPath,
   canvasRoute,
   onCanvasRouteChange,
   canvasRoutes,
@@ -1982,6 +1985,7 @@ export function Shell({
             canvasPaths={canCanvas ? canvasPaths : undefined}
             onSelectCanvasPath={onSelectCanvasPath}
             selectedCanvasPath={selectedCanvasPath}
+            editingCanvasPath={canCanvas ? editingCanvasPath : undefined}
             canvasRoute={canCanvas ? canvasRoute : undefined}
             onCanvasRouteChange={onCanvasRouteChange}
             canvasRoutes={canvasRoutes}

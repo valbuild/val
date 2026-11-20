@@ -78,6 +78,14 @@ export async function selectOnPreview(page: Page): Promise<FrameLocator> {
 export const inlineEditor = (preview: FrameLocator) =>
   preview.locator("[data-val-inline-editor]");
 
+/**
+ * A field's row in the Studio's "On this page" column, by the end of its
+ * path (`."title"`, or `?p="footer"` for a field of the module itself): the
+ * start is the module's file, which is a different one in each app.
+ */
+export const columnRow = (page: Page, pathEnd: string) =>
+  page.locator(`[data-canvas-field$='${pathEnd}']`);
+
 /** Turn the beta on for every page this test opens. */
 export async function turnOnInlineEditing(page: Page): Promise<void> {
   await page.addInitScript((key) => {
@@ -141,9 +149,17 @@ export function defineInlineEditingSuite(): void {
         ).toBeFocused();
         await expect(copy).toHaveText("Blog 1");
 
+        // The column shows the field too: the caret is on the page, and
+        // the row for what it is in is in front of you beside it.
+        const row = columnRow(page, '."title"');
+        await expect(row).toBeInViewport();
+
         await page.keyboard.press("End");
         await page.keyboard.type(", on the page");
         await expect(copy).toHaveText("Blog 1, on the page");
+        // ...and follows what is typed, without having taken the caret.
+        await expect(row.locator("input")).toHaveValue("Blog 1, on the page");
+        await expect(copy).toBeFocused();
         // Written as a string field writes: the whole value, on a pause.
         await expect
           .poll(() => written(request, [BLOG, "title"]))

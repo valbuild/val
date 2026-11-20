@@ -36,6 +36,24 @@ version skew harmless: `editInline` is a capability a bridge lists in `ready`,
 and a page whose `@valbuild/next` or `@valbuild/tanstack` predates it is never
 asked.
 
+## The column follows the caret, and the editor stays where it is
+
+While a text is typed in on the page, the "On this page" column turns to the
+page's fields, scrolls to that field's row and shows it as the selected one
+(`editingCanvasPath` on `PageWorkspace`, `useFieldShownInColumn`). The row
+shows what is typed as it is written, since it reads the same source.
+
+It is NOT done by opening the field, which is what an ordinary pick does.
+Opening moves the editor, and the editor moving can move the preview: a field
+of a module that is not a page takes the canvas off the route it was on, and
+the document the caret is in goes with it. So the column is told which row to
+show, and nothing navigates. For the same reason it never changes pane on a
+phone: the person is typing on the page, and the column is the other pane.
+
+The row stays the selected one after the edit ends, until the editor itself
+moves. A row going dark and another lighting up the moment Enter is pressed
+reads as the edit having landed somewhere else.
+
 ## The page's element is never edited: a copy of it is
 
 The element on the page is React's. Every edit comes back as a re-render of it
